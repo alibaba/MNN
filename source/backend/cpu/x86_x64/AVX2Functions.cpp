@@ -1,3 +1,11 @@
+//
+//  AVX2Functions.cpp
+//  MNN
+//
+//  Created by MNN on b'2021/05/17'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include "AVX2Functions.hpp"
 #include "AVX2Backend.hpp"
 #include "avx/FunctionSummary.hpp"
@@ -12,6 +20,7 @@ struct MatMulPackParam {
 
 static MatMulPackParam gPackInfo;
 static CoreFunctions* gAVX2CoreFunctions = nullptr;
+static CoreInt8Functions* gAVX2CoreInt8Functions = nullptr;
 static void _MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = gPackInfo.eP;
     *lP = gPackInfo.lP;
@@ -21,42 +30,27 @@ static void _MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 bool AVX2Functions::init(int cpuFlags) {
     gAVX2CoreFunctions = new CoreFunctions;
     auto coreFunction = gAVX2CoreFunctions;
+    gAVX2CoreInt8Functions = new CoreInt8Functions;
     // Init default functions
     *coreFunction = *MNNGetCoreFunctions();
-
+    *gAVX2CoreInt8Functions = *MNNGetInt8CoreFunctions();
+    _AVX_MNNInt8FunctionInit(gAVX2CoreInt8Functions);
     // Init AVX2
     coreFunction->MNNGetMatMulPackMode = _MNNGetMatMulPackMode;
     gPackInfo.eP                    = 24;
     gPackInfo.lP                    = 1;
     gPackInfo.hP                    = 4;
-    coreFunction->pack = 8;
-    coreFunction->MNNPackCUnit = _AVX_MNNPackCUnit;
-    coreFunction->MNNUnpackCUnit = _AVX_MNNUnpackCUnit;
-    coreFunction->MNNPackCUnitTranspose = _AVX_MNNPackCUnitTranspose;
-    coreFunction->MNNUnpackCUnitTranspose = _AVX_MNNUnpackCUnitTranspose;
-    coreFunction->MNNCopyC4WithStride = _AVX_MNNCopyC4WithStride;
-    coreFunction->MNNAddC4WithStride = _AVX_MNNAddC4WithStride;
-    coreFunction->MNNScaleAndAddBias = _AVX_MNNScaleAndAddBias;
-    coreFunction->MNNMatrixAdd          = _AVX_MNNMatrixAdd;
-    coreFunction->MNNMatrixSub          = _AVX_MNNMatrixSub;
+    _AVX_ReorderInit(coreFunction);
+
     coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMul;
     coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemain;
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;
-    coreFunction->MNNConvRunForUnitDepthWise = _AVX_MNNConvRunForUnitDepthWise;
-    coreFunction->MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwise;
-    coreFunction->MNNAxByClampBroadcastUnit = _AVX_MNNAxByClampBroadcastUnit;
     coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
     coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1;
-    coreFunction->MNNStrassenMergeCFunction = _AVX_MNNStrassenMergeCFunction;
-    coreFunction->MNNMultiAndDestTransformCommon23 = _AVX_MNNMultiAndDestTransformCommon23;
-    coreFunction->MNNSourceTransformCommonF23 = _AVX_MNNSourceTransformCommonF23;
-    coreFunction->MNNConvDwF23MulTransUnit = _AVX_MNNConvDwF23MulTransUnit;
-    coreFunction->MNNReluWithSlopeChannel = _AVX_MNNReluWithSlopeChannel;
-    coreFunction->MNNDeconvRunForLineDepthwise = _AVX_MNNDeconvRunForLineDepthwise;
-    coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
-    coreFunction->MNNGridSampleInterp = _AVX_MNNGridSampleInterp;
-    // For Pooling / Binary
+
+    // For Packed Functions
+    coreFunction->pack = 8;
     _AVX_ExtraInit(coreFunction);
     // Winograd
     _AVX_WinogradInit(coreFunction);
@@ -65,6 +59,7 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemainFMA;
         coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1FMA;
         coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1FMA;
+        _AVX_ExtraInitFMA(coreFunction);
     }
 #ifdef MNN_AVX512
     if ((cpuFlags & libyuv::kCpuHasAVX512VNNI)
@@ -75,6 +70,10 @@ bool AVX2Functions::init(int cpuFlags) {
         || (cpuFlags & libyuv::kCpuHasAVX512VPOPCNTDQ)
         || (cpuFlags & libyuv::kCpuHasAVX512VBMI2)
         ) {
+        coreFunction->pack = 16;
+        _AVX512_ReorderInit(coreFunction);
+        _AVX512_ExtraInit(coreFunction);
+        _AVX512_WinogradInit(coreFunction);
         coreFunction->MNNPackForMatMul_B    = _AVX512_MNNPackForMatMul_B;
         coreFunction->MNNPackC4ForMatMul_A  = _AVX512_MNNPackC8ForMatMul_A;
         coreFunction->MNNPackedMatMul = _AVX512_MNNPackedMatMul;
@@ -83,10 +82,19 @@ bool AVX2Functions::init(int cpuFlags) {
         gPackInfo.hP                    = 8;
         gPackInfo.lP                    = 1;
     }
+#ifdef MNN_AVX512_VNNI
+    if (cpuFlags & libyuv::kCpuHasAVX512VNNI) {
+        _AVX512_MNNInt8FunctionInit(gAVX2CoreInt8Functions);
+    }
+#endif
 #endif
     return true;
 }
 CoreFunctions* AVX2Functions::get() {
     return gAVX2CoreFunctions;
 }
+CoreInt8Functions* AVX2Functions::getInt8() {
+    return gAVX2CoreInt8Functions;
+}
+
 };

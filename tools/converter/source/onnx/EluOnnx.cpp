@@ -18,7 +18,7 @@ MNN::OpParameter EluOnnx::type(){
     return MNN::OpParameter_ELU;
 }
 
-void EluOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
+void EluOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     
     auto eluParam = new MNN::ELUT;
     

@@ -233,7 +233,7 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
             backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder, mShapeTemp[index]);
         }
 
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

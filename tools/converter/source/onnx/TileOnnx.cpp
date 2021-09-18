@@ -19,7 +19,7 @@ MNN::OpParameter TileOnnx::type() {
 }
 
 void TileOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                   std::vector<const onnx::TensorProto *> initializers) {
+                   OnnxScope* scope) {
     return;
 }
 

@@ -19,7 +19,7 @@ MNN::OpParameter FlattenOnnx::type() {
 }
 
 void FlattenOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                      std::vector<const onnx::TensorProto *> initializers) {
+                      OnnxScope* scope) {
     auto param = new MNN::FlattenT;
 
     // Ref https://github.com/onnx/onnx/blob/master/docs/Operators.md#Flatten, Default is 1

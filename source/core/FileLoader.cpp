@@ -29,6 +29,7 @@ FileLoader::FileLoader(const char* file) {
 #else
     mFile = fopen(file, "rb");
 #endif
+    mFilePath = file;
 }
 
 FileLoader::~FileLoader() {
@@ -69,6 +70,39 @@ bool FileLoader::read() {
     if (ferror(mFile)) {
         return false;
     }
+    return true;
+}
+
+bool FileLoader::write(std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo) {
+    // set mutex lock
+    std::lock_guard<std::mutex> _l(mMutex);
+    FILE* f = fopen(mFilePath, "wb");
+    if (nullptr == f) {
+        MNN_ERROR("Open %s error\n", mFilePath);
+        return false;
+    }
+    // Write key
+    auto tsize = fwrite((const char*)verifyInfo.first, 1, verifyInfo.second, f);
+    if (tsize != verifyInfo.second) {
+        MNN_ERROR("Write %s error\n", mFilePath);
+        return false;
+    }
+    // Write Cache
+    static const size_t block = 4096;
+    size_t totalSize          = cacheInfo.second;
+    size_t blockSize          = UP_DIV(totalSize, block);
+    for (size_t i = 0; i < blockSize; ++i) {
+        size_t sta = block * i;
+        size_t fin = std::min(sta + block, totalSize);
+        if (fin > sta) {
+            auto realSize = fwrite((const char*)(cacheInfo.first) + sta, 1, fin - sta, f);
+            if (realSize != fin - sta) {
+                MNN_ERROR("Write %s error\n", mFilePath);
+                return false;
+            }
+        }
+    }
+    fclose(f);
     return true;
 }
 

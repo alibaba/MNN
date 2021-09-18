@@ -102,11 +102,18 @@ void *MetalBackend::context() const {
 
 bool MetalBackend::onAcquireBuffer(const Tensor *_tensor, StorageType storageType) {
     auto tensor  = const_cast<Tensor *>(_tensor);
-    auto size    = tensor->elementSize();
+    auto width    = tensor->width();
+    auto height   = tensor->height();
+    auto batch    = tensor->batch();
+    auto channel  = tensor->channel();
+
+    auto size = batch * ROUND_UP(channel, 16) * ROUND_UP(height, 4) * ROUND_UP(width, 4);
+    if (0 == size || tensor->dimensions() > 4) {
+        size = ROUND_UP(tensor->elementSize(), 4);
+    }
     if (0 == size) {
         return false;
     }
-    size = UP_DIV(size, 4) * 4;
 
     // use metal_float when meets float
     if (halide_type_float == tensor->buffer().type.code && tensor->buffer().type.bits == 32) {
@@ -199,7 +206,7 @@ void MetalBackend::setOpEncoder() const {
 }
 
 void MetalBackend::onExecuteBegin() const {
-    //
+    mEncoderCount = 0;
 }
 void MetalBackend::onExecuteEnd() const {
     flushEncoder();
@@ -214,12 +221,29 @@ void MetalBackend::onExecuteEnd() const {
     }
 }
 
-bool MetalBackend::isCommandEncoderSet() const{
-    return mOpEncoderSet;
+bool MetalBackend::isCommandEncoderSet() {
+    return mOpEncoderSet;// !isCommitEachShader & mOpFullSupport
+}
+
+bool MetalBackend::isCmdBufferCommit() {
+    auto ctx = (__bridge MNNMetalContext *)context();
+    if(!ctx.isCommitEachShader) {
+        return false;
+    }
+    
+    //TODO: set magic number
+    const int magicNum = 2;
+    mEncoderCount++;
+    if(mEncoderCount != 0 && mEncoderCount % magicNum == 0) {
+        return true;
+    }
+    return false;
 }
 
 void MetalBackend::addOpEncoder(std::function<void(void)> opEncoder) {
-    mOpEncoders.push_back(opEncoder);
+    if(mFrameEncodeCache) {
+        mOpEncoders.push_back(opEncoder);
+    }
 }
 
 
@@ -330,6 +354,13 @@ void MetalBackend::onResizeBegin() {
     mOpFullSupport = true;
     mFrameEncodeCache = false;
     mOpEncoderSet = false;
+    mOpEncoders.clear();
+
+    // Finish last inference task if needed
+    flushEncoder();
+    auto ctx = (__bridge MNNMetalContext *)context();
+    [ctx commit_net];
+    [ctx wait];
 }
 
 void MetalBackend::onResizeEnd() {
@@ -411,7 +442,6 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
     auto dfmt    = TensorUtils::getDescribe(dst)->dimensionFormat;
     auto device  = (__bridge id<MTLBuffer>)(void *)src->deviceId();
     auto floats  = src->getType().code == halide_type_float;
-
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
         if (floats) {
@@ -565,14 +595,134 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
         MNN_ASSERT(false); // should not be handled here
     }
 }
-MetalRuntime::MetalRuntime() {
+
+void MetalRuntime::setGpuMode(const int mode_num) {
+    int totalSet = 0;
+    bool isSet = (mode_num & MNN_GPU_MEMORY_BUFFER);
+    if(isSet) {
+        totalSet++;
+    }
+    isSet = (mode_num & MNN_GPU_MEMORY_IMAGE);
+    if(isSet) {
+        totalSet++;
+    }
+    if(totalSet > 0) {
+        MNN_PRINT("warning: set BUFFER and IMAGE mode is not useful for metal, it doesn't matter, cl_mode:%x！\n", mode_num);
+    }
+    
+    totalSet = 0;
+    isSet = (mode_num & MNN_GPU_TUNING_NONE);
+    if(isSet) {
+        mTuneLevel = Never;
+        totalSet++;
+    }
+    
+    isSet = (mode_num & MNN_GPU_TUNING_FAST);
+    if(isSet) {
+        mTuneLevel = Fast;
+        totalSet++;
+    }
+    
+    isSet = (mode_num & MNN_GPU_TUNING_NORMAL);
+    if(isSet) {
+        mTuneLevel = Normal;
+        totalSet++;
+    }
+    
+    isSet = (mode_num & MNN_GPU_TUNING_HEAVY);
+    if(isSet) {
+        mTuneLevel = Heavy;
+        totalSet++;
+    }
+    
+    isSet = (mode_num & MNN_GPU_TUNING_WIDE);
+    if(isSet) {
+        mTuneLevel = Wide;
+        totalSet++;
+    }
+
+    if(totalSet != 1) {
+        MNN_PRINT("set multi tuning mode is not permitted, please check cl_mode:%x！\n", mode_num);
+    }
+}
+
+MetalRuntime::MetalRuntime(const Backend::Info& info) {
     mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
     mStatic.reset(new BufferAllocator(mContext));
     mDynamic.reset(new BufferAllocator(mContext));
+    setGpuMode(info.gpuMode);
 }
+
 MetalRuntime::~ MetalRuntime() {
     CFRelease(mContext);
 }
+
+bool MetalRuntime::onSetCache(const void* buffer, size_t size) {//Get Cache
+    if (nullptr == buffer) {
+        mCacheOutside = nullptr;
+        mCacheOutsideSize = 0;
+        mBuffer.clear();
+        return true;//actually get nothing
+    }
+    mCacheOutsideSize = size;
+    mCacheOutside = buffer;
+    auto cacheBuffer = GetCache(buffer);
+
+    // Load Auto Tuning Info
+    if (nullptr != cacheBuffer->tunings()) {
+        auto tuningInfo = cacheBuffer->tunings();
+        for (int i=0; i<tuningInfo->size(); ++i) {
+            auto tun = tuningInfo->GetAs<Autotuning>(i);
+            if (nullptr == tun->threadSize() || nullptr == tun->groupSize() || nullptr == tun->key()) {
+                MNN_ERROR("Error tunning info\n");
+                continue;
+            }
+            std::vector<uint32_t> glo(tun->threadSize()->size());
+            for (int v=0; v<glo.size(); ++v) {
+                glo[v] = tun->threadSize()->data()[v];
+            }
+            std::vector<uint32_t> grop(tun->groupNum()->size());
+            for (int v=0; v<grop.size(); ++v) {
+                grop[v] = tun->groupNum()->data()[v];
+            }
+            std::vector<uint32_t> loc(tun->groupSize()->size());
+            for (int v=0; v<loc.size(); ++v) {
+                loc[v] = tun->groupSize()->data()[v];
+            }
+            uint32_t cost = tun->timeCost();
+            mTunedThreadGroup.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), std::make_tuple(grop, loc, cost)));
+        }
+    }
+    return true;
+}
+
+std::pair<const void*, size_t> MetalRuntime::onGetCache() {//make Cache
+    if (nullptr != mCacheOutside) {
+        return std::make_pair(mCacheOutside, mCacheOutsideSize);
+    }
+    std::unique_ptr<CacheT> cache(new CacheT);
+
+    // Get All Autotuning cache
+    for (auto& iter : mTunedThreadGroup) {
+        std::unique_ptr<AutotuningT> tuning(new AutotuningT);
+        tuning->key = iter.first.first;
+        tuning->threadSize = iter.first.second;
+        
+        tuning->groupNum = std::get<0>(iter.second);
+        tuning->groupSize = std::get<1>(iter.second);
+        tuning->timeCost = std::get<2>(iter.second);
+
+        cache->tunings.emplace_back(std::move(tuning));
+    }
+
+    flatbuffers::FlatBufferBuilder builder;
+    auto lastOffset = Cache::Pack(builder, cache.get());
+    builder.Finish(lastOffset);
+    mBuffer.resize(builder.GetSize());
+    ::memcpy(mBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
+    return std::make_pair(mBuffer.data(), mBuffer.size());
+}
+
 Backend* MetalRuntime::onCreate(const BackendConfig* config) const {
     return new MetalBackend(this);
 }
@@ -587,7 +737,7 @@ class MetalRuntimeCreator : public RuntimeCreator {
     virtual Runtime *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerMetalOps(); });
-        auto rt = new MetalRuntime;
+        auto rt = new MetalRuntime(info);
         if (nullptr == rt->context()) {
             return nullptr;
         }

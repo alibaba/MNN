@@ -49,7 +49,7 @@ kernel void deconv(const device ftype4 *in          [[buffer(0)]],
     
     int b = gid.z / cst.output_slice;
     int o = gid.z % cst.output_slice;
-    float4 result = cst.has_bias ? float4(biasTerms[o]) : 0;
+    FLOAT4 result = cst.has_bias ? FLOAT4(biasTerms[o]) : 0;
 
     int oy = (int)gid.y + cst.pad_y;
     int ox = (int)gid.x + cst.pad_x;
@@ -73,7 +73,7 @@ kernel void deconv(const device ftype4 *in          [[buffer(0)]],
                 for (auto kx = max_kx, ix = min_ix; kx >= min_kx; kx -= cst.delta_kx, ix += cst.delta_ix) {
                     auto wt4 = o_wt[z * cst.kernel_size + ky * cst.kernel_x + kx];
                     auto in4 = b_in[z * cst.input_size + iy * cst.input_width + ix];
-                    result += float4(in4 * wt4);
+                    result += FLOAT4(in4 * wt4);
                 }
             }
         }
@@ -89,7 +89,7 @@ kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
                              uint3 gid                    [[thread_position_in_grid]]) {
     if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.batch * cst.output_slice) return;
     
-    float4 result = float4(biasTerms[(int)(gid.z % cst.input_slice)]);
+    FLOAT4 result = FLOAT4(biasTerms[(int)(gid.z % cst.input_slice)]);
     
     int oy = (int)gid.y + cst.pad_y;
     int ox = (int)gid.x + cst.pad_x;
@@ -112,7 +112,7 @@ kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
             for (auto kx = max_kx, ix = min_ix; kx >= min_kx; kx -= cst.delta_kx, ix += cst.delta_ix) {
                 auto wt4 = z_wt[ky * cst.kernel_x + kx];
                 auto in4 = z_in[iy * cst.input_width + ix];
-                result += float4(in4 * wt4);
+                result += FLOAT4(in4 * wt4);
             }
         }
     }

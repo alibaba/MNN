@@ -13,17 +13,20 @@
 DECLARE_OP_CONVERTER(ShapeTorch);
 
 MNN::OpType ShapeTorch::opType() {
-    return MNN::OpType_Shape;
+    return MNN::OpType_Extra;
 }
 MNN::OpParameter ShapeTorch::type() {
-    return MNN::OpParameter_NONE;
+    return MNN::OpParameter_Extra;
 }
 std::vector<int> ShapeTorch::inputTensorIdx() {
-    return {0};
+    return {-1};
 }
 
-void ShapeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
-    dstOp->main.value = nullptr;
+void ShapeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto extra = new MNN::ExtraT;
+    dstOp->main.value = extra;
+    extra->engine     = "Torch";
+    extra->type       = "size";
 }
 
 REGISTER_CONVERTER(ShapeTorch, size);
@@ -41,7 +44,7 @@ std::vector<int> RankTorch::inputTensorIdx() {
     return {0};
 }
 
-void RankTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void RankTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     dstOp->main.value = nullptr;
 }
 
@@ -60,10 +63,9 @@ std::vector<int> SizeTorch::inputTensorIdx() {
     return {0};
 }
 
-void SizeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void SizeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     dstOp->main.value = nullptr;
 }
 
 REGISTER_CONVERTER(SizeTorch, len);
-
-
+REGISTER_CONVERTER(SizeTorch, numel);

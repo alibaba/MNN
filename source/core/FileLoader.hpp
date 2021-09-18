@@ -7,6 +7,7 @@
 //
 
 #include <vector>
+#include <mutex>
 #include "core/AutoStorage.h"
 namespace MNN {
 class MNN_PUBLIC FileLoader {
@@ -16,6 +17,8 @@ public:
     ~FileLoader();
 
     bool read();
+    
+    bool write(std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo);
 
     bool valid() const {
         return mFile != nullptr;
@@ -31,5 +34,7 @@ private:
     FILE* mFile                 = nullptr;
     static const int gCacheSize = 4096;
     size_t mTotalSize           = 0;
+    const char* mFilePath       = nullptr;
+    std::mutex mMutex;
 };
 } // namespace MNN

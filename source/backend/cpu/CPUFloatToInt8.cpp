@@ -12,6 +12,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "compute/CommonOptFunction.h"
 
 namespace MNN {
 
@@ -19,18 +20,19 @@ CPUFloatToInt8::CPUFloatToInt8(Backend* backend, const MNN::Op* param) : Executi
     auto scale         = param->main_as_QuantizedFloatParam();
     const int scaleLen = scale->tensorScale()->size();
     mClipBits = scale->nbits();
-    mScales.reset(Tensor::createDevice<float>({ALIGN_UP4(scaleLen)}));
+    auto pack = static_cast<CPUBackend*>(backend)->functions()->pack;
+    mScales.reset(Tensor::createDevice<float>({UP_DIV(scaleLen, pack) * pack}));
     mValid = backend->onAcquireBuffer(mScales.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
     if (1 == scaleLen) {
         mSingle = true;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < pack; ++i) {
             mScales->host<float>()[i] = scale->tensorScale()->data()[0];
         }
     } else {
-        memset(mScales->host<float>(), 0, ALIGN_UP4(scaleLen) * sizeof(float));
+        memset(mScales->host<float>(), 0, UP_DIV(scaleLen, pack) * pack * sizeof(float));
         memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
     }
 
@@ -49,13 +51,14 @@ ErrorCode CPUFloatToInt8::onResize(const std::vector<Tensor*>& inputs, const std
 ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const auto input = inputs[0];
     auto output      = outputs[0];
-    MNN_ASSERT(MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat);
+    auto pack = static_cast<CPUBackend*>(backend())->functions()->pack;
+    auto int8F = static_cast<CPUBackend*>(backend())->int8Functions();
 
     const auto inputDataPtr = input->host<float>();
     auto outputDataPtr      = output->host<int8_t>();
     const auto scaleDataPtr = mScales->host<float>();
     const int channels      = input->channel();
-    int icDiv4        = UP_DIV(channels, 4);
+    int icDiv4        = UP_DIV(channels, pack);
     const int batch         = input->batch();
     const int batchStride   = input->stride(0);
     int oc4Stride           = 1;
@@ -72,10 +75,10 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
     MNN_CONCURRENCY_BEGIN(tId, total) {
         int bIndex = tId / icDiv4;
         int z = tId % icDiv4;
-        const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * 4;
-        const auto scaleChannelPtr = scaleDataPtr + z * 4;
-        auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * 4;
-        MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, mClampMin, mClampMax, mZeroPoint);
+        const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * pack;
+        const auto scaleChannelPtr = scaleDataPtr + z * pack;
+        auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * pack;
+        int8F->MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, mClampMin, mClampMax, mZeroPoint);
     }
     MNN_CONCURRENCY_END();
     return NO_ERROR;

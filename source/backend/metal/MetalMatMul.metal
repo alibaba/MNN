@@ -24,9 +24,9 @@ kernel void matmul(const device ftype *in0  [[buffer(0)]],
     if ((int)gid.x < s.mat_size.x && (int)gid.y < s.mat_size.y) {
         auto off_in0 = in0 + int(gid.y) * s.in_stride.x;
         auto off_in1 = in1 + int(gid.x) * s.in_stride.z;
-        float value = 0.f;
+        FLOAT value = 0.f;
         for (int i = 0; i < s.mat_size.z; i++, off_in0 += s.in_stride.y, off_in1 += s.in_stride.w) {
-            value += float(*off_in0) * float(*off_in1);
+            value += FLOAT(*off_in0) * FLOAT(*off_in1);
         }
         out[int(gid.y) * s.mat_size.x + int(gid.x)] = ftype(value);
     }
@@ -41,9 +41,9 @@ kernel void matmul_bias(const device ftype *in0  [[buffer(0)]],
     if ((int)gid.x < s.mat_size.x && (int)gid.y < s.mat_size.y) {
         auto off_in0 = in0 + int(gid.y) * s.in_stride.x;
         auto off_in1 = in1 + int(gid.x) * s.in_stride.z;
-        float value = 0.f;
+        FLOAT value = 0.f;
         for (int i = 0; i < s.mat_size.z; i++, off_in0 += s.in_stride.y, off_in1 += s.in_stride.w) {
-            value += float(*off_in0) * float(*off_in1);
+            value += FLOAT(*off_in0) * FLOAT(*off_in1);
         }
         out[int(gid.y) * s.mat_size.x + int(gid.x)] = ftype(value) + biasValue[(int)(gid.x)];
     }

@@ -18,7 +18,7 @@ MNN::OpParameter GridSampleOnnx::type(){
     return MNN::OpParameter_GridSample;
 }
 
-void GridSampleOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
+void GridSampleOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     
     auto gridSampleParam = new MNN::GridSampleT;
 

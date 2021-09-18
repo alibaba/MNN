@@ -118,6 +118,15 @@ void Module::clearCache() {
 }
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const Module::Config* config) {
+    return load(inputs, outputs, fileName, nullptr, config);
+}
+
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+    return load(inputs, outputs, buffer, length, nullptr, config);
+}
+
+
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName);
@@ -134,10 +143,10 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             return nullptr;
         }
     }
-    return load(inputs, outputs, buffer.get(), buffer.size(), config);
+    return load(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
     // Check Auto Inputs and Outputs
     auto net = GetNet(buffer);
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
@@ -145,7 +154,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
         return nullptr;
     }
     if ((!inputs.empty()) && (!outputs.empty())) {
-        return PipelineModule::load(inputs, outputs, buffer, length, config);
+        return PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config);
     }
     std::vector<std::string> newInputs = inputs;
     std::vector<std::string> newOutputs = outputs;
@@ -181,7 +190,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             newOutputs.emplace_back(net->tensorName()->GetAsString(index)->str());
         }
     }
-    return PipelineModule::load(newInputs, newOutputs, buffer, length, config);
+    return PipelineModule::load(newInputs, newOutputs, buffer, length, rtMgr, config);
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {

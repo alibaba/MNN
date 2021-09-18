@@ -25,4 +25,9 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/MetalOPRegister.mm"
     COMMENT "Metal Code Generation"
     )
 add_custom_target (MNNMetalCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/MetalOPRegister.mm" COMMENT "Registering MetalOps")
+
 add_dependencies(MNNMetal MNNMetalCodeGen)
+
+target_include_directories(MNNMetal PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/schema/current
+)

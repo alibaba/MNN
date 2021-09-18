@@ -1,3 +1,11 @@
+//
+//  FunctionSummary.hpp
+//  MNN
+//
+//  Created by MNN on 2021/01/05.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else
@@ -24,17 +32,13 @@ do { \
 
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
-void _AVX512_MNNPackC8(float* dst, const float* src, size_t area, size_t depth);
-void _AVX512_MNNUnPackC8(float* dst, const float* src, size_t area, size_t depth);
 void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 void _AVX512_MNNPackC8ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
-void _AVX512_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height);
-void _AVX512_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height);
-void _AVX512_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
-                               size_t eSub, size_t hSub);
-void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
+void _AVX512_ReorderInit(void* functions);
+void _AVX512_ExtraInit(void* functions);
+void _AVX512_WinogradInit(void* functions);
+void _AVX512_MNNInt8FunctionInit(void* functions);
+
 }

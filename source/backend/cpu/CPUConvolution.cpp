@@ -19,6 +19,7 @@
 
 #include "backend/cpu/compute/ConvInt8Winograd.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
+#include "backend/cpu/compute/SparseConvInt8TiledExecutor.hpp"
 #ifdef MNN_USE_ONEDNN
 #include "backend/cpu/OneDNNConvInt8.hpp"
 #endif
@@ -191,7 +192,6 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
 #endif
     auto weightDst = resource->mWeightInt8->host<int8_t>();
     memcpy(weightDst, weightSrc, resource->mWeightInt8->size());
-
     resource->mInputZeroPoint = convParam->symmetricQuan()->zeroPoint();
     resource->mOutputZeroPoint = convParam->symmetricQuan()->outputZeroPoint();
     resource->mClampMin = convParam->symmetricQuan()->clampMin();
@@ -289,13 +289,21 @@ public:
         quantAttr->max = (1<<(nbit-1))-1;
         TensorUtils::getDescribe(inputs[0])->quantAttr.reset(quantAttr);*/
         auto res = CPUConvolution::makeResourceInt8(backend, convOp, inputQuantInfo, outputQuantInfo);
+
+#ifdef MNN_USE_SPARSE_COMPUTE
+        auto core = static_cast<CPUBackend*>(backend)->int8Functions();
+        if (static_cast<CPUBackend*>(backend)->functions()->pack == 4 && convOp->sparseParameter() && SparseConvInt8TiledExecutor::shouldUseSparse(convOp)) {
+            return new SparseConvInt8TiledExecutor(backend, convOp, res);
+        }
+#endif
+
         if (!inputs.empty()) {
             std::vector<ConvInt8Winograd::UnitAttr> unitAttrs;
             if (ConvInt8Winograd::bestWinogradUnit(convOp, inputs[0], res->mWeightInt8.get(), outputs[0], backend, unitAttrs)) {
                 return new ConvInt8Winograd(backend, convOp, res, unitAttrs);
             }
         }
-        return new ConvInt8TiledExecutor(backend, convOp, res);
+        return new DenseConvInt8TiledExecutor(backend, convOp, res);
     }
 };
 

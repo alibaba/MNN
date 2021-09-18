@@ -45,7 +45,7 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
         [encoder setBuffer:mConst offset:0 atIndex:2];
         [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
 
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

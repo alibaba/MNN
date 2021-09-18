@@ -19,7 +19,7 @@ MNN::OpParameter UnaryOnnx::type() {
 }
 
 void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                    std::vector<const onnx::TensorProto *> initializers) {
+                    OnnxScope* scope) {
     std::unique_ptr<MNN::UnaryOpT> unaryOpParam(new MNN::UnaryOpT);
     unaryOpParam->T = MNN::DataType_DT_FLOAT;
 

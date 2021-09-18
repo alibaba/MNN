@@ -20,7 +20,12 @@ using namespace metal;
 
 #define UP_DIV(x, y)    ( ((x) + (y) - 1) / (y) )
 #define ROUND_UP(x, y)  ( ((x) + (y) - 1) / (y) * (y) )
+
+// whether store with float32
 #define MNN_METAL_FULL_PRECISION 0 // should edit in .h too
+
+// whether computer with float32 when store with float16
+#define MNN_METAL_FLOAT32_COMPUTER 1 //
 
 #if MNN_METAL_FULL_PRECISION
 typedef float    ftype;
@@ -50,6 +55,36 @@ typedef half3x4  ftype3x4;
 typedef half4x2  ftype4x2;
 typedef half4x3  ftype4x3;
 typedef half4x4  ftype4x4;
+#endif
+
+#if MNN_METAL_FLOAT32_COMPUTER
+typedef float    FLOAT;
+typedef float2   FLOAT2;
+typedef float3   FLOAT3;
+typedef float4   FLOAT4;
+typedef float2x2 FLOAT2x2;
+typedef float2x3 FLOAT2x3;
+typedef float2x4 FLOAT2x4;
+typedef float3x2 FLOAT3x2;
+typedef float3x3 FLOAT3x3;
+typedef float3x4 FLOAT3x4;
+typedef float4x2 FLOAT4x2;
+typedef float4x3 FLOAT4x3;
+typedef float4x4 FLOAT4x4;
+#else
+typedef half     FLOAT;
+typedef half2    FLOAT2;
+typedef half3    FLOAT3;
+typedef half4    FLOAT4;
+typedef half2x2  FLOAT2x2;
+typedef half2x3  FLOAT2x3;
+typedef half2x4  FLOAT2x4;
+typedef half3x2  FLOAT3x2;
+typedef half3x3  FLOAT3x3;
+typedef half3x4  FLOAT3x4;
+typedef half4x2  FLOAT4x2;
+typedef half4x3  FLOAT4x3;
+typedef half4x4  FLOAT4x4;
 #endif
 
 namespace MNN {

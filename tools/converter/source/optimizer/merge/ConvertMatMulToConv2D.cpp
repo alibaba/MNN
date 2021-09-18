@@ -69,6 +69,22 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
 
             auto input = expr->inputs()[0];
             auto bias = expr->inputs()[1];
+            if (input->expr().first->get() == nullptr || input->expr().first->get()->type() == OpType_Const) {
+                bias = expr->inputs()[0];
+                input = expr->inputs()[1];
+            }
+            if (input->expr().first->get() == nullptr) {
+                return false;
+            }
+
+            // conv -> reshape -> convert -> add
+            if (input->expr().first->get()->type() == OpType_ConvertTensor) {
+                input = input->expr().first->inputs()[0];
+                if (input->expr().first->get()->type() == OpType_Reshape) {
+                    input = input->expr().first->inputs()[0];
+                }
+            }
+
             if (input->expr().first->inputs().size() > 2) { // matmul has already had a bias.
                 return false;
             }
@@ -170,6 +186,8 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 ::memcpy(dense->bias.data(), biasPtr, num_output * sizeof(float));
                 // Release compute cache for save memory
                 bias->expr().first->inside()->mCache = nullptr;
+            } else if (param->bias() && param->bias()->size() == num_output) {
+                ::memcpy(dense->bias.data(), param->bias()->data(), num_output * sizeof(float));
             } else {
                 std::fill(dense->bias.begin(), dense->bias.end(), 0.0f);
             }

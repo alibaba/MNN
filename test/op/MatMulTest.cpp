@@ -165,13 +165,25 @@ public:
 
 protected:
     virtual bool run(int precision) {
-        bool succ = MatMulCommonTest::test(MNN_FORWARD_CPU, "device_name", "MatMul", 2, 2, 2,
-                                           1, true, false, precision, true);
-        if (!succ) {
-            return false;
+        {
+            bool succ = MatMulCommonTest::test(MNN_FORWARD_CPU, "device_name", "MatMul", 2, 2, 2,
+                                               1, true, false, precision, true);
+            if (!succ) {
+                return false;
+            }
         }
-        for (int height_c = 1; height_c <= 20; ++height_c) {
-            for (int width_c = 1; width_c <= 20; ++width_c) {
+        {
+            int height_c = 1;
+            int width_c = 64;
+            int length = 3;
+            int height_a = height_c, height_b = length, width_a = length, width_b = width_c;
+            bool succ = MatMulCommonTest::test(MNN_FORWARD_CPU, "device_name", "MatMul",height_a, width_a, height_b, width_b, false, false, precision, true);
+            if (!succ) {
+                return false;
+            }
+        }
+        for (int height_c = 1; height_c <= 48; ++height_c) {
+            for (int width_c = 1; width_c <= 48; ++width_c) {
                 for (int length = 1; length <= 20; ++length) {
                     int height_a = height_c, height_b = length, width_a = length, width_b = width_c;
                     for (int tranpose_a = 0; tranpose_a <= 1; ++tranpose_a) {

@@ -268,14 +268,28 @@ class TensorArraySplitComputer : public SizeComputer {
         } else {
             auto value = inputs[1];
             auto lengths = inputs[2];
-            outDes->tensorArrayAttr->arraySize = lengths->length(0);
-            std::vector<int> vShape(value->shape());
-            const int* lengthPtr = lengths->host<int>();
-            for (int i = 0; i < lengths->length(0); i++) {
-                auto elemShape = vShape;
-                elemShape[0] = lengthPtr[i];
-                outDes->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
+            if (!lengths->shape().empty()) {
+                // split by lengths
+                outDes->tensorArrayAttr->arraySize = lengths->length(0);
+                std::vector<int> vShape(value->shape());
+                const int* lengthPtr = lengths->host<int>();
+                for (int i = 0; i < lengths->length(0); i++) {
+                    auto elemShape = vShape;
+                    elemShape[0] = lengthPtr[i];
+                    outDes->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
+                }
+            } else if (lengths->host<int>() != nullptr) {
+                // split by a length
+                int splitLen = lengths->host<int>()[0];
+                int totalLen = value->elementSize();
+                int splitNum = UP_DIV(totalLen, splitLen);
+                outDes->tensorArrayAttr->arraySize = splitNum;
+                for (int i = 0; i < splitNum - 1; i++) {
+                    outDes->tensorArrayAttr->elemShape.push_back({splitLen});
+                }
+                outDes->tensorArrayAttr->elemShape.push_back({ totalLen - splitLen *  (splitNum - 1)});
             }
+
         }
         updateTensorArrayDims(outputs[0]);
         MNN_ASSERT(outDes->tensorArrayAttr != nullptr);

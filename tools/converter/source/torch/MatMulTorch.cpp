@@ -21,12 +21,38 @@ std::vector<int> MatMulTorch::inputTensorIdx() {
     return {0, 1};
 }
 
-void MatMulTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void MatMulTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::MatMulT;
+    std::string opType = getRealOpType(node);
+    if (opType == "linear") {
+        std::vector<int> shape;
+        param->bias = getValue<float>(node->input(2), shape);
+        param->transposeB = true;
+    }
     dstOp->main.value = param;
 }
 
 REGISTER_CONVERTER(MatMulTorch, matmul);
+REGISTER_CONVERTER(MatMulTorch, linear);
+
+DECLARE_OP_CONVERTER(BatchMatMulTorch);
+
+MNN::OpType BatchMatMulTorch::opType() {
+    return MNN::OpType_BatchMatMul;
+}
+MNN::OpParameter BatchMatMulTorch::type() {
+    return MNN::OpParameter_BatchMatMulParam;
+}
+std::vector<int> BatchMatMulTorch::inputTensorIdx() {
+    return {0, 1};
+}
+
+void BatchMatMulTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto param = new MNN::BatchMatMulParamT;
+    dstOp->main.value = param;
+}
+
+REGISTER_CONVERTER(BatchMatMulTorch, bmm);
 
 DECLARE_OP_CONVERTER(AddmmTorch);
 
@@ -40,11 +66,11 @@ std::vector<int> AddmmTorch::inputTensorIdx() {
     return {0, 1, 2};
 }
 
-void AddmmTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void AddmmTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto extra        = new MNN::ExtraT;
     dstOp->main.value = extra;
     extra->engine     = "Torch";
-    extra->type       = node->kind().toUnqualString();
+    extra->type       = getRealOpType(node);
     const auto inputs = node->inputs();
     const auto beta   = inputs[3];
     const auto alpha  = inputs[4];

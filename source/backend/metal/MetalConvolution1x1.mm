@@ -30,55 +30,93 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
-    auto input = inputs[0], output = outputs[0];
-    auto is = input->width() * input->height(), iz = UP_DIV(input->channel(), 4), igz = iz / mGroups;
-    auto os = output->width() * output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
+    auto input = inputs[0];
+    auto output = outputs[0];
+    
+    auto is  = input->width() * input->height();
+    auto ic_4  = UP_DIV(input->channel(), 4);
+    auto ow  = output->width();
+    auto oh  = output->height();
+    auto os  = ow * oh;
+    auto ob  = output->batch();
+    auto oc  = output->channel();
+    auto oc_4  = UP_DIV(output->channel(), 4);
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
     // create const buffer
-    int constants[] = {is, igz, iz, os, ogz, oz, output->batch(), mActivationType};
+    int constants[] = {is, ic_4, ow, oh, os, oc_4, ob, mActivationType};
     mConstBuffer.reset(sizeof(constants));
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
     
-    if (mGroups == 1 && (w * h >= 256)) {
-        NSUInteger gid_x = UP_DIV(w * h, 8);
-        NSUInteger gid_y = z;
-        NSUInteger gid_z = b;
-        
-        mPipeline = [context pipelineWithName:@"conv1x1_g1z8"];
-        
-        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                        mConstBuffer.buffer(), mWeight, mBias, nil];
+    MetalRuntime* rt = (MetalRuntime *)backend->runtime();
 
-        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+    if(rt->getTuneLevel() == Never) {
+        if (ow * oh >= 128) {
+            NSUInteger gid_x = UP_DIV(ow * oh, 8);
+            NSUInteger gid_y = oc_4;
+            NSUInteger gid_z = ob;
 
-    } else if (mGroups == 1 && (w * h >= 16)) {
-        NSUInteger gid_x = UP_DIV(w * h, 4);
-        NSUInteger gid_y = z;
-        NSUInteger gid_z = b;
-        
-        mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
-        
-        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                        mConstBuffer.buffer(), mWeight, mBias, nil];
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z8"];
 
-        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                         (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                         mConstBuffer.buffer(), mWeight, mBias, nil];
+         
+            std::string name = "conv1x1_g1z8";
+            MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+        } else {
+            NSUInteger gid_x = UP_DIV(ow * oh, 4);
+            NSUInteger gid_y = oc_4;
+            NSUInteger gid_z = ob;
+            
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
+            
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                            mConstBuffer.buffer(), mWeight, mBias, nil];
 
+            std::string name = "conv1x1_g1z4";
+            MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+            //printf("conv1x1_z4, %d %d %d %d\n", ow, oh, oc_4, ic_4);
+        }
     } else {
-        mPipeline = [context pipelineWithName:@"conv1x1"];
+        // {@"conv1x1_w4h2", @"conv1x1_w2h2", @"conv1x1_w2c2", @"conv1x1_w1h1" };
+        const int total_kernel = 5;
+        NSString* shaderName[total_kernel] = {@"conv1x1_w4h2", @"conv1x1_w2h2", @"conv1x1_w2c2", @"conv1x1_w2h2c2", @"conv1x1_w4h4"};
+        int itemW[total_kernel] = {4, 2, 2, 2, 4};
+        int itemH[total_kernel] = {2, 2, 1, 2, 4};
+        int itemC[total_kernel] = {4, 4, 8, 8, 4};
+     
+        int actual_kernel = 5;
+        std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         
-        NSUInteger gid_x = w * h;
-        NSUInteger gid_y = z;
-        NSUInteger gid_z = b;
         NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
                         (__bridge id<MTLBuffer>)((void *)output->deviceId()),
                         mConstBuffer.buffer(), mWeight, mBias, nil];
-
-        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+        
+        for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
+            NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
+            NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
+            NSUInteger gid_z = ob * UP_DIV(oc, itemC[knl_idx]);
+            
+            std::string name = [shaderName[knl_idx] UTF8String];
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            
+            if(min_cost.first > std::get<2>(ret)) {
+                min_cost.first = std::get<2>(ret);
+                min_cost.second = knl_idx;
+                mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+            }
+            //printf("conv1x1 idx:%d, global:%d %d %d, local:%d %d %d, min_cost:%d\n", knl_idx, (int)retTune.second.first.width, (int)retTune.second.first.height, (int)retTune.second.first.depth, (int)retTune.second.second.width, (int)retTune.second.second.height, (int)retTune.second.second.depth, (int)retTune.first);
+        }
+        //printf("conv1x1 idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
+        mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
     }
 
     return NO_ERROR;
@@ -102,7 +140,7 @@ ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

@@ -694,12 +694,14 @@ struct Convolution3DCommonT : public flatbuffers::NativeTable {
   int32_t outputCount;
   bool relu;
   bool relu6;
+  int32_t group;
   Convolution3DCommonT()
       : padMode(PadMode_CAFFE),
         inputCount(0),
         outputCount(0),
         relu(false),
-        relu6(false) {
+        relu6(false),
+        group(1) {
   }
 };
 
@@ -735,6 +737,9 @@ struct Convolution3DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   bool relu6() const {
     return GetField<uint8_t>(20, 0) != 0;
   }
+  int32_t group() const {
+    return GetField<int32_t>(22, 1);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -750,6 +755,7 @@ struct Convolution3DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyField<int32_t>(verifier, 16) &&
            VerifyField<uint8_t>(verifier, 18) &&
            VerifyField<uint8_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
            verifier.EndTable();
   }
   Convolution3DCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -787,6 +793,9 @@ struct Convolution3DCommonBuilder {
   void add_relu6(bool relu6) {
     fbb_.AddElement<uint8_t>(20, static_cast<uint8_t>(relu6), 0);
   }
+  void add_group(int32_t group) {
+    fbb_.AddElement<int32_t>(22, group, 1);
+  }
   explicit Convolution3DCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -809,8 +818,10 @@ inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(
     int32_t inputCount = 0,
     int32_t outputCount = 0,
     bool relu = false,
-    bool relu6 = false) {
+    bool relu6 = false,
+    int32_t group = 1) {
   Convolution3DCommonBuilder builder_(_fbb);
+  builder_.add_group(group);
   builder_.add_outputCount(outputCount);
   builder_.add_inputCount(inputCount);
   builder_.add_pads(pads);
@@ -4065,6 +4076,7 @@ inline void Convolution3DCommon::UnPackTo(Convolution3DCommonT *_o, const flatbu
   { auto _e = outputCount(); _o->outputCount = _e; };
   { auto _e = relu(); _o->relu = _e; };
   { auto _e = relu6(); _o->relu6 = _e; };
+  { auto _e = group(); _o->group = _e; };
 }
 
 inline flatbuffers::Offset<Convolution3DCommon> Convolution3DCommon::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Convolution3DCommonT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4084,6 +4096,7 @@ inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(flatbu
   auto _outputCount = _o->outputCount;
   auto _relu = _o->relu;
   auto _relu6 = _o->relu6;
+  auto _group = _o->group;
   return MNN::CreateConvolution3DCommon(
       _fbb,
       _dilates,
@@ -4094,7 +4107,8 @@ inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(flatbu
       _inputCount,
       _outputCount,
       _relu,
-      _relu6);
+      _relu6,
+      _group);
 }
 
 inline SparseCommonT *SparseCommon::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5540,7 +5554,8 @@ inline const flatbuffers::TypeTable *Convolution3DCommonTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_BOOL, 0, -1 }
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     PadModeTypeTable
@@ -5554,10 +5569,11 @@ inline const flatbuffers::TypeTable *Convolution3DCommonTypeTable() {
     "inputCount",
     "outputCount",
     "relu",
-    "relu6"
+    "relu6",
+    "group"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 9, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 10, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

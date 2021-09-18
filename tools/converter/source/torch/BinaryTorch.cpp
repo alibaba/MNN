@@ -23,15 +23,15 @@ std::vector<int> BinaryTorch::inputTensorIdx() {
     return {0, 1};
 }
 
-void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     static std::map<std::string, MNN::BinaryOpOperation> gMaps{
         {"add", MNN::BinaryOpOperation_ADD}, {"sum", MNN::BinaryOpOperation_ADD},
-        {"sub", MNN::BinaryOpOperation_SUB},
+        {"sub", MNN::BinaryOpOperation_SUB}, {"rsub", MNN::BinaryOpOperation_SUB},
         {"mul", MNN::BinaryOpOperation_MUL},
         {"pow", MNN::BinaryOpOperation_POW},
         {"div", MNN::BinaryOpOperation_REALDIV},
-        {"min", MNN::BinaryOpOperation_MINIMUM}, {"minimum", MNN::BinaryOpOperation_MINIMUM},
-        {"max", MNN::BinaryOpOperation_MAXIMUM}, {"maximum", MNN::BinaryOpOperation_MAXIMUM},
+        {"min_compare", MNN::BinaryOpOperation_MINIMUM}, {"minimum", MNN::BinaryOpOperation_MINIMUM},
+        {"max_compare", MNN::BinaryOpOperation_MAXIMUM}, {"maximum", MNN::BinaryOpOperation_MAXIMUM},
         {"gt", MNN::BinaryOpOperation_GREATER}, {"greater", MNN::BinaryOpOperation_GREATER},
         {"ge", MNN::BinaryOpOperation_GREATER_EQUAL},
         {"lt", MNN::BinaryOpOperation_LESS}, {"less", MNN::BinaryOpOperation_LESS},
@@ -44,9 +44,15 @@ void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContex
         {"ne", MNN::BinaryOpOperation_NOTEQUAL}
     };
     auto param = new MNN::BinaryOpT;
-    std::string opType = getRealOpType(node->kind().toUnqualString());
+    std::string opType = getRealOpType(node);
     param->opType = gMaps[opType];
     dstOp->main.value = param;
+    if (opType == "rsub") {
+        MNN_ASSERT(getValue<int64_t>(node->input(2)) == 1);
+        int x = dstOp->inputIndexes[0];
+        dstOp->inputIndexes[0] = dstOp->inputIndexes[1];
+        dstOp->inputIndexes[1] = x;
+    }
 }
 
 REGISTER_CONVERTER(BinaryTorch, add);
@@ -55,9 +61,9 @@ REGISTER_CONVERTER(BinaryTorch, sub);
 REGISTER_CONVERTER(BinaryTorch, mul);
 REGISTER_CONVERTER(BinaryTorch, pow);
 REGISTER_CONVERTER(BinaryTorch, div);
-REGISTER_CONVERTER(BinaryTorch, min);
+REGISTER_CONVERTER(BinaryTorch, min_compare);
 REGISTER_CONVERTER(BinaryTorch, minimum);
-REGISTER_CONVERTER(BinaryTorch, max);
+REGISTER_CONVERTER(BinaryTorch, max_compare);
 REGISTER_CONVERTER(BinaryTorch, maximum);
 REGISTER_CONVERTER(BinaryTorch, gt);
 REGISTER_CONVERTER(BinaryTorch, greater);
@@ -74,3 +80,4 @@ REGISTER_CONVERTER(BinaryTorch, atan2);
 REGISTER_CONVERTER(BinaryTorch, logical_or);
 REGISTER_CONVERTER(BinaryTorch, __or__);
 REGISTER_CONVERTER(BinaryTorch, ne);
+REGISTER_CONVERTER(BinaryTorch, rsub);

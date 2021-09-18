@@ -24,19 +24,17 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
 
     // prepare
     auto input = inputs[0], output = outputs[0];
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
-    auto ow = output->width(), oh = output->height(), ob = output->batch();
+    auto iw = input->width();
+    auto ih = input->height();
+    auto ic_4 = UP_DIV(input->channel(), 4);
+    auto ow = output->width();
+    auto oh = output->height();
+    auto ob = output->batch();
+    auto oc_4 = UP_DIV(output->channel(), 4);
 
-    // pad mode support
-    int padX = mPadX, padY = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (ow - 1) * mStrideX + kernelWidthSize - iw;
-        int ph = (oh - 1) * mStrideY + kernelHeightSize - ih;
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
 
     // create const buffer
     int constants[] = {iw,
@@ -45,7 +43,7 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                        ow,
                        oh,
                        ow * oh,
-                       iz,
+                       ic_4,
                        ob,
 
                        mKernelX,
@@ -65,22 +63,19 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     mPipeline = [context pipelineWithName:@"conv_depthwise"];
-    
-    auto w = output->width();
-    auto h = output->height();
-    auto z = UP_DIV(output->channel(), 4);
-    auto b = output->batch();
             
-    NSUInteger gid_x = w;
-    NSUInteger gid_y = h;
-    NSUInteger gid_z = z*b;
+    NSUInteger gid_x = ow;
+    NSUInteger gid_y = oh;
+    NSUInteger gid_z = oc_4*ob;
             
     NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
                     (__bridge id<MTLBuffer>)((void *)output->deviceId()),
                     mConstBuffer.buffer(), mWeight, mBias, nil];
 
-    mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
-
+    std::string name = "conv_depthwise";
+    MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+    auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+    mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     return NO_ERROR;
 }
 
@@ -101,7 +96,7 @@ ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
             
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

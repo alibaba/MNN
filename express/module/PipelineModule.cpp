@@ -235,7 +235,7 @@ void PipelineModule::onClearCache() {
     // Do nothing
 }
 
-void PipelineModule::_createSubGraph(const MNN::Net* net, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
+void PipelineModule::_createSubGraph(const MNN::Net* net, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
     auto subGraphs = net->subgraphs();
     if (nullptr == subGraphs) {
         return;
@@ -271,7 +271,7 @@ void PipelineModule::_createSubGraph(const MNN::Net* net, const Module::Config* 
             flatbuffers::FlatBufferBuilder builder(1024);
             auto offset = Net::Pack(builder, _tempNet.get());
             builder.Finish(offset);
-            submodule.reset(PipelineModule::load(subInputs, subOutputs, (const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), config, subGraphMap, true));
+            submodule.reset(PipelineModule::load(subInputs, subOutputs, (const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), rtMgr, config, subGraphMap, true));
             if (graph->name() != nullptr) {
                 submodule->setName(graph->name()->str());
             }
@@ -539,7 +539,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(const MNN::Net* net, cons
     return submodule;
 }
 
-static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, const Module::Config& config, bool inRecurse, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, bool inRecurse, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
     if (1 == info.opList.size()) {
         auto op = net->oplists()->GetAs<Op>(info.opList[0]);
         if (OpType_If == op->type()) {
@@ -590,10 +590,10 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
     auto offset = Net::Pack(builder, _tempNet.get());
     builder.Finish(offset);
     _tempNet.reset();
-    return new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), inputNames, outputNames, config, inRecurse, sharedConst);
+    return new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), inputNames, outputNames, rtMgr, config, inRecurse, sharedConst);
 }
 
-Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
     // Create Subgraph
     auto net = GetNet(buffer);
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
@@ -606,10 +606,11 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     }
     auto subGraphs = net->subgraphs();
     std::map<std::string, SubGraph> subGraphMap;
-    _createSubGraph(net, config, subGraphMap);
-    return load(inputs, outputs, buffer, length, config, subGraphMap);
+    _createSubGraph(net, rtMgr, config, subGraphMap);
+    return load(inputs, outputs, buffer, length, rtMgr, config, subGraphMap);
 }
-Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce) {
+
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce) {
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto net = GetNet(buffer);
     if (!config->dynamic) {
@@ -623,7 +624,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         }
         if (linear) {
             // Has no control flow and WhereOp, can just use static module
-            return new StaticModule(buffer, length, inputs, outputs, *config, false, sharedConst);
+            return new StaticModule(buffer, length, inputs, outputs, rtMgr, *config, false, sharedConst);
         }
     }
     // Extra Const Tensors
@@ -637,7 +638,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     sharedConst->allTensors.resize(net->tensorName()->size());
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;
-    initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), false, code);
+    initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), false, code, Backend::DYNAMIC_SEPERATE);
     for (int i=0; i<sharedConst->allTensors.size(); ++i) {
         if (sharedConst->allTensors[i].get() != nullptr) {
             noneedComputeIndexes.insert(i);
@@ -677,7 +678,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto subModulesInfo = _createSubModuleInfo(net, inputIndexes, outputIndexes, noneedComputeIndexes, sharedConst, initVars);
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
-        subModules[i].reset(_createSubModule(net, subModulesInfo[i], subGraphMap, *config, inRecurce, sharedConst));
+        subModules[i].reset(_createSubModule(net, subModulesInfo[i], subGraphMap, rtMgr, *config, inRecurce, sharedConst));
     }
     auto result = new PipelineModule;
     /**

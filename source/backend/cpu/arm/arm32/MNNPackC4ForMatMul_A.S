@@ -43,7 +43,12 @@ mul r8, r12, r8
 add r0, r0, r7
 add r0, r0, r8
 
+mov r2, #12         // the fast-pack-eSize
+mul r2, r12, r2     // fast-pack-eSize * sizeof(dataType)
+cmp r2, r11         // check eP==fast-pack-eSize
+
 ldr r2, [r3, #0] // e
+bne Right
 
 Body:
 cmp r2, #12

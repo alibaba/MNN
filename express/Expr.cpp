@@ -138,7 +138,6 @@ EXPRP Expr::create(Tensor* tensor, bool own) {
     auto& dstInfo = expr->mInside->mOutputInfos[0];
     expr->mInside->mInfoDirty = false;
     expr->mInside->mContentDirty = false;
-    expr->mInside->mOwnTensor = false;
     return expr;
 }
 

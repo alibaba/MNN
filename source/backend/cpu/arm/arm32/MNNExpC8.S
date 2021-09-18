@@ -12,14 +12,19 @@
 #include "MNNAsmGlobal.h"
 .text
 .align 5
-//void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8)
+//void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8)
 asm_function MNNExpC8
 
-//r0: dest, r1:source, r2:parameters, r3:countC8
-push {r4, lr}
-vpush {q5, q6}
+//r0: dest, r1:source, r2: offset, r3:parameters, r4:countC8
+push {r4, r5, lr}
+ldr r4, [sp, #12]
+vpush {q4, q5}
+ldr r5, [r2, #0]
+vdup.32 q4, r5 // Alpha
+ldr r5, [r2, #4]
+vdup.32 q5, r5 // Beta
 
-vld1.32 {q0, q1}, [r2]
+vld1.32 {q0, q1}, [r3]
 
 vmov.i32 q2, #87
 vcvt.f32.s32 q2, q2
@@ -28,14 +33,13 @@ vneg.f32 q3, q2
 Loop:
 
 vld1.32 {q8, q9}, [r1]!
+vmul.f32 q8, q8, q4
+vmul.f32 q9, q9, q4
 
 vmin.f32 q8, q8, q2
 vmin.f32 q9, q9, q2
-vmax.f32 q8, q8, q3
-vmax.f32 q9, q9, q3
-
-vneg.f32 q10, q8
-vneg.f32 q11, q9
+vmax.f32 q10, q8, q3
+vmax.f32 q11, q9, q3
 
 vmul.f32 q8, q10, d0[1]
 vmul.f32 q9, q11, d0[1]
@@ -72,14 +76,16 @@ vshl.i32 q9, q9, #23
 vadd.i32 q12, q12, q8
 vadd.i32 q13, q13, q9
 
+vadd.f32 q12, q12, q5
+vadd.f32 q13, q13, q5
+
 vst1.32 {q12, q13}, [r0]!
 
-
-subs r3, r3, #1
+subs r4, r4, #1
 bne Loop
 
-vpop {q5, q6}
-pop {r4, pc}
+vpop {q4, q5}
+pop {r4, r5, pc}
 
 
 #endif

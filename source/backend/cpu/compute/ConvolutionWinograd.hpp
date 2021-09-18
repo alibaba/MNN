@@ -41,6 +41,7 @@ private:
 
     CoreFunctions::WinoTransFunc mSourceTransform;
     CoreFunctions::WinoTransFunc mDestTransform;
+    CoreFunctions::WinoTransPackFunc mSourceTransformPack;
     std::vector<float> mPostParameters;
 };
 } // namespace MNN

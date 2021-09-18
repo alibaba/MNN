@@ -47,7 +47,11 @@ int main(int argc, const char* argv[]) {
         threads.emplace_back([&, i]() {
             auto newExe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
             ExecutorScope scope(newExe);
-            std::shared_ptr<Module> tempModule(Module::clone(net.get()));
+            std::shared_ptr<Module> tempModule;
+            {
+                std::unique_lock<std::mutex> _l(printMutex);
+                tempModule.reset(Module::clone(net.get()));
+            }
             // Create Input
             auto input = MNN::Express::_Input({1, 3, 224, 224}, MNN::Express::NC4HW4);
             int size_w   = 224;

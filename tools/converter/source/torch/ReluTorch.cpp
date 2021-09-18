@@ -21,7 +21,7 @@ std::vector<int> ReluTorch::inputTensorIdx() {
     return {0};
 }
 
-void ReluTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void ReluTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::ReluT;
     dstOp->main.value = param;
 }
@@ -40,7 +40,7 @@ std::vector<int> Relu6Torch::inputTensorIdx() {
     return {0};
 }
 
-void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::Relu6T;
     dstOp->main.value = param;
 }

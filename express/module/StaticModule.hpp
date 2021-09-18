@@ -20,7 +20,7 @@ namespace Express {
 struct BufferStorage;
 class StaticModule : public Module {
 public:
-    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const Module::Config& config, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
+    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     void setReusedTensors(std::set<int> reused);

@@ -16,7 +16,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/Vec.hpp"
 #include "core/BufferAllocator.hpp"
-#include "core/MemoryFormater.h"
+#include "common/MemoryFormater.h"
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
@@ -219,7 +219,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
     auto plane    = width * height * batch;
     int tileCount = UP_DIV(plane, eP);
-                                              
+
     bool success = backend()->onAcquireBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
     if (!success) {
         return OUT_OF_MEMORY;
@@ -243,7 +243,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
                                        tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
         auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
-                                        
+
         int32_t info[4];
         info[1] = src_width * src_height * batch;
         info[2] = eP;

@@ -252,7 +252,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[i]);
-            MNN_ASSERT(des->tensorArrayAttr == nullptr);
+            //MNN_ASSERT(des->tensorArrayAttr == nullptr);
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 ctx.getRasterCacheCreateRecurrse(cmd.inputs[i], dstBuffer);
             }

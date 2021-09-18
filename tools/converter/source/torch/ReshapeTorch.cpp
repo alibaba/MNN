@@ -21,10 +21,11 @@ std::vector<int> ReshapeTorch::inputTensorIdx() {
     return {0, 1};
 }
 
-void ReshapeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void ReshapeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::ReshapeT;
     dstOp->main.value = param;
 }
 
 REGISTER_CONVERTER(ReshapeTorch, reshape);
 REGISTER_CONVERTER(ReshapeTorch, view);
+REGISTER_CONVERTER(ReshapeTorch, expand);

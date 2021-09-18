@@ -51,15 +51,6 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2D
     }
     mResource->mWeightInt8.swap(weight);
     backend->onReleaseBuffer(weight.get(), Backend::STATIC);
-    
-#ifdef MNN_USE_SSE
-    if (!mResource->offsets.empty()) {
-        for (int i = 0; i < outputCount; ++i) {
-            mResource->mBiasInt32->host<int32_t>()[i] -= mResource->offsets[i];
-        }
-    }
-    mResource->offsets.clear();
-#endif
 }
 
 CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, const CPUDepthwiseConvInt8& exe) : CPUConvolution(common, backend), mResource(exe.mResource) {
@@ -165,10 +156,11 @@ ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, co
             auto dstOrigin       = outputPtr + index * dst_z_step;
 #ifdef MNN_USE_SSE
             auto inputPadPtrCopy = (int8_t*)inputPadPtr + mInputPad->stride(0);
+            ::memset(inputPadPtrCopy, mResource->mInputZeroPoint + 128, mInputPad->stride(0) * sizeof(int8_t));
 #else
             auto inputPadPtrCopy = inputPadPtr;
-#endif
             ::memset(inputPadPtrCopy, mResource->mInputZeroPoint, mInputPad->stride(0) * sizeof(int8_t));
+#endif
             // Pad inputs
             for (int y = 0; y < src_height; ++y) {
                 auto src = srcOrigin + y * src_width * UNIT;

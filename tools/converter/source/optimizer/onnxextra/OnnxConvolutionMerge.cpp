@@ -61,12 +61,6 @@ static EXPRP _transformConv3D(EXPRP expr) {
 
     conv3d->common.reset(new MNN::Convolution3DCommonT);
     auto common = conv3d->common.get();
-
-    common->relu = common->relu6 = false;
-    common->outputCount          = co;
-    common->inputCount           = ci;
-    common->kernels              = std::vector<int>({depth, kh, kw});
-
     const int attrSize = extraParam->attr()->size();
     for (int i = 0; i < attrSize; ++i) {
         auto attr       = extraParam->attr()->GetAs<Attribute>(i);
@@ -75,10 +69,7 @@ static EXPRP _transformConv3D(EXPRP expr) {
             auto values     = attr->list()->i()->data();
             common->dilates = std::vector<int>({values[0], values[1], values[2]});
         } else if (key == "group") {
-            if (attr->i() != 1) {
-                MNN_ERROR("group conv3d not support\n");
-                return nullptr;
-            }
+            common->group = attr->i();
         } else if (key == "strides") {
             auto values     = attr->list()->i()->data();
             common->strides = std::vector<int>({values[0], values[1], values[2]});
@@ -88,6 +79,11 @@ static EXPRP _transformConv3D(EXPRP expr) {
             common->pads    = std::vector<int>({values[0], values[1], values[2]});
         }
     }
+
+    common->relu = common->relu6 = false;
+    common->outputCount          = co;
+    common->inputCount           = ci * common->group;
+    common->kernels              = std::vector<int>({depth, kh, kw});
 
     std::unique_ptr<OpT> newOp(new OpT);
     newOp->name       = expr->name();

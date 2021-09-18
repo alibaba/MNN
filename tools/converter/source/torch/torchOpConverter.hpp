@@ -15,6 +15,7 @@
 #include <MNN/MNNDefine.h>
 #include <torch/script.h>
 #include "OpCount.hpp"
+#include "ConverterScope.hpp"
 
 template <typename T>
 static inline T getValue(const torch::jit::Value* value) {
@@ -41,20 +42,22 @@ static std::vector<T> getValue(const torch::jit::Value* value, std::vector<int>&
     if (!size) {
         return data;
     }
-    const auto shapes = tensor.sizes().vec();
-    const auto strides = tensor.strides().vec();
+    auto shapes = tensor.sizes().vec();
+    auto strides = tensor.strides().vec();
+    if (shapes.empty()) {
+        shapes.push_back(size);
+        strides.push_back(1);
+    }
     shape.resize(shapes.size());
     for (int i = 0; i < shapes.size(); i++) {
         shape[i] = static_cast<int>(shapes[i]);
     }
-    auto scalarType = tensor.scalar_type();
     data.resize(size);
     int idx = 0;
     std::function<void(int, int)> copyData = [&](int dim, int offset) {
         if (dim == shapes.size()-1) {
             for (int i = 0; i < shapes[dim]; i++) {
                 data[idx++] = tensor.data_ptr<T>()[offset + i * strides[dim]];
-
             }
         } else {
             for (int i = 0; i < shapes[dim]; i++) {
@@ -66,39 +69,77 @@ static std::vector<T> getValue(const torch::jit::Value* value, std::vector<int>&
     return data;
 }
 
-static std::string getRealOpType(const char* type) {
-    std::string opType(type);
+static std::vector<int> getShape(const torch::jit::Value* value) {
+    const auto tensor = getValue<at::Tensor>(value);
+    auto shape = tensor.sizes().vec();
+    std::vector<int> res(shape.begin(), shape.end());
+    return res;
+}
+
+static std::string getRealOpType(const torch::jit::Node *node) {
+    const auto kind = node->kind();
+    // custom op
+    if (!(kind.is_attr() || kind.is_aten() || kind.is_cuda() ||
+          kind.is_prim() || kind.is_onnx() || kind.is_user() ||
+          kind.is_caffe2() || kind.is_dimname())) {
+        return "__custom__";
+    }
+    std::string opType(kind.toUnqualString());
+    // convert _xxx_ to xxx
     int last = opType.size() - 1;
     int last2 = last - 1;
     if (last > 0 && opType[last] == '_' && opType[last2] != '_') {
         opType = opType.substr(0, opType.size() - 1);
     }
+    if (opType.size() > 2 && opType[0] == '_' && opType[1] != '_') {
+        opType = opType.substr(1, opType.size() - 1);
+    }
+    // distinguish overload function
+    auto symb = c10::Symbol::fromQualString("attr::mnn_tag");
+    if (node->hasAttribute(symb)) {
+        opType += ("_" + node->s(symb));
+    }
     return opType;
 }
 
-class torchContext {
+static MNN::DataType ScalarType2Dtype(at::ScalarType scalarType) {
+    switch (scalarType) {
+        case at::ScalarType::Byte:
+            return MNN::DataType_DT_UINT8;
+        case at::ScalarType::Char:
+            return MNN::DataType_DT_INT8;
+        case at::ScalarType::Bool:
+            return MNN::DataType_DT_BOOL;
+        case at::ScalarType::Int:
+        case at::ScalarType::Long:
+            return MNN::DataType_DT_INT32;
+        case at::ScalarType::Half:
+        case at::ScalarType::Float:
+        case at::ScalarType::Double:
+            return MNN::DataType_DT_FLOAT;
+        default:
+            return MNN::DataType_DT_FLOAT;
+    }
+}
+
+class TorchScope : public ConverterScope {
 public:
-    torchContext() : mNet(nullptr), mSubNet(nullptr) {}
-    torchContext(MNN::NetT* net) : mNet(net), mSubNet(nullptr) {}
-    torchContext(MNN::NetT* net, MNN::SubGraphProtoT* subnet) : mNet(net), mSubNet(subnet) {}
-    void buildOp(const torch::jit::Node* node);
+    TorchScope(MNN::NetT* net) : ConverterScope(net) {}
+    TorchScope(MNN::SubGraphProtoT* subnet, MNN::NetT* parentNet, TorchScope* parentScope)
+             : ConverterScope(subnet, parentNet, parentScope) {}
     bool dealPrime(const torch::jit::Node* node);
-    int declareTensor(std::string name);
-    int lookupTensor(std::string name);
-    std::string lookupTensor(int idx) const;
+    void buildMNNOp(const torch::jit::Node *node);
+    virtual int lookupTensor(std::string name);
     void declareVar(std::string name, const torch::jit::Node* var);
     const torch::jit::Node* lookupVar(std::string name) const;
-    std::vector<int> addSubGraph(const torch::jit::Block* block, const std::string& name);
+    void buildSubGraph(const torch::jit::Block* block, const std::string& name, bool increment = false);
 private:
     std::map<std::string, const torch::jit::Node*> varTable;
-    std::map<std::string, int> tensorIdx;
-    MNN::NetT* mNet;
-    MNN::SubGraphProtoT* mSubNet;
 };
 
 class torchOpConverter {
 public:
-    virtual void run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) = 0;
+    virtual void run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scop) = 0;
     virtual MNN::OpParameter type() = 0;
     virtual MNN::OpType opType() = 0;
     virtual std::vector<int> inputTensorIdx() { return { 0 }; }
@@ -141,7 +182,7 @@ public:
         }                                                                                             \
         virtual ~name() {                                                                             \
         }                                                                                             \
-        virtual void run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context);       \
+        virtual void run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope);           \
         virtual MNN::OpType opType();                                                                 \
         virtual MNN::OpParameter type();                                                              \
         virtual std::vector<int> inputTensorIdx();                                                    \

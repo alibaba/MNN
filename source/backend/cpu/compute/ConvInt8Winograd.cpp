@@ -31,7 +31,7 @@ bool ConvInt8Winograd::chooseTransformFuncs(int kernelY, int kernelX, int unitY,
     auto core = static_cast<CPUBackend*>(bn)->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+
     int alphaY = kernelY + unitY - 1, alphaX = kernelX + unitX - 1;
     WinoSrcTransFunc srcFuncY = nullptr, srcFuncX = nullptr;
     WinoDstTransFunc dstFuncY = nullptr, dstFuncX = nullptr;
@@ -128,7 +128,7 @@ ConvInt8Winograd::ConvInt8Winograd(Backend *b, const Convolution2D *convOp, std:
 #else
             bool fastgemm = (convOp->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE);
 #endif
-            exe.reset(new ConvInt8TiledExecutor(b, subCommon->first, weight, fastgemm));
+            exe.reset(new DenseConvInt8TiledExecutor(b, subCommon->first, weight, fastgemm));
         } else {
             bool fastgemm = false;
 #ifdef MNN_USE_SSE
@@ -173,11 +173,11 @@ bool ConvInt8Winograd::onClone(Backend* bn, const Op* op, Execution** dst) {
 ErrorCode ConvInt8Winograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
     CPUConvolution::onResize(inputs, outputs);
-    
+
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+
     auto input = inputs[0], output = outputs[0];
     int batch = input->batch(), ic = input->channel(), oc = output->channel();
     int ih = input->height(), iw = input->width();
@@ -197,11 +197,11 @@ ErrorCode ConvInt8Winograd::onResize(const std::vector<Tensor *> &inputs, const 
         }
         unit.common = createCommon(unit.common->first, {}, {ALIMAX(mPadY - unit.attr.kyStart, 0), ALIMAX(mPadX - unit.attr.kxStart, 0)});
         if (unit.attr.unitY == 1 && unit.attr.unitX == 1) {
-            static_cast<ConvInt8TiledExecutor*>(unit.runner.get())->mCommon = unit.common->first;
+            static_cast<DenseConvInt8TiledExecutor*>(unit.runner.get())->mCommon = unit.common->first;
         } else {
             static_cast<WinoExecution*>(unit.runner.get())->mCommon = unit.common->first;
         }
-        
+
         auto res = unit.runner->onResize({unit.input.get()}, {unit.output.get()});
         if (res != NO_ERROR) {
             mValid = false;
@@ -265,7 +265,7 @@ ConvInt8Winograd::WinoExecution::WinoExecution(Backend *bn, const Convolution2DC
     if (fastgemm) {
         mGemmKernel = core->Int8GemmKernelFast;
     }
-    
+
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
@@ -280,7 +280,7 @@ ConvInt8Winograd::WinoExecution::WinoExecution(Backend *bn, const Convolution2DC
 
     chooseTransformFuncs(mKernelY, mKernelX, mUnitY, mUnitX, this, bn);
     WinogradInt8Helper helper(mUnitY, mUnitX, common, core);
-    
+
     mWeight = helper.allocTransformWeight(weight);
     mOffsets.reset(Tensor::createDevice<int32_t>({alpha2, oc4 * UNIT}));
     mValid = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
@@ -312,7 +312,7 @@ ConvInt8Winograd::WinoExecution::WinoExecution(Backend* bn, const Convolution2DC
     mDestTransformY(exe.mDestTransformY), mDestTransformX(exe.mDestTransformX),
     mUnitY(exe.mUnitY), mUnitX(exe.mUnitX), mKernelY(exe.mKernelY), mKernelX(exe.mKernelX),
     mGemmKernel(exe.mGemmKernel), mInputZeroPoint(exe.mInputZeroPoint) {
-    
+
     mTempInputBuffer.reset(Tensor::createDevice<int8_t>(exe.mTempInputBuffer->shape()));
     mTempOutputBuffer.reset(Tensor::createDevice<float>(exe.mTempOutputBuffer->shape()));
     mTransformMidBuffer.reset(Tensor::createDevice<int8_t>(exe.mTransformMidBuffer->shape()));
@@ -348,13 +348,13 @@ ErrorCode ConvInt8Winograd::WinoExecution::onResize(const std::vector<Tensor *> 
 }
 ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-    
+
     auto input = inputs[0], output = outputs[0];
     int alphaY = mKernelY + mUnitY - 1, alphaX = mKernelX + mUnitX - 1, alpha2 = alphaY * alphaX;
     bool conv1d = (alphaY == 1 || alphaX == 1);
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+
     int ow = output->width(), oh = output->height();
     int iw = input->width(), ih = input->height();
     int ic = input->channel(), ic_4 = UP_DIV(ic, UNIT);
@@ -368,7 +368,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int tileCount    = UP_DIV(totalCount, DST_XUNIT);
     threadNumber     = std::min(threadNumber, tileCount);
-    
+
     auto srcOrigin = input->host<int8_t>();
     auto dstOrigin = output->host<float>();
 
@@ -406,7 +406,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                         int ex    = ALIMIN(srcX + alphaX, iw) - srcX;
                         int count = UNIT * (ex - sx);
                         auto dst_x = dstS + si * SRC_UNIT;
-                        
+
                         int sourceZStep = iw * ih * input->batch() * UNIT;
                         int sourceYStep = iw * UNIT;
                         auto srcStart = srcOrigin + srcY * sourceYStep + srcX * UNIT + bIndex * iw * ih * UNIT;
@@ -430,7 +430,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                             sourceZStep = alpha2 * UNIT;
                             sourceYStep = alphaX * UNIT;
                         }
-                        
+
                         if (!conv1d) {
                             for (int i = 0; i < alphaY; ++i) {
                                 mSourceTransformX(srcStart + i * sourceYStep, midBuffer1 + i * SRC_UNIT,
@@ -489,7 +489,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                         auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * UNIT;
                         int ex = ALIMIN(dstX + mUnitX, ow) - dstX;
                         int count = ex * UNIT;
-                        
+
                         auto _dstStart = dstStart;
                         int dstZStep = oh * ow * output->batch() * UNIT, dstYStep = ow * UNIT;
                         if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
@@ -558,7 +558,7 @@ bool ConvInt8Winograd::bestWinogradUnit(const Convolution2D *convOp, const Tenso
     }
     int kernelY = common->kernelY(), kernelX = common->kernelX();
     int oh = output->height(), ow = output->width(), oc = common->outputCount(), ic = common->inputCount();
-    
+
     const int CONV_WINOGRAD_MAX_KERNEL = 3, CONV_WINOGRAD_ALPHA = 4;
     using Vec = std::vector<std::pair<int, int>>;
     auto partitionKernelFunc = [=](int kernel, bool range = false) -> Vec {

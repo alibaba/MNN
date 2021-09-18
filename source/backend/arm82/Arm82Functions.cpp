@@ -591,11 +591,11 @@ bool Arm82Functions::init() {
     using Vec = MNN::Math::Vec<FLOAT16, 8>;
 #define FUNC_PTR_ASSIGN(dst, src) dst = (decltype(dst))(src)
     gInstance = new CoreFunctions;
-    
+
     FUNC_PTR_ASSIGN(gInstance->MNNFp32ToLowp, MNNQuantizeFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNLowpToFp32, MNNDequantizeFP16);
     gInstance->bytes = 2;
-    
+
     // Packed
     gInstance->pack = 8;
     FUNC_PTR_ASSIGN(gInstance->MNNPackCUnit, MNNPackC8FP16);
@@ -617,7 +617,7 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterp, MNNGridSampleInterpFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNCopyC4WithStride, MNNCopyC8WithStrideFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNAddC4WithStride, MNNAddC8WithStrideFP16);
-    
+
     // MatMul
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16);
@@ -629,6 +629,8 @@ bool Arm82Functions::init() {
 
     FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceTransform, Arm82WinogradFunction::chooseSourceTransform);
     FUNC_PTR_ASSIGN(gInstance->chooseWinoDestTransform, Arm82WinogradFunction::chooseDestTransform);
+    FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceTransformPack, Arm82WinogradFunction::chooseWinoSourceTransformPack);
+
 
     gInstance->MNNDeconvRunForLineDepthwise = (decltype(gInstance->MNNDeconvRunForLineDepthwise))_MNNDeconvRunForLineDepthwise;
     gInstance->MNNDeconvRunForUnitDepthWise = (decltype(gInstance->MNNDeconvRunForUnitDepthWise))_MNNDeconvRunForUnitDepthWise;

@@ -31,7 +31,7 @@ class TestModel():
         print(result)
         return result
     def __load_graph(self, filename):
-        model = torch.jit.load(filename)
+        model = torch.jit.load(filename, torch.device('cpu'))
         return model
     def __analyze_inputs_outputs(self, graph):
         return (['x.1'], ['ret'])

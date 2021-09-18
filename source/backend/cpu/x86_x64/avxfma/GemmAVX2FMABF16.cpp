@@ -2,9 +2,10 @@
 //  GemmAVX2FMABF16.cpp
 //  MNN
 //
-//  Created by MNN on b'2021/01/26'.
+//  Created by MNN on 2021/01/26.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #ifdef MNN_SUPPORT_BF16
 #include "FunctionSummary.hpp"
 #include "../avx/GemmCommon.hpp"

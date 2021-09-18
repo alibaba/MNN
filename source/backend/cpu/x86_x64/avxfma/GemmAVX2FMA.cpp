@@ -2,11 +2,12 @@
 //  GemmAVX2FMA.cpp
 //  MNN
 //
-//  Created by MNN on b'2020/09/22'.
+//  Created by MNN on 2020/09/22.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include "FunctionSummary.hpp"
+#include <math.h>
 #include "../avx/GemmCommon.hpp"
 #include "core/Macro.h"
 #define MNNAVXFMA _mm256_fmadd_ps

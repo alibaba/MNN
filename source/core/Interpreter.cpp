@@ -36,33 +36,13 @@ struct Content {
 };
 
 static void writeCacheFile(const Content *net, std::pair<const void*, size_t> buffer) {
-    FILE* f = fopen(net->cacheFile.c_str(), "wb");
-    if (nullptr == f) {
-        MNN_ERROR("Open %s error\n", net->cacheFile.c_str());
+    std::unique_ptr<FileLoader> loader(new FileLoader(net->cacheFile.c_str()));
+    auto verifyInfo = std::make_pair((const void*)net->buffer.get(), net->cacheOffset);
+    bool res = loader->write(verifyInfo, buffer);
+    if (!res) {
+        MNN_ERROR("Write Cache File error!\n");
         return;
     }
-    // Write key
-    auto tsize = fwrite((const char*)net->buffer.get(), 1, net->cacheOffset, f);
-    if (tsize != net->cacheOffset) {
-        MNN_ERROR("Write %s error\n", net->cacheFile.c_str());
-        return;
-    }
-    // Write Cache
-    static const size_t block = 4096;
-    size_t totalSize          = buffer.second;
-    size_t blockSize          = UP_DIV(totalSize, block);
-    for (size_t i = 0; i < blockSize; ++i) {
-        size_t sta = block * i;
-        size_t fin = std::min(sta + block, totalSize);
-        if (fin > sta) {
-            auto realSize = fwrite((const char*)(buffer.first) + sta, 1, fin - sta, f);
-            if (realSize != fin - sta) {
-                MNN_ERROR("Write %s error\n", net->cacheFile.c_str());
-                return;
-            }
-        }
-    }
-    fclose(f);
 }
 
 Interpreter* Interpreter::createFromFile(const char* file) {
@@ -180,7 +160,7 @@ ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
     
     //When current cacheSize bigger than previous, update
     if (buffer.first != nullptr && buffer.second > mNet->lastCacheSize) {
-        MNN_PRINT("Update cache to %s, size = %zu\n", mNet->cacheFile.c_str(), buffer.second);
+        MNN_PRINT("Update cache to %s, from size:%zu -> size:%zu\n", mNet->cacheFile.c_str(), mNet->lastCacheSize, buffer.second);
         writeCacheFile(mNet, buffer);
         mNet->lastCacheSize = buffer.second;
     }
@@ -267,11 +247,6 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     result->loadCache(nullptr, 0);
 
     mNet->sessions.emplace_back(std::move(newSession));
-    
-    //for valid cacheFile, maybe need update after resize
-    if(valid) {
-        updateCacheFile(result);
-    }
     return result;
 }
 
@@ -463,6 +438,12 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
         Backend::Info compute;
         compute.type      = Schedule::getApprociateType(config);
         compute.numThread = config.numThread;
+        if(config.type == MNN_FORWARD_AUTO) {
+            if(compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
+                // AUTO set default gpu-mode MNN_GPU_TUNING_FAST
+                compute.numThread = 16;
+            }
+        }
         compute.user      = config.backendConfig;
         if (mRuntimes.find(compute.type) == mRuntimes.end()) {
             auto newBn = RuntimeFactory::create(compute);

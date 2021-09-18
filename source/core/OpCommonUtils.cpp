@@ -26,6 +26,7 @@ void* OpCommonUtils::blobData(const Op* op) {
             result = (void*)b->int32s()->Data();
             break;
         case DataType_DT_QUINT8:
+        case DataType_DT_UINT8:
             return (void*)b->uint8s()->Data();
             break;
         case DataType_DT_INT8:
@@ -507,75 +508,6 @@ std::pair<bool, DataType> OpCommonUtils::getQuantInfo(const std::vector<Tensor*>
         }
     }
     return std::make_pair(false, DataType_DT_FLOAT);
-}
-
-
-bool OpCommonUtils::checkAllZeros(const float* source, size_t rowDimLength, int blockRow, int blockCol) {
-    for (int i = 0; i < blockRow; i++) {
-        for (int j = 0; j < blockCol; j++) {
-            if (*(source + i * rowDimLength + j) != 0) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-void OpCommonUtils::statisticWeightSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, const float* data, size_t h, size_t l,  int sparseBlockOC) {
-
-    size_t nnzBlock = 0;
-    size_t nnzTail = 0;
-    int i = 0;
-    for (; i + sparseBlockOC <= h; i += sparseBlockOC) {
-        for(int j = 0; j < l; j += 1) {
-            nnzBlock += !checkAllZeros(data, l, sparseBlockOC, 1);
-            data++;
-        }
-        data += l * (sparseBlockOC - 1);
-    }
-    for (; i < h; i++) {
-        for(int j = 0; j < l; j++) {
-            nnzTail += (*data != 0);
-            data++;
-        }
-    }
-    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
-    weightBlockNumber = nnzBlock + nnzTail;
-    return;
-}
-
-void OpCommonUtils::fillRandValueAsSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, float* data, int oc, int reduceDimLength, float sparsity, int sparseBlockOC) {
-    // float sparsity interval is [0, 1]
-    unsigned int seed = 1000;
-    std::mt19937 rng(seed);
-    std::uniform_real_distribution<float> uniform_dist(0, 1);
-    float* data_ptr = data;
-
-    size_t nnzBlock = 0;
-    size_t nnzTail = 0;
-    int ocEven = (oc / sparseBlockOC) * sparseBlockOC;
-
-    size_t ioc = 0;
-    for (; ioc < ocEven; ioc += sparseBlockOC) {
-    for (size_t i = 0; i < reduceDimLength; i++) {
-        bool isZero = uniform_dist(rng) <= sparsity;
-        for (int iblock = 0; iblock < sparseBlockOC; iblock++) {
-            *(data + iblock * reduceDimLength) = isZero ? 0.f : uniform_dist(rng);
-        }
-        data++;
-        nnzBlock += !isZero;
-        }
-        data += (sparseBlockOC - 1) * reduceDimLength;
-    }
-    for (; ioc < oc; ioc++) {
-        for (size_t i = 0; i < reduceDimLength; i++) {
-            bool isZero = uniform_dist(rng) <= sparsity;
-            *data++ = isZero ? 0.f : uniform_dist(rng);
-            nnzTail += !isZero;
-        }
-    }
-    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
-    weightBlockNumber = nnzBlock + nnzTail;
 }
 
 } // namespace MNN

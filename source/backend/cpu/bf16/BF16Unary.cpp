@@ -89,19 +89,22 @@ struct _Exp {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-        MNNExp(out, out, realSize);
+        float offset[2] = {
+            1.0f,
+            0.0f
+        };
+        MNNExp(out, inp, offset, realSize);
     }
 };
 struct _ExpM1 {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-        MNNExp(out, out, realSize);
-        for (int i=0; i<realSize; ++i) {
-            out[i] = out[i] - 1.0f;
-        }
+        float offset[2] = {
+            1.0f,
+            -1.0f
+        };
+        MNNExp(out, inp, offset, realSize);
     }
 };
 

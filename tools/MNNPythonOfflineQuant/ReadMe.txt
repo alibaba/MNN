@@ -14,7 +14,13 @@
 使用方法（batch size可以根据你的模型调整）：
     python mnn_offline_quant.py --mnn_model origin_float_model.mnn --quant_model quant_model.mnn --batch_size 32
 
+使用建议：
+    1. 如果你的模型中卷积的激活是prelu的话，使用relu/relu6代替prelu可能会取得更好的量化精度和推理速度，这可能需要重新训练模型
+    2. 如果模型的输入无法固定，请将batch size设置为1，并且calibration_dataset的返回值也使用实际输入值的形状
+
+
 ############################################################################
+
 
 This is a python version of MNN offline quant tool, use this tool when:
     1. you can not use MNN offline quant tool (tools/quantization) to quantize your model, cases like multi-input, complecated preprocessing
@@ -32,3 +38,7 @@ please Note, the order of returned input data in your calibration dataset should
 
 usage of the tool (you can adjust batch size according to your own model):
     python mnn_offline_quant.py --mnn_model origin_float_model.mnn --quant_model quant_model.mnn --batch_size 32
+
+usage tips:
+    1. if the activation function of conv is prelu in your model, use relu/relu6 instead of prelu may improve precision and inference speed of quantized model. re-training may be required.
+    2. if the input shape can not be fixed, your should set batch_size=1, and the shape of returned values of calibration_dataset should be actual input's shape.

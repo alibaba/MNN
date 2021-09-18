@@ -9,34 +9,48 @@
 #include <stdio.h>
 #include "torchOpConverter.hpp"
 
-DECLARE_OP_CONVERTER(TransposeTorch);
+DECLARE_OP_CONVERTER(PermuteTorch);
 
-MNN::OpType TransposeTorch::opType() {
+MNN::OpType PermuteTorch::opType() {
     return MNN::OpType_Permute;
 }
-MNN::OpParameter TransposeTorch::type() {
+MNN::OpParameter PermuteTorch::type() {
     return MNN::OpParameter_Permute;
 }
-std::vector<int> TransposeTorch::inputTensorIdx() {
+std::vector<int> PermuteTorch::inputTensorIdx() {
     return {0};
 }
 
-void TransposeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void PermuteTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::PermuteT;
-    std::string opType = node->kind().toUnqualString();
-    if (opType == "t") {
-        param->dims = {1, 0};
-    } else {
-        // TODO: now just support dim = 5
-        const auto inputs = node->inputs();
-        int dim1 = getValue<int64_t>(inputs[1]);
-        int dim2 = getValue<int64_t>(inputs[2]);
-        param->dims = { 0, 1, 2, 3, 4 };
-        param->dims[dim1] = dim2;
-        param->dims[dim2] = dim1;
+    auto dims = getValue<std::vector<int64_t>>(node->input(1));
+    param->dims.resize(dims.size());
+    for (int i = 0; i < dims.size(); i++) {
+        param->dims[i] = dims[i];
     }
     dstOp->main.value = param;
 }
 
-REGISTER_CONVERTER(TransposeTorch, t);
+REGISTER_CONVERTER(PermuteTorch, permute);
+
+DECLARE_OP_CONVERTER(TransposeTorch);
+
+MNN::OpType TransposeTorch::opType() {
+    return MNN::OpType_Extra;
+}
+MNN::OpParameter TransposeTorch::type() {
+    return MNN::OpParameter_Extra;
+}
+std::vector<int> TransposeTorch::inputTensorIdx() {
+    return {-1};
+}
+
+void TransposeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto extra = new MNN::ExtraT;
+    dstOp->main.value = extra;
+    extra->engine     = "Torch";
+    extra->type       = "transpose";
+}
+
+// aten::transpose(self : Tensor, dim0 : int , dim1 : int)
 REGISTER_CONVERTER(TransposeTorch, transpose);

@@ -122,6 +122,15 @@ struct Vec {
     static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
         v1 = v1 - v2 * v3;
     }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        VecType source[4] = {vec0, vec1, vec2, vec3};
+        for (int i = 0; i < N; ++i) {
+            vec0.value[i] = source[i % 4].value[i >> 2];
+            vec1.value[i] = source[i % 4].value[(i + N)>> 2];
+            vec2.value[i] = source[i % 4].value[(i + 2 * N)>> 2];
+            vec3.value[i] = source[i % 4].value[(i + 3 * N)>> 2];
+        }
+    }
 };
 
 #ifdef MNN_USE_NEON
@@ -179,6 +188,42 @@ struct Vec<float, 4> {
         v1 = v1 - v2 * v3;
 #endif
     }
+
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+#ifdef __aarch64__
+        auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m1 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m2 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        auto m3 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        vec0.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec1.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+        vec2.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec3.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+#else
+
+        auto m0m1 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m2m3 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        vec0.value = reinterpret_cast<float32x4_t>(m0m1.val[0]);
+        vec1.value = reinterpret_cast<float32x4_t>(m0m1.val[1]);
+        vec2.value = reinterpret_cast<float32x4_t>(m2m3.val[0]);
+        vec3.value = reinterpret_cast<float32x4_t>(m2m3.val[1]);
+        vec0.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[0]), 0), reinterpret_cast<int64x2_t>(vec0.value), 1));
+        vec1.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[1]), 0), reinterpret_cast<int64x2_t>(vec1.value), 1));
+        vec2.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[0]), 1), reinterpret_cast<int64x2_t>(vec2.value), 0));
+        vec3.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[1]), 1), reinterpret_cast<int64x2_t>(vec3.value), 0));
+        /*
+        generated arm32 assembly code is almost the same as:
+            vtrn.32 d0, d2
+            vtrn.32 d1, d3
+            vtrn.32 d4, d6
+            vtrn.32 d5, d7
+            vswp d1, d4
+            vswp d3, d6
+        */
+
+#endif
+    }
+
     VecType operator+(const VecType& lr) {
         VecType dst = { vaddq_f32(value, lr.value) };
         return dst;
@@ -213,17 +258,17 @@ template<>
 struct Vec<int8_t, 8> {
     using VecType = Vec<int8_t, 8>;
     int8x8_t value;
-    
+
     VecType operator + (const VecType& lr) {
         VecType dst = { vqadd_s8(value, lr.value) };
         return dst;
     }
-    
+
     VecType operator - (const VecType& lr) {
         VecType dst = { vqsub_s8(value, lr.value) };
         return dst;
     }
-    
+
     VecType operator - () {
         VecType dst = { vqneg_s8(value) };
         return dst;
@@ -268,17 +313,17 @@ template<>
 struct Vec<int8_t, 16> {
     using VecType = Vec<int8_t, 16>;
     int8x16_t value;
-    
+
     VecType operator + (const VecType& lr) {
         VecType dst = { vqaddq_s8(value, lr.value) };
         return dst;
     }
-    
+
     VecType operator - (const VecType& lr) {
         VecType dst = { vqsubq_s8(value, lr.value) };
         return dst;
     }
-    
+
     VecType operator - () {
         VecType dst = { vqnegq_s8(value) };
         return dst;
@@ -408,6 +453,17 @@ struct Vec<float, 4> {
     }
     static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
         v1 = v1 - v2 * v3; // TODO: use fma instruction
+    }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        __m128 tmp3, tmp2, tmp1, tmp0;
+        tmp0   = _mm_unpacklo_ps((vec0.value), (vec1.value));
+        tmp2   = _mm_unpacklo_ps((vec2.value), (vec3.value));
+        tmp1   = _mm_unpackhi_ps((vec0.value), (vec1.value));
+        tmp3   = _mm_unpackhi_ps((vec2.value), (vec3.value));
+        vec0.value = _mm_movelh_ps(tmp0, tmp2);
+        vec1.value = _mm_movehl_ps(tmp2, tmp0);
+        vec2.value = _mm_movelh_ps(tmp1, tmp3);
+        vec3.value = _mm_movehl_ps(tmp3, tmp1);
     }
 };
 template<>

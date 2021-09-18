@@ -376,11 +376,12 @@ enum UnaryOpOperation {
   UnaryOpOperation_TANH = 30,
   UnaryOpOperation_HARDSWISH = 31,
   UnaryOpOperation_GELU = 32,
+  UnaryOpOperation_GELU_STANDARD = 33,
   UnaryOpOperation_MIN = UnaryOpOperation_ABS,
-  UnaryOpOperation_MAX = UnaryOpOperation_GELU
+  UnaryOpOperation_MAX = UnaryOpOperation_GELU_STANDARD
 };
 
-inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[33] {
+inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[34] {
   static const UnaryOpOperation values[] = {
     UnaryOpOperation_ABS,
     UnaryOpOperation_NEG,
@@ -414,7 +415,8 @@ inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[33] {
     UnaryOpOperation_SIGMOID,
     UnaryOpOperation_TANH,
     UnaryOpOperation_HARDSWISH,
-    UnaryOpOperation_GELU
+    UnaryOpOperation_GELU,
+    UnaryOpOperation_GELU_STANDARD
   };
   return values;
 }
@@ -454,13 +456,14 @@ inline const char * const *EnumNamesUnaryOpOperation() {
     "TANH",
     "HARDSWISH",
     "GELU",
+    "GELU_STANDARD",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameUnaryOpOperation(UnaryOpOperation e) {
-  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_GELU) return "";
+  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_GELU_STANDARD) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesUnaryOpOperation()[index];
 }
@@ -3049,8 +3052,10 @@ struct LayerNormT : public flatbuffers::NativeTable {
   float epsilon;
   std::vector<float> gamma;
   std::vector<float> beta;
+  int32_t group;
   LayerNormT()
-      : epsilon(0.0f) {
+      : epsilon(0.0f),
+        group(1) {
   }
 };
 
@@ -3071,6 +3076,9 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<float> *beta() const {
     return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
+  int32_t group() const {
+    return GetField<int32_t>(12, 1);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3080,6 +3088,7 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(gamma()) &&
            VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(beta()) &&
+           VerifyField<int32_t>(verifier, 12) &&
            verifier.EndTable();
   }
   LayerNormT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3102,6 +3111,9 @@ struct LayerNormBuilder {
   void add_beta(flatbuffers::Offset<flatbuffers::Vector<float>> beta) {
     fbb_.AddOffset(10, beta);
   }
+  void add_group(int32_t group) {
+    fbb_.AddElement<int32_t>(12, group, 1);
+  }
   explicit LayerNormBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3119,8 +3131,10 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> axis = 0,
     float epsilon = 0.0f,
     flatbuffers::Offset<flatbuffers::Vector<float>> gamma = 0,
-    flatbuffers::Offset<flatbuffers::Vector<float>> beta = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<float>> beta = 0,
+    int32_t group = 1) {
   LayerNormBuilder builder_(_fbb);
+  builder_.add_group(group);
   builder_.add_beta(beta);
   builder_.add_gamma(gamma);
   builder_.add_epsilon(epsilon);
@@ -4465,6 +4479,7 @@ inline void LayerNorm::UnPackTo(LayerNormT *_o, const flatbuffers::resolver_func
   { auto _e = epsilon(); _o->epsilon = _e; };
   { auto _e = gamma(); if (_e) { _o->gamma.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gamma[_i] = _e->Get(_i); } } };
   { auto _e = beta(); if (_e) { _o->beta.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->beta[_i] = _e->Get(_i); } } };
+  { auto _e = group(); _o->group = _e; };
 }
 
 inline flatbuffers::Offset<LayerNorm> LayerNorm::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LayerNormT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4479,12 +4494,14 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(flatbuffers::FlatBufferBui
   auto _epsilon = _o->epsilon;
   auto _gamma = _o->gamma.size() ? _fbb.CreateVector(_o->gamma) : 0;
   auto _beta = _o->beta.size() ? _fbb.CreateVector(_o->beta) : 0;
+  auto _group = _o->group;
   return MNN::CreateLayerNorm(
       _fbb,
       _axis,
       _epsilon,
       _gamma,
-      _beta);
+      _beta,
+      _group);
 }
 
 inline RandomUniformT *RandomUniform::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4717,6 +4734,7 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -4755,10 +4773,11 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     "SIGMOID",
     "TANH",
     "HARDSWISH",
-    "GELU"
+    "GELU",
+    "GELU_STANDARD"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 33, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 34, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -5446,16 +5465,18 @@ inline const flatbuffers::TypeTable *LayerNormTypeTable() {
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
-    { flatbuffers::ET_FLOAT, 1, -1 }
+    { flatbuffers::ET_FLOAT, 1, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const char * const names[] = {
     "axis",
     "epsilon",
     "gamma",
-    "beta"
+    "beta",
+    "group"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

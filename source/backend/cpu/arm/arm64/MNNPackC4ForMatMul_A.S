@@ -30,12 +30,16 @@
 asm_function MNNPackC4ForMatMul_A
 //void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el)
 //Auto: x0: dest, x1:sourceGroup, x2: info, x3:el
+
+str x19, [sp, #(-16 * 1)]
+
 ldr w10, [x2, #0] // number
 mov x4, #0
 mov x11, #0
 mov x6, #0
 ldr w4, [x2, #4] // eReal
 ldr w11, [x2, #8] // eDest
+mov x19, x11      // eP
 ldr w6, [x2, #12] // xOffset
 // xOffset -> xOffset * 4 * sizeof(float)
 // eReal -> eReal * 4 * sizeof(float)
@@ -65,10 +69,13 @@ mul x8, x12, x8
 add x0, x0, x7
 add x0, x0, x8
 
+cmp w19, #16
+bne E12Body
+
 Body:
 
 cmp w2, #16
-bne E12Body // caution: w2 = 16 or w2 = 12 is not continutious with LoopE1  at 'Right' segment. should not use 'blt'
+bne Right
     cmp w5, #4
     blt LoopE16L3
     LoopE16L4:
@@ -151,6 +158,8 @@ bne E12Body // caution: w2 = 16 or w2 = 12 is not continutious with LoopE1  at '
 b End
 
 E12Body:
+cmp w19, #12
+bne Right
 cmp w2, #12
 bne Right
     cmp w5, #4
@@ -321,6 +330,8 @@ add x3, x3, #16
 add x1, x1, #8
 
 bne LoopNumber
+
+ldr x19, [sp, #(-16 * 1)]
 
 ret
 

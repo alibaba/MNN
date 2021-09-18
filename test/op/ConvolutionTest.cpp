@@ -16,8 +16,8 @@
 #include "TestUtils.h"
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
-#include "core/MemoryFormater.h"
-#include "core/OpCommonUtils.hpp"
+#include "common/MemoryFormater.h"
+#include "common/CommonCompute.hpp"
 
 #define TEST_RANDOM_SEED 100
 
@@ -123,30 +123,30 @@ if (NHWC == shape->order) {
         size_t weightNNZElement, weightBlockNumber = 0;
         int weightSize = weight->getInfo()->size;
         int biasSize = bias->getInfo()->size;
-        OpCommonUtils::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight->readMap<float>(), biasSize, weightSize / biasSize, sparseBlockOC);
-        
-        MNN::AttributeT* arg1(new MNN::AttributeT);
+        CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight->readMap<float>(), biasSize, weightSize / biasSize, sparseBlockOC);
+
+        std::unique_ptr<MNN::AttributeT> arg1(new MNN::AttributeT);
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        MNN::AttributeT* arg2(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        MNN::AttributeT* arg3(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        MNN::AttributeT* arg4(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
-        auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
-        auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
-        auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
-        auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+        auto sparseArg1 = MNN::CreateAttribute(builder, arg1.get());
+        auto sparseArg2 = MNN::CreateAttribute(builder, arg2.get());
+        auto sparseArg3 = MNN::CreateAttribute(builder, arg3.get());
+        auto sparseArg4 = MNN::CreateAttribute(builder, arg4.get());
 
         argsVector.emplace_back(sparseArg1);
         argsVector.emplace_back(sparseArg2);
@@ -157,7 +157,7 @@ if (NHWC == shape->order) {
         auto sparseCom = MNN::CreateSparseCommon(builder, sparseAlgo, sparseArgs);
         builder.Finish(sparseCom);
         auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
-        
+
         conv2D->sparseParameter.reset(sparseComPtr);
     }
     if (nullptr == bias) {
@@ -197,30 +197,30 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
     conv2D->common->relu = relu;
     if (sparese) {
         size_t weightNNZElement, weightBlockNumber = 0;
-        OpCommonUtils::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight.data(), bias.size(), weight.size() / bias.size(), sparseBlockOC);
-        
-        MNN::AttributeT* arg1(new MNN::AttributeT);
+        CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight.data(), bias.size(), weight.size() / bias.size(), sparseBlockOC);
+
+        std::unique_ptr<MNN::AttributeT> arg1(new MNN::AttributeT);
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        MNN::AttributeT* arg2(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        MNN::AttributeT* arg3(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        MNN::AttributeT* arg4(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
-        auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
-        auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
-        auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
-        auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+        auto sparseArg1 = MNN::CreateAttribute(builder, arg1.get());
+        auto sparseArg2 = MNN::CreateAttribute(builder, arg2.get());
+        auto sparseArg3 = MNN::CreateAttribute(builder, arg3.get());
+        auto sparseArg4 = MNN::CreateAttribute(builder, arg4.get());
 
         argsVector.emplace_back(sparseArg1);
         argsVector.emplace_back(sparseArg2);
@@ -231,7 +231,7 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
         auto sparseCom = MNN::CreateSparseCommon(builder, sparseAlgo, sparseArgs);
         builder.Finish(sparseCom);
         auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
-        
+
         conv2D->sparseParameter.reset(sparseComPtr);
     }
     MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
@@ -268,30 +268,30 @@ VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, Padd
     std::fill(conv2D->bias.begin(), conv2D->bias.end(), bias);
     if (sparse) {
         size_t weightNNZElement, weightBlockNumber = 0;
-        OpCommonUtils::statisticWeightSparsity(weightNNZElement, weightBlockNumber, conv2D->weight.data(), conv2D->bias.size(), conv2D->weight.size() / conv2D->bias.size(), sparseBlockOC);
-        
-        MNN::AttributeT* arg1(new MNN::AttributeT);
+        CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, conv2D->weight.data(), conv2D->bias.size(), conv2D->weight.size() / conv2D->bias.size(), sparseBlockOC);
+
+        std::unique_ptr<MNN::AttributeT> arg1(new MNN::AttributeT);
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        MNN::AttributeT* arg2(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        MNN::AttributeT* arg3(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        MNN::AttributeT* arg4(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
-        auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
-        auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
-        auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
-        auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+        auto sparseArg1 = MNN::CreateAttribute(builder, arg1.get());
+        auto sparseArg2 = MNN::CreateAttribute(builder, arg2.get());
+        auto sparseArg3 = MNN::CreateAttribute(builder, arg3.get());
+        auto sparseArg4 = MNN::CreateAttribute(builder, arg4.get());
 
         argsVector.emplace_back(sparseArg1);
         argsVector.emplace_back(sparseArg2);
@@ -302,7 +302,7 @@ VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, Padd
         auto sparseCom = MNN::CreateSparseCommon(builder, sparseAlgo, sparseArgs);
         builder.Finish(sparseCom);
         auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
-        
+
         conv2D->sparseParameter.reset(sparseComPtr);
     }
     return (Variable::create(Expr::create(convOp.get(), {x})));
@@ -361,7 +361,7 @@ public:
            MNN_PRINT("input:");
            formatMatrix(printCache.data(), {batch, ic, ih, iw});
            printCache.resize(weightData.size());
-           for (int i = 0; i < inputData.size(); ++i) {
+           for (int i = 0; i < weightData.size(); ++i) {
                printCache[i] = FP32Converter[precision](weightData[i]);
            }
            MNN_PRINT("weight:");
@@ -381,27 +381,27 @@ public:
         auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // Multi Conv
-        if (group == 1 || (group == ic && ic == oc)) {
-            VARP weightVar;
-            if (group == 1) {
-                weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
-            } else {
-                weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
-            }
-            auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
-            auto out     = _Conv(weightVar, biasVar, input, padMap[mode], {stride, stride}, {dilation, dilation}, group,
-                             {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
-            auto outputPtr = out->readMap<float>();
-            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
-                MNN_PRINT("multi expect:\t real:\n");
-                for (int i = 0; i < outputData.size(); ++i)
-                {
-                    MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
-                }
-                MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
-                return false;
-            }
-        }
+        // if (group == 1 || (group == ic && ic == oc)) {
+        //     VARP weightVar;
+        //     if (group == 1) {
+        //         weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
+        //     } else {
+        //         weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
+        //     }
+        //     auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
+        //     auto out     = _Conv(weightVar, biasVar, input, padMap[mode], {stride, stride}, {dilation, dilation}, group,
+        //                      {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
+        //     auto outputPtr = out->readMap<float>();
+        //     if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
+        //         MNN_PRINT("multi expect:\t real:\n");
+        //         for (int i = 0; i < outputData.size(); ++i)
+        //         {
+        //             MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
+        //         }
+        //         MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
+        //         return false;
+        //     }
+        // }
         // Single Conv
         auto output = _Conv(std::move(weightData), std::move(biasData), input, {ic, oc}, {kw, kh}, padMap[mode],
                             {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, false, false, sparseAlgo, sparseBlockOC, mSparse);
@@ -487,13 +487,13 @@ public:
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, int precision, MNN::SparseAlgo sparseAlgo, int MaxBlock) {
         for (int b = 1; b <= 2; b++) {
-            for (int oc = 1; oc <= 16; oc *= 2) {
-                for (int ic = 1; ic <= 8; ic *= 2) {
-                    for (int is = 1; is <= 8; is *= 2) {
+            for (int oc = 1; oc <= 17; oc += 2) {
+                for (int ic = 1; ic <= 18; ic += 3) {
+                    for (int is = 1; is <= 17; is += 1) {
                         for (int kw = 1; kw <= 3 && kw <= is; kw++) {
                             for (int kh = 1; kh <= 3 && kh <= is; kh++) {
                                 for (int d = 1; d <= 2; d++) {
-                                    if (d > std::min(kw, kh) || d * (std::max(kw, kh) - 1) + 1 > is)
+                                    if (d > is || d * (kw - 1) + 1 > is || d * (kh - 1) + 1 > is)
                                         continue;
 
                                     for (int s = 1; s <= 2; s++) {
@@ -505,9 +505,9 @@ protected:
                                                                                 is, PadMode_CAFFE, p, p, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
                                                 if (!succ) {
                                                     MNN_ERROR(
-                                                        "Error for conv b=%d, oc=%d, ic=%d, "
-                                                        "is=%d,kw=%d,kh=%d,d=%d,s=%d,p=%d, block=%d\n",
-                                                        b, oc, ic, is, kw, kh, d, s, p, block);
+                                                        "Error for conv b=%d, oc=%d, ic=%d, ih=%d, "
+                                                        "iw=%d,kw=%d,kh=%d,d=%d,s=%d,p=%d, block=%d\n",
+                                                        b, oc, ic, is, is, kw, kh, d, s, p, block);
                                                     return false;
                                                 }
                                             }
@@ -518,9 +518,9 @@ protected:
                                                                                 is, PadMode_VALID, 0, 0, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
                                                 if (!succ) {
                                                     MNN_ERROR(
-                                                        "Error for conv b=%d, oc=%d, ic=%d, is=%d,kw=%d,kh=%d,d=%d,s=%d, block=%d, "
+                                                        "Error for conv b=%d, oc=%d, ic=%d, is=%d, is=%d, kw=%d,kh=%d,d=%d,s=%d, block=%d, "
                                                         "valid pad\n",
-                                                        b, oc, ic, is, kw, kh, d, s, block);
+                                                        b, oc, ic, is, is, kw, kh, d, s, block);
                                                     return false;
                                                 }
                                             }
@@ -530,9 +530,9 @@ protected:
                                                                                 is, PadMode_SAME, 0, 0, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
                                                 if (!succ) {
                                                     MNN_ERROR(
-                                                        "Error for conv b=%d, oc=%d, ic=%d, is=%d,kw=%d,kh=%d,d=%d,s=%d, block=%d, "
+                                                        "Error for conv b=%d, oc=%d, ic=%d, is=%d, is=%d, kw=%d, kh=%d, d=%d, s=%d, block=%d, "
                                                         "same pad\n",
-                                                        b, oc, ic, is, kw, kh, d, s, block);
+                                                        b, oc, ic, is, is, kw, kh, d, s, block);
                                                     return false;
                                                 }
                                             }
@@ -545,14 +545,13 @@ protected:
                 }
             }
         }
-        // TODO: Fix bug and use it
         // Check Long convolution
-//        bool succ =
-//            ConvolutionType().test(type, device_name, "Conv2D", 1, 3072, 16, 128, 1, PadMode_SAME, 0, 0, 1, 1, 1, 1, 1, precision, sparseAlgo, 4, false);
-//        if (!succ) {
-//            MNN_ERROR("Error for long conv\n");
-//            return false;
-//        }
+        bool succ =
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 24, 24, PadMode_SAME, 0, 0, 3, 3, 1, 1, 1, precision, sparseAlgo, 4, false);
+        if (!succ) {
+            MNN_ERROR("Error for long conv\n");
+            return false;
+        }
         return true;
     }
 

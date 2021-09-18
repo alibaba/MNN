@@ -256,6 +256,12 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         Backend::Info compute;
         compute.type      = getApprociateType(config);
         compute.numThread = config.numThread;
+        if(config.type == MNN_FORWARD_AUTO) {
+            if(compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
+                // AUTO set default gpu-mode MNN_GPU_TUNING_FAST
+                compute.numThread = 16;
+            }
+        }
         compute.user      = config.backendConfig;
         auto oplists      = _scheduleUnit(net, config, allTensors);
         result.emplace_back(std::make_pair(compute, std::move(oplists)));

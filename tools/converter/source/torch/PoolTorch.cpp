@@ -21,9 +21,9 @@ std::vector<int> PoolTorch::inputTensorIdx() {
     return {0};
 }
 
-void PoolTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void PoolTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::PoolT;
-    std::string opType = node->kind().toUnqualString();
+    std::string opType = getRealOpType(node);
     const auto& inputs = node->inputs();
     if (opType.find("adaptive") == std::string::npos) {
         const auto kernel_size = getValue<std::vector<int64_t>>(inputs[1]);

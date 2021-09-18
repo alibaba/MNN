@@ -91,7 +91,7 @@ loop_e16:
         mul x20, x20, x12
         add x19, x26, x20 // x19: c = blockC + ihpack * cStride
         cbz x6, load_e16h4_zero
-            ldr q16, [x24], #(4 * sizeof_value)
+            ldr q16, [x24], #(4 * sparse_blockoc)
             b load_e16h4_end
         load_e16h4_zero:
             movi v16.4s, #0000000000000000
@@ -204,7 +204,7 @@ loop_e16:
         add x19, x26, x20, lsl #sizeof_value_lg2 // x19: c = blockC + isubIndex
 
         cbz x6, load_e16h1_zero
-            ld1r {v16.4s}, [x24], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(4)
             b load_e16h1_end
         load_e16h1_zero:
             movi v16.4s, #0000000000000000
@@ -376,7 +376,7 @@ beq loop_e4
         mul x20, x20, x12
         add x19, x26, x20 // x19: c = blockC + ihpack * cStride
         cbz x6, load_e8h4_zero
-            ldr q16, [x24], #(4 * sizeof_value)
+            ldr q16, [x24], #(4 * sparse_blockoc)
             b load_e8h4_end
         load_e8h4_zero:
             movi v16.4s, #0000000000000000
@@ -450,7 +450,7 @@ beq loop_e4
         add x19, x26, x20, lsl #sizeof_value_lg2 // x19: c = blockC + isubIndex
 
         cbz x6, load_e8h1_zero
-            ld1r {v16.4s}, [x24], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(4)
             b load_e8h1_end
         load_e8h1_zero:
             movi v16.4s, #0000000000000000
@@ -524,7 +524,7 @@ beq loop_e2
         mul x20, x20, x12
         add x19, x26, x20 // x19: c = blockC + ihpack * cStride
         cbz x6, load_e4h4_zero
-            ldr q16, [x24], #(4 * sizeof_value)
+            ldr q16, [x24], #(4 * sparse_blockoc)
             b load_e4h4_end
         load_e4h4_zero:
             movi v16.4s, #0000000000000000
@@ -578,7 +578,7 @@ beq loop_e2
         add x19, x26, x20, lsl #sizeof_value_lg2 // x20: c = blockC + isubIndex
 
         cbz x6, load_e4h1_zero
-            ld1r {v16.4s}, [x24], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(4)
             b load_e4h1_end
         load_e4h1_zero:
             movi v16.4s, #0000000000000000
@@ -638,7 +638,7 @@ beq loop_e1
         mul x20, x20, x12
         add x19, x26, x20 // x19: c = blockC + ihpack * cStride
         cbz x6, load_e2h4_zero
-            ldr q16, [x24], #(4 * sizeof_value)
+            ldr q16, [x24], #(4 * sparse_blockoc)
             b load_e2h4_end
         load_e2h4_zero:
             movi v16.4s, #0000000000000000
@@ -684,7 +684,7 @@ beq loop_e1
         add x19, x26, x20, lsl #sizeof_value_lg2 // x20: c = blockC + isubIndex
 
         cbz x6, load_e2h1_zero
-            ld1r {v16.2s}, [x24], #(sizeof_value)
+            ld1r {v16.2s}, [x24], #(sparse_blockoc)
             b load_e2h1_end
         load_e2h1_zero:
             movi v16.4s, #0000000000000000
@@ -743,7 +743,7 @@ beq loop_end
         mul x20, x20, x12
         add x19, x26, x20 // x19: c = blockC + ihpack * cStride
         cbz x6, load_e1h4_zero
-            ldr q16, [x24], #(4 * sizeof_value)
+            ldr q16, [x24], #(4 * sparse_blockoc)
             b load_e1h4_end
         load_e1h4_zero:
             movi v16.4s, #0000000000000000
@@ -785,7 +785,7 @@ beq loop_end
         add x19, x26, x20, lsl #sizeof_value_lg2 // x20: c = blockC + isubIndex
 
         cbz x6, load_e1h1_zero
-            ld1 {v16.s}[0], [x24], #(sizeof_value)
+            ld1 {v16.s}[0], [x24], #(4)
             b load_e1h1_end
         load_e1h1_zero:
             movi v16.4s, #0000000000000000

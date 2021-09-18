@@ -66,14 +66,18 @@ class ArgMaxComputer : public SizeComputer {
                     output.dim[1].extent = keyExtent;
                 }
             } else {
-                TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+                TensorUtils::getDescribe(outputs[0])->dimensionFormat = inputDimensionFormat;
                 output.type = halide_type_of<float>();
                 int topK = argMax->topK();
                 int axis = argMax->axis();
                 // in caffe, axis may not exist, we set it to 10000 to indicate this situation
                 // see file: tools/converter/source/caffe/ArgMax.cpp
                 if (axis != 10000) {
-                    output.dim[axis].extent = topK;
+                    if (argMax->outMaxVal()) {
+                        output.dim[axis].extent = topK * 2;
+                    } else {
+                        output.dim[axis].extent = topK;
+                    }
                 } else {
                     std::vector<int> outputShape(input.dimensions, 1);
 

@@ -261,6 +261,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Turn group convolution to Slice - Convolution - Concat
         "TransformGroupConvolution",
+        "TransformGroupConvolution3D",
 
         // Remove output tensor convert
         "RemoveOutputTensorConvert",

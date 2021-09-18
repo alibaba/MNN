@@ -35,6 +35,7 @@ private:
     bool mFast = false;
     int mSingleConvert = 0;
     std::vector<Tensor::InsideDescribe::Region> mCacheRegions;
+    int32_t mZeroPoint = 0;
 };
 }
 #endif

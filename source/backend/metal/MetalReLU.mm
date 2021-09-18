@@ -46,7 +46,7 @@ ErrorCode MetalReLU::onExecute(const std::vector<Tensor *> &inputs, const std::v
         MNN_PRINT_ENCODER(context, encoder);
 
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

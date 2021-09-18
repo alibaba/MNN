@@ -15,6 +15,27 @@
 #include "MNN_generated.h"
 #include "logkit.h"
 #include "onnx.pb.h"
+#include "ConverterScope.hpp"
+
+class OnnxScope : public ConverterScope {
+public:
+    OnnxScope(const onnx::GraphProto* graph, MNN::NetT* net) : mGraph(graph), ConverterScope(net) { onnxInit(); }
+    OnnxScope(const onnx::GraphProto* graph, MNN::SubGraphProtoT* subnet, MNN::NetT* net,
+              OnnxScope* parent) : mGraph(graph), ConverterScope(subnet, net, parent) { onnxInit(); }
+    std::pair<int, int> buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name);
+    void buildAccumulate(const std::string& name, const std::string& uName, const std::string& iName, const std::string& oName);
+    void buildSubGraph(const onnx::GraphProto* graph, std::string& name, std::string& uName, bool increment = false);
+public:
+    virtual int lookupTensor(std::string name);
+public:
+    std::map<std::string, const onnx::TensorProto*> mInitializers;
+    std::map<std::string, const onnx::ValueInfoProto*> mInputs;
+    std::map<std::string, const onnx::ValueInfoProto*> mOutputs;
+private:
+    // onnx graph and infos
+    const onnx::GraphProto* mGraph;
+    void onnxInit();
+};
 
 class onnxOpConverter {
 public:
@@ -22,12 +43,17 @@ public:
     }
     virtual ~onnxOpConverter() {
     }
-    virtual void run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                     std::vector<const onnx::TensorProto*> initializers) = 0;
+    virtual void run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) = 0;
     virtual MNN::OpParameter type()                                      = 0;
     virtual MNN::OpType opType()                                         = 0;
+    std::vector<std::unique_ptr<MNN::SubGraphProtoT>>& getSubGraphs() {
+        return _subgraphs;
+    }
     static MNN::DataType convertDataType(::onnx::TensorProto_DataType type);
     static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor);
+    // static std::unique_ptr<MNN::SubGraphProtoT> buildSubGraph(const onnx::GraphProto* graph, std::string& name);
+protected:
+    std::vector<std::unique_ptr<MNN::SubGraphProtoT>> _subgraphs;
 };
 
 class onnxOpConverterSuit {
@@ -67,11 +93,10 @@ private:
         virtual ~name() {                                                     \
         }                                                                     \
         virtual void run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,    \
-                         std::vector<const onnx::TensorProto*> initializers); \
+                         OnnxScope* scope);                                   \
         virtual MNN::OpType opType();                                         \
         virtual MNN::OpParameter type();                                      \
     }
-
 #define REGISTER_CONVERTER(name, opType) static onnxOpConverterRegister<name> _Convert_##opType(#opType)
 
 #endif // ONNXOPCONVERTER_HPP

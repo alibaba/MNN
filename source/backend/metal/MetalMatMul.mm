@@ -92,7 +92,7 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
                            bandwidth:bandwidth];
         }
 
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }
@@ -107,6 +107,10 @@ class MetalMatMulCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op,
                                 Backend *backend) const override {
+        if(inputs.size() < 2) {
+            MNN_PRINT("metal not support matmul inpt size less than 2\n");
+            return nullptr;
+        }
         return new MetalMatMul(backend, op->main_as_MatMul());
     }
 };

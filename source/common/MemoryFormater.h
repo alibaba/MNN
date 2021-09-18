@@ -28,6 +28,14 @@ inline void formatPrint(const char* prefix, const double& value, const char* suf
    MNN_PRINT("%s%f%s", prefix, value, suffix);
 }
 
+inline void formatPrint(const char* prefix, const uint8_t& value, const char* suffix) {
+   MNN_PRINT("%s%d%s", prefix, value, suffix);
+}
+
+inline void formatPrint(const char* prefix, const int8_t& value, const char* suffix) {
+   MNN_PRINT("%s%d%s", prefix, value, suffix);
+}
+
 inline void formatPrint(const char* prefix, const int16_t& value, const char* suffix) {
    MNN_PRINT("%s%f%s", prefix, MNNBF16ToFP32(value), suffix);
 }

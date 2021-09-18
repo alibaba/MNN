@@ -69,6 +69,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "OP", "print framework supported op", cxxopts::value<bool>())(
         "saveStaticModel", "save static model with fix shape, default: false", cxxopts::value<bool>())(
         "targetVersion", "compability for old mnn engine, default: 1.2f", cxxopts::value<float>())(
+        "customOpLibs", "custom op libs ex: libmy_add.so;libmy_sub.so", cxxopts::value<std::string>())(
         "inputConfigFile", "set input config file for static model, ex: ~/config.txt", cxxopts::value<std::string>());
 
     auto result = options.parse(argc, argv);
@@ -225,6 +226,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.compressionParamsFile =
             result["compressionParamsFile"].as<std::string>();
     }
+    if (result.count("customOpLibs")) {
+        modelPath.customOpLibs =
+            result["customOpLibs"].as<std::string>();
+    }
     return true;
 }
 
@@ -243,7 +248,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
         tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
 #ifdef MNN_BUILD_TORCH
     } else if (modelPath.model == modelConfig::TORCH) {
-        torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, modelPath.customOpLibs);
 #endif
     } else {
         std::cout << "Not Support Model Type" << std::endl;

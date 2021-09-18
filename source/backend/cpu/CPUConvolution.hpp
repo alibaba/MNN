@@ -38,8 +38,8 @@ public:
         bool mRelu;
         int mActBits;
 
-        int8_t mInputZeroPoint;
-        int8_t mOutputZeroPoint;
+        int32_t mInputZeroPoint;
+        int32_t mOutputZeroPoint;
         int8_t mClampMin;
         int8_t mClampMax;
         Backend* backend;

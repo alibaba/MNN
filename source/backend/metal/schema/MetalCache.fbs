@@ -1,0 +1,17 @@
+namespace MetalCache;
+attribute "priority";
+
+table Autotuning {
+    key:string;
+    threadSize:[uint];
+
+    groupNum:[uint];
+    groupSize:[uint];
+    timeCost:uint;
+}
+
+table Cache {
+    tunings:[Autotuning];
+}
+
+root_type Cache;

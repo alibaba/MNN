@@ -2,6 +2,9 @@ set(MNN_CPP_TOOLS "")
 
 add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
+if (MNN_USE_SSE)
+    target_compile_options(MNNV2Basic.out PRIVATE -DMNN_USE_SSE)
+endif()
 
 add_executable(mobilenetTest.out ${CMAKE_CURRENT_LIST_DIR}/mobilenetTest.cpp )
 list(APPEND MNN_CPP_TOOLS mobilenetTest.out)
@@ -39,7 +42,7 @@ foreach(TARGET ${MNN_CPP_TOOLS})
     endif()
 endforeach()
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+if (NOT WIN32)
     add_executable(checkDir.out ${CMAKE_CURRENT_LIST_DIR}/checkDir.cpp)
     add_executable(checkFile.out ${CMAKE_CURRENT_LIST_DIR}/checkFile.cpp)
     add_executable(winogradExample.out ${CMAKE_CURRENT_LIST_DIR}/winogradExample.cpp)

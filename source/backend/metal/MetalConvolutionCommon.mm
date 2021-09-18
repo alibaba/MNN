@@ -33,6 +33,7 @@ MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *
     auto context    = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto conv       = op->main_as_Convolution2D();
     auto common     = conv->common();
+    mOp             = op;
     mDepthwise      = op->type() == OpType_ConvolutionDepthwise;
     mGroups         = common->group();
     mKernelX        = common->kernelX();
@@ -63,7 +64,7 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
     auto gic    = ic / group;
     auto goc_4  = UP_DIV(goc, 4);
     auto gic_4  = UP_DIV(gic, 4);
-    auto buffer = [context newDeviceBuffer:group * goc_4 * gic_4 * kw * kh * 16 * sizeof(TType) access:CPUWriteOnly];
+    auto buffer = [context newDeviceBuffer:group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16 * sizeof(TType) access:CPUWriteOnly];
     auto dst    = (TType *)buffer.contents;
 
     for (int g = 0; g < group; g++) {
@@ -100,6 +101,7 @@ id<MTLBuffer> MetalConvolutionCommon::weightForFloat(int group, int oc, int ic, 
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     return weightInBlock<float, metal_float>(context, group, oc, ic, kh, kw, src);
+
 }
 
 id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionCommon::Int8Common *qnt,

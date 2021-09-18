@@ -19,8 +19,7 @@ MNN::OpParameter BinaryOpOnnx::type() {
     return MNN::OpParameter_BinaryOp;
 }
 
-void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                       std::vector<const onnx::TensorProto*> initializers) {
+void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     const auto &originalType = onnxNode->op_type();
     auto param = new MNN::BinaryOpT;
 #define TO_BINARY_OP(src, dst)       \

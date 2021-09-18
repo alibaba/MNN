@@ -55,12 +55,12 @@ kernel void conv_depthwise(const device ftype4 *in          [[buffer(0)]],
     auto z_wt  = wt  + (int)oz * cst.kernel_size;
     auto z_in  = in  + (int)gid.z * cst.input_size;
     auto z_out = out + (int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x;
-    float4 result = float4(biasTerms[oz]);
+    FLOAT4 result = FLOAT4(biasTerms[oz]);
     for (auto ky = sy, y = offset_y; ky < ey; ky++, y += cst.dilation_y) {
         for (auto kx = sx, x = offset_x; kx < ex; kx++, x += cst.dilation_x) {
             auto wt4 = z_wt[ky * cst.kernel_x   + kx];
             auto in4 = z_in[ y * cst.input_width + x];
-            result += float4(in4 * wt4);
+            result += FLOAT4(in4 * wt4);
         }
     }
 

@@ -9,6 +9,7 @@
 #include <MNN/expr/Executor.hpp>
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/FileLoader.hpp"
 #include "Utils.hpp"
 #include <MNN/AutoTime.hpp>
 #include "core/WrapExecution.hpp"
@@ -67,23 +68,52 @@ void Executor::Profiler::addFlops(const std::string& opType, float flops) {
     iter->second += flops;
 }
 #endif
+
+struct Executor::Cache{
+    AutoStorage<uint8_t> modelBuffer;
+    AutoStorage<uint8_t> cacheBuffer;
+    size_t cacheOffset = 0;
+    std::string cacheFile;
+    size_t lastCacheSize = 0;
+};
+
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
     std::lock_guard<std::mutex> _l(mMutex);
-    auto creator = MNNGetExtraRuntimeCreator(type);
-    if (nullptr == creator) {
-        MNN_ERROR("Error to find creator of %d, set CPU default\n", type);
-        type = MNN_FORWARD_CPU;
-        creator = MNNGetExtraRuntimeCreator(type);
+    if(type == MNN_FORWARD_AUTO) {
+        ScheduleConfig sConfig;
+        sConfig.type = type;
+        type = Schedule::getApprociateType(sConfig);
+        
+        auto creator = MNNGetExtraRuntimeCreator(type);
+        MNN_ASSERT(nullptr != creator);
+        Backend::Info info;
+        info.type = type;
+        info.mode = Backend::Info::DIRECT;
+        info.numThread = numberThread;
+        if(type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_METAL) {
+            info.numThread = 4;
+        }
+        info.user = (BackendConfig*)&config;
+        std::shared_ptr<Runtime> bn(creator->onCreate(info));
+        mRuntime.first = bn;
+        mRuntime.second = type;
+    } else {
+        auto creator = MNNGetExtraRuntimeCreator(type);
+        if (nullptr == creator) {
+            MNN_ERROR("Error to find creator of %d, set CPU default\n", type);
+            type = MNN_FORWARD_CPU;
+            creator = MNNGetExtraRuntimeCreator(type);
+        }
+        MNN_ASSERT(nullptr != creator);
+        Backend::Info info;
+        info.type = type;
+        info.mode = Backend::Info::DIRECT;
+        info.numThread = numberThread;
+        info.user = (BackendConfig*)&config;
+        std::shared_ptr<Runtime> bn(creator->onCreate(info));
+        mRuntime.first = bn;
+        mRuntime.second = type;
     }
-    MNN_ASSERT(nullptr != creator);
-    Backend::Info info;
-    info.type = type;
-    info.mode = Backend::Info::DIRECT;
-    info.numThread = numberThread;
-    info.user = (BackendConfig*)&config;
-    std::shared_ptr<Runtime> bn(creator->onCreate(info));
-    mRuntime.first = bn;
-    mRuntime.second = type;
 }
 
 void Executor::gc(GCFlag flag) {
@@ -141,8 +171,8 @@ Executor::Requirement Executor::getRequirement(Expr* expr) const {
 }
 
 static std::once_flag gInitFlag;
+static std::shared_ptr<Executor>* gExecutor = nullptr;
 std::shared_ptr<Executor> Executor::getGlobalExecutor() {
-    static std::shared_ptr<Executor> gExecutor;
     std::call_once(gInitFlag, [&]() {
         auto creator = MNNGetExtraRuntimeCreator(MNN_FORWARD_CPU);
 #ifdef MNN_BUILD_MINI
@@ -153,9 +183,9 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         info.type = MNN_FORWARD_CPU;
         info.numThread = 1;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        gExecutor.reset(new Executor(bn, MNN_FORWARD_CPU));
+        gExecutor = new std::shared_ptr<Executor>(new Executor(bn, MNN_FORWARD_CPU));
     });
-    return gExecutor;
+    return *gExecutor;
 }
 
 std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
@@ -176,6 +206,112 @@ RuntimeInfo Executor::getRuntime() {
     info.second = glo->mBackupRuntime.first;
     info.first.insert(std::make_pair(glo->mRuntime.second, glo->mRuntime.first));
     return info;
+}
+
+static bool loadCache(std::shared_ptr<Runtime> &rt, const void* buffer, size_t size) {
+    auto res = rt->onSetCache(buffer, size);
+    if (res) {
+        return true;
+    }
+    return false;
+}
+static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime> &rt) {
+    auto res = rt->onGetCache();
+    if (res.first != nullptr) {
+        return res;
+    }
+    return std::make_pair(nullptr, 0);
+}
+
+static void writeCacheFile(std::shared_ptr<Executor::Cache> cache, std::pair<const void*, size_t> buffer) {
+    std::unique_ptr<FileLoader> loader(new FileLoader(cache->cacheFile.c_str()));
+    auto verifyInfo = std::make_pair((const void*)cache->modelBuffer.get(), cache->cacheOffset);
+    bool res = loader->write(verifyInfo, buffer);
+    if (!res) {
+        MNN_ERROR("Write Cache File error!\n");
+        return;
+    }
+}
+
+
+
+Executor::RuntimeManager::RuntimeManager(std::vector<ScheduleConfig> &configs) {
+    mRuntime = Interpreter::createRuntime(configs);
+    mInfo = mRuntime.first.begin()->second;
+}
+
+Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(std::vector<ScheduleConfig> &configs) {
+    if(configs.size() == 0) {
+        MNN_ERROR("Empty runtime config\n");
+        return nullptr;
+    }
+    return new Executor::RuntimeManager(configs);
+}
+
+
+void Executor::RuntimeManager::setCache(std::string cacheName) {
+    mCache.reset(new Cache);
+    mCache->cacheFile = cacheName;
+    if (nullptr == mCache->cacheFile.c_str()) {
+        MNN_ERROR("Empty cacheFile\n");
+        return;
+    }
+    std::unique_ptr<FileLoader> loader(new FileLoader(mCache->cacheFile.c_str()));
+    if (!loader->valid()) {
+        MNN_ERROR("Load Cache file error.\n");
+        return;
+    }
+    bool result = loader->read();
+    if (!result) {
+        MNN_ERROR("Load Cache file error.\n");
+        return;
+    }
+    if (loader->size() == 0) {
+        MNN_ERROR("Load Cache file error.\n");
+        return;
+    }
+    bool success = loader->merge(mCache->cacheBuffer);
+    if (!success) {
+        MNN_ERROR("Alloc memory for Cache error.\n");
+        return;
+    }
+    
+    // load cache
+    bool valid = loadCache(mInfo, mCache->cacheBuffer.get() + mCache->cacheOffset,
+                           mCache->cacheBuffer.size() - mCache->cacheOffset);
+    if(!valid) {
+        // Reset cache
+        loadCache(mInfo, nullptr, 0);
+        MNN_PRINT("Cache invalid, will be reset\n");
+    }
+    
+    mCache->lastCacheSize = mCache->cacheBuffer.size() - mCache->cacheOffset;
+}
+
+void Executor::RuntimeManager::updateCache() {
+    auto buffer = getCache(mInfo);
+    
+    //When current cacheSize bigger than previous, update
+    if (buffer.first != nullptr && buffer.second > mCache->lastCacheSize) {
+        MNN_PRINT("Update cache to %s, size = %zu\n", mCache->cacheFile.c_str(), buffer.second);
+        writeCacheFile(mCache, buffer);
+        mCache->lastCacheSize = buffer.second;
+    }
+    // Reset cache
+    loadCache(mInfo, nullptr, 0);
+}
+
+std::vector<bool> Executor::RuntimeManager::isBackendSupport(const std::vector<MNNForwardType> types) {
+    std::vector<bool> res;
+    for (auto bn : types) {
+        auto rt = MNNGetExtraRuntimeCreator(bn);
+        if (rt != nullptr) {
+            res.push_back(true);
+        } else {
+            res.push_back(false);
+        }
+    }
+    return res;
 }
 
 ErrorCode Executor::computeInfo(Expr* expr) {

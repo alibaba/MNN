@@ -10,6 +10,8 @@
 #include "../TemplateMerge.hpp"
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
+#include "../Global.hpp"
+#include "config.hpp"
 
 namespace MNN {
 namespace Express {
@@ -35,6 +37,15 @@ static Express::Dimensionformat __revertFormat(int format) {
 static auto gRegister = []() {
     {
         auto compare = [](EXPRP expr) {
+            auto config = Global<modelConfig>::Get();
+            auto optLevel = config->optimizeLevel;
+            if (config->model != modelConfig::TENSORFLOW && config->model != modelConfig::TFLITE) {
+                // For other source we use NCHW format, Binary doesn't cause tensor convert.
+                return false;
+            }
+            if (optLevel == 0) {
+                return false;
+            }
             if (nullptr == expr->get()) {
                 return false;
             }

@@ -141,6 +141,7 @@ enum UnaryOpOperation : int {
     TANH = 30,
     HARDSWISH = 31,
     GELU = 32,
+    GELU_STANDARD = 33,
 }
 
 table UnaryOp {
@@ -295,6 +296,7 @@ table LayerNorm {
     epsilon: float;
     gamma: [float];
     beta: [float];
+    group: int = 1;
 }
 table RandomUniform {
     seed:int = 0;

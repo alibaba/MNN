@@ -23,7 +23,7 @@ std::vector<int> UnaryTorch::inputTensorIdx() {
     return {0};
 }
 
-void UnaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void UnaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     static std::map<std::string, MNN::UnaryOpOperation> gMaps{
         {"abs", MNN::UnaryOpOperation_ABS},
         {"neg", MNN::UnaryOpOperation_NEG},
@@ -57,10 +57,10 @@ void UnaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext
         {"tanh", MNN::UnaryOpOperation_TANH},
         {"sigmoid", MNN::UnaryOpOperation_SIGMOID},
         {"hardswish", MNN::UnaryOpOperation_HARDSWISH},
-        // {"gelu", MNN::UnaryOpOperation_GELU},
+        {"gelu", MNN::UnaryOpOperation_GELU_STANDARD},
     };
     auto param = new MNN::UnaryOpT;
-    std::string opType =  getRealOpType(node->kind().toUnqualString());
+    std::string opType =  getRealOpType(node);
     param->opType = gMaps[opType];
     dstOp->main.value = param;
 }
@@ -97,3 +97,27 @@ REGISTER_CONVERTER(UnaryTorch, expm1);
 REGISTER_CONVERTER(UnaryTorch, tanh);
 REGISTER_CONVERTER(UnaryTorch, sigmoid);
 REGISTER_CONVERTER(UnaryTorch, hardswish);
+REGISTER_CONVERTER(UnaryTorch, gelu);
+
+
+// TODO: silu will impl as unary ?
+DECLARE_OP_CONVERTER(SiluTorch);
+
+MNN::OpType SiluTorch::opType() {
+    return MNN::OpType_Extra;
+}
+MNN::OpParameter SiluTorch::type() {
+    return MNN::OpParameter_Extra;
+}
+std::vector<int> SiluTorch::inputTensorIdx() {
+    return {0};
+}
+
+void SiluTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto extra        = new MNN::ExtraT;
+    extra->engine     = "Torch";
+    extra->type       = getRealOpType(node);
+    dstOp->main.value = extra;
+}
+
+REGISTER_CONVERTER(SiluTorch, silu);

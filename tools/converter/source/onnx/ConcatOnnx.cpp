@@ -18,8 +18,7 @@ MNN::OpParameter ConcatOnnx::type() {
     return MNN::OpParameter_Axis;
 }
 
-void ConcatOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                     std::vector<const onnx::TensorProto*> initializers) {
+void ConcatOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     auto para  = new MNN::AxisT;
     para->axis = 0;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {

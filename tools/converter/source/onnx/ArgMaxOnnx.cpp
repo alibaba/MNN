@@ -19,7 +19,7 @@ MNN::OpParameter ArgMaxOnnx::type(){
     return MNN::OpParameter_ArgMax;
 }
 
-void ArgMaxOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
+void ArgMaxOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     auto axisT              = new MNN::ArgMaxT;
     int axis = 0;
     int keepdims = 1;

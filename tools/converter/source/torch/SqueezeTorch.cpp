@@ -21,7 +21,7 @@ std::vector<int> UnSqueezeTorch::inputTensorIdx() {
     return {0};
 }
 
-void UnSqueezeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void UnSqueezeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::SqueezeParamT;
     param->squeezeDims.push_back(getValue<int64_t>(node->input(1)));
     dstOp->main.value = param;

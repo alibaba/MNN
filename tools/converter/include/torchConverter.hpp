@@ -18,6 +18,6 @@
  * @param MNN net
  */
 MNN_PUBLIC int torch2MNNNet(const std::string inputModel, const std::string bizCode,
-                            std::unique_ptr<MNN::NetT>& netT);
+                            std::unique_ptr<MNN::NetT>& netT, std::string customTorchOps = "");
 
 #endif // TORCHCONVERTER_HPP

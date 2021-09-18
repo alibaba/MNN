@@ -122,6 +122,7 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto deconv  = op->main_as_Convolution2D();
     auto common  = deconv->common();
+    mOp          = op;
     mDepthwise   = op->type() == MNN::OpType_DeconvolutionDepthwise;
     mGroup       = common->group();
     mKernelX     = common->kernelX();
@@ -155,15 +156,10 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     int ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4);
     int ob = output->batch();
 
-    // pad mode support
-    int padX = mPadX, padY = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int pw = (iw - 1) * mStrideX + mKernelX - ow;
-        int ph = (ih - 1) * mStrideY + mKernelY - oh;
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
-
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mOp->main_as_Convolution2D()->common());
+    const int padX  = pad.first;
+    const int padY = pad.second;
+    
     // const buffer
     auto deltaKy = leastCommonMultiple(mDilateY, mStrideY) / mDilateY;
     auto deltaKx = leastCommonMultiple(mDilateX, mStrideX) / mDilateX;
@@ -219,7 +215,7 @@ ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, con
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }
@@ -233,6 +229,10 @@ ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, con
 class MetalDeconvolutionCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+        if (inputs.size() > 1) {
+            MNN_PRINT("multi input deconv for metal not supoort!\n");
+            return nullptr;
+        }
         return new MetalDeconvolution(backend, op);
     }
 };
