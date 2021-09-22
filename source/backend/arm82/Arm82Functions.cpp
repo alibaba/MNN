@@ -145,21 +145,22 @@ static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_
     }
 }
 
-static Vec MNNGridSampleLoadSampleFP16(int h, int w, const FLOAT16 *buffer, int height, int width, bool padMode) {
-    if (h < 0 || h >= height || w < 0 || w >= width) {
-        if(padMode == true) { //padMode == BorderMode_ZEROS
-            return (FLOAT16)0;
+static size_t MNNGridSampleComputeOffsetFP16(int h, int w, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width) {
+            return -1;
         }
+    } else {
         // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
         // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
         // the leftover reflections degrade to GridSamplePaddingMode_BORDER
         h = h < 0 ? 0 : (h > (height - 1) ? (height - 1) : h);
         w = w < 0 ? 0 : (w > (width - 1) ? (width - 1) : w);
     }
-    return Vec::load(buffer + h * width * 8 + w * 8);
+    return h * width * 8 + w * 8;
 }
 
-static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr, const FLOAT16* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode) {
+static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr, const FLOAT16* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
     for (auto ow = 0; ow < outW; ++ow) {
         auto w_fp16 = cordPtr[2 * ow + 0];
         auto h_fp16 = cordPtr[2 * ow + 1];
@@ -170,7 +171,11 @@ static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr,
         if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
             int nh = ::floor(h + 0.5f);
             int nw = ::floor(w + 0.5f);
-            interp = MNNGridSampleLoadSampleFP16(nh, nw, inputPtr, inH, inW, padMode);
+            size_t ns = MNNGridSampleComputeOffsetFP16(nh, nw, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? Vec(0.f) : Vec::load(inputPtr + k * inOffset + ns);
+                Vec::save(outputPtr + k * outOffset + 8 * ow, interp);
+            }
         } else { //sampleMode == GridSampleMode_BILINEAR
             int w0_h = ::floor(h);
             int w0_w = ::floor(w);
@@ -178,22 +183,29 @@ static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr,
             int w1_w = ::ceil(w);
             auto oneV = Vec((FLOAT16)1);
 
-            Vec i00 = MNNGridSampleLoadSampleFP16(w0_h, w0_w, inputPtr, inH, inW, padMode);
-            Vec i01 = MNNGridSampleLoadSampleFP16(w0_h, w1_w, inputPtr, inH, inW, padMode);
-            Vec i10 = MNNGridSampleLoadSampleFP16(w1_h, w0_w, inputPtr, inH, inW, padMode);
-            Vec i11 = MNNGridSampleLoadSampleFP16(w1_h, w1_w, inputPtr, inH, inW, padMode);
             auto f0 = Vec((FLOAT16)w1_w - w_fp16);
             auto f1 = oneV - f0;
             auto h0 = Vec((FLOAT16)w1_h - h_fp16);
             auto h1 = oneV - h0;
 
-            Vec i0 = i00 * f0 + i01 * f1;
-            Vec i1 = i10 * f0 + i11 * f1;
+            size_t s00 = MNNGridSampleComputeOffsetFP16(w0_h, w0_w, inH, inW, padMode);
+            size_t s01 = MNNGridSampleComputeOffsetFP16(w0_h, w1_w, inH, inW, padMode);
+            size_t s10 = MNNGridSampleComputeOffsetFP16(w1_h, w0_w, inH, inW, padMode);
+            size_t s11 = MNNGridSampleComputeOffsetFP16(w1_h, w1_w, inH, inW, padMode);
 
-            interp = i0 * h0 + i1 * h1;
+            for (int k = 0; k < channelCUnit; ++k) {
+                Vec i00 = s00 == -1 ? Vec(0.f) : Vec::load(inputPtr + k * inOffset + s00);
+                Vec i01 = s01 == -1 ? Vec(0.f) : Vec::load(inputPtr + k * inOffset + s01);
+                Vec i10 = s10 == -1 ? Vec(0.f) : Vec::load(inputPtr + k * inOffset + s10);
+                Vec i11 = s11 == -1 ? Vec(0.f) : Vec::load(inputPtr + k * inOffset + s11);
+
+                Vec i0 = i00 * f0 + i01 * f1;
+                Vec i1 = i10 * f0 + i11 * f1;
+
+                interp = i0 * h0 + i1 * h1;
+                Vec::save(outputPtr + k * outOffset + 8 * ow, interp);
+            }
         }
-
-        Vec::save(outputPtr + 8 * ow, interp);
     }
 }
 
