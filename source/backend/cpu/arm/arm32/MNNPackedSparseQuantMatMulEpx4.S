@@ -104,7 +104,7 @@ loop_e8:
     ldr r11, [r3, #16] // h
     lsr r11, r11, #2 // hDiv4 (C4)
     loop_e8h4:
-        vld1.32 q8, [r8]!
+        vld1.32 {q8}, [r8]!
         vmov q9, q8
         vmov q10, q8
         vmov q11, q8
@@ -116,8 +116,8 @@ loop_e8:
         cmp r12, #0
         beq loop_e8h4_end
         loop_e8h4l1:
-            vld1.32 d0[0], [r2]!
-            vld1.8 d2, [r1]
+            vld1.32 {d0[0]}, [r2]!
+            vld1.8 {d2}, [r1]
             vmovl.s8 q0, d0
             vmovl.s8 q1, d2
             ldr lr, [r6], #4
@@ -135,7 +135,7 @@ loop_e8:
 
             bne loop_e8h4l1
         loop_e8h4_end:
-            vld1.32 q0, [r7]!
+            vld1.32 {q0}, [r7]!
             TYPE_CVT vcvt.f32.s32, q8, q9, q10, q11
             TYPE_CVT vcvt.f32.s32, q12, q13, q14, q15
             SCALE q8, q9, q10, q11, q0
@@ -183,7 +183,7 @@ loop_e4:
     ldr r11, [r3, #16] // h
     lsr r11, r11, #2 // hDiv4 (C4)
     loop_e4h4:
-        vld1.32 q8, [r8]!
+        vld1.32 {q8}, [r8]!
         vmov q9, q8
         vmov q10, q8
         vmov q11, q8
@@ -191,8 +191,8 @@ loop_e4:
         cmp r12, #0
         beq loop_e4h4_end
         loop_e4h4l1:
-            vld1.32 d0[0], [r2]!
-            vld1.32 d2[0], [r1]
+            vld1.32 {d0[0]}, [r2]!
+            vld1.32 {d2[0]}, [r1]
             vmovl.s8 q0, d0
             vmovl.s8 q1, d2
             ldr lr, [r6], #4
@@ -205,7 +205,7 @@ loop_e4:
             vmlal.s16 q11, d0, d2[3]
             bne loop_e4h4l1
         loop_e4h4_end:
-            vld1.32 q0, [r7]!
+            vld1.32 {q0}, [r7]!
             TYPE_CVT vcvt.f32.s32, q8, q9, q10, q11
             SCALE q8, q9, q10, q11, q0
             ROUND_MODE q8, q9, q10, q11
@@ -241,14 +241,14 @@ loop_e2:
     ldr r11, [r3, #16] // h
     lsr r11, r11, #2 // hDiv4 (C4)
     loop_e2h4:
-        vld1.32 q8, [r8]!
+        vld1.32 {q8}, [r8]!
         vmov q9, q8
         ldr r12, [r5], #4
         cmp r12, #0
         beq loop_e2h4_end
         loop_e2h4l1:
-            vld1.32 d0[0], [r2]!
-            vld1.16 d2[0], [r1]
+            vld1.32 {d0[0]}, [r2]!
+            vld1.16 {d2[0]}, [r1]
             vmovl.s8 q0, d0
             vmovl.s8 q1, d2
             ldr lr, [r6], #4
@@ -259,7 +259,7 @@ loop_e2:
             vmlal.s16 q9, d0, d2[1]
             bne loop_e2h4l1
         loop_e2h4_end:
-            vld1.32 q0, [r7]!
+            vld1.32 {q0}, [r7]!
             vcvt.f32.s32 q8, q8
             vcvt.f32.s32 q9, q9
             vmul.f32 q8, q8, q0
@@ -302,13 +302,13 @@ loop_e1:
     ldr r11, [r3, #16] // h
     lsr r11, r11, #2 // hDiv4 (C4)
     loop_e1h4:
-        vld1.32 q8, [r8]!
+        vld1.32 {q8}, [r8]!
         ldr r12, [r5], #4
         cmp r12, #0
         beq loop_e1h4_end
         loop_e1h4l1:
-            vld1.32 d0[0], [r2]!
-            vld1.8 d2[0], [r1]
+            vld1.32 {d0[0]}, [r2]!
+            vld1.8 {d2[0]}, [r1]
             vmovl.s8 q0, d0
             vmovl.s8 q1, d2
             ldr lr, [r6], #4
@@ -318,7 +318,7 @@ loop_e1:
             vmlal.s16 q8, d0, d2[0]
             bne loop_e1h4l1
         loop_e1h4_end:
-            vld1.32 q0, [r7]!
+            vld1.32 {q0}, [r7]!
             vcvt.f32.s32 q8, q8
             vmul.f32 q8, q8, q0
             vcgt.f32 q1, q8, #0
