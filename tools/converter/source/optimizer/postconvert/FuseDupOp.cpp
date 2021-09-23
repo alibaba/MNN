@@ -60,7 +60,16 @@ public:
             return op0->main.AsBinaryOp()->opType == op1->main.AsBinaryOp()->opType;
         }
         if (op0->main.type == OpParameter_ReductionParam) {
-            return op0->main.AsReductionParam()->operation == op1->main.AsReductionParam()->operation;
+            if (op0->main.AsReductionParam()->operation != op1->main.AsReductionParam()->operation) {
+                return false;
+            }
+            if (op0->main.AsReductionParam()->keepDims != op1->main.AsReductionParam()->keepDims) {
+                return false;
+            }
+            if (op0->main.AsReductionParam()->dim != op1->main.AsReductionParam()->dim) {
+                return false;
+            }
+            return true;
         }
         return false;
     }
