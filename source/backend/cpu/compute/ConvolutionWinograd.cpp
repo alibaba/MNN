@@ -195,7 +195,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
             int xIndex  = (int)tIndex * ePack;
             int xReamin = totalCount - xIndex;
             int xC      = xReamin > ePack ? ePack : xReamin;
-            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR > FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd;
+            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR > FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack;
             // const bool fuseTransformPack = false;
 
             // Timer timer;

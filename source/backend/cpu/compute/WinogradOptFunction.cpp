@@ -809,8 +809,6 @@ WinogradFunction::TransformPackFunc WinogradFunction::chooseWinoSourceTransformP
         }
         // other packing size
     }
-    MNN_ERROR("Can not find function for ePack:%d, packCUnit:%d\n", ePack, packCUnit);
-    MNN_ASSERT(false);
     return nullptr;
 }
 
