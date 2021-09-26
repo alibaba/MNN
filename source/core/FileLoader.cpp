@@ -9,6 +9,7 @@
 #include "core/FileLoader.hpp"
 #if defined(_MSC_VER)
 #include "Windows.h"
+#include <algorithm>
 #endif
 namespace MNN {
 FileLoader::FileLoader(const char* file) {
