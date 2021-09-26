@@ -224,7 +224,24 @@ static SAFEBUFFERS int GetCpuFlags(void) {
                 ((cpu_info1[2] & 0x20000000) ? kCpuHasF16C : 0);
 
     // Detect AVX512bw
-    if ((GetXCR0() & 0xe0) == 0xe0) {
+    bool avx512_os = (GetXCR0() & 0xe0) == 0xe0;
+#if defined(__APPLE__) && defined(__x86_64__)
+    /**
+     * On darwin, machines with AVX512 support, by default, threads are created with
+     * AVX512 masked off in XCR0 and an AVX-sized savearea is used.
+     * However, AVX512 capabilities are advertised in the commpage and via sysctl.
+     */
+    if (!avx512_os) {
+      uintptr_t commpage64_addr = 0x00007fffffe00000ULL;
+      uint16_t commpage64_ver = *((uint16_t *)(commpage64_addr + 0x01E));
+      // cpu_capabilities64 undefined in versions < 13
+      if (commpage64_ver > 12) {
+        uint64_t commpage64_cap = *((uint64_t *)(commpage64_addr + 0x010));
+        avx512_os = (commpage64_cap & 0x0000004000000000ULL) != 0;
+      }
+    }
+#endif
+    if (avx512_os) {
       cpu_info |= (cpu_info7[1] & 0x40000000) ? kCpuHasAVX512BW : 0;
       cpu_info |= (cpu_info7[1] & 0x80000000) ? kCpuHasAVX512VL : 0;
       cpu_info |= (cpu_info7[2] & 0x00000002) ? kCpuHasAVX512VBMI : 0;
