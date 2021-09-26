@@ -93,7 +93,11 @@ bool FileLoader::write(std::pair<const void*, size_t> verifyInfo, std::pair<cons
     size_t blockSize          = UP_DIV(totalSize, block);
     for (size_t i = 0; i < blockSize; ++i) {
         size_t sta = block * i;
+#ifdef _MSC_VER
+        size_t fin = min(sta + block, totalSize);
+#else
         size_t fin = std::min(sta + block, totalSize);
+#endif
         if (fin > sta) {
             auto realSize = fwrite((const char*)(cacheInfo.first) + sta, 1, fin - sta, f);
             if (realSize != fin - sta) {
