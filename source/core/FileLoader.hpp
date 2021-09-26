@@ -18,7 +18,7 @@ public:
 
     bool read();
     
-    bool write(std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo);
+    static bool write(const char* filePath, std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo);
 
     bool valid() const {
         return mFile != nullptr;
@@ -35,6 +35,5 @@ private:
     static const int gCacheSize = 4096;
     size_t mTotalSize           = 0;
     const char* mFilePath       = nullptr;
-    std::mutex mMutex;
 };
 } // namespace MNN

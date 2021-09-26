@@ -73,18 +73,17 @@ bool FileLoader::read() {
     return true;
 }
 
-bool FileLoader::write(std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo) {
-    // set mutex lock
-    std::lock_guard<std::mutex> _l(mMutex);
-    FILE* f = fopen(mFilePath, "wb");
+bool FileLoader::write(const char* filePath, std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo) {
+    FILE* f = fopen(filePath, "wb");
     if (nullptr == f) {
-        MNN_ERROR("Open %s error\n", mFilePath);
+        MNN_ERROR("Open %s error\n", filePath);
         return false;
     }
     // Write key
     auto tsize = fwrite((const char*)verifyInfo.first, 1, verifyInfo.second, f);
     if (tsize != verifyInfo.second) {
-        MNN_ERROR("Write %s error\n", mFilePath);
+        MNN_ERROR("Write %s error\n", filePath);
+        fclose(f);
         return false;
     }
     // Write Cache
@@ -93,11 +92,12 @@ bool FileLoader::write(std::pair<const void*, size_t> verifyInfo, std::pair<cons
     size_t blockSize          = UP_DIV(totalSize, block);
     for (size_t i = 0; i < blockSize; ++i) {
         size_t sta = block * i;
-        size_t fin = std::min(sta + block, totalSize);
+        size_t fin = (sta + block >= totalSize) ? totalSize : (sta + block);
         if (fin > sta) {
             auto realSize = fwrite((const char*)(cacheInfo.first) + sta, 1, fin - sta, f);
             if (realSize != fin - sta) {
-                MNN_ERROR("Write %s error\n", mFilePath);
+                MNN_ERROR("Write %s error\n", filePath);
+                fclose(f);
                 return false;
             }
         }

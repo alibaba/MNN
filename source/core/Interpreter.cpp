@@ -36,9 +36,8 @@ struct Content {
 };
 
 static void writeCacheFile(const Content *net, std::pair<const void*, size_t> buffer) {
-    std::unique_ptr<FileLoader> loader(new FileLoader(net->cacheFile.c_str()));
     auto verifyInfo = std::make_pair((const void*)net->buffer.get(), net->cacheOffset);
-    bool res = loader->write(verifyInfo, buffer);
+    bool res = FileLoader::write(net->cacheFile.c_str(), verifyInfo, buffer);
     if (!res) {
         MNN_ERROR("Write Cache File error!\n");
         return;

@@ -224,9 +224,8 @@ static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime> &rt) {
 }
 
 static void writeCacheFile(std::shared_ptr<Executor::Cache> cache, std::pair<const void*, size_t> buffer) {
-    std::unique_ptr<FileLoader> loader(new FileLoader(cache->cacheFile.c_str()));
     auto verifyInfo = std::make_pair((const void*)cache->modelBuffer.get(), cache->cacheOffset);
-    bool res = loader->write(verifyInfo, buffer);
+    bool res = FileLoader::write(cache->cacheFile.c_str(), verifyInfo, buffer);
     if (!res) {
         MNN_ERROR("Write Cache File error!\n");
         return;
