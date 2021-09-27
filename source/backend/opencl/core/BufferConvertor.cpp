@@ -102,7 +102,7 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
     res = runtime->commandQueue().enqueueNDRangeKernel(convertBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    //MNN_CHECK_CL_SUCCESS(res, "nhwc_buffer_to_nc4hw4_buffer");
+    MNN_CHECK_CL_SUCCESS(res, "nhwc_buffer_to_nc4hw4_buffer");
     if (true == needWait) {
         event.wait();
     }

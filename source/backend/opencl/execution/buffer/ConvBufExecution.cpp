@@ -313,7 +313,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         std::shared_ptr<Tensor> virtualFilter(
             Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 4) * ROUND_UP(mInputChannel, 4) * mKernelWidth * mKernelHeight}));
         mVirtualFilter = virtualFilter;
-        mRasterExe.reset(new RasterBufExecution({virtualFilter.get()}, mOpenCLBackend));
+        mRasterExe.reset(new RasterBufExecution({virtualFilter.get()}, op, mOpenCLBackend));
     } else {
         int weightSize   = 0;
         ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &mFilterDataPtr, &weightSize);
@@ -347,7 +347,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
             std::shared_ptr<Tensor> virtualFilter(
                 Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 4) * ROUND_UP(mInputChannel, 4) * mKernelWidth * mKernelHeight}));
             _generateFilterConvertRegion(virtualFilter.get(), originBuffer.get());
-            std::shared_ptr<Execution> raster(new RasterBufExecution({virtualFilter.get()}, mOpenCLBackend));
+            std::shared_ptr<Execution> raster(new RasterBufExecution({virtualFilter.get()}, op, mOpenCLBackend));
             raster->onResize({virtualFilter.get()}, {mFilter.get()});
             raster->onExecute({virtualFilter.get()}, {mFilter.get()});
             mOpenCLBackend->onReleaseBuffer(originBuffer.get(), Backend::STATIC);

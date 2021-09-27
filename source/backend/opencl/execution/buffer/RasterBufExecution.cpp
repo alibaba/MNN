@@ -17,9 +17,10 @@
 namespace MNN {
 namespace OpenCL {
 
-RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, Backend *backend)
+RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : CommonExecution(backend) {
     mOpenCLBackend = (OpenCLBackend *)backend;
+    mOp = op;
     //nothing to do
 }
 
@@ -338,7 +339,7 @@ public:
     virtual ~RasterCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
                                 Backend *backend) const override {
-        return new RasterBufExecution(inputs, backend);
+        return new RasterBufExecution(inputs, op, backend);
     }
 };
 
