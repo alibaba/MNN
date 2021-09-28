@@ -21,7 +21,7 @@ MNN::OpParameter SoftmaxOnnx::type() {
 void SoftmaxOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                       OnnxScope* scope) {
     auto axis           = new MNN::AxisT;
-    axis->axis          = 1;
+    axis->axis          = -1;
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {
         const auto& attributeProto = onnxNode->attribute(i);
