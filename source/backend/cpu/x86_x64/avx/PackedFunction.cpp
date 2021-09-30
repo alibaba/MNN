@@ -271,16 +271,42 @@ void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, siz
         dst += PACK_UNIT * 2;
     }
 
-    for (int i = 0; i < areaRemain; ++i) {
-        __m256 x = _mm256_set1_ps(src[0]);
-        __m256 y = _mm256_set1_ps(src[1]);
-        x = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, x), inW_sub_a), b));
-        y = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, y), inH_sub_a), b));
-        dst[0] = x[0];
-        dst[1] = y[0];
+    if (areaRemain > 0) {
+        float flag[PACK_UNIT] = {0.f};
+        __m256i mask;
+        if (areaRemain > PACK_UNIT / 2) {
+            for (int i = 0; i < areaRemain - PACK_UNIT / 2; ++i) {
+                flag[2 * i] = -0.f;
+                flag[2 * i + 1] = -0.f;
+            }
+            mask = _mm256_loadu_si256((__m256i*)flag);
+            __m256 grid0 = _mm256_loadu_ps(src);
+            __m256 grid1 = _mm256_maskload_ps(src + PACK_UNIT, mask);
+            __m256 x = _mm256_shuffle_ps(grid0, grid1, 0x88);
+            __m256 y = _mm256_shuffle_ps(grid0, grid1, 0xdd);
+            __m256 cord_x = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, x), inW_sub_a), b));
+            __m256 cord_y = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, y), inH_sub_a), b));
+            __m256 cord0 = _mm256_unpacklo_ps(cord_x, cord_y);
+            __m256 cord1 = _mm256_unpackhi_ps(cord_x, cord_y);
 
-        src += 2;
-        dst += 2;
+            _mm256_storeu_ps(dst, cord0);
+            _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
+        } else {
+            for (int i = 0; i < areaRemain; ++i) {
+                flag[2 * i] = -0.f;
+                flag[2 * i + 1] = -0.f;
+            }
+            mask = _mm256_loadu_si256((__m256i*)flag);
+            __m256 grid0 = _mm256_maskload_ps(src, mask);
+            __m256 grid1 = zero;
+            __m256 x = _mm256_shuffle_ps(grid0, grid1, 0x88);
+            __m256 y = _mm256_shuffle_ps(grid0, grid1, 0xdd);
+            __m256 cord_x = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, x), inW_sub_a), b));
+            __m256 cord_y = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, y), inH_sub_a), b));
+            __m256 cord0 = _mm256_unpacklo_ps(cord_x, cord_y);
+
+            _mm256_maskstore_ps(dst, mask, cord0);
+        }
     }
 }
 

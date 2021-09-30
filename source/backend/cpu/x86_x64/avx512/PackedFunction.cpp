@@ -223,16 +223,35 @@ void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, 
         dst += PACK_UNIT * 2;
     }
 
-    for (int i = 0; i < areaRemain; ++i) {
-        __m512 x = _mm512_set1_ps(src[0]);
-        __m512 y = _mm512_set1_ps(src[1]);
-        x = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, x), inW_sub_a), b));
-        y = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, y), inH_sub_a), b));
-        dst[0] = x[0];
-        dst[1] = y[0];
+    if (areaRemain > 0) {
+        __mmask16 mask = 0xffff;
+        if (areaRemain > PACK_UNIT / 2) {
+            int shift = areaRemain * 2 - PACK_UNIT;
+            mask = (1 << shift) - 1;
+            __m512 grid0 = _mm512_loadu_ps(src);
+            __m512 grid1 = _mm512_maskz_loadu_ps(mask, src + PACK_UNIT);
+            __m512 x = _mm512_shuffle_ps(grid0, grid1, 0x88);
+            __m512 y = _mm512_shuffle_ps(grid0, grid1, 0xdd);
+            __m512 cord_x = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, x), inW_sub_a), b));
+            __m512 cord_y = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, y), inH_sub_a), b));
+            __m512 cord0 = _mm512_unpacklo_ps(cord_x, cord_y);
+            __m512 cord1 = _mm512_unpackhi_ps(cord_x, cord_y);
 
-        src += 2;
-        dst += 2;
+            _mm512_storeu_ps(dst, cord0);
+            _mm512_mask_storeu_ps(dst + PACK_UNIT, mask, cord1);
+        } else {
+            int shift = areaRemain * 2;
+            mask = (1 << shift) - 1;
+            __m512 grid0 = _mm512_maskz_loadu_ps(mask, src);
+            __m512 grid1 = zero;
+            __m512 x = _mm512_shuffle_ps(grid0, grid1, 0x88);
+            __m512 y = _mm512_shuffle_ps(grid0, grid1, 0xdd);
+            __m512 cord_x = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, x), inW_sub_a), b));
+            __m512 cord_y = _mm512_mul_ps(half, _mm512_sub_ps(_mm512_mul_ps(_mm512_add_ps(one, y), inH_sub_a), b));
+            __m512 cord0 = _mm512_unpacklo_ps(cord_x, cord_y);
+
+            _mm512_mask_storeu_ps(dst, mask, cord0);
+        }
     }
 }
 
