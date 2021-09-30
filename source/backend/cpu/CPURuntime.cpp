@@ -1479,6 +1479,10 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 #ifndef CPUFAMILY_ARM_FIRESTORM_ICESTORM
 #define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1b588bb3
 #endif
+// A15
+#ifndef CPUFAMILY_ARM_AVALANCHE_BLIZZARD
+#define CPUFAMILY_ARM_AVALANCHE_BLIZZARD 0xda33d83d
+#endif
 
     const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
     // const uint32_t cpu_type = get_sys_info_by_name("hw.cputype");
@@ -1487,17 +1491,19 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
     cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_ARM_MONSOON_MISTRAL ||
                              cpu_family == CPUFAMILY_ARM_VORTEX_TEMPEST ||
                              cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
-                             cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
+                             cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
+                             cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD;
 
     cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
-                       cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
+                       cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
+                       cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD;
 
 #endif // iOS
 
 // arm64-osx
 #if defined(__APPLE__) && defined(__aarch64__) && !defined(__IOS__)   
 #ifndef CPUFAMILY_AARCH64_FIRESTORM_ICESTORM
-#define CPUFAMILY_AARCH64_FIRESTORM_ICESTORM 458787763
+#define CPUFAMILY_AARCH64_FIRESTORM_ICESTORM 0x1b588bb3
 #endif
     const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
     cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
