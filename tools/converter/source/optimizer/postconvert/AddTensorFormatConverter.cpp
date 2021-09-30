@@ -351,7 +351,15 @@ public:
             for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end(); iter++) {
                 auto& op         = *iter;
                 if (OpType_Input == op->type) {
+                    auto originInputFormat = op->main.AsInput()->dformat;
                     op->main.AsInput()->dformat = tensorFormats[op->outputIndexes[0]];
+                    if (originInputFormat == MNN_DATA_FORMAT_NHWC && op->main.AsInput()->dformat == MNN_DATA_FORMAT_NC4HW4 && op->main.AsInput()->dims.size() == 4) {
+                        int n = op->main.AsInput()->dims[0];
+                        int h = op->main.AsInput()->dims[1];
+                        int w = op->main.AsInput()->dims[2];
+                        int c = op->main.AsInput()->dims[3];
+                        op->main.AsInput()->dims = {n, c, h, w};
+                    }
                 }
             }
         }
