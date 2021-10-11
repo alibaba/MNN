@@ -37,6 +37,7 @@ IF(MNN_BUILD_CONVERTER)
 
   file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp)
   add_executable(MNNDump2Json ${CMAKE_CURRENT_LIST_DIR}/source/MNNDump2Json.cpp)
+  add_executable(MNNRevert2Buffer ${CMAKE_CURRENT_LIST_DIR}/source/MNNRevert2Buffer.cpp)
   add_executable(MNNConvert
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
   )
