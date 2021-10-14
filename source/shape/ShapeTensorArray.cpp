@@ -59,6 +59,9 @@ class TensorArrayComputer : public SizeComputer {
                 std::vector<int> elemShape(param->element_shape()->size());
                 for (int i = 0; i < param->element_shape()->size(); i++) {
                     elemShape[i] = param->element_shape()->Get(i);
+                    if (elemShape[i] < 0) {
+                        elemShape[i] = 0;
+                    }
                 }
                 des->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
             }
