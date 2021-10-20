@@ -45,16 +45,14 @@ public:
             output->buffer().type = input->buffer().type;
             if (outputSize > 1) {
                 auto YHOutput = outputs[1];
-                TensorUtils::setShape(YHOutput, {1, isBidirectionalRNN + 1, input->length(1), numUnits});
+                TensorUtils::setShape(YHOutput, {isBidirectionalRNN + 1, input->length(1), numUnits});
                 YHOutput->buffer().type = input->buffer().type;
                 TensorUtils::getDescribe(YHOutput)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
             }
         } else { // only keep the last hidden layer sequence
-            TensorUtils::setShape(output, {1, isBidirectionalRNN + 1, input->length(1), numUnits});
+            TensorUtils::setShape(output, {isBidirectionalRNN + 1, input->length(1), numUnits});
             output->buffer().type = input->buffer().type;
         }
-
-        // output->printShape();
 
         return true;
     }

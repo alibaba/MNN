@@ -11,6 +11,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "math/Matrix.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -53,36 +54,60 @@ static void runRNNStep(const float* input, const int inputLength, const bool lin
     ::memcpy(inputAndStatePtr, input, inputLength * sizeof(float));
     ::memcpy(inputAndStatePtr + inputLength, hiddenStatePtr, numUnits * sizeof(float));
     inputAndState->setLength(1, inputLength + numUnits);
-
     // to be fused
-    Math::Matrix::multi(gate.get(), inputAndState.get(), gateWeight);  // [x_t, h_t-1] * [W_z; W_r]: (1, inputLength + numUnits) X (inputLength + numUnits, 2 * numUnits)
+    // // [x_t, h_t-1] * [W_zr, R_zr]: (1, inputLength + numUnits) X (inputLength + numUnits, 2 * numUnits)
+    Math::Matrix::multi(gate.get(), inputAndState.get(), gateWeight);
     Math::Matrix::add(gate.get(), gate.get(), gateBias);
 
     recurrentBias->setLength(1, 2 * numUnits);
     Math::Matrix::add(gate.get(), gate.get(), recurrentBias);
-    const int gateSize = gate->elementSize();                          // (1, 2*numUnits)
+    // (1, 2*numUnits)
+    const int gateSize = gate->elementSize();
     auto gatePtr       = gate->host<float>();
     for (int i = 0; i < gateSize; ++i) {
         gatePtr[i] = sigmoid(gatePtr[i]);
     }
-    // reset gate
-    auto rtPtr = gatePtr + numUnits;                              // r_t is the second segment
-    auto resetGatePtr = inputAndStatePtr + inputLength;           // r_t: (1, numUnits)
-    ArrayProduct(resetGatePtr, rtPtr, hiddenStatePtr, numUnits);  // h_t1(1, numUnits) = r_t(1, numUnits) * h_t-1_(1, numUnits)
+    // reset gate, // r_t is the second segment
+    auto rtPtr = gatePtr + numUnits;
 
-    // deal with recurrent bias and linear_before_reset parameter
-    auto recurrentBiasAddedPtr = inputAndStatePtr + inputLength + numUnits;
-    auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits;
     if (linearBeforeReset) {
-        ArrayProduct(recurrentBiasAddedPtr, rtPtr, recurrentHiddenBiasPtr, numUnits); //2.  rt * h_t_1
-        ArrayAdd(recurrentBiasAddedPtr, recurrentBiasAddedPtr, candidateBias->host<float>(), numUnits);
-    } else {
-        ArrayAdd(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits);
-    }
+        // calculate Rt (.) (Ht_1 * Rh + Rbh)
+        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits;
+        auto rhWeightPtr = candidateWeight->host<float>() + inputLength * numUnits;
+        Tensor* rhWeight = Tensor::create({numUnits, numUnits}, candidateWeight->getType(), (void*)(rhWeightPtr), TensorUtils::getDimType(candidateWeight));
+        Math::Matrix::multi(resetHt.get(), hiddenState.get(), rhWeight);
+        ArrayAdd(resetHt->host<float>(), resetHt->host<float>(), recurrentHiddenBiasPtr, numUnits),
+        ArrayProduct(resetHt->host<float>(), rtPtr, resetHt->host<float>(), numUnits);
 
-    Math::Matrix::multi(resetHt.get(), inputAndState.get(), candidateWeight); // [x_t, h_t1](1, inputLength + numUnits) * candidateWeight_(inputLength + numUnits, numUnits)
-    // Math::Matrix::add(gate.get(), gate.get(), candidateBias.get());
-    ArrayAdd(rtPtr, resetHt->host<float>(), recurrentBiasAddedPtr, numUnits); // reuse r_t memory as h_t
+        // calculate Xt * Wh
+        Tensor* XtWhTensor = Tensor::create({1, numUnits}, inputAndState->getType(), (void*)(inputAndStatePtr + inputLength + numUnits), TensorUtils::getDimType(inputAndState.get()));
+        Tensor* inputTensor = Tensor::create({1, inputLength}, inputAndState->getType(), (void*)(input), TensorUtils::getDimType(inputAndState.get()));
+        candidateWeight->setLength(0, inputLength);
+        Math::Matrix::multi(XtWhTensor, inputTensor, candidateWeight);
+        // sum 3 parts
+        ArrayAdd(resetHt->host<float>(), resetHt->host<float>(), XtWhTensor->host<float>(), numUnits);
+        ArrayAdd(rtPtr, resetHt->host<float>(), candidateBias->host<float>(), numUnits),
+        candidateWeight->setLength(0, inputLength + numUnits);
+
+        // release wrapper
+        delete rhWeight;
+        delete XtWhTensor;
+        delete inputTensor;
+    } else {
+        // r_t: (1, numUnits)
+        auto resetGatePtr = inputAndStatePtr + inputLength;
+        // h_t1(1, numUnits) = r_t(1, numUnits) * h_t-1_(1, numUnits)
+        ArrayProduct(resetGatePtr, rtPtr, hiddenStatePtr, numUnits);
+        // deal with recurrent bias and linear_before_reset parameter
+        auto recurrentBiasAddedPtr = inputAndStatePtr + inputLength + numUnits;
+        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits;
+
+        ArrayAdd(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits);
+        // [x_t, h_t1](1, inputLength + numUnits) * candidateWeight_(inputLength + numUnits, numUnits)
+        Math::Matrix::multi(resetHt.get(), inputAndState.get(), candidateWeight);
+        // reuse r_t memory as h_t'
+        ArrayAdd(rtPtr, resetHt->host<float>(), recurrentBiasAddedPtr, numUnits);
+    }
 
     for (int i = 0; i < numUnits; ++i) {
         hiddenStatePtr[i] =
@@ -98,29 +123,7 @@ CPURNNSequenceGRU::CPURNNSequenceGRU(const Op* op, Backend* backend) : MNN::Exec
     mIsBidirectionalRNN = rnnParam->isBidirectionalRNN();
     mNumUnits           = rnnParam->numUnits();
     mlinearBeforeReset  = rnnParam->linearBeforeReset();
-    // MNN_PRINT("mKeepAllOutputs:%d, mNumUnits:%d, mlinearBeforeReset:%d", mKeepAllOutputs, mNumUnits, mlinearBeforeReset);
-    // auto copyData = [=](std::shared_ptr<Tensor>& tensor, const Blob* src) {
-    //     std::vector<int> shape;
-    //     for (int i = 0; i < src->dims()->size(); ++i) {
-    //         shape.push_back(src->dims()->data()[i]);
-    //     }
-    //     tensor.reset(Tensor::createDevice<float>(shape));
-    //     backend->onAcquireBuffer(tensor.get(), Backend::STATIC);
-    //     ::memcpy(tensor->host<float>(), src->float32s()->data(), src->float32s()->size() * sizeof(float));
-    // };
-    // copyData(mFwGateWeight, rnnParam->fwGateWeight());
-    // copyData(mFwGateBias, rnnParam->fwGateBias());
-    // copyData(mFwCandidateWeight, rnnParam->fwCandidateWeight());
-    // copyData(mFwCandidateBias, rnnParam->fwCandidateBias());
-    // copyData(mFwRecurrentBias, rnnParam->fwRecurrentBias());
-    // MNN_ASSERT(mFwCandidateBias->length(0) == mNumUnits);
-    // if (mIsBidirectionalRNN) {
-    //     copyData(mBwGateWeight, rnnParam->bwGateWeight());
-    //     copyData(mBwGateBias, rnnParam->bwGateBias());
-    //     copyData(mBwCandidateWeight, rnnParam->bwCandidateWeight());
-    //     copyData(mBwCandidateBias, rnnParam->bwCandidateBias());
-    //     copyData(mBwRecurrentBias, rnnParam->bwRecurrentBias());
-    // }
+
 }
 
 CPURNNSequenceGRU::~CPURNNSequenceGRU() {
@@ -190,7 +193,7 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
     const int SequenceStride      = input->stride(0);
     const int inputSequenceLength = input->length(0);
     const int inputCodeLength     = input->length(2);
-
+    // MNN_PRINT("inputSequenceLength:%d, batchSize:%d, inputCodeLength:%d, mNumUnits:%d, hiddenStateDataSize:%d\n", inputSequenceLength, batchSize, inputCodeLength, mNumUnits, hiddenStateDataSize);
     for (int b = 0; b < batchSize; ++b) { // swap order
         if (inputSize > 1 + forwardParamNumber * (mIsBidirectionalRNN + 1)) {
             auto source = inputs[inputSize - 1]->host<uint8_t>() + b * hiddenStateDataSize;
@@ -203,6 +206,7 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
             const int inputOffset = i * SequenceStride + b * inputCodeLength;
             runRNNStep(inputPtr + inputOffset, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, fwGateWeight, fwGateBias,
                        fwCandidateWeight, fwCandidateBias, fwRecurrentBias, mInputAndState, mGate, mResetHt);
+
             if (mKeepAllOutputs) {
                 ::memcpy(outputPtr + i * output->stride(0) + b * mNumUnits, hiddenStatePtr, hiddenStateDataSize);
             }
