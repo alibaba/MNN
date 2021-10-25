@@ -1457,6 +1457,9 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
         }
     }
 #endif
+    if (arm_linux_processors) {
+        free(arm_linux_processors);
+    }
 
 #endif // #ifdef __ANDROID__
 
