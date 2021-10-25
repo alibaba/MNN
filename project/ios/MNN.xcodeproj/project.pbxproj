@@ -77,6 +77,7 @@
 		48417FF024D13BF50056D9A7 /* GeometryThreshold.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48417FEC24D13BF50056D9A7 /* GeometryThreshold.cpp */; };
 		48417FF124D13BF50056D9A7 /* GeometryELU.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48417FED24D13BF50056D9A7 /* GeometryELU.cpp */; };
 		48417FF224D13BF50056D9A7 /* GeometrySelect.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48417FEE24D13BF50056D9A7 /* GeometrySelect.cpp */; };
+		4844603F2726575E00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S in Sources */ = {isa = PBXBuildFile; fileRef = 4844603E2726575E00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
 		48608B51250632EC00CB1D71 /* GeometryComputer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48608B4D250632EC00CB1D71 /* GeometryComputer.cpp */; };
 		48608B52250632EC00CB1D71 /* GeometryComputerUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48608B4E250632EC00CB1D71 /* GeometryComputerUtils.cpp */; };
 		48608B53250632EC00CB1D71 /* GeometryComputerUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48608B4F250632EC00CB1D71 /* GeometryComputerUtils.hpp */; };
@@ -834,6 +835,7 @@
 		48417FEC24D13BF50056D9A7 /* GeometryThreshold.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryThreshold.cpp; sourceTree = "<group>"; };
 		48417FED24D13BF50056D9A7 /* GeometryELU.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryELU.cpp; sourceTree = "<group>"; };
 		48417FEE24D13BF50056D9A7 /* GeometrySelect.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometrySelect.cpp; sourceTree = "<group>"; };
+		4844603E2726575E00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = MNNConvWinoSourceTransformUnit6x6FP16.S; path = ../../../arm82/asm/arm64/MNNConvWinoSourceTransformUnit6x6FP16.S; sourceTree = "<group>"; };
 		48608B4D250632EC00CB1D71 /* GeometryComputer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryComputer.cpp; sourceTree = "<group>"; };
 		48608B4E250632EC00CB1D71 /* GeometryComputerUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryComputerUtils.cpp; sourceTree = "<group>"; };
 		48608B4F250632EC00CB1D71 /* GeometryComputerUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GeometryComputerUtils.hpp; sourceTree = "<group>"; };
@@ -2409,6 +2411,7 @@
 		92FF017C23AA0B4E00AC97F6 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				4844603E2726575E00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S */,
 				4AF4FB27269ED243005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */,
 				4AF4FB28269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */,
 				4DD1793B2694078000B0098F /* MNNSoftmax.S */,
@@ -3176,6 +3179,7 @@
 				4819FB3A24C69E680050BD09 /* GeometryInnerProduct.cpp in Sources */,
 				92FF037723AA0B5A00AC97F6 /* CPUConvolutionDepthwise.cpp in Sources */,
 				EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */,
+				4844603F2726575E00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S in Sources */,
 				4896D37B25FE2A6B00717702 /* MNNConvDwF23MulTransUnitFP16.S in Sources */,
 				92FF02DE23AA0B5A00AC97F6 /* MNNSamplerC4BilinearOpt.S in Sources */,
 				48FD12BF2466A88D009E9102 /* GeometryConv2DBackPropFilter.cpp in Sources */,
@@ -3703,7 +3707,7 @@
 				CODE_SIGN_STYLE = Manual;
 				DEAD_CODE_STRIPPING = YES;
 				DEFINES_MODULE = YES;
-				DEVELOPMENT_TEAM = YFX4Y9599X;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -3788,7 +3792,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = YFX4Y9599X;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
 				HEADER_SEARCH_PATHS = (
@@ -3801,7 +3805,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.tianbu.MNN.playgroundvv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tianbu.MNN.playground3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
