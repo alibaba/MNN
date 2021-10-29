@@ -93,7 +93,13 @@ static auto gRegister = []() {
         if (inputBlockShape.size() > 1) {
             common->dilateX = inputBlockShape[1];
         }
-        common->pads = inputPaddings;
+        common->pads.resize(inputPaddings.size());
+        // Turn top, bottom, left, right -> top, left, bottom, right
+        int halfSize = inputPaddings.size() / 2;
+        for (int i=0; i<halfSize; ++i) {
+            common->pads[2*i+0] = inputPaddings[i];
+            common->pads[2*i+1] = inputPaddings[i + halfSize];
+        }
         common->padMode = PadMode_CAFFE;
         auto newInputs = convExpr->inputs();
         newInputs[0] = spaceToBatchExpr->inputs()[0];
