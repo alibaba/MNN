@@ -9,8 +9,8 @@
 #include "backend/cpu/CPUROIPooling.hpp"
 #include <float.h>
 #include <math.h>
-#include "backend/cpu/CPUBackend.hpp"
 #include "CPUTensorConvert.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include "core/TensorUtils.hpp"
 
 #ifdef MNN_USE_NEON
@@ -27,6 +27,8 @@ CPUROIPooling::CPUROIPooling(Backend *backend, int pooledWidth, int pooledHeight
 ErrorCode CPUROIPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // roi transform space
     auto &roi = inputs[1]->buffer();
+
+    mROI.buffer().dimensions = roi.dimensions;
     memcpy(mROI.buffer().dim, roi.dim, sizeof(halide_dimension_t) * roi.dimensions);
     TensorUtils::getDescribe(&mROI)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     TensorUtils::setLinearLayout(&mROI);
@@ -38,25 +40,35 @@ ErrorCode CPUROIPooling::onResize(const std::vector<Tensor *> &inputs, const std
     return NO_ERROR;
 }
 
-static inline int max(int a, int b) {
-    return a > b ? a : b;
-}
-static inline int min(int a, int b) {
-    return a < b ? a : b;
-}
+static inline int max(int a, int b) { return a > b ? a : b; }
+static inline int min(int a, int b) { return a < b ? a : b; }
 
 ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto &input  = inputs[0];
     auto &output = outputs[0];
 
     // download
-    CPUTensorConverter::convert(inputs[1]->host<void>(), mROI.host<void>(), MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, mROI.batch(), inputs[1]->width() * inputs[1]->height(), inputs[1]->channel(), 4, static_cast<CPUBackend*>(backend())->functions());
+    MNN_DATA_FORMAT roiDimensionFormat = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
+    switch (roiDimensionFormat) {
+        case MNN::MNN_DATA_FORMAT_NCHW:
+            ::memcpy(mROI.host<void>(), inputs[1]->host<void>(), inputs[1]->elementSize() * sizeof(float));
+            break;
+        case MNN::MNN_DATA_FORMAT_NC4HW4:
+            CPUTensorConverter::convert(inputs[1]->host<void>(), mROI.host<void>(), MNN_DATA_FORMAT_NC4HW4,
+                                        MNN_DATA_FORMAT_NCHW, mROI.batch(), inputs[1]->width() * inputs[1]->height(),
+                                        inputs[1]->channel(), 4, static_cast<CPUBackend *>(backend())->functions());
+            break;
+        default:
+            MNN_ERROR("rois dimension format: %d not supported now!", roiDimensionFormat);
+            return NOT_SUPPORT;
+            break;
+    }
 
     // get params
     auto iw = input->width(), ih = input->height(), is = iw * ih * 4;
     auto ow = output->width(), oh = output->height(), os = ow * oh * 4;
-    auto slice     = UP_DIV(input->channel(), 4);
-    auto numROI    = inputs[1]->batch();
+    auto slice  = UP_DIV(input->channel(), 4);
+    auto numROI = inputs[1]->batch();
 
     for (int n = 0; n < numROI; ++n) {
         auto batchOutput = output->host<float>() + os * n;
