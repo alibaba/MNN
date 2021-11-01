@@ -12,9 +12,30 @@
 #include <string>
 #include <algorithm>
 #include "../PostTreatUtils.hpp"
-
+using namespace MNN;
 class RemoveInvalidCast : public PostConverter {
 public:
+    static bool outputBool(int operation) {
+        if (operation == BinaryOpOperation_GREATER_EQUAL) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_GREATER) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_LESS) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_LESS_EQUAL) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_EQUAL) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_NOTEQUAL) {
+            return true;
+        }
+        return false;
+    }
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         if (net->sourceType == MNN::NetSource_TENSORFLOW || net->sourceType == MNN::NetSource_TFLITE) {
             // The two framework has valid src type for cast, don't need treat
@@ -80,6 +101,15 @@ public:
                     break;
                 case MNN::OpType_Extra:
                 case MNN::OpType_Plugin:
+                    break;
+                case MNN::OpType_BinaryOp:
+                {
+                    if (outputBool(op->main.AsBinaryOp()->opType)) {
+                        types[op->outputIndexes[0]] = DataType_DT_BOOL;
+                    } else {
+                        types[op->outputIndexes[0]] = types[op->inputIndexes[0]];
+                    }
+                }
                     break;
                 default:
                     if (op->inputIndexes.size() > 0) {

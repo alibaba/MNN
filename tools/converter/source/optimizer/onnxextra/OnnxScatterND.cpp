@@ -37,9 +37,13 @@ public:
         auto tfRes  = _ScatterNd(indice, update, shape);
         VARP tfMask;
         if (type.code == halide_type_float) {
-            tfMask = _Scalar<float>(1.0f) - _Abs(_Sign(tfRes));
+            auto updateOne = _ZerosLike(update) + _Scalar<float>(1.0f);
+            auto mask = _ScatterNd(indice, updateOne, shape);
+            tfMask = _Cast<float>(_Less(mask, _Scalar<float>(0.5f)));
         } else {
-            tfMask = _Scalar<int>(1.0f) - _Abs(_Sign(tfRes));
+            auto updateOne = _ZerosLike(update) + _Scalar<int>(1);
+            auto mask = _ScatterNd(indice, updateOne, shape);
+            tfMask = _Less(mask, _Scalar<int>(1));
         }
         auto dst    = data * tfMask + tfRes;
         dst->setName(expr->name());
