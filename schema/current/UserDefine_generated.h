@@ -16,9 +16,14 @@ struct TensorConvertInfoT;
 struct GridSample;
 struct GridSampleT;
 
+struct RoiAlign;
+struct RoiAlignT;
+
 inline const flatbuffers::TypeTable *TensorConvertInfoTypeTable();
 
 inline const flatbuffers::TypeTable *GridSampleTypeTable();
+
+inline const flatbuffers::TypeTable *RoiAlignTypeTable();
 
 enum SampleMode {
   SampleMode_BILINEAR = 0,
@@ -81,6 +86,36 @@ inline const char *EnumNameBorderMode(BorderMode e) {
   if (e < BorderMode_ZEROS || e > BorderMode_REFLECTION) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBorderMode()[index];
+}
+
+enum PoolMode {
+  PoolMode_MaxPool = 0,
+  PoolMode_AvePool = 1,
+  PoolMode_MIN = PoolMode_MaxPool,
+  PoolMode_MAX = PoolMode_AvePool
+};
+
+inline const PoolMode (&EnumValuesPoolMode())[2] {
+  static const PoolMode values[] = {
+    PoolMode_MaxPool,
+    PoolMode_AvePool
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesPoolMode() {
+  static const char * const names[] = {
+    "MaxPool",
+    "AvePool",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNamePoolMode(PoolMode e) {
+  if (e < PoolMode_MaxPool || e > PoolMode_AvePool) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesPoolMode()[index];
 }
 
 struct TensorConvertInfoT : public flatbuffers::NativeTable {
@@ -224,6 +259,115 @@ inline flatbuffers::Offset<GridSample> CreateGridSample(
 
 flatbuffers::Offset<GridSample> CreateGridSample(flatbuffers::FlatBufferBuilder &_fbb, const GridSampleT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct RoiAlignT : public flatbuffers::NativeTable {
+  typedef RoiAlign TableType;
+  int32_t pooledWidth;
+  int32_t pooledHeight;
+  int32_t samplingRatio;
+  float spatialScale;
+  bool aligned;
+  PoolMode poolMode;
+  RoiAlignT()
+      : pooledWidth(0),
+        pooledHeight(0),
+        samplingRatio(-1),
+        spatialScale(0.0f),
+        aligned(false),
+        poolMode(PoolMode_AvePool) {
+  }
+};
+
+struct RoiAlign FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RoiAlignT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return RoiAlignTypeTable();
+  }
+  int32_t pooledWidth() const {
+    return GetField<int32_t>(4, 0);
+  }
+  int32_t pooledHeight() const {
+    return GetField<int32_t>(6, 0);
+  }
+  int32_t samplingRatio() const {
+    return GetField<int32_t>(8, -1);
+  }
+  float spatialScale() const {
+    return GetField<float>(10, 0.0f);
+  }
+  bool aligned() const {
+    return GetField<uint8_t>(12, 0) != 0;
+  }
+  PoolMode poolMode() const {
+    return static_cast<PoolMode>(GetField<int8_t>(14, 1));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<float>(verifier, 10) &&
+           VerifyField<uint8_t>(verifier, 12) &&
+           VerifyField<int8_t>(verifier, 14) &&
+           verifier.EndTable();
+  }
+  RoiAlignT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RoiAlignT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RoiAlign> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiAlignT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct RoiAlignBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_pooledWidth(int32_t pooledWidth) {
+    fbb_.AddElement<int32_t>(4, pooledWidth, 0);
+  }
+  void add_pooledHeight(int32_t pooledHeight) {
+    fbb_.AddElement<int32_t>(6, pooledHeight, 0);
+  }
+  void add_samplingRatio(int32_t samplingRatio) {
+    fbb_.AddElement<int32_t>(8, samplingRatio, -1);
+  }
+  void add_spatialScale(float spatialScale) {
+    fbb_.AddElement<float>(10, spatialScale, 0.0f);
+  }
+  void add_aligned(bool aligned) {
+    fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(aligned), 0);
+  }
+  void add_poolMode(PoolMode poolMode) {
+    fbb_.AddElement<int8_t>(14, static_cast<int8_t>(poolMode), 1);
+  }
+  explicit RoiAlignBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RoiAlignBuilder &operator=(const RoiAlignBuilder &);
+  flatbuffers::Offset<RoiAlign> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RoiAlign>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RoiAlign> CreateRoiAlign(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t pooledWidth = 0,
+    int32_t pooledHeight = 0,
+    int32_t samplingRatio = -1,
+    float spatialScale = 0.0f,
+    bool aligned = false,
+    PoolMode poolMode = PoolMode_AvePool) {
+  RoiAlignBuilder builder_(_fbb);
+  builder_.add_spatialScale(spatialScale);
+  builder_.add_samplingRatio(samplingRatio);
+  builder_.add_pooledHeight(pooledHeight);
+  builder_.add_pooledWidth(pooledWidth);
+  builder_.add_poolMode(poolMode);
+  builder_.add_aligned(aligned);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<RoiAlign> CreateRoiAlign(flatbuffers::FlatBufferBuilder &_fbb, const RoiAlignT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 inline TensorConvertInfoT *TensorConvertInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new TensorConvertInfoT();
   UnPackTo(_o, _resolver);
@@ -285,6 +429,47 @@ inline flatbuffers::Offset<GridSample> CreateGridSample(flatbuffers::FlatBufferB
       _alignCorners);
 }
 
+inline RoiAlignT *RoiAlign::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new RoiAlignT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void RoiAlign::UnPackTo(RoiAlignT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = pooledWidth(); _o->pooledWidth = _e; };
+  { auto _e = pooledHeight(); _o->pooledHeight = _e; };
+  { auto _e = samplingRatio(); _o->samplingRatio = _e; };
+  { auto _e = spatialScale(); _o->spatialScale = _e; };
+  { auto _e = aligned(); _o->aligned = _e; };
+  { auto _e = poolMode(); _o->poolMode = _e; };
+}
+
+inline flatbuffers::Offset<RoiAlign> RoiAlign::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiAlignT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRoiAlign(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<RoiAlign> CreateRoiAlign(flatbuffers::FlatBufferBuilder &_fbb, const RoiAlignT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RoiAlignT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _pooledWidth = _o->pooledWidth;
+  auto _pooledHeight = _o->pooledHeight;
+  auto _samplingRatio = _o->samplingRatio;
+  auto _spatialScale = _o->spatialScale;
+  auto _aligned = _o->aligned;
+  auto _poolMode = _o->poolMode;
+  return MNN::CreateRoiAlign(
+      _fbb,
+      _pooledWidth,
+      _pooledHeight,
+      _samplingRatio,
+      _spatialScale,
+      _aligned,
+      _poolMode);
+}
+
 inline const flatbuffers::TypeTable *SampleModeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -319,6 +504,24 @@ inline const flatbuffers::TypeTable *BorderModeTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *PoolModeTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    PoolModeTypeTable
+  };
+  static const char * const names[] = {
+    "MaxPool",
+    "AvePool"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 2, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -358,6 +561,32 @@ inline const flatbuffers::TypeTable *GridSampleTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *RoiAlignTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    PoolModeTypeTable
+  };
+  static const char * const names[] = {
+    "pooledWidth",
+    "pooledHeight",
+    "samplingRatio",
+    "spatialScale",
+    "aligned",
+    "poolMode"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

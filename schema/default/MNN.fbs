@@ -185,6 +185,8 @@ enum OpType : int {
     If    = 601,
     LayerNorm = 603,
     GridSample = 604,
+
+    ROIAlign,
 }
 
 table Plugin {
@@ -368,6 +370,7 @@ union OpParameter {
     LSTMBlockCell,
     GridSample,
     LoopParam,
+    RoiAlign,
 }
 
 table Op {

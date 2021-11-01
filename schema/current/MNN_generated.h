@@ -247,11 +247,12 @@ enum OpType {
   OpType_If = 601,
   OpType_LayerNorm = 603,
   OpType_GridSample = 604,
+  OpType_ROIAlign = 605,
   OpType_MIN = OpType_AbsVal,
-  OpType_MAX = OpType_GridSample
+  OpType_MAX = OpType_ROIAlign
 };
 
-inline const OpType (&EnumValuesOpType())[161] {
+inline const OpType (&EnumValuesOpType())[162] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -413,7 +414,8 @@ inline const OpType (&EnumValuesOpType())[161] {
     OpType_While,
     OpType_If,
     OpType_LayerNorm,
-    OpType_GridSample
+    OpType_GridSample,
+    OpType_ROIAlign
   };
   return values;
 }
@@ -1025,13 +1027,14 @@ inline const char * const *EnumNamesOpType() {
     "",
     "LayerNorm",
     "GridSample",
+    "ROIAlign",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpType(OpType e) {
-  if (e < OpType_AbsVal || e > OpType_GridSample) return "";
+  if (e < OpType_AbsVal || e > OpType_ROIAlign) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpType()[index];
 }
@@ -1130,11 +1133,12 @@ enum OpParameter {
   OpParameter_LSTMBlockCell = 90,
   OpParameter_GridSample = 91,
   OpParameter_LoopParam = 92,
+  OpParameter_RoiAlign = 93,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_LoopParam
+  OpParameter_MAX = OpParameter_RoiAlign
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[93] {
+inline const OpParameter (&EnumValuesOpParameter())[94] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1228,7 +1232,8 @@ inline const OpParameter (&EnumValuesOpParameter())[93] {
     OpParameter_TensorArray,
     OpParameter_LSTMBlockCell,
     OpParameter_GridSample,
-    OpParameter_LoopParam
+    OpParameter_LoopParam,
+    OpParameter_RoiAlign
   };
   return values;
 }
@@ -1328,13 +1333,14 @@ inline const char * const *EnumNamesOpParameter() {
     "LSTMBlockCell",
     "GridSample",
     "LoopParam",
+    "RoiAlign",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_LoopParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_RoiAlign) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1709,6 +1715,10 @@ template<> struct OpParameterTraits<GridSample> {
 
 template<> struct OpParameterTraits<LoopParam> {
   static const OpParameter enum_value = OpParameter_LoopParam;
+};
+
+template<> struct OpParameterTraits<RoiAlign> {
+  static const OpParameter enum_value = OpParameter_RoiAlign;
 };
 
 struct OpParameterUnion {
@@ -2478,6 +2488,14 @@ struct OpParameterUnion {
     return type == OpParameter_LoopParam ?
       reinterpret_cast<const LoopParamT *>(value) : nullptr;
   }
+  RoiAlignT *AsRoiAlign() {
+    return type == OpParameter_RoiAlign ?
+      reinterpret_cast<RoiAlignT *>(value) : nullptr;
+  }
+  const RoiAlignT *AsRoiAlign() const {
+    return type == OpParameter_RoiAlign ?
+      reinterpret_cast<const RoiAlignT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -3096,15 +3114,6 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LoopParamTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TENSORNUMBER = 4,
-    VT_OUTPUTINDEXES = 6,
-    VT_INPUTINDEXES = 8,
-    VT_MIDTENSORS = 10,
-    VT_PARALLEL = 12,
-    VT_LOOPNUMBER = 14,
-    VT_COMMANDS = 16
-  };
   int32_t tensorNumber() const {
     return GetField<int32_t>(4, 0);
   }
@@ -3511,6 +3520,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const LoopParam *main_as_LoopParam() const {
     return main_type() == OpParameter_LoopParam ? static_cast<const LoopParam *>(main()) : nullptr;
   }
+  const RoiAlign *main_as_RoiAlign() const {
+    return main_type() == OpParameter_RoiAlign ? static_cast<const RoiAlign *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -3909,6 +3921,10 @@ template<> inline const GridSample *Op::main_as<GridSample>() const {
 
 template<> inline const LoopParam *Op::main_as<LoopParam>() const {
   return main_as_LoopParam();
+}
+
+template<> inline const RoiAlign *Op::main_as<RoiAlign>() const {
+  return main_as_RoiAlign();
 }
 
 struct OpBuilder {
@@ -5518,6 +5534,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const LoopParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_RoiAlign: {
+      auto ptr = reinterpret_cast<const RoiAlign *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -5904,6 +5924,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const LoopParam *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_RoiAlign: {
+      auto ptr = reinterpret_cast<const RoiAlign *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6278,6 +6302,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const LoopParamT *>(value);
       return CreateLoopParam(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_RoiAlign: {
+      auto ptr = reinterpret_cast<const RoiAlignT *>(value);
+      return CreateRoiAlign(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6650,6 +6678,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_LoopParam: {
       FLATBUFFERS_ASSERT(false);  // LoopParamT not copyable.
+      break;
+    }
+    case OpParameter_RoiAlign: {
+      value = new RoiAlignT(*reinterpret_cast<RoiAlignT *>(u.value));
       break;
     }
     default:
@@ -7119,6 +7151,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_RoiAlign: {
+      auto ptr = reinterpret_cast<RoiAlignT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -7287,12 +7324,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604, 605 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7454,10 +7492,11 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "While",
     "If",
     "LayerNorm",
-    "GridSample"
+    "GridSample",
+    "ROIAlign"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 161, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 162, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7556,7 +7595,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 88 },
     { flatbuffers::ET_SEQUENCE, 0, 89 },
     { flatbuffers::ET_SEQUENCE, 0, 90 },
-    { flatbuffers::ET_SEQUENCE, 0, 91 }
+    { flatbuffers::ET_SEQUENCE, 0, 91 },
+    { flatbuffers::ET_SEQUENCE, 0, 92 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7650,7 +7690,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     TensorArrayTypeTable,
     LSTMBlockCellTypeTable,
     GridSampleTypeTable,
-    LoopParamTypeTable
+    LoopParamTypeTable,
+    RoiAlignTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7745,10 +7786,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "TensorArray",
     "LSTMBlockCell",
     "GridSample",
-    "LoopParam"
+    "LoopParam",
+    "RoiAlign"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 93, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 94, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
