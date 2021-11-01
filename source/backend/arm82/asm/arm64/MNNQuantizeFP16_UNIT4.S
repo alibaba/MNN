@@ -15,16 +15,28 @@ asm_function MNNQuantizeFP16_UNIT4
 // void MNNQuantizeFP16_UNIT4(FLOAT16* dst, const float* src, int size);
 
 // Auto:
-//      x0:dst, x1:src, x2:size
+//      x0:dst, x1:src, x2:size, x3:min_max
 
+// Init min / max to v30, v31
+ldr w4, [x3]
+ldr w5, [x3, #4]
+dup v30.4s, w4
+dup v31.4s, w5
 L4:
 cmp x2, #4
 blt L1
 Loop4:
 
-ld1 {v0.4s, v1.4s}, [x1], #32
+ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x1], #64
+fmax v0.4s, v0.4s, v30.4s
+fmax v1.4s, v1.4s, v30.4s
+fmax v2.4s, v2.4s, v30.4s
+fmax v3.4s, v3.4s, v30.4s
+fmin v0.4s, v0.4s, v31.4s
+fmin v1.4s, v1.4s, v31.4s
+fmin v2.4s, v2.4s, v31.4s
+fmin v3.4s, v3.4s, v31.4s
 fcvtn v0.4h, v0.4s
-ld1 {v2.4s, v3.4s}, [x1], #32
 fcvtn v1.4h, v1.4s
 fcvtn v2.4h, v2.4s
 st1 {v0.4h, v1.4h}, [x0], #16
@@ -40,6 +52,8 @@ beq End
 Loop1:
 
 ld1 {v0.4s}, [x1], #16
+fmax v0.4s, v0.4s, v30.4s
+fmin v0.4s, v0.4s, v31.4s
 fcvtn v0.4h, v0.4s
 st1 {v0.4h}, [x0], #8
 

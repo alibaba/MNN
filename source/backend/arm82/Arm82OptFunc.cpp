@@ -19,7 +19,7 @@
 extern "C" {
 void MNNExpFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT16* params, size_t blockCount);
 
-void MNNQuantizeFP16_UNIT4(int16_t* dst, const float* src, int size);
+void MNNQuantizeFP16_UNIT4(int16_t* dst, const float* src, size_t size, const float* minMax);
 
 }
 
@@ -55,8 +55,12 @@ void Arm82MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 void MNNQuantizeFP16(const float* src, int16_t* dst, size_t size) {
     int sizeDiv4 = size / 4;
     int remain   = size - sizeDiv4 * 4;
+    float minMax[] = {
+        -65504.0f,
+        65504.0f
+    };
     if (sizeDiv4 > 0) {
-        MNNQuantizeFP16_UNIT4(dst, src, sizeDiv4);
+        MNNQuantizeFP16_UNIT4(dst, src, sizeDiv4, minMax);
         src += sizeDiv4 * 4;
         dst += sizeDiv4 * 4;
     }
@@ -64,7 +68,7 @@ void MNNQuantizeFP16(const float* src, int16_t* dst, size_t size) {
         float tempSrc[4];
         int16_t tempDst[4];
         ::memcpy(tempSrc, src, remain * sizeof(float));
-        MNNQuantizeFP16_UNIT4(tempDst, tempSrc, 1);
+        MNNQuantizeFP16_UNIT4(tempDst, tempSrc, 1, minMax);
         ::memcpy(dst, tempDst, remain * sizeof(int16_t));
     }
 }
