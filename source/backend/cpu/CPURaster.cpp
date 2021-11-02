@@ -245,7 +245,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
         if (origin->batch() == 1 && origin->channel() % core->pack == 0) {
             int channel = origin->channel();
             int area = 1;
-            if (origin->dimensions() == 4) {
+            if (origin->dimensions() <= 4) {
                 area = origin->width() * origin->height();
             } else {
                 // conv3d/pool3d will has 5 dims, area = depth * width * height
