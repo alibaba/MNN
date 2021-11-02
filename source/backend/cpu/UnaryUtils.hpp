@@ -53,7 +53,7 @@ struct UnaryExp : std::unary_function<T, T> {
 template <typename T>
 struct UnaryAbs : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return abs(x);
+        return fabsf((float)x);
     }
 };
 
@@ -238,7 +238,7 @@ T erfcImpl(T x) {
 template <typename T>
 struct UnaryErf : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        if (abs(x) < T(1.)) {
+        if (fabsf(x) < T(1.)) {
             return erfImpl(x);
         } else {
             return T(1.) - erfcImpl(x);
@@ -249,7 +249,7 @@ struct UnaryErf : std::unary_function<T, T> {
 template <typename T>
 struct UnaryErfc : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        if (abs(x) > T(1.)) {
+        if (fabsf(x) > T(1.)) {
             return erfcImpl(x);
         } else {
             return T(1.) - erfImpl(x);
