@@ -68,7 +68,7 @@ Interpreter由Engine和Backends构成。前者负责模型的加载、计算图�
 
 三群：
 
-<img src="doc/DingTalkQR23.png" height="256"/>
+<img src="doc/DingTalkQR3.png" height="256"/>
 
 ## License
 Apache 2.0
