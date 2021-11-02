@@ -195,7 +195,12 @@ void MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t 
         }
         return;
     }
-    MNNPackC4Int16((int16_t*)dest, (const int16_t*)source, l, h);
+    int offset[] = {
+        (int)l,
+        (int)l
+    };
+
+    MNNPackC4Int16((int16_t*)dest, (const int16_t*)source, l, h, offset);
 }
 #endif
 
