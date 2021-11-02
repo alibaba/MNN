@@ -104,6 +104,7 @@ void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat)
     if (copyFormat) {
         getDescribe(dest)->dimensionFormat = getDescribe(source)->dimensionFormat;
     }
+    adjustTensorForCompability(dest);
 }
 
 void TensorUtils::setShape(Tensor* dest, const std::vector<int>& alldims) {
