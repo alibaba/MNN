@@ -139,7 +139,6 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
                 depthwiseConv2dParamFloat->bias   = biasData;
             }
         }
-        
         depthwiseConv2dParamFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
         auto& common                      = depthwiseConv2dParamFloat->common;
 
@@ -164,6 +163,18 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         common->strideX     = tfliteConvOption->stride_w;
         common->strideY     = tfliteConvOption->stride_h;
         common->padMode     = MNN::PadMode_SAME;
+        if (tfliteConvOption->depth_multiplier > 1) {
+            if (ci == tfliteConvOption->depth_multiplier) {
+                // Special case, turn to convolution
+                dstOp->type = MNN::OpType_Convolution;
+                common->outputCount = tfliteConvOption->depth_multiplier;
+                common->inputCount = 1;
+                common->group = 1;
+            } else {
+                DLOG(ERROR) << "MNN don't support tflite's depth_multiplier, please turn to pb or onnx";
+            }
+        }
+
         if (tfliteConvOption->padding == tflite::Padding_VALID) {
             common->padMode = MNN::PadMode_VALID;
         }
