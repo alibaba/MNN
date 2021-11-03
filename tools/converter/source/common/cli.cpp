@@ -207,7 +207,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.defaultBatchSize = result["batch"].as<int>();
     }
     if (result.count("keepInputFormat")) {
-        modelPath.keepInputFormat = result["keepInputFormat"].as<bool>();
+        modelPath.keepInputFormat = true;
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
