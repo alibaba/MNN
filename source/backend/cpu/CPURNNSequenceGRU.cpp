@@ -127,21 +127,7 @@ CPURNNSequenceGRU::CPURNNSequenceGRU(const Op* op, Backend* backend) : MNN::Exec
 }
 
 CPURNNSequenceGRU::~CPURNNSequenceGRU() {
-    // backend()->onReleaseBuffer(mFwGateWeight.get(), Backend::STATIC);
-    // backend()->onReleaseBuffer(mFwGateBias.get(), Backend::STATIC);
-    // backend()->onReleaseBuffer(mFwCandidateWeight.get(), Backend::STATIC);
-    // backend()->onReleaseBuffer(mFwCandidateBias.get(), Backend::STATIC);
-    // if (mIsBidirectionalRNN) {
-    //     backend()->onReleaseBuffer(mBwGateWeight.get(), Backend::STATIC);
-    //     backend()->onReleaseBuffer(mBwGateBias.get(), Backend::STATIC);
-    //     backend()->onReleaseBuffer(mBwCandidateWeight.get(), Backend::STATIC);
-    //     backend()->onReleaseBuffer(mBwCandidateBias.get(), Backend::STATIC);
-    // }
-
-    backend()->onReleaseBuffer(mHiddenState.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mInputAndState.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mResetHt.get(), Backend::DYNAMIC);
+    // Do nothing
 }
 
 ErrorCode CPURNNSequenceGRU::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -157,6 +143,11 @@ ErrorCode CPURNNSequenceGRU::onResize(const std::vector<Tensor*>& inputs, const 
     backend()->onAcquireBuffer(mInputAndState.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mGate.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mResetHt.get(), Backend::DYNAMIC);
+
+    backend()->onReleaseBuffer(mHiddenState.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mInputAndState.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mResetHt.get(), Backend::DYNAMIC);
 
     return NO_ERROR;
 }
