@@ -7,6 +7,7 @@
 //
 
 #include "backend/cpu/CPUROIAlign.hpp"
+#include <math.h>
 #include <algorithm>
 #include "CPUTensorConvert.hpp"
 #include "backend/cpu/CPUBackend.hpp"
