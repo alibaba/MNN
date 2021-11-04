@@ -7,6 +7,7 @@
 //
 
 #include "backend/cpu/CPUROIAlign.hpp"
+#include <float.h>
 #include <math.h>
 #include <algorithm>
 #include "CPUTensorConvert.hpp"
@@ -74,7 +75,9 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
     auto numROI   = mROI.batch();
     auto numSlice = UP_DIV(input->channel(), 4);
 
+#ifndef MNN_USE_NEON
     memset(output->host<void>(), 0, output->elementSize() * sizeof(float));
+#endif
 
     for (int n = 0; n < numROI; ++n) {
         auto batchOutput = output->host<float>() + os * n;
@@ -110,6 +113,35 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                     float samplingStartH = y1 + h * binSizeH;
                     for (int w = 0; w < mPooledWidth; ++w) {
                         float samplingStartW = x1 + w * binSizeW;
+#ifdef MNN_USE_NEON
+                        float32x4_t res = vmovq_n_f32(0.f);
+                        for (int i = 0; i < samplingRatioH; ++i) {
+                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
+                            int py0   = static_cast<int>(py);
+                            int py1   = py0 + 1;
+                            float dy0 = py - py0;
+                            float dy1 = py1 - py;
+                            for (int j = 0; j < samplingRatioW; ++j) {
+                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
+                                int px0     = static_cast<int>(px);
+                                int px1     = px0 + 1;
+                                float dx0   = px - px0;
+                                float dx1   = px1 - px;
+                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
+                                float32x4_t val0 = vld1q_f32(sliceInput + (py0 * iw + px0) * 4);
+                                float32x4_t val1 = vld1q_f32(sliceInput + (py0 * iw + px1) * 4);
+                                float32x4_t val2 = vld1q_f32(sliceInput + (py1 * iw + px0) * 4);
+                                float32x4_t val3 = vld1q_f32(sliceInput + (py1 * iw + px1) * 4);
+                                float32x4_t mla  = vmulq_n_f32(val0, area3);
+                                mla              = vmlaq_n_f32(mla, val1, area2);
+                                mla              = vmlaq_n_f32(mla, val2, area1);
+                                mla              = vmlaq_n_f32(mla, val3, area0);
+                                res              = vaddq_f32(res, mla);
+                            }
+                        }
+                        res = vmulq_n_f32(res, invSamplingCnt);
+                        vst1q_f32(rowOutput + w * 4, res);
+#else
                         for (int i = 0; i < samplingRatioH; ++i) {
                             float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
                             int py0   = static_cast<int>(py);
@@ -133,6 +165,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                                 }
                             }
                         }
+#endif
                     }
                 }
             }
@@ -144,6 +177,34 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                     float samplingStartH = y1 + h * binSizeH;
                     for (int w = 0; w < mPooledWidth; ++w) {
                         float samplingStartW = x1 + w * binSizeW;
+#ifdef MNN_USE_NEON
+                        float32x4_t res = vmovq_n_f32(-FLT_MAX);
+                        for (int i = 0; i < samplingRatioH; ++i) {
+                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
+                            int py0   = static_cast<int>(py);
+                            int py1   = py0 + 1;
+                            float dy0 = py - py0;
+                            float dy1 = py1 - py;
+                            for (int j = 0; j < samplingRatioW; ++j) {
+                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
+                                int px0     = static_cast<int>(px);
+                                int px1     = px0 + 1;
+                                float dx0   = px - px0;
+                                float dx1   = px1 - px;
+                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
+                                float32x4_t val0 = vld1q_f32(sliceInput + (py0 * iw + px0) * 4);
+                                float32x4_t val1 = vld1q_f32(sliceInput + (py0 * iw + px1) * 4);
+                                float32x4_t val2 = vld1q_f32(sliceInput + (py1 * iw + px0) * 4);
+                                float32x4_t val3 = vld1q_f32(sliceInput + (py1 * iw + px1) * 4);
+                                float32x4_t mla  = vmulq_n_f32(val0, area3);
+                                mla              = vmlaq_n_f32(mla, val1, area2);
+                                mla              = vmlaq_n_f32(mla, val2, area1);
+                                mla              = vmlaq_n_f32(mla, val3, area0);
+                                res              = vmaxq_f32(res, mla);
+                            }
+                        }
+                        vst1q_f32(rowOutput + w * 4, res);
+#else
                         std::vector<float> vecVal[4];
                         for (int i = 0; i < samplingRatioH; ++i) {
                             float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
@@ -170,6 +231,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                         for (int k = 0; k < 4; ++k) {
                             rowOutput[w * 4 + k] = *std::max_element(vecVal[k].begin(), vecVal[k].end());
                         }
+#endif
                     }
                 }
             }

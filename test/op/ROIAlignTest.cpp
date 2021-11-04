@@ -129,7 +129,7 @@ protected:
             ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
             if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
                                                    0.001)) {
-                MNN_ERROR("%s(%s) test failed!\n", testOpName.c_str(), deviceName.c_str());
+                MNN_ERROR("%s(%s) test case1 failed!\n", testOpName.c_str(), deviceName.c_str());
                 return false;
             }
         }
@@ -196,7 +196,7 @@ protected:
             ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
             if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
                                                    0.001)) {
-                MNN_ERROR("%s(%s) test failed!\n", testOpName.c_str(), deviceName.c_str());
+                MNN_ERROR("%s(%s) test case2 failed!\n", testOpName.c_str(), deviceName.c_str());
                 return false;
             }
         }
