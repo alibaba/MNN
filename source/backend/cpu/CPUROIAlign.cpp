@@ -71,9 +71,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
     // get params
     auto iw = input->width(), ih = input->height(), is = iw * ih * 4;   // C4
     auto ow = output->width(), oh = output->height(), os = ow * oh * 4; // C4
-    auto rs       = mROI.stride(0);
-    auto numROI   = mROI.batch();
-    auto numSlice = UP_DIV(input->channel(), 4);
+    auto rs           = mROI.stride(0);
+    auto numROI       = mROI.batch();
+    auto numSlice     = UP_DIV(input->channel(), 4);
+    float alignOffset = mAligned ? -0.5f : 0.f;
 
 #ifndef MNN_USE_NEON
     memset(output->host<void>(), 0, output->elementSize() * sizeof(float));
@@ -83,14 +84,18 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         auto batchOutput = output->host<float>() + os * n;
         auto roiPtr      = mROI.host<float>() + rs * n;
         int batchIdx     = static_cast<int>(roiPtr[0]);
-        float x1         = roiPtr[1] * mSpatialScale;
-        float y1         = roiPtr[2] * mSpatialScale;
-        float x2         = roiPtr[3] * mSpatialScale;
-        float y2         = roiPtr[4] * mSpatialScale;
+        float x1         = roiPtr[1] * mSpatialScale + alignOffset;
+        float y1         = roiPtr[2] * mSpatialScale + alignOffset;
+        float x2         = roiPtr[3] * mSpatialScale + alignOffset;
+        float y2         = roiPtr[4] * mSpatialScale + alignOffset;
         MNN_ASSERT(batchIdx < input->batch());
 
-        float roiW = std::max((x2 - x1), 0.f);
-        float roiH = std::max((y2 - y1), 0.f);
+        float roiW = x2 - x1;
+        float roiH = y2 - y1;
+        if (!mAligned) {
+            roiW = std::max(roiW, 1.f);
+            roiH = std::max(roiH, 1.f);
+        }
 
         float binSizeW = roiW / mPooledWidth;
         float binSizeH = roiH / mPooledHeight;
@@ -99,70 +104,55 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         int samplingRatioH   = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiH / mPooledHeight));
         float invSamplingCnt = 1.f / (samplingRatioH * samplingRatioW);
 
-        float samplingBinW = binSizeW / samplingRatioW;
-        float samplingBinH = binSizeH / samplingRatioH;
-
-        float alignShift = mAligned ? -0.5f : 0.f;
+        std::vector<std::vector<int>> vecPos;
+        std::vector<std::vector<float>> vecArea;
+        preCalcBilinearInterpolate(ih, iw, mPooledHeight, mPooledWidth, y1, x1, binSizeH, binSizeW, samplingRatioH,
+                                   samplingRatioW, vecPos, vecArea);
 
         auto batchInput = input->host<float>() + is * batchIdx;
         if (mPoolMode == PoolMode_AvePool) {
             for (int s = 0; s < numSlice; ++s) {
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
+                int preCalcIdx  = 0;
                 for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledHeight * 4) {
-                    float samplingStartH = y1 + h * binSizeH;
                     for (int w = 0; w < mPooledWidth; ++w) {
-                        float samplingStartW = x1 + w * binSizeW;
 #ifdef MNN_USE_NEON
                         float32x4_t res = vmovq_n_f32(0.f);
                         for (int i = 0; i < samplingRatioH; ++i) {
-                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
-                            int py0   = static_cast<int>(py);
-                            int py1   = py0 + 1;
-                            float dy0 = py - py0;
-                            float dy1 = py1 - py;
                             for (int j = 0; j < samplingRatioW; ++j) {
-                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
-                                int px0     = static_cast<int>(px);
-                                int px1     = px0 + 1;
-                                float dx0   = px - px0;
-                                float dx1   = px1 - px;
-                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
-                                float32x4_t val0 = vld1q_f32(sliceInput + (py0 * iw + px0) * 4);
-                                float32x4_t val1 = vld1q_f32(sliceInput + (py0 * iw + px1) * 4);
-                                float32x4_t val2 = vld1q_f32(sliceInput + (py1 * iw + px0) * 4);
-                                float32x4_t val3 = vld1q_f32(sliceInput + (py1 * iw + px1) * 4);
-                                float32x4_t mla  = vmulq_n_f32(val0, area3);
-                                mla              = vmlaq_n_f32(mla, val1, area2);
-                                mla              = vmlaq_n_f32(mla, val2, area1);
-                                mla              = vmlaq_n_f32(mla, val3, area0);
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
+
+                                float32x4_t val0 = vld1q_f32(sliceInput + pos[0]);
+                                float32x4_t val1 = vld1q_f32(sliceInput + pos[1]);
+                                float32x4_t val2 = vld1q_f32(sliceInput + pos[2]);
+                                float32x4_t val3 = vld1q_f32(sliceInput + pos[3]);
+                                float32x4_t mla  = vmulq_n_f32(val0, area[0]);
+                                mla              = vmlaq_n_f32(mla, val1, area[1]);
+                                mla              = vmlaq_n_f32(mla, val2, area[2]);
+                                mla              = vmlaq_n_f32(mla, val3, area[3]);
                                 res              = vaddq_f32(res, mla);
+                                preCalcIdx++;
                             }
                         }
                         res = vmulq_n_f32(res, invSamplingCnt);
                         vst1q_f32(rowOutput + w * 4, res);
 #else
                         for (int i = 0; i < samplingRatioH; ++i) {
-                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
-                            int py0   = static_cast<int>(py);
-                            int py1   = py0 + 1;
-                            float dy0 = py - py0;
-                            float dy1 = py1 - py;
                             for (int j = 0; j < samplingRatioW; ++j) {
-                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
-                                int px0     = static_cast<int>(px);
-                                int px1     = px0 + 1;
-                                float dx0   = px - px0;
-                                float dx1   = px1 - px;
-                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
                                 for (int k = 0; k < 4; ++k) {
-                                    float val0 = *(sliceInput + (py0 * iw + px0) * 4 + k);
-                                    float val1 = *(sliceInput + (py0 * iw + px1) * 4 + k);
-                                    float val2 = *(sliceInput + (py1 * iw + px0) * 4 + k);
-                                    float val3 = *(sliceInput + (py1 * iw + px1) * 4 + k);
+                                    float val0 = *(sliceInput + pos[0] + k);
+                                    float val1 = *(sliceInput + pos[1] + k);
+                                    float val2 = *(sliceInput + pos[2] + k);
+                                    float val3 = *(sliceInput + pos[3] + k);
                                     rowOutput[w * 4 + k] +=
-                                        (val0 * area3 + val1 * area2 + val2 * area1 + val3 * area0) * invSamplingCnt;
+                                        (val0 * area[0] + val1 * area[1] + val2 * area[2] + val3 * area[3]) *
+                                        invSamplingCnt;
                                 }
+                                preCalcIdx++;
                             }
                         }
 #endif
@@ -173,59 +163,44 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
             for (int s = 0; s < numSlice; ++s) {
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
+                int preCalcIdx  = 0;
                 for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledHeight * 4) {
-                    float samplingStartH = y1 + h * binSizeH;
                     for (int w = 0; w < mPooledWidth; ++w) {
-                        float samplingStartW = x1 + w * binSizeW;
 #ifdef MNN_USE_NEON
                         float32x4_t res = vmovq_n_f32(-FLT_MAX);
                         for (int i = 0; i < samplingRatioH; ++i) {
-                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
-                            int py0   = static_cast<int>(py);
-                            int py1   = py0 + 1;
-                            float dy0 = py - py0;
-                            float dy1 = py1 - py;
                             for (int j = 0; j < samplingRatioW; ++j) {
-                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
-                                int px0     = static_cast<int>(px);
-                                int px1     = px0 + 1;
-                                float dx0   = px - px0;
-                                float dx1   = px1 - px;
-                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
-                                float32x4_t val0 = vld1q_f32(sliceInput + (py0 * iw + px0) * 4);
-                                float32x4_t val1 = vld1q_f32(sliceInput + (py0 * iw + px1) * 4);
-                                float32x4_t val2 = vld1q_f32(sliceInput + (py1 * iw + px0) * 4);
-                                float32x4_t val3 = vld1q_f32(sliceInput + (py1 * iw + px1) * 4);
-                                float32x4_t mla  = vmulq_n_f32(val0, area3);
-                                mla              = vmlaq_n_f32(mla, val1, area2);
-                                mla              = vmlaq_n_f32(mla, val2, area1);
-                                mla              = vmlaq_n_f32(mla, val3, area0);
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
+
+                                float32x4_t val0 = vld1q_f32(sliceInput + pos[0]);
+                                float32x4_t val1 = vld1q_f32(sliceInput + pos[1]);
+                                float32x4_t val2 = vld1q_f32(sliceInput + pos[2]);
+                                float32x4_t val3 = vld1q_f32(sliceInput + pos[3]);
+                                float32x4_t mla  = vmulq_n_f32(val0, area[0]);
+                                mla              = vmlaq_n_f32(mla, val1, area[1]);
+                                mla              = vmlaq_n_f32(mla, val2, area[2]);
+                                mla              = vmlaq_n_f32(mla, val3, area[3]);
                                 res              = vmaxq_f32(res, mla);
+                                preCalcIdx++;
                             }
                         }
                         vst1q_f32(rowOutput + w * 4, res);
 #else
                         std::vector<float> vecVal[4];
                         for (int i = 0; i < samplingRatioH; ++i) {
-                            float py  = std::max(samplingStartH + (0.5f + i) * samplingBinH + alignShift, 0.f);
-                            int py0   = static_cast<int>(py);
-                            int py1   = py0 + 1;
-                            float dy0 = py - py0;
-                            float dy1 = py1 - py;
                             for (int j = 0; j < samplingRatioW; ++j) {
-                                float px    = std::max(samplingStartW + (0.5f + j) * samplingBinW + alignShift, 0.f);
-                                int px0     = static_cast<int>(px);
-                                int px1     = px0 + 1;
-                                float dx0   = px - px0;
-                                float dx1   = px1 - px;
-                                float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
                                 for (int k = 0; k < 4; ++k) {
-                                    float val0 = *(sliceInput + (py0 * iw + px0) * 4 + k);
-                                    float val1 = *(sliceInput + (py0 * iw + px1) * 4 + k);
-                                    float val2 = *(sliceInput + (py1 * iw + px0) * 4 + k);
-                                    float val3 = *(sliceInput + (py1 * iw + px1) * 4 + k);
-                                    vecVal[k].emplace_back(val0 * area3 + val1 * area2 + val2 * area1 + val3 * area0);
+                                    float val0 = *(sliceInput + pos[0] + k);
+                                    float val1 = *(sliceInput + pos[1] + k);
+                                    float val2 = *(sliceInput + pos[2] + k);
+                                    float val3 = *(sliceInput + pos[3] + k);
+                                    vecVal[k].emplace_back(val0 * area[0] + val1 * area[1] + val2 * area[2] +
+                                                           val3 * area[3]);
                                 }
+                                preCalcIdx++;
                             }
                         }
                         for (int k = 0; k < 4; ++k) {
@@ -241,6 +216,62 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         }
     }
 
+    return NO_ERROR;
+}
+
+ErrorCode CPUROIAlign::preCalcBilinearInterpolate(int height, int width, int pooledHeight, int pooledWidth,
+                                                  float roiStartH, float roiStartW, float binSizeH, float binSizeW,
+                                                  int samplingRatioH, int samplingRatioW,
+                                                  std::vector<std::vector<int>>& vecPos,
+                                                  std::vector<std::vector<float>>& vecArea) {
+    float samplingBinH = binSizeH / samplingRatioH;
+    float samplingBinW = binSizeW / samplingRatioW;
+
+    for (int h = 0; h < pooledHeight; ++h) {
+        float samplingStartH = roiStartH + h * binSizeH;
+        for (int w = 0; w < pooledWidth; ++w) {
+            float samplingStartW = roiStartW + w * binSizeW;
+            for (int i = 0; i < samplingRatioH; ++i) {
+                float py = samplingStartH + (0.5 + i) * samplingBinH;
+                for (int j = 0; j < samplingRatioW; ++j) {
+                    float px = samplingStartW + (0.5 + j) * samplingBinW;
+                    if (py < -1.f || py > height || px < -1.f || px > width) {
+                        std::vector<int> pos({0, 0, 0, 0});
+                        std::vector<float> area({0.f, 0.f, 0.f, 0.f});
+                        vecPos.emplace_back(std::move(pos));
+                        vecArea.emplace_back(std::move(area));
+                        continue;
+                    }
+                    py = py < 0 ? 0 : py;
+                    px = px < 0 ? 0 : px;
+
+                    int py0 = static_cast<int>(py), px0 = static_cast<int>(px), py1, px1;
+                    if (py0 >= height - 1) {
+                        py1 = py0 = height - 1;
+                        py        = static_cast<float>(py0);
+                    } else {
+                        py1 = py0 + 1;
+                    }
+                    if (px0 > width - 1) {
+                        px1 = px0 = width - 1;
+                        px        = static_cast<float>(px0);
+                    } else {
+                        px1 = px0 + 1;
+                    }
+
+                    float dy0 = py - py0, dx0 = px - px0;
+                    float dy1 = 1.f - dy0, dx1 = 1.f - dx0;
+                    float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
+                    int pos0 = (py0 * width + px0) * 4, pos1 = (py0 * width + px1) * 4, pos2 = (py1 * width + px0) * 4,
+                        pos3 = (py1 * width + px1) * 4;
+                    std::vector<int> pos({pos0, pos1, pos2, pos3});
+                    std::vector<float> area({area3, area2, area1, area0});
+                    vecPos.emplace_back(std::move(pos));
+                    vecArea.emplace_back(std::move(area));
+                }
+            }
+        }
+    }
     return NO_ERROR;
 }
 

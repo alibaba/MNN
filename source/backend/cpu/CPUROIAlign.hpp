@@ -22,6 +22,12 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    ErrorCode preCalcBilinearInterpolate(int height, int width, int pooledHeight, int pooledWidth, float roiStartH,
+                                         float roiStartW, float binSizeH, float binSizeW, int samplingRatioH,
+                                         int samplingRatioW, std::vector<std::vector<int>> &vecPos,
+                                         std::vector<std::vector<float>> &vecArea);
+
+private:
     int mPooledWidth;
     int mPooledHeight;
     int mSamplingRatio;
