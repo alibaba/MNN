@@ -6,10 +6,30 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "FileLoader.hpp"
+#include "core/FileLoader.hpp"
+#if defined(_MSC_VER)
+#include "Windows.h"
+#endif
 namespace MNN {
 FileLoader::FileLoader(const char* file) {
+#if defined(_MSC_VER)
+    wchar_t wFilename[1024];
+    if (0 == MultiByteToWideChar(CP_ACP, 0, file, -1, wFilename, sizeof(wFilename))) {
+        mFile = nullptr;
+        return;
+    }
+#if _MSC_VER >= 1400
+    if (0 != _wfopen_s(&mFile, wFilename, L"rb")) {
+        mFile = nullptr;
+        return;
+    }
+#else
+    mFile = _wfopen(wFilename, L"rb");
+#endif
+#else
     mFile = fopen(file, "rb");
+#endif
+    mFilePath = file;
 }
 
 FileLoader::~FileLoader() {
@@ -50,6 +70,39 @@ bool FileLoader::read() {
     if (ferror(mFile)) {
         return false;
     }
+    return true;
+}
+
+bool FileLoader::write(const char* filePath, std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo) {
+    FILE* f = fopen(filePath, "wb");
+    if (nullptr == f) {
+        MNN_ERROR("Open %s error\n", filePath);
+        return false;
+    }
+    // Write key
+    auto tsize = fwrite((const char*)verifyInfo.first, 1, verifyInfo.second, f);
+    if (tsize != verifyInfo.second) {
+        MNN_ERROR("Write %s error\n", filePath);
+        fclose(f);
+        return false;
+    }
+    // Write Cache
+    static const size_t block = 4096;
+    size_t totalSize          = cacheInfo.second;
+    size_t blockSize          = UP_DIV(totalSize, block);
+    for (size_t i = 0; i < blockSize; ++i) {
+        size_t sta = block * i;
+        size_t fin = (sta + block >= totalSize) ? totalSize : (sta + block);
+        if (fin > sta) {
+            auto realSize = fwrite((const char*)(cacheInfo.first) + sta, 1, fin - sta, f);
+            if (realSize != fin - sta) {
+                MNN_ERROR("Write %s error\n", filePath);
+                fclose(f);
+                return false;
+            }
+        }
+    }
+    fclose(f);
     return true;
 }
 

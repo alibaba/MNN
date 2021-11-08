@@ -1,35 +1,38 @@
-cmake_minimum_required(VERSION 2.8)
-project(MNN_Vulkan)
-file(GLOB_RECURSE SRCS *.hpp *.cpp)
-include_directories("../../../include/")
-include_directories("include/")
-include_directories("component/")
-include_directories("runtime")
-include_directories("execution")
-include_directories("backend")
+FILE(GLOB_RECURSE MNN_Vulkan_SRC ${CMAKE_CURRENT_LIST_DIR}/*)
 
-if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${NATIVE_LIBRARY_OUTPUT}/${ANDROID_ABI})
+include_directories("./")
+if(MNN_USE_SYSTEM_LIB)
+    find_package(Vulkan REQUIRED)
+    set(MNN_VULKAN_LIBS ${Vulkan_LIBRARIES} PARENT_SCOPE)
+else()
+    add_definitions(-DMNN_USE_LIB_WRAPPER)
 endif()
-add_library(
-    MNN_Vulkan
-    SHARED
-    ${SRCS}
-)
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fvisibility-inlines-hidden -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions")
+IF(MNN_SEP_BUILD)
+    if (MNN_BUILD_FOR_ANDROID_COMMAND)
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+    endif()
+    add_library(
+        MNN_Vulkan
+        SHARED
+        ${MNN_Vulkan_SRC}
+        )
+    target_link_libraries(MNN_Vulkan MNN)
+    if (MNN_USE_SYSTEM_LIB)
+        target_link_libraries(MNN_Vulkan ${Vulkan_LIBRARY})
+    else()
+        target_link_libraries(MNN_Vulkan dl)
+    endif()
+ELSE()
+    add_library(
+        MNN_Vulkan
+        OBJECT
+        ${MNN_Vulkan_SRC}
+        )
+ENDIF()
 
-target_include_directories(MNN_Vulkan PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
+include_directories("${CMAKE_CURRENT_LIST_DIR}/include/" "${CMAKE_CURRENT_LIST_DIR}/component/" "${CMAKE_CURRENT_LIST_DIR}/runtime")
+include_directories("${CMAKE_CURRENT_LIST_DIR}/execution" "${CMAKE_CURRENT_LIST_DIR}/backend" "${CMAKE_CURRENT_LIST_DIR}" "${CMAKE_CURRENT_LIST_DIR}/shaders")
 
-target_link_libraries(MNN_Vulkan
-    MNN
-    )
-
-if (SYSTEM.Android)
-    add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
+if (CMAKE_SYSTEM_NAME MATCHES "^Android")
+  add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
 endif()
-

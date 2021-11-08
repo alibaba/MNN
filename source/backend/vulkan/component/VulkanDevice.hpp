@@ -11,9 +11,9 @@
 
 #include <memory>
 #include <vector>
-#include "NonCopyable.hpp"
-#include "VulkanInstance.hpp"
-#include "vulkan_wrapper.h"
+#include "core/NonCopyable.hpp"
+#include "backend/vulkan/component/VulkanInstance.hpp"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
 
 namespace MNN {
 class VulkanDevice : public NonCopyable {
@@ -49,8 +49,6 @@ public:
     const VkResult invalidateMappedMemoryRanges(const VkMappedMemoryRange* memoryRanges,
                                                 const uint32_t memoryRangeCount = 1) const;
 
-    const void getPhysicalDeviceMemoryProperties(VkPhysicalDeviceMemoryProperties& memoryProperties) const;
-
     // VkCommand*
     const VkResult createCommandPool(
         VkCommandPool& cmdPool, const VkCommandPoolCreateFlags flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -73,14 +71,6 @@ public:
     void destroyFence(const VkFence& fence, const VkAllocationCallbacks* allocator = nullptr) const;
     const VkResult resetFences(const uint32_t fenceCount, const VkFence* fences) const;
     const VkResult resetFence(const VkFence& fence) const;
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    const VkResult fenceFd(const VkFence& fence, HANDLE& fd) const;
-#else
-    const VkResult fenceFd(const VkFence& fence, int& fd) const;
-#endif
-
-    // if fenceFd is support, we can use epoll or select wait for fence complete
-    const bool supportFenceFd() const;
 
     // VkSemaphore
     const VkResult createSemaphore(VkSemaphore& semaphore, const VkAllocationCallbacks* allocator = nullptr) const;
@@ -146,11 +136,6 @@ public:
                                         const VkDescriptorPoolSize* pPoolSizes,
                                         const VkAllocationCallbacks* allocator = nullptr) const;
 
-    const VkResult allocateDescriptorSets(VkDescriptorSet* pDescriptorSets,
-                                          const VkDescriptorSetAllocateInfo* allocateInfo) const;
-
-    const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet,
-                                         const VkDescriptorSetAllocateInfo& allocateInfo) const;
     const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet, const VkDescriptorPool& descPool,
                                          const VkDescriptorSetLayout& setLayout) const;
 
@@ -163,6 +148,9 @@ public:
     const VkPhysicalDeviceProperties& proty() const {
         return mDeviceProty;
     }
+    const VkPhysicalDeviceMemoryProperties& memProty() const {
+        return mMemoryProty;
+    }
 
     const bool success() const {
         return (VK_NULL_HANDLE != mDevice);
@@ -171,8 +159,6 @@ public:
 private:
     const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
                                                       std::vector<VkExtensionProperties>& exts_props) const;
-    const bool fenceFdSupported() const;
-    void setupVkFenceConfInformation();
 
 private:
     bool mOwner;
@@ -182,12 +168,7 @@ private:
     VkDevice mDevice;
     VkPhysicalDeviceProperties mDeviceProty;
     VkQueue mQueue;
-    bool mFenceFdSupport;
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    PFN_vkGetFenceWin32HandleKHR mVkGetFenceWin32HandleKHR;
-#else
-    PFN_vkGetFenceFdKHR mVkGetFenceFdKHR;
-#endif
+    VkPhysicalDeviceMemoryProperties mMemoryProty;
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

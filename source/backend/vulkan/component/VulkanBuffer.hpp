@@ -34,10 +34,12 @@ public:
 
 private:
     const VulkanMemoryPool& mPool;
-    const VulkanMemory* mMemory;
+    std::pair<void*, int> mMemory;
     VkBuffer mBuffer;
     size_t mSize;
+    VkBufferUsageFlags mUsage;
     bool mReleased = false;
+    VkSharingMode mShared;
 };
 } // namespace MNN
 

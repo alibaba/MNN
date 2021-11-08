@@ -1,6 +1,4 @@
-#version 310 es
-#define PRECISION mediump
-precision PRECISION float;
+#version 440 core
 layout(std430) buffer;
 layout(set=0, binding=0) buffer destbuffer{
     float data[];
@@ -11,9 +9,9 @@ layout(set=0, binding=1) readonly buffer sourceBuffer{
 }uInput;
 
 layout(set = 0, binding = 2) uniform constBuffer {
-    int w;
-    int h;
-    int c;
+    int w;//inside
+    int h;//axis
+    int c;//outside
 }uConst;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -22,7 +20,8 @@ void main()
 {
     // input tensor's layout is NHWC
     ivec3 pos = ivec3(gl_GlobalInvocationID);
-    if(pos.x < uConst.w && pos.y < uConst.c)
+    // x: index in outside, y: index in inside
+    if(pos.y < uConst.w && pos.x < uConst.c)
     {
         int W = uConst.w;
         int H = uConst.h;
@@ -30,18 +29,18 @@ void main()
         float maxValue = -1000.0;
         for(int i = 0; i < H; ++i)
         {
-            int index = i * W * C + pos.x * C + pos.z;
+            int index = i * W + pos.x * H * W + pos.y;
             maxValue = max(maxValue, uInput.data[index]);
         }
         float sum = 0.0;
         for(int i = 0; i < H; ++i)
         {
-            int index = i * W * C + pos.x * C + pos.z;
+            int index = i * W + pos.x * H * W + pos.y;
             sum += exp(uInput.data[index] - maxValue);
         }
         for(int i = 0; i < H; ++i)
         {
-            int index = i * W * C + pos.x * C + pos.z;
+            int index = i * W + pos.x * H * W + pos.y;
             uOutput.data[index] = exp(uInput.data[index] - maxValue) / sum;
         }
     }

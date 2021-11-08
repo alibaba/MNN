@@ -7,8 +7,8 @@
 //
 
 #include <stdio.h>
-#include "ImageProcess.hpp"
-#include "Interpreter.hpp"
+#include <MNN/ImageProcess.hpp>
+#include <MNN/Interpreter.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
 #include <fstream>
@@ -16,7 +16,7 @@
 #include <memory>
 #include <sstream>
 #include <vector>
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
@@ -26,46 +26,42 @@ using namespace MNN::CV;
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        MNN_PRINT("Usage: ./pictureTest.out model.mnn input.jpg [word.txt]\n");
+        MNN_PRINT("Usage: ./pictureRecognition.out model.mnn input0.jpg input1.jpg input2.jpg ... \n");
         return 0;
     }
     std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
     ScheduleConfig config;
     config.type  = MNN_FORWARD_AUTO;
+    // BackendConfig bnconfig;
+    // bnconfig.precision = BackendConfig::Precision_Low;
+    // config.backendConfig = &bnconfig;
     auto session = net->createSession(config);
 
     auto input = net->getSessionInput(session, NULL);
     auto shape = input->shape();
-    shape[0]   = 1;
+    // Set Batch Size
+    shape[0]   = argc - 2;
     net->resizeTensor(input, shape);
     net->resizeSession(session);
+    float memoryUsage = 0.0f;
+    net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
+    float flops = 0.0f;
+    net->getSessionInfo(session, MNN::Interpreter::FLOPS, &flops);
+    int backendType[2];
+    net->getSessionInfo(session, MNN::Interpreter::BACKENDS, backendType);
+    MNN_PRINT("Session Info: memory use %f MB, flops is %f M, backendType is %d, batch size = %d\n", memoryUsage, flops, backendType[0], argc - 2);
     auto output = net->getSessionOutput(session, NULL);
-    std::vector<std::string> words;
-    if (argc >= 4) {
-        std::ifstream inputOs(argv[3]);
-        std::string line;
-        while (std::getline(inputOs, line)) {
-            words.emplace_back(line);
-        }
+    if (nullptr == output || output->elementSize() == 0) {
+        MNN_ERROR("Resize error, the model can't run batch: %d\n", shape[0]);
+        return 0;
     }
-    {
-        auto dims    = input->shape();
-        int inputDim = 0;
-        int size_w   = 0;
-        int size_h   = 0;
-        int bpp      = 0;
-        bpp          = input->channel();
-        size_h       = input->height();
-        size_w       = input->width();
-        if (bpp == 0)
-            bpp = 1;
-        if (size_h == 0)
-            size_h = 1;
-        if (size_w == 0)
-            size_w = 1;
-        MNN_PRINT("input: w:%d , h:%d, bpp: %d\n", size_w, size_h, bpp);
-
-        auto inputPatch = argv[2];
+    std::shared_ptr<Tensor> inputUser(new Tensor(input, Tensor::TENSORFLOW));
+    auto bpp          = inputUser->channel();
+    auto size_h       = inputUser->height();
+    auto size_w       = inputUser->width();
+    MNN_PRINT("input: w:%d , h:%d, bpp: %d\n", size_w, size_h, bpp);
+    for (int batch = 0; batch < shape[0]; ++batch){
+        auto inputPatch = argv[batch + 2];
         int width, height, channel;
         auto inputImage = stbi_load(inputPatch, &width, &height, &channel, 4);
         if (nullptr == inputImage) {
@@ -105,30 +101,36 @@ int main(int argc, const char* argv[]) {
 
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
-        pretreat->convert((uint8_t*)inputImage, width, height, 0, input);
+        pretreat->convert((uint8_t*)inputImage, width, height, 0, inputUser->host<uint8_t>() + inputUser->stride(0) * batch * inputUser->getType().bytes(), size_w, size_h, bpp, 0, inputUser->getType());
         stbi_image_free(inputImage);
     }
+    input->copyFromHostTensor(inputUser.get());
     net->runSession(session);
-    {
-        auto dimType = output->getDimensionType();
-        if (output->getType().code != halide_type_float) {
-            dimType = Tensor::TENSORFLOW;
-        }
-        std::shared_ptr<Tensor> outputUser(new Tensor(output, dimType));
-        MNN_PRINT("output size:%d\n", outputUser->elementSize());
-        output->copyToHostTensor(outputUser.get());
-        auto type = outputUser->getType();
-
-        auto size = outputUser->elementSize();
+    auto dimType = output->getDimensionType();
+    if (output->getType().code != halide_type_float) {
+        dimType = Tensor::TENSORFLOW;
+    }
+    std::shared_ptr<Tensor> outputUser(new Tensor(output, dimType));
+    output->copyToHostTensor(outputUser.get());
+    auto type = outputUser->getType();
+    for (int batch = 0; batch < shape[0]; ++batch) {
+        MNN_PRINT("For Image: %s\n", argv[batch + 2]);
+        auto size = outputUser->stride(0);
         std::vector<std::pair<int, float>> tempValues(size);
         if (type.code == halide_type_float) {
-            auto values = outputUser->host<float>();
+            auto values = outputUser->host<float>() + batch * outputUser->stride(0);
             for (int i = 0; i < size; ++i) {
                 tempValues[i] = std::make_pair(i, values[i]);
             }
         }
         if (type.code == halide_type_uint && type.bytes() == 1) {
-            auto values = outputUser->host<uint8_t>();
+            auto values = outputUser->host<uint8_t>() + batch * outputUser->stride(0);
+            for (int i = 0; i < size; ++i) {
+                tempValues[i] = std::make_pair(i, values[i]);
+            }
+        }
+        if (type.code == halide_type_int && type.bytes() == 1) {
+            auto values = outputUser->host<int8_t>() + batch * outputUser->stride(0);
             for (int i = 0; i < size; ++i) {
                 tempValues[i] = std::make_pair(i, values[i]);
             }
@@ -138,14 +140,8 @@ int main(int argc, const char* argv[]) {
                   [](std::pair<int, float> a, std::pair<int, float> b) { return a.second > b.second; });
 
         int length = size > 10 ? 10 : size;
-        if (words.empty()) {
-            for (int i = 0; i < length; ++i) {
-                MNN_PRINT("%d, %f\n", tempValues[i].first, tempValues[i].second);
-            }
-        } else {
-            for (int i = 0; i < length; ++i) {
-                MNN_PRINT("%s: %f\n", words[tempValues[i].first].c_str(), tempValues[i].second);
-            }
+        for (int i = 0; i < length; ++i) {
+            MNN_PRINT("%d, %f\n", tempValues[i].first, tempValues[i].second);
         }
     }
     return 0;

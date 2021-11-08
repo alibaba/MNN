@@ -1,8 +1,7 @@
 #version 450 core
 layout(std430) buffer;
-layout(std430) uniform;
-layout(set=0, binding=0, rgba16f) writeonly restrict uniform image2D uOutput;
-layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) readonly restrict uniform constBuffer {
     ivec4 inputSize;
     ivec4 outputSize;
@@ -16,6 +15,11 @@ layout(set=0, binding=2) readonly restrict uniform constBuffer {
 layout(set=0, binding=3) readonly restrict uniform offsetBuffer {
     ivec2 offset;
 } uOffset;
+int CLAMP_ADD(int x) {
+    return mix(x+uConst.inputSize.x*int(gl_GlobalInvocationID.z), -1, (x) < 0 || (x) >= uConst.inputSize.x);
+}
+
+//#define CLAMP_ADD(x) mix(x+uConst.inputSize.x*pos.z, -1, (x) < 0 || (x) >= uConst.inputSize.x)
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main()
@@ -32,22 +36,22 @@ int dstX = dstYOrigin % 4 + 4*dstXOrigin;
         int sxStart = (realPos.x)*uConst.unit - uConst.padX;
         int syStart = (realPos.y)*uConst.unit - uConst.padY;
 {
-vec4 S00= texelFetch(uInput, ivec3(sxStart+0, syStart+ 0, pos.z), 0);
-vec4 S10= texelFetch(uInput, ivec3(sxStart+1, syStart+ 0, pos.z), 0);
-vec4 S20= texelFetch(uInput, ivec3(sxStart+2, syStart+ 0, pos.z), 0);
-vec4 S30= texelFetch(uInput, ivec3(sxStart+3, syStart+ 0, pos.z), 0);
-vec4 S01= texelFetch(uInput, ivec3(sxStart+0, syStart+ 1, pos.z), 0);
-vec4 S11= texelFetch(uInput, ivec3(sxStart+1, syStart+ 1, pos.z), 0);
-vec4 S21= texelFetch(uInput, ivec3(sxStart+2, syStart+ 1, pos.z), 0);
-vec4 S31= texelFetch(uInput, ivec3(sxStart+3, syStart+ 1, pos.z), 0);
-vec4 S02= texelFetch(uInput, ivec3(sxStart+0, syStart+ 2, pos.z), 0);
-vec4 S12= texelFetch(uInput, ivec3(sxStart+1, syStart+ 2, pos.z), 0);
-vec4 S22= texelFetch(uInput, ivec3(sxStart+2, syStart+ 2, pos.z), 0);
-vec4 S32= texelFetch(uInput, ivec3(sxStart+3, syStart+ 2, pos.z), 0);
-vec4 S03= texelFetch(uInput, ivec3(sxStart+0, syStart+ 3, pos.z), 0);
-vec4 S13= texelFetch(uInput, ivec3(sxStart+1, syStart+ 3, pos.z), 0);
-vec4 S23= texelFetch(uInput, ivec3(sxStart+2, syStart+ 3, pos.z), 0);
-vec4 S33= texelFetch(uInput, ivec3(sxStart+3, syStart+ 3, pos.z), 0);
+vec4 S00= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+0), syStart+ 0), 0);
+vec4 S10= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+1), syStart+ 0), 0);
+vec4 S20= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+2), syStart+ 0), 0);
+vec4 S30= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+3), syStart+ 0), 0);
+vec4 S01= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+0), syStart+ 1), 0);
+vec4 S11= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+1), syStart+ 1), 0);
+vec4 S21= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+2), syStart+ 1), 0);
+vec4 S31= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+3), syStart+ 1), 0);
+vec4 S02= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+0), syStart+ 2), 0);
+vec4 S12= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+1), syStart+ 2), 0);
+vec4 S22= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+2), syStart+ 2), 0);
+vec4 S32= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+3), syStart+ 2), 0);
+vec4 S03= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+0), syStart+ 3), 0);
+vec4 S13= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+1), syStart+ 3), 0);
+vec4 S23= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+2), syStart+ 3), 0);
+vec4 S33= texelFetch(uInput, ivec2(CLAMP_ADD(sxStart+3), syStart+ 3), 0);
 vec4 m00= +S00-S02;
 vec4 m10= +S10-S12;
 vec4 m20= +S20-S22;

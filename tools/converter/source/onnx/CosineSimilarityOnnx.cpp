@@ -19,7 +19,16 @@ MNN::OpParameter CosineSimilarityOnnx::type() {
 }
 
 void CosineSimilarityOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                               std::vector<const onnx::TensorProto *> initializers) {
+                               OnnxScope* scope) {
+    std::string type;
+    for (int i=0; i<onnxNode->attribute_size(); ++i) {
+        auto att = onnxNode->attribute(i);
+        if ("operator" == att.name()) {
+            type = att.s();
+            break;
+        }
+    }
+    DCHECK(type == "cosine_similarity") << " NOT SUPPPRT";
     return;
 }
 

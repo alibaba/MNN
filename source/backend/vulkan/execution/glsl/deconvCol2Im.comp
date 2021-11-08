@@ -1,8 +1,7 @@
-#version 450 core
-layout(std430) uniform;
+#version 440 core
 
-layout(set=0, binding=0) uniform mediump sampler3D uInput;
-layout(set=0, rgba16f, binding=1) writeonly uniform mediump image2D uOutput;
+layout(set=0, binding=0) uniform mediump sampler2D uInput;
+layout(set=0, binding=1) writeonly uniform mediump image2D uOutput;
 
 layout(set=0, binding=2) readonly uniform constBuffer {
     ivec2 pad;
@@ -11,27 +10,31 @@ layout(set=0, binding=2) readonly uniform constBuffer {
     ivec2 dilate;
     ivec4 inputSize;
     ivec4 outputSize;
-    int batch;
-    int group;
+    ivec4 offset;
 } uConstant;
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 #define UP_DIV(x, y) (((x)+(y)-1)/(y))
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec3 pos;
+    pos.x = posTmp.x % uConstant.inputSize.x;
+    int subIndex = posTmp.x / uConstant.inputSize.x;
+    pos.y = subIndex % uConstant.inputSize.y;
+    pos.z = subIndex / uConstant.inputSize.y;
     ivec3 inputSize = uConstant.inputSize.xyz;
     int oz = pos.z % uConstant.inputSize.z;
     int ob = pos.z / uConstant.inputSize.z;
 
-    if (all(lessThan(pos.xy, inputSize.xy)))
+    if (pos.x < uConstant.inputSize.x && pos.y < uConstant.inputSize.y && ob < uConstant.outputSize.w)
     {
         int sourceXIndex = pos.x + pos.y*uConstant.inputSize.x + ob*uConstant.inputSize.x*uConstant.inputSize.y;
         int sourceX = sourceXIndex / 4;
         int sourceY = 4*oz + sourceXIndex % 4;
 
-        vec4 color = texelFetch(uInput, pos, 0);
+        vec4 color = texelFetch(uInput, ivec2(pos.x+ oz*uConstant.inputSize.x, pos.y + ob*uConstant.inputSize.y), 0);
         //Tranpose
         imageStore(uOutput, ivec2(sourceY, sourceX), color);
     }

@@ -7,82 +7,15 @@
 //
 
 #include "VulkanImageConverter.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #include "VulkanBackend.hpp"
 namespace MNN {
-
-VulkanTensorConvert::VulkanTensorConvert(const VulkanBackend* bn) : mVulkanBackend(bn) {
-    mTensorConvertUniformBuffer.reset(
-        new VulkanBuffer(bn->getMemoryPool(), false, sizeof(Uniforms), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
-}
-
-VulkanTensorConvert::~VulkanTensorConvert() {
-}
-
-bool VulkanTensorConvert::encodeTensorConvert(VkBuffer source, VkBuffer dest, const Tensor* srcShape,
-                                              MNN_DATA_FORMAT sourceDimensionFormat,
-                                              MNN_DATA_FORMAT destDimensionFormat, VkDeviceSize srcOffset,
-                                              VkDeviceSize destOffset, VkDeviceSize srcSize, VkDeviceSize dstSize,
-                                              const VulkanCommandPool::Buffer* cmdBuffer) {
-    auto tensorConvertParam     = reinterpret_cast<Uniforms*>(mTensorConvertUniformBuffer->map());
-    tensorConvertParam->width   = std::max(1, srcShape->width());
-    tensorConvertParam->height  = std::max(1, srcShape->height());
-    tensorConvertParam->channel = srcShape->channel();
-    tensorConvertParam->batch   = srcShape->batch();
-
-    // const uint8_t* codeBuffer = nullptr;
-    // size_t codeBufferLength = 0;
-    std::string key = "";
-    if (MNN_DATA_FORMAT_NHWC == sourceDimensionFormat) {
-        if (MNN_DATA_FORMAT_NC4HW4 == destDimensionFormat) {
-            // codeBuffer = glsl_nhwcTonc4hw4_comp;
-            // codeBufferLength = glsl_nhwcTonc4hw4_comp_len;
-            key = "glsl_nhwcTonc4hw4_comp";
-        }
-    } else if (MNN_DATA_FORMAT_NC4HW4 == sourceDimensionFormat) {
-        if (MNN_DATA_FORMAT_NHWC == destDimensionFormat) {
-            // codeBuffer = glsl_nc4hw4Tonhwc_comp;
-            // codeBufferLength = glsl_nc4hw4Tonhwc_comp_len;
-            key = "glsl_nc4hw4Tonhwc_comp";
-        } else if (MNN_DATA_FORMAT_NCHW == destDimensionFormat) {
-            // codeBuffer = glsl_nc4hw4Tonchw_comp;
-            // codeBufferLength = glsl_nc4hw4Tonchw_comp_len;
-            key = "glsl_nc4hw4Tonchw_comp";
-        }
-    } else if (MNN_DATA_FORMAT_NCHW == sourceDimensionFormat) {
-        if (MNN_DATA_FORMAT_NC4HW4 == destDimensionFormat) {
-            // codeBuffer = glsl_nchwTonc4hw4_comp;
-            // codeBufferLength = glsl_nchwTonc4hw4_comp_len;
-            key = "glsl_nchwTonc4hw4_comp";
-        }
-    }
-
-    // MNN_ASSERT(nullptr != codeBuffer);
-    std::vector<VkDescriptorType> desTypes{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-
-    mTensorConvertPipeline = mVulkanBackend->getPipeline(key, /*codeBuffer, codeBufferLength,*/ desTypes);
-    mTensorConvertDescriptorSet.reset(mTensorConvertPipeline->createSet());
-    mTensorConvertDescriptorSet->writeBuffer(source, 0, srcSize, srcOffset);
-    mTensorConvertDescriptorSet->writeBuffer(dest, 1, dstSize, destOffset);
-    mTensorConvertDescriptorSet->writeBuffer(mTensorConvertUniformBuffer->buffer(), 2,
-                                             mTensorConvertUniformBuffer->size());
-
-    mTensorConvertPipeline->bind(cmdBuffer->get(), mTensorConvertDescriptorSet->get());
-    cmdBuffer->barrierSource(source, srcOffset, srcSize);
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(tensorConvertParam->width, 16), UP_DIV(tensorConvertParam->height, 16),
-                  UP_DIV(tensorConvertParam->channel, 4) * tensorConvertParam->batch);
-
-    mTensorConvertUniformBuffer->unmap();
-    return true;
-}
-
-VulkanImageConverter::VulkanImageConverter(const VulkanBackend* bn) : mBufferConverter(bn) {
+VulkanImageConverter::VulkanImageConverter(const VulkanBackend* bn) {
     mBackend = bn;
     mSampler = bn->getCommonSampler();
     mConst.reset(
-        new VulkanBuffer(bn->getMemoryPool(), false, 4 * sizeof(int), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+        new VulkanBuffer(bn->getMemoryPool(), false, 8 * sizeof(int), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
 }
 
 void VulkanImageConverter::_setUpPipeline(MNN_DATA_FORMAT sourceFormat, MNN_DATA_FORMAT destFormat, TYPE type,
@@ -94,37 +27,26 @@ void VulkanImageConverter::_setUpPipeline(MNN_DATA_FORMAT sourceFormat, MNN_DATA
     mCurrentSource = sourceFormat;
     mConvertImage  = type;
 
-    if (type != BUFFER_TO_BUFFER) {
-        std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-        if (type == BUFFER_TO_IMAGE) {
-            types[0] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+    std::string name;
+    if (type == BUFFER_TO_IMAGE) {
+        types[0] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        if (sourceFormat == MNN_DATA_FORMAT_NC4HW4) {
+            name = "glsl_nc4hw4toimage_comp";
+        } else {
+            name = "glsl_nchwToimage_comp";
         }
-
-        if (mCurrentDest == MNN_DATA_FORMAT_NCHW) {
-            mPipeline = mBackend->getPipeline("glsl_imageTonchw_comp",
-                                              /*glsl_imageTonchw_comp, glsl_imageTonchw_comp_len,*/ types);
-        } else if (mCurrentDest == MNN_DATA_FORMAT_NHWC) {
-            mPipeline = mBackend->getPipeline("glsl_imageTonhwc_comp",
-                                              /*glsl_imageTonhwc_comp, glsl_imageTonhwc_comp_len,*/ types);
-        } else if (mCurrentSource == MNN_DATA_FORMAT_NHWC) {
-            mPipeline = mBackend->getPipeline("glsl_nhwcToimage_comp",
-                                              /*glsl_nhwcToimage_comp, glsl_nhwcToimage_comp_len,*/ types);
-        } else if (mCurrentSource == MNN_DATA_FORMAT_NCHW) {
-            mPipeline = mBackend->getPipeline("glsl_nchwToimage_comp",
-                                              /*glsl_nchwToimage_comp, glsl_nchwToimage_comp_len,*/ types);
-        } else if (mCurrentSource == mCurrentDest) {
-            if (type == BUFFER_TO_IMAGE) {
-                mPipeline = mBackend->getPipeline("glsl_nc4hw4toimage_comp",
-                                                  /*glsl_nc4hw4toimage_comp, glsl_nc4hw4toimage_comp_len,*/ types);
-            } else {
-                mPipeline = mBackend->getPipeline("glsl_imageTonc4hw4_comp",
-                                                  /*glsl_imageTonc4hw4_comp, glsl_imageTonc4hw4_comp_len,*/ types);
-            }
+    } else {
+        if (destFormat == MNN_DATA_FORMAT_NC4HW4) {
+            name = "glsl_imageTonc4hw4_comp";
+        } else {
+            name = "glsl_imageTonchw_comp";
         }
     }
+//    FUNC_PRINT_ALL(name.c_str(), s);
+    mPipeline = mBackend->getPipeline(name, types);
     MNN_ASSERT(nullptr != mPipeline);
-    mSet.reset(mPipeline->createSet());
 }
 
 void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor* destTensor, const int bufferSize,
@@ -132,46 +54,67 @@ void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor
                                                 const VulkanCommandPool::Buffer* cmdBuffer) {
     auto destFormat   = TensorUtils::getDescribe(destTensor)->dimensionFormat;
     auto sourceFormat = srcBufferFormat;
-    auto vkTensor     = mBackend->findTensor(destTensor->deviceId());
-    if (vkTensor->buffer() != nullptr) {
-        if (sourceFormat == destFormat) {
-            VkBufferCopy region;
-            ::memset(&region, 0, sizeof(VkBufferCopy));
-            region.size      = destTensor->elementSize() * 4;
-            region.srcOffset = 0;
-            region.dstOffset = 0;
-            vkCmdCopyBuffer(cmdBuffer->get(), srcBuffer, (VkBuffer)destTensor->deviceId(), 1, &region);
-            return;
-        }
-        mBufferConverter.encodeTensorConvert(srcBuffer, vkTensor->buffer()->buffer(), destTensor, sourceFormat,
-                                             destFormat, bufferOffset, 0, bufferSize, vkTensor->buffer()->size(),
-                                             cmdBuffer);
-        return;
-    }
+    cmdBuffer->barrierSource(srcBuffer, 0, bufferSize);
     auto tensor = destTensor;
     _setUpPipeline(sourceFormat, destFormat, BUFFER_TO_IMAGE, tensor->buffer().type);
-    _encodeImageBufferConvert(tensor, srcBuffer, bufferSize, bufferOffset, cmdBuffer, VK_IMAGE_LAYOUT_GENERAL);
+    _encodeImageBufferConvert(tensor, srcBuffer, bufferSize, bufferOffset, cmdBuffer, VK_IMAGE_LAYOUT_GENERAL, srcBufferFormat);
 }
-void VulkanImageConverter::_encodeImageBufferConvert(const Tensor* tensor, VkBuffer destBuffer, const int bufferSize,
-                                                     VkDeviceSize bufferOffset,
-                                                     const VulkanCommandPool::Buffer* cmdBuffer, VkImageLayout layout) {
-    int w     = std::max(tensor->width(), 1);
-    int h     = std::max(tensor->height(), 1);
-    int cDiv4 = UP_DIV(tensor->channel(), 4);
-    int b     = tensor->batch();
-    auto dims = (int*)mConst->map();
-    dims[0]   = w;
-    dims[1]   = h;
-    dims[2]   = tensor->channel();
-    dims[3]   = b;
+void VulkanImageConverter::_encodeImageBufferConvert(const Tensor* tensor, VkBuffer destBuffer, const int bufferSize, VkDeviceSize bufferOffset, const VulkanCommandPool::Buffer* cmdBuffer, VkImageLayout layout, MNN_DATA_FORMAT bufferFormat) {
+    auto dims = (int*)mConst->map();// W, H, C, N
+    auto nhwc = VulkanTensor::tensorShapeFormat(tensor);
+    dims[0] = nhwc[2];
+    dims[1] = nhwc[1];
+    dims[2] = nhwc[3];
+    dims[3] = nhwc[0];
+    // Set stride for W, H, C, N
+    if (bufferFormat == MNN_DATA_FORMAT_NHWC) {
+        dims[4] = nhwc[3];
+        dims[5] = nhwc[3] * nhwc[2];
+        dims[6] = 1;
+        dims[7] = nhwc[3] * nhwc[2] * nhwc[1];
+    } else {
+        dims[4] = 1;
+        dims[5] = nhwc[2];
+        dims[6] = nhwc[2] * nhwc[1];
+        dims[7] = nhwc[3] * nhwc[2] * nhwc[1] ;
+    }
     mConst->unmap();
+    auto vkTensor = reinterpret_cast<VulkanTensor*>(tensor->deviceId());
+    auto& mBlocks = vkTensor->blocks();
+    auto& limits = mBackend->proty().limits;
+    int wUnit = limits.maxImageDimension2D;
+    int hUnit = limits.maxImageDimension2D;
 
-    mSet->writeImage((VkImageView)tensor->deviceId(), mSampler->get(), layout, 0);
-    mSet->writeBuffer(destBuffer, 1, bufferSize, bufferOffset);
-    mSet->writeBuffer(mConst->buffer(), 2, mConst->size());
+    struct OffsetBuffer {
+        int offset[4]; // Offset w, h, c, n
+        int size[4];//w, h, c, w*h*c
+    };
+    mSet.resize(vkTensor->imageSize());
+    mOffset.resize(vkTensor->imageSize());
+    for (int y=0; y<mBlocks[1]; ++y) {
+        auto ySta = y * hUnit;
+        for (int x=0; x<mBlocks[0]; ++x) {
+            auto xSta = x * wUnit;
+            OffsetBuffer offset;
+            offset.offset[0] = xSta;
+            offset.offset[1] = ySta;
+            auto index = y*mBlocks[0] + x;
+            auto image = vkTensor->image(index);
+            offset.size[0] = image->width();
+            offset.size[1] = image->height();
+            offset.size[2] = 0;
+            offset.size[3] = image->width() * image->height();
+            mOffset[index].reset(new VulkanBuffer(mBackend->getMemoryPool(), false, sizeof(offset), &offset, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+            mSet[index].reset(mPipeline->createSet());
+            mSet[index]->writeImage(image->view(), mSampler->get(), layout, 0);
+            mSet[index]->writeBuffer(destBuffer, 1, bufferSize, bufferOffset);
+            mSet[index]->writeBuffer(mConst->buffer(), 2, mConst->size());
+            mSet[index]->writeBuffer(mOffset[index]->buffer(), 3, mOffset[index]->size());
+            mPipeline->bind(cmdBuffer->get(), mSet[index]->get());
+            vkCmdDispatch(cmdBuffer->get(), UP_DIV(offset.size[3], 256), 1, 1);
+        }
+    }
 
-    mPipeline->bind(cmdBuffer->get(), mSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(w, 16), UP_DIV(h, 16), cDiv4 * b);
 }
 
 void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffer destBuffer, const int bufferSize,
@@ -184,26 +127,22 @@ void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffe
         destFormat = MNN_DATA_FORMAT_NC4HW4;
     }
 
-    auto vkTensor = mBackend->findTensor(srcTensor->deviceId());
-    if (vkTensor->buffer() != nullptr) {
-        if (sourceFormat == destFormat) {
-            VkBufferCopy region;
-            ::memset(&region, 0, sizeof(VkBufferCopy));
-            region.size      = srcTensor->elementSize() * 4;
-            region.srcOffset = 0;
-            region.dstOffset = 0;
-            vkCmdCopyBuffer(cmdBuffer->get(), (VkBuffer)srcTensor->deviceId(), destBuffer, 1, &region);
-            return;
-        }
-        mBufferConverter.encodeTensorConvert(vkTensor->buffer()->buffer(), destBuffer, srcTensor, sourceFormat,
-                                             destFormat, 0, bufferOffset, vkTensor->buffer()->size(), bufferSize,
-                                             cmdBuffer);
-        return;
-    }
+    auto vkTensor = (VulkanTensor*)(srcTensor->deviceId());
     auto tensor = srcTensor;
     _setUpPipeline(sourceFormat, destFormat, IMAGE_TO_BUFFER, tensor->buffer().type);
+    for (int i=0; i<vkTensor->imageSize(); ++i) {
+        cmdBuffer->barrierImage(vkTensor->image(i)->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
     _encodeImageBufferConvert(tensor, destBuffer, bufferSize, bufferOffset, cmdBuffer,
-                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, destBufferFormat);
+}
+
+MNN_DATA_FORMAT VulkanImageConverter::getTensorLinearFormat(const Tensor* tensor) {
+    auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
+    if (MNN_DATA_FORMAT_NC4HW4 == format) {
+        return MNN_DATA_FORMAT_NCHW;
+    }
+    return format;
 }
 
 } // namespace MNN

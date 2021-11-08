@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 class AsStringComputer : public SizeComputer {

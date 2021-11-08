@@ -9,7 +9,7 @@
 #ifndef GLSSBOBUFFER_H
 #define GLSSBOBUFFER_H
 
-#include "GLHead.hpp"
+#include "backend/opengl/GLHead.hpp"
 namespace MNN {
 namespace OpenGL {
 class GLSSBOBuffer {

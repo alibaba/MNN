@@ -10,6 +10,7 @@
 #define LITEOPCONVERTER_HPP
 
 #include <map>
+#include "OpCount.hpp"
 // MNN fbs header
 #include "MNN_generated.h"
 // tflite fbs header
@@ -54,6 +55,8 @@ public:
     liteOpConverterRegister(const tflite::BuiltinOperator opIndex) {
         T* converter                  = new T;
         liteOpConverterSuit* liteSuit = liteOpConverterSuit::get();
+        auto t = opIndex;
+        MNN::OpCount::get()->insertOp("TFLITE", tflite::EnumNameBuiltinOperator(t));
         liteSuit->insert(converter, opIndex);
     }
 

@@ -82,20 +82,70 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
 
     int cur_out_width_pos  = mad24(channel_block_idx, global_size_dim1, width_idx);
     input_data = RI_F(input, SAMPLER, (int2)(cur_out_width_pos, batch_height_idx)) - float_max_value;
-    const int output_remain = mul24(channel_block_idx, 4) - output_channels;
+    const int output_remain = output_channels - mul24(channel_block_idx, 4);
 
     if (output_remain == 1) {
-        input_data.z = EXP(input_data.z) / accum_result;
-        input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else if (output_remain == 2) {
         input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else if (output_remain == 3) {
+        input_data.z = EXP(input_data.z) / accum_result;
+        input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else{
         input_data = EXP(input_data) / accum_result;
     }
 
     WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
+
+}
+
+__kernel void softmax_height(__read_only image2d_t input, __write_only image2d_t output,
+                      __private const int4 shape // NCHW
+                      ) {
+    int wc = get_global_id(0);
+    int b = get_global_id(1);
+    if (wc < shape.y*shape.w && b < shape.x) {
+        /*Compute Max */
+        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(wc, b*shape.z));
+        for (int i=1; i<shape.z; ++i) {
+            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
+        }
+        /*Compute Exp Sum*/
+        FLOAT4 sumValue = (FLOAT4)0;
+        for (int i=0; i<shape.z; ++i) {
+            sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
+        }
+        /*Compute Result */
+        for (int i=0; i<shape.z; ++i) {
+            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue) / sumValue;
+            WI_F(output, (int2)(wc, b*shape.z+i), value);
+        }
+    }
+}
+
+
+__kernel void softmax_width(__read_only image2d_t input, __write_only image2d_t output,
+                      __private const int4 shape // NCHW
+                      ) {
+    int c = get_global_id(0);
+    int bh = get_global_id(1);
+    if (c < shape.y && bh < shape.x*shape.z) {
+        /*Compute Max */
+        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(c*shape.w, bh));
+        for (int i=1; i<shape.w; ++i) {
+            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
+        }
+        /*Compute Exp Sum*/
+        FLOAT4 sumValue = (FLOAT4)0;
+        for (int i=0; i<shape.w; ++i) {
+            sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
+        }
+        /*Compute Result */
+        for (int i=0; i<shape.w; ++i) {
+            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue) / sumValue;
+            WI_F(output, (int2)(c*shape.w+i, bh), value);
+        }
+    }
 }

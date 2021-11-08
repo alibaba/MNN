@@ -6,36 +6,79 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "DispatchHelper.hpp"
-#include "CommonOptFunction.h"
-#include "ConvOpt.h"
-#include "sse/FunctionSummary.hpp"
+#include <limits>
+#include "avx512/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
+#include "AVX2Functions.hpp"
+#include "avxfma/FunctionSummary.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "cpu_id.h"
+#include "sse/FunctionSummary.hpp"
+// https://stackoverflow.com/a/11230437
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+
+struct FunctionGroup {
+    int tileNumber                                                                               = 8;
+    int eP                                                                                       = 12;
+    int lP                                                                                       = 1;
+    int hP                                                                                       = 4;
+    void (*MNNExpC8)(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
+    void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
+    void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size) = _SSE_MNNReluInt8;
+    void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
+    void (*MNNGelu)(float* dst, const float* src, size_t size) = _SSE_MNNGelu;
+    void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) = _SSE_MNNNorm;
+};
+
+static FunctionGroup gFunc;
+
+void _SSEMNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+    *eP = gFunc.eP;
+    *lP = gFunc.lP;
+    *hP = gFunc.hP;
+}
+void MNNFunctionInit() {
+    auto cpuFlags = libyuv::InitCpuFlags();
+    auto coreFunction = MNN::MNNGetCoreFunctions();
+    if (cpuFlags & libyuv::kCpuHasSSSE3) {
+        coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
+        coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
+        coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
+        coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
+        coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
+    }
+    if (cpuFlags & libyuv::kCpuHasAVX2) {
+        MNN::AVX2Functions::init(cpuFlags);
+        gFunc.MNNExpC8 = _AVX_MNNExpC8;
+        gFunc.MNNSoftmax = _AVX_MNNSoftmax;
+        gFunc.MNNGelu = _AVX_MNNGelu;
+        if (cpuFlags & libyuv::kCpuHasFMA3) {
+            gFunc.MNNGelu = _AVX_MNNGeluFMA;
+            gFunc.MNNExpC8 = _AVX_MNNExpC8FMA;
+        }
+        gFunc.MNNNorm = _AVX_MNNNorm;
+    }
+}
+
+void MNNInt8FunctionInit() {
+    auto cpuFlags = libyuv::InitCpuFlags();
+    auto core = MNN::MNNGetInt8CoreFunctions();
+    if (cpuFlags & libyuv::kCpuHasSSSE3) {
+        core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
+        core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;
+        core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
+        core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
+        core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+    }
+}
 
 // ========= CommonOptFunction.cpp ===========
-void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBias(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBias(dst, bias, planeNumber, biasNumber);
-    }
-}
-
-void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
-    }
-}
-
-void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
-    }
-}
 
 void MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
     _SSE_MNNCopyC4WithStride(source, dest, srcStride, dstStride, count);
@@ -45,51 +88,34 @@ void MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size
     _SSE_MNNAddC4WithStride(source, dest, srcStride, dstStride, count);
 }
 
-// ========= MNNConvSlideWindowBorder.cpp ===========
-void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
-                              size_t src_depth_step, size_t fw, size_t fh, size_t weight_y_step, size_t weight_z_step,
-                              size_t dilateX_step, size_t dilateY_step, float* alpha) {
-    _SSE_MNNConvSlideWindowBorder(dst, src, weight, src_depth_quad, src_depth_step, fw, fh,
-                                  weight_y_step, weight_z_step, dilateX_step, dilateY_step, alpha);
+void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
+    return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
-// ========= MNNConvSlideWindowMiddle.cpp ===========
-void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                              size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
-                              size_t dilateY_step, float* alpha) {
-    if (width % 2 == 0 && cpu_feature_available(AVX)) {
-        _AVX_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
-    } else {
-        _SSE_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
-    }
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
+    return gFunc.MNNReluInt8(dst, src, size);
 }
 
-// ========= MNNGemmFloatCommon_4.cpp ===========
-void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                          size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
-    } else {
-        _SSE_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
-    }
+void MNNHardSwish(float* dst, const float* src, size_t size) {
+    return gFunc.MNNHardSwish(dst, src, size);
 }
 
-// ========= MNNMatrixAdd.cpp ===========
-void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
-    } else {
-        _SSE_MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
-    }
+void MNNGelu(float* dst, const float* src, size_t size) {
+    return gFunc.MNNGelu(dst, src, size);
 }
 
-// ========= MNNMatrixSub.cpp ===========
-void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
-    } else {
-        _SSE_MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
-    }
+void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+    gFunc.MNNExpC8(dest, source, offset, parameters, countC8);
+}
+
+void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
+    _SSE_MNNInt8ToInt16(dest, source, count);
+}
+
+void MNNSoftmax(float* dest, const float* source, size_t size) {
+    gFunc.MNNSoftmax(dest, source, size);
+}
+
+void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size) {
+    gFunc.MNNNorm(dest, source, gamma, beta, epsilon, size);
 }

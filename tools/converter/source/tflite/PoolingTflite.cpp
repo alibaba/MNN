@@ -79,7 +79,7 @@ void PoolingTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
     }
 
     DCHECK(tfliteOp->inputs.size() == 1) << "Tflite pooling input ERROR";
-
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);

@@ -1,42 +1,18 @@
-cmake_minimum_required(VERSION 2.8)
-project(MNN_Arm82)
-file(GLOB SRCS "*.hpp" "*.cpp")
-include_directories("../../include/")
-include_directories("../../source/core")
-include_directories("../../source/backend/cpu")
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_CXX_STANDARD 11)
-enable_language(ASM)
-if(SYSTEM.Android)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
-        file(GLOB SRCS_ASM "asm/arm32/*")
-        add_definitions(-mfloat-abi=softfp -mfpu=neon)
-        add_definitions(-march=armv8.2a+fp16)
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64")
-        add_definitions(-march=armv8.2a+fp16)
-        file(GLOB SRCS_ASM "asm/arm64/*")
-    endif()
-    add_definitions(-DMNN_BUILD_FOR_ANDROID)
+
+file(GLOB MNN_ARM82_SRCS "${CMAKE_CURRENT_LIST_DIR}/*.cpp" "${CMAKE_CURRENT_LIST_DIR}/compute/*.cpp")
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
+    file(GLOB MNN_ARM82_SRCS_ASM "${CMAKE_CURRENT_LIST_DIR}/asm/arm32/*")
+    add_library(MNN_Arm82 OBJECT ${MNN_ARM82_SRCS} ${MNN_ARM82_SRCS_ASM})
+    target_compile_options(MNN_Arm82 PRIVATE -march=armv8.2-a+fp16 -mfpu=neon-fp-armv8 -mfloat-abi=softfp -DENABLE_ARMV82)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
+    file(GLOB MNN_ARM82_SRCS_ASM "${CMAKE_CURRENT_LIST_DIR}/asm/arm64/*")
+    add_library(MNN_Arm82 OBJECT ${MNN_ARM82_SRCS} ${MNN_ARM82_SRCS_ASM})
+    target_compile_options(MNN_Arm82 PRIVATE -march=armv8.2-a+fp16 -DENABLE_ARMV82)
 else()
-    file(GLOB SRCS_ASM "asm/arm32/*" "asm/arm64/*")
+# Building fat binary requires multiple seperate builds and lipo-by-hand under CMake's design
 endif()
 
-
-if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${NATIVE_LIBRARY_OUTPUT}/${ANDROID_ABI})
-endif()
-add_library(
-    MNN_Arm82
-    SHARED
-    ${SRCS}
-    ${SRCS_ASM}
-)
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fvisibility-inlines-hidden -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions")
-add_definitions(-fvisibility=hidden)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility-inlines-hidden")
-
-target_link_libraries(MNN_Arm82
-    MNN
-    )
-
+target_include_directories(MNN_Arm82 PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(MNN_Arm82 PRIVATE ${CMAKE_CURRENT_LIST_DIR}/compute/)
+target_include_directories(MNN_Arm82 PRIVATE ${CMAKE_CURRENT_LIST_DIR}/asm/)

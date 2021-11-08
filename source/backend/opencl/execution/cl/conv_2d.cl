@@ -38,9 +38,18 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 
 #define UNIT 4
 
-__kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __read_only image2d_t input, 
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __read_only image2d_t input,
+                          #ifdef BUFFER_INP_FP32
+                          __global const float *kernel_ptr,
+                          __global const float *bias_ptr,
+                          #else
                           __global const FLOAT *kernel_ptr,
                           __global const FLOAT *bias_ptr,
+                          #endif
                           __write_only image2d_t output,
                           __private const int in_c_block, __private const int out_h,
                           __private const int out_w) {
@@ -55,7 +64,11 @@ __kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_bloc
 
     const int out_w4_idx = mul24(out_w_idx, 4);
 
+    #ifdef BUFFER_INP_FP32
+    FLOAT4 out0 = CONVERT_FLOAT4(vload4(out_c_idx, (__global float *)bias_ptr));
+    #else
     FLOAT4 out0 = vload4(out_c_idx, (__global FLOAT *)bias_ptr);
+    #endif
     FLOAT4 out1 = out0;
     FLOAT4 out2 = out0;
     FLOAT4 out3 = out0;
@@ -86,11 +99,18 @@ __kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_bloc
         in2 = RI_F(input, SAMPLER, (int2)(input_width_base + intput_width_idx2, out_b_h_idx));
         in3 = RI_F(input, SAMPLER, (int2)(input_width_base + intput_width_idx3, out_b_h_idx));
 
+        #ifdef BUFFER_INP_FP32
+        weights0 = CONVERT_FLOAT4(vload4(offset, (__global float *)kernel_ptr));
+        weights1 = CONVERT_FLOAT4(vload4(offset + 1, (__global float *)kernel_ptr));
+        weights2 = CONVERT_FLOAT4(vload4(offset + 2, (__global float *)kernel_ptr));
+        weights3 = CONVERT_FLOAT4(vload4(offset + 3, (__global float *)kernel_ptr));
+        #else
         weights0 = vload4(offset, (__global FLOAT *)kernel_ptr);
         weights1 = vload4(offset + 1, (__global FLOAT *)kernel_ptr);
         weights2 = vload4(offset + 2, (__global FLOAT *)kernel_ptr);
         weights3 = vload4(offset + 3, (__global FLOAT *)kernel_ptr);
-
+        #endif
+        
         out0.x += dot(weights0, in0);
         out0.y += dot(weights1, in0);
         out0.z += dot(weights2, in0);
@@ -131,6 +151,7 @@ __kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_bloc
 
     const int remain = out_w - out_w4_idx;
     int output_idx   = out_x_base + out_w4_idx;
+    
     if (remain >= 4) {
         WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
         WI_F(output, (int2)(output_idx + 1, out_b_h_idx), out1);
@@ -254,7 +275,11 @@ __kernel void conv_2d_1x1_local(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, 
 
 }
 
-__kernel void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
                           __read_only image2d_t bias,
                           __write_only image2d_t output,
                           __private const int2 input_shape,
@@ -351,8 +376,14 @@ __kernel void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read
     }
 }
 
-__kernel void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+#ifdef BIAS
                       __read_only image2d_t bias,
+#endif
                       __write_only image2d_t output,
                       __private const int2 input_shape,
                       __private const int in_channel_block_length,
@@ -370,7 +401,11 @@ __kernel void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_onl
     const int out_channel_block_idx = output_channel_width_idx / out_width_blocks;
     const int out_height_block_idx   = output_channel_width_idx % out_width_blocks;
 
+#ifdef BIAS
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
+#else
+    FLOAT4 out0 = (FLOAT4)0;
+#endif
     FLOAT4 out1 = out0;
     FLOAT4 out2 = out0;
     FLOAT4 out3 = out0;

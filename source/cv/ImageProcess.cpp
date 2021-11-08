@@ -6,18 +6,25 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageProcess.hpp"
 #include <algorithm>
 #include <map>
-#include "AutoStorage.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/AutoStorage.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
-#include "ImageBlitter.hpp"
-#include "ImageFloatBlitter.hpp"
-#include "ImageSampler.hpp"
-#define CACHE_SIZE 128
+#include <MNN/AutoTime.hpp>
+#include "cv/ImageBlitter.hpp"
+#include "cv/ImageFloatBlitter.hpp"
+#include "cv/ImageSampler.hpp"
+#include "backend/cpu/CPUTensorConvert.hpp"
+#include <MNN/MNNForwardType.h>
+#include "core/Backend.hpp"
+
+#ifdef _MSC_VER
+#include "backend/cpu/x86_x64/cpu_id.h"
+#endif
+
+#define CACHE_SIZE 256
 namespace MNN {
 namespace CV {
 struct ImageProcess::Inside {
@@ -43,7 +50,16 @@ ImageProcess::ImageProcess(const Config& config) {
 
 ImageProcess* ImageProcess::create(const Config& config, const Tensor* dstTensor) {
     // TODO Get dstTensor' backend
-
+    #ifdef _MSC_VER
+        auto cpuFlags = libyuv::InitCpuFlags();
+        bool support = true;
+        support = support && (cpuFlags & libyuv::kCpuHasSSSE3); // _mm_shuffle_epi8
+        support = support && (cpuFlags & libyuv::kCpuHasSSE41); // _mm_cvtepu8_epi32
+        if (!support) {
+            MNN_ERROR("CPU must support SSSE3 and SSE4.1 for using ImageProcess\n");
+            return nullptr;
+        }
+    #endif
     return new ImageProcess(config);
 }
 
@@ -166,8 +182,11 @@ static std::pair<int, int> _computeClip(Point* points, int iw, int ih, const Mat
         } else {
             code2 = _encode(points[pIndex], iw, ih);
             // FUNC_PRINT_ALL(tmp.fX, f);
-            end = (int)::ceilf(tmp.fX) - xStart;
+            end = (int)::ceilf(tmp.fX) - xStart + 1;
         }
+    }
+    if (end > count) {
+        end = count;
     }
     return std::make_pair(sta, end);
 }
@@ -194,23 +213,37 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
         MNN_ERROR("null dest or source for image process\n");
         return INPUT_DATA_ERROR;
     }
+    if (TensorUtils::getDescribe(dest)->backend == nullptr && destOrigin->buffer().host == nullptr) {
+        MNN_ERROR("Invalid Tensor, the session may not be ready\n");
+        return INPUT_DATA_ERROR;
+    }
     std::shared_ptr<Tensor> tempTensor;
-    if (destOrigin->host<float>() == nullptr) {
-        tempTensor.reset(Tensor::createHostTensorFromDevice(destOrigin, false), [destOrigin](void* p) {
+    auto ow              = dest->width();
+    auto oh              = dest->height();
+    auto bpp             = dest->channel();
+    auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
+    auto tensorBn = TensorUtils::getDescribe(dest)->backend;
+    auto bnType = MNN_FORWARD_CPU;
+    if(tensorBn){
+        bnType = tensorBn->type();
+    }
+    if (bnType != MNN_FORWARD_CPU) {
+        tempTensor.reset(Tensor::create({1, bpp, oh, ow}, dest->getType(), nullptr, Tensor::CAFFE_C4),[destOrigin] (void* p) {
             auto hostTensor = (Tensor*)p;
             destOrigin->copyFromHostTensor(hostTensor);
             delete hostTensor;
         });
         dest = tempTensor.get();
     }
-    auto ow              = dest->width();
-    auto oh              = dest->height();
-    auto bpp             = dest->channel();
-    auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    if (MNN_DATA_FORMAT_NCHW == dimensionFormat) {
-        MNN_ERROR(
-            "Imageprocess don't support CAFFE dimension type, please create tensor with type TENSORFLOW or CAFFE_C4\n");
+    else if (MNN_DATA_FORMAT_NCHW == dimensionFormat) {
+        tempTensor.reset(Tensor::create(dest->shape(), dest->getType(), nullptr, Tensor::CAFFE_C4), [destOrigin](void* p) {
+            auto hostTensor = (Tensor*)p;
+            CPUTensorConverter::convert(hostTensor, destOrigin);
+            delete hostTensor;
+        });
+        dest = tempTensor.get();
     }
+    dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
     if (dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bpp = 4;
     }
@@ -299,14 +332,14 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
                     if (sta != 0 || end < count) {
                         if (sourceBpp > 0) {
                             if (sta > 0) {
-                                ::memset(samplerDest, 0, sourceBpp * sta);
+                                ::memset(samplerDest, mPaddingValue, sourceBpp * sta);
                             }
                             if (end < count) {
-                                ::memset(samplerDest + end * sourceBpp, 0, (count - end) * sourceBpp);
+                                ::memset(samplerDest + end * sourceBpp, mPaddingValue, (count - end) * sourceBpp);
                             }
                         } else {
                             // TODO, Only support NV12 / NV21
-                            ::memset(samplerDest, 0, count);
+                            ::memset(samplerDest, mPaddingValue, count);
                             ::memset(samplerDest + count, 128, UP_DIV(count, 2) * 2);
                         }
                     }

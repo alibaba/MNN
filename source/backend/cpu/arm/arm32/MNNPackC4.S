@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+
 #ifdef __arm__
 #ifndef __aarch64__
 
@@ -23,20 +24,34 @@ vswp d3, d6
 .endm
 
 asm_function MNNPackC4
-//void MNNPackC4(float* dst, const float* src, size_t area, size_t depth)
+//void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int32_t* areaOffset)
 //Auto load:
 //r0:dst, r1:src, r2:area, r3:depth
+//lr: srcArea, r10: dstArea
 
+push {r4-r8, r10, lr} // avoid to touch platform-register r-9
 
-push {r4, r5, r6, r7, r8, lr}
+ldr lr, [sp, #28]
+ldr r10, [lr, #4]
+ldr lr, [lr, #0]
 
 mul r4, r2, r3
 cmp r4, #0
 beq UpEnd
 
-//r4: srcDepthOffset:area*sizeof(float)
+//r4: srcDepthOffset:srcArea*sizeof(float)
 mov r4, #4
-mul r4, r2, r4
+mul r4, lr, r4
+
+//r10 -> 4 * (dstArea * sizeof(float) - area * sizeof(float))
+mov r12, #16
+sub r10, r10, r2
+mul r10, r12, r10
+
+//lr -> (srcArea * sizeof(float) - area * sizeof(float))
+mov r12, #4
+sub lr, lr, r2
+mul lr, r12, lr
 
 UpL4:
 cmp r3, #3
@@ -76,8 +91,9 @@ subs r8, r8, #1
 bne UpL4AreaRemainLoop
 UpL4AreaRemainEnd:
 sub r3, r3, #4
-mov r1, r7
+add r1, r7, lr
 cmp r3, #4
+add r0, r10, r0
 bge UpL4Loop
 
 UpL3:
@@ -184,7 +200,7 @@ UpL1AreaRemainEnd:
 
 UpEnd:
 
-pop {r4, r5, r6, r7, r8, pc}
+pop {r4-r8, r10, pc}
 
 #endif
 #endif

@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageSampler.hpp"
+#include "cv/ImageSampler.hpp"
 #include <algorithm>
-#include "Macro.h"
+#include "core/Macro.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -159,6 +159,70 @@ static void MNNSamplerC4Copy(const unsigned char* source, unsigned char* dest, P
                              size_t capacity, size_t iw, size_t ih, size_t yStride) {
     MNNSamplerCopyCommon(source, dest, points, sta, count, iw, ih, yStride, 4);
 }
+static void MNNSamplerI420Copy(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
+                               size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    Point curPoints;
+    curPoints.fX    = points[0].fX;
+    curPoints.fY    = points[0].fY;
+    float xMax      = iw - 1;
+    float yMax      = ih - 1;
+    int y           = (int)roundf(__clamp(curPoints.fY, 0, yMax));
+    int x           = (int)roundf(__clamp(curPoints.fX, 0, xMax));
+    auto uvPlane = (((int)iw + 1) / 2) * ((int(ih) + 1) / 2);
+    int sourcePosY  = y * (int)iw + x;
+    auto sourcePosU = source + (int)iw * (int)ih + (y / 2) * (((int)iw + 1) / 2) + (x / 2);
+    auto sourcePosV = source + (int)iw * (int)ih + (y / 2) * (((int)iw + 1) / 2) + (x / 2) + uvPlane;
+    auto uvCount = (count + 1) / 2;
+    ::memcpy(dest + sta, source + sourcePosY, count);
+    auto uDest = dest + (capacity) + (sta / 2) * 2;
+    for (int i=0; i<uvCount; ++i) {
+        uDest[2 * i + 0] = sourcePosV[i];
+        uDest[2 * i + 1] = sourcePosU[i];
+    }
+}
+static void MNNSamplerI420Nearest(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
+                                  size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    auto srcY  = source;
+
+    auto dstY  = dest + sta;
+    auto dstUV = dest + (capacity) + (sta / 2) * 2;
+    auto stride = yStride;
+    if (yStride == 0) {
+        stride = iw;
+    }
+    auto srcU = source + stride * ih;
+    MNNSamplerC1Nearest(srcY, dstY, points, 0, count, capacity, iw, ih, stride);
+
+    Point uvPoints[2];
+    uvPoints[0].fX = (points[0].fX - 0.01f) / 2.0f;
+    uvPoints[0].fY = (points[0].fY - 0.01f) / 2.0f;
+    uvPoints[1].fX = points[1].fX;
+    uvPoints[1].fY = points[1].fY;
+    if (yStride == 0) {
+        stride =  ((iw + 1) / 2);
+    }
+    auto srcV = srcU + stride * ((ih + 1) / 2);
+    auto uvCount = (count + 1) / 2;
+    {
+        Point curPoints;
+        curPoints.fX = uvPoints[0].fX;
+        curPoints.fY = uvPoints[0].fY;
+        float dy     = uvPoints[1].fY;
+        float dx     = uvPoints[1].fX;
+        float xMax   = (iw + 1 / 2) - 1;
+        float yMax   = (ih + 1 / 2) - 1;
+
+        for (int i = 0; i < uvCount; ++i) {
+            int y = (int)roundf(__clamp(curPoints.fY, 0, yMax));
+            int x = (int)roundf(__clamp(curPoints.fX, 0, xMax));
+            curPoints.fY += dy;
+            curPoints.fX += dx;
+            auto offset = y * stride + x;
+            dstUV[2 * i + 0] = srcV[offset];
+            dstUV[2 * i + 1] = srcU[offset];
+        }
+    }
+}
 
 static void MNNSamplerNV21Copy(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
                                size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
@@ -179,21 +243,63 @@ static void MNNSamplerNV21Copy(const unsigned char* source, unsigned char* dest,
 static void MNNSamplerNV21Nearest(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
                                   size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
     auto srcY  = source;
-    auto srcUV = source + iw * ih;
 
     auto dstY  = dest + sta;
     auto dstUV = dest + (capacity) + (sta / 2) * 2;
-
-    MNNSamplerC1Nearest(srcY, dstY, points, 0, count, capacity, iw, ih, iw);
+    auto stride = yStride;
+    if (yStride == 0) {
+        stride = iw;
+    }
+    auto srcUV = source + stride * ih;
+    MNNSamplerC1Nearest(srcY, dstY, points, 0, count, capacity, iw, ih, stride);
 
     Point uvPoints[2];
     uvPoints[0].fX = (points[0].fX - 0.01f) / 2.0f;
     uvPoints[0].fY = (points[0].fY - 0.01f) / 2.0f;
     uvPoints[1].fX = points[1].fX;
     uvPoints[1].fY = points[1].fY;
-
-    MNNSamplerNearest(srcUV, dstUV, uvPoints, 0, (count + 1) / 2, (iw + 1) / 2, (ih + 1) / 2, ((iw + 1) / 2) * 2, 2);
+    if (yStride == 0) {
+        stride =  ((iw + 1) / 2) * 2;
+    }
+    MNNSamplerNearest(srcUV, dstUV, uvPoints, 0, (count + 1) / 2, (iw + 1) / 2, (ih + 1) / 2, stride, 2);
 }
+
+static void _swapUV(const unsigned char* source, unsigned char* dest, size_t countC2) {
+    int sta = 0;
+#ifdef MNN_USE_NEON
+    int countC2C16 = (int)countC2 / 16;
+    sta = countC2C16 * 16;
+    for (int i=0; i<countC2C16; ++i) {
+        auto src = vld2q_u8(source + i * 32);
+        auto temp = src.val[0];
+        src.val[0] = src.val[1];
+        src.val[1] = temp;
+        vst2q_u8(dest + i * 32, src);
+    }
+#endif
+    for (int i=sta; i < countC2; ++i) {
+        auto temp = source[2*i];
+        dest[2*i] = source[2*i+1];
+        dest[2*i+1] = temp;
+    }
+}
+
+static void MNNSamplerNV12Copy(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
+                               size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    MNNSamplerNV21Copy(source, dest, points, sta, count, capacity, iw, ih, yStride);
+    auto destUV = dest + (capacity) + (sta / 2) * 2;
+    auto countC2 = ((count + 1) / 2);
+    _swapUV(destUV, destUV, countC2);
+}
+
+static void MNNSamplerNV12Nearest(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
+                                  size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    MNNSamplerNV21Nearest(source, dest, points, sta, count, capacity, iw, ih, yStride);
+    auto destUV = dest + (capacity) + (sta / 2) * 2;
+    auto countC2 = ((count + 1) / 2);
+    _swapUV(destUV, destUV, countC2);
+}
+
 
 ImageSampler::PROC ImageSampler::choose(ImageFormat format, Filter type, bool identity) {
     if (identity) {
@@ -209,7 +315,10 @@ ImageSampler::PROC ImageSampler::choose(ImageFormat format, Filter type, bool id
                 return MNNSamplerC3Copy;
             case YUV_NV21:
                 return MNNSamplerNV21Copy;
-
+            case YUV_NV12:
+                return MNNSamplerNV12Copy;
+            case YUV_I420:
+                return MNNSamplerI420Copy;
             default:
                 break;
         }
@@ -241,9 +350,12 @@ ImageSampler::PROC ImageSampler::choose(ImageFormat format, Filter type, bool id
         case RGB:
         case BGR:
             return MNNSamplerC3Nearest;
-
+        case YUV_NV12:
+            return MNNSamplerNV12Nearest;
         case YUV_NV21:
             return MNNSamplerNV21Nearest;
+        case YUV_I420:
+            return MNNSamplerI420Nearest;
         default:
             break;
     }

@@ -11,9 +11,9 @@
 
 #include <stdio.h>
 #include <vector>
-#include "NonCopyable.hpp"
-#include "VulkanDevice.hpp"
-#include "vulkan_wrapper.h"
+#include "core/NonCopyable.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
 
 namespace MNN {
 class VulkanSemaphore : public NonCopyable {

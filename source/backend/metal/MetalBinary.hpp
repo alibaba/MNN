@@ -9,20 +9,23 @@
 #ifndef MetalBinary_hpp
 #define MetalBinary_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MetalDefine.h"
-
+#include <string>
 #if MNN_METAL_ENABLED
 namespace MNN {
 
 class MetalBinary : public Execution {
 public:
-    MetalBinary(Backend *backend, int binaryType);
+    MetalBinary(Backend *backend, std::string type);
     virtual ~MetalBinary() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    id<MTLBuffer> mBinaryType;
+    id<MTLBuffer> mConstBuffer;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

@@ -11,7 +11,8 @@
 #include <iostream>
 #include "logkit.h"
 
-int addBizCode(const std::string modelFile, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT) {
+int addBizCode(const std::string modelFile, const std::string bizCode,
+            std::unique_ptr<MNN::NetT>& netT) {
     std::ifstream inputFile(modelFile, std::ios::binary);
     inputFile.seekg(0, std::ios::end);
     auto size = inputFile.tellg();

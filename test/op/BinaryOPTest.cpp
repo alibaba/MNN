@@ -6,172 +6,313 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
-#include "MNN_generated.h"
-#include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
 #include "TestUtils.h"
 
-using namespace MNN;
+using namespace MNN::Express;
+using namespace std;
 
-static Interpreter *create(int opType, int b0, int c0, int h0, int w0, int b1, int c1, int h1, int w1) {
-    flatbuffers::FlatBufferBuilder fbb;
-    std::vector<flatbuffers::Offset<Op>> vec;
+class BinaryTestCommon : public MNNTestCase {
+protected:
+    template<typename Tin, typename Tout>
+    bool test(VARP (*opFunc)(VARP, VARP), string name, Tout threshold,
+              const vector<Tin>& data_x, const vector<Tin>& data_y, const vector<Tout>& data_out,
+              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out) {
+        int size_x = 1, size_y = 1, size_out = 1;
+        for (int i = 0; i < shape_x.size(); ++i) {
+            size_x *= shape_x[i];
+        }
+        for (int i = 0; i < shape_y.size(); ++i) {
+            size_y *= shape_y[i];
+        }
+        for (int i = 0; i < shape_y.size(); ++i) {
+            size_out *= shape_out[i];
+        }
 
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({b0, c0, h0, w0}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input0");
-        auto iv    = fbb.CreateVector(std::vector<int>({0}));
-        auto ov    = fbb.CreateVector(std::vector<int>({0}));
+        auto input_x = _Input(shape_x, NCHW, halide_type_of<Tin>());
+        auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        auto ptr_x = input_x->template writeMap<Tin>();
+        auto ptr_y = input_y->template writeMap<Tin>();
+        memcpy(ptr_x, data_x.data(), size_x * sizeof(Tin));
+        memcpy(ptr_y, data_y.data(), size_y * sizeof(Tin));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = opFunc(input_x, input_y);
+        auto gotOutput = output->template readMap<Tout>();
 
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
-    }
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({b1, c1, h1, w1}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input1");
-        auto iv    = fbb.CreateVector(std::vector<int>({1}));
-        auto ov    = fbb.CreateVector(std::vector<int>({1}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
-    }
-    {
-        BinaryOpBuilder bob(fbb);
-        bob.add_opType(opType);
-        auto binary = bob.Finish();
-        auto name   = fbb.CreateString("binaryop");
-        auto iv     = fbb.CreateVector(std::vector<int>({0, 1}));
-        auto ov     = fbb.CreateVector(std::vector<int>({2}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_BinaryOp);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_BinaryOp);
-        builder.add_main(flatbuffers::Offset<void>(binary.o));
-        vec.push_back(builder.Finish());
-    }
-
-    auto ops   = fbb.CreateVector(vec);
-    auto names = fbb.CreateVectorOfStrings({"input0", "input1", "output"});
-    NetBuilder net(fbb);
-    net.add_oplists(ops);
-    net.add_tensorName(names);
-    fbb.Finish(net.Finish());
-    return Interpreter::createFromBuffer((const char *)fbb.GetBufferPointer(), fbb.GetSize());
-}
-
-static Tensor *infer(const Interpreter *net, Session *session) {
-    net->runSession(session);
-    return net->getSessionOutputAll(session).begin()->second;
-}
-
-class BinaryOPTest : public MNNTestCase {
-public:
-    virtual ~BinaryOPTest() = default;
-    virtual bool run() {
-        for (int b = 1; b <= 2; b *= 2) {
-            for (int c = 1; c <= 8; c *= 2) {
-                for (int h = 1; h <= 8; h *= 2) {
-                    for (int w = 1; w <= 8; w *= 2) {
-                        dispatch([&](MNNForwardType backend) -> void {
-                            if (backend == MNN_FORWARD_CPU)
-                                return;
-                            int optype = 0;
-                            int b0, c0, h0, w0, b1, c1, h1, w1;
-                            int b_1[] = {b, 1};
-                            int c_1[] = {c, 1};
-                            int h_1[] = {h, 1};
-                            int w_1[] = {w, 1};
-                            b0 = b_1[rand() % 2];
-                            c0 = c_1[rand() % 2];
-                            h0 = h_1[rand() % 2];
-                            w0 = w_1[rand() % 2];
-                            b1 = b_1[rand() % 2];
-                            c1 = c_1[rand() % 2];
-                            h1 = h_1[rand() % 2];
-                            w1 = w_1[rand() % 2];
-
-                            auto net   = create(optype, b0, c0, h0, w0, b1, c1, h1, w1);
-                            auto CPU   = createSession(net, MNN_FORWARD_CPU);
-                            auto GPU   = createSession(net, backend);
-                            if (!CPU || !GPU) {
-                                delete net;
-                                return;
-                            }
-
-                            // input
-                            auto input0 = new Tensor(4);
-                            {
-                                input0->buffer().dim[0].extent = b0;
-                                input0->buffer().dim[1].extent = c0;
-                                input0->buffer().dim[2].extent = h0;
-                                input0->buffer().dim[3].extent = w0;
-                                TensorUtils::setLinearLayout(input0);
-                                input0->buffer().host = (uint8_t *)malloc(input0->size());
-                                for (int i = 0; i < b0 * c0 * h0 * w0; i++) {
-                                    input0->host<float>()[i] = rand() % 255 / 255.f;
-                                }
-                                auto host   = net->getSessionInput(CPU, NULL);
-                                auto device = net->getSessionInput(GPU, NULL);
-                                net->getBackend(CPU, host)->onCopyBuffer(input0, host);
-                                net->getBackend(GPU, device)->onCopyBuffer(input0, device);
-                            }
-
-                            auto input1 = new Tensor(4);
-                            {
-                                input1->buffer().dim[0].extent = b1;
-                                input1->buffer().dim[1].extent = c1;
-                                input1->buffer().dim[2].extent = h1;
-                                input1->buffer().dim[3].extent = w1;
-                                TensorUtils::setLinearLayout(input1);
-                                input1->buffer().host = (uint8_t *)malloc(input1->size());
-                                for (int i = 0; i < b1 * c1 * h1 * w1; i++) {
-                                    input1->host<float>()[i] = rand() % 255 / 255.f;
-                                }
-                                auto host   = net->getSessionInput(CPU, "input1");
-                                auto device = net->getSessionInput(GPU, "input1");
-                                net->getBackend(CPU, host)->onCopyBuffer(input1, host);
-                                net->getBackend(GPU, device)->onCopyBuffer(input1, device);
-                            }
-
-                            // infer
-                            assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU), 0.01));
-
-                            // clean up
-                            free(input0->buffer().host);
-                            free(input1->buffer().host);
-                            delete input0;
-                            delete input1;
-                            delete net;
-                        });
-                    }
-                }
+        auto shape_got = output->getInfo()->dim;
+        if (shape_got.size() != shape_out.size()) {
+            MNN_ERROR("%s shape compute error!\n", name.c_str());
+            return false;
+        }
+        for (int i = 0; i < shape_got.size(); i++) {
+            if (shape_got[i] != shape_out[i]) {
+                MNN_ERROR("%s shape compute error!\n", name.c_str());
+                return false;
             }
+        }
+
+        if (!checkVector<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
+            MNN_ERROR("%s test failed!\n", name.c_str());
+            return false;
         }
         return true;
     }
 };
-MNNTestSuiteRegister(BinaryOPTest, "op/binary");
+
+class AddTest : public BinaryTestCommon {
+public:
+    virtual ~AddTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Add, "AddTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {0.0, 0.0, 0.0, 0.0},
+                    {4}, {4}, {4});
+    }
+};
+
+class SubtractTest : public BinaryTestCommon {
+public:
+    virtual ~SubtractTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Subtract, "SubtractTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
+                    {4}, {4}, {4});
+    }
+};
+class MultiplyTest : public BinaryTestCommon {
+public:
+    virtual ~MultiplyTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Multiply, "MultiplyTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -4.0, -9.0, -16.0},
+                    {4}, {4}, {4});
+    }
+};
+class DivideTest : public BinaryTestCommon {
+public:
+    virtual ~DivideTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Divide, "DivideTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {-0.5, -0.5, -0.5, -0.5},
+                    {4}, {4}, {4});
+    }
+};
+class PowTest : public BinaryTestCommon {
+public:
+    virtual ~PowTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Pow, "PowTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
+                    {4}, {4}, {4});
+    }
+};
+class MinimumTest : public BinaryTestCommon {
+public:
+    virtual ~MinimumTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Minimum, "MinimumTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -2.0, -3.0, -4.0},
+                    {4}, {4}, {4});
+    }
+};
+class MaximumTest : public BinaryTestCommon {
+public:
+    virtual ~MaximumTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(MNN::Express::_Maximum, "MaximumTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {2.0, 4.0, 6.0, 8.0},
+                    {4}, {4}, {4});
+    }
+};
+class BiasAddTest : public BinaryTestCommon {
+public:
+    virtual ~BiasAddTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_BiasAdd, "BiasAddTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0},
+                    {1.0, 2.0},
+                    {0.0, 0.0, -2.0, -2.0, -4.0, -4.0, -6.0, -6.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class GreaterTest : public BinaryTestCommon {
+public:
+    virtual ~GreaterTest() = default;
+    virtual bool run(int precision) {
+        return test<float, int>(_Greater, "GreaterTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 0, 0, 1, 1, 1, 1},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class GreaterEqualTest : public BinaryTestCommon {
+public:
+    virtual ~GreaterEqualTest() = default;
+    virtual bool run(int precision) {
+        return test<float, int>(_GreaterEqual, "GreaterEqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 1, 1, 1, 1, 1, 1},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LessTest : public BinaryTestCommon {
+public:
+    virtual ~LessTest() = default;
+    virtual bool run(int precision) {
+        return test<float, int>(_Less, "LessTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {1, 1, 0, 0, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class FloorDivTest : public BinaryTestCommon {
+public:
+    virtual ~FloorDivTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_FloorDiv, "FloorDivTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.1},
+                    {3.0, 4.0},
+                    {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 2.0, 2.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class SquaredDifferenceTest : public BinaryTestCommon {
+public:
+    virtual ~SquaredDifferenceTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_SquaredDifference, "SquaredDifferenceTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.001},
+                    {3.0, 4.0},
+                    {16.0, 36.0, 36.0, 64.0, 4.0, 4.0, 16.0, 16.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class EqualTest : public BinaryTestCommon {
+public:
+    virtual ~EqualTest() = default;
+    virtual bool run(int precision) {
+        return test<float, int>(_Equal, "EqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 1, 1, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LessEqualTest : public BinaryTestCommon {
+public:
+    virtual ~LessEqualTest() = default;
+    virtual bool run(int precision) {
+        return test<float, int>(_LessEqual, "LessEqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {1, 1, 1, 1, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class FloorModTest : public BinaryTestCommon {
+public:
+    virtual ~FloorModTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_FloorMod, "FloorModTest", 0.01,
+                    {-1.0f, -2.0f, -3.0f, -4.0f, 5.0f, 6.0f, 7.0f, 8.1f},
+                    {3.0f, 4.0f},
+                    {2.0f, 2.0f, 0.0f, 0.0f, 2.0f, 2.0f, 1.0f, 0.1f},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class Atan2Test : public BinaryTestCommon {
+public:
+    virtual ~Atan2Test() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_Atan2, "Atan2Test", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {-0.32175055, -0.4636476, -0.7853982, -0.7853982, 1.0303768,   0.98279375, 1.1659045,  1.1071488},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LogicalOrTest : public BinaryTestCommon {
+public:
+    virtual ~LogicalOrTest() = default;
+    virtual bool run(int precision) {
+        return test<int, int>(_LogicalOr, "LogicalOrTest", 0,
+                    {true, false, true, false, false, true, true, false},
+                    {true, false},
+                    {true, false, true, false, true, true, true, false},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class NotEqualTest : public BinaryTestCommon {
+public:
+    virtual ~NotEqualTest() = default;
+    virtual bool run(int precision) {
+        return test<int, int>(_NotEqual, "NotEqualTest", 0,
+                    {true, false, true, false, false, true, true, false},
+                    {true, false},
+                    {false, false, false, false, true, true, false, false},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+
+class BinaryBroadcastShapeTest : public BinaryTestCommon {
+public:
+    virtual ~BinaryBroadcastShapeTest() = default;
+    virtual bool run(int precision) {
+        vector<int> data_x(8, 1), data_y(8, 1), data_out(64, 2);
+        vector<int> shape_x = {4, 1, 2, 1}, shape_y = {2, 1, 4}, shape_out = {4, 2, 2, 4};
+        return test<int, int>(_Add, "BinaryBroadcastShapeTest", 0,
+                              data_x, data_y, data_out, shape_x, shape_y, shape_out);
+    }
+};
+
+class SubtractBroastTest : public BinaryTestCommon {
+public:
+    virtual ~SubtractBroastTest() = default;
+    virtual bool run(int precision) {
+        vector<float> data_x(560), data_y(20 * 560), data_out(20 * 560);
+        vector<int> shape_x = {560}, shape_y = {1, 20, 560}, shape_out = {1, 20, 560};
+        for (int i = 0; i < 560; ++i) {
+            data_x[i]  = i / 1000.0f;
+        }
+        for (int i = 0; i < 560 * 20; ++i) {
+            data_y[i]  = i / 1000.0f;
+        }
+        for (int i = 0; i < 20; ++i) {
+            for (int j = 0; j < 560; ++j) {
+                data_out[j + i * 560] = data_x[j] - data_y[j + i * 560];
+            }
+        }
+        return test<float, float>(_Subtract, "SubtractBroastTest", 0.01,
+                                  data_x, data_y, data_out, shape_x, shape_y, shape_out);
+    }
+};
+
+MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
+MNNTestSuiteRegister(AddTest, "op/binary/add");
+MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
+MNNTestSuiteRegister(MultiplyTest, "op/binary/multiply");
+MNNTestSuiteRegister(DivideTest, "op/binary/divide");
+MNNTestSuiteRegister(PowTest, "op/binary/pow");
+MNNTestSuiteRegister(MinimumTest, "op/binary/minimum");
+MNNTestSuiteRegister(MaximumTest, "op/binary/maximum");
+MNNTestSuiteRegister(BiasAddTest, "op/binary/biasadd");
+MNNTestSuiteRegister(GreaterTest, "op/binary/greater");
+MNNTestSuiteRegister(GreaterEqualTest, "op/binary/greaterequal");
+MNNTestSuiteRegister(LessTest, "op/binary/less");
+MNNTestSuiteRegister(FloorDivTest, "op/binary/floordiv");
+MNNTestSuiteRegister(SquaredDifferenceTest, "op/binary/squareddifference");
+MNNTestSuiteRegister(EqualTest, "op/binary/equal");
+MNNTestSuiteRegister(LessEqualTest, "op/binary/lessequal");
+MNNTestSuiteRegister(FloorModTest, "op/binary/floormod");
+MNNTestSuiteRegister(Atan2Test, "op/binary/atan2");
+MNNTestSuiteRegister(LogicalOrTest, "op/binary/logicalor");
+MNNTestSuiteRegister(NotEqualTest, "op/binary/notqual");
+MNNTestSuiteRegister(SubtractBroastTest, "op/binary/subtractBroastTest");

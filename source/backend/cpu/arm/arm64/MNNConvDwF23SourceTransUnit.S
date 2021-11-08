@@ -31,10 +31,12 @@ beq L1LoopEnd
 
 L1Loop:
     fsub v2.4s, v18.4s, v17.4s
-    st1 {v0.4s, v1.4s}, [x1], #32
+    // st1 {v0.4s, v1.4s}, [x1], #32
+    stp q0, q1, [x1], #32
     fsub v3.4s, v19.4s, v17.4s
     mov v16.16b, v18.16b
-    st1 {v2.4s, v3.4s}, [x1], #32
+    // st1 {v2.4s, v3.4s}, [x1], #32
+    stp q2, q3, [x1], #32
     mov v17.16b, v19.16b
     ld1 {v18.4s, v19.4s}, [x0], #32
     fsub v0.4s, v16.4s, v18.4s
@@ -46,8 +48,10 @@ L1LoopEnd:
 fsub v2.4s, v18.4s, v17.4s
 fsub v3.4s, v19.4s, v17.4s
 
-st1 {v0.4s, v1.4s}, [x1], #32
-st1 {v2.4s, v3.4s}, [x1], #32
+// st1 {v0.4s, v1.4s}, [x1], #32
+// st1 {v2.4s, v3.4s}, [x1], #32
+stp q0, q1, [x1], #32
+stp q2, q3, [x1], #32
 
 
 End:

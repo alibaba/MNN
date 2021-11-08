@@ -6,15 +6,17 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include <math.h>
-#include "Backend.hpp"
-#include "MNNDefine.h"
+#include <MNN/Tensor.hpp>
 #include "MNNTestSuite.h"
-#include "Tensor.hpp"
+#include "core/Backend.hpp"
+#include "core/Macro.h"
 
 using namespace MNN;
 
-void NCHW2NHWC(const float* source, float* dest, int b, int h, int w, int c) {
+template <typename T>
+void NCHW2NHWC(const T* source, T* dest, int b, int h, int w, int c) {
     int sourceBatchsize = h * w * c;
     int destBatchSize   = sourceBatchsize;
     for (int bi = 0; bi < b; ++bi) {
@@ -34,13 +36,14 @@ void NCHW2NHWC(const float* source, float* dest, int b, int h, int w, int c) {
     }
 }
 
-void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, size_t depth) {
+template <typename T>
+void MNNTensorConvertNHWCToNC4HW4(T* dst, const T* src, size_t area, size_t depth) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
     for (int hi = 0; hi < area; ++hi) {
-        const float* srcHeight = src + hi * c;
-        float* dstHeight       = dst + hi * 4;
+        const auto srcHeight = src + hi * c;
+        auto dstHeight       = dst + hi * 4;
         for (int ci = 0; ci < cDiv4; ++ci) {
             for (int i = 0; i < 4; ++i) {
                 dstHeight[ci * area * 4 + i] = srcHeight[4 * ci + i];
@@ -57,8 +60,8 @@ void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, siz
     auto dstAlign = dst + area * cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
-        const float* srcHeight = srcAlign + hi * c;
-        float* dstHeight       = dstAlign + hi * 4;
+        const auto srcHeight = srcAlign + hi * c;
+        auto dstHeight       = dstAlign + hi * 4;
 
         for (int i = 0; i < 4; ++i) {
             dstHeight[i] = 0;
@@ -70,13 +73,14 @@ void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, siz
     }
 }
 
-void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, size_t depth) {
+template <typename T>
+void MNNTensorConvertNC4HW4ToNHWC(T* dst, const T* src, size_t area, size_t depth) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
     for (int hi = 0; hi < area; ++hi) {
-        const float* srcHeight = src + hi * 4;
-        float* dstHeight       = dst + hi * c;
+        const auto srcHeight = src + hi * 4;
+        auto dstHeight       = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
             for (int i = 0; i < 4; ++i) {
                 dstHeight[ci * 4 + i] = srcHeight[4 * ci * area + i];
@@ -93,8 +97,8 @@ void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, siz
     auto dstAlign = dst + cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
-        const float* srcHeight = srcAlign + hi * 4;
-        float* dstHeight       = dstAlign + hi * c;
+        const auto srcHeight = srcAlign + hi * 4;
+        auto dstHeight       = dstAlign + hi * c;
 
         for (int ci = 0; ci < cReamin; ++ci) {
             dstHeight[ci] = srcHeight[ci];
@@ -102,7 +106,8 @@ void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, siz
     }
 }
 
-void NHWC2NCHW(const float* source, float* dest, int b, int h, int w, int c) {
+template <typename T>
+void NHWC2NCHW(const T* source, T* dest, int b, int h, int w, int c) {
     int sourceBatchsize = h * w * c;
     int destBatchSize   = sourceBatchsize;
     for (int bi = 0; bi < b; ++bi) {
@@ -151,11 +156,96 @@ bool nhwc_2_nhwc_uint8(std::shared_ptr<Backend> bn) {
     return true;
 }
 
-bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
-    MNN_PRINT("\n ========= check NC4HW4 result ! ========= \n");
+template <typename T>
+bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
+    MNN_PRINT("\n ========= check NC4HW4_2_NC4HW4_IntType result ! ========= \n");
 
     std::shared_ptr<Tensor> hostTensor(
-        Tensor::create<float>(std::vector<int>{1, 224, 224, 8}, nullptr, Tensor::CAFFE_C4));
+        Tensor::create<T>(std::vector<int>{1, 224, 224, 8}, nullptr, Tensor::CAFFE_C4));
+    auto elementSize = hostTensor->elementSize();
+    auto hostData    = hostTensor->host<T>();
+    for (int i = 0; i < elementSize; ++i) {
+        int flagRandom = i % 255;
+        hostData[i]    = flagRandom;
+    }
+
+    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<T>(std::vector<int>{1, 224, 224, 8}, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<T>(std::vector<int>{1, 224, 224, 8}, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
+    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
+
+    std::shared_ptr<Tensor> checkHostTensor(
+        Tensor::create<T>(std::vector<int>{1, 224, 224, 8}, nullptr, Tensor::CAFFE_C4));
+    bn->onCopyBuffer(deviceTensor.get(), checkHostTensor.get());
+
+    auto backendCopyData = checkHostTensor->host<T>();
+
+    for (int i = 0; i < elementSize; ++i) {
+        if (backendCopyData[i] != hostData[i]) {
+            MNN_PRINT("Error for NCHW Mid bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
+            return false;
+        }
+    }
+
+    std::shared_ptr<Tensor> deviceTensor2(
+        Tensor::createDevice<T>(std::vector<int>{1, 8, 224, 224}, Tensor::TENSORFLOW));
+    bn->onAcquireBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
+    bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
+    for (int i = 0; i < elementSize; ++i) {
+        if (backendCopyData[i] != hostData[i]) {
+            MNN_PRINT("Error for NHWC Mid bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool NCHW_NC4HW4_NCHW(std::shared_ptr<Backend> bn, int batch, int width, int height, int channel) {
+    std::shared_ptr<Tensor> srcTensor(
+        Tensor::create<float>({batch, channel, width, height}, nullptr, Tensor::CAFFE));
+    auto host = srcTensor->host<float>();
+    for (int b=0; b<batch; ++b) {
+        for (int c=0; c<channel; ++c) {
+            for (int y=0; y<height; ++y) {
+                for (int x=0; x<width; ++x) {
+                    host[0
+                         + b * channel * height * width
+                         + c * height * width
+                         + y * width
+                         + x
+                         ] = b * 100.f + c * 10.f + y * 0.1f + x * 0.001f;
+                }
+            }
+        }
+    }
+    std::shared_ptr<Tensor> dstTensor(
+        Tensor::create<float>({batch, channel, width, height}, nullptr, Tensor::CAFFE));
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>({batch, channel, width, height}, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(srcTensor.get(), deviceTensor.get());
+    bn->onCopyBuffer(deviceTensor.get(), dstTensor.get());
+    int elementSize = srcTensor->elementSize();
+    auto backendCopyData = dstTensor->host<float>();
+    auto hostData = srcTensor->host<float>();
+    for (int i = 0; i < elementSize; ++i) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
+            MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
+            return false;
+        }
+    }
+    bn->onReleaseBuffer(deviceTensor.get(), Backend::STATIC);
+    return true;
+}
+
+bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
+    MNN_PRINT("\n ========= check NC4HW4_2_NC4HW4_float result ! ========= \n");
+    std::vector<int> nhwc_shape = {1, 224, 224, 8};
+    std::vector<int> nchw_shape = {1, 224, 8, 224};
+    std::shared_ptr<Tensor> hostTensor(
+        Tensor::create<float>(nhwc_shape, nullptr, Tensor::CAFFE_C4));
     auto elementSize = hostTensor->elementSize();
     auto hostData    = hostTensor->host<float>();
     for (int i = 0; i < elementSize; ++i) {
@@ -163,14 +253,25 @@ bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
         hostData[i]    = flagRandom;
     }
 
-    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>(std::vector<int>{1, 224, 224, 8}, Tensor::CAFFE));
-    bn->onAcquireBuffer(deviceTensor.get(), Backend::DYNAMIC_SEPERATE);
+    MNN_PRINT("\nalloc deviceTensor_pre\n");
+    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<float>(nhwc_shape, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
 
-    bn->onCopyBuffer(hostTensor.get(), deviceTensor.get());
+    MNN_PRINT("\nalloc deviceTensor");
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>(nhwc_shape, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
 
+    MNN_PRINT("\ncopy from host to  deviceTensor_pre\n");
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
+
+    MNN_PRINT("\ncopy from deviceTensor_pre to  deviceTensor\n");
+    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
+
+    MNN_PRINT("\ncopy from deviceTensor to  new host\n");
     std::shared_ptr<Tensor> checkHostTensor(
-        Tensor::create<float>(std::vector<int>{1, 224, 224, 8}, nullptr, Tensor::CAFFE_C4));
+        Tensor::create<float>(nhwc_shape, nullptr, Tensor::CAFFE_C4));
     bn->onCopyBuffer(deviceTensor.get(), checkHostTensor.get());
+
 
     auto backendCopyData = checkHostTensor->host<float>();
 
@@ -182,7 +283,7 @@ bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     }
 
     std::shared_ptr<Tensor> deviceTensor2(
-        Tensor::createDevice<float>(std::vector<int>{1, 8, 224, 224}, Tensor::TENSORFLOW));
+        Tensor::createDevice<float>(nchw_shape, Tensor::TENSORFLOW));
     bn->onAcquireBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
     bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
     bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
@@ -247,7 +348,7 @@ void nhwc_2_nhwc_float(std::shared_ptr<Backend> bn) {
     auto backendCopyData = checkHostTensor->host<float>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] - hostData[i] >= 0.001f) {
+        if (backendCopyData[i] - hostData[i] >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -276,7 +377,7 @@ void nchw_2_nchw_float(std::shared_ptr<Backend> bn) {
     auto backendCopyData = checkHostTensor->host<float>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001f) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -317,7 +418,7 @@ void nchw_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     auto backendCopyData = NC4HW4_HostTensor->host<float>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001f) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -332,7 +433,7 @@ void nchw_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
 
     //            MNN_PRINT("NC4HW4 -> nhwc !\n");
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001f) {
+        if (abs(backendCopyData[i] - hostData[i]) >= 0.001) {
             MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -371,9 +472,72 @@ void nchw_2_NC4HW4_2_nchw_float(std::shared_ptr<Backend> bn) {
     }
 }
 
-void nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
+template <typename T>
+bool nhwc_2_NC4HW4_2_nhwc_inttype(std::shared_ptr<Backend> bn) {
     // Test NHWC -> NC4HW4 -> NHWC
-    MNN_PRINT("\n ========= check NC4HW4 result ! ========= \n");
+    MNN_PRINT("\n ========= check nhwc_2_NC4HW4_2_nhwc_inttype result ! ========= \n");
+    int batch   = 1;
+    int channel = 12;
+    int width   = 20;
+    int height  = 20;
+    std::shared_ptr<Tensor> hostTensor(
+        Tensor::create<T>(std::vector<int>{batch, channel, height, width}, nullptr, Tensor::CAFFE));
+    auto elementSize = hostTensor->elementSize();
+    auto hostData    = hostTensor->host<T>();
+    for (int i = 0; i < elementSize; ++i) {
+        hostData[i]       = rand() % 255;
+    }
+
+    T* temp = (T*)malloc(hostTensor->size());
+    memset(temp, 0.0f, hostTensor->size());
+    NCHW2NHWC<T>(hostData, temp, batch, height, width, channel);
+
+    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<T>(std::vector<int>{batch, height, width, channel}));
+    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<T>(std::vector<int>{batch, height, width, channel}));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
+    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
+
+    //            // nhwc -> NC4HW4
+    //            MNN_PRINT("nhwc -> NC4HW4 !\n");
+
+    MNNTensorConvertNHWCToNC4HW4<T>(hostData, temp, height * width, channel);
+    std::shared_ptr<Tensor> NC4HW4_HostTensor(
+        Tensor::create<T>(std::vector<int>{batch, channel, height, width}, nullptr, Tensor::CAFFE_C4));
+
+    bn->onCopyBuffer(deviceTensor.get(), NC4HW4_HostTensor.get());
+    auto backendCopyData = NC4HW4_HostTensor->host<T>();
+
+    for (int i = 0; i < elementSize; ++i) {
+        if (backendCopyData[i] != hostData[i]) {
+            MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
+            return false;
+        }
+    }
+
+    // NC4HW4 -> nhwc
+
+    MNNTensorConvertNC4HW4ToNHWC<T>(temp, hostData, height * width, channel);
+
+    bn->onCopyBuffer(NC4HW4_HostTensor.get(), deviceTensor.get());
+    NHWC2NCHW(temp, backendCopyData, batch, height, width, channel);
+    bn->onCopyBuffer(deviceTensor.get(), hostTensor.get());
+
+    //            MNN_PRINT("NC4HW4 -> nhwc !\n");
+    for (int i = 0; i < elementSize; ++i) {
+        if (backendCopyData[i] != hostData[i]) {
+            MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
+        }
+    }
+
+    free(temp);
+    return true;
+}
+
+bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
+    // Test NHWC -> NC4HW4 -> NHWC
+    MNN_PRINT("\n ========= check nhwc_2_NC4HW4_2_nhwc_float result ! ========= \n");
     int batch   = 1;
     int channel = 12;
     int width   = 20;
@@ -392,9 +556,12 @@ void nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     memset(temp, 0.0f, hostTensor->size());
     NCHW2NHWC(hostData, temp, batch, height, width, channel);
 
+    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
+    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
     std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
-    bn->onAcquireBuffer(deviceTensor.get(), Backend::DYNAMIC_SEPERATE);
-    bn->onCopyBuffer(hostTensor.get(), deviceTensor.get());
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
+    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
 
     //            // nhwc -> NC4HW4
     //            MNN_PRINT("nhwc -> NC4HW4 !\n");
@@ -407,8 +574,9 @@ void nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     auto backendCopyData = NC4HW4_HostTensor->host<float>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001f) {
-            MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) { //Error of converting from float32 to bf16 is more than 0.001
+            MNN_PRINT("Error for bn:%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+            return false;
         }
     }
 
@@ -422,42 +590,106 @@ void nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
 
     //            MNN_PRINT("NC4HW4 -> nhwc !\n");
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001f) {
-            MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
+            MNN_PRINT("Error for bn:%d, %f -> %f.  F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
         }
     }
 
     free(temp);
-}
-
-class BackendCopyBufferTest : public MNNTestCase {
-public:
-    virtual bool run();
-    virtual ~BackendCopyBufferTest() = default;
-};
-
-bool BackendCopyBufferTest::run() {
-    for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
-        auto type    = (MNNForwardType)i;
-        auto creator = MNNGetExtraBackendCreator(type);
-        if (nullptr == creator)
-            continue;
-
-        MNN_PRINT("Test %d Backend\n", type);
-        MNN::Backend::Info info;
-        info.type = type;
-        std::shared_ptr<Backend> bn(creator->onCreate(info));
-
-        // uint8
-        auto res = nhwc_2_nhwc_uint8(bn);
-        res = res && NC4HW4_2_NC4HW4_float(bn);
-        if (!res) {
-            MNN_ERROR("Error for %d bn\n", i);
-            return false;
-        }
-        //        NC4HW4_2_NC4HW4_uint8(bn);
-    }
     return true;
 }
 
-MNNTestSuiteRegister(BackendCopyBufferTest, "engine/backend/copy_buffer");
+class BackendCopyBufferFloatTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
+            auto type    = (MNNForwardType)i;
+            auto creator = MNNGetExtraRuntimeCreator(type);
+            if (nullptr == creator) {
+                continue;
+            }
+            for (int p = 0; p < 3; ++p) {
+                MNN::Backend::Info info;
+                info.type = type;
+                BackendConfig user;
+                user.precision = (MNN::BackendConfig::PrecisionMode)p;
+                info.user = &user;
+                std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+                MNN_PRINT("Test %d Backend for %d \n", type, user.precision);
+                std::shared_ptr<Backend> bn(runtime->onCreate(&user));
+                auto res = NC4HW4_2_NC4HW4_float(bn);
+                res = res && nhwc_2_NC4HW4_2_nhwc_float(bn);
+                res = res && NCHW_NC4HW4_NCHW(bn, 3, 16, 17, 19);
+                res = res && NCHW_NC4HW4_NCHW(bn, 12, 16, 38, 16);
+                res = res && NCHW_NC4HW4_NCHW(bn, 5, 128, 8, 6);
+                if (!res) {
+                    MNN_ERROR("Error for %d bn\n", i);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+class CPUBackendCopyBufferTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto type    = MNN_FORWARD_CPU;
+        auto creator = MNNGetExtraRuntimeCreator(type);
+        for (int p = 0; p < 3; ++p) {
+            MNN::Backend::Info info;
+            info.type = type;
+            BackendConfig user;
+            user.precision = (MNN::BackendConfig::PrecisionMode)p;
+            info.user = &user;
+            std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+            MNN_PRINT("Test %d Backend for %d \n", type, user.precision);
+            std::shared_ptr<Backend> bn(runtime->onCreate(&user));
+            auto res = NC4HW4_2_NC4HW4_IntType<int32_t>(bn);
+            res = res && NC4HW4_2_NC4HW4_IntType<int16_t>(bn);
+            res = res && NC4HW4_2_NC4HW4_IntType<int8_t>(bn);
+            res = res && nhwc_2_NC4HW4_2_nhwc_inttype<int32_t>(bn);
+            res = res && nhwc_2_NC4HW4_2_nhwc_inttype<int16_t>(bn);
+            res = res && nhwc_2_NC4HW4_2_nhwc_inttype<int8_t>(bn);
+            if (!res) {
+                MNN_ERROR("Error for Int Copy\n");
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+class BackendCopyBufferUint8Test : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
+            auto type    = (MNNForwardType)i;
+            auto creator = MNNGetExtraRuntimeCreator(type);
+            if (nullptr == creator) {
+                continue;
+            }
+            MNN::Backend::Info info;
+            info.type = type;
+            BackendConfig user;
+            user.precision = MNN::BackendConfig::Precision_High;
+            info.user = &user;
+            std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+
+            MNN_PRINT("Test %d Backend\n", type);
+            std::shared_ptr<Backend> bn(runtime->onCreate());
+            // uint8
+            auto res = nhwc_2_nhwc_uint8(bn);
+            if (!res) {
+                MNN_ERROR("Error for %d bn\n", i);
+                return false;
+            }
+            //        NC4HW4_2_NC4HW4_uint8(bn);
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(BackendCopyBufferFloatTest, "engine/backend/copy_buffer_float");
+//MNNTestSuiteRegister(BackendCopyBufferUint8Test, "engine/backend/copy_buffer_uint8");
+MNNTestSuiteRegister(CPUBackendCopyBufferTest, "engine/backend/copy_buffer_cpu");

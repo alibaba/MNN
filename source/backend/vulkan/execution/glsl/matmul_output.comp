@@ -1,0 +1,66 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) uniform offsetBuffer {
+    ivec4 size;//w/4, h/4, w, w/4*h/4
+    mat4 transform;
+} uOffset;
+#ifdef TRANSPOSE_BIAS
+#define BIAS
+#define TRANSPOSE
+#endif
+
+#ifdef BIAS
+layout(set=0, binding=3) uniform sampler2D uBias;
+layout(set=0, binding=2) uniform biasOffsetBuffer {
+    mat4 transform;
+} uBiasOffset;
+#endif
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int posX = ivec3(gl_GlobalInvocationID).x;
+
+    if (posX < uOffset.size.w)
+    {
+        ivec2 pos;
+        pos.x = posX % uOffset.size.x;// H
+        pos.y = posX / uOffset.size.x;// E
+        vec4 d0 = texelFetch(uInput, ivec2(4*pos.x+0, pos.y), 0);
+        vec4 d1 = texelFetch(uInput, ivec2(4*pos.x+1, pos.y), 0);
+        vec4 d2 = texelFetch(uInput, ivec2(4*pos.x+2, pos.y), 0);
+        vec4 d3 = texelFetch(uInput, ivec2(4*pos.x+3, pos.y), 0);
+#ifdef BIAS
+        vec4 bias = texelFetch(uBias, ivec2(pos.x, 0), 0);
+        d0 = d0 + bias;
+        d1 = d1 + bias;
+        d2 = d2 + bias;
+        d3 = d3 + bias;
+#endif
+#ifdef TRANSPOSE
+        vec4 c0 = vec4(d0.x, d1.x, d2.x, d3.x);
+        vec4 c1 = vec4(d0.y, d1.y, d2.y, d3.y);
+        vec4 c2 = vec4(d0.z, d1.z, d2.z, d3.z);
+        vec4 c3 = vec4(d0.w, d1.w, d2.w, d3.w);
+#else
+        vec4 c0 = d0;
+        vec4 c1 = d1;
+        vec4 c2 = d2;
+        vec4 c3 = d3;
+#endif
+        ivec2 outPos = ivec2((vec4(pos.x, pos.y, 0, 1) * uOffset.transform).xy);
+        imageStore(uOutput, outPos + ivec2(0, 0), c0);
+        if (outPos.y + 1 < uOffset.size.z) {
+            imageStore(uOutput, outPos + ivec2(0, 1), c1);
+        }
+        if (outPos.y + 2 < uOffset.size.z) {
+            imageStore(uOutput, outPos + ivec2(0, 2), c2);
+        }
+        if (outPos.y + 3 < uOffset.size.z) {
+            imageStore(uOutput, outPos + ivec2(0, 3), c3);
+        }
+    }
+}

@@ -9,7 +9,7 @@
 
 #include <map>
 #include "MobileNetExpr.hpp"
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 
 using namespace MNN::Express;
 
@@ -40,7 +40,7 @@ VARP mobileNetV1Expr(MobileNetWidthType alpha, MobileNetResolutionType beta, int
         inputSize = inputSizeMap[beta];
         poolSize = inputSize / 32;
     }
-    
+
     int channels[6]; // MobileNet_100, MobileNet_075, MobileNet_050, MobileNet_025
     {
         auto channelsMap = std::map<MobileNetWidthType, int>({
@@ -55,11 +55,11 @@ VARP mobileNetV1Expr(MobileNetWidthType alpha, MobileNetResolutionType beta, int
         }
         channels[0] = channelsMap[alpha];
     }
-    
+
     for (int i = 1; i < 6; ++i) {
         channels[i] = channels[0] * (1 << i);
     }
-    
+
     auto x = _Input({1, 3, inputSize, inputSize}, NC4HW4);
     x = _Conv(0.0f, 0.0f, x, {3, channels[0]}, {3, 3}, SAME, {2, 2}, {1, 1}, 1);
     x = convBlock(x, {channels[0], channels[1]}, 1);

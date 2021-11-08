@@ -21,7 +21,7 @@ if (-Not (Test-Path $FLATC -PathType Leaf)) {
   (cd tmp) -and (rm -r -force *)
 
   # build
-  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+  cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
   cmake --build . --target flatc
 
   # dir recover
@@ -44,7 +44,7 @@ rm -force current\*.h
 # flatc all fbs
 pushd current
 echo "*** generating fbs under $DIR ***"
-Get-ChildItem ..\$DIR\*.fbs | %{Invoke-Expression "..\$FLATC -c -b --gen-object-api  $_"}
+Get-ChildItem ..\$DIR\*.fbs | %{Invoke-Expression "..\$FLATC -c -b --gen-object-api --reflect-names  $_"}
 popd
 
 # finish

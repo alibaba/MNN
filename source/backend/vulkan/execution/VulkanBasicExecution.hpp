@@ -9,7 +9,7 @@
 #ifndef VulkanBasicExecution_hpp
 #define VulkanBasicExecution_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "VulkanBackend.hpp"
 
 namespace MNN {

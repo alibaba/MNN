@@ -19,7 +19,7 @@ MNN::OpParameter LRNOnnx::type() {
 }
 
 void LRNOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                  std::vector<const onnx::TensorProto*> initializers) {
+                  OnnxScope* scope) {
     auto param = new MNN::LRNT;
 
     int size    = 0;

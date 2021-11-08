@@ -14,13 +14,13 @@ DECLARE_OP_COVERTER(AddTflite);
 MNN::OpType AddTflite::opType(bool quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedAdd;
-    return MNN::OpType_BinaryOp;
+    return MNN::OpType_Extra;
 }
 
 MNN::OpParameter AddTflite::type(bool quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_QuantizedAdd;
-    return MNN::OpParameter_BinaryOp;
+    return MNN::OpParameter_Extra;
 }
 
 void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
@@ -37,43 +37,38 @@ void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& t
         const int input1Index                     = tfliteOp->inputs[0];
         const auto& input1Tensor                  = tfliteTensors[input1Index];
         AddParam->input1QuantizedParam            = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        AddParam->input1QuantizedParam->zeroPoint = input1Tensor->quantization->zeroPoint[0];
+        AddParam->input1QuantizedParam->zeroPoint = input1Tensor->quantization->zero_point[0];
         AddParam->input1QuantizedParam->scale     = input1Tensor->quantization->scale[0];
 
         // input1
         const int input2Index                     = tfliteOp->inputs[1];
         const auto& input2Tensor                  = tfliteTensors[input2Index];
         AddParam->input2QuantizedParam            = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        AddParam->input2QuantizedParam->zeroPoint = input2Tensor->quantization->zeroPoint[0];
+        AddParam->input2QuantizedParam->zeroPoint = input2Tensor->quantization->zero_point[0];
         AddParam->input2QuantizedParam->scale     = input2Tensor->quantization->scale[0];
 
         // output
         const int outputIndex                     = tfliteOp->outputs[0];
         const auto& outputTensor                  = tfliteTensors[outputIndex];
         AddParam->outputQuantizedParam            = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        AddParam->outputQuantizedParam->zeroPoint = outputTensor->quantization->zeroPoint[0];
+        AddParam->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
         AddParam->outputQuantizedParam->scale     = outputTensor->quantization->scale[0];
 
         AddParam->activationType = static_cast<MNN::FusedActivation>(addOption->fused_activation_function);
 
         dstOp->main.value = AddParam;
     } else {
-        DCHECK(addOption->fused_activation_function == tflite::ActivationFunctionType_NONE)
-            << "BinaryOP Should not has fused_activation_function";
-        auto binaryOpParam = new MNN::BinaryOpT;
-        // TODO
-        binaryOpParam->opType = MNN::BinaryOpOperation_ADD; // defalut
-        dstOp->main.value     = binaryOpParam;
-    }
-
-    // set input output index
-    dstOp->inputIndexes.resize(tfliteOp->inputs.size());
-    dstOp->outputIndexes.resize(tfliteOp->outputs.size());
-    for (int i = 0; i < tfliteOp->inputs.size(); i++) {
-        dstOp->inputIndexes[i] = tfliteOp->inputs[i];
-    }
-    for (int i = 0; i < tfliteOp->outputs.size(); i++) {
-        dstOp->outputIndexes[i] = tfliteOp->outputs[i];
+        auto extraOpParam = new MNN::ExtraT;
+        extraOpParam->engine = "Tflite";
+        extraOpParam->type = "BinaryActivation";
+        extraOpParam->attr.resize(2);
+        extraOpParam->attr[0].reset(new MNN::AttributeT);
+        extraOpParam->attr[1].reset(new MNN::AttributeT);
+        extraOpParam->attr[0]->key = "opType";
+        extraOpParam->attr[0]->i = tflite::BuiltinOperator_ADD;
+        extraOpParam->attr[1]->key = "activationType";
+        extraOpParam->attr[1]->i = addOption->fused_activation_function;
+        dstOp->main.value = extraOpParam;
     }
 }
 

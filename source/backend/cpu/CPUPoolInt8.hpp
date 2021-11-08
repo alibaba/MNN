@@ -9,7 +9,7 @@
 #ifndef CPUPoolInt8_hpp
 #define CPUPoolInt8_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 
@@ -22,8 +22,10 @@ public:
 
 private:
     const Pool *mParameter;
-    int mThreadNumber;
-    std::function<void(int tId, const int8_t *src, int8_t *dst)> mThreadFunction;
+    std::function<void(const Tensor *src, Tensor *dst)> mThreadFunction;
+    // nhwc buffer
+    std::shared_ptr<Tensor> mInputTemp;
+    std::shared_ptr<Tensor> mOutputTemp;
 };
 
 } // namespace MNN

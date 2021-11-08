@@ -6,68 +6,193 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPURelu.hpp"
+#include <string.h>
+#include "backend/cpu/CPURelu.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "core/Concurrency.h"
 #include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-
+#include "core/TensorUtils.hpp"
 namespace MNN {
+static int getTensorElementSizeHelper(const Tensor* t, int pack) {
+    int size = 1;
+    for (int i = 0; i < t->dimensions(); i++) {
+        int currentDimSize = t->length(i);
+        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+            currentDimSize = UP_DIV(currentDimSize, pack) * pack;
+        }
+        size *= currentDimSize;
+    }
+    return size;
+}
+
+CPURelu::CPURelu(Backend *b, float slope) : Execution(b) {
+    auto core = static_cast<CPUBackend*>(b)->functions();
+    mSlope.reset(core->bytes * core->pack);
+    if (core->bytes < 4) {
+        // For Lowp
+        std::vector<float> tempSlope(core->pack);
+        for (int i=0; i<core->pack; ++i) {
+            tempSlope[i] = slope;
+        }
+        core->MNNFp32ToLowp(tempSlope.data(), (int16_t*)mSlope.get(), core->pack);
+    } else {
+        for (int i=0; i<core->pack; ++i) {
+            ((float*)mSlope.get())[i] = slope;
+        }
+    }
+}
+ErrorCode CPURelu::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    mRealSize = getTensorElementSizeHelper(inputs[0], core->pack);
+    if (mRealSize % core->pack != 0) {
+        mCacheDst.reset(core->pack * core->bytes);
+        mCacheSrc.reset(core->pack * core->bytes);
+    }
+    return NO_ERROR;
+}
+
 ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib = inputs[0]->buffer();
     auto& ob = outputs[0]->buffer();
 
-    const float* srcO = (const float*)ib.host;
-    float* dstO       = (float*)ob.host;
-    auto size         = inputs[0]->size() / sizeof(float);
-    auto sizeQuad     = size / 4;
-    auto remain       = size - sizeQuad * 4;
-
-    MNNReluWithSlope(dstO, srcO, sizeQuad, mSlope);
-
-    if (remain > 0) {
-        MNNReluWithSlope(dstO + size - 4, srcO + size - 4, 1, mSlope);
+    if (inputs[0]->getType() == halide_type_of<int8_t>()) {
+        const int8_t* srcO = (const int8_t*)ib.host;
+        int8_t* dstO       = (int8_t*)ob.host;
+        auto size         = inputs[0]->size() / sizeof(int8_t);
+        auto numberThread = ((CPUBackend*)backend())->threadNumber();
+        int sizeQuad     = size / 16;
+        int remain       = sizeQuad * 16;
+        int sizeDivide = sizeQuad / numberThread;
+        if (sizeQuad > 0) {
+            MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+                int number = sizeDivide;
+                if (tId == numberThread - 1) {
+                    number = sizeQuad - tId * sizeDivide;
+                }
+                MNNReluInt8(dstO + 16 * tId * sizeDivide, srcO + 16 * tId * sizeDivide, number * 16);
+            }
+            MNN_CONCURRENCY_END();
+        }
+        for (int i = remain; i < size; i++) {
+            dstO[i] = srcO[i] > 0 ? srcO[i] : 0;
+        }
+        return NO_ERROR;
     }
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    const uint8_t* srcO = (const uint8_t*)ib.host;
+    uint8_t* dstO       = (uint8_t*)ob.host;
+    auto size         = mRealSize;
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    int sizeQuad     = size / core->pack;
+    int remain       = size % core->pack;
+    int sizeDivide = sizeQuad / numberThread;
+    if (sizeQuad > 0) {
+        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+            int number = sizeDivide;
+            if (tId == numberThread - 1) {
+                number = sizeQuad - tId * sizeDivide;
+            }
+            core->MNNReluWithSlopeChannel((float*)(dstO + core->pack * core->bytes * tId * sizeDivide), (const float*)(srcO + core->pack * core->bytes * tId * sizeDivide), (const float*)mSlope.get(), number, 1);
+        }
+        MNN_CONCURRENCY_END();
+    }
+    if (remain > 0) {
+        ::memcpy(mCacheSrc.get(), srcO + sizeQuad * core->pack * core->bytes, remain * core->bytes);
+        core->MNNReluWithSlopeChannel((float*)(mCacheDst.get()), (const float*)(mCacheSrc.get()), (const float*)mSlope.get(), 1, 1);
+        ::memcpy(dstO + sizeQuad * core->pack * core->bytes, mCacheDst.get(), remain * core->bytes);
+    }
+    return NO_ERROR;
+}
 
+ErrorCode CPURelu6::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    mRealSize = getTensorElementSizeHelper(inputs[0], core->pack);
+    if (mRealSize % core->pack != 0) {
+        mCacheDst.reset(core->pack * core->bytes);
+        mCacheSrc.reset(core->pack * core->bytes);
+    }
     return NO_ERROR;
 }
 
 ErrorCode CPURelu6::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib = inputs[0]->buffer();
     auto& ob = outputs[0]->buffer();
-
-    const float* srcO = (const float*)ib.host;
-    float* dstO       = (float*)ob.host;
-    auto size         = inputs[0]->size() / sizeof(float);
-
-    MNNRelu6(dstO, srcO, size);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    const uint8_t* srcO = (const uint8_t*)ib.host;
+    uint8_t* dstO       = (uint8_t*)ob.host;
+    auto size         = mRealSize;
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    int sizeQuad     = size / core->pack;
+    int remain       = size % core->pack;
+    int sizeDivide = sizeQuad / numberThread;
+    std::vector<uint8_t> bias(core->pack * core->bytes, 0);
+    auto biasPtr = (float*)bias.data();
+    if (sizeQuad > 0) {
+        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+            int number = sizeDivide;
+            if (tId == numberThread - 1) {
+                number = sizeQuad - tId * sizeDivide;
+            }
+            core->MNNAxByClampBroadcastUnit((float*)(dstO + core->pack * core->bytes * tId * sizeDivide), (const float*)(srcO + core->pack * core->bytes * tId * sizeDivide), biasPtr, number, 0, 0, 1, mParam.data());
+        }
+        MNN_CONCURRENCY_END();
+    }
+    if (remain > 0) {
+        ::memcpy(mCacheSrc.get(), srcO + sizeQuad * core->pack * core->bytes, remain * core->bytes);
+        core->MNNAxByClampBroadcastUnit((float*)(mCacheDst.get()), (const float*)(mCacheSrc.get()), biasPtr, 1, 0, 0, 1, mParam.data());
+        ::memcpy(dstO + sizeQuad * core->pack * core->bytes, mCacheDst.get(), remain * core->bytes);
+    }
     return NO_ERROR;
 }
 
 CPUPRelu::CPUPRelu(Backend* b, const Op* op) : MNN::Execution(b) {
     auto c = op->main_as_PRelu();
-    mSlope.reset(ALIGN_UP4(c->slopeCount()));
-    mSlope.clear();
-    ::memcpy(mSlope.get(), c->slope()->data(), c->slopeCount() * sizeof(float));
+    auto core = static_cast<CPUBackend*>(b)->functions();
+    mSlope.buffer().dimensions = 1;
+    mSlope.buffer().dim[0].extent = UP_DIV(c->slopeCount(), core->pack) * core->pack;
+    mValid = b->onAcquireBuffer(&mSlope, Backend::STATIC);
+    if (!mValid) {
+        return;
+    }
+    ::memset(mSlope.host<void>(), 0, mSlope.length(0) * core->bytes);
+    if (core->bytes < 4) {
+        // For Lowp
+        core->MNNFp32ToLowp(c->slope()->data(), mSlope.host<int16_t>(), c->slopeCount());
+    } else {
+        ::memcpy(mSlope.host<void>(), c->slope()->data(), c->slopeCount() * sizeof(float));
+    }
 }
+CPUPRelu::~CPUPRelu() {
+    if (mValid) {
+        backend()->onReleaseBuffer(&mSlope, Backend::STATIC);
+    }
+}
+
 
 ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib            = inputs[0]->buffer();
     auto& ob            = outputs[0]->buffer();
-    const int width     = ib.dim[3].extent;
-    const int height    = ib.dim[2].extent;
+    int sizeQuad = 1;
+    for (int i=2; i<ib.dimensions; ++i) {
+        sizeQuad *= ib.dim[i].extent;
+    }
+    auto core = static_cast<CPUBackend*>(backend())->functions();
     const int channel   = ib.dim[1].extent;
     const int batch     = ib.dim[0].extent;
-    const int depthQuad = UP_DIV(channel, 4);
-    const int batchSize = depthQuad * 4 * width * height;
-    const float* srcO   = (const float*)ib.host;
-    float* dstO         = (float*)ob.host;
-    int sizeQuad        = width * height;
-
-    for (int b = 0; b < batch; ++b) {
-        auto src = srcO + b * batchSize;
-        auto dst = dstO + b * batchSize;
-        MNNReluWithSlopeChannel(dst, src, mSlope.get(), sizeQuad, depthQuad);
+    const int depthQuad = UP_DIV(channel, core->pack);
+    const uint8_t* srcO   = (const uint8_t*)ib.host;
+    uint8_t* dstO         = (uint8_t*)ob.host;
+    auto totalCount = batch * depthQuad;
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        for (int b=tId; b<totalCount; b+=numberThread) {
+            auto c = b / batch;
+            core->MNNReluWithSlopeChannel((float*)(dstO + sizeQuad * core->bytes * core->pack * b), (const float*)(srcO + sizeQuad * core->pack * core->bytes * b), (const float*)(mSlope.host<uint8_t>() + core->bytes * core->pack * c), sizeQuad, 1);
+        }
     }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 
@@ -94,7 +219,14 @@ class CPURelu6Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        return new CPURelu6(backend);
+        float minV = 0.0f;
+        float maxV = 6.0f;
+        if (nullptr != op->main()) {
+            auto p = op->main_as_Relu6();
+            minV = p->minValue();
+            maxV = p->maxValue();
+        }
+        return new CPURelu6(maxV, minV, backend);
     }
 };
 

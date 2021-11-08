@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedLogistic.hpp"
-#include "CPUBackend.hpp"
-#include "CPUFixedPoint.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "Macro.h"
-#include "OptimizedComputer.hpp"
+#include "backend/cpu/CPUQuantizedLogistic.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUFixedPoint.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "core/Macro.h"
+#include "backend/cpu/compute/OptimizedComputer.hpp"
 
 namespace MNN {
 
@@ -28,6 +28,7 @@ ErrorCode CPUQuantizedLogistic::onResize(const std::vector<Tensor *> &inputs, co
     const double inputRealMultiplier =
         mLogisticParam->inputQuantizedParam()->scale() * static_cast<double>(1 << (31 - kInputIntegerBits));
     QuantizeMultiplierGreaterThanOne(inputRealMultiplier, &mInputMultiplier, &mInputLeftShift);
+    mInputZeroPoint = mLogisticParam->inputQuantizedParam()->zeroPoint();
     mInputRangeRadius = CalculateInputRadius(kInputIntegerBits, mInputLeftShift);
     return NO_ERROR;
 }
@@ -43,7 +44,7 @@ ErrorCode CPUQuantizedLogistic::onExecute(const std::vector<MNN::Tensor *> &inpu
         outputDims.push_back(output->buffer().dim[i].extent);
     }
 
-    Optimized::Logistic(input->host<uint8_t>(), inputDims, mLogisticParam->inputQuantizedParam()->zeroPoint(),
+    Optimized::Logistic(input->host<uint8_t>(), inputDims, mInputZeroPoint,
                         mInputRangeRadius, mInputMultiplier, mInputLeftShift, output->host<uint8_t>(), outputDims);
 
     return NO_ERROR;

@@ -72,5 +72,7 @@
     "glsl/imageTonc4hw4uint.comp": "glsl", 
     "glsl/elementwiseMul.comp": "glsl", 
     "glsl/normalizeChannel.comp": "glsl", 
-    "glsl/scale.comp": "glsl"
+    "glsl/scale.comp": "glsl",
+    "glsl/gridSampleNearest.comp": "glsl",
+    "glsl/gridSampleBilinear.comp": "glsl"
 }

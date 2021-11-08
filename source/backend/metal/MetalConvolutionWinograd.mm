@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionWinograd.hpp"
-#import "Macro.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution.hpp"
-#import "WingoradGenerater.hpp"
+#import "backend/metal/MetalConvolutionWinograd.hpp"
+#import "core/Macro.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution.hpp"
+#import "math/WingoradGenerater.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -19,9 +19,6 @@
 
 namespace MNN {
 bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor *input) {
-    if (conv->quanParameter() != nullptr || conv->common()->group() != 1) {
-        return false;
-    }
     auto common = conv->common();
     if (input->batch() != 1
         || !((common->kernelX() == common->kernelY()) && ((common->kernelX() == 3) || (common->kernelX() == 5)))
@@ -58,18 +55,11 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     auto us  = UP_DIV(uw * uh, 4);
     auto iz  = UP_DIV(input->channel(), 4);
     auto oz  = UP_DIV(output->channel(), 4);
-    int padX = mPadX;
-    int padY = mPadY;
 
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (output->width() - 1) * mStrideX + kernelWidthSize - input->width();
-        int ph = (output->height() - 1) * mStrideY + kernelHeightSize - input->height();
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
-
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
+    
     // create const buffer
     struct TransformBuffer {
         int inputSize[4];
@@ -97,7 +87,8 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     transform.unitHeight    = uh;
     transform.unit          = mDstUnit;
     transform.activation    = mActivationType;
-    mConstBuffer            = [context newDeviceBuffer:sizeof(transform) bytes:&transform access:CPUWriteOnly];
+    mConstBuffer.reset(sizeof(transform));
+    ::memcpy(mConstBuffer.buffer().contents, &transform, sizeof(transform));
 
     // create matmul buffer
     int shapes[] = {us, oz, iz, mSrcUnit * mSrcUnit};
@@ -127,47 +118,52 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionWinograd::onQuantized(const Tensor *input, const Tensor *output) {
-    return NOT_SUPPORT;
-}
 ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
-    { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
+
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    { // gemm
-        auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
-    }
-    { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:mBias offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    
+    auto func = [=](){
+        auto encoder = backend->encoder();
+        { // transform
+            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
+        }
+        { // gemm
+            auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mWeight offset:0 atIndex:2];
+            [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
+            [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
+        }
+        { // transform
+            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:mBias offset:0 atIndex:1];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
+        }
+        MNN_PRINT_ENCODER(context, encoder);
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(backend->isCmdBufferCommit()) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
 
     return NO_ERROR;
 }
-
-id<MTLBuffer> MetalConvolutionWinograd::weightForQuantized(int group, int oc, int ic, int kh, int kw,
-                                                           const int8_t *src) {
-    return nil;
-}
-
 id<MTLBuffer> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();

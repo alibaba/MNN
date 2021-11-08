@@ -9,46 +9,75 @@
 #ifndef CPUConvolution_hpp
 #define CPUConvolution_hpp
 
-#include "Execution.hpp"
-#include "MNN_generated.h"
-
+#include <mutex>
+#include "CPUBackend.hpp"
+#include "core/ConvolutionCommon.hpp"
 namespace MNN {
 class CPUConvolution : public Execution {
 public:
+    struct Resource {
+        std::shared_ptr<Tensor> mWeight;
+        std::shared_ptr<Tensor> mBias;
+        Backend* backend;
+        bool copyBiasAlign(const float* bias, int outputCount);
+        ~ Resource() {
+            if (nullptr != mBias) {
+                backend->onReleaseBuffer(mBias.get(), Backend::STATIC);
+            }
+            if (nullptr != mWeight) {
+                backend->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+            }
+        }
+    };
+    struct ResourceInt8 {
+        std::vector<int> mInt8WeightKernelSum;
+        std::shared_ptr<Tensor> mWeightInt8;
+        std::shared_ptr<Tensor> mBiasInt32;
+        std::shared_ptr<Tensor> mScaleFloat;
+        // relu or relu6
+        bool mRelu;
+        int mActBits;
+
+        int32_t mInputZeroPoint;
+        int32_t mOutputZeroPoint;
+        int8_t mClampMin;
+        int8_t mClampMax;
+        Backend* backend;
+        float mInputScale;
+        float mOutputScale;
+#ifdef MNN_USE_SSE
+        std::vector<int> offsets;
+#endif
+        std::once_flag flag;
+        void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
+        ~ ResourceInt8();
+    };
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp,
+                                                          std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    typedef void (*POSTFUNCTION)(float *dst, const float *bias, size_t planeNumber, size_t biasNumber);
+    static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC);
+    // Inefficient but need not cache, use it when speed insensitive (init, onResize)
+    // source shape: [outputCount, depth, kernelSize]
+    // dest shape:
+    // transpose=false: [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitDepth, unitOC]
+    // transpose=true:  [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitOC, unitDepth]
+    template<typename T> static void reorderWeightSlow(T* dest, const T* source, size_t depth, size_t outputCount, size_t kernelSize,
+                                                       size_t unitDepth, size_t unitOC, bool transpose = false);
+    /* Inefficient because of not use memcpy to support different type copy (T -> U), use it when speed insensitive (init, onResize)
+       return: False if acquire failed
+     */
+    template<typename T, typename U> static bool acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend*);
 
-    POSTFUNCTION getPostFunction() const;
-    struct Im2ColParameter {
-        int32_t padX;
-        int32_t padY;
-        int32_t dilateX;
-        int32_t dilateY;
-        int32_t strideX;
-        int32_t strideY;
-        int32_t kernelX;
-        int32_t kernelY;
-        int32_t icDiv4;
-        int32_t kernelCountUnit;
-        int32_t iw;
-        int32_t ih;
-        int32_t ow;
-        int32_t oh;
-    };
-    static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unit);
-    static void reorderWeight(float *destBuffer, const float *source, int depth, int outputCount, int kernelSize,
-                              float *cache);
-
+    std::vector<float> getPostParameters() const;
 protected:
     const Convolution2DCommon *mCommon;
 
     // In execute, use pad from mPadX and mPadY, don't use mCommon's pad
     mutable int mPadX;
     mutable int mPadY;
-    CPUConvolution::POSTFUNCTION mPostFunction;
 };
 
 } // namespace MNN

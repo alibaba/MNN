@@ -6,16 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImagePool.hpp"
+#include "backend/opencl/core/ImagePool.hpp"
 namespace MNN {
 namespace OpenCL {
-cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
+cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool seperate) {
     if (!seperate) {
         int minWaste  = 0;
         auto findIter = mFreeList.end();
         for (auto iterP = mFreeList.begin(); iterP != mFreeList.end(); iterP++) {
             auto& iter = *iterP;
-            if (iter->w > w && iter->h > h) {
+            if (iter->w >= w && iter->h >= h) {
                 int waste = iter->w * iter->h - w * h;
                 if (minWaste == 0 || waste < minWaste) {
                     findIter = iterP;
@@ -33,7 +33,7 @@ cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
     node->w = w;
     node->h = h;
     node->image.reset(
-        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, mType), w, h, 0, nullptr, nullptr));
+        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, type), w, h, 0, nullptr, nullptr));
     if (nullptr == node->image) {
         MNN_ERROR("All Image %d x %d error \n", w, h);
         return nullptr;
@@ -59,6 +59,5 @@ void ImagePool::clear() {
     mFreeList.clear();
     mAllImage.clear();
 }
-
 } // namespace OpenCL
 } // namespace MNN

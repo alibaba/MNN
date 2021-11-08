@@ -1,0 +1,28 @@
+#version 440 core
+
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size; // kw, kh, height, kw*kh*c/4
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w)
+    {
+        ivec2 pos;
+        pos.x = posTmp.x % uConstant.size.x;
+        pos.y = posTmp.x / uConstant.size.x;
+        int z = pos.y / uConstant.size.z;
+        int y = pos.y % uConstant.size.z;
+        vec4 c0 = texelFetch(uInput, ivec2(pos.x, y + (4 * z + 0) * uConstant.size.z), 0);
+        vec4 c1 = texelFetch(uInput, ivec2(pos.x, y + (4 * z + 1) * uConstant.size.z), 0);
+        vec4 c2 = texelFetch(uInput, ivec2(pos.x, y + (4 * z + 2) * uConstant.size.z), 0);
+        vec4 c3 = texelFetch(uInput, ivec2(pos.x, y + (4 * z + 3) * uConstant.size.z), 0);
+        imageStore(uOutput, ivec2(y*uConstant.size.x+pos.x, z), vec4(c0.x, c1.x, c2.x, c3.x));
+    }
+}

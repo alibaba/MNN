@@ -131,7 +131,7 @@ def main():
     assert union_weapon.Name() == "Axe"
     assert union_weapon.Damage() == 5
 
-  print 'The FlatBuffer was successfully created and verified!'
+  print('The FlatBuffer was successfully created and verified!')
 
 if __name__ == '__main__':
   main()

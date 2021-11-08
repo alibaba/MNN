@@ -9,7 +9,7 @@
 #ifndef MetalUnary_hpp
 #define MetalUnary_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 
@@ -21,9 +21,13 @@ public:
     MetalUnary(Backend *backend, UnaryOpOperation optype);
     virtual ~MetalUnary() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     UnaryOpOperation mOpType;
+    id<MTLBuffer> mConstBuffer;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

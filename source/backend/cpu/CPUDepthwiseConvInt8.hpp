@@ -10,26 +10,25 @@
 #define CPUDepthwiseConvInt8_hpp
 
 #include "CPUConvolution.hpp"
-
 namespace MNN {
 
 class CPUDepthwiseConvInt8 : public CPUConvolution {
 public:
-    CPUDepthwiseConvInt8(Backend *backend, const MNN::Convolution2D *convOp);
-    virtual ~CPUDepthwiseConvInt8() = default;
+    CPUDepthwiseConvInt8(Backend *backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res);
+    virtual ~CPUDepthwiseConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
+    CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, const CPUDepthwiseConvInt8& exe);
     int mThreadNumber;
-    // int mPadX;
-    // int mPadY;
-    // relu or relu6
-    bool mRelu;
-    std::shared_ptr<Tensor> mWeightInt8;
-    std::shared_ptr<Tensor> mBiasInt32;
-    std::shared_ptr<Tensor> mScaleFloat;
-    std::function<void(int tId, const int8_t *src, int8_t *dst)> mThreadFunction;
+    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
+    std::shared_ptr<Tensor> mInputPad;
+    std::pair<int, int> mPads;
+    std::pair<int, int> mPaddedSize;
+    std::pair<int, int> mStrides;
+    std::pair<int, int> mDilates;
+    std::pair<int, int> mKernels;
 };
 
 } // namespace MNN

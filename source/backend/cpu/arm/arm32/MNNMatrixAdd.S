@@ -17,17 +17,17 @@
 asm_function MNNMatrixAdd
 //void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride, size_t bStride, size_t height)
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
 //Auto: r0: C, r1:A, r2:B, r3:widthC4
 
 //Load from sp:
 //r4:cStride, r5:aStride, r6:bStride, r7:height
 
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
 
 mov r12, #4 //sizeof(float)
 mul r4, r12, r4
@@ -36,7 +36,7 @@ mul r6, r12, r6
 
 LoopY:
 mov r8, r0
-mov r9, r1
+mov lr, r1
 mov r10, r2
 
 mov r11, r3
@@ -95,14 +95,15 @@ bne L1Loop
 
 EndLine:
 add r0, r8, r4
-add r1, r9, r5
+add r1, lr, r5
 add r2, r10, r6
 
 subs r7, r7, #1
 bne LoopY
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
+
 
 #endif
 #endif

@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class CosineSimilaritySize : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(4 == inputs.size());
+        MNN_ASSERT(3 <= inputs.size());
         auto x1        = inputs[0];
         auto x2        = inputs[1];
         auto dimTensor = inputs[2];
@@ -40,12 +40,12 @@ class CosineSimilaritySize : public SizeComputer {
             }
             output->setLength(index, x1->length(i));
         }
+        output->buffer().type = x1->getType();
         TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        output->buffer().dim[1].flags = 0;
         return true;
     }
 };
 
-REGISTER_SHAPE(CosineSimilaritySize, OpType_CosineSimilarity);
+REGISTER_SHAPE_INPUTS(CosineSimilaritySize, OpType_CosineSimilarity, (std::vector<int>{2}));
 
 } // namespace MNN

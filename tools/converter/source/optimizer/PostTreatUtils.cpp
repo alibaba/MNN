@@ -7,9 +7,11 @@
 //
 
 #include "PostTreatUtils.hpp"
+#include "OpCount.hpp"
 #include <mutex>
 #include <set>
 using namespace MNN;
+
 template <typename T>
 bool inVector(const std::vector<T>& vec, const T& val) {
     return std::find(vec.begin(), vec.end(), val) != vec.end();
@@ -17,7 +19,24 @@ bool inVector(const std::vector<T>& vec, const T& val) {
 std::map<std::string, std::shared_ptr<PostConverter>>* PostConverter::getConvertMap() {
     static std::once_flag of;
     static std::map<std::string, std::shared_ptr<PostConverter>>* gConverter;
-    std::call_once(of, [&]() { gConverter = new std::map<std::string, std::shared_ptr<PostConverter>>; });
+    std::call_once(of, [&]() {
+        gConverter = new std::map<std::string, std::shared_ptr<PostConverter>>;
+        auto count = MNN::OpCount::get();
+        count->insertOp("TF", "Dropout");
+        count->insertOp("TF", "NoOp");
+        count->insertOp("TF", "Print");
+        count->insertOp("CAFFE", "Dropout");
+        count->insertOp("CAFFE", "Split");
+        auto unuseExtraOpType = std::vector<std::string>({"Identity", "IdentityN", "NoOp", "Assign", "Print", "Assert", "StopGradient", "Enter", "NextIteration"});
+        for (auto& s : unuseExtraOpType) {
+            count->insertOp("TF", s);
+        }
+        std::set<std::string> controlOps{"Merge", "Switch", "LoopCond", "Enter", "Exit", "NextIteration"};
+        for (auto& s : controlOps) {
+            count->insertOp("TF", s);
+        }
+        count->insertOp("ONNX", "Identity");
+    });
     return gConverter;
 }
 PostConverter* PostConverter::get(std::string key) {
@@ -93,4 +112,16 @@ void PostTreatUtils::_removeOpInNet(MNN::OpT* op, MNN::NetT* net) {
             break;
         }
     }
+}
+
+bool PostTreatUtils::_replace(std::vector<int>& indexes, int freshIndex, int oldIndex) {
+    auto iter = indexes.begin();
+    while (iter != indexes.end()) {
+        if (*iter == oldIndex) {
+            *iter = freshIndex;
+            return true;
+        }
+        ++iter;
+    }
+    return false;
 }

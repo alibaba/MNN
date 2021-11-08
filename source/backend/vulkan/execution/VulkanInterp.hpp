@@ -24,7 +24,7 @@ public:
                        const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
-    bool mAlignCorners;
+    float mCordTransform[4];
 };
 
 } // namespace MNN

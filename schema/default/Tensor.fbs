@@ -46,9 +46,15 @@ table Attribute {
     s:string;
     i:int = 0;
     b:bool = false;
-    key:string;
+    key:string(key);
     type:DataType;
     f:float = 0.0;
     tensor:Blob;
     list:ListValue;
+    func:NamedAttrList;
+}
+
+table NamedAttrList {
+    name: string;
+    attr: [Attribute];
 }

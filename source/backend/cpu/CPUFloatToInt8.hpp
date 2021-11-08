@@ -9,7 +9,7 @@
 #ifndef CPUFloatToInt8_hpp
 #define CPUFloatToInt8_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 
@@ -22,6 +22,11 @@ public:
 
 private:
     std::shared_ptr<Tensor> mScales;
+    int8_t mZeroPoint;
+    int8_t mClampMin;
+    int8_t mClampMax;
+    int mClipBits;
+    bool mSingle = false;
 };
 
 } // namespace MNN

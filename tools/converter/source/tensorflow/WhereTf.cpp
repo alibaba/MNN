@@ -17,11 +17,15 @@ MNN::OpType WhereTf::opType() {
     return MNN::OpType_Where;
 }
 MNN::OpParameter WhereTf::type() {
-    return MNN::OpParameter_NONE;
+    return MNN::OpParameter_Extra;
 }
 
 void WhereTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
-    dstOp->main.value = nullptr;
+    // for distinguish old-version
+    auto parameter = new MNN::ExtraT;
+    parameter->engine = "tensorflow";
+    parameter->type = "control_flow_where";
+    dstOp->main.value = parameter;
 }
 
 REGISTER_CONVERTER(WhereTf, Where);

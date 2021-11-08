@@ -1,4 +1,68 @@
 {
+    "matmul_output.comp":[
+        "BIAS",
+        "TRANSPOSE",
+        "TRANSPOSE_BIAS"
+    ],
+    "matmul_input.comp":[
+        "TRANSPOSE"
+    ],
+    "gemm16x16.comp":[
+        "FP16"
+    ],
+    "reduce.comp":[
+        "VMAX",
+        "VMIN",
+        "MEAN",
+        "PROD",
+        "SUM"
+    ],
+    "binaryImage.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "POW",
+        "VMAX",
+        "SQUDIFF",
+        "VMIN"
+    ],
+    "unaryImage.comp":[
+        "SIGMOID",
+        "TANH",
+        "ABS",
+        "SQRT",
+        "RSQRT",
+        "NEG",
+        "SQUARE",
+        "EXP",
+        "SIGN",
+        "LOG",
+        "TAN",
+        "COS",
+        "SIN",
+        "CEIL",
+        "FLOOR",
+        "EXPM1",
+        "RECIPROCAL",
+        "SINH",
+        "ASINH",
+        "ASIN",
+        "COSH",
+        "ACOS",
+        "ACOSH",
+        "ATAN",
+        "ATANH",
+        "LOG1P",
+        "ROUND",
+        "HARDSWISH"
+    ],
+    "unPackImage4x4.comp":[
+        "TRANSPOSE"
+    ],
+    "packAsImage4x4.comp":[
+        "TRANSPOSE"
+    ],
     "winogradDestTransform8x8.comp":[
         "RELU",
         "RELU6"
@@ -12,10 +76,6 @@
         "RELU6"
     ],
     "col2Im.comp":[
-        "RELU",
-        "RELU6"
-    ],
-    "col2ImMali.comp":[
         "RELU",
         "RELU6"
     ],
@@ -34,5 +94,11 @@
     "convolutionDepthwiseMali.comp":[
         "RELU",
         "RELU6"
+    ],
+    "gridSampleNearest.comp":[
+        "PAD_MODE_ZEROS"
+    ],
+    "gridSampleBilinear.comp":[
+        "PAD_MODE_ZEROS"
     ]
 }

@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolution1x1.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -30,70 +30,124 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
+    auto input = inputs[0];
+    auto output = outputs[0];
+    
+    auto is  = input->width() * input->height();
+    auto ic_4  = UP_DIV(input->channel(), 4);
+    auto ow  = output->width();
+    auto oh  = output->height();
+    auto os  = ow * oh;
+    auto ob  = output->batch();
+    auto oc  = output->channel();
+    auto oc_4  = UP_DIV(output->channel(), 4);
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto input = inputs[0], output = outputs[0];
-    auto is = input->width() * input->height(), iz = UP_DIV(input->channel(), 4), igz = iz / mGroups;
-    auto os = output->width() * output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
 
     // create const buffer
-    int constants[] = {is, igz, iz, os, ogz, oz, output->batch(), mActivationType};
-    mConstBuffer    = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
-    return NO_ERROR;
-}
-
-ErrorCode MetalConvolution1x1::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
+    int constants[] = {is, ic_4, ow, oh, os, oc_4, ob, mActivationType};
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     
-    auto encoder    = [context encoder];
-    auto bandwidth  = (MetalBandwidth){};
-    MTLSize threads = {};
-    if (mGroups == 1 && (w * h * b >= 32 ? z >= 16 : z >= 128)) {
-        bandwidth = [context load:@"qntconv1x1_g1z4" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)UP_DIV(z, 4), (NSUInteger)b};
+    MetalRuntime* rt = (MetalRuntime *)backend->runtime();
+
+    if(rt->getTuneLevel() == Never) {
+        if (ow * oh >= 128) {
+            NSUInteger gid_x = UP_DIV(ow * oh, 8);
+            NSUInteger gid_y = oc_4;
+            NSUInteger gid_z = ob;
+
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z8"];
+
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                         (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                         mConstBuffer.buffer(), mWeight, mBias, nil];
+         
+            std::string name = "conv1x1_g1z8";
+            MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+        } else {
+            NSUInteger gid_x = UP_DIV(ow * oh, 4);
+            NSUInteger gid_y = oc_4;
+            NSUInteger gid_z = ob;
+            
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
+            
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                            mConstBuffer.buffer(), mWeight, mBias, nil];
+
+            std::string name = "conv1x1_g1z4";
+            MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+            //printf("conv1x1_z4, %d %d %d %d\n", ow, oh, oc_4, ic_4);
+        }
     } else {
-        bandwidth = [context load:@"qntconv1x1" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)z, (NSUInteger)b};
+        // {@"conv1x1_w4h2", @"conv1x1_w2h2", @"conv1x1_w2c2", @"conv1x1_w1h1" };
+        const int total_kernel = 5;
+        NSString* shaderName[total_kernel] = {@"conv1x1_w4h2", @"conv1x1_w2h2", @"conv1x1_w2c2", @"conv1x1_w2h2c2", @"conv1x1_w4h4"};
+        int itemW[total_kernel] = {4, 2, 2, 2, 4};
+        int itemH[total_kernel] = {2, 2, 1, 2, 4};
+        int itemC[total_kernel] = {4, 4, 8, 8, 4};
+     
+        int actual_kernel = 5;
+        std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
+        
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                        mConstBuffer.buffer(), mWeight, mBias, nil];
+        
+        for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
+            NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
+            NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
+            NSUInteger gid_z = ob * UP_DIV(oc, itemC[knl_idx]);
+            
+            std::string name = [shaderName[knl_idx] UTF8String];
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            
+            if(min_cost.first > std::get<2>(ret)) {
+                min_cost.first = std::get<2>(ret);
+                min_cost.second = knl_idx;
+                mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+            }
+            //printf("conv1x1 idx:%d, global:%d %d %d, local:%d %d %d, min_cost:%d\n", knl_idx, (int)retTune.second.first.width, (int)retTune.second.first.height, (int)retTune.second.first.depth, (int)retTune.second.second.width, (int)retTune.second.second.height, (int)retTune.second.second.depth, (int)retTune.first);
+        }
+        //printf("conv1x1 idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
+        mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
     }
-    bandwidth.zAxisProtected = YES;
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder setBuffer:mAlpha offset:0 atIndex:5];
-    [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+
     return NO_ERROR;
 }
 
 ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
-    
-    auto encoder    = [context encoder];
-    auto bandwidth  = (MetalBandwidth){};
-    MTLSize threads = {};
-    if (mGroups == 1 && (w * h * b >= 32 ? z >= 16 : z >= 128)) {
-        bandwidth = [context load:@"conv1x1_g1z4" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)UP_DIV(z, 4), (NSUInteger)b};
-    } else {
-        bandwidth = [context load:@"conv1x1" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)z, (NSUInteger)b};
+
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    bandwidth.zAxisProtected = YES;
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    
+    auto func = [=](){
+        auto encoder    = backend->encoder();
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+        [encoder setBuffer:mWeight offset:0 atIndex:3];
+        [encoder setBuffer:mBias offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(backend->isCmdBufferCommit()) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 } // namespace MNN

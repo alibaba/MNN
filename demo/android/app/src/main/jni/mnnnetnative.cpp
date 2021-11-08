@@ -53,8 +53,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_taobao_android_mnn_MNNNetNative_nati
 
             env->ReleaseStringUTFChars(jname, name);
         }
-
-        config.path.outputs = saveNamesVector;
+        config.saveTensors = saveNamesVector;
     }
 
     if (joutputTensors != NULL) {
@@ -252,9 +251,10 @@ extern "C" JNIEXPORT jint JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativ
     }
 
     auto length = env->GetArrayLength(jdest);
+    std::unique_ptr<MNN::Tensor> hostTensor;
     if (tensor->host<int>() == nullptr) {
         // GPU buffer
-        std::unique_ptr<MNN::Tensor> hostTensor(new MNN::Tensor(tensor, tensor->getDimensionType(), true));
+        hostTensor.reset(new MNN::Tensor(tensor, tensor->getDimensionType(), true));
         tensor->copyToHostTensor(hostTensor.get());
         tensor = hostTensor.get();
     }
@@ -281,10 +281,11 @@ extern "C" JNIEXPORT jint JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativ
         return tensor->elementSize();
     }
 
+    std::unique_ptr<MNN::Tensor> hostTensor;
     auto length = env->GetArrayLength(dest);
     if (tensor->host<int>() == nullptr) {
         // GPU buffer
-        std::unique_ptr<MNN::Tensor> hostTensor(new MNN::Tensor(tensor, tensor->getDimensionType(), true));
+        hostTensor.reset(new MNN::Tensor(tensor, tensor->getDimensionType(), true));
         tensor->copyToHostTensor(hostTensor.get());
         tensor = hostTensor.get();
     }

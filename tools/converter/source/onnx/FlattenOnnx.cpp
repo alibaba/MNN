@@ -11,17 +11,18 @@
 DECLARE_OP_CONVERTER(FlattenOnnx);
 
 MNN::OpType FlattenOnnx::opType() {
-    return MNN::OpType_Reshape;
+    return MNN::OpType_Flatten;
 }
 
 MNN::OpParameter FlattenOnnx::type() {
-    return MNN::OpParameter_Reshape;
+    return MNN::OpParameter_Flatten;
 }
 
 void FlattenOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                      std::vector<const onnx::TensorProto *> initializers) {
-    auto param = new MNN::ReshapeT;
+                      OnnxScope* scope) {
+    auto param = new MNN::FlattenT;
 
+    // Ref https://github.com/onnx/onnx/blob/master/docs/Operators.md#Flatten, Default is 1
     int axis = 1;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto &attributeProto = onnxNode->attribute(i);
@@ -31,13 +32,7 @@ void FlattenOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
             axis = attributeProto.i();
         }
     }
-
-    param->dims.resize(axis + 1);
-    for (int i = 0; i < axis; ++i) {
-        param->dims[i] = 0;
-    }
-    param->dims[axis] = -1;
-
+    param->axis = axis;
     dstOp->main.value = param;
 }
 

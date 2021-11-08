@@ -1,7 +1,7 @@
 #version 440 core
 layout(std140) buffer;
-layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
-layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
 
 layout(set = 0, binding = 2) readonly buffer scaleBuffer{
     vec4 data[];
@@ -13,8 +13,6 @@ layout(set = 0, binding = 3) readonly buffer biasBuffer{
 
 layout(set = 0, binding = 4) uniform constBuffer{
     ivec4 imgSize;
-    int channel;
-    float eps;
 }uConst;
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -24,15 +22,17 @@ void main()
     ivec3 pos = ivec3(gl_GlobalInvocationID);
     ivec3 imgSize = uConst.imgSize.xyz;
 
-    if(all(lessThan(pos, imgSize)))
+    if(all(lessThan(pos.xy, imgSize.xy)))
     {
-        int channelIndex = pos.z;
+        int channelIndex = pos.z % uConst.imgSize.z;
+        int batchIndex = pos.z / uConst.imgSize.z;
         vec4 scale = uScale.data[channelIndex];
         vec4 bias = uBias.data[channelIndex];
+        ivec2 imgPos = ivec2(pos.x+channelIndex*uConst.imgSize.x, pos.y+batchIndex*uConst.imgSize.y);
 
-        vec4 color = texelFetch(uInput, pos, 0);
+        vec4 color = texelFetch(uInput, imgPos, 0);
         vec4 res = color * scale + bias;
-        imageStore(uOutput, pos, res);
+        imageStore(uOutput, imgPos, res);
     }
 
 }

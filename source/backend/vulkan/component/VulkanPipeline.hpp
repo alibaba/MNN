@@ -13,10 +13,9 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "NonCopyable.hpp"
+#include "core/NonCopyable.hpp"
 #include "VulkanDevice.hpp"
 #include "VulkanShaderMap.hpp"
-#include "vulkan_wrapper.h"
 namespace MNN {
 class VulkanPipeline : public NonCopyable {
 public:
@@ -36,17 +35,13 @@ public:
 
     class DescriptorSet : public NonCopyable {
     public:
-        DescriptorSet(const VulkanDevice& dev, VkDescriptorSet set, VkDescriptorPool pool,
-                      const VulkanPipeline* pipeline)
-            : mDevice(dev) {
+        DescriptorSet(VkDescriptorSet set, VkDescriptorPool pool,
+                      const VulkanPipeline* pipeline) {
             mSet      = set;
             mPool     = pool;
             mPipeline = pipeline;
         }
-        virtual ~DescriptorSet() {
-            mDevice.freeDescriptorSets(mPool, 1, &mSet);
-            mDevice.destroyDescriptorPool(mPool);
-        }
+        virtual ~DescriptorSet();
 
         void writeBuffer(VkBuffer buffer, int bindIndex, size_t size, VkDeviceSize offset = 0);
         void writeImage(VkImageView view, VkSampler sampler, VkImageLayout layout, int bind);
@@ -56,7 +51,6 @@ public:
         }
 
     private:
-        const VulkanDevice& mDevice;
         VkDescriptorSet mSet;
         VkDescriptorPool mPool;
         const VulkanPipeline* mPipeline;
@@ -75,6 +69,7 @@ private:
     std::vector<VkDescriptorPoolSize> mDesPoolSize;
     VkDescriptorSetLayout mSetLayout;
     std::vector<VkDescriptorType> mBufferTypes;
+    mutable std::vector<std::pair<VkDescriptorSet, VkDescriptorPool>> mFreeSets;
 };
 
 class VulkanPipelineFactory : public NonCopyable {
@@ -84,6 +79,7 @@ public:
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
 
+    void reset();
 private:
     const VulkanDevice& mDevice;
     mutable std::map<std::string, std::shared_ptr<VulkanPipeline>> mPipelines;

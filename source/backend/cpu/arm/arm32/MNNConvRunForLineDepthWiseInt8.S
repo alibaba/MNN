@@ -15,29 +15,29 @@
 .align 5
 
 asm_function MNNConvRunForLineDepthWiseInt8
-//void MNNConvRunForLineDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t width, size_t src_w_setup, size_t fw, size_t fh, 
+//void MNNConvRunForLineDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t width, size_t src_w_setup, size_t fw, size_t fh,
 //size_t dilate_x_step, size_t dilate_y_step, const float* alpha_z)
 
 //Auto Load:
 //r0:dst, r1:src, r2:weight, r3:width
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
 //Load From Sp
-//r4:src_w_setup, r5:fw, r6:fh, r7:dilate_x_step, r8:dilate_y_step, r9:alpha_z
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
-ldr r8, [sp, #52]
-ldr r9, [sp, #56]
+//r4:src_w_setup, r5:fw, r6:fh, r7:dilate_x_step, r8:dilate_y_step, lr:alpha_z
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
+ldr r8, [sp, #48]
+ldr lr, [sp, #52]
 
 vpush {q4-q7}
 
-vld1.32 {q4}, [r9]
+vld1.32 {q4}, [lr]
 //dilate_y_step -> dilate_y_step - fw*dilate_x_step
-mul r9, r5, r7
-sub r8, r8, r9
+mul lr, r5, r7
+sub r8, r8, lr
 
 L8:
 cmp r3, #8
@@ -58,7 +58,7 @@ L8Loop:
 
     vmov.i32 d14[0], r1
     vmov.i32 d14[1], r2
-    mov r9, r6
+    mov lr, r6
     L8LoopH:
         mov r10, r5
         L8LoopW:
@@ -91,7 +91,7 @@ L8Loop:
 
             bne L8LoopW
         L8LoopWEnd:
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L8LoopH
 
@@ -139,7 +139,7 @@ L4Loop:
 
     vmov.i32 d14[0], r1
     vmov.i32 d14[1], r2
-    mov r9, r6
+    mov lr, r6
     L4LoopH:
         mov r10, r5
         L4LoopW:
@@ -162,7 +162,7 @@ L4Loop:
 
             bne L4LoopW
         L4LoopWEnd:
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L4LoopH
 
@@ -192,7 +192,7 @@ beq End
 
 L1Loop:
     vmov.i32 q0, #0
-    mov r9, r6
+    mov lr, r6
     mov r11, r1
     mov r12, r2
     L1LoopH:
@@ -205,7 +205,7 @@ L1Loop:
             vmlal.s16 q0, d2, d4
             subs r10, r10, #1
             bne L1LoopW
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L1LoopH
 
@@ -224,7 +224,8 @@ End:
 
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
+
 
 
 #endif

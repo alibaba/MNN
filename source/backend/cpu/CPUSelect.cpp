@@ -6,24 +6,38 @@
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
 
-#include "CPUSelect.hpp"
+#include "backend/cpu/CPUSelect.hpp"
 namespace MNN {
+
 ErrorCode CPUSelect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto select    = inputs[0];
-    auto outputPtr = outputs[0]->host<float>();
-    auto input0Ptr = inputs[1]->host<float>();
-    auto input1Ptr = inputs[2]->host<float>();
-    auto selectPtr = select->host<int32_t>();
-    auto size      = select->elementSize();
-    for (int i = 0; i < size; ++i) {
-        if (selectPtr[i] > 0) {
-            outputPtr[i] = input0Ptr[i];
+    auto inSize1 = inputs[1]->elementSize();
+    auto inSize2 = inputs[2]->elementSize();
+    auto outSize = outputs[0]->elementSize();
+    MNN_ASSERT(inputs[0]->elementSize() == outSize);
+    MNN_ASSERT(inSize1 == 1 || inSize1 == outSize);
+    MNN_ASSERT(inSize2 == 1 || inSize2 == outSize);
+    auto output = outputs[0]->host<float>();
+    auto select = inputs[0]->host<int32_t>();
+    auto input0 = inputs[1]->host<float>();
+    auto input1 = inputs[2]->host<float>();
+    for (int i = 0; i < outSize; i++) {
+        if (select[i]) {
+            if (inSize1 == 1) {
+                output[i] = input0[0];
+            } else {
+                output[i] = input0[i];
+            }
         } else {
-            outputPtr[i] = input1Ptr[i];
+            if (inSize2 == 1) {
+                output[i] = input1[0];
+            } else {
+                output[i] = input1[i];
+            }
         }
     }
     return NO_ERROR;
 }
+
 class CPUSelectCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,

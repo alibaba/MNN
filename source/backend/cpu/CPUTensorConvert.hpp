@@ -9,30 +9,16 @@
 #ifndef CPUTensorConvert_hpp
 #define CPUTensorConvert_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "Tensor_generated.h"
-
+#include "compute/CommonOptFunction.h"
 namespace MNN {
 
-class CPUTensorConverter : public Execution {
+class CPUTensorConverter {
 public:
-    CPUTensorConverter(Backend* b, MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest) : Execution(b) {
-        mSource = source;
-        mDest   = dest;
-    }
-    virtual ~CPUTensorConverter() = default;
-
-    static void NHWC2NC4HW4(const float* source, float* dest, int b, int c, int area);
-    static void NC4HW42NHWC(const float* dest, float* source, int b, int c, int area);
-    static void NHWC2NCHW(const float* dest, float* source, int b, int c, int area);
-    static void NCHW2NHWC(const float* source, float* dest, int b, int c, int area);
-
-    static ErrorCode convert(const Tensor* input, const Tensor* output);
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-
-private:
-    MNN_DATA_FORMAT mSource;
-    MNN_DATA_FORMAT mDest;
+    static std::tuple<int, int, int> splitDimensions(const halide_buffer_t& ib, MNN_DATA_FORMAT source);
+    static ErrorCode convert(const Tensor* input, const Tensor* output, const CoreFunctions* core = nullptr, int tId = 0, int numberThread = 1);
+    static ErrorCode convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT inputFormat, MNN_DATA_FORMAT outputFormat, int batch, int area, int channel, int bytes, const CoreFunctions* core, int tId = 0, int numberThread = 1);
 };
 
 } // namespace MNN

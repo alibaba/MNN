@@ -1,0 +1,22 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform constBuffer{
+    vec4 value;
+    ivec4 imageSize;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.imageSize.w)
+    {
+        int offset = posTmp.x;
+
+        int imageX = offset % uConstant.imageSize.x;
+        int imageY = offset / uConstant.imageSize.x;
+        imageStore(uOutput, ivec2(imageX, imageY), uConstant.value);
+    }
+}

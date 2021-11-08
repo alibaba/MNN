@@ -10,12 +10,12 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#include <MNN/Interpreter.hpp>
 #include <fstream>
-#include "Interpreter.hpp"
 #include "MNNTestSuite.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
 #include "TestUtils.h"
+#include "core/Session.hpp"
+#include "core/TensorUtils.hpp"
 
 using namespace MNN;
 
@@ -30,8 +30,9 @@ public:
         auto string = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
         CFRelease(url);
         auto cstring = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+        auto res     = std::string(cstring);
         CFRelease(string);
-        return std::string(cstring);
+        return res;
 #else
         return "../resource"; // assume run in build dir
 #endif
@@ -82,22 +83,43 @@ public:
         input->copyFromHostTensor(given.get());
     }
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto net = MNN::Interpreter::createFromFile(this->model().c_str());
         if (NULL == net) {
             return false;
         }
-        auto CPU    = createSession(net, MNN_FORWARD_CPU);
-        auto input  = tensorFromFile(CPU->getInput(NULL), this->input());
-        auto expect = tensorFromFile(CPU->getOutput(NULL), this->expect());
+        ScheduleConfig cpuconfig;
+        cpuconfig.type = MNN_FORWARD_CPU;
+        auto CPU       = net->createSession(cpuconfig);
+        auto input     = tensorFromFile(net->getSessionInput(CPU, NULL), this->input());
+        auto expect    = tensorFromFile(net->getSessionOutput(CPU, NULL), this->expect());
 
         dispatch([&](MNNForwardType backend) -> void {
-            auto session = createSession(net, backend);
-            session->getInput(NULL)->copyFromHostTensor(input.get());
-            session->run();
-            auto output     = session->getOutput(NULL);
+            ScheduleConfig config;
+            config.type  = MNN_FORWARD_METAL;
+            config.numThread  = 1;
+            MNN::BackendConfig backendConfig;
+            backendConfig.precision = MNN::BackendConfig::Precision_High;
+            config.backendConfig = &backendConfig;
+            
+            auto session = net->createSession(config);
+            
+            auto outputTensor  = net->getSessionOutput(session, NULL);
+            auto inputTensor   = net->getSessionInput(session, NULL);
+            std::shared_ptr<MNN::Tensor> hostTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
+            for(int i=0; i<20; i++)//warmm up
+            {
+                auto timeBegin = getTimeInUs();
+                inputTensor->copyFromHostTensor(input.get());
+                net->runSession(session);
+                outputTensor->copyToHostTensor(hostTensor.get());
+
+                auto timeEnd = getTimeInUs();
+                printf("run cost %f ms\n", ((timeEnd - timeBegin) / 1000.0));
+            }
+            
             float tolerance = backend == MNN_FORWARD_CPU ? 0.04 : 0.1;
-            assert(TensorUtils::compareTensors(output, expect.get(), tolerance, true));
+            assert(TensorUtils::compareTensors(hostTensor.get(), expect.get(), tolerance, true));
         });
         delete net;
         return true;
@@ -172,3 +194,45 @@ MNNTestSuiteRegister(MobileNetV1Test, "model/mobilenet/1/caffe");
 MNNTestSuiteRegister(MobileNetV2Test, "model/mobilenet/2/caffe");
 MNNTestSuiteRegister(MobileNetV2TFLiteTest, "model/mobilenet/2/tflite");
 MNNTestSuiteRegister(MobileNetV2TFLiteQntTest, "model/mobilenet/2/tflite_qnt");
+
+
+class ModelTest : public MNNTestCase {
+public:
+    virtual ~ModelTest() = default;
+
+    std::string root() {
+#ifdef __APPLE__
+        auto bundle = CFBundleGetMainBundle();
+        auto url    = CFBundleCopyBundleURL(bundle);
+        auto string = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
+        CFRelease(url);
+        auto cstring = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+        auto res     = std::string(cstring);
+        CFRelease(string);
+        return res;
+#else
+        return "../resource"; // assume run in build dir
+#endif
+    }
+
+    std::string path() {
+        return this->root() + "/model/temp.bin";
+    }
+
+    virtual bool run(int precision) {
+        auto net = MNN::Interpreter::createFromFile(this->path().c_str());
+        if (NULL == net) {
+            return false;
+        }
+        ScheduleConfig cpuconfig;
+        cpuconfig.type = MNN_FORWARD_CPU;
+        BackendConfig bnConfig;
+        bnConfig.precision = BackendConfig::Precision_Low;
+        cpuconfig.backendConfig = &bnConfig;
+        auto session       = net->createSession(cpuconfig);
+        net->runSession(session);
+        delete net;
+        return true;
+    }
+};
+MNNTestSuiteRegister(ModelTest, "model/model_test");

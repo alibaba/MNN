@@ -9,9 +9,9 @@
 #ifndef Pipeline_hpp
 #define Pipeline_hpp
 
-#include "Execution.hpp"
 #include "Schedule.hpp"
-#include "MNN_generated.h"
+#include "core/Execution.hpp"
+#include "geometry/GeometryComputer.hpp"
 
 namespace MNN {
 struct OperatorInfo::Info {
@@ -23,98 +23,52 @@ class SizeComputer;
 /** pipeline. one session may contains multiple pipeline, and one pipeline may contains more than one unit. */
 class Pipeline : public NonCopyable {
 public:
-    /**
-     * @brief initialize with pipeline info, major backend and backup backend (usually CPU).
-     * @param info      given pipeline info.
-     * @param major     given major backend used to create execution.
-     * @param backup    given backend backend if op is not supported by major backend.
-     */
-    Pipeline(const std::vector<Schedule::PipelineInfo>& info, Backend* major, Backend* backup);
-
-public:
-    /**
-     * @brief prepare all units.
-     * @return result code.
-     */
-    ErrorCode prepare();
-    /**
-     * @brief execute all units.
-     * @return result code.
-     */
-    ErrorCode execute();
-    /**
-     * @brief execute all units with callbacks.
-     * @param before    callback before execute each op.
-     * @param after     callback after execute each op.
-     * @return result code.
-     */
-    ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
-    /**
-     * @brief the Pipline need not prepare any more, release all cache used for resize.
-     * @return errorcode
-     */
-    ErrorCode releaseCache();
-
-    /** op unit in pipeline */
-    class Unit : public NonCopyable, public OperatorInfo {
+    Pipeline(std::vector<Schedule::PipelineInfo>&& info, std::shared_ptr<Backend> major,
+             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, Runtime::CompilerType compilerType);
+    ~Pipeline();
+    class UnitInfo : public OperatorInfo {
     public:
-        /**
-         * @brief initialize with given op and its in-out tensors.
-         * @param op        given op.
-         * @param inputs    execution input tensors.
-         * @param outputs   execution output tensors.
-         */
-        Unit(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
-
-        /**
-         * @brief prepare unit.
-         * @return result code.
-         */
-        ErrorCode prepare(Backend* major, Backend* backup);
-        /**
-         * @brief execute unit.
-         * @return result code.
-         */
-        ErrorCode execute();
-        /**
-         * @brief execute unit with callbacks.
-         * @param before    callback before execute each op.
-         * @param after     callback after execute each op.
-         * @return result code.
-         */
-        ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
-
-    public:
-        /** op execution */
-        std::shared_ptr<Execution> mExecution;
-        /** op type*/
-        OpType mType;
-        /** input tensors */
-        std::vector<Tensor*> mInputs;
-        /** output tensors */
-        std::vector<Tensor*> mOutputs;
-        /** op */
-        const Op* mOriginOp;
-
-    private:
-        bool _createExecution(Backend* bn, Backend* cpuBn);
-        bool _allocTensors(Backend* bn, const std::vector<Tensor*>& tensors);
-
-    private:
-        bool mConst                   = false;
-        const SizeComputer* mComputer = nullptr;
+        UnitInfo()          = default;
+        virtual ~UnitInfo() = default;
+        void setUp(const Command& cmd, int index);
     };
-
-protected:
-    /*Used for Unit Test*/
-    const std::vector<std::shared_ptr<Unit>>& getUnit() const {
-        return this->mUnits;
+    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache);
+    const std::map<const Op*, std::shared_ptr<Execution>>& getCache() {
+        return mOriginExecution;
     }
+public:
+    /** encode :
+       1. compute shape for every op's inputs and outputs;
+       2. geometry transform;
+       3. copy op, inputs and outputs tensor info to mBuffer
+       static_model:  3; dynamic_model: 1,2,3
+    */
+    ErrorCode encode(bool isStatic = false, bool supportDebug = false);
+    /** allocMemory: create Execution and alloc memory for every op */
+    ErrorCode allocMemory();
+    /** execute this pipline */
+    ErrorCode execute();
+    ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
+    std::vector<Schedule::PipelineInfo>& getPipelineInfo();
 
+    float flops() const {
+        return mFlops;
+    }
 private:
-    Backend* mBackend;
-    Backend* mBackupBackend;
-    std::vector<std::shared_ptr<Unit>> mUnits;
+    std::shared_ptr<Backend> mBackend, mBackupBackend, mConstBackend;
+    std::vector<std::shared_ptr<Execution>> mExecutions;
+    std::vector<UnitInfo> mDebugInfos;
+    CommandBuffer mBuffer;
+    std::vector<Schedule::PipelineInfo> mInfo;
+    std::vector<Tensor*> mMidConstTensors;
+    bool mAllocInput;
+    bool mInit = false;
+    float mFlops = 0.0f;
+    std::map<const Op*, std::shared_ptr<Execution>> mOriginExecution;
+#ifndef MNN_BUILD_MINI
+    GeometryComputer::Context mContext;
+    Runtime::CompilerType mUseGeometry;
+#endif
 };
 } // namespace MNN
 

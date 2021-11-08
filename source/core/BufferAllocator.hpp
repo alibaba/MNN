@@ -14,17 +14,27 @@
 #include <vector>
 #include "MNNMemoryUtils.h"
 #include "NonCopyable.hpp"
+#include "AutoStorage.h"
 
 namespace MNN {
 
 /** memory utils wrapper. provides memory reusing with alignment ability. */
-class BufferAllocator : public NonCopyable {
+class MNN_PUBLIC BufferAllocator : public NonCopyable {
 public:
+    class Allocator {
+    public:
+        Allocator() = default;
+        virtual ~ Allocator() = default;
+        virtual std::pair<void*, int> onAlloc(int size) = 0;
+        virtual void onRelease(std::pair<void*, int> ptr) = 0;
+        static std::shared_ptr<Allocator> createDefault();
+        static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
+    };
     /**
      * @brief init buffer allocator with pointer alignment.
      * @param align given pointer alignment.
      */
-    BufferAllocator(int align = MNN_MEMORY_ALIGN_DEFAULT) : mAlign(align) {
+    BufferAllocator(std::shared_ptr<Allocator> parent, int align = MNN_MEMORY_ALIGN_DEFAULT) : mAllocator(parent), mAlign(align) {
         // nothing to do
     }
     /**
@@ -43,23 +53,23 @@ public:
      * @sa free
      * @sa release
      */
-    void* alloc(size_t size, bool seperate = false);
+    std::pair<void*, int> alloc(int size, bool seperate = false);
 
     /**
      * @brief mark CHUNK pointer as reusable.
      * @param pointer   given CHUNK pointer.
-     * @param release   true if need free directly.
      * @return true if pointer is a CHUNK pointer, false otherwise.
      * @sa release
      */
-    bool free(void* pointer, bool release = false);
+    bool free(std::pair<void*, int> pointer);
 
     /**
      * @brief free all allocated memories.
      * @sa allocSeparate
      * @sa alloc
+     * if allRelease, clear all memory , otherwise delete freelist
      */
-    void release();
+    void release(bool allRelease = true);
 
     /**
      * @brief query total size allocated indeed.
@@ -83,27 +93,29 @@ public:
     void endGroup();
 
 private:
-    class Node {
+    class Node : public RefCount {
     public:
         ~Node();
-        void* pointer;
-        size_t size;
-        std::shared_ptr<Node> parent = nullptr;
-        int useCount                 = 0;
+        std::pair<void*, int> pointer;
+        SharedPtr<Node> parent = nullptr;
+        int32_t size;
+        int16_t useCount = 0;
+        Allocator* outside = nullptr;
     };
 
-    typedef std::multimap<size_t, std::shared_ptr<Node>> FREELIST;
+    typedef std::multimap<size_t, SharedPtr<Node>> FREELIST;
 
-    static void returnMemory(FREELIST* list, std::shared_ptr<Node> node, bool permitMerge = true);
-    void* getFromFreeList(FREELIST* list, size_t size, bool permiteSplit = true);
+    static void returnMemory(FREELIST* list, SharedPtr<Node> node, bool permitMerge = true);
+    std::pair<void*, int> getFromFreeList(FREELIST* list, int size, bool permiteSplit = true);
 
-    std::map<void*, std::shared_ptr<Node>> mUsedList;
+    std::map<std::pair<void*, int>, SharedPtr<Node>> mUsedList;
     FREELIST mFreeList;
     size_t mTotalSize   = 0;
-    const size_t mAlign = 0;
 
-    FREELIST* mCurrenetFreeList = nullptr;
+    FREELIST* mCurrentFreeList = nullptr;
     std::vector<std::shared_ptr<FREELIST>> mGroups;
+    std::shared_ptr<Allocator> mAllocator;
+    int mAlign;
 };
 } // namespace MNN
 #endif

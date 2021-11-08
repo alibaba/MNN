@@ -9,7 +9,7 @@
 #ifndef CPUEltwiseInt8_hpp
 #define CPUEltwiseInt8_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 
@@ -23,6 +23,7 @@ private:
     std::shared_ptr<Tensor> mInput0Scales;
     std::shared_ptr<Tensor> mInput1Scales;
     std::shared_ptr<Tensor> mOutputScales;
+    bool isEltwiseInt8 = true;
 };
 
 } // namespace MNN

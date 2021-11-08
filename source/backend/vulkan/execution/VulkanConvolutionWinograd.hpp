@@ -10,7 +10,7 @@
 #define VulkanConvolutionWinograd_hpp
 
 #include "VulkanConvolutionImpl.hpp"
-#include "VulkanMatrixMultier.hpp"
+#include "VulkanMatrixMultier4x4.hpp"
 
 namespace MNN {
 class VulkanConvolutionWinograd : public VulkanBasicExecution {
@@ -24,7 +24,7 @@ public:
     static bool support(const Convolution2DCommon* convOption);
 
 private:
-    std::shared_ptr<VulkanMatrixMultier> mMultier;
+    std::shared_ptr<VulkanMatrixMultier4x4> mMultier;
     std::shared_ptr<VulkanImage> mBias;
 
     VulkanBackend* mBackend = nullptr;

@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "MNNMemoryUtils.h"
 #include "MNNTestSuite.h"
+#include "core/MNNMemoryUtils.h"
 
 #ifndef MNN_DEBUG_MEMORY
 class MemoryUtilsTest : public MNNTestCase {
 public:
     virtual ~MemoryUtilsTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             void *ptr = MNNMemoryAllocAlign(5, 0b111111 + 1);
             MNNTEST_ASSERT(((intptr_t)ptr & 0b111111) == 0);

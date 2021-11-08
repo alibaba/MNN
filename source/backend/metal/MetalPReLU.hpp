@@ -9,7 +9,7 @@
 #ifndef MetalPReLU_hpp
 #define MetalPReLU_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MetalDefine.h"
 
 #if MNN_METAL_ENABLED
@@ -20,9 +20,13 @@ public:
     MetalPReLU(Backend *backend, const float *slope, int count);
     virtual ~MetalPReLU() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     id<MTLBuffer> mSlope;
+    id<MTLBuffer> mShape;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
     bool mShareChannel = false;
 };
 

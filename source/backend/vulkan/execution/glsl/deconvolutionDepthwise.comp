@@ -1,9 +1,8 @@
 #version 450 core
 layout(std430) buffer;
-layout(std430) uniform;
 
-layout(set=0, binding=0, rgba16f) writeonly mediump uniform image3D uOutput;
-layout(set=0, binding=1) uniform mediump sampler3D uInput;
+layout(set=0, binding=0) writeonly mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform mediump sampler2D uInput;
 layout(set=0, binding=2) uniform mediump sampler2D uKernel;
 layout(set=0, binding=3) uniform mediump sampler2D uBias;
 
@@ -14,8 +13,7 @@ layout(set=0, binding=4) readonly uniform constBuffer {
     ivec2 dilate;
     ivec4 inputSize;
     ivec4 outputSize;
-    int batch;
-    int group;
+    ivec4 offset;
 } uConstant;
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -33,6 +31,7 @@ void main()
         ivec2 oxy = pos.xy + uConstant.pad;
         int fz = pos.z % uConstant.outputSize.z;
         int sb = pos.z / uConstant.outputSize.z;
+        int sz = fz;
 
         vec4 color = texelFetch(uBias, ivec2(fz, 0), 0);
         for (int fy=0; fy<uConstant.kernelSize.y; ++fy)
@@ -47,7 +46,7 @@ void main()
                     int x = sx / uConstant.stride.x;
                     if (sx % uConstant.stride.x == 0 && x == clamp(x, 0, inputSize.x-1))
                     {
-                        vec4 inputColor = texelFetch(uInput, ivec3(x, y, pos.z), 0);
+                        vec4 inputColor = texelFetch(uInput, ivec2(x+sz*uConstant.inputSize.x, y+sb*uConstant.inputSize.y), 0);
                         vec4 kernelColor = texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, fz), 0);
                         color += inputColor*kernelColor;
                     }
@@ -61,6 +60,6 @@ void main()
         color = clamp(color, vec4(0), vec4(6));
 #endif
 
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec2(pos.x+sz*uConstant.outputSize.x, pos.y+sb*uConstant.outputSize.y), color);
     }
 }

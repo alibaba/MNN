@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedAdd_hpp
 #define CPUQuantizedAdd_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 // have to include after Marco.h
@@ -38,12 +38,7 @@ private:
     int mOutputActivationMin, mOutputActivationMax;
     int mLeftShiftResult1, mLeftShiftResult2;
     int mRightShift1, mRightShift2;
-    int mLeftShiftOut, mRightShiftOut;
-    
-#ifdef MNN_USE_NEON
-    int16x8_t input1OffsetVec, input2OffsetVec;
-    int32x4_t outputOffsetVec, outputActivationMinVec, outputActivationMaxVec, leftShiftResult1Vec, leftShiftResult2Vec, input1MultiplierVec, input2MultiplierVec, outputMultiplierVec, leftShiftOutVec, rightShift1Vec, rightShift2Vec;
-#endif
+    int mLeftShiftOut, mRightShiftOut;    
 };
 
 } // namespace MNN

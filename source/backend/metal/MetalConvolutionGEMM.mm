@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionGEMM.hpp"
-#import "Macro.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution.hpp"
+#import "backend/metal/MetalConvolutionGEMM.hpp"
+#import "core/Macro.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -21,9 +21,8 @@ bool MetalConvolutionGEMM::isValid(const Convolution2D *conv, const Tensor *inpu
     if (kx == 1 || ky == 1 || common->group() != 1) {
         return false;
     }
-
     auto oc = common->outputCount();
-    if (oc <= 64) {
+    if (oc <= 16) {
         return false;
     }
     auto iw = input->width(), ih = input->height(), ic = input->channel();
@@ -35,7 +34,7 @@ bool MetalConvolutionGEMM::isValid(const Convolution2D *conv, const Tensor *inpu
     if ((iw * ih * ic) / (ow * oh * oc) > 4) {
         return false;
     }
-    
+
     auto unit = conv->quanParameter() != nullptr ? sizeof(float) : sizeof(metal_float);
     auto iz = UP_DIV(ic, 4), oz = UP_DIV(oc, 4), batch = input->batch();
     return UP_DIV(ow * oh * batch, 4) * kx * ky * iz * 16 * sizeof(metal_float) < (2 << 20) &&  // tmp input
@@ -52,30 +51,28 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
-    auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
+    auto iw = input->width();
+    auto ih = input->height();
+    auto ic_4 = UP_DIV(input->channel(), 4);
+    auto ow = output->width();
+    auto oh = output->height();
+    auto oc_4 = UP_DIV(output->channel(), 4);
+    auto ob = output->batch();
 
-    // pad mode support
-    int padX = mPadX, padY = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (ow - 1) * mStrideX + kernelWidthSize - iw;
-        int ph = (oh - 1) * mStrideY + kernelHeightSize - ih;
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
 
     // create const buffer
     int constants[] = {iw,
                        ih,
                        iw * ih,
-                       iz,
+                       ic_4,
                        ow,
                        oh,
                        ow * oh,
-                       oz,
-                       input->batch(),
+                       oc_4,
+                       ob,
 
                        mKernelX,
                        mKernelY,
@@ -87,15 +84,16 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
 
     // create mat mul const buffer
-    int shapes[] = {UP_DIV(ow * oh * ob, 4), oz, mKernelX * mKernelY * iz, 1};
+    int shapes[] = {UP_DIV(ow * oh * ob, 4), oc_4, mKernelX * mKernelY * ic_4, 1};
     mShapeBuffer = [context newDeviceBuffer:sizeof(shapes) bytes:shapes access:CPUWriteOnly];
 
     // accquire space for source & dst
-    int is = UP_DIV(ow * oh * ob, 4) * mKernelX * mKernelY * iz * 16 * sizeof(metal_float) / sizeof(uint8_t);
-    int os = UP_DIV(ow * oh * ob, 4) * oz * 16 * (mQnt ? sizeof(float) : sizeof(metal_float)) / sizeof(uint8_t);
+    int is = UP_DIV(ow * oh * ob, 4) * mKernelX * mKernelY * ic_4 * 16 * sizeof(metal_float) / sizeof(uint8_t);
+    int os = UP_DIV(ow * oh * ob, 4) * oc_4 * 16 * sizeof(metal_float) / sizeof(uint8_t);
     mTempInput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
     mTempOutput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
 
@@ -105,103 +103,76 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     }
     backend->onReleaseBuffer(mTempInput.get(), Backend::DYNAMIC);
     backend->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
-    return NO_ERROR;
-}
+    mPipelineGEMM = [context pipelineWithName:@"matmul4x4"];
+    mPipelineIm2Col = [context pipelineWithName:@"conv_im2col"];
+    mPipelineCol2Im = [context pipelineWithName:@"conv_col2im"];
+    NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
+    NSUInteger gh = UP_DIV(output->channel(), 4);
     
-ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if (mQnt) {
-        return onQuantized(inputs[0], outputs[0]); // handle quantize in GEMM
-    } else {
-        return onFloat(inputs[0], outputs[0]);
+    {
+        NSUInteger gid_x = gw;
+        NSUInteger gid_y = gh;
+        NSUInteger gid_z = 1;
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId(),
+                        (__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId(),
+                        mWeight, mShapeBuffer, nil];
+
+        std::string name = "matmul4x4";
+        MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+        auto ret = [context getGridAndThreadgroup:mPipelineGEMM gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+        mGemm = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     }
+    mIm2Col = [context computeBestGroupAndLocal:mPipelineIm2Col threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)ic_4*ob}];
+    mCol2Im = [context computeBestGroupAndLocal:mPipelineCol2Im threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)oc_4*ob}];
+    return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionGEMM::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
-    
-    { // im2col
-        NSUInteger iz = UP_DIV(input->channel(), 4), ib = input->batch();
-        NSUInteger ow = output->width(), oh = output->height();
-        
-        auto bandwidth = [context load:@"qntconv_im2col" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:[context newDeviceBuffer:sizeof(mQntScale) bytes:&mQntScale access:CPUWriteOnly]
-                    offset:0
-                   atIndex:3];
-        [encoder setBuffer:[context newDeviceBuffer:sizeof(mQntRange) bytes:&mQntRange access:CPUWriteOnly]
-                    offset:0
-                   atIndex:4];
-        [context dispatchEncoder:encoder threads:{ ow, oh, iz *ib } bandwidth:bandwidth];
-    }
-    { // gemm
-        NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
-        NSUInteger gh = UP_DIV(output->channel(), 4);
-        
-        auto bandwidth = [context load:@"qntmatmul4x4" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:{ gw, gh, 1 } bandwidth:bandwidth];
-    }
-    { // col2im
-        NSUInteger ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
-        
-        auto bandwidth = [context load:@"qntconv_col2im" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mBias offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [encoder setBuffer:mAlpha offset:0 atIndex:4];
-        [context dispatchEncoder:encoder threads:{ ow, oh, oz *ob } bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
-    return NO_ERROR;
+ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    return onFloat(inputs[0], outputs[0]);
 }
 
 ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
-
-    { // im2col
-        NSUInteger iz = UP_DIV(input->channel(), 4), ib = input->batch();
-        NSUInteger ow = output->width(), oh = output->height();
-
-        auto bandwidth = [context load:@"conv_im2col" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:{ ow, oh, iz *ib } bandwidth:bandwidth];
+    
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    { // gemm
-        NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
-        NSUInteger gh = UP_DIV(output->channel(), 4);
-
-        auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:{ gw, gh, 1 } bandwidth:bandwidth];
-    }
-    { // col2im
-        NSUInteger ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
-
-        auto bandwidth = [context load:@"conv_col2im" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mBias offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:{ ow, oh, oz *ob } bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    
+    auto func = [=](){
+        auto encoder    = backend->encoder();
+        { // im2col
+            [encoder setComputePipelineState:mPipelineIm2Col];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [encoder dispatchThreadgroups:mIm2Col.first threadsPerThreadgroup:mIm2Col.second];
+        }
+        { // gemm
+            [encoder setComputePipelineState:mPipelineGEMM];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mWeight offset:0 atIndex:2];
+            [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
+            [encoder dispatchThreadgroups:mGemm.first threadsPerThreadgroup:mGemm.second];
+        }
+        { // col2im
+            [encoder setComputePipelineState:mPipelineCol2Im];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mBias offset:0 atIndex:2];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [encoder dispatchThreadgroups:mCol2Im.first threadsPerThreadgroup:mCol2Im.second];
+        }
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(backend->isCmdBufferCommit()) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 
@@ -232,12 +203,6 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
         }
     }
     return buffer;
-}
-
-id<MTLBuffer> MetalConvolutionGEMM::weightForQuantized(int group, int oc, int ic, int kh, int kw, const int8_t *src) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    return weightInBlock<int8_t, int8_t>(context, group, oc, ic, kh, kw, src);
 }
 
 id<MTLBuffer> MetalConvolutionGEMM::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {

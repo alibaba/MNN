@@ -10,22 +10,12 @@
 #define MNNMETALCONTEXT_H
 
 #import "MetalDefine.h"
-#import "Tensor.hpp"
+#import <MNN/Tensor.hpp>
+#import "MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 
-#if MNN_METAL_DEBUG && MNN_METAL_BENCHMARK
-#define MNN_PRINT_ENCODER(context, encoder) \
-    {                                       \
-        [context printEncoder:encoder];     \
-        [context commit];                   \
-        [context wait];                     \
-    }
-#elif MNN_METAL_DEBUG
-#define MNN_PRINT_ENCODER(context, encoder) [context printEncoder:encoder];
-#else
 #define MNN_PRINT_ENCODER(context, encoder) ((void)0)
-#endif
 
 namespace MNN {
 typedef enum {
@@ -52,6 +42,8 @@ typedef struct {
 @property (strong, nonatomic, readonly) id<MTLDevice> device;
 /** max memory length cound be used in threadgroup */
 @property (assign, nonatomic, readonly) NSUInteger maxThreadgroupMemoryLength;
+/** max memory length cound be used in threadgroup */
+@property (assign, nonatomic, readonly) BOOL isCommitEachShader;
 
 /**
  * @brief alloc temp buffer on device
@@ -71,33 +63,18 @@ typedef struct {
 - (id<MTLBuffer>)newDeviceBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access;
 
 /**
- * @brief alloc temp buffer on heap (if available, otherwise on device)
- * @param size      buffer size
- * @param access    metal access type
- * @return created heap buffer
- */
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size access:(MNN::MetalAccess)access;
-
-/**
- * @brief alloc temp buffer on heap (if available, otherwise on device)
- * @param size      buffer size
- * @param bytes     buffer data
- * @param access    metal access type
- * @return created heap buffer
- */
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access;
-
-/**
- * @brief release temp buffer
- * @param buffer    buffer
- */
-- (void)releaseHeapBuffer:(id<MTLBuffer>)buffer;
-
-/**
  * @brief create compute encoder on default command buffer
  * @return created encoder
  */
 - (id<MTLComputeCommandEncoder>)encoder;
+- (id<MTLComputeCommandEncoder>)encoder_net;
+
+/**
+ * @brief create fill encoder on default command buffer
+ * @return created encoder
+ */
+- (id<MTLBlitCommandEncoder>)encoderBlit;
+- (id<MTLBlitCommandEncoder>)encoderBlit_net;
 
 /**
  * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
@@ -108,10 +85,22 @@ typedef struct {
 - (MNN::MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder;
 
 /**
+ * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
+ * @param name      pipline name
+ * @param encoder   command encoder
+ * @return bandwidth info for function
+ */
+- (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex;
+
+- (NSUInteger)timeUsed:(id<MTLCommandBuffer>) buffer;
+
+- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MNN::MetalRuntime *) rt shaderName:(std::string) kernelName;
+
+/**
  * @brief commit commands
  */
 - (void)commit;
-
+- (void)commit_net;
 /**
  * @brief wait for completion
  */
@@ -138,6 +127,10 @@ typedef struct {
                 threads:(MTLSize)threads
         threadsPerGroup:(MTLSize)threadsPerGroup
               bandwidth:(MNN::MetalBandwidth)bandwidth;
+- (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name;
+- (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) pipeline threads:(MTLSize)threads;
+
+- (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t;
 
 #if MNN_METAL_DEBUG
 /**
@@ -164,6 +157,8 @@ typedef struct {
  * @brief print encoder
  */
 - (void)printEncoder:(id<MTLCommandEncoder>)encoder;
+
+
 #endif
 @end
 

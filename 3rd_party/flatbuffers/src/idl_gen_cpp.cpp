@@ -1422,9 +1422,8 @@ class CppGenerator : public BaseGenerator {
   }
 
   std::string GenFieldOffsetName(const FieldDef &field) {
-    std::string uname = Name(field);
-    std::transform(uname.begin(), uname.end(), uname.begin(), ToUpper);
-    return "VT_" + uname;
+    std::string uname = NumToString(field.value.offset);
+    return uname;
   }
 
   void GenFullyQualifiedNameGetter(const StructDef &struct_def,
@@ -1750,31 +1749,7 @@ class CppGenerator : public BaseGenerator {
       code_ += "  }";
     }
 
-
     GenFullyQualifiedNameGetter(struct_def, Name(struct_def));
-
-    // Generate field id constants.
-    if (struct_def.fields.vec.size() > 0) {
-      // We need to add a trailing comma to all elements except the last one as
-      // older versions of gcc complain about this.
-      code_.SetValue("SEP", "");
-      code_ += "  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {";
-      for (auto it = struct_def.fields.vec.begin();
-           it != struct_def.fields.vec.end(); ++it) {
-        const auto &field = **it;
-        if (field.deprecated) {
-          // Deprecated fields won't be accessible.
-          continue;
-        }
-
-        code_.SetValue("OFFSET_NAME", GenFieldOffsetName(field));
-        code_.SetValue("OFFSET_VALUE", NumToString(field.value.offset));
-        code_ += "{{SEP}}    {{OFFSET_NAME}} = {{OFFSET_VALUE}}\\";
-        code_.SetValue("SEP", ",\n");
-      }
-      code_ += "";
-      code_ += "  };";
-    }
 
     // Generate the accessors.
     for (auto it = struct_def.fields.vec.begin();
@@ -1798,7 +1773,7 @@ class CppGenerator : public BaseGenerator {
       } else {
         accessor = "GetPointer<";
       }
-      auto offset_str = GenFieldOffsetName(field);
+      auto offset_str = NumToString(field.value.offset);
       auto offset_type =
           GenTypeGet(field.value.type, "", "const ", " *", false);
 
@@ -2021,7 +1996,7 @@ class CppGenerator : public BaseGenerator {
         // }
         code_.SetValue("FIELD_NAME", Name(field));
         code_.SetValue("FIELD_TYPE", GenTypeWire(field.value.type, " ", true));
-        code_.SetValue("ADD_OFFSET", Name(struct_def) + "::" + offset);
+        code_.SetValue("ADD_OFFSET", offset);
         code_.SetValue("ADD_NAME", name);
         code_.SetValue("ADD_VALUE", value);
         if (is_scalar) {
@@ -2068,7 +2043,7 @@ class CppGenerator : public BaseGenerator {
       if (!field.deprecated && field.required) {
         code_.SetValue("FIELD_NAME", Name(field));
         code_.SetValue("OFFSET_NAME", GenFieldOffsetName(field));
-        code_ += "    fbb_.Required(o, {{STRUCT_NAME}}::{{OFFSET_NAME}});";
+        code_ += "    fbb_.Required(o, {{OFFSET_NAME}});";
       }
     }
     code_ += "    return o;";
@@ -2105,63 +2080,6 @@ class CppGenerator : public BaseGenerator {
     code_ += "  return builder_.Finish();";
     code_ += "}";
     code_ += "";
-
-    // Generate a CreateXDirect function with vector types as parameters
-    if (has_string_or_vector_fields) {
-      code_ += "inline flatbuffers::Offset<{{STRUCT_NAME}}> "
-               "Create{{STRUCT_NAME}}Direct(";
-      code_ += "    flatbuffers::FlatBufferBuilder &_fbb\\";
-      for (auto it = struct_def.fields.vec.begin();
-           it != struct_def.fields.vec.end(); ++it) {
-        const auto &field = **it;
-        if (!field.deprecated) { GenParam(field, true, ",\n    "); }
-      }
-      // Need to call "Create" with the struct namespace.
-      const auto qualified_create_name =
-          struct_def.defined_namespace->GetFullyQualifiedName("Create");
-      code_.SetValue("CREATE_NAME", TranslateNameSpace(qualified_create_name));
-      code_ += ") {";
-      for (auto it = struct_def.fields.vec.begin();
-           it != struct_def.fields.vec.end(); ++it) {
-        const auto &field = **it;
-        if (!field.deprecated) {
-          code_.SetValue("FIELD_NAME", Name(field));
-          if (field.value.type.base_type == BASE_TYPE_STRING) {
-            code_ +=
-                "  auto {{FIELD_NAME}}__ = {{FIELD_NAME}} ? "
-                "_fbb.CreateString({{FIELD_NAME}}) : 0;";
-          } else if (field.value.type.base_type == BASE_TYPE_VECTOR) {
-            code_ += "  auto {{FIELD_NAME}}__ = {{FIELD_NAME}} ? \\";
-            const auto vtype = field.value.type.VectorType();
-            if (IsStruct(vtype)) {
-              const auto type = WrapInNameSpace(*vtype.struct_def);
-              code_ += "_fbb.CreateVectorOfStructs<" + type + ">\\";
-            } else {
-              const auto type = GenTypeWire(vtype, "", false);
-              code_ += "_fbb.CreateVector<" + type + ">\\";
-            }
-            code_ += "(*{{FIELD_NAME}}) : 0;";
-          }
-        }
-      }
-      code_ += "  return {{CREATE_NAME}}{{STRUCT_NAME}}(";
-      code_ += "      _fbb\\";
-      for (auto it = struct_def.fields.vec.begin();
-           it != struct_def.fields.vec.end(); ++it) {
-        const auto &field = **it;
-        if (!field.deprecated) {
-          code_.SetValue("FIELD_NAME", Name(field));
-          code_ += ",\n      {{FIELD_NAME}}\\";
-          if (field.value.type.base_type == BASE_TYPE_STRING ||
-              field.value.type.base_type == BASE_TYPE_VECTOR) {
-            code_ += "__\\";
-          }
-        }
-      }
-      code_ += ");";
-      code_ += "}";
-      code_ += "";
-    }
   }
 
   std::string GenUnionUnpackVal(const FieldDef &afield,

@@ -10,23 +10,42 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 #include <set>
-#include "ImageProcess.hpp"
+#include <algorithm>
+#include <MNN/ImageProcess.hpp>
 #include "flatbuffers/util.h"
 #include "logkit.h"
 #include "quantizeWeight.hpp"
 #include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/prettywriter.h"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 #include "Helper.hpp"
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
+#include "cpp/IDSTEncoder.hpp"
+
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Executor.hpp>
+#include <MNN/expr/Module.hpp>
+#include "train/source/nn/NN.hpp"
+#include "train/source/datasets/ImageNoLabelDataset.hpp"
+#include "train/source/datasets/ImageDataset.hpp"
+#include "train/source/optimizer/SGD.hpp"
+#include "train/source/transformer/Transformer.hpp"
+#include "cpp/ConvertToFullQuant.hpp"
+
 
 using namespace MNN::CV;
+using namespace MNN::Train;
+using namespace MNN::Express;
 
-Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& configPath)
-    : _originaleModel(model) {
+Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath, std::string originalModelFile, std::string destModelFile)
+    : _originalModel(model), _originalModelFile(originalModelFile), _destModelFile(destModelFile) {
     // when the format of input image is RGB/BGR, channels equal to 3, GRAY is 1
-    int channles = 3;
+    _channels = 3;
 
     rapidjson::Document document;
     {
@@ -41,52 +60,81 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
         }
     }
     auto picObj = document.GetObject();
-    ImageProcess::Config config;
-    config.filterType = BILINEAR;
-    config.destFormat = BGR;
+    _imageProcessConfig.filterType = CV::BILINEAR;
+    _imageProcessConfig.destFormat = BGR;
     {
         if (picObj.HasMember("format")) {
             auto format = picObj["format"].GetString();
-            static std::map<std::string, ImageFormat> formatMap{{"BGR", BGR}, {"RGB", RGB}, {"GRAY", GRAY}};
+            static std::map<std::string, ImageFormat> formatMap{{"BGR", BGR}, {"RGB", RGB}, {"GRAY", GRAY}, {"RGBA", RGBA}, {"BGRA", BGRA}};
             if (formatMap.find(format) != formatMap.end()) {
-                config.destFormat = formatMap.find(format)->second;
+                _imageProcessConfig.destFormat = formatMap.find(format)->second;
             }
         }
     }
 
-    if (config.destFormat == GRAY) {
-        channles = 1;
+    switch (_imageProcessConfig.destFormat) {
+        case GRAY:
+            _channels = 1;
+            break;
+        case RGB:
+        case BGR:
+            _channels = 3;
+            break;
+        case RGBA:
+        case BGRA:
+            _channels = 4;
+            break;
+        default:
+            break;
     }
 
-    config.sourceFormat = RGBA;
-    std::string imagePath;
-    _imageNum = 0;
+    _imageProcessConfig.sourceFormat = RGBA;
+    _calibrationFileNum = 0;
     {
         if (picObj.HasMember("mean")) {
             auto mean = picObj["mean"].GetArray();
             int cur   = 0;
             for (auto iter = mean.begin(); iter != mean.end(); iter++) {
-                config.mean[cur++] = iter->GetFloat();
+                _imageProcessConfig.mean[cur++] = iter->GetFloat();
             }
         }
         if (picObj.HasMember("normal")) {
             auto normal = picObj["normal"].GetArray();
             int cur     = 0;
             for (auto iter = normal.begin(); iter != normal.end(); iter++) {
-                config.normal[cur++] = iter->GetFloat();
+                _imageProcessConfig.normal[cur++] = iter->GetFloat();
             }
+        }
+        if (picObj.HasMember("center_crop_h")) {
+            _preprocessConfig.centerCropHeight = picObj["center_crop_h"].GetFloat();
+        }
+        if (picObj.HasMember("center_crop_w")) {
+            _preprocessConfig.centerCropWidth = picObj["center_crop_w"].GetFloat();
         }
         if (picObj.HasMember("width")) {
             _width = picObj["width"].GetInt();
+            _preprocessConfig.targetWidth = _width;
         }
         if (picObj.HasMember("height")) {
             _height = picObj["height"].GetInt();
+            _preprocessConfig.targetHeight = _height;
         }
-        if (picObj.HasMember("path")) {
-            imagePath = picObj["path"].GetString();
+        if (picObj.HasMember("batch_size")) {
+            _batch = picObj["batch_size"].GetInt();
         }
+        if (picObj.HasMember("quant_bits")) {
+            _quant_bits = picObj["quant_bits"].GetInt();
+        }
+        if (!picObj.HasMember("path")) {
+            MNN_ERROR("calibration data path not set in .json config file\n");
+            return;
+        }
+        _calibrationFilePath = picObj["path"].GetString();
         if (picObj.HasMember("used_image_num")) {
-            _imageNum = picObj["used_image_num"].GetInt();
+            _calibrationFileNum = picObj["used_image_num"].GetInt();
+        }
+        if (picObj.HasMember("used_sample_num")) {
+            _calibrationFileNum = picObj["used_sample_num"].GetInt();
         }
         if (picObj.HasMember("feature_quantize_method")) {
             std::string method = picObj["feature_quantize_method"].GetString();
@@ -108,93 +156,286 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
         }
         DLOG(INFO) << "Use feature quantization method: " << _featureQuantizeMethod;
         DLOG(INFO) << "Use weight quantization method: " << _weightQuantizeMethod;
+        if (picObj.HasMember("feature_clamp_value")) {
+            float value = (int)picObj["feature_clamp_value"].GetFloat();
+            if (value < 0.0f || value > 127.0f) {
+                MNN_ERROR("feature_clamp_value should be in (0, 127], got: %f\n", value);
+                return;
+            }
+            _featureClampValue = value;
+        }
+        if (picObj.HasMember("weight_clamp_value")) {
+            float value = (int)picObj["weight_clamp_value"].GetFloat();
+            if (value < 0.0f || value > 127.0f) {
+                MNN_ERROR("weight_clamp_value should be in (0, 127], got: %f\n", value);
+                return;
+            }
+            _weightClampValue = value;
+            if (_quant_bits < 8) {
+                _weightClampValue = (float)(1 << (_quant_bits - 1)) - 1.0f;
+            }
+        }
+        DLOG(INFO) << "feature_clamp_value: " << _featureClampValue;
+        DLOG(INFO) << "weight_clamp_value: " << _weightClampValue;
+        if (picObj.HasMember("skip_quant_op_names")) {
+            auto skip_quant_op_names = picObj["skip_quant_op_names"].GetArray();
+            for (auto iter = skip_quant_op_names.begin(); iter != skip_quant_op_names.end(); iter++) {
+                std::string skip_quant_op_name = iter->GetString();
+                _skip_quant_ops.emplace_back(skip_quant_op_name);
+                DLOG(INFO) << "skip quant op name: " << skip_quant_op_name;
+            }
+        }
+        if (picObj.HasMember("debug")) {
+            _debug = picObj["debug"].GetBool();
+        }
+        _inputType = Helper::InputType::IMAGE;
+        if (picObj.HasMember("input_type")) {
+            std::string type = picObj["input_type"].GetString();
+            if (type == "sequence") {
+                _inputType = Helper::InputType::SEQUENCE;
+            }
+        }
     }
-    std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+    std::shared_ptr<ImageProcess> process(ImageProcess::create(_imageProcessConfig));
     _process = process;
 
     // read images file names
-    Helper::readImages(_imgaes, imagePath.c_str(), &_imageNum);
+    Helper::readClibrationFiles(_calibrationFiles, _calibrationFilePath.c_str(), &_calibrationFileNum);
 
-    _initMNNSession(modelBuffer, bufferSize, channles);
-    _initMaps();
+    for (auto& op : _originalModel->oplists) {
+        if (op->type == MNN::OpType_BatchNorm) {
+            _featureQuantizeMethod = "EMA";
+            DLOG(INFO) << "this model has BatchNorm, use EMA quantize method instead";
+            break;
+        }
+    }
+    for (auto& subgraph : _originalModel->subgraphs) {
+        for (auto& op : subgraph->nodes) {
+            if (op->type == MNN::OpType_BatchNorm) {
+                _featureQuantizeMethod = "EMA";
+                DLOG(INFO) << "this model has BatchNorm, use EMA quantize method instead";
+                break;
+            }
+        }
+    }
+
+    if (_featureQuantizeMethod == "KL" || _featureQuantizeMethod == "ADMM") {
+        _initMNNSession(modelBuffer, bufferSize);
+        _initMaps();
+    }
 }
 
-void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSize, const int channels) {
-    _interpreter.reset(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+std::vector<int> Calibration::_getInputShape(std::string filename) {
+    std::vector<int> inputShape;
+    if (_inputType == Helper::InputType::IMAGE) {
+        inputShape.resize(4);
+        auto inputTensorDataFormat = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
+        if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
+            inputShape[0] = 1;
+            inputShape[1] = _height;
+            inputShape[2] = _width;
+            inputShape[3] = _channels;
+        } else {
+            inputShape[0] = 1;
+            inputShape[1] = _channels;
+            inputShape[2] = _height;
+            inputShape[3] = _width;
+        }
+    }
+    if (_inputType == Helper::InputType::SEQUENCE) {
+        if (!Helper::stringEndWith(filename, ".txt")) {
+            MNN_ERROR("Error: only '.txt' files are supported for sequence input.\n");
+        }
+
+        std::ifstream f(filename);
+        if (!f.is_open()) {
+            MNN_ERROR("open file %s failed.\n", filename.c_str());
+        }
+
+        std::string line;
+        _channels = 0;
+        while (std::getline(f, line)) {
+            std::stringstream ss(line);
+            float v;
+            int count = 0;
+            while (ss >> v) {
+                count++;
+            }
+            if (count > 0) {
+                _channels++;
+                _height = count;
+            }
+        }
+
+        if (_channels == 0) {
+            MNN_ERROR("Error: no data found in file %s.", filename.c_str());
+        }
+
+        inputShape.resize(3);
+        auto inputTensorDataFormat = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
+        if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
+            inputShape[0] = 1;
+            inputShape[1] = _height;
+            inputShape[2] = _channels;
+        } else {
+            inputShape[0] = 1;
+            inputShape[1] = _channels;
+            inputShape[2] = _height;
+        }
+    }
+
+    return inputShape;
+}
+
+void Calibration::_resizeIfNeeded(std::string filename, bool force) {
+    std::vector<int> inputShape = _getInputShape(filename);
+    
+    if ((inputShape != _inputTensorDims && _featureQuantizeMethod == "KL") || force) {
+        _inputTensorDims = inputShape;
+        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
+        _interpreter->resizeSession(_session);
+        _interpreterOrigin->resizeTensor(_inputTensorOrigin, _inputTensorDims);
+        _interpreterOrigin->resizeSession(_sessionOrigin);
+    }
+}
+
+void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSize) {
+    _interpreterOrigin.reset(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
     MNN::ScheduleConfig config;
+    _sessionOrigin     = _interpreterOrigin->createSession(config);
+    _inputTensorOrigin = _interpreterOrigin->getSessionInput(_sessionOrigin, NULL);
+
+    _fake_quant_weights();
+
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = MNN::Net::Pack(builder, _originalModel);
+    builder.Finish(offset);
+    int size      = builder.GetSize();
+    auto buffer = builder.GetBufferPointer();
+
+    _interpreter.reset(MNN::Interpreter::createFromBuffer(buffer, size));
     _session     = _interpreter->createSession(config);
     _inputTensor = _interpreter->getSessionInput(_session, NULL);
 
-    _inputTensorDims.resize(4);
-    auto inputTensorDataFormat = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
-    DCHECK(4 == _inputTensor->dimensions()) << "Only support 4 dimensions input";
-    if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
-        _inputTensorDims[0] = 1;
-        _inputTensorDims[1] = _height;
-        _inputTensorDims[2] = _width;
-        _inputTensorDims[3] = channels;
-    } else if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NC4HW4) {
-        _inputTensorDims[0] = 1;
-        _inputTensorDims[1] = channels;
-        _inputTensorDims[2] = _height;
-        _inputTensorDims[3] = _width;
-    } else {
-        DLOG(ERROR) << "Input Data Format ERROR!";
+    if (_featureQuantizeMethod == "ADMM") {
+        DCHECK((_calibrationFileNum * 4 * _height * _width) < (INT_MAX / 4)) << "Use Little Number of Images When Use ADMM";
+        for (auto file : _calibrationFiles) {
+            std::vector<int> sampleShape = _getInputShape(file);
+            if (_inputTensorDims.empty()) {
+                _inputTensorDims = sampleShape;
+            }
+            if (sampleShape != _inputTensorDims) {
+                MNN_ERROR("samples must have the same shape when using ADMM method for sequence inputs.");
+            }
+        }
+        _inputTensorDims[0] = _calibrationFileNum;
+        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
+        _interpreter->resizeSession(_session);
+        _interpreterOrigin->resizeTensor(_inputTensorOrigin, _inputTensorDims);
+        _interpreterOrigin->resizeSession(_sessionOrigin);
     }
 
-    if (_featureQuantizeMethod == "KL") {
-        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
-        _interpreter->resizeSession(_session);
-    } else if (_featureQuantizeMethod == "ADMM") {
-        DCHECK((_imageNum * 4 * _height * _width) < (INT_MAX / 4)) << "Use Little Number of Images When Use ADMM";
-        _inputTensorDims[0] = _imageNum;
-        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
-        _interpreter->resizeSession(_session);
-    }
-    _interpreter->releaseModel();
+    _resizeIfNeeded(_calibrationFiles[0]);
 }
 
 void Calibration::_initMaps() {
     _featureInfo.clear();
+    _featureInfoOrigin.clear();
     _opInfo.clear();
     _tensorMap.clear();
     // run mnn once, initialize featureMap, opInfo map
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
-        _opInfo[info->name()].first = nTensors;
-        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return false;
+        }
+        _opInfo[opName].first = nTensors;
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+            int i = 0;
             for (auto t : nTensors) {
-                if (_featureInfo.find(t) == _featureInfo.end()) {
+                if (_featureInfo.find(t) == _featureInfo.end() && MNN::TensorUtils::getDescribe(t)->memoryType != MNN::Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                     _featureInfo[t] = std::shared_ptr<TensorStatistic>(
-                        new TensorStatistic(t, _featureQuantizeMethod, info->name() + "__input"));
+                        new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
                 }
+                i++;
             }
         }
         return false;
     };
     MNN::TensorCallBackWithInfo after = [this](const std::vector<MNN::Tensor*>& nTensors,
                                                const MNN::OperatorInfo* info) {
-        _opInfo[info->name()].second = nTensors;
-        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return true;
+        }
+        _opInfo[opName].second = nTensors;
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+            int i = 0;
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) == _featureInfo.end()) {
                     _featureInfo[t] =
-                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, info->name()));
+                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
                 }
+                i++;
             }
         }
         return true;
     };
     _interpreter->runSessionWithCallBackInfo(_session, before, after);
 
-    for (auto& op : _originaleModel->oplists) {
+
+    MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return false;
+        }
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+            int i = 0;
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) == _featureInfoOrigin.end()) {
+                    _featureInfoOrigin[t] = std::shared_ptr<TensorStatistic>(
+                        new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                }
+                i++;
+            }
+        }
+        return false;
+    };
+    MNN::TensorCallBackWithInfo afterOrigin = [this](const std::vector<MNN::Tensor*>& nTensors,
+                                               const MNN::OperatorInfo* info) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return true;
+        }
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+            int i = 0;
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) == _featureInfoOrigin.end()) {
+                    _featureInfoOrigin[t] =
+                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                }
+                i++;
+            }
+        }
+        return true;
+    };
+    _interpreterOrigin->runSessionWithCallBackInfo(_sessionOrigin, beforeOrigin, afterOrigin);
+
+    for (auto& op : _originalModel->oplists) {
         if (_opInfo.find(op->name) == _opInfo.end()) {
             continue;
         }
         for (int i = 0; i < op->inputIndexes.size(); ++i) {
             _tensorMap[op->inputIndexes[i]] = _opInfo[op->name].first[i];
+            _tensorIdx[_opInfo[op->name].first[i]] = op->inputIndexes[i];
         }
         for (int i = 0; i < op->outputIndexes.size(); ++i) {
             _tensorMap[op->outputIndexes[i]] = _opInfo[op->name].second[i];
+            _tensorIdx[_opInfo[op->name].second[i]] = op->outputIndexes[i];
         }
     }
 
@@ -210,18 +451,25 @@ void Calibration::_initMaps() {
 void Calibration::_computeFeatureMapsRange() {
     // feed input data according to input images
     int count = 0;
-    for (const auto& img : _imgaes) {
+    for (const auto& file : _calibrationFiles) {
+        for (auto& iter : _featureInfo) {
+            iter.second->setVisited(false);
+        }
+
         for (auto& iter : _featureInfo) {
             iter.second->resetUpdatedRangeFlags();
         }
         count++;
-        Helper::preprocessInput(_process.get(), _width, _height, img, _inputTensor);
+        _resizeIfNeeded(file);
+        Helper::preprocessInput(_process.get(), _preprocessConfig, file, _inputTensor, _inputType);
 
         MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors,
                                                  const MNN::OperatorInfo* info) {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
-                    _featureInfo[t]->updateRange();
+                    if (_featureInfo[t]->visited() == false) {
+                        _featureInfo[t]->updateRange();
+                    }
                 }
             }
             return true;
@@ -230,14 +478,16 @@ void Calibration::_computeFeatureMapsRange() {
                                                 const MNN::OperatorInfo* info) {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
-                    _featureInfo[t]->updateRange();
+                    if (_featureInfo[t]->visited() == false) {
+                        _featureInfo[t]->updateRange();
+                    }
                 }
             }
             return true;
         };
 
         _interpreter->runSessionWithCallBackInfo(_session, before, after);
-        MNN_PRINT("\rComputeFeatureRange: %.2lf %%", (float)count * 100.0f / (float)_imageNum);
+        MNN_PRINT("\rComputeFeatureRange: %.2lf %%", (float)count * 100.0f / (float)_calibrationFileNum);
         fflush(stdout);
     }
     MNN_PRINT("\n");
@@ -251,7 +501,9 @@ void Calibration::_collectFeatureMapsDistribution() {
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
         for (auto t : nTensors) {
             if (_featureInfo.find(t) != _featureInfo.end()) {
-                _featureInfo[t]->updateDistribution();
+                if (_featureInfo[t]->visited() == false) {
+                    _featureInfo[t]->updateDistribution();
+                }
             }
         }
         return true;
@@ -259,21 +511,29 @@ void Calibration::_collectFeatureMapsDistribution() {
     MNN::TensorCallBackWithInfo after = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
         for (auto t : nTensors) {
             if (_featureInfo.find(t) != _featureInfo.end()) {
-                _featureInfo[t]->updateDistribution();
+                if (_featureInfo[t]->visited() == false) {
+                    _featureInfo[t]->updateDistribution();
+                }
             }
         }
         return true;
     };
     int count = 0;
-    for (const auto& img : _imgaes) {
+    for (const auto& file : _calibrationFiles) {
         count++;
+
+        for (auto& iter : _featureInfo) {
+            iter.second->setVisited(false);
+        }
+
         for (auto& iter : _featureInfo) {
             iter.second->resetUpdatedDistributionFlag();
         }
-        Helper::preprocessInput(_process.get(), _width, _height, img, _inputTensor);
+        _resizeIfNeeded(file);
+        Helper::preprocessInput(_process.get(), _preprocessConfig, file, _inputTensor, _inputType);
         _interpreter->runSessionWithCallBackInfo(_session, before, after);
 
-        MNN_PRINT("\rCollectFeatureDistribution: %.2lf %%", (float)count * 100.0f / (float)_imageNum);
+        MNN_PRINT("\rCollectFeatureDistribution: %.2lf %%", (float)count * 100.0f / (float)_calibrationFileNum);
         fflush(stdout);
     }
     MNN_PRINT("\n");
@@ -302,14 +562,14 @@ void Calibration::_computeFeatureScaleADMM() {
         dimType = MNN::Tensor::TENSORFLOW;
     }
 
-    for (const auto& img : _imgaes) {
+    for (const auto& file : _calibrationFiles) {
         auto curPtr = _inputTensor->host<float>() + count * _inputTensor->stride(0);
         std::shared_ptr<MNN::Tensor> tensorWarp(
             MNN::Tensor::create(oneImageTensorDims, _inputTensor->getType(), curPtr, dimType));
-        Helper::preprocessInput(_process.get(), _width, _height, img, tensorWarp.get());
+        Helper::preprocessInput(_process.get(), _preprocessConfig, file, tensorWarp.get(), _inputType);
 
         count++;
-        MNN_PRINT("\rProcessImage: %.2lf %%", (float)count * 100.0f / (float)_imageNum);
+        MNN_PRINT("\rProcessCalibrationFiles: %.2lf %%", (float)count * 100.0f / (float)_calibrationFileNum);
         fflush(stdout);
     }
     MNN_PRINT("\n");
@@ -319,26 +579,30 @@ void Calibration::_computeFeatureScaleADMM() {
     count                 = 0;
 
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
-        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
-                    _scales[t] = _featureInfo[t]->computeScaleADMM();
-                    count++;
-                    MNN_PRINT("\rComputeADMM: %.2lf %%", (float)count * 100.0f / (float)totalLayers);
-                    fflush(stdout);
+                    if (_featureInfo[t]->visited() == false) {
+                        _scales[t] = _featureInfo[t]->computeScaleADMM();
+                        count++;
+                        MNN_PRINT("\rComputeADMM: %.2lf %%", (float)count * 100.0f / (float)totalLayers);
+                        fflush(stdout);
+                    }
                 }
             }
         }
         return true;
     };
     MNN::TensorCallBackWithInfo after = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
-        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+        if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
-                    _scales[t] = _featureInfo[t]->computeScaleADMM();
-                    count++;
-                    MNN_PRINT("\rComputeADMM: %.2lf %%", (float)count * 100.0f / (float)totalLayers);
-                    fflush(stdout);
+                    if (_featureInfo[t]->visited() == false) {
+                        _scales[t] = _featureInfo[t]->computeScaleADMM();
+                        count++;
+                        MNN_PRINT("\rComputeADMM: %.2lf %%", (float)count * 100.0f / (float)totalLayers);
+                        fflush(stdout);
+                    }
                 }
             }
         }
@@ -349,215 +613,459 @@ void Calibration::_computeFeatureScaleADMM() {
     MNN_PRINT("\n");
 }
 
-void Calibration::_updateScale() {
-    for (const auto& op : _originaleModel->oplists) {
+void Calibration::_fake_quant_weights() {
+    auto findAbsMax = [&] (const float* weights, const int size) {
+        float absMax = 0;
+        for (int i = 0; i < size; i++) {
+            if (std::fabs(weights[i]) > absMax) {
+                absMax = std::fabs(weights[i]);
+            }
+        }
+
+        return absMax;
+    };
+
+    for (const auto& op : _originalModel->oplists) {
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), op->name);
+        if (iter != _skip_quant_ops.end()) {
+            continue;
+        }
+
         const auto opType = op->type;
-        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
-            opType != MNN::OpType_Eltwise) {
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
+            continue;
+        }
+
+        auto param = op->main.AsConvolution2D();
+        const int kernelNum = param->common->outputCount;
+        std::vector<float> weights = param->weight;
+        const int weightSize = weights.size();
+        const int kernelSize = weightSize / kernelNum;
+
+        for (int i = 0; i < kernelNum; i++) {
+            const int offset = i * kernelSize;
+            float absMax = findAbsMax(weights.data() + offset, kernelSize);
+            float scale = absMax / _weightClampValue;
+            if (absMax < 1e-6f) {
+                scale = absMax;
+            }
+
+            for (int j = 0; j < kernelSize; j++) {
+                float value = weights[offset + j];
+                float quantValue = std::round(value / scale);
+                float clampedValue = std::max(std::min(quantValue, _weightClampValue), -_weightClampValue);
+                float dequantValue = scale * clampedValue;
+                param->weight[offset + j] = dequantValue;
+            }
+        }
+    }
+    DLOG(INFO) << "fake quant weights done.";
+}
+
+void Calibration::_insertScale() {
+    for (const auto iter :  _scales) {
+        std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
+        describe->index = _tensorIdx[iter.first];
+        describe->quantInfo.reset(new MNN::TensorQuantInfoT);
+        describe->quantInfo->scale = iter.second;
+        describe->quantInfo->type = MNN::DataType_DT_INT8;
+        describe->quantInfo->min = -1 * _featureClampValue;
+        describe->quantInfo->max = 1 * _featureClampValue;
+        _originalModel->extraTensorDescribe.emplace_back(std::move(describe));
+    }
+    for (const auto& op : _originalModel->oplists) {
+        const auto opType = op->type;
+
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), op->name);
+        if (iter != _skip_quant_ops.end()) {
+            continue;
+        }
+        
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
             continue;
         }
         auto tensorsPair = _opInfo.find(op->name);
         if (tensorsPair == _opInfo.end()) {
             MNN_ERROR("Can't find tensors for %s\n", op->name.c_str());
         }
-
-        if (opType == MNN::OpType_Eltwise) {
-            auto param = op->main.AsEltwise();
-            // Now only support AddInt8
-            if (param->type != MNN::EltwiseType_SUM) {
-                continue;
-            }
-            const auto& inputScale0   = _scales[tensorsPair->second.first[0]];
-            const auto& inputScale1   = _scales[tensorsPair->second.first[1]];
-            const auto& outputScale   = _scales[tensorsPair->second.second[0]];
-            const int outputScaleSize = outputScale.size();
-            std::vector<float> outputInvertScale(outputScaleSize);
-            Helper::invertData(outputInvertScale.data(), outputScale.data(), outputScaleSize);
-            op->type = MNN::OpType_EltwiseInt8;
-            op->main.Reset();
-            op->main.type = MNN::OpParameter_EltwiseInt8;
-
-            auto eltwiseInt8Param         = new MNN::EltwiseInt8T;
-            auto input0ScaleParam         = new MNN::QuantizedFloatParamT;
-            auto input1ScaleParam         = new MNN::QuantizedFloatParamT;
-            auto outputScaleParam         = new MNN::QuantizedFloatParamT;
-            input0ScaleParam->tensorScale = inputScale0;
-            input1ScaleParam->tensorScale = inputScale1;
-            outputScaleParam->tensorScale = outputInvertScale;
-            eltwiseInt8Param->inputQuan0  = std::unique_ptr<MNN::QuantizedFloatParamT>(input0ScaleParam);
-            eltwiseInt8Param->inputQuan1  = std::unique_ptr<MNN::QuantizedFloatParamT>(input1ScaleParam);
-            eltwiseInt8Param->outputQuan  = std::unique_ptr<MNN::QuantizedFloatParamT>(outputScaleParam);
-            op->main.value                = eltwiseInt8Param;
-
-            continue;
-        }
-
-        // below is Conv/DepthwiseConv
-        const auto& inputScale  = _scales[tensorsPair->second.first[0]];
-        const auto& outputScale = _scales[tensorsPair->second.second[0]];
-
+        // below is Conv/DepthwiseConv weight quant
+        const float inputScale  = _scales[tensorsPair->second.first[0]];
+        const float outputScale = _scales[tensorsPair->second.second[0]];
+        const int inputChannel = tensorsPair->second.first[0]->channel();
+        const int outputChannel = tensorsPair->second.second[0]->channel();
         auto param                = op->main.AsConvolution2D();
         param->common->inputCount = tensorsPair->second.first[0]->channel();
         const int channles        = param->common->outputCount;
         const int weightSize      = param->weight.size();
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
-        auto& quantizedParam = param->symmetricQuan;
-        quantizedParam->scale.resize(channles);
-        quantizedParam->weight.resize(weightSize);
-        quantizedParam->bias.resize(channles);
-
-        if (opType == MNN::OpType_Convolution) {
-            QuantizeConvPerChannel(param->weight.data(), param->weight.size(), param->bias.data(),
-                                   quantizedParam->weight.data(), quantizedParam->bias.data(),
-                                   quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod);
-            op->type = MNN::OpType_ConvInt8;
-
-        } else if (opType == MNN::OpType_ConvolutionDepthwise) {
-            QuantizeDepthwiseConv(param->weight.data(), param->weight.size(), param->bias.data(),
-                                  quantizedParam->weight.data(), quantizedParam->bias.data(),
-                                  quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod);
-            op->type = MNN::OpType_DepthwiseConvInt8;
+        param->symmetricQuan->nbits = _quant_bits;
+        std::vector<int8_t> quantizedWeight(weightSize);
+        std::vector<float> quantizedWeightScale(outputChannel);
+        if (_weightQuantizeMethod == "MAX_ABS"){
+            SymmetricQuantizeWeight(param->weight.data(), weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
+        } else if (_weightQuantizeMethod == "ADMM") {
+            QuantizeWeightADMM(param->weight.data(), weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
         }
+        param->quanParameter = IDSTEncoder::encode(param->weight, quantizedWeightScale, weightSize/channles, channles, false, quantizedWeight.data(), -_weightClampValue);
+        param->quanParameter->scaleIn = inputScale;
+        param->quanParameter->scaleOut = outputScale;
         if (param->common->relu6) {
             param->common->relu  = true;
             param->common->relu6 = false;
         }
         param->weight.clear();
-        param->bias.clear();
     }
 }
 
-void Calibration::_insertDequantize() {
-    // Search All Int Tensors
-    std::set<int> int8Tensors;
-    std::set<int> int8Outputs;
-    for (auto& op : _originaleModel->oplists) {
-        if (Helper::INT8SUPPORTED_OPS.count(op->type) > 0) {
-            for (auto index : op->inputIndexes) {
-                int8Tensors.insert(index);
+void Calibration::_computeQuantError() {
+    int count = 0;
+    std::map<std::string, std::vector<float>> overflowRatiosMap;
+    std::map<std::string, std::vector<float>> tensorCosDistanceMap;
+
+    for (const auto& file : _calibrationFiles) {
+        count++;
+        _resizeIfNeeded(file, true);
+        Helper::preprocessInput(_process.get(), _preprocessConfig, file, _inputTensor, _inputType);
+
+        std::map<std::string, std::vector<float>> fakeQuantedFeatures;
+
+        MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                 const MNN::OperatorInfo* info) {
+            if (info->type() == "Raster") {
+                return true;
             }
-            for (auto index : op->outputIndexes) {
-                int8Tensors.insert(index);
-                int8Outputs.insert(index);
+            for (auto t : nTensors) {
+                if (_featureInfo.find(t) != _featureInfo.end()) {
+                    if (_featureInfo[t]->visited() == false) {
+                        auto dequantFeatureAndOverflowRatio = _featureInfo[t]->fakeQuantFeature();
+                        fakeQuantedFeatures[_featureInfo[t]->name()] = dequantFeatureAndOverflowRatio.first;
+                        overflowRatiosMap[_featureInfo[t]->name()].emplace_back(dequantFeatureAndOverflowRatio.second);
+                    }
+                }
             }
+            return true;
+        };
+        MNN::TensorCallBackWithInfo after = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                const MNN::OperatorInfo* info) {
+            for (auto t : nTensors) {
+                if (_featureInfo.find(t) != _featureInfo.end()) {
+                    if (_featureInfo[t]->visited() == false) {
+                        auto dequantFeatureAndOverflowRatio = _featureInfo[t]->fakeQuantFeature();
+                        fakeQuantedFeatures[_featureInfo[t]->name()] = dequantFeatureAndOverflowRatio.first;
+                        overflowRatiosMap[_featureInfo[t]->name()].emplace_back(dequantFeatureAndOverflowRatio.second);
+                    }
+                }
+            }
+            return true;
+        };
+
+        for (auto& iter : _featureInfo) {
+            iter.second->setVisited(false);
         }
+
+        _interpreter->runSessionWithCallBackInfo(_session, before, after);
+
+        Helper::preprocessInput(_process.get(), _preprocessConfig, file, _inputTensorOrigin, _inputType);
+
+        MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                 const MNN::OperatorInfo* info) {
+            if (info->type() == "Raster") {
+                return true;
+            }
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) != _featureInfoOrigin.end()) {
+                    if (_featureInfoOrigin[t]->visited() == false) {
+                        auto name = _featureInfoOrigin[t]->name();
+                        float cosDis = _featureInfoOrigin[t]->computeDistance(fakeQuantedFeatures[name]);
+                        tensorCosDistanceMap[name].emplace_back(cosDis);
+                    }
+                }
+            }
+            return true;
+        };
+        MNN::TensorCallBackWithInfo afterOrigin = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                const MNN::OperatorInfo* info) {
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) != _featureInfoOrigin.end()) {
+                    if (_featureInfoOrigin[t]->visited() == false) {
+                        auto name = _featureInfoOrigin[t]->name();
+                        float cosDis = _featureInfoOrigin[t]->computeDistance(fakeQuantedFeatures[name]);
+                        tensorCosDistanceMap[name].emplace_back(cosDis);
+                    }
+                }
+            }
+            return true;
+        };
+
+        for (auto& iter : _featureInfoOrigin) {
+            iter.second->setVisited(false);
+        }
+
+        _interpreterOrigin->runSessionWithCallBackInfo(_sessionOrigin, beforeOrigin, afterOrigin);
+
+        MNN_PRINT("\rcomputeDistance: %.2lf %%", (float)count * 100.0f / (float)_calibrationFileNum);
+        fflush(stdout);
     }
-    for (auto& op : _originaleModel->oplists) {
-        for (auto index : op->inputIndexes) {
-            auto iter = int8Outputs.find(index);
-            if (iter != int8Outputs.end()) {
-                int8Outputs.erase(iter);
-            }
+    MNN_PRINT("\n\nDebug info:\n\n");
+
+    for (auto& iter : tensorCosDistanceMap) {
+        auto name = iter.first;
+        float sumCos = 0.0f, sumOverflow = 0.0f;
+        for (int i = 0; i < iter.second.size(); i++) {
+            sumCos += iter.second[i];
+            sumOverflow += overflowRatiosMap[name][i];
         }
-    }
+        float avgCosDistance = sumCos / _calibrationFiles.size();
+        float avgOverflowRatio = sumOverflow / _calibrationFiles.size();
 
-    // Insert Convert For Not Support Int8 Ops
-    for (auto iter = _originaleModel->oplists.begin(); iter != _originaleModel->oplists.end();) {
-        auto op           = iter->get();
-        const auto opType = op->type;
-        const auto name   = op->name;
-        // check whether is output op
-        // if Yes, insert dequantization op after this op
-        if (Helper::INT8SUPPORTED_OPS.find(opType) != Helper::INT8SUPPORTED_OPS.end()) {
-            // this is quantized op
-            iter++;
-            continue;
-        }
-
-        auto& inputIndexes  = op->inputIndexes;
-        const int inputSize = inputIndexes.size();
-
-        // insert dequantization op before this op
-        for (int i = 0; i < inputSize; ++i) {
-            const auto curInputIndex = inputIndexes[i];
-            if (int8Tensors.find(curInputIndex) == int8Tensors.end()) {
-                continue;
-            }
-            auto input        = _tensorMap[curInputIndex];
-            auto inputOpScale = _scales[input];
-
-            // construct new op
-            auto dequantizationOp       = new MNN::OpT;
-            dequantizationOp->main.type = MNN::OpParameter_QuantizedFloatParam;
-            dequantizationOp->name      = "___Int8ToFloat___For_" + name + flatbuffers::NumToString(i);
-
-            dequantizationOp->type           = MNN::OpType_Int8ToFloat;
-            auto dequantizationParam         = new MNN::QuantizedFloatParamT;
-            dequantizationOp->main.value     = dequantizationParam;
-            dequantizationParam->tensorScale = inputOpScale;
-
-            dequantizationOp->inputIndexes.push_back(curInputIndex);
-            dequantizationOp->outputIndexes.push_back(_originaleModel->tensorName.size());
-            _originaleModel->tensorName.push_back(dequantizationOp->name);
-
-            // reset current op's input index at i
-            inputIndexes[i] = dequantizationOp->outputIndexes[0];
-
-            iter = _originaleModel->oplists.insert(iter, std::unique_ptr<MNN::OpT>(dequantizationOp));
-            iter++;
-        }
-
-        iter++;
-        // LOG(INFO) << "insert quantization op after this op if neccessary";
-        // insert quantization op after this op if neccessary
-        for (int i = 0; i < op->outputIndexes.size(); ++i) {
-            const auto outputIndex = op->outputIndexes[i];
-            if (int8Tensors.find(outputIndex) == int8Tensors.end()) {
-                continue;
-            }
-            auto output   = _tensorMap[outputIndex];
-            auto curScale = _scales[output];
-            // construct one quantization op(FloatToInt8)
-            auto quantizationOp        = new MNN::OpT;
-            quantizationOp->main.type  = MNN::OpParameter_QuantizedFloatParam;
-            quantizationOp->name       = name + "___FloatToInt8___" + flatbuffers::NumToString(i);
-            quantizationOp->type       = MNN::OpType_FloatToInt8;
-            auto quantizationParam     = new MNN::QuantizedFloatParamT;
-            quantizationOp->main.value = quantizationParam;
-
-            const int channels = curScale.size();
-            std::vector<float> quantizationScale(channels);
-            Helper::invertData(quantizationScale.data(), curScale.data(), channels);
-            quantizationParam->tensorScale = quantizationScale;
-
-            quantizationOp->inputIndexes.push_back(_originaleModel->tensorName.size());
-            quantizationOp->outputIndexes.push_back(outputIndex);
-            _originaleModel->tensorName.push_back(_originaleModel->tensorName[outputIndex]);
-            _originaleModel->tensorName[outputIndex] = quantizationOp->name;
-            op->outputIndexes[i]                              = quantizationOp->inputIndexes[0];
-
-            iter = _originaleModel->oplists.insert(iter, std::unique_ptr<MNN::OpT>(quantizationOp));
-            iter++;
-        }
-    }
-
-    // Insert Turn float Op for output
-    for (auto index : int8Outputs) {
-        // construct new op
-        auto dequantizationOp       = new MNN::OpT;
-        dequantizationOp->main.type = MNN::OpParameter_QuantizedFloatParam;
-        dequantizationOp->name      = "___Int8ToFloat___For_" + flatbuffers::NumToString(index);
-
-        dequantizationOp->type           = MNN::OpType_Int8ToFloat;
-        auto dequantizationParam         = new MNN::QuantizedFloatParamT;
-        dequantizationOp->main.value     = dequantizationParam;
-        dequantizationParam->tensorScale = _scales[_tensorMap[index]];
-
-        dequantizationOp->inputIndexes.push_back(index);
-        dequantizationOp->outputIndexes.push_back(_originaleModel->tensorName.size());
-        auto originTensorName              = _originaleModel->tensorName[index];
-        _originaleModel->tensorName[index] = dequantizationOp->name;
-        _originaleModel->tensorName.emplace_back(originTensorName);
-
-        _originaleModel->oplists.insert(_originaleModel->oplists.end(), std::unique_ptr<MNN::OpT>(dequantizationOp));
+        MNN_PRINT("%s:  cos distance: %f, overflow ratio: %f\n", name.c_str(), avgCosDistance, avgOverflowRatio);
     }
 }
+
+void Calibration::_quantizeModelEMA() {
+    auto varMap = Variable::loadMap(_originalModelFile.c_str());
+    if (varMap.empty()) {
+        MNN_ERROR("Can not load model %s\n", _originalModelFile.c_str());
+        return;
+    }
+
+    auto inputOutputs = Variable::getInputAndOutput(varMap);
+    auto inputs       = Variable::mapToSequence(inputOutputs.first);
+    auto outputs      = Variable::mapToSequence(inputOutputs.second);
+    if (inputs.size() != 1) {
+        MNN_ERROR("Only support input size = 1\n");
+        return;
+    }
+    auto originInfo = inputs[0]->getInfo();
+    auto originFormat = NC4HW4;
+    auto originType = halide_type_of<float>();
+    std::vector<int> originDims;
+    if (nullptr != originInfo) {
+        originFormat = originInfo->order;
+        originDims = originInfo->dim;
+        originType = originInfo->type;
+    }
+    std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
+    NN::turnQuantize(model.get(), _quant_bits);
+
+    auto exe = Executor::getGlobalExecutor();
+    BackendConfig config;
+    exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 2);
+
+    std::shared_ptr<SGD> solver(new SGD(model));
+    solver->setLearningRate(1e-5);
+    solver->setMomentum(0.9f);
+    solver->setWeightDecay(0.00004f);
+
+    DLOG(INFO) << "batch size: " << _batch;
+    DLOG(INFO) << "quant bits: " << _quant_bits;
+    if (_calibrationFileNum < _batch) {
+        MNN_ERROR("_calibrationFileNum %d < batch size %d, set batch size as %d\n", _calibrationFileNum, _batch, _calibrationFileNum);
+        _batch = _calibrationFileNum;
+    }
+    DataLoader* trainDataLoader = nullptr;
+    std::shared_ptr<MNN::Tensor> tempInputTensor = nullptr;
+    if (_inputType == Helper::InputType::IMAGE) {
+        auto converImagesToFormat = _imageProcessConfig.destFormat;
+        int resizeHeight = _preprocessConfig.targetHeight;
+        int resizeWidth = _preprocessConfig.targetWidth;
+        std::vector<float> means, scales;
+        for (int i = 0; i < 4; i++) {
+            means.emplace_back(_imageProcessConfig.mean[i]);
+            scales.emplace_back(_imageProcessConfig.normal[i]);
+        }
+        std::vector<float> cropFraction = {_preprocessConfig.centerCropHeight, _preprocessConfig.centerCropWidth}; // center crop fraction for height and width
+        bool centerOrRandomCrop = false; // true for random crop
+        std::shared_ptr<ImageDataset::ImageConfig> datasetConfig(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales, means, cropFraction, centerOrRandomCrop));
+        auto trainDataset = ImageNoLabelDataset::create(_calibrationFilePath, datasetConfig.get());
+
+        const int trainBatchSize = _batch;
+        const int trainNumWorkers = 0;
+        trainDataLoader = trainDataset.createLoader(trainBatchSize, true, false, trainNumWorkers);
+        trainDataLoader->reset();
+    } else {
+        flatbuffers::FlatBufferBuilder builder(1024);
+        auto offset = MNN::Net::Pack(builder, _originalModel);
+        builder.Finish(offset);
+        int size      = builder.GetSize();
+        auto buffer = builder.GetBufferPointer();
+        _interpreter.reset(MNN::Interpreter::createFromBuffer(buffer, size));
+        MNN::ScheduleConfig config;
+        _session     = _interpreter->createSession(config);
+        _inputTensor = _interpreter->getSessionInput(_session, NULL);
+
+        _getInputShape(_calibrationFiles[0]);
+        std::vector<float> tempData(_batch * _channels * _height, 0.0f);
+        tempInputTensor.reset(MNN::Tensor::create({_batch, _channels, _height}, halide_type_of<float>(), tempData.data(), MNN::Tensor::CAFFE));
+    }
+    const int trainIterations = _calibrationFileNum / _batch;
+
+    model->clearCache();
+    exe->gc(Executor::FULL);
+    exe->resetProfile();
+
+    model->setIsTraining(true);
+    for (int i = 0; i < trainIterations; i++) {
+        VARP input;
+        if (_inputType == Helper::InputType::IMAGE) {
+            auto trainData  = trainDataLoader->next();
+            auto example    = trainData[0];
+            input = example.first[0];
+        } else {
+            for (auto& file : _calibrationFiles) {
+                for (int j = 0; j < _batch; j++) {
+                    auto curPtr = tempInputTensor->host<float>() + j * tempInputTensor->stride(0);
+                    std::shared_ptr<MNN::Tensor> tensorWarp(MNN::Tensor::create({1, _channels, _height}, _inputTensor->getType(), curPtr, MNN::Tensor::CAFFE));
+                    Helper::preprocessInput(_process.get(), _preprocessConfig, file, tensorWarp.get(), _inputType);
+                }
+                input = _Input({_batch, _channels, _height}, MNN::Express::Dimensionformat::NCHW, halide_type_of<float>());
+                auto inputPtr = input->writeMap<float>();
+                auto tempInputPtr = tempInputTensor->host<float>();
+                for (int j = 0; j < _batch * _channels * _height; j++) {
+                    inputPtr[j] = tempInputPtr[j];
+                }
+            }
+        }
+        auto predicts = model->onForward({_Convert(input, originFormat)});
+        for (auto& output : predicts) {
+            auto ptr = output->readMap<float>();
+        }
+        MNN_PRINT("\rquantize with EMA: %.2lf %%", (i + 1) * 100.0f / trainIterations);
+        fflush(stdout);
+        solver->step(_Scalar<float>(0.0f));
+    }
+    MNN_PRINT("\n");
+
+    model->setIsTraining(false);
+    exe->gc(Executor::PART);
+    VARP forwardInput = nullptr;
+    if (originInfo != nullptr) {
+        forwardInput = _Input(originDims, originFormat, originType);
+    } else {
+        if (_inputType == Helper::InputType::IMAGE) {
+            forwardInput = _Input({1, _channels, _preprocessConfig.targetHeight, _preprocessConfig.targetWidth}, NC4HW4);
+        } else {
+            forwardInput = _Input({1, _channels, _height}, NC4HW4);
+        }
+    }
+    forwardInput->setName(inputs[0]->name());
+    auto predicts = model->onForward({forwardInput});
+    Transformer::turnModelToInfer()->onExecute(predicts);
+    for (int i = 0; i < predicts.size(); i++) {
+        predicts[i]->setName(outputs[i]->name());
+    }
+    Variable::save(predicts, _destModelFile.c_str());
+    ConvertToFullQuant::convert(_destModelFile);
+}
+
 void Calibration::runQuantizeModel() {
+    if (_featureQuantizeMethod == "EMA") {
+        _quantizeModelEMA();
+        return;
+    }
+
     if (_featureQuantizeMethod == "KL") {
         _computeFeatureScaleKL();
     } else if (_featureQuantizeMethod == "ADMM") {
         _computeFeatureScaleADMM();
     }
-    _updateScale();
-    _insertDequantize();
+    if (_debug) {
+        _computeQuantError();
+    }
+    _insertScale();
+
+    {
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        builderOutput.ForceDefaults(true);
+        auto len = MNN::Net::Pack(builderOutput, _originalModel);
+        builderOutput.Finish(len);
+        std::ofstream output(_destModelFile);
+        output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
+    }
+}
+
+void Calibration::dumpTensorScales(const std::string& modelFile) {
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+
+    writer.StartArray();
+
+    for (auto iter = _originalModel->oplists.begin(); iter != _originalModel->oplists.end(); iter++) {
+        auto op           = iter->get();
+        const auto opType = op->type;
+        const auto name   = op->name;
+        
+        if (opType == MNN::OpType_Raster) {
+            continue;
+        }
+
+        writer.StartObject();
+
+        writer.Key("name");
+        writer.String(rapidjson::StringRef(name.c_str(), name.size()));
+
+        auto& inputIndexes  = op->inputIndexes;
+        const int inputSize = inputIndexes.size();
+
+        if (inputSize > 0) {
+            writer.Key("inputs");
+            writer.StartArray();
+            for (int i = 0; i < inputSize; ++i) {
+                const auto curInputIndex = inputIndexes[i];
+                
+                auto input        = _tensorMap[curInputIndex];
+                auto inputOpScale = _scales[input];
+                
+                writer.StartObject();
+                writer.Key("tensorIndex");
+                writer.Int(curInputIndex);
+
+                writer.Key("scales");
+                writer.StartArray();
+                writer.Double(inputOpScale);
+                writer.EndArray();
+
+                writer.EndObject();
+            }
+            writer.EndArray();
+        }
+ 
+        auto& outputIndexes  = op->outputIndexes;
+        const int outputSize = outputIndexes.size();
+
+        if (outputSize > 0) {
+            writer.Key("outputs");
+            writer.StartArray();
+            for (int i = 0; i < outputSize; ++i) {
+                const auto curOutputIndex = outputIndexes[i];
+                
+                auto output        = _tensorMap[curOutputIndex];
+                auto outputOpScale = _scales[output];
+                
+                writer.StartObject();
+                writer.Key("tensorIndex");
+                writer.Int(curOutputIndex);
+
+                writer.Key("scales");
+                writer.StartArray();
+                writer.Double(outputOpScale);
+                writer.EndArray();
+
+                writer.EndObject();
+            }
+            writer.EndArray();
+        }
+
+        writer.EndObject();
+    }
+    writer.EndArray();
+
+    std::string scaleFile = modelFile + ".json";
+    std::ofstream os(scaleFile);
+    if (os.is_open()) {
+        os << sb.GetString() << std::endl;
+        os.close();
+    } else {
+        std::cerr << "open scale file " << scaleFile << " fail. error code:" << os.failbit << std::endl;
+    }
 }

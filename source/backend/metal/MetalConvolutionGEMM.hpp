@@ -23,15 +23,19 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    virtual ErrorCode onQuantized(const Tensor *input, const Tensor *output) override;
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
-    virtual id<MTLBuffer> weightForQuantized(int group, int oc, int ic, int kh, int kw, const int8_t *src) override;
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
 
 private:
     id<MTLBuffer> mShapeBuffer = nil;
     std::shared_ptr<Tensor> mTempInput;
     std::shared_ptr<Tensor> mTempOutput;
+    id<MTLComputePipelineState> mPipelineGEMM;
+    std::pair<MTLSize, MTLSize> mGemm;
+    id<MTLComputePipelineState> mPipelineIm2Col;
+    std::pair<MTLSize, MTLSize> mIm2Col;
+    id<MTLComputePipelineState> mPipelineCol2Im;
+    std::pair<MTLSize, MTLSize> mCol2Im;
 };
 
 } // namespace MNN

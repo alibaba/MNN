@@ -9,12 +9,12 @@
 #ifndef CPUConvolutionDepthwise_hpp
 #define CPUConvolutionDepthwise_hpp
 
-#include "AutoStorage.h"
-#include "CPUConvolution.hpp"
-#include "compute/ConvolutionIntFactory.hpp"
+#include "core/AutoStorage.h"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 
 namespace MNN {
-class CPUConvolutionDepthwise : public Execution {
+class CPUConvolutionDepthwise {
 public:
     class BasicFloatExecution : public CPUConvolution {
     public:
@@ -25,7 +25,7 @@ public:
         virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     private:
-        std::function<void(const float *, float *, int)> mExecutor;
+        std::function<void(const uint8_t *, uint8_t *, int)> mExecutor;
         int mNumber = 1;
     };
     class MultiInputFloatExecution : public BasicFloatExecution {
@@ -51,43 +51,19 @@ public:
             return mOrigin->onExecute(mTempInputs, outputs);
         }
         virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-            mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
+            mTempInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
             return mOrigin->onResize(mTempInputs, outputs);
         }
-
+        virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     private:
-        std::unique_ptr<Tensor> mWeight;
-        std::unique_ptr<Tensor> mBias;
+        FloatExecution(std::shared_ptr<Resource> resource, const Convolution2DCommon* common, Backend* b) : CPUConvolution(common, b) {
+            mResource = resource;
+            mOrigin.reset(new BasicFloatExecution(common, b));
+        }
+        std::shared_ptr<CPUConvolution::Resource> mResource;
         std::vector<Tensor *> mTempInputs;
         std::unique_ptr<BasicFloatExecution> mOrigin;
     };
-
-    class Int8Execution : public CPUConvolution {
-    public:
-        Int8Execution(const Convolution2DCommon *convOp, Backend *b, const ConvolutionIntFactory::Int8Common *common,
-                      const float *bias, size_t biasSize);
-        virtual ~Int8Execution() = default;
-        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    private:
-        AutoStorage<int8_t> mWeight;
-        AutoStorage<float> mBias;
-        AutoStorage<float> mAlpha;
-        float mQuanScale[4];
-
-        Tensor mInputTempBuffer;
-        const IDSTQuan *mQuan;
-        std::function<void()> mRun;
-    };
-
-    CPUConvolutionDepthwise(const Op *convOp, Backend *b);
-    virtual ~CPUConvolutionDepthwise() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    std::unique_ptr<Execution> mSubExecution;
 };
 } // namespace MNN
 

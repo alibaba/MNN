@@ -1,0 +1,198 @@
+git:
+  depth: 3
+  quiet: true
+matrix:
+  include:
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/macOS/CPU_Metal.sh
+      name: "macOS11.2 | CPU_Metal"
+      env:
+        - MNNCITARGET=MACOSCPUMETAL
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/macOS/CPU.sh
+      name: "macOS11.2 | CPU"
+      env:
+        - MNNCITARGET=MACOSCPU
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/Xcode.sh
+      name: "iOS | CPU_Metal | Xcode"
+      env:
+        - MNNCITARGET=IOSCPUMETALXCODE
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/CMake.sh
+      name: "iOS | CPU_Metal | CMake"
+      env:
+        - MNNCITARGET=IOSCPUMETALCMAKE
+    - os: linux
+      sudo: required
+      dist: bionic
+      language: cpp
+      install:
+        - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
+      compiler: gcc
+      script:
+        - ./ciscripts/Linux/CL_ThreadPool_Vulkan.sh
+      name: "Linux | CPU_CL_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLTHREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: bionic
+      language: cpp
+      install:
+        - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
+      compiler: gcc
+      script:
+        - ./ciscripts/Linux/CL_OMP_Vulkan.sh
+      name: "Linux | CPU_CL_OMP_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLOMPVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - sudo apt-get remove cmake
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/32.sh
+      name: "Android | AArch32_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM32THREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/32OMP.sh
+      name: "Android | AArch32_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM32OMPVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64.sh
+      name: "Android | AArch64_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM64THREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64OMP.sh
+      name: "Android | AArch64_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM64OMPVULKAN
+    - os: windows
+      language: cpp
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - ciscripts/Windows/X64.bat
+      name: "Windows | x64 CPU"
+      env:
+        - MNNCITARGET=WINX64
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
+    - os: windows
+      language: cpp
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - ciscripts/Windows/X86.bat
+      name: "Windows | x86 CPU"
+      env:
+        - MNNCITARGET=WINX86
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe

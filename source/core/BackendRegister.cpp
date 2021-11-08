@@ -7,18 +7,40 @@
 //
 
 #include <mutex>
-
+#include "geometry/GeometryComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#include "Macro.h"
 namespace MNN {
-extern void registerCPUBackendCreator();
+extern void registerCPURuntimeCreator();
+
 #ifdef MNN_CODEGEN_REGISTER
-extern void registerMetalBackendCreator();
+extern void registerArm82RuntimeCreator();
+#if MNN_METAL_ENABLED
+extern void registerMetalRuntimeCreator();
 #endif
+#endif
+#if MNN_COREML_ENABLED
+extern void registerCoreMLRuntimeCreator();
+#endif
+
+static std::once_flag s_flag;
 void registerBackend() {
-    static std::once_flag s_flag;
     std::call_once(s_flag, [&]() {
-        registerCPUBackendCreator();
+        registerCPURuntimeCreator();
+#ifndef MNN_BUILD_MINI
+        SizeComputerSuite::init();
+        GeometryComputer::init();
+#endif
+#if MNN_COREML_ENABLED
+        registerCoreMLRuntimeCreator();
+#endif
 #ifdef MNN_CODEGEN_REGISTER
-        registerMetalBackendCreator();
+#if MNN_METAL_ENABLED
+        registerMetalRuntimeCreator();
+#endif
+#ifdef MNN_USE_ARMV82
+        registerArm82RuntimeCreator();
+#endif
 #endif
     });
 }

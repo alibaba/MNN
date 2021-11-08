@@ -39,7 +39,7 @@ void SoftmaxTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
         dstOp->main.value            = softmaxParamQuan;
     } else {
         auto paramFloat   = new MNN::AxisT;
-        paramFloat->axis  = 1;
+        paramFloat->axis  = -1;
         dstOp->main.value = paramFloat;
     }
     // set input output index

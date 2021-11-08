@@ -17,21 +17,77 @@ VulkanMemory::~VulkanMemory() {
     mDevice.freeMemory(mMemory);
 }
 
-VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev) : mDevice(dev) {
-    mDevice.getPhysicalDeviceMemoryProperties(mPropty);
-    mFreeBuffers.resize(mPropty.memoryTypeCount);
+class VulkanAllocator : public BufferAllocator::Allocator {
+public:
+    VulkanAllocator(const VulkanDevice& device, int index) : mDevice(device), mIndex(index) {
+        // Do nothing
+    }
+    virtual ~ VulkanAllocator() {
+        // Do nothing
+    }
+    virtual std::pair<void*, int> onAlloc(int size) override {
+        VkMemoryAllocateInfo info;
+        info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        info.pNext = nullptr;
+        info.allocationSize = size;
+        info.memoryTypeIndex = mIndex;
+        auto mem = new VulkanMemory(mDevice, info);
+        return std::make_pair(mem, 0);
+    }
+    virtual void onRelease(std::pair<void*, int> ptr) override {
+        auto p = (VulkanMemory*)ptr.first;
+        delete p;
+    }
+private:
+    const VulkanDevice& mDevice;
+    int mIndex;
+};
+
+VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16) : mDevice(dev) {
+    mAllocators.resize(dev.memProty().memoryTypeCount);
+    for (int i=0; i<mAllocators.size(); ++i) {
+        std::shared_ptr<BufferAllocator::Allocator> allocReal(new VulkanAllocator(dev, i));
+        mAllocators[i].reset(new BufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
+    }
+    mPermitFp16 = permitFp16;
 }
-VulkanMemoryPool::~VulkanMemoryPool() {
+VulkanMemoryPool::VulkanMemoryPool(const VulkanMemoryPool* parent) : mDevice(parent->mDevice) {
+    mPermitFp16 = parent->mPermitFp16;
+    mAllocators.resize(mDevice.memProty().memoryTypeCount);
+    for (int i=0; i<mAllocators.size(); ++i) {
+        std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(parent->mAllocators[i].get());
+        mAllocators[i].reset(new BufferAllocator(allocReal, parent->mDevice.proty().limits.nonCoherentAtomSize));
+    }
 }
 
-const VulkanMemory* VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
+VulkanMemoryPool::~VulkanMemoryPool() {
+    clear();
+}
+
+VkBuffer VulkanMemoryPool::allocBuffer(size_t size, VkBufferUsageFlags flags, VkSharingMode shared) {
+    auto iter = mFreeVkBuffers.find(std::make_tuple(size, flags, shared));
+    if (iter != mFreeVkBuffers.end()) {
+        auto res = iter->second;
+        mFreeVkBuffers.erase(iter);
+        return res;
+    }
+    VkBuffer res;
+    CALL_VK(mDevice.createBuffer(res, size, flags, shared));
+    return res;
+}
+
+void VulkanMemoryPool::returnBuffer(VkBuffer buffer, size_t size, VkBufferUsageFlags flags, VkSharingMode shared) {
+    mFreeVkBuffers.insert(std::make_pair(std::make_tuple(size, flags, shared), buffer));
+}
+
+std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
                                                   bool seperate) {
     uint32_t index = 0;
     auto typeBits  = requirements.memoryTypeBits;
-    for (uint32_t i = 0; i < mPropty.memoryTypeCount; i++) {
+    for (uint32_t i = 0; i < mDevice.memProty().memoryTypeCount; i++) {
         if ((typeBits & 1) == 1) {
             // Type is available, does it match user properties?
-            if ((mPropty.memoryTypes[i].propertyFlags & extraMask) == extraMask) {
+            if ((mDevice.memProty().memoryTypes[i].propertyFlags & extraMask) == extraMask) {
                 index = i;
                 break;
             }
@@ -39,55 +95,50 @@ const VulkanMemory* VulkanMemoryPool::allocMemory(const VkMemoryRequirements& re
         typeBits >>= 1;
     }
     MNN_ASSERT(index >= 0);
-    if (!seperate) {
-        auto freeIter = mFreeBuffers[index].lower_bound(requirements.size);
-        if (freeIter != mFreeBuffers[index].end()) {
-            auto result = freeIter->second;
-            mFreeBuffers[index].erase(freeIter);
-            return result;
-        }
-    }
-
-    VkMemoryAllocateInfo allocInfo{
-        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext           = nullptr,
-        .allocationSize  = requirements.size,
-        .memoryTypeIndex = index, // Memory type assigned in the next step
-    };
-
-    auto memory = std::make_shared<VulkanMemory>(mDevice, allocInfo);
-    mAllBuffers.insert(std::make_pair(memory.get(), memory));
-    return memory.get();
+    MNN_ASSERT(index < mAllocators.size());
+    return mAllocators[index]->alloc(requirements.size, seperate);
 }
 
-void VulkanMemoryPool::returnMemory(const VulkanMemory* memory, bool clean) {
-    if (!clean) {
-        mFreeBuffers[memory->type()].insert(std::make_pair(memory->size(), memory));
-        return;
-    }
-    auto iter = mAllBuffers.find(memory);
-    if (iter != mAllBuffers.end()) {
-        mAllBuffers.erase(iter);
-    }
+void VulkanMemoryPool::returnMemory(std::pair<void*, int> memory) {
+    auto mem = (VulkanMemory*)memory.first;
+    mAllocators[mem->type()]->free(memory);
     return;
 }
 
 void VulkanMemoryPool::clear() {
-    for (auto& iter : mFreeBuffers) {
-        for (auto& subIter : iter) {
-            auto eraseIter = mAllBuffers.find(subIter.second);
-            if (eraseIter != mAllBuffers.end()) {
-                mAllBuffers.erase(eraseIter);
-            }
-        }
-        iter.clear();
+    for (auto& iter : mAllocators) {
+        iter->release(false);
     }
+    for (auto& iter : mFreeVkBuffers) {
+        mDevice.destroyBuffer(iter.second);
+    }
+    mFreeVkBuffers.clear();
+    for (auto& iter : mFreeImages) {
+        mDevice.destroyImage(iter.second);
+    }
+    mFreeImages.clear();
 }
+VkImage VulkanMemoryPool::allocImage(const std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>& info) {
+    auto iter = mFreeImages.find(info);
+    if (iter != mFreeImages.end()) {
+        auto res = iter->second;
+        mFreeImages.erase(iter);
+        return res;
+    }
+    VkImage image;
+    VkImageView imageView;
+    CALL_VK(mDevice.createImage(image, std::get<0>(info), std::get<1>(info), std::get<2>(info), std::get<3>(info), std::get<4>(info)));
+    return image;
+}
+void VulkanMemoryPool::returnImage(VkImage dst, std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>&& info) {
+    mFreeImages.insert(std::make_pair(info, dst));
+}
+
 
 float VulkanMemoryPool::computeSize() const {
     float totalSize = 0;
-    for (auto& iter : mAllBuffers) {
-        totalSize += (float)(iter.first->size());
+    for (auto& piter : mAllocators) {
+        totalSize += (float)piter->totalSize();
     }
     return totalSize / 1024.0f / 1024.0f;
 }

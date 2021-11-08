@@ -1,0 +1,51 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) uniform offsetBuffer {
+    ivec4 size;//w/4, h/4, hLimit, w/4*h/4
+    mat4 transform;
+} uOffset;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#define TRANSPOSE_POS(x, y) vec4(x, y, 0, 1) * uOffset.transform;
+void main()
+{
+    int posX = ivec3(gl_GlobalInvocationID).x;
+
+    if (posX < uOffset.size.w)
+    {
+        ivec2 pos;
+        pos.x = posX % uOffset.size.x;// L
+        pos.y = posX / uOffset.size.x;// E / H
+        ivec2 texPos = ivec2((vec4(pos.x, pos.y, 0, 1) * uOffset.transform).xy);
+        vec4 d0 = texelFetch(uInput, texPos + ivec2(0, 0 ), 0);
+        vec4 d1 = vec4(0);
+        if (texPos.y + 1 < uOffset.size.z) {
+            d1 = texelFetch(uInput, texPos + ivec2(0, 1 ), 0);
+        }
+        vec4 d2 = vec4(0);
+        if (texPos.y + 2 < uOffset.size.z) {
+            d2 = texelFetch(uInput, texPos + ivec2(0, 2 ), 0);
+        }
+        vec4 d3 = vec4(0);
+        if (texPos.y + 3 < uOffset.size.z) {
+            d3 = texelFetch(uInput, texPos + ivec2(0, 3 ), 0);
+        }
+#ifdef TRANSPOSE
+        vec4 c0 = vec4(d0.x, d1.x, d2.x, d3.x);
+        vec4 c1 = vec4(d0.y, d1.y, d2.y, d3.y);
+        vec4 c2 = vec4(d0.z, d1.z, d2.z, d3.z);
+        vec4 c3 = vec4(d0.w, d1.w, d2.w, d3.w);
+#else
+        vec4 c0 = d0;
+        vec4 c1 = d1;
+        vec4 c2 = d2;
+        vec4 c3 = d3;
+#endif
+        imageStore(uOutput, ivec2(4*pos.x+0, pos.y), c0);
+        imageStore(uOutput, ivec2(4*pos.x+1, pos.y), c1);
+        imageStore(uOutput, ivec2(4*pos.x+2, pos.y), c2);
+        imageStore(uOutput, ivec2(4*pos.x+3, pos.y), c3);
+    }
+}

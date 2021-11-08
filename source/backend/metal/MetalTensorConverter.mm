@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalTensorConverter.hpp"
-#import "MNNMetalContext.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalTensorConverter.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -19,7 +19,22 @@ MetalTensorConverter::MetalTensorConverter(Backend *backend) : Execution(backend
 
 ErrorCode MetalTensorConverter::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    backend->onCopyBuffer(inputs[0], outputs[0]);
+    
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+        backend->onCopyBuffer(inputs[0], outputs[0]);
+
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(backend->isCmdBufferCommit()) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
     return NO_ERROR;
 }
 

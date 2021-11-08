@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "WingoradGenerater.hpp"
 #include <math.h>
-#include "AutoStorage.h"
-#include "Macro.h"
+#include <string.h>
+#include "math/WingoradGenerater.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 namespace Math {
@@ -133,7 +133,7 @@ static std::shared_ptr<Tensor> computeFDiag(const float* a, int alpha) {
     return res;
 }
 
-WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp) {
+WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp, bool dividedInG) {
     MNN_ASSERT(computeUnit > 0 && kernelSize > 0);
     mUnit       = computeUnit;
     mKernelSize = kernelSize;
@@ -165,12 +165,19 @@ WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float inte
     {
         auto A = computeA(a, alpha, r);
         Matrix::transpose(mG.get(), A.get());
+        if (dividedInG) {
+            Matrix::divPerLine(mG.get(), mG.get(), fdiag.get());
+        }
     }
     {
         auto B = computeB(a, alpha);
-        Matrix::transpose(mB.get(), B.get());
-        Matrix::transpose(B.get(), mB.get());
-        mB = B;
+        if (dividedInG) {
+            Matrix::transpose(mB.get(), B.get());
+            Matrix::mulPerLine(B.get(), mB.get(), fdiag.get());
+            Matrix::transpose(mB.get(), B.get());
+        } else {
+            mB = B;
+        }
     }
 }
 std::shared_ptr<Tensor> WinogradGenerater::allocTransformWeight(const Tensor* source, int unitCi, int unitCo, bool alloc) {
@@ -185,7 +192,7 @@ std::shared_ptr<Tensor> WinogradGenerater::allocTransformWeight(const Tensor* so
     return std::shared_ptr<Tensor>(Tensor::createDevice<float>({mB->length(0) * mB->length(1), coC4, ciC4, unitCi, unitCo}));
 }
 
-void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* source) {
+void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* source, bool ciFirst) {
     std::shared_ptr<Tensor> GT(Math::Matrix::create(mG->length(0), mG->length(1)));
     Math::Matrix::transpose(GT.get(), mG.get());
     int ci          = source->length(1);
@@ -203,13 +210,19 @@ void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* 
     std::shared_ptr<Tensor> K_Transform(Math::Matrix::create(alpha, alpha));
     auto weightPtr      = source->host<float>();
     auto KTransformData = K_Transform->host<float>();
+    int lCi = unitCo;
+    int lCo = 1;
+    if (ciFirst) {
+        lCi = 1;
+        lCo = unitCi;
+    }
     for (int oz = 0; oz < co; ++oz) {
         auto srcOz = weightPtr + oz * ci * kernelCount * kernelCount;
 
         int ozC4 = oz / unitCo;
         int mx   = oz % unitCo;
 
-        auto dstOz = weightDest->host<float>() + weightDest->stride(1) * ozC4 + mx;
+        auto dstOz = weightDest->host<float>() + weightDest->stride(1) * ozC4 + mx * lCo;
         for (int sz = 0; sz < ci; ++sz) {
             int szC4         = sz / unitCi;
             int my           = sz % unitCi;
@@ -220,7 +233,7 @@ void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* 
             // K_Transform = M*GT
             Math::Matrix::multi(K_Transform.get(), M.get(), GT.get());
 
-            auto dstSz = dstOz + szC4 * weightDest->stride(2) + unitCo * my;
+            auto dstSz = dstOz + szC4 * weightDest->stride(2) + my * lCi;
 
             for (int i = 0; i < alpha * alpha; ++i) {
                 *(dstSz + i * weightDest->stride(0)) = KTransformData[i];

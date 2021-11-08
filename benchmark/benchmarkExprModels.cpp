@@ -17,9 +17,9 @@
 #endif
 
 #include "MNN_generated.h"
-#include "MNNForwardType.h"
-#include "Interpreter.hpp"
-#include "Expr.hpp"
+#include <MNN/MNNForwardType.h>
+#include <MNN/Interpreter.hpp>
+#include <MNN/expr/Expr.hpp>
 #include "ExprModels.hpp"
 
 using namespace MNN;
@@ -90,6 +90,7 @@ static std::vector<float> runNet(VARP netOutput, const ScheduleConfig& config, i
     const void* buf = builder.GetBufferPointer();
     size_t size = builder.GetSize();
     std::unique_ptr<Interpreter> net(Interpreter::createFromBuffer(buf, size));
+    net->setSessionMode(MNN::Interpreter::Session_Release);
     auto session = net->createSession(config);
     net->releaseModel();
     auto inputTensor = net->getSessionInput(session, NULL);
@@ -100,24 +101,24 @@ static std::vector<float> runNet(VARP netOutput, const ScheduleConfig& config, i
     }
     auto outputTensor = net->getSessionOutput(session, NULL);
     std::shared_ptr<Tensor> outputTensorHost(Tensor::createHostTensorFromDevice(outputTensor, false));
-    
+
     // Warming up...
     for (int i = 0; i < 3; ++i) {
         inputTensor->copyFromHostTensor(inputTensorHost.get());
         net->runSession(session);
         outputTensor->copyToHostTensor(outputTensorHost.get());
     }
-    
+
     std::vector<float> costs;
-    
+
     // start run
     for (int i = 0; i < loop; ++i) {
         auto timeBegin = getTimeInUs();
-        
+
         inputTensor->copyFromHostTensor(inputTensorHost.get());
         net->runSession(session);
         outputTensor->copyToHostTensor(outputTensorHost.get());
-        
+
         auto timeEnd = getTimeInUs();
         costs.push_back((timeEnd - timeBegin) / 1000.0);
     }
@@ -184,7 +185,7 @@ int main(int argc, const char* argv[]) {
     config.backendConfig = &bnConfig;
 
     std::vector<float> costs;
-    
+
     // ResNet18 benchmark
     for (auto model : models) {
         auto modelArgs = splitArgs(model.c_str(), "_");
@@ -229,4 +230,3 @@ int main(int argc, const char* argv[]) {
     }
     return 0;
 }
-

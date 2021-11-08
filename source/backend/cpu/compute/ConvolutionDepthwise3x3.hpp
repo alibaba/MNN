@@ -9,7 +9,7 @@
 #ifndef ConvolutionDepthwise3x3_hpp
 #define ConvolutionDepthwise3x3_hpp
 
-#include "CPUConvolution.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
 
 namespace MNN {
 class ConvolutionDepthwise3x3 : public CPUConvolution {
@@ -20,14 +20,16 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    std::unique_ptr<Tensor> mWeight;
-    std::unique_ptr<Tensor> mBias;
+    ConvolutionDepthwise3x3(std::shared_ptr<Resource> resource, const Convolution2DCommon* common, Backend* b);
+
+    std::shared_ptr<Resource> mResource;
 
     std::unique_ptr<Tensor> mCacheLine;
     int mSourceStartX = 0;
     int mSourceEndX   = 0;
+    std::vector<float> mPostParameters;
 };
 } // namespace MNN
 

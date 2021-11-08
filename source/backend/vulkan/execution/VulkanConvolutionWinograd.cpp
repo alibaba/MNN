@@ -8,8 +8,8 @@
 
 #include "VulkanConvolutionWinograd.hpp"
 #include <string.h>
-#include "Macro.h"
-#include "WingoradGenerater.hpp"
+#include "core/Macro.h"
+#include "math/WingoradGenerater.hpp"
 #define COMPUT_SIZE 4
 #define COMPUT_SIZE2 16
 #include "VulkanConvolution.hpp"
@@ -65,7 +65,7 @@ VulkanConvolutionWinograd::VulkanConvolutionWinograd(VulkanBackend* backend, con
         ::memset(ptr, 0, ALIGN_UP4(co) * sizeof(float));
         ::memcpy(ptr, biasPtr, co * sizeof(float));
         biasBuffer->unmap();
-        backend->copyBufferToImage(biasBuffer.get(), mBias.get());
+        backend->copyBufferToImage(biasBuffer.get(), mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     int unit = COMPUT_SIZE - convOption->kernelY() + 1;
     mUnit    = unit;
@@ -81,7 +81,7 @@ VulkanConvolutionWinograd::VulkanConvolutionWinograd(VulkanBackend* backend, con
             std::vector<int>{co, ci, (int)mCommon->kernelY(), (int)mCommon->kernelX()}, (void*)weightPtr, Tensor::CAFFE));
         auto weightDest = generator.allocTransformWeight(originWeight.get());
         generator.transformWeight(weightDest.get(), originWeight.get());
-        mMultier.reset(new VulkanMatrixMultier(backend, weightDest->host<float>(), ciC4 * 4, coC4 * 4, COMPUT_SIZE2));
+        mMultier.reset(new VulkanMatrixMultier4x4(backend, weightDest->host<float>(), ciC4 * 4, coC4 * 4, COMPUT_SIZE2));
     }
 
     // Get transform pipeline
@@ -161,7 +161,7 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
         mWinogradConst->unmap();
     }
 
-    mMultier->prepare(wPiece * hPiece);
+    mMultier->prepare(cmdBuffer, wPiece * hPiece);
     mOffsetsBuffer.resize(sliceNumber * sliceNumber);
     mSourceTransformSet.resize(sliceNumber * sliceNumber);
     mDestTransformSet.resize(sliceNumber * sliceNumber);
@@ -169,6 +169,12 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
     ivec2 offsetData;
     offsetData[0] = 0;
     offsetData[1] = 0;
+
+    auto vkBackend = (VulkanBackend*)backend();
+    auto vkSrc     = reinterpret_cast<VulkanTensor*>(src->deviceId());
+    auto vkDst     = reinterpret_cast<VulkanTensor*>(dst->deviceId());
+    cmdBuffer->barrierImageIfNeeded(vkSrc->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
     for (int y = 0; y < sliceNumber; ++y) {
         int hCount = hPiece;
         if (y == sliceNumber - 1) {
@@ -189,7 +195,7 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
             if (true) {
                 auto sourceImage = mMultier->source();
                 mSourceTransformSet[i]->writeImage(sourceImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-                mSourceTransformSet[i]->writeImage((VkImageView)src->deviceId(), mSampler->get(),
+                mSourceTransformSet[i]->writeImage(((VulkanTensor*)src->deviceId())->image()->view(), mSampler->get(),
                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
                 mSourceTransformSet[i]->writeBuffer(mWinogradConst->buffer(), 2, mWinogradConst->size());
                 mSourceTransformSet[i]->writeBuffer(mOffsetsBuffer[i]->buffer(), 3, mOffsetsBuffer[i]->size());
@@ -198,10 +204,11 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
                               UP_DIV(hCount, mTransformLocalSize[1]), UP_DIV(icC4, mTransformLocalSize[2]));
             }
 
+            cmdBuffer->barrierImageIfNeeded(mMultier->source(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             mMultier->compute(cmdBuffer);
             if (true) {
                 auto destImage = mMultier->dest();
-                mDestTransformSet[i]->writeImage((VkImageView)dst->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL,
+                mDestTransformSet[i]->writeImage(((VulkanTensor*)dst->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL,
                                                  0);
                 mDestTransformSet[i]->writeImage(destImage->view(), mSampler->get(),
                                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
@@ -210,8 +217,9 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
                 mDestTransformSet[i]->writeBuffer(mWinogradConst->buffer(), 3, mWinogradConst->size());
                 mDestTransformSet[i]->writeBuffer(mOffsetsBuffer[i]->buffer(), 4, mOffsetsBuffer[i]->size());
                 mDestTransform->bind(cmdBuffer->get(), mDestTransformSet[i]->get());
-                cmdBuffer->barrierImage(destImage->get(), VK_IMAGE_LAYOUT_GENERAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(destImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // cmdBuffer->barrierImage(destImage->get(), VK_IMAGE_LAYOUT_GENERAL,
+                //                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 vkCmdDispatch(cmdBuffer->get(), UP_DIV(wCount, mTransformLocalSize[0]),
                               UP_DIV(hCount, mTransformLocalSize[1]), UP_DIV(ocC4, mTransformLocalSize[2]));
             }

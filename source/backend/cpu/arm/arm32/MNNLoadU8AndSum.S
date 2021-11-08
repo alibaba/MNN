@@ -17,14 +17,15 @@
 asm_function MNNLoadU8AndSum
 //void MNNLoadU8AndSum(int32_t* inputSum, int8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8, size_t realDstCount, size_t filter_offset)
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+
 //Auto: r0:inputSum, r1:colAddr, r2:inputOrigin, r3:srcZStep
 
 //Load from sp:
 //r4: icDiv8, r5: realDstCount, r6:filter_offset
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 vdup.i32 d30, r6
 vmov.i8 d31, #128
 
@@ -67,6 +68,6 @@ LoopCount:
     bne LoopCount
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 #endif
 #endif

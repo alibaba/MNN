@@ -8,7 +8,7 @@
 
 #include <memory>
 #include <vector>
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 #include <string>
 
 enum GET_THRESHOLD_METHOD {
@@ -18,7 +18,7 @@ enum GET_THRESHOLD_METHOD {
 
 class TensorStatistic {
 public:
-    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
+    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, float featureClampValue, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
     ~TensorStatistic() {
         // Do nothing
     }
@@ -34,27 +34,50 @@ public:
     void updateDistribution();
 
     void setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod);
-    void setChannelWise(bool mergeChannel);
 
-    std::vector<float> finishAndCompute();
+    float finishAndCompute();
 
     // only this one for ADMM
-    std::vector<float> computeScaleADMM();
+    float computeScaleADMM();
+
+    std::string name() {
+        return mName;
+    }
+
+    bool visited() {
+        return mVisited;
+    }
+
+    void setVisited(bool visited) {
+        mVisited = visited;
+    }
+
+    std::pair<std::vector<float>, float> fakeQuantFeature();
+    float computeDistance(std::vector<float> fakeQuantedFeature);
 
 private:
     int _computeThreshold(const std::vector<float>& distribution);
-    std::vector<std::pair<float, float>> mRangePerChannel;
-    std::vector<float> mIntervals;
-    std::vector<bool> mValidChannel;
-    std::vector<std::vector<float>> mDistribution;
+    // <minVal, maxVal> for every channel for the Tensor
+    std::pair<float, float> mRange;
+    // mBinNumber / maxValue: the number of bin for range 1
+    float mInterval;
+    // if the i-th channel's maxValue > 0.00001f, mValidChannel[i] is true
+    bool mValid;
+    // [c * mBinNumber]: store every channel's distribution using bin
+    std::vector<float> mDistribution;
 
     std::shared_ptr<MNN::Tensor> mHostTensor;
+    // the Tensor
     const MNN::Tensor* mOriginTensor;
+    // bin number for distribution
     int mBinNumber;
+    // has update or not, assert update once
     bool mUpdatedDistributionFlag = false;
     bool mUpdatedRangeFlags       = false;
 
-    bool mMergeChannel                    = true;
     std::string mName;
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
+    bool mVisited = false;
+    float mScale;
+    float mFeatureClampValue = 127.0f;
 };

@@ -9,7 +9,7 @@
 #ifndef CPUDequantize_hpp
 #define CPUDequantize_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 namespace MNN {
@@ -24,6 +24,9 @@ public:
 private:
     float mHalfRange;
     QuantizeMode mMode;
+    bool mIsLiteDequantize;
+    int mZeroPoint;
+    float mScale;
 };
 
 } // namespace MNN

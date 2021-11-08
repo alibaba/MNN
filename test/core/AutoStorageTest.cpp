@@ -7,15 +7,15 @@
 //
 
 #include <stdio.h>
-#include "AutoStorage.h"
 #include "MNNTestSuite.h"
+#include "core/AutoStorage.h"
 
 using namespace MNN;
 
 class AutoStorageTest : public MNNTestCase {
 public:
     virtual ~AutoStorageTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         AutoStorage<int> storage(50);
         MNNTEST_ASSERT(storage.size() == 50);
         storage.get()[40] = 999;

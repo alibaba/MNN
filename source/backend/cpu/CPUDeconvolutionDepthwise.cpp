@@ -8,10 +8,11 @@
 
 #include "CPUDeconvolutionDepthwise.hpp"
 #include <string.h>
-#include "CPUBackend.hpp"
-#include "MNN_generated.h"
-#include "Macro.h"
-#include "compute/ConvOpt.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
+#include "compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+
 
 namespace MNN {
 CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const Op* convOp, Backend* b)
@@ -21,30 +22,37 @@ CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const 
     int kw                  = layer->kernelX();
     int kh                  = layer->kernelY();
     int outputCount         = layer->outputCount();
-    int depthQuad           = UP_DIV(outputCount, 4);
-    int planeStride         = kw * kh * 4;
-    const float* tempWeight = conv->weight()->data();
+    auto core               = static_cast<CPUBackend*>(backend())->functions();
+    int depthQuad           = UP_DIV(outputCount, core->pack);
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+
     // Reorder weight from whc -> pwhc4
-    int kernelSize = depthQuad * 4 * kw * kh;
+    int kernelSize = depthQuad * core->pack * kw * kh;
     mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
     auto sucess = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     if (!sucess) {
         mValid = false;
         return;
     }
-    ::memset(mWeight->host<float>(), 0, mWeight->size());
-    auto weight = mWeight->host<float>();
-    int cur     = 0;
-    for (int c = 0; c < outputCount; ++c) {
-        int plane  = c / 4;
-        int offset = c % 4;
-        for (int y = 0; y < kh; ++y) {
-            for (int x = 0; x < kw; ++x) {
-                float* dst = weight + offset + (x + y * kw) * 4 + planeStride * plane;
-                *dst       = tempWeight[cur++];
-            }
+    AutoStorage<uint8_t> weightTempStorage;
+    if (core->bytes < 4) {
+        weightTempStorage.reset(kernelSize * core->bytes);
+        if (weightTempStorage.get() == nullptr) {
+            mValid = false;
+            return;
         }
+        core->MNNFp32ToLowp(tempWeight, (int16_t*)weightTempStorage.get(), kernelSize);
+        tempWeight = (const float*)weightTempStorage.get();
     }
+    auto weight = mWeight->host<float>();
+    int offset[] = {
+        kw * kh,
+        kw * kh
+    };
+    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount, offset);
     mOrigin.reset(new CPUDeconvolutionDepthwiseBasic(input, convOp, b));
 }
 
@@ -56,8 +64,9 @@ ErrorCode CPUDeconvolutionDepthwiseMultiInput::onResize(const std::vector<Tensor
                                                         const std::vector<Tensor*>& outputs) {
     auto kw = mCommon->kernelX();
     auto kh = mCommon->kernelY();
-    mWeight.reset(Tensor::createDevice<float>({UP_DIV(inputs[0]->channel(), 4), kh, kw, 4}));
-    mBias.reset(Tensor::createDevice<float>({UP_DIV(inputs[0]->channel(), 4), 4}));
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    mWeight.reset(Tensor::createDevice<float>({UP_DIV(inputs[0]->channel(), core->pack), kh, kw, core->pack}));
+    mBias.reset(Tensor::createDevice<float>({UP_DIV(inputs[0]->channel(), core->pack), core->pack}));
     backend()->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mBias.get(), Backend::DYNAMIC);
     mInputs   = {inputs[0], mWeight.get(), mBias.get()};
@@ -69,32 +78,29 @@ ErrorCode CPUDeconvolutionDepthwiseMultiInput::onResize(const std::vector<Tensor
 
 ErrorCode CPUDeconvolutionDepthwiseMultiInput::onExecute(const std::vector<Tensor*>& inputs,
                                                          const std::vector<Tensor*>& outputs) {
-    ::memset(mBias->host<float>(), 0, mBias->size());
-    ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
-    ::memset(mWeight->host<float>(), 0, mWeight->size());
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    ::memset(mBias->host<float>(), 0, mBias->elementSize() * core->bytes);
+    if (inputs.size() > 2) {
+        ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->elementSize() * core->bytes);
+    }
+    ::memset(mWeight->host<float>(), 0, mWeight->elementSize() * core->bytes);
     auto weight      = mWeight->host<float>();
     auto outputCount = inputs[0]->channel();
     auto kh          = mWeight->length(1);
     auto kw          = mWeight->length(2);
     auto tempWeight  = inputs[1]->host<float>();
-    auto planeStride = kw * kh * 4;
-    int cur          = 0;
-    for (int c = 0; c < outputCount; ++c) {
-        int plane  = c / 4;
-        int offset = c % 4;
-        for (int y = 0; y < kh; ++y) {
-            for (int x = 0; x < kw; ++x) {
-                float* dst = weight + offset + (x + y * kw) * 4 + planeStride * plane;
-                *dst       = tempWeight[cur++];
-            }
-        }
-    }
+    int offset[] = {
+        kw * kh,
+        kw * kh
+    };
+    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount, offset);
     return CPUDeconvolutionDepthwiseBasic::onExecute(mInputs, outputs);
 }
 
 ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& inputs,
                                                    const std::vector<Tensor*>& outputs) {
     CPUDeconvolutionBasic::onResize(inputs, outputs);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
     auto layer         = mCommon;
     auto inputTensor   = outputs[0];
     auto outputTensor  = inputs[0];
@@ -102,64 +108,68 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
     int src_height     = inputTensor->height();
     int dst_width      = outputTensor->width();
     int dst_height     = outputTensor->height();
-    int dst_depth_quad = UP_DIV(layer->outputCount(), 4);
-    int dst_z_step     = dst_width * dst_height * 4;
-    int src_z_step     = src_width * src_height * 4;
-    int dst_y_step     = dst_width * 4;
-    int src_y_step     = src_width * 4;
+    int dst_depth_quad = UP_DIV(layer->outputCount(), core->pack);
+    int dst_z_step     = dst_width * dst_height * core->pack;
+    int src_z_step     = src_width * src_height * core->pack;
+    int dst_y_step     = dst_width * core->pack;
+    int src_y_step     = src_width * core->pack;
     int strideY        = layer->strideY();
     int strideX        = layer->strideX();
     int dilateX        = layer->dilateX();
     int dilateY        = layer->dilateY();
-    int dilateY_step   = dilateY * src_width * 4;
-    int dilateX_step   = dilateX * 4;
+    int dilateY_step   = dilateY * src_width * core->pack;
+    int dilateX_step   = dilateX * core->pack;
     int kernel_height  = layer->kernelY();
     int kernel_width   = layer->kernelX();
     int padX           = mPadX;
     int padY           = mPadY;
-    int weight_z_step  = kernel_height * kernel_width * 4;
+    int weight_z_step  = kernel_height * kernel_width * core->pack;
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0; l++) {
+    for (; l * strideX - padX < 0 && l < dst_width; l++) {
         // do nothing
     }
-    for (; t * strideY - padY < 0; t++) {
+    for (; t * strideY - padY < 0 && t < dst_height; t++) {
         // do nothing
     }
-    for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--) {
+    for (; (r - 1) * strideX - padX + (kernel_width - 1) * dilateX >= src_width && r > l; r--) {
         // do nothing
     }
-    for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
+    for (; (b - 1) * strideY - padY + (kernel_height - 1) * dilateY >= src_height && b > t; b--) {
         // do nothing
     }
 
-    auto postFunction = getPostFunction();
 #define RUN_BASIC(L, T, R, B)                                                                              \
     for (int dy = T; dy < B; ++dy) {                                                                       \
-        const float* dst_y = dst_z + dy * dst_y_step;                                                      \
+        auto dst_y = dst_z + dy * dst_y_step * core->bytes;                                                      \
         int srcStartY      = dy * strideY - padY;                                                          \
-        float* src_dy      = src_z + srcStartY * src_y_step;                                               \
+        auto src_dy      = src_z + srcStartY * src_y_step * core->bytes;                                               \
         int sfy            = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));                                     \
         int efy            = ALIMIN(kernel_height, UP_DIV(src_height - srcStartY, dilateY));               \
         for (int dx = L; dx < R; ++dx) {                                                                   \
-            const float* dst_x = dst_y + 4 * dx;                                                           \
+            auto dst_x = dst_y + core->pack * core->bytes * dx;                                                           \
             int srcStartX      = dx * strideX - padX;                                                      \
-            float* src_dx      = src_dy + srcStartX * 4;                                                   \
+            auto src_dx      = src_dy + srcStartX * core->pack * core->bytes;                                                   \
             int sfx            = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));                                 \
             int efx            = ALIMIN(kernel_width, UP_DIV(src_width - srcStartX, dilateX));             \
-            MNNDeconvRunForUnitDepthWise(dst_x, src_dx + (sfx * dilateX + sfy * dilateY * src_width) * 4,  \
-                                         weight_dz + 4 * (kernel_width * sfy + sfx), efx - sfx, efy - sfy, \
-                                         4 * kernel_width, dilateX_step, dilateY_step);                    \
+            core->MNNDeconvRunForUnitDepthWise((const float*)dst_x, (float*)(src_dx + (sfx * dilateX + sfy * dilateY * src_width) * core->bytes * core->pack),  \
+                                         (const float*)(weight_dz + core->pack * core->bytes * (kernel_width * sfy + sfx)), efx - sfx, efy - sfy, \
+                                         core->pack * kernel_width, dilateX_step, dilateY_step);                    \
         }                                                                                                  \
     }
     auto weight = inputs[1];
     auto bias   = inputs[2];
+    int batch = inputs[0]->batch();
+    int totalSize = batch * dst_depth_quad;
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
 
-    mFunction = [=](const float* dstOrigin, float* srcOrigin) {
-        for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const float* dst_z     = dstOrigin + dst_z_step * dz;
-            float* src_z           = srcOrigin + src_z_step * dz;
-            const float* weight_dz = weight->host<float>() + dz * weight_z_step;
+    mFunction = [=](const uint8_t* dstOrigin, uint8_t* srcOrigin, int tId) {
+        for (int dz = tId; dz < totalSize; dz+=numberThread) {
+            auto zPos = dz / batch;
+            auto dst_z     = dstOrigin + dst_z_step * dz * core->bytes;
+            auto src_z           = srcOrigin + src_z_step * dz * core->bytes;
+            auto weight_dz = weight->host<uint8_t>() + zPos * weight_z_step * core->bytes;
+            ::memset(src_z, 0, src_width * src_height * core->bytes * core->pack);
 
             RUN_BASIC(0, 0, dst_width, t);
             RUN_BASIC(0, b, dst_width, dst_height);
@@ -169,15 +179,15 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
 
             if (r > l) {
                 for (int dy = t; dy < b; ++dy) {
-                    const float* dst_y = dst_z + dy * dst_y_step;
+                    auto dst_y = dst_z + dy * dst_y_step * core->bytes;
                     int srcStartY      = dy * strideY - padY;
-                    float* src_dy      = src_z + srcStartY * src_y_step;
-                    MNNDeconvRunForLineDepthwise(dst_y + l * 4, src_dy + (l * strideX - padX) * 4, weight_dz, r - l,
-                                                 strideX * 4, kernel_width, kernel_height, dilateX_step, dilateY_step);
+                    auto src_dy      = src_z + srcStartY * src_y_step * core->bytes;
+                    core->MNNDeconvRunForLineDepthwise((const float*)(dst_y + l * core->pack * core->bytes), (float*)(src_dy + (l * strideX - padX) * core->bytes * core->pack), (const float*)weight_dz, r - l,
+                                                 strideX * core->pack, kernel_width, kernel_height, dilateX_step, dilateY_step);
                 }
             }
+            core->MNNAxByClampBroadcastUnit((float*)src_z, (float*)src_z, (const float*)(bias->host<uint8_t>() + zPos * core->pack * core->bytes), src_width * src_height, 0, 0, 1, mPostParameters.data());
         }
-        postFunction(srcOrigin, bias->host<float>(), src_width * src_height, dst_depth_quad);
     };
 #undef RUN_BASIC
 
@@ -189,13 +199,13 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onExecute(const std::vector<Tensor*>& 
     // Revert input and output, do deconvolution
     auto inputTensor  = outputs[0];
     auto outputTensor = inputs[0];
-    for (int batchIndex = 0; batchIndex < inputTensor->batch(); ++batchIndex) {
-        float* srcOrigin = inputTensor->host<float>() + batchIndex * inputTensor->stride(0);
-        ::memset(srcOrigin, 0, inputTensor->stride(0) * sizeof(float));
-        const float* dstOrigin = outputTensor->host<float>() + batchIndex * outputTensor->stride(0);
-        mFunction(dstOrigin, srcOrigin);
-    }
-
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
+    auto srcOrigin = inputTensor->host<uint8_t>();
+    auto dstOrigin = outputTensor->host<uint8_t>();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        mFunction(dstOrigin, srcOrigin, tId);
+    };
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 
@@ -203,7 +213,7 @@ class CPUDeconvolutionDepthwiseCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        if (3 == inputs.size()) {
+        if (1 < inputs.size()) {
             return new CPUDeconvolutionDepthwiseMultiInput(inputs[0], op, backend);
         }
         return new CPUDeconvolutionDepthwise(inputs[0], op, backend);

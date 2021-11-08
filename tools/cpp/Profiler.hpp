@@ -14,8 +14,8 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "Interpreter.hpp"
-#include "Tensor.hpp"
+#include <MNN/Interpreter.hpp>
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 
@@ -47,6 +47,10 @@ public:
      */
     void printTimeByName(int loops = 1);
 
+    /**
+     * print op that flops / time is slow
+     */
+    void printSlowOp(const std::string& type, int topk, float limitRate);
 private:
     ~Profiler() = default;
 

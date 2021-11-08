@@ -7,9 +7,9 @@
 //
 
 #include <math.h>
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 class Convolution3DSizeComputer : public SizeComputer {
 public:
@@ -19,13 +19,6 @@ public:
         MNN_ASSERT(1 == outputs.size());
         
         auto layer        = op->main_as_Convolution3D()->common();
-        for (auto stride: *layer->strides()) {
-            MNN_ASSERT(stride == 1);
-        }
-        for (auto dilate: *layer->dilates()) {
-            MNN_ASSERT(dilate == 1);
-        }
-        
         auto input = inputs[0];
         if (input->buffer().dimensions != 5) {
             return false;
@@ -56,20 +49,6 @@ public:
 
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
-    }
-
-    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
-                                 const std::vector<Tensor*>& outputs) const override {
-        auto layer = op->main_as_Convolution3D()->common();
-        int oSize = outputs[0]->length(1);
-        float flopsPerElement = inputs[0]->length(1);
-        for (int i = 0; i < 3; ++i) {
-            flopsPerElement *= (*layer->kernels())[i];
-            oSize *= outputs[0]->length(i + 2);
-        }
-        float flops = oSize * flopsPerElement / FLOPS_M;
-
-        return flops;
     }
 };
 

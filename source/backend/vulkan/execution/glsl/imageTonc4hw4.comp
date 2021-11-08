@@ -1,29 +1,42 @@
-#version 450 core
+#version 440 core
 layout(std430) buffer;
-layout(std430) uniform;
-layout(set=0, binding=0) uniform mediump sampler3D uInput;
+layout(set=0, binding=0) uniform mediump sampler2D uInput;
 
 layout(set=0, binding=1) writeonly buffer destBuffer{
     vec4 data[];
 } uOutBuffer;
 
 layout(set=0, binding=2) uniform constBuffer{
-    int width;
-    int height;
-    int channel;
-    int batch;
+    ivec4 size; // w, h, c, n
+    ivec4 stride;
 } uConstant;
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(set=0, binding=3) uniform offsetBuffer {
+    ivec4 offset; // Offset x, y, 0, 0
+    ivec4 size;//w, h, 0, w*h
+} uOffset;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    int posX = ivec3(gl_GlobalInvocationID).x;
 
-    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    if (posX < uOffset.size.w)
     {
+        ivec2 pos;
+        pos.x = posX % uOffset.size.x;
+        pos.y = posX / uOffset.size.x;
         vec4 color = texelFetch(uInput, pos, 0);
-        int basicOffset = pos.z*uConstant.width*uConstant.height+uConstant.width*pos.y+pos.x;
+        ivec2 spos = pos + uOffset.offset.xy;
+        int n = spos.y / uConstant.size.y;
+        int h = spos.y % uConstant.size.y;
+        int c = spos.x / uConstant.size.x;
+        int w = spos.x % uConstant.size.x;
+        int basicOffset = 0
+            + n * uConstant.size.x * uConstant.size.y
+            + c * uConstant.size.x * uConstant.size.y * uConstant.size.w
+            + h * uConstant.size.x
+            + w;
         uOutBuffer.data[basicOffset] = color;
     }
 }

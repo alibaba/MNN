@@ -1,0 +1,51 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 stride;
+    ivec4 size;
+    ivec4 extent;
+    ivec4 imageSize;
+    ivec2 depth;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w)
+    {
+        ivec3 pos;
+        pos.x = posTmp.x / (uConstant.size.y * uConstant.size.z);
+        int subIndex = posTmp.x % (uConstant.size.y * uConstant.size.z);
+        pos.z = subIndex % uConstant.size.z;
+        pos.y = subIndex / uConstant.size.z;
+        int srcOffset = uConstant.stride.w
+            + uConstant.stride.z * pos.z
+            + uConstant.stride.y * pos.y
+            + uConstant.stride.x * pos.x
+            ;
+        
+        int dstOffset = uConstant.extent.w
+            + pos.x * uConstant.extent.x
+            + pos.y * uConstant.extent.y
+            + pos.z * uConstant.extent.z
+            ;
+
+        int srcX = srcOffset % uConstant.imageSize.x;
+        int srcY = ((srcOffset - srcX) / uConstant.imageSize.x) % uConstant.imageSize.y;
+        int srcZ = srcOffset / (uConstant.imageSize.x * uConstant.imageSize.y);
+        int srcB = srcZ / uConstant.depth.x;
+        srcZ = srcZ % uConstant.depth.x;
+        int dstX = dstOffset % uConstant.imageSize.z;
+        int dstY = ((dstOffset - dstX) / uConstant.imageSize.z) % uConstant.imageSize.w;
+        int dstZ = dstOffset / (uConstant.imageSize.z * uConstant.imageSize.w);
+        int dstB = dstZ / uConstant.depth.y;
+        dstZ = dstZ % uConstant.depth.y;
+        vec4 color = texelFetch(uInput, ivec2(srcX+srcZ*uConstant.imageSize.x, srcY+srcB*uConstant.imageSize.y), 0);
+        imageStore(uOutput, ivec2(dstX+dstZ*uConstant.imageSize.z, dstY+dstB*uConstant.imageSize.w), color);
+    }
+}

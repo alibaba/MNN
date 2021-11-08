@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -19,15 +19,13 @@ class ShapeSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();
-        for (int i = 0; i < ib.dimensions; i++) {
-            if (ib.dim[i].extent <= 0) {
-                return false;
-            }
-        }
+
         ob.dimensions = 1;
         outputs[0]->setType(DataType_DT_INT32);
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (inputFormat == MNN_DATA_FORMAT_NC4HW4 && op->defaultDimentionFormat() == MNN_DATA_FORMAT_NHWC) {
+            // For compability
             ob.dim[0].extent = 4;
         } else {
             ob.dim[0].extent = ib.dimensions;

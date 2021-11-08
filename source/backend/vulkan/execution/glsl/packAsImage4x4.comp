@@ -1,0 +1,61 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly restrict highp uniform image2D uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer{
+    vec4 data[];
+} uInBuffer;
+
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 size; // NCHW
+    ivec4 stride; // NCHW
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posOrigin = ivec3(gl_GlobalInvocationID);
+    int channelC4 = (uConstant.size.y + 3) / 4;
+    int batchC4 = (uConstant.size.x + 3) / 4;
+    int totalChannelC4 = channelC4 * uConstant.size.z * uConstant.size.w;
+    if (posOrigin.x < totalChannelC4 * batchC4) {
+        ivec2 pos;
+        pos.x = posOrigin.x % totalChannelC4;
+        pos.y = posOrigin.x / totalChannelC4;
+        int startIndex = pos.y * 4 * totalChannelC4 + pos.x;
+        vec4 v0 = uInBuffer.data[startIndex];
+        vec4 v1 = vec4(0);
+        vec4 v2 = vec4(0);
+        vec4 v3 = vec4(0);
+        if (pos.y * 4 + 1 < uConstant.size.x) {
+            v1 = uInBuffer.data[startIndex + 1 * totalChannelC4];
+        }
+        if (pos.y * 4 + 2 < uConstant.size.x) {
+            v2 = uInBuffer.data[startIndex + 2 * totalChannelC4];
+        }
+        if (pos.y * 4 + 3 < uConstant.size.x) {
+            v3 = uInBuffer.data[startIndex + 3 * totalChannelC4];
+        }
+        ivec2 wh = imageSize(uOutput);
+        if (wh.y != batchC4) {
+            int whIndex = posOrigin.x % (uConstant.size.w * uConstant.size.z);
+            int channelBatchIndex = posOrigin.x / (uConstant.size.w * uConstant.size.z);
+            int batchIndex = channelBatchIndex / channelC4;
+            int channelIndex = channelBatchIndex % channelC4;
+            pos.x = channelIndex;
+            pos.y = batchIndex * uConstant.size.w * uConstant.size.z + whIndex;
+        }
+#ifdef TRANSPOSE
+        imageStore(uOutput, ivec2(4 * pos.x + 0, pos.y), vec4(v0.x, v1.x, v2.x, v3.x));
+        imageStore(uOutput, ivec2(4 * pos.x + 1, pos.y), vec4(v0.y, v1.y, v2.y, v3.y));
+        imageStore(uOutput, ivec2(4 * pos.x + 2, pos.y), vec4(v0.z, v1.z, v2.z, v3.z));
+        imageStore(uOutput, ivec2(4 * pos.x + 3, pos.y), vec4(v0.w, v1.w, v2.w, v3.w));
+#else
+        imageStore(uOutput, ivec2(4 * pos.x + 0, pos.y), v0);
+        imageStore(uOutput, ivec2(4 * pos.x + 1, pos.y), v1);
+        imageStore(uOutput, ivec2(4 * pos.x + 2, pos.y), v2);
+        imageStore(uOutput, ivec2(4 * pos.x + 3, pos.y), v3);
+#endif
+    }
+}

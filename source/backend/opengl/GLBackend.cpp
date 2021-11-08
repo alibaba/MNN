@@ -10,12 +10,12 @@
 #include "AllShader.hpp"
 #include "GLSSBOBuffer.hpp"
 #include "GLTexture.hpp"
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 #include "GLBackend.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #include <mutex>
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 namespace OpenGL {
@@ -69,7 +69,7 @@ bool GLBackend::isSupportHalf() const{
 GLenum GLBackend::getTextrueFormat() const{
     return mTextrueFormat;
 }
-    
+
 std::string GLBackend::getImageFormat() const{
     return mImageFormat;
 }
@@ -102,12 +102,12 @@ GLBackend::GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::Powe
     mRuntime->mNchw2ImageProgram       = getTreatedProgram(glsl_nchw_buffer_to_image_glsl);
     mRuntime->mNc4hw42ImageProgram   = getTreatedProgram(glsl_nc4hw4_buffer_to_image_glsl);
     mRuntime->mImage2Nc4hw4Program = getTreatedProgram(glsl_image_to_nc4hw4_buffer_glsl);
-    
+
     std::vector<std::string> prefix;
     setLocalSize(prefix, mLocalSize, 8, 8, 1);
     mRuntime->mNhwc2ImageProgram   = getProgram("nhwc_buffer_to_image", glsl_nhwc_buffer_to_image_glsl, prefix);
     mRuntime->mImage2NhwcProgram = getProgram("image_to_nhwc_buffer", glsl_image_to_nhwc_buffer_glsl, prefix);
-    
+
     const GLubyte* renderer = glGetString(GL_RENDERER);
     if(renderer != nullptr){
         MNN_PRINT("gpu type : %s \n", (char*)renderer);
@@ -119,7 +119,7 @@ GLBackend::GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::Powe
             mGpuType = OTHER;
         }
     }
-    
+
     const GLubyte* version = glGetString(GL_VERSION);
     if(version != nullptr){
         MNN_PRINT("gl version : %s \n", version);
@@ -151,11 +151,11 @@ void GLBackend::copyImageToNhwcBuffer(GLuint textureId, float *outputData, int w
     wait();
     auto depthQuad = UP_DIV(channel, 4);
     auto size      = depthQuad * 4 * width * height * sizeof(float);
-    
+
     auto buffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
-    
+
     mRuntime->mImage2NhwcProgram->useProgram();
-    
+
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, getTextrueFormat());
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
@@ -166,29 +166,29 @@ void GLBackend::copyImageToNhwcBuffer(GLuint textureId, float *outputData, int w
     OPENGL_CHECK_ERROR;
     compute(UP_DIV(width, mLocalSize[0]), UP_DIV(height, mLocalSize[1]), UP_DIV(depthQuad, mLocalSize[2]));
     OPENGL_CHECK_ERROR;
-    
+
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     OPENGL_CHECK_ERROR;
-    
+
     auto gpuoutput = buffer->map(GL_MAP_READ_BIT);
     if(gpuoutput != nullptr){
         ::memcpy(outputData, gpuoutput, height * width * channel * sizeof(float));
     }
     buffer->unmap();
 }
-    
+
 void GLBackend::copyNhwcBufferToImage(GLuint textureId, const float *inputData, int width, int height, int channel) const {
-    
+
     int c_4 = UP_DIV(channel, 4);
     auto size      = ROUND_UP(channel, 4) * width * height * sizeof(float);
     auto buffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
-    
+
     auto gpuoutput = buffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     if(gpuoutput != nullptr){
         ::memcpy(gpuoutput, inputData, channel*height*width * sizeof(float));
     }
     buffer->unmap();
-    
+
     mRuntime->mNhwc2ImageProgram->useProgram();
 
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, getTextrueFormat());
@@ -203,22 +203,22 @@ void GLBackend::copyNhwcBufferToImage(GLuint textureId, const float *inputData, 
     OPENGL_CHECK_ERROR;
 
 }
-  
+
     void GLBackend::wait() const {
-        
+
 #ifdef USE_GL_FINISH
         glFinish();
 #else
         glFlush();
 #endif
-        
+
         }
-    
+
 void GLBackend::compute(int dim1, int dim2, int dim3, bool needWait) const {
     wait();
     glDispatchCompute(dim1, dim2, dim3);
 }
-    
+
 void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, int d3, bool align) const {
     wait();
     auto depthQuad = UP_DIV(d3, 4);
@@ -264,7 +264,7 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int width, int 
         mRuntime->mTempBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
     }
     auto &buffer = mRuntime->mTempBuffer;
-    
+
     auto gpuoutput = buffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     if(gpuoutput != nullptr){
         if (align) {
@@ -297,12 +297,20 @@ Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::v
     auto map  = gCreator();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+            MNN_PRINT("Don't support type %d\n", op->type());            
+        }
         return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (nullptr == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+            MNN_PRINT("The Creator Don't support type %d\n", op->type());            
+        }
         return nullptr;
     }
     return exe;
@@ -317,13 +325,13 @@ void GLBackend::onExecuteBegin() const {
 }
 
 void GLBackend::onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const {
-    
+
     std::vector<int> inputShape  = tensorShapeFormat(srcTensor);
     int ib = inputShape.at(0);
     int ih = inputShape.at(1);
     int iw = inputShape.at(2);
     int ic = inputShape.at(3);
-    
+
     // OpenGL -> Host
     if (NULL == srcTensor->buffer().host && srcTensor->buffer().device > 0) {
         if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NHWC){
@@ -344,7 +352,7 @@ void GLBackend::onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) c
     }else{
         MNN_ASSERT(false);
     }
-    
+
 }
 
 bool GLBackend::onClearBuffer() {
@@ -354,22 +362,29 @@ bool GLBackend::onClearBuffer() {
 }
 
 bool GLBackend::onReleaseBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
-    mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
+    // collects only for dynamic storage
+    if (Backend::DYNAMIC == storageType) {
+        mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
+    }
     return true;
 }
 
 bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
     auto tensor = (Tensor *)nativeTensor;
-    for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
-        auto preiousTensor = iter->first;
-        if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
-            UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
-            mRuntime->mFreeTextures.erase(iter);
-            tensor->buffer().device = iter->second;
-            return true;
+
+    // reuse only for dynamic storage
+    if (Backend::DYNAMIC == storageType) {
+        for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
+            auto preiousTensor = iter->first;
+            if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
+                UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
+                mRuntime->mFreeTextures.erase(iter);
+                tensor->buffer().device = iter->second;
+                return true;
+            }
         }
     }
-
+    
     std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel(), getTextrueFormat()));
     tensor->buffer().device = newTexture->id();
     mRuntime->mBlocks.push_back(std::move(newTexture));
@@ -415,29 +430,39 @@ std::shared_ptr<GLProgram> GLBackend::getProgram(const std::string &key, const c
 bool GLBackend::isCreateError() const {
     return mIsCreateError;
 }
-class GLBackendCreator : public BackendCreator {
+
+Backend* GLRuntime::onCreate(const BackendConfig* config) const {
+    BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
+    BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
+    if (nullptr != mInfo.user) {
+        precision = mInfo.user->precision;
+        power     = mInfo.user->power;
+    }
+    auto backend = new GLBackend(precision, power);
+    return backend;
+}
+
+Runtime::CompilerType GLRuntime::onGetCompilerType() const {
+    return Compiler_Origin;
+}
+
+class GLRuntimeCreator : public RuntimeCreator {
 public:
-    virtual Backend *onCreate(const Backend::Info &info) const override {
-        BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
-        BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
-        if (nullptr != info.user) {
-            precision = info.user->precision;
-            power     = info.user->power;
+    virtual Runtime *onCreate(const Backend::Info &info) const override {
+        auto rt = new GLRuntime(info);
+        auto bn = (GLBackend*)(rt->onCreate(nullptr));
+        if (bn->isCreateError()) {
+            delete bn;
+            delete rt;
+            return nullptr;
         }
-        auto backend = new GLBackend(precision, power);
-        if(backend != nullptr){
-            if(!backend->isCreateError()){
-                return backend;
-            }else{
-                delete backend;
-            }
-        }
-        return nullptr;   
+        delete bn;
+        return rt;
     }
 };
 
 static const auto __opengl_global_initializer = []() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_OPENGL, new GLBackendCreator, true);
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, true);
     return true;
 }();
 } // namespace OpenGL

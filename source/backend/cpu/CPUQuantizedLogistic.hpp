@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedLogistic_hpp
 #define CPUQuantizedLogistic_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 namespace MNN {
@@ -24,6 +24,7 @@ public:
 private:
     const QuantizedLogistic *mLogisticParam;
     int mInputMultiplier;
+    int mInputZeroPoint;
     int mInputLeftShift;
     int mInputRangeRadius;
 };

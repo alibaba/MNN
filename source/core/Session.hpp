@@ -9,26 +9,23 @@
 #ifndef Session_hpp
 #define Session_hpp
 
+#include <MNN/Tensor.hpp>
 #include <map>
 #include <memory>
 #include <vector>
-#include "Backend.hpp"
-#include "Macro.h"
 #include "Pipeline.hpp"
 #include "Schedule.hpp"
-#include "SizeComputer.hpp"
-#include "Tensor.hpp"
+#include "core/Backend.hpp"
+#include "core/Macro.h"
+#include "shape/SizeComputer.hpp"
 
 namespace MNN {
 struct Net;
 /** infer unit. multiple sessions could share one net. */
 class MNN_PUBLIC Session {
 public:
-    /**
-     * @breif initializ with schedule info.
-     * @param info  given schedule info.
-     */
-    Session(const Schedule::ScheduleInfo& info);
+    Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode, Interpreter::SessionMode inputMode,
+            RuntimeInfo&& runtime);
     ~Session();
 
 public:
@@ -46,32 +43,28 @@ public:
      */
     ErrorCode runWithCallBack(const TensorCallBackWithInfo& enterCallback, const TensorCallBackWithInfo& exitCallback,
                               bool sync = false) const;
-    /**
-     * @brief infer with loops. used for profiling only.
-     * @param loops run times.
-     * @return result code.
-     */
-    ErrorCode runWithProfiler(int loops) const;
 
+    bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
+
+    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex);
+    const std::map<const Op*, std::shared_ptr<Execution>>& getExecution(int pipelineIndex);
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.
      * @return result code.
      */
-    ErrorCode resize();
-    /**
-     * @brief check if needs resize.
-     * @return needs resize or not.
-     */
-    bool getNeedResize() const {
-        return mNeedResize;
-    }
+    ErrorCode resize(bool isStatic = false);
+
     /**
      * @brief set if needs resize.
      * @param flag  needs resize or not.
      */
     void setNeedResize(bool flag = true) {
         mNeedResize = flag;
+    }
+
+    void setNeedMalloc(bool flag = true) {
+        mNeedMalloc = flag;
     }
 
 public:
@@ -112,36 +105,33 @@ public:
     }
 
     /**
-     * @brief the session will not be resized any more, release all cache used for resize.
-     * @return errorcode
-     */
-    ErrorCode releaseCache();
-
-    /**
      * @brief update the session's const value to origin model's const blob.
      * @return errorcode
      */
     ErrorCode updateToModel(Net* net) const;
 
+    bool loadCache(const void* buffer, size_t size);
+    std::pair<const void*, size_t> getCache();
+
 protected:
-    const std::vector<std::unique_ptr<Pipeline>>& getPipelines() const {
+    const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const {
         return this->mPipelines;
     }
 
 private:
     void _clearCache();
     void _setUpTensorInfo(const Schedule::ScheduleInfo& info);
-    Backend* _getDefaultBackend();
 
 private:
-    std::map<MNNForwardType, std::unique_ptr<Backend>> mBackends;
-    std::vector<std::unique_ptr<Pipeline>> mPipelines;
-    std::vector<std::pair<int, std::shared_ptr<Tensor>>> mTensors;
+    RuntimeInfo mRuntime;
+    std::vector<std::shared_ptr<Pipeline>> mPipelines;
+    std::vector<std::shared_ptr<Tensor>> mTensors;
     std::map<std::string, Tensor*> mInputs;
     std::map<std::string, Tensor*> mOutputs;
-    bool mNeedResize       = false;
-    bool mValid            = true;
-    Backend* mFirstBackend = nullptr;
+    bool mNeedResize = true;
+    bool mValid      = true;
+    bool mNeedMalloc = true;
+    Interpreter::SessionMode mCallBackMode;
 };
 } // namespace MNN
 

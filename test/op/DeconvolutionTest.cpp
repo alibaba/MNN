@@ -2,259 +2,192 @@
 //  DeconvolutionTest.cpp
 //  MNNTests
 //
-//  Created by MNN on 2019/01/15.
+//  Created by MNN on 2019/12/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <string>
+#include <vector>
 #include "MNNTestSuite.h"
-#include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
 #include "TestUtils.h"
-
+using namespace std;
 using namespace MNN;
+using namespace MNN::Express;
 
-static Interpreter *create(int oc, // output channel
-                           int is, // input size
-                           int c,  // input channel
-                           int b,  // batch
-                           int d,  // dilation
-                           int kw, // kenrel width
-                           int kh, // kenrel height
-                           int s,  // stride
-                           int p,  // padding
-                           int g,  // group
-                           std::vector<float> wt, std::vector<float> bias, bool depthwise) {
-    flatbuffers::FlatBufferBuilder fbb;
-    std::vector<flatbuffers::Offset<Op>> vec;
+class DeconvolutionCommonTest : public MNNTestCase {
+public:
+    virtual ~DeconvolutionCommonTest() = default;
 
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({b, c, is, is}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input");
-        auto iv    = fbb.CreateVector(std::vector<int>({0}));
-        auto ov    = fbb.CreateVector(std::vector<int>({0}));
+protected:
+    static bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name,
+                    vector<float>& inputData, vector<float>& weightData, vector<float>& biasData, vector<float>& rightOutData,
+                    int batch, int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh,
+                    int kw, int stride, int dilation, int group) {
+        std::map<PadMode, Express::PaddingMode> padMap = {
+            {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
+        auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
+        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+        auto output = _Deconv(std::move(weightData), std::move(biasData), input, {ic, oc}, {kw, kh}, padMap[mode],
+                              {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, false, false);
 
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
+        // difference below 0.5% relative error is considered correct.
+        auto outputPtr = output->readMap<float>();
+        if (!checkVectorByRelativeError<float>(outputPtr, rightOutData.data(), rightOutData.size(), 0.005)) {
+            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+            return false;
+        }
+        return true;
     }
-    {
-        auto ccb = Convolution2DCommonBuilder(fbb);
-        ccb.add_dilateX(d);
-        ccb.add_dilateY(d);
-        ccb.add_strideX(s);
-        ccb.add_strideY(s);
-        ccb.add_kernelX(kw);
-        ccb.add_kernelY(kh);
-        ccb.add_padX(p);
-        ccb.add_padY(p);
-        ccb.add_group(g);
-        ccb.add_outputCount(oc);
-        auto common  = ccb.Finish();
-        auto weights = fbb.CreateVector(wt);
-        auto biases  = fbb.CreateVector(bias);
+};
 
-        auto cb = Convolution2DBuilder(fbb);
-        cb.add_common(common);
-        cb.add_weight(weights);
-        cb.add_bias(biases);
-        auto conv = cb.Finish();
-        auto name = fbb.CreateString("deconv");
-        auto iv   = fbb.CreateVector(std::vector<int>({0}));
-        auto ov   = fbb.CreateVector(std::vector<int>({1}));
-        OpBuilder builder(fbb);
-        builder.add_type(depthwise ? OpType_DeconvolutionDepthwise : OpType_Deconvolution);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Convolution2D);
-        builder.add_main(flatbuffers::Offset<void>(conv.o));
-        vec.push_back(builder.Finish());
-    }
-
-    auto ops   = fbb.CreateVector(vec);
-    auto names = fbb.CreateVectorOfStrings({"input", "output"});
-    NetBuilder net(fbb);
-    net.add_oplists(ops);
-    net.add_tensorName(names);
-    fbb.Finish(net.Finish());
-    return Interpreter::createFromBuffer((const char *)fbb.GetBufferPointer(), fbb.GetSize());
-}
-
-static Tensor *infer(const Interpreter *net, Session *session) {
-    net->runSession(session);
-    return net->getSessionOutputAll(session).begin()->second;
-}
-
-class DeconvolutionTest : public MNNTestCase {
+class DeconvolutionTest : public DeconvolutionCommonTest {
 public:
     virtual ~DeconvolutionTest() = default;
-    virtual bool run() {
-        for (int b = 1; b <= 2; b++) {
-            for (int g = 1; g <= 1; g++) {
-                for (int o = 1; o <= 8; o *= 2) {
-                    for (int c = 1; c <= 8; c *= 2) {
-                        for (int is = 1; is <= 8; is *= 2) {
-                            for (int kw = 1; kw <= 8 && kw <= is; kw *= 2) {
-                                for (int kh = 2; kh <= 8 && kh <= is; kh *= 2) {
-                                    for (int d = 1; d <= 2 && d <= std::min(kw, kh); d++) {
-                                        for (int s = 1; s <= 4; s *= 2) {
-                                            for (int p = 0; p <= 2 && p <= is && p <= std::min(kw, kh); p++) {
-                                                if ((is - 1) * s + d * (kw - 1) + 1 - p * 2 <= 0)
-                                                    continue;
-                                                if ((is - 1) * s + d * (kh - 1) + 1 - p * 2 <= 0)
-                                                    continue;
+    virtual bool run(int precision) {
+        MNN_PRINT("beigin testcase 0\n");
 
-                                                dispatch([&](MNNForwardType backend) -> void {
-                                                    if (backend == MNN_FORWARD_CPU)
-                                                        return;
-                                                    std::vector<float> wt, bias;
-                                                    for (int i = 0; i < g * (o / g) * (c / g) * kw * kh; i++) {
-                                                        wt.push_back(rand() % 255 / 255.f);
-                                                    }
-                                                    for (int i = 0; i < o; i++) {
-                                                        bias.push_back(rand() % 255 / 255.f);
-                                                    }
+        {
+            std::vector<float> data_a = {// channel 0
+                                         1.0, 2.0, 4.0, 5.0,
+                                         // channel 1
+                                         1.1, 2.1, 4.1, 5.1,
+                                         // channel 2
+                                         1.2, 2.2, 4.2, 5.2};
 
-                                                    // nets
-                                                    auto net = create(o, is, c, b, d, kw, kh, s, p, g, wt, bias, false);
-                                                    auto CPU = createSession(net, MNN_FORWARD_CPU);
-                                                    auto GPU = createSession(net, backend);
-                                                    if (!CPU || !GPU) {
-                                                        delete net;
-                                                        return;
-                                                    }
+            std::vector<float> weight = {
+                // output channel0
+                // input channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel2
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
 
-                                                    // input/output
-                                                    auto input = new Tensor(4);
-                                                    {
-                                                        input->buffer().dim[0].extent = b;
-                                                        input->buffer().dim[1].extent = c;
-                                                        input->buffer().dim[2].extent = is;
-                                                        input->buffer().dim[3].extent = is;
-                                                        TensorUtils::setLinearLayout(input);
-                                                        input->buffer().host = (uint8_t *)malloc(input->size());
-                                                        for (int i = 0; i < is * is * c * b; i++) {
-                                                            input->host<float>()[i] = rand() % 255 / 255.f;
-                                                        }
-                                                        auto host   = net->getSessionInput(CPU, NULL);
-                                                        auto device = net->getSessionInput(GPU, NULL);
-                                                        net->getBackend(CPU, host)->onCopyBuffer(input, host);
-                                                        net->getBackend(GPU, device)->onCopyBuffer(input, device);
-                                                    }
+                // output channel1
+                // input channel0
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel1
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel2
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            };
+            std::vector<float> bias   = {0.0, 0.0};
+            std::vector<float> data_c = {3.3,  3.3,  9.6,  6.3,  6.3,  3.3,  3.3,  9.6,  6.3,  6.3,  15.6, 15.6, 37.2,
+                                         21.6, 21.6, 12.3, 12.3, 27.6, 15.3, 15.3, 12.3, 12.3, 27.6, 15.3, 15.3,
 
-                                                    // infer
-                                                    assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU),
-                                                                                       0.015));
+                                         6.6,  6.6,  19.2, 12.6, 12.6, 6.6,  6.6,  19.2, 12.6, 12.6, 31.2, 31.2, 74.4,
+                                         43.2, 43.2, 24.6, 24.6, 55.2, 30.6, 30.6, 24.6, 24.6, 55.2, 30.6, 30.6};
 
-                                                    // clean up
-                                                    free(input->buffer().host);
-                                                    delete input;
-                                                    delete net;
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            int ic = 3, oc = 2;
+            int kw = 3, kh = 3, ih = 2, iw = 2;
+            int stride = 2, dilation = 1;
+            int group = 1, batch = 1;
+            int pad_w = 0, pad_h = 0;
+
+            bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "DeconvolutionTest0", data_a, weight, bias, data_c,
+                                                      batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
+                                                      stride, dilation, group);
+            if (!succ) {
+                return false;
             }
         }
+
+        MNN_PRINT("beigin testcase 1\n");
+        {
+            std::vector<float> data_a = {// channel 0
+                                         1.0, 2.0, 4.0, 5.0,
+                                         // channel 1
+                                         1.1, 2.1, 4.1, 5.1,
+                                         // channel 2
+                                         1.2, 2.2, 4.2, 5.2};
+
+            std::vector<float> weight = {
+                // output channel0
+                // input channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel2
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+
+                // output channel1
+                // input channel0
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel1
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel2
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            };
+            std::vector<float> bias   = {1.0, 2.0};
+            std::vector<float> data_c = {
+                4.3, 10.6, 10.6, 7.3,  16.6, 38.2, 38.2, 22.6, 16.6, 38.2, 38.2, 22.6, 13.3, 28.6, 28.6, 16.3,
+
+                8.6, 21.2, 21.2, 14.6, 33.2, 76.4, 76.4, 45.2, 33.2, 76.4, 76.4, 45.2, 26.6, 57.2, 57.2, 32.6,
+            };
+            int ic = 3, oc = 2;
+            int kw = 4, kh = 4, ih = 2, iw = 2;
+            int stride = 2, dilation = 1;
+            int group = 1, batch = 1;
+            int pad_w = 1, pad_h = 1;
+
+            bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "Deconv", data_a, weight, bias, data_c,
+                                                      batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
+                                                      stride, dilation, group);
+            if (!succ) {
+                return false;
+            }
+        }
+
+        MNN_PRINT("beigin testcase 2\n");
+        {
+            std::vector<float> data_a = {// channel 0
+                                         1.0, 2.0, 4.0, 5.0,
+                                         // channel 1
+                                         1.1, 2.1, 4.1, 5.1,
+                                         // channel 2
+                                         1.2, 2.2, 4.2, 5.2};
+
+            std::vector<float> weight = {
+                // output channel0
+                // input channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel2
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+
+                // output channel1
+                // input channel0
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                // input channel1
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // input channel2
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            };
+            std::vector<float> bias   = {0.0, 0.0};
+            std::vector<float> data_c = {3.3,  3.3,  9.6,  6.3,  3.3,  3.3,  9.6,  6.3, 15.6, 15.6, 37.2,
+                                         21.6, 12.3, 12.3, 27.6, 15.3,
+
+                                         6.6,  6.6,  19.2, 12.6, 6.6,  6.6,  19.2, 12.6, 31.2, 31.2, 74.4,
+                                         43.2, 24.6, 24.6, 55.2, 30.6};
+            int ic = 3, oc = 2;
+            int kw = 3, kh = 3, ih = 2, iw = 2;
+            int stride = 2, dilation = 1;
+            int group = 1, batch = 1;
+            int pad_w = 0, pad_h = 0;
+
+            bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "Deconv", data_a, weight, bias, data_c,
+                                                      batch, ic, oc, ih, iw, PadMode_SAME, pad_h, pad_w, kh, kw,
+                                                      stride, dilation, group);
+            if (!succ) {
+                return false;
+            }
+        }
+
         return true;
     }
 };
+MNNTestSuiteRegister(DeconvolutionTest, "op/Deconvolution");
 
-class DepthwiseDeconvolutionTest : public MNNTestCase {
-public:
-    virtual ~DepthwiseDeconvolutionTest() = default;
-    virtual bool run() {
-        for (int b = 1; b <= 2; b++) {
-            for (int o = 4; o <= 8; o *= 2) {
-                for (int g = o; g <= o; g++) {
-                    for (int c = o; c <= o; c++) {
-                        for (int is = 1; is <= 8; is *= 2) {
-                            for (int kw = 1; kw <= 8 && kw <= is; kw *= 2) {
-                                for (int kh = 1; kh <= 8 && kh <= is; kh *= 2) {
-                                    for (int d = 1; d <= 2 && d <= std::min(kw, kh); d++) {
-                                        for (int s = 1; s <= 4; s *= 2) {
-                                            for (int p = 0; p <= 2 && p <= is && p <= std::min(kw, kh); p++) {
-                                                if ((is - 1) * s + d * (kw - 1) + 1 - p * 2 <= 0)
-                                                    continue;
-                                                if ((is - 1) * s + d * (kh - 1) + 1 - p * 2 <= 0)
-                                                    continue;
-
-                                                dispatch([&](MNNForwardType backend) -> void {
-                                                    if (backend == MNN_FORWARD_CPU)
-                                                        return;
-                                                    std::vector<float> wt, bias;
-                                                    for (int i = 0; i < g * (o / g) * (c / g) * kw * kh; i++) {
-                                                        wt.push_back(rand() % 255 / 255.f);
-                                                    }
-                                                    for (int i = 0; i < o; i++) {
-                                                        bias.push_back(rand() % 255 / 255.f);
-                                                    }
-
-                                                    // nets
-                                                    auto net = create(o, is, c, b, d, kw, kh, s, p, g, wt, bias, true);
-                                                    auto CPU = createSession(net, MNN_FORWARD_CPU);
-                                                    auto GPU = createSession(net, backend);
-                                                    if (!CPU || !GPU) {
-                                                        delete net;
-                                                        return;
-                                                    }
-
-                                                    // input/output
-                                                    auto input = new Tensor(4);
-                                                    {
-                                                        input->buffer().dim[0].extent = b;
-                                                        input->buffer().dim[1].extent = c;
-                                                        input->buffer().dim[2].extent = is;
-                                                        input->buffer().dim[3].extent = is;
-                                                        TensorUtils::setLinearLayout(input);
-                                                        input->buffer().host = (uint8_t *)malloc(input->size());
-                                                        for (int i = 0; i < is * is * c * b; i++) {
-                                                            input->host<float>()[i] = rand() % 255 / 255.f;
-                                                        }
-                                                        auto host   = net->getSessionInput(CPU, NULL);
-                                                        auto device = net->getSessionInput(GPU, NULL);
-                                                        net->getBackend(CPU, host)->onCopyBuffer(input, host);
-                                                        net->getBackend(GPU, device)->onCopyBuffer(input, device);
-                                                    }
-
-                                                    // infer
-                                                    assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU),
-                                                                                       0.015));
-
-                                                    // clean up
-                                                    free(input->buffer().host);
-                                                    delete input;
-                                                    delete net;
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return true;
-    }
-};
-
-MNNTestSuiteRegister(DeconvolutionTest, "op/deconvolution/deconv");
-MNNTestSuiteRegister(DepthwiseDeconvolutionTest, "op/deconvolution/depthwise_deconv");
-// deconv do not support group now

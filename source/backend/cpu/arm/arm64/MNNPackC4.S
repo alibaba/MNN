@@ -13,26 +13,40 @@
 .align 5
 
 asm_function MNNPackC4
-//void MNNPackC4(float* dst, const float* src, size_t area, size_t depth)
+//void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int32_t* areaOffset)
 //Auto load:
-//x0:dst, x1:src, x2:area, x3:depth
-mul x4, x2, x3
-cmp x4, #0
+//x0:dst, x1:src, x2:area, x3:depth, x4: areaOffset, x5: areaOffset
+mul x12, x2, x3
+cmp x12, #0
 beq UpEnd
 
+ldr w10, [x4, #4] // dstDepthOffset
+ldr w9, [x4, #0] // srcDepthOffset
+uxtw x10, w10
+uxtw x9, w9
 
-//x4: srcDepthOffset:area*sizeof(float)
-mov x4, #4
-mul x4, x2, x4
+//x12: srcDepthOffset:area*sizeof(float)
+mov x12, #4
+mul x12, x9, x12
+
+//r10 -> 4 * (dstArea * sizeof(float) - area * sizeof(float))
+mov x5, #16
+sub x10, x10, x2
+mul x10, x5, x10
+
+//r9 -> (srcArea * sizeof(float) - area * sizeof(float))
+mov x6, #4
+sub x9, x9, x2
+mul x9, x6, x9
 
 UpL4:
 cmp x3, #3
 ble UpL3
 
 UpL4Loop:
-add x5, x1, x4
-add x6, x4, x5
-add x7, x4, x6
+add x5, x1, x12
+add x6, x12, x5
+add x7, x12, x6
 mov x8, x2
 cmp x8, #3
 ble UpL4AreaRemain
@@ -62,15 +76,16 @@ subs x8, x8, #1
 bne UpL4AreaRemainLoop
 UpL4AreaRemainEnd:
 sub x3, x3, #4
-mov x1, x7
+add x1, x7, x9
 cmp x3, #4
+add x0, x10, x0
 bge UpL4Loop
 
 UpL3:
 cmp x3, #2
 ble UpL2
-add x5, x1, x4
-add x6, x4, x5
+add x5, x1, x12
+add x6, x12, x5
 mov x8, x2
 cmp x8, #3
 ble UpL3AreaRemain
@@ -105,7 +120,7 @@ sub x3, x3, #3
 UpL2:
 cmp x3, #1
 ble UpL1
-add x5, x1, x4
+add x5, x1, x12
 mov x8, x2
 cmp x8, #3
 ble UpL2AreaRemain

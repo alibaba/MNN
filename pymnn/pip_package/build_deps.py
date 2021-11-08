@@ -4,10 +4,17 @@
 import os
 import shutil
 import platform
+import sys
+
 IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
-BUILD_DIR = 'build'
+BUILD_DIR = 'pymnn_build' # avoid overwrite temporary product when build pymnn
+
+USE_TRT=False
+if len(sys.argv) > 1 and sys.argv[1] == '-trt':
+    USE_TRT=True
+
 def build_deps():
     """ build depency """
     root_dir = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -18,22 +25,20 @@ def build_deps():
     os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
     if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_QUANTOOLS=ON\
-            -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release .. && ninja')
+        os.system('cmake -G "Ninja" -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on\
+            -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON\
+            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNTrain MNNConvert')
+    elif IS_LINUX:
+        extra_opts = '-DMNN_TENSORRT=ON \
+        -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs/ ' if USE_TRT else ' '
+        os.system('cmake ' + extra_opts +
+            '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
+            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
+            -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=on .. && make MNN MNNTrain MNNConvert -j4')
     else:
-        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
-    #build_converter_project
-    converter_dir = os.path.join(root_dir, "tools", "converter")
-    converter_build_dir = os.path.join(converter_dir, BUILD_DIR)
-    if os.path.exists(converter_build_dir):
-        shutil.rmtree(converter_build_dir)
-    os.makedirs(converter_build_dir)
-    os.chdir(converter_build_dir)
-    if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release .. && ninja')
-    else:
-        os.system('cmake -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
-    os.chdir(root_dir)
+        os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
+            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_EXPR_SHAPE_EAGER=ON -DMNN_TRAIN_DEBUG=ON\
+            .. && make MNN MNNTrain MNNConvert  -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

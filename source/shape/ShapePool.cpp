@@ -8,8 +8,8 @@
 
 #include <math.h>
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 class PoolSizeComputer : public SizeComputer {
@@ -23,6 +23,7 @@ public:
         auto output = outputs[0];
 
         ::memcpy(output->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
+        output->buffer().dimensions = input->dimensions();
 
         auto layer = op->main_as_Pool();
         int outw   = 1;
@@ -35,33 +36,51 @@ public:
             }
             int w = input->width();
             int h = input->height();
-            if (layer->padX() > 0)
+            if (nullptr != layer->pads()) {
+                // pads = 2, just add padh_h, padh_l
+                if (layer->pads()->size() == 2) {
+                    h += (layer->pads()->data()[0] + layer->pads()->data()[1]);
+                }
+                // pads = 4, add padh_h, padh_l, padw_l, padw_r
+                if (layer->pads()->size() == 4) {
+                    w += (layer->pads()->data()[1] + layer->pads()->data()[3]);
+                    h += (layer->pads()->data()[0] + layer->pads()->data()[2]);
+                }
+            } else {
                 w += layer->padX() * 2;
-            if (layer->padY() > 0)
                 h += layer->padY() * 2;
+            }
+            int kernelWidth  = std::min(layer->kernelX(), w);
+            int kernelHeight = std::min(layer->kernelY(), h);
 
             if (layer->padType() == PoolPadType_SAME) { // Tensorflow padding mode SAME
                 outw = ceil((float)w / (float)layer->strideX());
                 outh = ceil((float)h / (float)layer->strideY());
             } else if (layer->padType() == PoolPadType_VALID) { // Tensorflow padding mode VALID
-                outw = ceil((float)(w - layer->kernelX() + 1) / (float)layer->strideX());
-                outh = ceil((float)(h - layer->kernelY() + 1) / (float)layer->strideY());
+                outw = ceil((float)(w - kernelWidth + 1) / (float)layer->strideX());
+                outh = ceil((float)(h - kernelHeight + 1) / (float)layer->strideY());
             } else {
                 if (layer->ceilModel()) {
-                    outw = UP_DIV(w - layer->kernelX(), layer->strideX()) + 1;
-                    outh = UP_DIV(h - layer->kernelY(), layer->strideY()) + 1;
+                    outw = UP_DIV(w - kernelWidth, layer->strideX()) + 1;
+                    outh = UP_DIV(h - kernelHeight, layer->strideY()) + 1;
                 } else {
-                    outw = floor((w - layer->kernelX()) / layer->strideX() + 1);
-                    outh = floor((h - layer->kernelY()) / layer->strideY() + 1);
+                    outw = floor((w - kernelWidth) / layer->strideX() + 1);
+                    outh = floor((h - kernelHeight) / layer->strideY() + 1);
                 }
             }
         }
         if (outw <= 0 || outh <= 0) {
             return false;
         }
-        output->buffer().dim[3].extent = outw;
-        output->buffer().dim[2].extent = outh;
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (format == MNN_DATA_FORMAT_NHWC) {
+            output->buffer().dim[2].extent = outw;
+            output->buffer().dim[1].extent = outh;
+        } else {
+            output->buffer().dim[3].extent = outw;
+            output->buffer().dim[2].extent = outh;
+        }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = format;
         output->buffer().type          = input->buffer().type;
 
         return true;

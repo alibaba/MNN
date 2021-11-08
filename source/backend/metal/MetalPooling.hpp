@@ -9,7 +9,7 @@
 #ifndef MetalPooling_hpp
 #define MetalPooling_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 
@@ -33,6 +33,9 @@ private:
     int mPadX;
     int mPadY;
     id<MTLBuffer> mConstBuffer;
+    MTLSize mGroup;
+    MTLSize mLocal;
+    id<MTLComputePipelineState> mPipeline;
 };
 
 } // namespace MNN

@@ -7,13 +7,13 @@
 //
 
 #include "VulkanResize.hpp"
-#include "Macro.h"
+#include "core/Macro.h"
 
 namespace MNN {
 struct GpuParam {
     ivec4 inImgSize;
     ivec4 outImgSize;
-    vec2 scale;
+    vec4 cord;
 };
 
 VulkanResize::VulkanResize(Backend* bn, float xScale, float yScale, int resizeType)
@@ -27,7 +27,11 @@ VulkanResize::VulkanResize(Backend* bn, float xScale, float yScale, int resizeTy
     if (1 == resizeType) {
         mVulkanResizePipeline = extra->getPipeline(
                                                    "glsl_resizeNearest_comp", VulkanResizeTypes);
+    } else if (2 == resizeType) {
+        mVulkanResizePipeline = extra->getPipeline(
+                                                   "glsl_resizeBilinear_comp", VulkanResizeTypes);
     } else {
+        MNN_ERROR("Vulkan don't Support %d resize Type, use Bilinear instead\n", resizeType);
         mVulkanResizePipeline = extra->getPipeline(
                                                    "glsl_resizeBilinear_comp", VulkanResizeTypes);
     }
@@ -37,7 +41,7 @@ VulkanResize::VulkanResize(Backend* bn, float xScale, float yScale, int resizeTy
 VulkanResize::~VulkanResize() {
 }
 
-ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, float xScale, float yScale,
+ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, const float* cords,
                                    const VulkanCommandPool::Buffer* cmdBuffer) {
     const int channelDiv4 = UP_DIV(input->channel(), 4);
     auto extra            = static_cast<VulkanBackend*>(backend());
@@ -52,15 +56,19 @@ ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, float xScale, 
     VulkanResizeParam->outImgSize[1] = output->height();
     VulkanResizeParam->outImgSize[2] = channelDiv4;
     VulkanResizeParam->outImgSize[3] = output->batch();
-    VulkanResizeParam->scale[0]      = xScale;
-    VulkanResizeParam->scale[1]      = yScale;
+    ::memcpy(VulkanResizeParam->cord, cords, 4 * sizeof(float));
     mParamBuffer->flush(true, 0, sizeof(GpuParam));
     mParamBuffer->unmap();
 
+    auto vkOutput = reinterpret_cast<VulkanTensor*>(output->deviceId());
+    auto vkInput  = reinterpret_cast<VulkanTensor*>(input->deviceId());
+    cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+    cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    
     mDescriptorSet.reset(mVulkanResizePipeline->createSet());
-    mDescriptorSet->writeImage((VkImageView)input->deviceId(), extra->getCommonSampler()->get(),
+    mDescriptorSet->writeImage(((VulkanTensor*)input->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
-    mDescriptorSet->writeImage((VkImageView)output->deviceId(), extra->getCommonSampler()->get(),
+    mDescriptorSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 1);
     mDescriptorSet->writeBuffer(mParamBuffer->buffer(), 2, mParamBuffer->size());
     mVulkanResizePipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
@@ -71,27 +79,5 @@ ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, float xScale, 
     return NO_ERROR;
 }
 
-ErrorCode VulkanResize::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                 const VulkanCommandPool::Buffer* cmdBuffer) {
-    auto input  = inputs[0];
-    auto output = outputs[0];
-
-    encodeImpl(input, output, 1.0f / mXScale, 1.0f / mYScale, cmdBuffer);
-
-    return NO_ERROR;
-}
-
-class VulkanResizeCreator : public VulkanBackend::Creator {
-public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        auto scale = op->main_as_Resize();
-        return new VulkanResize(bn, scale->xScale(), scale->yScale());
-    }
-};
-
-static bool gResistor = []() {
-    VulkanBackend::addCreator(OpType_Resize, new VulkanResizeCreator);
-    return true;
-}();
 
 } // namespace MNN

@@ -9,39 +9,51 @@
 #ifndef CPURelu_hpp
 #define CPURelu_hpp
 
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPURelu : public Execution {
 public:
-    CPURelu(Backend *b, float slope) : Execution(b), mSlope(slope) {
-        // nothing to do
-    }
+    CPURelu(Backend *b, float slope);
     virtual ~CPURelu() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
-    float mSlope;
+    AutoStorage<uint8_t> mSlope;
+    AutoStorage<uint8_t> mCacheSrc;
+    AutoStorage<uint8_t> mCacheDst;
+    int mRealSize;
 };
 
 class CPUPRelu : public Execution {
 public:
     CPUPRelu(Backend *b, const Op *op);
-    virtual ~CPUPRelu() = default;
+    virtual ~CPUPRelu();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    AutoStorage<float> mSlope;
+    Tensor mSlope;
 };
 
 class CPURelu6 : public Execution {
 public:
-    CPURelu6(Backend *b) : Execution(b) {
-        // nothing to do
+    CPURelu6(float maxV, float minV, Backend *b) : Execution(b) {
+        mParam = {
+            1.0f,
+            0.0f,
+            minV,
+            maxV
+        };
     }
     virtual ~CPURelu6() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+private:
+    std::vector<float> mParam;
+    AutoStorage<uint8_t> mCacheSrc;
+    AutoStorage<uint8_t> mCacheDst;
+    int mRealSize;
 };
 
 } // namespace MNN

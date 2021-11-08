@@ -9,21 +9,23 @@
 #ifndef CPUBinary_hpp
 #define CPUBinary_hpp
 
-#include "Execution.hpp"
-
+#include "core/Execution.hpp"
+#include "compute/CommonOptFunction.h"
 namespace MNN {
-
-template <typename T>
 class CPUBinary : public Execution {
 public:
-    CPUBinary(Backend *b, int32_t type);
+    CPUBinary(Backend *b, MNNBinaryExecute proc) : Execution(b) {
+        mProc = proc;
+    }
     virtual ~CPUBinary() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-protected:
-    int32_t mType;
-    std::shared_ptr<Execution> mEltWise;
+    static MNNBinaryExecute selectForFloat(int opType);
+private:
+    MNNBinaryExecute mProc;
+    int mNeedBroadcastIndex = -1;
+    int mTotalSize;
 };
 } // namespace MNN
 #endif /* CPUBinary_hpp */

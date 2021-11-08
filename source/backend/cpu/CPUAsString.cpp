@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUAsString.hpp"
+#include "backend/cpu/CPUAsString.hpp"
 #include <string.h>
 #include <functional>
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 #define INT_CAPACITY 10
@@ -82,7 +82,6 @@ public:
         auto outputData = outputTensor->host<char*>();
 
         MNN_ASSERT(mSourceType == DataType_DT_FLOAT || mSourceType == DataType_DT_BOOL);
-
         switch (mSourceType) {
             case DataType_DT_FLOAT: {
                 auto data = inputTensor->host<float>();

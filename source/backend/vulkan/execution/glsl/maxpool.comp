@@ -1,8 +1,7 @@
 #version 440 core
 layout(std430) buffer;
-layout(std430) uniform;
-layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
-layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
 
 
 layout(set=0, binding=2) uniform constBuffer {
@@ -20,8 +19,10 @@ void main()
     ivec3 pos = ivec3(gl_GlobalInvocationID);
     ivec3 outputSize = uConstant.outputSize.xyz;
     ivec2 spos = pos.xy*uConstant.stride-uConstant.pad;
+    int batch = pos.z / uConstant.outputSize.z;
+    int depth = pos.z % uConstant.outputSize.z;
 
-    if (all(lessThan(pos, outputSize)))
+    if (all(lessThan(ivec4(pos.x, pos.y, depth, batch), uConstant.outputSize)))
     {
         ivec2 inputSizeXY = uConstant.inputSize.xy;
         vec4 color = vec4(-100000.0);
@@ -33,9 +34,9 @@ void main()
             for (int fx=sfxy.x; fx<efxy.x; ++fx)
             {
                 ivec2 spos_ = spos + ivec2(fx, fy);
-                color = max(texelFetch(uInput, ivec3(spos_.x, spos_.y, pos.z), 0), color);
+                color = max(texelFetch(uInput, ivec2(spos_.x + depth * uConstant.inputSize.x, spos_.y + batch * uConstant.inputSize.y), 0), color);
             }
         }
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec2(pos.x + depth * uConstant.outputSize.x, pos.y + batch * uConstant.outputSize.y), color);
     }
 }

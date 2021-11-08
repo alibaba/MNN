@@ -17,7 +17,7 @@
 asm_function MNNMinFloat
 //void MNNMinFloat(float* input, float * minBuffer, int32_t inputCountUnit);
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
 //Auto: r0: input, r1:minBuffer, r2: inputCountUnit
 
@@ -36,7 +36,8 @@ Loop:
 vst1.f32 {q15}, [r1]
 
 End:
-pop {r4-r11, pc}
+
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

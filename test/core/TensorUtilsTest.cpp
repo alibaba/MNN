@@ -7,14 +7,14 @@
 //
 
 #include "MNNTestSuite.h"
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
 
 using namespace MNN;
 
 class TensorUtilsTest : public MNNTestCase {
 public:
     virtual ~TensorUtilsTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         // copy
         {
             Tensor src(3, Tensor::TENSORFLOW);

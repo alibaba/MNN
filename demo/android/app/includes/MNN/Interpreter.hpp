@@ -12,9 +12,9 @@
 #include <functional>
 #include <map>
 #include <string>
-#include "ErrorCode.hpp"
-#include "MNNForwardType.h"
-#include "Tensor.hpp"
+#include <MNN/ErrorCode.hpp>
+#include <MNN/MNNForwardType.h>
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 

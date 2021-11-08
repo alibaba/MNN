@@ -15,12 +15,12 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 
-#include "ImageProcess.hpp"
-#include "Interpreter.hpp"
+#include <MNN/ImageProcess.hpp>
+#include <MNN/Interpreter.hpp>
 #include "PoseNames.hpp"
 
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 using namespace MNN;
 
 #define MODEL_IMAGE_SIZE 513
@@ -33,9 +33,9 @@ using namespace MNN;
 #define NMS_RADIUS 20
 #define LOCAL_MAXIMUM_RADIUS 1
 
-#define OFFSET_NODE_NAME "Conv2D_1"
-#define DISPLACE_FWD_NODE_NAME "Conv2D_2"
-#define DISPLACE_BWD_NODE_NAME "Conv2D_3"
+#define OFFSET_NODE_NAME "offset_2"
+#define DISPLACE_FWD_NODE_NAME "displacement_fwd_2"
+#define DISPLACE_BWD_NODE_NAME "displacement_bwd_2"
 #define HEATMAPS "heatmap"
 
 #define CIRCLE_RADIUS 3
@@ -361,7 +361,7 @@ int main(int argc, char* argv[]) {
         const auto rgbaPtr = reinterpret_cast<uint8_t*>(inputImage);
         pretreat->convert(rgbaPtr, originalWidth, originalHeight, 0, input);
     }
-    
+
     // read image data from txt
     //  {
     //      MNN::Tensor givenTensor(input, Tensor::CAFFE);
@@ -392,7 +392,7 @@ int main(int argc, char* argv[]) {
     Tensor displacementFwdHost(displacementFwd, Tensor::CAFFE);
     Tensor displacementBwdHost(displacementBwd, Tensor::CAFFE);
     Tensor heatmapsHost(heatmaps, Tensor::CAFFE);
-    
+
     offsets->copyToHostTensor(&offsetsHost);
     displacementFwd->copyToHostTensor(&displacementFwdHost);
     displacementBwd->copyToHostTensor(&displacementBwdHost);

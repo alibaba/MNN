@@ -1,71 +1,44 @@
 /*
-    MNN python module 
+    MNN python module
 */
 #include <Python.h>
 #include "structmember.h"
-
+#include "util.h"
 #include "MNN_generated.h"
-#include "PostConverter.hpp"
-#include "addBizCode.hpp"
-#include "caffeConverter.hpp"
-#include "liteConverter.hpp"
-#include "onnxConverter.hpp"
-#include "tensorflowConverter.hpp"
-#include "writeFb.hpp"
 #include "config.hpp"
+#include "cli.hpp"
 #include "calibration.hpp"
 #include "logkit.h"
+#include <MNN/MNNDefine.h>
+#include <vector>
 using namespace MNN;
 using namespace std;
 /// module init
 
-static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
-
-    const char* mnnModel = NULL;
-    const char* modelFile = NULL;
-    PyObject* frameworkType = NULL;
-    const char* bizCode;
-    PyObject* benchmarkModel = NULL;
-    const char* prototxtFile = NULL;
-    if (!PyArg_ParseTuple(args, "ssOsO|s", &mnnModel, &modelFile, &frameworkType, &bizCode, &benchmarkModel, &prototxtFile)) {
-        return NULL;
+static PyObject* PyTool_Converter(PyObject *self, PyObject *argsTuple) {
+    int tupleSize = PyTuple_GET_SIZE(argsTuple);
+    if (tupleSize < 1) {
+        MNN_ERROR("Invalid input for Converter\n");
+        return nullptr;
     }
-    struct modelConfig modelPath;
-    modelPath.MNNModel = std::string(mnnModel);
-    modelPath.modelFile = std::string(modelFile);
-    modelPath.model = static_cast<modelConfig::MODEL_SOURCE>(PyLong_AsLong(frameworkType));
-    modelPath.bizCode = std::string(bizCode);
-    modelPath.benchmarkModel = static_cast<bool>(PyLong_AsLong(benchmarkModel));
-    if(prototxtFile){
-	modelPath.prototxtFile = std::string(prototxtFile);
+    PyObject* args = PyTuple_GET_ITEM(argsTuple, 0);
+    int argSize = PyList_Size(args);
+    std::vector<char*> argsCpp(argSize);
+    std::vector<PyObject*> argsContant(argSize);
+    for (int i=0; i<argSize; ++i) {
+        argsContant[i] = PyList_GetItem(args, i);
+        PyArg_Parse(argsContant[i], "s", argsCpp.data() + i);
     }
-   
-    std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
-    if (modelPath.model == modelConfig::CAFFE) {
-        caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
-    } else if (modelPath.model == modelConfig::TENSORFLOW) {
-        tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
-    } else if (modelPath.model == modelConfig::MNN) {
-        addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
-    } else if (modelPath.model == modelConfig::ONNX) {
-        onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
-    } else if (modelPath.model == modelConfig::TFLITE) {
-        tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
-    } else {
-        std::cout << "Not Support Model Type" << std::endl;
+    modelConfig modelPath;
+    auto res = MNN::Cli::initializeMNNConvertArgs(modelPath, argSize, argsCpp.data());
+    if (!res) {
+        Py_RETURN_TRUE;
     }
-
-    if (modelPath.model != modelConfig::MNN) {
-        std::cout << "Start to Optimize the MNN Net..." << std::endl;
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT);
-        writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel);
-    } else {
-        writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel);
-    }
+    MNN::Cli::convertModel(modelPath);
     Py_RETURN_TRUE;
 }
-static PyObject* PyTool_Quantization(PyObject *self, PyObject *args) {
 
+static PyObject* PyTool_Quantization(PyObject *self, PyObject *args) {
     const char* modelFile      = NULL;
     const char* preTreatConfig = NULL;
     const char* dstFile        = NULL;
@@ -103,21 +76,13 @@ static PyObject* PyTool_Quantization(PyObject *self, PyObject *args) {
     // quantize model's weight
     DLOG(INFO) << "Calibrate the feature and quantize model...";
     std::shared_ptr<Calibration> calibration(
-        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig));
+        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig, std::string(modelFile), std::string(dstFile)));
     calibration->runQuantizeModel();
+    calibration->dumpTensorScales(dstFile);
     DLOG(INFO) << "Quantize model done!";
 
-    flatbuffers::FlatBufferBuilder builderOutput(1024);
-    builderOutput.ForceDefaults(true);
-    auto len = MNN::Net::Pack(builderOutput, netT.get());
-    builderOutput.Finish(len);
-
-    {
-        std::ofstream output(dstFile);
-        output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
-    }
-
     Py_RETURN_TRUE;
+
 }
 static PyMethodDef module_methods[] = {
     { "mnnconvert", (PyCFunction)PyTool_Converter, METH_VARARGS, NULL },
@@ -128,7 +93,7 @@ static PyMethodDef module_methods[] = {
 #if PY_MAJOR_VERSION >= 3
     static struct PyModuleDef moduledef = {
         PyModuleDef_HEAD_INIT,
-        "Tools",     /* m_name */
+        "_tools",     /* m_name */
         "MNNTools",  /* m_doc */
         -1,                  /* m_size */
         module_methods,    /* m_methods */
@@ -143,24 +108,22 @@ static PyMethodDef module_methods[] = {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
-MOD_INIT(Tools)
-{
-    #if PY_MAJOR_VERSION >= 3
-        PyObject *m = PyModule_Create(&moduledef);
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return NULL;
-        }
-        return m;
-    #else
-        PyObject *m = Py_InitModule3("Tools", module_methods, "MNNTools Module");
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return;
-        }
+MOD_INIT(_tools) {
+#if PY_MAJOR_VERSION >= 3
+    PyObject *m = PyModule_Create(&moduledef);
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
+        return NULL;
+    }
+    return m;
+#else
+    PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
         return;
-    #endif
-}  
-
+    }
+    return;
+#endif
+}

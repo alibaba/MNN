@@ -13,8 +13,17 @@
 .align 5
 
 asm_function MNNConvDwF23MulTransUnit
-//void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
-//Auto: x0:cacheLine, x1:weight, x2:dest, x3:ow
+//void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameters);
+//Auto: x0:cacheLine, x1:weight, x2:dest, x3:ow, x4: bias, x5: parameters
+sub sp, sp, #64
+st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+
+ld1 {v8.4s}, [x4] // bias
+ldr w9, [x5, #8]
+ldr w10, [x5, #12]
+dup v9.4s, w9 // min
+dup v10.4s, w10 // max
+
 ldr x4, [x0, #0]
 ldr x5, [x0, #8]
 ldr x6, [x0, #16]
@@ -22,6 +31,7 @@ ldr x6, [x0, #16]
 ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x1], #64
 ld1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x1], #64
 ld1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x1]
+
 
 L2:
 cmp x3, #2
@@ -56,6 +66,15 @@ fadd v0.4s, v0.4s, v2.4s
 fadd v3.4s, v3.4s, v1.4s
 fsub v1.4s, v3.4s, v2.4s
 
+fadd v0.4s, v0.4s, v8.4s
+fadd v1.4s, v1.4s, v8.4s
+
+fmin v0.4s, v0.4s, v10.4s
+fmin v1.4s, v1.4s, v10.4s
+
+fmax v0.4s, v0.4s, v9.4s
+fmax v1.4s, v1.4s, v9.4s
+
 st1 {v0.4s, v1.4s}, [x2], #32
 
 sub x3, x3, #2
@@ -84,8 +103,15 @@ fadd v0.4s, v1.4s, v0.4s
 fmla v2.4s, v30.4s, v22.4s
 fadd v0.4s, v0.4s, v2.4s
 
+fadd v0.4s, v0.4s, v8.4s
+fmin v0.4s, v0.4s, v10.4s
+fmax v0.4s, v0.4s, v9.4s
+
 st1 {v0.4s}, [x2]
 End:
+
+sub sp, sp, #64
+ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
 
 ret
 #endif

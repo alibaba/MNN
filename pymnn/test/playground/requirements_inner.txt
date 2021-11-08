@@ -1,0 +1,3 @@
+#for MNN
+MNN_Internal==1.0.11
+MNNCV==0.1.11

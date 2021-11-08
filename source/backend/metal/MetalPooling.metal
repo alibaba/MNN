@@ -62,14 +62,14 @@ kernel void pooling_avg(const device ftype4 *in     [[buffer(0)]],
     int ex = off_x + min(s.kernel_width, s.input_width - off_x);
     int ey = off_y + min(s.kernel_height, s.input_height - off_y);
     
-    float4 result = 0;
+    FLOAT4 result = 0;
     auto z_in = in + (int)gid.z * s.input_width * s.input_height;
     for (int y = sy; y < ey; y++) {
         for (int x = sx; x < ex; x++) {
-            result += float4(z_in[y * s.input_width + x]);
+            result += FLOAT4(z_in[y * s.input_width + x]);
         }
     }
     int count = (ey - sy) * (ex - sx);
-    float4 div = count > 0 ? 1.f / count : 1;
+    FLOAT4 div = count > 0 ? 1.f / count : 1;
     out[(int)gid.z * s.output_width * s.output_height + (int)gid.y * s.output_width + (int)gid.x] = ftype4(result * div);
 }

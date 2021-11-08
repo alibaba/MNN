@@ -7,7 +7,7 @@
 //
 
 #include "../TemplateMerge.hpp"
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 namespace MNN {
 namespace Express {
 class OnnxExtraManager {
@@ -16,16 +16,15 @@ public:
     public:
         virtual ~ Transform() = default;
         Transform() = default;
-        
+
         virtual EXPRP onExecute(EXPRP expr) const = 0;
     };
-    
+
     void insert(const std::string& name, std::shared_ptr<Transform> transform);
     std::shared_ptr<Transform> find(const std::string& name) const;
     static std::shared_ptr<OnnxExtraManager> get();
 private:
     std::map<std::string, std::shared_ptr<Transform>> mTransform;
-    static std::shared_ptr<OnnxExtraManager> gInstance;
 };
 }
 }

@@ -15,6 +15,37 @@
 #include <string>
 #include <vector>
 
+
+
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#endif
+
+static inline uint64_t getTimeInUs() {
+    uint64_t time;
+#if defined(_MSC_VER)
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    uint64_t sec = now.QuadPart / freq.QuadPart;
+    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
+    time = sec * 1000000 + usec;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+#endif
+    return time;
+}
+
+
 /** test case */
 class MNNTestCase {
     friend class MNNTestSuite;
@@ -25,9 +56,9 @@ public:
      */
     virtual ~MNNTestCase() = default;
     /**
-     * @brief run test case
+     * @brief run test case with runtime precision: BackendConfig::PrecisionMode
      */
-    virtual bool run() = 0;
+    virtual bool run(int precision) = 0;
 
 private:
     /** case name */
@@ -57,12 +88,12 @@ public:
     /**
      * @brief run all registered test case
      */
-    static void runAll();
+    static void runAll(int precision, const char* flag = "");
     /**
      * @brief run registered test case that matches in name
      * @param name case name
      */
-    static void run(const char* name);
+    static void run(const char* name, int precision, const char* flag = "");
 
 private:
     /** get shared instance */

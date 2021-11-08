@@ -7,13 +7,20 @@
 //
 
 #include <assert.h>
-#include <dirent.h>
 #include <stdio.h>
-#include <sys/stat.h>
 #include <cmath>
 #include <fstream>
 #include <string>
 #include <vector>
+
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 using namespace std;
 
@@ -41,18 +48,34 @@ int main(int argc, char* argv[]) {
     }
     printf("tolerance=%f\n", tolerance);
 
+    std::vector<std::string> compareFiles;
+#if defined(_MSC_VER)
+    WIN32_FIND_DATA ffd;
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    hFind = FindFirstFile(argv[1], &ffd);
+    if (INVALID_HANDLE_VALUE == hFind) {
+        printf("Error to open %s\n", argv[1]);
+        return 0;
+    }
+    do {
+        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(ffd.cFileName) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+            compareFiles.push_back(ffd.cFileName);
+        }
+    } while (FindNextFile(hFind, &ffd) != 0);
+    FindClose(hFind);
+#else
     // open dir
     DIR* root = opendir(argv[1]);
     if (NULL == root) {
         printf("Error to open %s\n", argv[1]);
         return 0;
     }
-    std::vector<std::string> compareFiles;
     struct dirent* ent;
     while ((ent = readdir(root)) != NULL) {
         compareFiles.push_back(ent->d_name);
     }
     closedir(root);
+#endif
 
     // compare files
     for (auto s : compareFiles) {
@@ -83,12 +106,12 @@ int main(int argc, char* argv[]) {
                 pos++;
                 continue;
             }
-            printf(RED "Error for %s, %d, v1=%.6f, v2=%.6f\n" NONE, s.c_str(), pos, v1, v2);
+            printf("Error for %s, %d, v1=%.6f, v2=%.6f\n", s.c_str(), pos, v1, v2);
             correct = false;
             break;
         }
         if (correct) {
-            printf(GREEN "Correct : %s\n" NONE, s.c_str());
+            printf("Correct : %s\n", s.c_str());
         }
     }
 

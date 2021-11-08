@@ -14,24 +14,35 @@
 .align 5
 
 asm_function MNNFloat2Int8
-//void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, float* scale, size_t aMin, size_t aMax);
-//x0:src, x1:dst, x2:sizeQuad, x3:scale, x4:aMin, x5:aMax
+//void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, float* scale, size_t aMin, size_t aMax, size_t zeroPoint);
+//x0:src, x1:dst, x2:sizeQuad, x3:scale, x4:aMin, x5:aMax, x6:zeroPoint
 
 ld1 {v31.4s}, [x3]
 
 dup v30.16b, w4
 dup v29.16b, w5
 
+// copy zero point
+mov v28.s[0], w6
+mov v28.s[1], w6
+mov v28.s[2], w6
+mov v28.s[3], w6
+scvtf v28.4s, v28.4s
+
 cmp x2, #3
-ble FLLoop1
+ble FL1
 
 FLLoop4:
 ld1 {v0.4s, v1.4s}, [x0], #32
 fmul v0.4s, v0.4s, v31.4s
+fadd v0.4s, v0.4s, v28.4s
 ld1 {v2.4s, v3.4s}, [x0], #32
 fmul v1.4s, v1.4s, v31.4s
+fadd v1.4s, v1.4s, v28.4s
 fmul v2.4s, v2.4s, v31.4s
+fadd v2.4s, v2.4s, v28.4s
 fmul v3.4s, v3.4s, v31.4s
+fadd v3.4s, v3.4s, v28.4s
 
 fcvtas v0.4s, v0.4s
 fcvtas v4.4s, v2.4s
@@ -62,6 +73,7 @@ beq FLEnd
 FLLoop1:
 ld1 {v0.4s}, [x0], #16
 fmul v0.4s, v0.4s, v31.4s
+fadd v0.4s, v0.4s, v28.4s
 
 //st1 {v31.4s}, [x0], #16
 fcvtas v0.4s, v0.4s

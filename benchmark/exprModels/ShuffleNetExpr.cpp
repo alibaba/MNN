@@ -9,7 +9,7 @@
 
 #include <map>
 #include "ShuffleNetExpr.hpp"
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 
 using namespace MNN::Express;
 

@@ -1,3 +1,7 @@
+#ifdef MNN_SUPPORT_FP16
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
+
 #define GLOBAL_SIZE_3_DIMS \
     __private const int global_size_dim0, __private const int global_size_dim1, __private const int global_size_dim2,
 
@@ -23,13 +27,15 @@ __kernel void scale(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_only 
 
     const int pos = mad24(channel_block_idx, width, w);
 
-    float4 in          = read_imagef(input, SAMPLER, (int2)(pos, hb));
-    float4 scale_value = read_imagef(scale, SAMPLER, (int2)(channel_block_idx, 0));
+    FLOAT4 in          = RI_F(input, SAMPLER, (int2)(pos, hb));
+    FLOAT4 scale_value = RI_F(scale, SAMPLER, (int2)(channel_block_idx, 0));
 #ifdef HAS_BIAS
-    float4 bias_value = read_imagef(bias, SAMPLER, (int2)(channel_block_idx, 0));
-    float4 out        = in * scale_value + bias_value;
+    FLOAT4 bias_value = RI_F(bias, SAMPLER, (int2)(channel_block_idx, 0));
+    FLOAT4 out        = in * scale_value + bias_value;
 #else
-    float4 out = in * scale_value;
+    FLOAT4 out = in * scale_value;
 #endif
-    write_imagef(output, (int2)(pos, hb), out);
+    WI_F(output, (int2)(pos, hb), out);
 }
+
+

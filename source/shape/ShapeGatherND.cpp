@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 class GatherNDComputer : public SizeComputer {
@@ -43,5 +43,5 @@ public:
     }
 };
 
-REGISTER_SHAPE_INPUTS(GatherNDComputer, OpType_GatherND, (std::vector<int>{1}));
+REGISTER_SHAPE(GatherNDComputer, OpType_GatherND);
 } // namespace MNN

@@ -9,7 +9,7 @@
 #ifndef MetalDeconvolution_hpp
 #define MetalDeconvolution_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 
@@ -35,14 +35,14 @@ private:
     int mStrideY     = 0;
     int mDilateX     = 0;
     int mDilateY     = 0;
+    const MNN::Op *mOp = nullptr;
 
     id<MTLBuffer> mWeight      = nil;
     id<MTLBuffer> mBias        = nil;
     id<MTLBuffer> mConstBuffer = nil;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 
-private:
-    ErrorCode onDepthwise(const Tensor *input, const Tensor *output);
-    ErrorCode onDeconv(const Tensor *input, const Tensor *output);
 };
 
 } // namespace MNN

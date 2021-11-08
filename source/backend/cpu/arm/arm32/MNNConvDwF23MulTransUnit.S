@@ -14,9 +14,13 @@
 .align 5
 
 asm_function MNNConvDwF23MulTransUnit
-//void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
+//void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameters);
 //Auto: r0:cacheLine, r1:weight, r2:dest, r3:ow
-push {r4-r7, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r8, [sp, #32] // biasPtr
+ldr lr, [sp, #36] // postParameters
+ldr r10, [lr, #8] // minF
+ldr r11, [lr, #12] // maxF
 vpush {q4-q7}
 ldr r4, [r0, #0]
 ldr r5, [r0, #4]
@@ -63,6 +67,19 @@ vadd.f32 q0, q0, q2
 vadd.f32 q3, q3, q1
 vsub.f32 q1, q3, q2
 
+vld1.32 {q10}, [r8]
+vdup.32 q11, r10
+vdup.32 q12, r11
+
+vadd.f32 q0, q10, q0
+vadd.f32 q1, q10, q1
+
+vmin.f32 q0, q12, q0
+vmin.f32 q1, q12, q1
+
+vmax.f32 q0, q11, q0
+vmax.f32 q1, q11, q1
+
 vst1.32 {q0, q1}, [r2]!
 
 sub r3, r3, #2
@@ -100,11 +117,19 @@ vmla.f32 q2, q10, q14
 vadd.f32 q0, q1, q0
 vadd.f32 q0, q0, q2
 
+vld1.32 {q10}, [r8]
+vdup.32 q11, r10
+vdup.32 q12, r11
+
+vadd.f32 q0, q10, q0
+vmin.f32 q0, q12, q0
+vmax.f32 q0, q11, q0
+
 vst1.32 {q0}, [r2]!
 End:
 
 vpop {q4-q7}
-pop {r4-r7, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

@@ -12,21 +12,20 @@
 
 // edited from tensorflow - non_max_suppression_op.cc by MNN.
 
-#include "CPUNonMaxSuppressionV2.hpp"
+#include "backend/cpu/CPUNonMaxSuppressionV2.hpp"
 #include <math.h>
 #include <queue>
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
-template <typename T>
-CPUNonMaxSuppressionV2<T>::CPUNonMaxSuppressionV2(Backend* backend, const Op* op) : Execution(backend) {
+CPUNonMaxSuppressionV2::CPUNonMaxSuppressionV2(Backend* backend, const Op* op) : Execution(backend) {
     // nothing to do
 }
 
 // Return intersection-over-union overlap between boxes i and j
-static inline float IOU(float* boxes, int i, int j) {
+static inline float IOU(const float* boxes, int i, int j) {
     const float yMinI = std::min<float>(boxes[i * 4 + 0], boxes[i * 4 + 2]);
     const float xMinI = std::min<float>(boxes[i * 4 + 1], boxes[i * 4 + 3]);
     const float yMaxI = std::max<float>(boxes[i * 4 + 0], boxes[i * 4 + 2]);
@@ -48,33 +47,16 @@ static inline float IOU(float* boxes, int i, int j) {
     return intersectionArea / (areaI + areaJ - intersectionArea);
 }
 
-template <typename T>
-ErrorCode CPUNonMaxSuppressionV2<T>::onExecute(const std::vector<Tensor*>& inputs,
-                                               const std::vector<Tensor*>& outputs) {
-    // boxes: [num_boxes, 4]
-    const Tensor* boxes = inputs[0];
-    // scores: [num_boxes]
-    const Tensor* scores = inputs[1];
-    // max_output_size: scalar
-    const Tensor* maxOutputSize = inputs[2];
-    // iou_threshold: scalar
-    const Tensor* iouThreshold = inputs[3];
+void NonMaxSuppressionSingleClasssImpl(const Tensor* decodedBoxes, const float* scores, int maxDetections,
+                                       float iouThreshold, float scoreThreshold, std::vector<int32_t>* selected) {
+    MNN_ASSERT(iouThreshold >= 0.0f && iouThreshold <= 1.0f);
+    MNN_ASSERT(decodedBoxes->dimensions() == 2);
+    const int numBoxes = decodedBoxes->length(0);
+    MNN_ASSERT(decodedBoxes->length(1) == 4)
 
-    const float iouThresholdVal   = iouThreshold->host<float>()[0];
-    const float scoreThresholdVal = std::numeric_limits<float>::lowest();
-
-    MNN_ASSERT(iouThresholdVal >= 0 && iouThresholdVal <= 1);
-    MNN_ASSERT(boxes->buffer().dimensions == 2);
-    int numBoxes = boxes->buffer().dim[0].extent;
-
-    MNN_ASSERT(boxes->buffer().dimensions == 2 && scores->buffer().dim[0].extent == numBoxes &&
-               boxes->buffer().dim[1].extent == 4 && scores->buffer().dimensions == 1);
-
-    const int outputSize = std::min(maxOutputSize->host<int32_t>()[0], numBoxes);
-
+    const int outputNum = std::min(maxDetections, numBoxes);
     std::vector<float> scoresData(numBoxes);
-
-    std::copy_n(scores->host<float>(), numBoxes, scoresData.begin());
+    std::copy_n(scores, numBoxes, scoresData.begin());
 
     struct Candidate {
         int boxIndex;
@@ -86,17 +68,17 @@ ErrorCode CPUNonMaxSuppressionV2<T>::onExecute(const std::vector<Tensor*>& input
     std::priority_queue<Candidate, std::deque<Candidate>, decltype(cmp)> candidatePriorityQueue(cmp);
 
     for (int i = 0; i < scoresData.size(); ++i) {
-        if (scoresData[i] > scoreThresholdVal) {
+        if (scoresData[i] > scoreThreshold) {
             candidatePriorityQueue.emplace(Candidate({i, scoresData[i]}));
         }
     }
 
-    std::vector<int> selected;
-    std::vector<float> selectedScores;
+    // std::vector<float> selectedScores;
     Candidate nextCandidate;
     float iou, originalScore;
 
-    while (selected.size() < outputSize && !candidatePriorityQueue.empty()) {
+    const auto boxesPtr = decodedBoxes->host<float>();
+    while (selected->size() < outputNum && !candidatePriorityQueue.empty()) {
         nextCandidate = candidatePriorityQueue.top();
         originalScore = nextCandidate.score;
         candidatePriorityQueue.pop();
@@ -105,22 +87,30 @@ ErrorCode CPUNonMaxSuppressionV2<T>::onExecute(const std::vector<Tensor*>& input
         // therefore we iterate through the previously selected boxes backwards
         // in order to see if `next_candidate` should be suppressed.
         bool shouldSelect = true;
-        for (int j = (int)selected.size() - 1; j >= 0; --j) {
-            iou = IOU(boxes->host<float>(), nextCandidate.boxIndex, selected[j]);
+        for (int j = (int)selected->size() - 1; j >= 0; --j) {
+            iou = IOU(boxesPtr, nextCandidate.boxIndex, selected->at(j));
             if (iou == 0.0) {
                 continue;
             }
-            if (iou > iouThresholdVal) {
+            if (iou > iouThreshold) {
                 shouldSelect = false;
             }
         }
 
         if (shouldSelect) {
-            selected.push_back(nextCandidate.boxIndex);
-            selectedScores.push_back(nextCandidate.score);
+            selected->push_back(nextCandidate.boxIndex);
+            // selectedScores.push_back(nextCandidate.score);
         }
     }
+}
 
+ErrorCode CPUNonMaxSuppressionV2::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    std::vector<int> selected;
+    const int maxDetections    = inputs[2]->host<int32_t>()[0];
+    const float iouThreshold   = inputs[3]->host<float>()[0];
+    const float scoreThreshold = std::numeric_limits<float>::lowest();
+    const auto scores          = inputs[1]->host<float>();
+    NonMaxSuppressionSingleClasssImpl(inputs[0], scores, maxDetections, iouThreshold, scoreThreshold, &selected);
     std::copy_n(selected.begin(), selected.size(), outputs[0]->host<int32_t>());
 
     return NO_ERROR;
@@ -130,7 +120,7 @@ class CPUNonMaxSuppressionV2Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        return new CPUNonMaxSuppressionV2<int32_t>(backend, op);
+        return new CPUNonMaxSuppressionV2(backend, op);
     }
 };
 

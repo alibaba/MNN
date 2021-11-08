@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedAdd.hpp"
-#include "CPUBackend.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
+#include "backend/cpu/CPUQuantizedAdd.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
 
 namespace MNN {
 
@@ -19,6 +19,7 @@ CPUQuantizedAdd::CPUQuantizedAdd(Backend *backend, const Op *op) : Execution(bac
 }
 
 ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+
     mInput1Offset                   = -mQuantizedAddParam->input1QuantizedParam()->zeroPoint();
     mInput2Offset                   = -mQuantizedAddParam->input2QuantizedParam()->zeroPoint();
     mOutputOffset                   = mQuantizedAddParam->outputQuantizedParam()->zeroPoint();
@@ -37,29 +38,33 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     CalculateActivationRangeUint8(
         mQuantizedAddParam->activationType(), mQuantizedAddParam->outputQuantizedParam()->zeroPoint(),
         mQuantizedAddParam->outputQuantizedParam()->scale(), &mOutputActivationMin, &mOutputActivationMax);
-    
+
     int kReverseShiftResult1 = -mInput1Shift;
     int kReverseShiftResult2 = -mInput2Shift;
-    
+
     int leftShift1  = kReverseShiftResult1 > 0 ? kReverseShiftResult1 : 0;
     mRightShift1 = kReverseShiftResult1 > 0 ? 0 : -kReverseShiftResult1;
-    
+
     int leftShift2  = kReverseShiftResult2 > 0 ? kReverseShiftResult2 : 0;
     mRightShift2 = kReverseShiftResult2 > 0 ? 0 : -kReverseShiftResult2;
-    
+
     mLeftShiftOut  = -mOutputShift > 0 ? -mOutputShift : 0;
     mRightShiftOut = -mOutputShift > 0 ? 0 : mOutputShift;
-    
+
     mLeftShiftResult1 = (1 << leftShift) * ((1 << leftShift1));
     mLeftShiftResult2 = (1 << leftShift) * ((1 << leftShift2));
-    
-    const int left1 = leftShift + leftShift1;
-    const int left2 = leftShift + leftShift2;
-    
-    MNN_ASSERT(left1 == leftShift);
-    MNN_ASSERT(left2 == leftShift);
-    
+
+    MNN_ASSERT(leftShift + leftShift1 == leftShift);
+    MNN_ASSERT(leftShift + leftShift2 == leftShift);
+
+    return NO_ERROR;
+}
+
+ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
+                                     const std::vector<MNN::Tensor *> &outputs) {
 #ifdef MNN_USE_NEON
+    int16x8_t input1OffsetVec, input2OffsetVec;
+    int32x4_t outputOffsetVec, outputActivationMinVec, outputActivationMaxVec, leftShiftResult1Vec, leftShiftResult2Vec, input1MultiplierVec, input2MultiplierVec, outputMultiplierVec, leftShiftOutVec, rightShift1Vec, rightShift2Vec;
     input1OffsetVec        = vdupq_n_s16(mInput1Offset);
     input2OffsetVec        = vdupq_n_s16(mInput2Offset);
     outputOffsetVec        = vdupq_n_s32(mOutputOffset);
@@ -74,13 +79,6 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     rightShift1Vec      = vdupq_n_s32(-mRightShift1);
     rightShift2Vec      = vdupq_n_s32(-mRightShift2);
 #endif
-    
-    return NO_ERROR;
-}
-
-ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
-                                     const std::vector<MNN::Tensor *> &outputs) {
-
     uint8_t *input1Data = inputs[0]->host<uint8_t>();
     uint8_t *input2Data = inputs[1]->host<uint8_t>();
     uint8_t *outputData = outputs[0]->host<uint8_t>();
@@ -89,7 +87,7 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
     int size = inputs[0]->batch()*inputs[0]->height()*inputs[0]->width()*ROUND_UP(outputChannels, 4);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int countUnit    = UP_DIV(size, threadNumber);
-    
+
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         int realDstCount       = (int)ALIMIN(size - tId * countUnit, countUnit);
         uint8_t *curInput1Data = input1Data + tId * countUnit;
@@ -174,6 +172,9 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
             curInput2Data += 8;
             curOutputData += 8;
         }
+        curInput1Data -= i;
+        curInput2Data -= i;
+        curOutputData -= i;
 #endif
         for (; i < realDstCount; i++) {
             const int32_t input1Val        = mInput1Offset + curInput1Data[i];

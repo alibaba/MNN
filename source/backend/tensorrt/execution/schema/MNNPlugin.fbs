@@ -1,0 +1,100 @@
+namespace MNNTRTPlugin;
+attribute "priority";
+
+table View {
+    offset:int;
+    stride:[int];
+}
+
+enum ExtraType : byte {
+    Normal = 0,
+    Fill = 1
+}
+table Region {
+    src:View;
+    dst:View;
+    size:[int];
+    index:int;
+}
+
+table InterpInfo {
+    inputChannel:int;
+    heightScale:float;
+    widthScale:float;
+    channelBlocks:int;
+    outputWidth:int;
+    outputH_N:int;
+    inputHeight:int;
+    inputWidth:int;
+    outputHeight:int;
+}
+
+table GatherInfo {
+    limit:int;
+    insideStride:int;
+    N:int;
+    outputOutsideStride:int;
+    inputOutsideStride:int;
+    outside:int;
+    input3:bool = false;
+}
+
+table OneHotInfo {
+    outerSize:int;
+    innerSize:int;
+}
+
+table DetectionPostProcessInfo {
+    numAnchors0:int;
+    scaleValues:[float];
+    numBoxes:int;
+    boxCoordNum:int;
+    anchorsCoordNum:int;
+    numAnchors1:int;
+    numClassWithBackground:int;
+    numClasses:int;
+    maxClassesPerAnchor:int;
+    maxDetections:int;
+    iouThreshold:float;
+    nmsScoreThreshold:float;
+}
+
+table ScatterNdInfo {
+    indicesLastDim:int;
+    indexes:int;
+    accNumber:int;
+    outElementSize:int;
+    dimsToCount:[int];
+}
+
+table BroadCastInfo {
+    input0:bool = false;
+    input1:bool = false;
+}
+
+table RasterInfo {
+    regions:[Region];
+    extra:ExtraType;
+}
+union Parameter {
+    RasterInfo,
+    BroadCastInfo,
+    ScatterNdInfo,
+    InterpInfo,
+    GatherInfo,
+    DetectionPostProcessInfo,
+    OneHotInfo,
+}
+// Same as halide_type_code: 0:int, 1:uint, 2:float
+table Shape {
+    dim:[int];
+    bytes:byte = 4;
+    type:byte = 2;
+}
+
+table Plugin {
+    main:Parameter;
+    outputs:[Shape];
+}
+
+root_type Plugin;

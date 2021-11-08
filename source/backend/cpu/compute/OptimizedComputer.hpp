@@ -18,7 +18,7 @@ limitations under the License.
 
 #include <cmath>
 #include <vector>
-#include "CPUFixedPoint.hpp"
+#include "backend/cpu/CPUFixedPoint.hpp"
 
 namespace MNN {
 namespace Optimized {

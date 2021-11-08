@@ -7,7 +7,7 @@
 //
 
 #include "MNNTestSuite.h"
-#include "SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
 
 using namespace MNN;
 
@@ -21,7 +21,7 @@ class SUTSizeComputer : public SizeComputer {
 class SizeComputerTest : public MNNTestCase {
 public:
     virtual ~SizeComputerTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         SizeComputerSuite suite;
         SUTSizeComputer* sut = new SUTSizeComputer;
         suite.insert(sut, OpType_ELU);

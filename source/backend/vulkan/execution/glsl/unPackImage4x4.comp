@@ -1,0 +1,58 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) uniform mediump sampler2D uInput;
+
+layout(set=0, binding=1) writeonly buffer sourceBuffer{
+    vec4 data[];
+} uOutBuffer;
+
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 size; // NCHW
+    ivec4 stride; // NCHW
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posOrigin = ivec3(gl_GlobalInvocationID);
+    int channelC4 = (uConstant.size.y + 3) / 4;
+    int batchC4 = (uConstant.size.x + 3) / 4;
+    int totalChannelC4 = channelC4 * uConstant.size.z * uConstant.size.w;
+    if (posOrigin.x < totalChannelC4 * batchC4) {
+        ivec2 pos;
+        pos.x = posOrigin.x % totalChannelC4;
+        pos.y = posOrigin.x / totalChannelC4;
+        int startIndex = pos.y * 4 * totalChannelC4 + pos.x;
+        vec4 u0 = texelFetch(uInput, ivec2(4 * pos.x + 0, pos.y), 0);
+        vec4 u1 = texelFetch(uInput, ivec2(4 * pos.x + 1, pos.y), 0);
+        vec4 u2 = texelFetch(uInput, ivec2(4 * pos.x + 2, pos.y), 0);
+        vec4 u3 = texelFetch(uInput, ivec2(4 * pos.x + 3, pos.y), 0);
+#ifdef TRANSPOSE
+        vec4 v0 = vec4(u0.x, u1.x, u2.x, u3.x);
+        vec4 v1 = vec4(u0.y, u1.y, u2.y, u3.y);
+        vec4 v2 = vec4(u0.z, u1.z, u2.z, u3.z);
+        vec4 v3 = vec4(u0.w, u1.w, u2.w, u3.w);
+#else
+        vec4 v0 = u0;
+        vec4 v1 = u1;
+        vec4 v2 = u2;
+        vec4 v3 = u3;
+#endif
+        // Debug
+        //v0 = vec4(1);
+        //v1 = vec4(1);
+        //v2 = vec4(1);
+        //v3 = vec4(1);
+        uOutBuffer.data[startIndex + 0 * totalChannelC4] = v0;
+        if (pos.y * 4 + 1 < uConstant.size.x) {
+            uOutBuffer.data[startIndex + 1 * totalChannelC4] = v1;
+        }
+        if (pos.y * 4 + 2 < uConstant.size.x) {
+            uOutBuffer.data[startIndex + 2 * totalChannelC4] = v2;
+        }
+        if (pos.y * 4 + 3 < uConstant.size.x) {
+            uOutBuffer.data[startIndex + 3 * totalChannelC4] = v3;
+        }
+    }
+}

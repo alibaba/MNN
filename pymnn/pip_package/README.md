@@ -1,6 +1,6 @@
-MNN Engine Python
+MNN Python Package
 ===================================================
-  This is a python package for MNN package
+  This is a python package for MNN
  
 
 Installation
@@ -12,5 +12,5 @@ Installation
 Dependencies
 ---------------------------------------------------
 
-    pydot/graphviz if need to visualize mnn file 
+    flatbuffers, numpy 
 

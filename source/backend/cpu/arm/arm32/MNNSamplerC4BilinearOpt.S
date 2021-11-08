@@ -19,10 +19,10 @@ asm_function MNNSamplerC4BilinearOpt
 //Auto: r0:source, r1:dest, r2:points, r3:count
 //Load: r4: xMax, r5: yMax, r6:yStride
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 mov r12, #4
 
 vpush {q4-q7}
@@ -109,7 +109,7 @@ LoopL4:
     vmovl.s16 q7, d23
     vcvt.f32.s32 q6, q6
     vcvt.f32.s32 q7, q7
-    
+
     vmov.i32 r7, d4[1]
 
     vsub.f32 q5, q5, q4
@@ -258,20 +258,20 @@ LoopL1:
 
     //d16-d17 source pixels
     vmov.i32 r7, d1[0]
-    mul r7, r7, r12 
+    mul r7, r7, r12
     vmov.i32 r8, d1[1]
     mul r8, r8, r6
     add r8, r8, r0
     add r7, r8, r7
     vld1.32 {d16[0]}, [r7]
-    
+
     vmov.i32 r7, d2[0]
-    mul r7, r7, r12 
+    mul r7, r7, r12
     add r7, r8, r7
     vld1.32 {d16[1]}, [r7]
 
     vmov.i32 r7, d1[0]
-    mul r7, r7, r12 
+    mul r7, r7, r12
     vmov.i32 r8, d2[1]
     mul r8, r8, r6
     add r8, r8, r0
@@ -279,7 +279,7 @@ LoopL1:
     vld1.32 {d18[0]}, [r7]
 
     vmov.i32 r7, d2[0]
-    mul r7, r7, r12 
+    mul r7, r7, r12
     add r7, r8, r7
     vld1.32 {d18[1]}, [r7]
 
@@ -316,7 +316,7 @@ LoopL1:
 End:
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 
 #endif

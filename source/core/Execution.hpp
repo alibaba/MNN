@@ -9,12 +9,12 @@
 #ifndef Execution_hpp
 #define Execution_hpp
 
+#include <MNN/MNNForwardType.h>
+#include <MNN/ErrorCode.hpp>
+#include <MNN/Tensor.hpp>
 #include <memory>
 #include <string>
-#include "ErrorCode.hpp"
-#include "MNNForwardType.h"
 #include "NonCopyable.hpp"
-#include "Tensor.hpp"
 
 namespace MNN {
 class Backend;
@@ -47,15 +47,6 @@ public:
     }
 
     /**
-     * @brief if the session will not be resized any more,
-        it will call it for execution to release cache used for resize
-     * @return release result
-     */
-    virtual ErrorCode onReleaseCache() {
-        return NO_ERROR;
-    }
-
-    /**
      * @brief perform execution.
      * @param inputs    input tensors
      * @param outputs   output tensors
@@ -63,6 +54,15 @@ public:
      */
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
 
+    /**
+     * @brief clone execution, new execution will share weight from this execution
+     * @param bn   the cloned' execution's backend
+     * @param dst if dst = nullptr, just return whether execution can clone, otherwise clone the execution into dst
+     * @return execution result
+     */
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) {
+        return false;
+    }
 public:
     /**
      * @brief designed for plugin system. not ready yet.

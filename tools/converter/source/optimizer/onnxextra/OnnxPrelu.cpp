@@ -16,11 +16,11 @@ class OnnxPreluTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        MNN_CHECK(inputs.size() == 2, "Onnx Prelu Should have 2 inputs!");
+        MNN_THROW_CHECK(inputs.size() == 2, "Onnx Prelu Should have 2 inputs!");
 
         auto slope     = inputs[1];
         auto slopeInfo = slope->getInfo();
-        MNN_CHECK(slopeInfo != nullptr, "Slope should be Constant node!");
+        MNN_THROW_CHECK(slopeInfo != nullptr, "Slope should be Constant node!");
 
         const int slopeSize = slopeInfo->size;
 
@@ -29,18 +29,20 @@ public:
         preluParam->slopeCount = slopeSize;
 
         auto slopeData = slope->readMap<float>();
-        MNN_CHECK(slopeData != nullptr, "Slope should be Constant node!");
+        MNN_THROW_CHECK(slopeData != nullptr, "Slope should be Constant node!");
 
         preluParam->slope.resize(slopeSize);
         memcpy(preluParam->slope.data(), slopeData, slopeSize * sizeof(float));
 
         // prelu(input, slope) => mergedPrelu(input)
         std::unique_ptr<OpT> mergedOp(new OpT);
+        mergedOp->name       = expr->name();
         mergedOp->type       = OpType_PReLU;
         mergedOp->main.type  = OpParameter_PRelu;
         mergedOp->main.value = preluParam.release();
-
-        return Expr::create(mergedOp.get(), {inputs[0]});
+        auto newExpr         = Expr::create(mergedOp.get(), {inputs[0]});
+        newExpr->setName(expr->name());
+        return newExpr;
     }
 };
 

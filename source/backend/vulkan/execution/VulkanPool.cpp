@@ -7,7 +7,7 @@
 //
 
 #include "VulkanPool.hpp"
-#include "Macro.h"
+#include "core/Macro.h"
 namespace MNN {
 struct ConstBuffer {
     ivec4 inputSize;
@@ -58,15 +58,17 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         ::memset(pool, 0, sizeof(ConstBuffer));
         pool->inputSize[0]  = input->width();
         pool->inputSize[1]  = input->height();
-        pool->inputSize[2]  = icDiv4 * input->batch();
+        pool->inputSize[2]  = icDiv4;
+        pool->inputSize[3]  = input->batch();
         pool->outputSize[0] = ow;
         pool->outputSize[1] = oh;
-        pool->outputSize[2] = ocDiv4 * output->batch();
+        pool->outputSize[2] = ocDiv4;
+        pool->outputSize[3] = output->batch();
+        int padWidth     = mCommon->padX();
+        int padHeight    = mCommon->padY();
 
         int strideWidth  = mCommon->strideX();
         int strideHeight = mCommon->strideY();
-        int padWidth     = mCommon->padX();
-        int padHeight    = mCommon->padY();
 
         // edit const if global
         int kernelWidth  = std::min(mCommon->kernelX(), iw);
@@ -85,6 +87,8 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
             padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
             padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        } else if (mCommon->padType() == PoolPadType_VALID) {
+            padWidth = padHeight = 0;
         }
 
         pool->pad[0]        = padWidth;
@@ -99,10 +103,16 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
 
     // Set Command Buffer
     {
+        auto vkBackend = (VulkanBackend*)backend();
+        auto vkOutput  = (VulkanTensor*)output->deviceId();
+        auto vkInput   = (VulkanTensor*)input->deviceId();
+        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
         mDescriptorSet.reset(mPoolPipeline->createSet());
-        mDescriptorSet->writeImage((VkImageView)output->deviceId(), extra->getCommonSampler()->get(),
+        mDescriptorSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_GENERAL, 0);
-        mDescriptorSet->writeImage((VkImageView)input->deviceId(), extra->getCommonSampler()->get(),
+        mDescriptorSet->writeImage(((VulkanTensor*)input->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
         mPoolPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
