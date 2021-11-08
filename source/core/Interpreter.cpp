@@ -154,6 +154,22 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
     }
 }
 
+void Interpreter::setCacheBuffer(const void* cacheBuffer, size_t bufferSize, size_t keySize) {
+    if (nullptr == cacheBuffer || nullptr == mNet->buffer.get()) {
+        MNN_ERROR("Empty cacheBuffer or the interpreter invalid\n");
+        return;
+    }
+
+    mNet->cacheOffset = mNet->buffer.size() > keySize ? keySize : mNet->buffer.size();
+    mNet->cacheBuffer.reset((int)bufferSize);
+    if (mNet->cacheBuffer.get() == nullptr) {
+        MNN_PRINT("Memory Alloc Failed\n");
+        return;
+    }
+
+    ::memcpy(mNet->cacheBuffer.get(), cacheBuffer, bufferSize);
+}
+
 ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
     auto buffer = session->getCache();
     

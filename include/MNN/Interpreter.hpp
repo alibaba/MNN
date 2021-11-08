@@ -141,6 +141,15 @@ public:
      * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
      */
     void setCacheFile(const char* cacheFile, size_t keySize = 128);
+
+    /**
+     * @brief The API shoud be called before create session.
+     * If the cache exist, try to load cache from buffer.
+     * @param cacheBuffer    cache buffer pointer
+     * @param bufferSize     the size of cacheBuffer.
+     * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
+     */
+    void setCacheBuffer(const void* cacheBuffer, size_t bufferSize, size_t keySize = 128);
     
     /**
      * @brief The API shoud be called after last resize session.
