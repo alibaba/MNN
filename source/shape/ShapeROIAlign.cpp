@@ -24,7 +24,7 @@ class ROIAlignComputer : public SizeComputer {
         output.type = halide_type_of<float>();
 
         // width & height
-        auto roi                                              = op->main_as_RoiAlign();
+        auto roi                                              = op->main_as_RoiParameters();
         output.dim[3].extent                                  = roi->pooledWidth();
         output.dim[2].extent                                  = roi->pooledHeight();
         output.dim[0].extent                                  = inputs[1]->batch();

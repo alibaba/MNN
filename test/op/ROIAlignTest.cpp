@@ -15,18 +15,18 @@ using namespace MNN;
 using namespace MNN::Express;
 
 static VARP _ROIAlign(VARP intput, VARP rois, int pooledWidth, int pooledHeight, int samplingRatio, float spatialScale,
-                      bool aligned, PoolMode poolMode) {
-    std::unique_ptr<RoiAlignT> roiAlign(new RoiAlignT);
+                      bool aligned, PoolType poolType) {
+    std::unique_ptr<RoiParametersT> roiAlign(new RoiParametersT);
     roiAlign->pooledWidth   = pooledWidth;
     roiAlign->pooledHeight  = pooledHeight;
     roiAlign->samplingRatio = samplingRatio;
     roiAlign->spatialScale  = spatialScale;
     roiAlign->aligned       = aligned;
-    roiAlign->poolMode      = poolMode;
+    roiAlign->poolType      = poolType;
 
     std::unique_ptr<OpT> op(new OpT);
     op->type       = OpType_ROIAlign;
-    op->main.type  = OpParameter_RoiAlign;
+    op->main.type  = OpParameter_RoiParameters;
     op->main.value = roiAlign.release();
 
     return (Variable::create(Expr::create(op.get(), {intput, rois})));
@@ -46,7 +46,7 @@ protected:
             const int samplingRatio  = 2;
             const float spatialScale = 1.f / 16;
             const bool aligned       = true;
-            const PoolMode poolMode  = PoolMode_AvePool;
+            const PoolType poolType  = PoolType_AVEPOOL;
 
             const std::vector<float> inputData = {// [0, 0, :, :]
                                                   -0.2280, 1.0844, -0.5641, 1.0726, -1.3492, 1.7201, 0.9563, -0.0467,
@@ -123,7 +123,7 @@ protected:
             auto input  = _Input({n, c, h, w}, NCHW, halide_type_of<float>());
             auto rois   = _Input({2, 5}, NCHW, halide_type_of<float>());
             auto output = _ROIAlign(_Convert(input, NC4HW4), rois, pooledWidth, pooledHeight, samplingRatio,
-                                    spatialScale, aligned, poolMode);
+                                    spatialScale, aligned, poolType);
             output      = _Convert(output, NCHW);
             ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
             ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
@@ -141,7 +141,7 @@ protected:
             const int samplingRatio  = -1;
             const float spatialScale = 1.f / 8;
             const bool aligned       = false;
-            const PoolMode poolMode  = PoolMode_MaxPool;
+            const PoolType poolType  = PoolType_MAXPOOL;
 
             const std::vector<float> inputData = {
                 // [0, 0, :, :]
@@ -190,7 +190,7 @@ protected:
             auto input  = _Input({n, c, h, w}, NCHW, halide_type_of<float>());
             auto rois   = _Input({2, 5}, NCHW, halide_type_of<float>());
             auto output = _ROIAlign(_Convert(input, NC4HW4), rois, pooledWidth, pooledHeight, samplingRatio,
-                                    spatialScale, aligned, poolMode);
+                                    spatialScale, aligned, poolType);
             output      = _Convert(output, NCHW);
             ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
             ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));

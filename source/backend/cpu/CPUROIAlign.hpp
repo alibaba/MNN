@@ -16,7 +16,7 @@ namespace MNN {
 class CPUROIAlign : public Execution {
 public:
     CPUROIAlign(Backend *backend, int pooledWidth, int pooledHeight, int samplingRatio, float spatialScale,
-                bool aligned, PoolMode poolMode);
+                bool aligned, PoolType poolType);
     virtual ~CPUROIAlign() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -33,7 +33,7 @@ private:
     int mSamplingRatio;
     float mSpatialScale;
     bool mAligned;
-    PoolMode mPoolMode;
+    PoolType mPoolType;
 
     Tensor mROI;
 };

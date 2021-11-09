@@ -14,22 +14,9 @@ enum BorderMode : byte {
     CLAMP,
     REFLECTION
 }
-enum PoolMode : byte {
-    MaxPool=0,
-    AvePool
-}
 
 table GridSample {
     mode:SampleMode;
     paddingMode:BorderMode;
     alignCorners:bool=false;
-}
-
-table RoiAlign {
-    pooledWidth:int;
-    pooledHeight:int;
-    samplingRatio:int=-1;
-    spatialScale:float;
-    aligned:bool=false;
-    poolMode:PoolMode=AvePool;
 }

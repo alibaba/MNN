@@ -150,7 +150,7 @@ class CPUROIPoolingCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
-        auto roi = op->main_as_RoiPooling();
+        auto roi = op->main_as_RoiParameters();
         return new CPUROIPooling(backend, roi->pooledWidth(), roi->pooledHeight(), roi->spatialScale());
     }
 };

@@ -20,14 +20,14 @@
 namespace MNN {
 
 CPUROIAlign::CPUROIAlign(Backend* backend, int pooledWidth, int pooledHeight, int samplingRatio, float spatialScale,
-                         bool aligned, PoolMode poolMode)
+                         bool aligned, PoolType poolType)
     : Execution(backend),
       mPooledWidth(pooledWidth),
       mPooledHeight(pooledHeight),
       mSamplingRatio(samplingRatio),
       mSpatialScale(spatialScale),
       mAligned(aligned),
-      mPoolMode(poolMode) {
+      mPoolType(poolType) {
     // nothing to do
 }
 
@@ -110,7 +110,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                                    samplingRatioW, vecPos, vecArea);
 
         auto batchInput = input->host<float>() + is * batchIdx;
-        if (mPoolMode == PoolMode_AvePool) {
+        if (mPoolType == PoolType_AVEPOOL) {
             for (int s = 0; s < numSlice; ++s) {
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
@@ -159,7 +159,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                     }
                 }
             }
-        } else if (mPoolMode == PoolMode_MaxPool) {
+        } else if (mPoolType == PoolType_MAXPOOL) {
             for (int s = 0; s < numSlice; ++s) {
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
@@ -211,7 +211,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                 }
             }
         } else {
-            MNN_ERROR("pooling mode: %d not supported now!", mPoolMode);
+            MNN_ERROR("pooling mode: %d not supported now!", mPoolType);
             return NOT_SUPPORT;
         }
     }
@@ -279,9 +279,9 @@ class CPUROIAlignCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        auto roiAlign = op->main_as_RoiAlign();
+        auto roiAlign = op->main_as_RoiParameters();
         return new CPUROIAlign(backend, roiAlign->pooledWidth(), roiAlign->pooledHeight(), roiAlign->samplingRatio(),
-                               roiAlign->spatialScale(), roiAlign->aligned(), roiAlign->poolMode());
+                               roiAlign->spatialScale(), roiAlign->aligned(), roiAlign->poolType());
     }
 };
 

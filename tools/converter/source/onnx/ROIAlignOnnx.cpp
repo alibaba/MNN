@@ -12,10 +12,10 @@ DECLARE_OP_CONVERTER(ROIAlignOnnx);
 
 MNN::OpType ROIAlignOnnx::opType() { return MNN::OpType_ROIAlign; }
 
-MNN::OpParameter ROIAlignOnnx::type() { return MNN::OpParameter_RoiAlign; }
+MNN::OpParameter ROIAlignOnnx::type() { return MNN::OpParameter_RoiParameters; }
 
 void ROIAlignOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
-    auto roiAlign = new MNN::RoiAlignT;
+    auto roiAlign = new MNN::RoiParametersT;
 
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {
@@ -41,7 +41,7 @@ void ROIAlignOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
         }
     }
 
-    roiAlign->poolMode = MNN::PoolMode::PoolMode_AvePool;
+    roiAlign->poolType = MNN::PoolType::PoolType_AVEPOOL;
     dstOp->main.value  = roiAlign;
 };
 
