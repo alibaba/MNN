@@ -100,8 +100,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         float binSizeW = roiW / mPooledWidth;
         float binSizeH = roiH / mPooledHeight;
 
-        int samplingRatioW   = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiW / mPooledWidth));
-        int samplingRatioH   = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiH / mPooledHeight));
+        int samplingRatioW = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiW / mPooledWidth));
+        int samplingRatioH = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiH / mPooledHeight));
+        MNN_ASSERT(samplingRatioH > 0 && samplingRatioW > 0);
+
         float invSamplingCnt = 1.f / (samplingRatioH * samplingRatioW);
 
         std::vector<std::vector<int>> vecPos;
