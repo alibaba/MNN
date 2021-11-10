@@ -343,25 +343,26 @@ struct VecHalf<4> {
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
 #ifdef __aarch64__
-        auto m0 = vtrn1q_s32(vec0.value, vec1.value);
-        auto m1 = vtrn2q_s32(vec0.value, vec1.value);
-        auto m2 = vtrn1q_s32(vec2.value, vec3.value);
-        auto m3 = vtrn2q_s32(vec2.value, vec3.value);
-        vec0.value = vtrn1q_s64(m0, m2);
-        vec1.value = vtrn1q_s64(m1, m3);
-        vec2.value = vtrn2q_s64(m0, m2);
-        vec3.value = vtrn2q_s64(m1, m3);
+        auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m1 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m2 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        auto m3 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        vec0.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec1.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+        vec2.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec3.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
 #else
-        auto m0m1 = vtrnq_s32(vec0.value, vec1.value);
-        auto m2m3 = vtrnq_s32(vec2.value, vec3.value);
-        vec0.value = m0m1.val[0];
-        vec1.value = m0m1.val[1];
-        vec2.value = m2m3.val[0];
-        vec3.value = m2m3.val[1];
-        vec0.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1);
-        vec1.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1);
-        vec2.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0);
-        vec3.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0);
+
+        auto m0m1 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+        auto m2m3 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+        vec0.value = reinterpret_cast<float32x4_t>(m0m1.val[0]);
+        vec1.value = reinterpret_cast<float32x4_t>(m0m1.val[1]);
+        vec2.value = reinterpret_cast<float32x4_t>(m2m3.val[0]);
+        vec3.value = reinterpret_cast<float32x4_t>(m2m3.val[1]);
+        vec0.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[0]), 0), reinterpret_cast<int64x2_t>(vec0.value), 1));
+        vec1.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[1]), 0), reinterpret_cast<int64x2_t>(vec1.value), 1));
+        vec2.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[0]), 1), reinterpret_cast<int64x2_t>(vec2.value), 0));
+        vec3.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[1]), 1), reinterpret_cast<int64x2_t>(vec3.value), 0));
         /*
         generated arm32 assembly code is almost the same as:
             vtrn.32 d0, d2
@@ -381,12 +382,12 @@ struct VecHalf<4> {
         auto trans1 = vtrn_s16(vec2, vec3);
         auto m2 = trans1.val[0];
         auto m3 = trans1.val[1];
-        auto trans2 = vtrn_s32(m0, m2);
-        vec0 = trans2.val[0];
-        vec2 = trans2.val[1];
-        auto trans3 = vtrn_s32(m1, m3);
-        vec1 = trans3.val[0];
-        vec3 = trans3.val[1];
+        auto trans2 = vtrn_s32(reinterpret_cast<int32x2_t>(m0), reinterpret_cast<int32x2_t>(m2));
+        vec0 = reinterpret_cast<int16x4_t>(trans2.val[0]);
+        vec2 = reinterpret_cast<int16x4_t>(trans2.val[1]);
+        auto trans3 = vtrn_s32(reinterpret_cast<int32x2_t>(m1), reinterpret_cast<int32x2_t>(m3));
+        vec1 = reinterpret_cast<int16x4_t>(trans3.val[0]);
+        vec3 = reinterpret_cast<int16x4_t>(trans3.val[1]);
 
     }
     static inline void transpose12(int16_t* srcPtr, const size_t packCUnit) {
