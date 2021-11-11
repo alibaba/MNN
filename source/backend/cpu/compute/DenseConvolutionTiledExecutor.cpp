@@ -191,8 +191,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     auto icC4                     = UP_DIV(input->channel(), unit);
     auto ic                       = input->channel();
     auto L                        = ic * mCommon->kernelY() * mCommon->kernelX();
-    if (src_width == 1 && width == 1 && height > 1) {
-        /* Swap x, y*/
+    if (src_width == 1 && width == 1 && height > 1 && kernel_width == 1 && mPadX == 0) {
+        /* Convolution only work for Height. Swap x, y*/
         width         = height;
         height        = 1;
         padX          = mPadY;
