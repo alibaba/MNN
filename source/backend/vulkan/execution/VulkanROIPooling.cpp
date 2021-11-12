@@ -76,7 +76,7 @@ ErrorCode VulkanROIPooling::onEncode(const std::vector<Tensor*>& inputs, const s
 class VulkanROIPoolingCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanROIPooling(bn, op->main_as_RoiPooling()->spatialScale());
+        return new VulkanROIPooling(bn, op->main_as_RoiParameters()->spatialScale());
     }
 };
 

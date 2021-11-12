@@ -19,7 +19,7 @@ RoiPooling::RoiPooling(const std::vector<Tensor *> &inputs, const MNN::Op *op, B
     MNN_PRINT("start RoiPooling init !\n");
 #endif
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    auto roi       = op->main_as_RoiPooling();
+    auto roi       = op->main_as_RoiParameters();
     mPooledWidth   = roi->pooledWidth();
     mPooledHeight  = roi->pooledHeight();
     mSpatialScale  = roi->spatialScale();

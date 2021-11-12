@@ -17,7 +17,7 @@ GLRoiPooling::GLRoiPooling(const std::vector<Tensor *> &inputs, const Op *op, Ba
     std::vector<std::string> prefix;
     setLocalSize(prefix, mLocalSize, 8, 8, 1);
     mPoolProgram = extra->getProgram("roipooling", glsl_roiPooling_glsl, prefix);
-    mSpatialScale = op->main_as_RoiPooling()->spatialScale();
+    mSpatialScale = op->main_as_RoiParameters()->spatialScale();
 }
 
 GLRoiPooling::~GLRoiPooling() {

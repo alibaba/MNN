@@ -52,7 +52,7 @@ ErrorCode MetalROIPooling::onExecute(const std::vector<Tensor *> &inputs, const 
 class MetalROIPoolingCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        return new MetalROIPooling(backend, op->main_as_RoiPooling()->spatialScale());
+        return new MetalROIPooling(backend, op->main_as_RoiParameters()->spatialScale());
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalROIPoolingCreator, OpType_ROIPooling);
