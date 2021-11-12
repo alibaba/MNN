@@ -5,7 +5,7 @@
 ## 编译模型转换工具(gcc>=4.9)
 首先需要安装protobuf(3.0以上)
 ```bash
-# MacOS
+# macOS
 brew install protobuf
 ```
 其它平台请参考[官方安装步骤](https://github.com/protocolbuffers/protobuf/tree/master/src)
