@@ -11,7 +11,7 @@ using namespace std;
 class RoiPooling : public OpConverter {
 public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
-        auto roiPool          = new MNN::RoiPoolingT;
+        auto roiPool          = new MNN::RoiParametersT;
         auto roiPoolCaffe     = parameters.roi_pooling_param();
         roiPool->pooledHeight = roiPoolCaffe.pooled_h();
         roiPool->pooledWidth  = roiPoolCaffe.pooled_w();
@@ -22,7 +22,7 @@ public:
         return MNN::OpType_ROIPooling;
     }
     virtual MNN::OpParameter type() {
-        return MNN::OpParameter_RoiPooling;
+        return MNN::OpParameter_RoiParameters;
     }
 };
 

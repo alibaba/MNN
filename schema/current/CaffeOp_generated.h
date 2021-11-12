@@ -91,8 +91,8 @@ struct ReshapeT;
 struct DetectionOutput;
 struct DetectionOutputT;
 
-struct RoiPooling;
-struct RoiPoolingT;
+struct RoiParameters;
+struct RoiParametersT;
 
 struct Proposal;
 struct ProposalT;
@@ -166,7 +166,7 @@ inline const flatbuffers::TypeTable *ReshapeTypeTable();
 
 inline const flatbuffers::TypeTable *DetectionOutputTypeTable();
 
-inline const flatbuffers::TypeTable *RoiPoolingTypeTable();
+inline const flatbuffers::TypeTable *RoiParametersTypeTable();
 
 inline const flatbuffers::TypeTable *ProposalTypeTable();
 
@@ -3199,22 +3199,28 @@ inline flatbuffers::Offset<DetectionOutput> CreateDetectionOutput(
 
 flatbuffers::Offset<DetectionOutput> CreateDetectionOutput(flatbuffers::FlatBufferBuilder &_fbb, const DetectionOutputT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
-struct RoiPoolingT : public flatbuffers::NativeTable {
-  typedef RoiPooling TableType;
+struct RoiParametersT : public flatbuffers::NativeTable {
+  typedef RoiParameters TableType;
   int32_t pooledWidth;
   int32_t pooledHeight;
   float spatialScale;
-  RoiPoolingT()
+  int32_t samplingRatio;
+  bool aligned;
+  PoolType poolType;
+  RoiParametersT()
       : pooledWidth(0),
         pooledHeight(0),
-        spatialScale(0.0f) {
+        spatialScale(0.0f),
+        samplingRatio(-1),
+        aligned(false),
+        poolType(PoolType_AVEPOOL) {
   }
 };
 
-struct RoiPooling FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
-  typedef RoiPoolingT NativeTableType;
+struct RoiParameters FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RoiParametersT NativeTableType;
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
-    return RoiPoolingTypeTable();
+    return RoiParametersTypeTable();
   }
   int32_t pooledWidth() const {
     return GetField<int32_t>(4, 0);
@@ -3225,19 +3231,31 @@ struct RoiPooling FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   float spatialScale() const {
     return GetField<float>(8, 0.0f);
   }
+  int32_t samplingRatio() const {
+    return GetField<int32_t>(10, -1);
+  }
+  bool aligned() const {
+    return GetField<uint8_t>(12, 0) != 0;
+  }
+  PoolType poolType() const {
+    return static_cast<PoolType>(GetField<int8_t>(14, 1));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
            VerifyField<int32_t>(verifier, 6) &&
            VerifyField<float>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<uint8_t>(verifier, 12) &&
+           VerifyField<int8_t>(verifier, 14) &&
            verifier.EndTable();
   }
-  RoiPoolingT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(RoiPoolingT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static flatbuffers::Offset<RoiPooling> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiPoolingT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+  RoiParametersT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RoiParametersT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RoiParameters> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiParametersT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
-struct RoiPoolingBuilder {
+struct RoiParametersBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_pooledWidth(int32_t pooledWidth) {
@@ -3249,31 +3267,46 @@ struct RoiPoolingBuilder {
   void add_spatialScale(float spatialScale) {
     fbb_.AddElement<float>(8, spatialScale, 0.0f);
   }
-  explicit RoiPoolingBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+  void add_samplingRatio(int32_t samplingRatio) {
+    fbb_.AddElement<int32_t>(10, samplingRatio, -1);
+  }
+  void add_aligned(bool aligned) {
+    fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(aligned), 0);
+  }
+  void add_poolType(PoolType poolType) {
+    fbb_.AddElement<int8_t>(14, static_cast<int8_t>(poolType), 1);
+  }
+  explicit RoiParametersBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  RoiPoolingBuilder &operator=(const RoiPoolingBuilder &);
-  flatbuffers::Offset<RoiPooling> Finish() {
+  RoiParametersBuilder &operator=(const RoiParametersBuilder &);
+  flatbuffers::Offset<RoiParameters> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = flatbuffers::Offset<RoiPooling>(end);
+    auto o = flatbuffers::Offset<RoiParameters>(end);
     return o;
   }
 };
 
-inline flatbuffers::Offset<RoiPooling> CreateRoiPooling(
+inline flatbuffers::Offset<RoiParameters> CreateRoiParameters(
     flatbuffers::FlatBufferBuilder &_fbb,
     int32_t pooledWidth = 0,
     int32_t pooledHeight = 0,
-    float spatialScale = 0.0f) {
-  RoiPoolingBuilder builder_(_fbb);
+    float spatialScale = 0.0f,
+    int32_t samplingRatio = -1,
+    bool aligned = false,
+    PoolType poolType = PoolType_AVEPOOL) {
+  RoiParametersBuilder builder_(_fbb);
+  builder_.add_samplingRatio(samplingRatio);
   builder_.add_spatialScale(spatialScale);
   builder_.add_pooledHeight(pooledHeight);
   builder_.add_pooledWidth(pooledWidth);
+  builder_.add_poolType(poolType);
+  builder_.add_aligned(aligned);
   return builder_.Finish();
 }
 
-flatbuffers::Offset<RoiPooling> CreateRoiPooling(flatbuffers::FlatBufferBuilder &_fbb, const RoiPoolingT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+flatbuffers::Offset<RoiParameters> CreateRoiParameters(flatbuffers::FlatBufferBuilder &_fbb, const RoiParametersT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ProposalT : public flatbuffers::NativeTable {
   typedef Proposal TableType;
@@ -5037,36 +5070,45 @@ inline flatbuffers::Offset<DetectionOutput> CreateDetectionOutput(flatbuffers::F
       _objectnessScore);
 }
 
-inline RoiPoolingT *RoiPooling::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = new RoiPoolingT();
+inline RoiParametersT *RoiParameters::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new RoiParametersT();
   UnPackTo(_o, _resolver);
   return _o;
 }
 
-inline void RoiPooling::UnPackTo(RoiPoolingT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+inline void RoiParameters::UnPackTo(RoiParametersT *_o, const flatbuffers::resolver_function_t *_resolver) const {
   (void)_o;
   (void)_resolver;
   { auto _e = pooledWidth(); _o->pooledWidth = _e; };
   { auto _e = pooledHeight(); _o->pooledHeight = _e; };
   { auto _e = spatialScale(); _o->spatialScale = _e; };
+  { auto _e = samplingRatio(); _o->samplingRatio = _e; };
+  { auto _e = aligned(); _o->aligned = _e; };
+  { auto _e = poolType(); _o->poolType = _e; };
 }
 
-inline flatbuffers::Offset<RoiPooling> RoiPooling::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiPoolingT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
-  return CreateRoiPooling(_fbb, _o, _rehasher);
+inline flatbuffers::Offset<RoiParameters> RoiParameters::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiParametersT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRoiParameters(_fbb, _o, _rehasher);
 }
 
-inline flatbuffers::Offset<RoiPooling> CreateRoiPooling(flatbuffers::FlatBufferBuilder &_fbb, const RoiPoolingT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+inline flatbuffers::Offset<RoiParameters> CreateRoiParameters(flatbuffers::FlatBufferBuilder &_fbb, const RoiParametersT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
   (void)_rehasher;
   (void)_o;
-  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RoiPoolingT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RoiParametersT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _pooledWidth = _o->pooledWidth;
   auto _pooledHeight = _o->pooledHeight;
   auto _spatialScale = _o->spatialScale;
-  return MNN::CreateRoiPooling(
+  auto _samplingRatio = _o->samplingRatio;
+  auto _aligned = _o->aligned;
+  auto _poolType = _o->poolType;
+  return MNN::CreateRoiParameters(
       _fbb,
       _pooledWidth,
       _pooledHeight,
-      _spatialScale);
+      _spatialScale,
+      _samplingRatio,
+      _aligned,
+      _poolType);
 }
 
 inline ProposalT *Proposal::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6132,19 +6174,28 @@ inline const flatbuffers::TypeTable *DetectionOutputTypeTable() {
   return &tt;
 }
 
-inline const flatbuffers::TypeTable *RoiPoolingTypeTable() {
+inline const flatbuffers::TypeTable *RoiParametersTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_FLOAT, 0, -1 }
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    PoolTypeTypeTable
   };
   static const char * const names[] = {
     "pooledWidth",
     "pooledHeight",
-    "spatialScale"
+    "spatialScale",
+    "samplingRatio",
+    "aligned",
+    "poolType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

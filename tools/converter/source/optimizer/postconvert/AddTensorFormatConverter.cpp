@@ -39,6 +39,7 @@ static FormatSetType _getFormatType(const OpT* op, MNN_DATA_FORMAT originFormat)
         case MNN::OpType_Pooling:
         case MNN::OpType_Pooling3D:
         case MNN::OpType_ROIPooling:
+        case MNN::OpType_ROIAlign:
         case MNN::OpType_Resize:
         case MNN::OpType_SpatialProduct:
         case MNN::OpType_Proposal:

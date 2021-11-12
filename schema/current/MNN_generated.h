@@ -223,6 +223,7 @@ enum OpType {
   OpType_TensorArrayConcat = 140,
   OpType_LSTMBlockCell = 141,
   OpType_Reverse = 142,
+  OpType_ROIAlign = 143,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -251,7 +252,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[161] {
+inline const OpType (&EnumValuesOpType())[162] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -390,6 +391,7 @@ inline const OpType (&EnumValuesOpType())[161] {
     OpType_TensorArrayConcat,
     OpType_LSTMBlockCell,
     OpType_Reverse,
+    OpType_ROIAlign,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -563,7 +565,7 @@ inline const char * const *EnumNamesOpType() {
     "TensorArrayConcat",
     "LSTMBlockCell",
     "Reverse",
-    "",
+    "ROIAlign",
     "",
     "",
     "",
@@ -1094,7 +1096,7 @@ enum OpParameter {
   OpParameter_Requantize = 54,
   OpParameter_Reshape = 55,
   OpParameter_Resize = 56,
-  OpParameter_RoiPooling = 57,
+  OpParameter_RoiParameters = 57,
   OpParameter_Scale = 58,
   OpParameter_Selu = 59,
   OpParameter_Size = 60,
@@ -1193,7 +1195,7 @@ inline const OpParameter (&EnumValuesOpParameter())[93] {
     OpParameter_Requantize,
     OpParameter_Reshape,
     OpParameter_Resize,
-    OpParameter_RoiPooling,
+    OpParameter_RoiParameters,
     OpParameter_Scale,
     OpParameter_Selu,
     OpParameter_Size,
@@ -1292,7 +1294,7 @@ inline const char * const *EnumNamesOpParameter() {
     "Requantize",
     "Reshape",
     "Resize",
-    "RoiPooling",
+    "RoiParameters",
     "Scale",
     "Selu",
     "Size",
@@ -1567,8 +1569,8 @@ template<> struct OpParameterTraits<Resize> {
   static const OpParameter enum_value = OpParameter_Resize;
 };
 
-template<> struct OpParameterTraits<RoiPooling> {
-  static const OpParameter enum_value = OpParameter_RoiPooling;
+template<> struct OpParameterTraits<RoiParameters> {
+  static const OpParameter enum_value = OpParameter_RoiParameters;
 };
 
 template<> struct OpParameterTraits<Scale> {
@@ -2190,13 +2192,13 @@ struct OpParameterUnion {
     return type == OpParameter_Resize ?
       reinterpret_cast<const ResizeT *>(value) : nullptr;
   }
-  RoiPoolingT *AsRoiPooling() {
-    return type == OpParameter_RoiPooling ?
-      reinterpret_cast<RoiPoolingT *>(value) : nullptr;
+  RoiParametersT *AsRoiParameters() {
+    return type == OpParameter_RoiParameters ?
+      reinterpret_cast<RoiParametersT *>(value) : nullptr;
   }
-  const RoiPoolingT *AsRoiPooling() const {
-    return type == OpParameter_RoiPooling ?
-      reinterpret_cast<const RoiPoolingT *>(value) : nullptr;
+  const RoiParametersT *AsRoiParameters() const {
+    return type == OpParameter_RoiParameters ?
+      reinterpret_cast<const RoiParametersT *>(value) : nullptr;
   }
   ScaleT *AsScale() {
     return type == OpParameter_Scale ?
@@ -3096,15 +3098,6 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LoopParamTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TENSORNUMBER = 4,
-    VT_OUTPUTINDEXES = 6,
-    VT_INPUTINDEXES = 8,
-    VT_MIDTENSORS = 10,
-    VT_PARALLEL = 12,
-    VT_LOOPNUMBER = 14,
-    VT_COMMANDS = 16
-  };
   int32_t tensorNumber() const {
     return GetField<int32_t>(4, 0);
   }
@@ -3403,8 +3396,8 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const Resize *main_as_Resize() const {
     return main_type() == OpParameter_Resize ? static_cast<const Resize *>(main()) : nullptr;
   }
-  const RoiPooling *main_as_RoiPooling() const {
-    return main_type() == OpParameter_RoiPooling ? static_cast<const RoiPooling *>(main()) : nullptr;
+  const RoiParameters *main_as_RoiParameters() const {
+    return main_type() == OpParameter_RoiParameters ? static_cast<const RoiParameters *>(main()) : nullptr;
   }
   const Scale *main_as_Scale() const {
     return main_type() == OpParameter_Scale ? static_cast<const Scale *>(main()) : nullptr;
@@ -3767,8 +3760,8 @@ template<> inline const Resize *Op::main_as<Resize>() const {
   return main_as_Resize();
 }
 
-template<> inline const RoiPooling *Op::main_as<RoiPooling>() const {
-  return main_as_RoiPooling();
+template<> inline const RoiParameters *Op::main_as<RoiParameters>() const {
+  return main_as_RoiParameters();
 }
 
 template<> inline const Scale *Op::main_as<Scale>() const {
@@ -5374,8 +5367,8 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case OpParameter_RoiPooling: {
-      auto ptr = reinterpret_cast<const RoiPooling *>(obj);
+    case OpParameter_RoiParameters: {
+      auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case OpParameter_Scale: {
@@ -5760,8 +5753,8 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return ptr->UnPack(resolver);
     }
-    case OpParameter_RoiPooling: {
-      auto ptr = reinterpret_cast<const RoiPooling *>(obj);
+    case OpParameter_RoiParameters: {
+      auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return ptr->UnPack(resolver);
     }
     case OpParameter_Scale: {
@@ -6134,9 +6127,9 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const ResizeT *>(value);
       return CreateResize(_fbb, ptr, _rehasher).Union();
     }
-    case OpParameter_RoiPooling: {
-      auto ptr = reinterpret_cast<const RoiPoolingT *>(value);
-      return CreateRoiPooling(_fbb, ptr, _rehasher).Union();
+    case OpParameter_RoiParameters: {
+      auto ptr = reinterpret_cast<const RoiParametersT *>(value);
+      return CreateRoiParameters(_fbb, ptr, _rehasher).Union();
     }
     case OpParameter_Scale: {
       auto ptr = reinterpret_cast<const ScaleT *>(value);
@@ -6508,8 +6501,8 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
       value = new ResizeT(*reinterpret_cast<ResizeT *>(u.value));
       break;
     }
-    case OpParameter_RoiPooling: {
-      value = new RoiPoolingT(*reinterpret_cast<RoiPoolingT *>(u.value));
+    case OpParameter_RoiParameters: {
+      value = new RoiParametersT(*reinterpret_cast<RoiParametersT *>(u.value));
       break;
     }
     case OpParameter_Scale: {
@@ -6939,8 +6932,8 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
-    case OpParameter_RoiPooling: {
-      auto ptr = reinterpret_cast<RoiPoolingT *>(value);
+    case OpParameter_RoiParameters: {
+      auto ptr = reinterpret_cast<RoiParametersT *>(value);
       delete ptr;
       break;
     }
@@ -7287,12 +7280,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7431,6 +7425,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "TensorArrayConcat",
     "LSTMBlockCell",
     "Reverse",
+    "ROIAlign",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7457,7 +7452,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 161, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 162, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7615,7 +7610,7 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     RequantizeTypeTable,
     ReshapeTypeTable,
     ResizeTypeTable,
-    RoiPoolingTypeTable,
+    RoiParametersTypeTable,
     ScaleTypeTable,
     SeluTypeTable,
     SizeTypeTable,
@@ -7710,7 +7705,7 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "Requantize",
     "Reshape",
     "Resize",
-    "RoiPooling",
+    "RoiParameters",
     "Scale",
     "Selu",
     "Size",

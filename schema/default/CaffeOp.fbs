@@ -274,10 +274,13 @@ table DetectionOutput {
     objectnessScore:float=0.01;
 }
 
-table RoiPooling {
+table RoiParameters {
     pooledWidth:int;
     pooledHeight:int;
     spatialScale:float;
+    samplingRatio:int = -1;
+    aligned:bool = false;
+    poolType:PoolType = AVEPOOL;
 }
 
 table Proposal {

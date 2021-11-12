@@ -12,10 +12,10 @@ DECLARE_OP_CONVERTER(ROIPoolingOnnx);
 
 MNN::OpType ROIPoolingOnnx::opType() { return MNN::OpType_ROIPooling; }
 
-MNN::OpParameter ROIPoolingOnnx::type() { return MNN::OpParameter_RoiPooling; }
+MNN::OpParameter ROIPoolingOnnx::type() { return MNN::OpParameter_RoiParameters; }
 
 void ROIPoolingOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope *scope) {
-    auto roiPool = new MNN::RoiPoolingT;
+    auto roiPool = new MNN::RoiParametersT;
 
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {

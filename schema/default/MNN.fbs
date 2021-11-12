@@ -154,6 +154,7 @@ enum OpType : int {
     TensorArrayConcat = 140,
     LSTMBlockCell = 141,
     Reverse = 142,
+    ROIAlign = 143,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -332,7 +333,7 @@ union OpParameter {
     Requantize,
     Reshape,
     Resize,
-    RoiPooling,
+    RoiParameters,
     Scale,
     Selu,
     Size,
