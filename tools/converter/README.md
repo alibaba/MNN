@@ -5,7 +5,7 @@
 ## Compile Model Convert Tools(gcc>=4.9)
 Firstly you need to install protobuf (version>3.0)
 ```bash
-# MacOS
+# macOS
 brew install protobuf
 ```
 Look up the [official document of installation](https://github.com/protocolbuffers/protobuf/tree/master/src) for other platforms.
