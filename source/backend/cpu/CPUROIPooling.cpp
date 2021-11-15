@@ -16,6 +16,13 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
 
 namespace MNN {
 
@@ -126,6 +133,16 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
                         }
                     }
                     vst1q_f32(rowOutput + pw * 4, max);
+#elif defined(MNN_USE_SSE)
+                    auto ptr = sliceInput + (hStart * iw + wStart) * 4;
+                    auto max        = _mm_set_ps1(-FLT_MAX);
+                    for (int h = 0; h < hLen; h++, ptr += iw * 4) {
+                        for (int w = 0; w < wLen; w++) {
+                            auto in = _mm_load_ps(ptr + w * 4);
+                            max       = _mm_max_ps(max, in);
+                        }
+                    }
+                    _mm_store_ps(rowOutput + pw * 4, max);
 #else
                     for (int i = 0; i < 4; i++) {
                         auto ptr  = sliceInput + (hStart * iw + wStart) * 4 + i;

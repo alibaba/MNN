@@ -16,6 +16,13 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
 
 namespace MNN {
 
@@ -140,6 +147,27 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                         }
                         res = vmulq_n_f32(res, invSamplingCnt);
                         vst1q_f32(rowOutput + w * 4, res);
+#elif defined(MNN_USE_SSE)
+                        auto res = _mm_set_ps1(0.f);
+                        for (int i = 0; i < samplingRatioH; ++i) {
+                            for (int j = 0; j < samplingRatioW; ++j) {
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
+
+                                auto val0 = _mm_load_ps(sliceInput + pos[0]);
+                                auto val1 = _mm_load_ps(sliceInput + pos[1]);
+                                auto val2 = _mm_load_ps(sliceInput + pos[2]);
+                                auto val3 = _mm_load_ps(sliceInput + pos[3]);
+                                auto mla  = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
+                                mla       = _mm_fmadd_ps(val1, _mm_set_ps1(area[1]), mla);
+                                mla       = _mm_fmadd_ps(val2, _mm_set_ps1(area[2]), mla);
+                                mla       = _mm_fmadd_ps(val3, _mm_set_ps1(area[3]), mla);
+                                res       = _mm_add_ps(res, mla);
+                                preCalcIdx++;
+                            }
+                        }
+                        res      = _mm_mul_ps(res, _mm_set_ps1(invSamplingCnt));
+                        _mm_store_ps(rowOutput + w * 4, res);
 #else
                         for (int i = 0; i < samplingRatioH; ++i) {
                             for (int j = 0; j < samplingRatioW; ++j) {
@@ -188,6 +216,26 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                             }
                         }
                         vst1q_f32(rowOutput + w * 4, res);
+#elif defined(MNN_USE_SSE)
+                        auto res = _mm_set_ps1(-FLT_MAX);
+                        for (int i = 0; i < samplingRatioH; ++i) {
+                            for (int j = 0; j < samplingRatioW; ++j) {
+                                std::vector<int>& pos    = vecPos[preCalcIdx];
+                                std::vector<float>& area = vecArea[preCalcIdx];
+
+                                auto val0  = _mm_load_ps(sliceInput + pos[0]);
+                                auto val1  = _mm_load_ps(sliceInput + pos[1]);
+                                auto val2  = _mm_load_ps(sliceInput + pos[2]);
+                                auto val3  = _mm_load_ps(sliceInput + pos[3]);
+                                auto mla   = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
+                                mla        = _mm_fmadd_ps(val1, _mm_set_ps1(area[1]), mla);
+                                mla        = _mm_fmadd_ps(val2, _mm_set_ps1(area[2]), mla);
+                                mla        = _mm_fmadd_ps(val3, _mm_set_ps1(area[3]), mla);
+                                res        = _mm_max_ps(res, mla);
+                                preCalcIdx++;
+                            }
+                        }
+                        _mm_store_ps(rowOutput + w * 4, res);
 #else
                         std::vector<float> vecVal[4];
                         for (int i = 0; i < samplingRatioH; ++i) {
