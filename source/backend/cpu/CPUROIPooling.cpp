@@ -138,11 +138,11 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
                     auto max        = _mm_set_ps1(-FLT_MAX);
                     for (int h = 0; h < hLen; h++, ptr += iw * 4) {
                         for (int w = 0; w < wLen; w++) {
-                            auto in = _mm_load_ps(ptr + w * 4);
+                            auto in = _mm_loadu_ps(ptr + w * 4);
                             max       = _mm_max_ps(max, in);
                         }
                     }
-                    _mm_store_ps(rowOutput + pw * 4, max);
+                    _mm_storeu_ps(rowOutput + pw * 4, max);
 #else
                     for (int i = 0; i < 4; i++) {
                         auto ptr  = sliceInput + (hStart * iw + wStart) * 4 + i;
