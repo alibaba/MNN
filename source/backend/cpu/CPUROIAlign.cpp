@@ -1,4 +1,4 @@
-﻿//
+//
 //  CPUROIAlign.cpp
 //  MNN
 //
@@ -159,9 +159,9 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                                 auto val2 = _mm_loadu_ps(sliceInput + pos[2]);
                                 auto val3 = _mm_loadu_ps(sliceInput + pos[3]);
                                 auto mla  = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
-                                mla       = _mm_fmadd_ps(val1, _mm_set_ps1(area[1]), mla);
-                                mla       = _mm_fmadd_ps(val2, _mm_set_ps1(area[2]), mla);
-                                mla       = _mm_fmadd_ps(val3, _mm_set_ps1(area[3]), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val1, _mm_set_ps1(area[1])), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val2, _mm_set_ps1(area[2])), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val3, _mm_set_ps1(area[3])), mla);
                                 res       = _mm_add_ps(res, mla);
                                 preCalcIdx++;
                             }
@@ -228,9 +228,9 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                                 auto val2  = _mm_loadu_ps(sliceInput + pos[2]);
                                 auto val3  = _mm_loadu_ps(sliceInput + pos[3]);
                                 auto mla   = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
-                                mla        = _mm_fmadd_ps(val1, _mm_set_ps1(area[1]), mla);
-                                mla        = _mm_fmadd_ps(val2, _mm_set_ps1(area[2]), mla);
-                                mla        = _mm_fmadd_ps(val3, _mm_set_ps1(area[3]), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val1, _mm_set_ps1(area[1])), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val2, _mm_set_ps1(area[2])), mla);
+                                mla       = _mm_add_ps(_mm_mul_ps(val3, _mm_set_ps1(area[3])), mla);
                                 res        = _mm_max_ps(res, mla);
                                 preCalcIdx++;
                             }
