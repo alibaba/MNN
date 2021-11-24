@@ -330,6 +330,7 @@ int CPUBackend::getTensorSize(const Tensor* tensor) const {
         }
         dataSize *= currentDimSize;
     }
+    MNN_ASSERT(dataSize > 0);
     return dataSize;
 }
 
