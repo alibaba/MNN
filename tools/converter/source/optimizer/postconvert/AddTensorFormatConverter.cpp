@@ -158,6 +158,11 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, con
         tensorFormat[op->outputIndexes[0]] = op->main.AsBlob()->dataFormat;
         return true;
     }
+    // For the net has been insert convert tensor, use origin format
+    if (op->type == OpType_ConvertTensor) {
+        tensorFormat[op->outputIndexes[0]] = op->main.AsTensorConvertInfo()->dest;
+        return true;
+    }
     auto formatType = _getFormatType(op, originFormat);
     if (lastChange) {
         formatType = ORIGIN;
@@ -280,6 +285,7 @@ static bool _OpNeedConvertContent(OpType type) {
         case OpType_PriorBox:
         case OpType_Const:
         case OpType_Rank:
+        case OpType_ConvertTensor:
             return false;
         default:
             break;
@@ -305,7 +311,6 @@ public:
                     op->main.AsBlob()->dataFormat = originTensorType;
                 }
             }
-            MNN_ASSERT(op->type != OpType_ConvertTensor);
         }
 
         auto config = Global<modelConfig>::Get();

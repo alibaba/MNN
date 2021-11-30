@@ -28,6 +28,12 @@ void ConstantTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
     if (type == "None") {
         return;
     }
+    if (getRealOpType(node) == "Uninitialized" || node->attributeNames().empty()) {
+        param->dataType = MNN::DataType_DT_FLOAT;
+        param->float32s = {};
+        dstOp->main.value = param;
+        return;
+    }
     auto attr = node->attributeNames()[0];
     auto kind = node->kindOf(attr);
     switch (kind) {
@@ -109,3 +115,4 @@ void ConstantTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
 }
 
 REGISTER_CONVERTER(ConstantTorch, Constant);
+REGISTER_CONVERTER(ConstantTorch, Uninitialized);

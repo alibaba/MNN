@@ -6,15 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <limits>
 #include "CPUMatMul.hpp"
 #include "CPUBackend.hpp"
 #include "math/Matrix.hpp"
 #include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
-#include "core/AutoStorage.h"
+#include "core/BufferAllocator.hpp"
 #include "math/Vec.hpp"
-#include <limits>
+
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
@@ -89,32 +90,29 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     }
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    AutoRelease<Tensor> AT(Tensor::createDevice<float>({UP_DIV(l, core->pack), e, core->pack}));
-    AutoRelease<Tensor> BT(Tensor::createDevice<float>({UP_DIV(h, hP), UP_DIV(l, lP) * lP, hP}));
-    AutoRelease<Tensor> CT(Tensor::createDevice<float>({UP_DIV(h, core->pack), e, core->pack}));
-    auto res = backend()->onAcquireBuffer(BT.get(), Backend::DYNAMIC);
-    if (!res) {
+    auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
+    auto ATPtrAlloc = bufferAlloc->alloc(UP_DIV(l, core->pack) * e * core->pack * core->bytes);
+    auto BTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, hP) * UP_DIV(l, lP) * lP * hP * core->bytes);
+    auto CTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, core->pack) * e * core->pack * core->bytes);
+    if (nullptr == ATPtrAlloc.first || nullptr == BTPtrAlloc.first || nullptr == CTPtrAlloc.first) {
         return OUT_OF_MEMORY;
     }
-    auto BTPtr = BT->host<float>();
-    float* BTempPtr = BTPtr;
+    auto BTPtr = (uint8_t*)BTPtrAlloc.first + BTPtrAlloc.second;
+    auto ATPtr = (uint8_t*)ATPtrAlloc.first + ATPtrAlloc.second;
+    auto CTPtr = (uint8_t*)CTPtrAlloc.first + CTPtrAlloc.second;
+
+    float* BTempPtr = (float*)BTPtr;
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
     mPreFunctions.emplace_back(std::make_pair([BTempPtr, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias) {
         core->MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
     } , 1));
-    res = backend()->onAcquireBuffer(AT.get(), Backend::DYNAMIC);
-    res = res && backend()->onAcquireBuffer(CT.get(), Backend::DYNAMIC);
-    if (!res) {
-        return OUT_OF_MEMORY;
-    }
-    auto ATPtr = AT->host<float>();
     if (mTransposeA) {
         // l, e -> lC4, e, 4
         mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
             int offset[] = {
                 e, e
             };
-            core->MNNPackCUnit(ATPtr, APtr, e, l, offset);
+            core->MNNPackCUnit((float*)ATPtr, APtr, e, l, offset);
         }, 1));
     } else {
         // e, l -> lC4, e, 4
@@ -123,33 +121,34 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             int offset[] = {
                 e, e
             };
-            core->MNNPackCUnitTranspose(ATPtr, APtr, e, l, offset);
+            core->MNNPackCUnitTranspose((float*)ATPtr, APtr, e, l, offset);
         }, 1));
     }
-    AutoRelease<Tensor> biasWrap;
-    std::vector<Tensor*> strassenInputs = {AT.get(), BT.get()};
+    bool useBias = false;
+    uint8_t* biasPtr = nullptr;
     std::vector<float> postParameters;
+    std::pair<void*, int> bdestAlloc = std::make_pair(nullptr, 0);
     if (inputs.size() > 2) {
         auto bias = inputs[2];
+        useBias = true;
         auto biasLength = bias->elementSize();
         if (biasLength % core->pack != 0) {
             mStrassenUseBiasDirectly = false;
             // Padding to align of 4
-            biasWrap.reset(Tensor::createDevice<float>({UP_DIV(biasLength, core->pack) * core->pack}));
-            res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
-            if (!res) {
+            bdestAlloc = bufferAlloc->alloc(UP_DIV(biasLength, core->pack) * core->pack * core->bytes);
+            if (bdestAlloc.first == nullptr) {
                 return OUT_OF_MEMORY;
             }
-            auto bdest = biasWrap->host<float>();
+            auto bdest = (float*)((uint8_t*)bdestAlloc.first + bdestAlloc.second);
             mPreFunctions.emplace_back(std::make_pair(
                 [biasLength, bdest, core](int tId, const float* APtr, const float* BPtr, const float* borigin) {
                 ::memset(bdest, 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
                 ::memcpy(bdest, borigin, biasLength * core->bytes);
             }, 1));
-            strassenInputs.emplace_back(biasWrap.get());
+            biasPtr = (uint8_t*)bdest;
         } else {
             mStrassenUseBiasDirectly = true;
-            strassenInputs.emplace_back(bias);
+            biasPtr = bias->host<uint8_t>();
         }
         postParameters = {
             1.0f,
@@ -158,15 +157,13 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             std::numeric_limits<float>().max(),
         };
     }
-    auto code = mComputer->onEncode(strassenInputs, {CT.get()}, postParameters, l);
+    auto code = mComputer->onEncode(e, l, h, e * core->pack, UP_DIV(l, lP) * lP * hP, e * core->pack, ATPtr, BTPtr, CTPtr, useBias, biasPtr, postParameters);
     if (NO_ERROR != code) {
         return code;
     }
-    if (nullptr != biasWrap.get()) {
-        backend()->onReleaseBuffer(biasWrap.get(), Backend::DYNAMIC);
+    if (bdestAlloc.first != nullptr) {
+        bufferAlloc->free(bdestAlloc);
     }
-
-    auto CTPtr = CT->host<float>();
     // hC4, e, 4 -> e, h
     if (mTransposeC) {
         mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
@@ -174,7 +171,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             int offset[] = {
                 e, e
             };
-            core->MNNUnpackCUnitTranspose(CPtr, CTPtr, e, h, offset);
+            core->MNNUnpackCUnitTranspose(CPtr, (float*)CTPtr, e, h, offset);
         }, 1));
     } else {
         mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
@@ -182,12 +179,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             int offset[] = {
                 e, e
             };
-            core->MNNUnpackCUnit(CPtr, CTPtr, e, h, offset);
+            core->MNNUnpackCUnit(CPtr, (float*)CTPtr, e, h, offset);
         }, 1));
     }
-    backend()->onReleaseBuffer(AT.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(BT.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(CT.get(), Backend::DYNAMIC);
+    bufferAlloc->free(ATPtrAlloc);
+    bufferAlloc->free(BTPtrAlloc);
+    bufferAlloc->free(CTPtrAlloc);
     return NO_ERROR;
 }
 

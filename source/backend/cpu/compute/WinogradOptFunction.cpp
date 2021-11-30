@@ -535,19 +535,6 @@ static void _destTransformUnit8x7(const float* srcBlock, float* dstStart, size_t
     Vec4::save(dstStart + 5 * dstStep, m5);
     Vec4::save(dstStart + 6 * dstStep, m6);
 }
-
-static WinogradFunction::TransformFunc gProcUnit8[] = {
-    nullptr, // 0
-    nullptr, // 1
-    _destTransformUnit8x2,
-    _destTransformUnit8x3,
-    _destTransformUnit8x4,
-    _destTransformUnit8x5,
-    _destTransformUnit8x6,
-    _destTransformUnit8x7,
-};
-
-
 static void _sourceTransformUnit6x6Pack12(float* srcBlock, float* dstStart, size_t dstStep) {
 
     // source transform D * B. register number : (srcUnit + 1) * EPack/4 = 21
@@ -772,16 +759,6 @@ static void _destTransformUnit6x2(const float* srcBlock, float* dstStart, size_t
     Vec4::save(dstStart + 1 * dstStep, m1);
 }
 
-static WinogradFunction::TransformFunc gProcUnit6[] = {
-    nullptr, // 0
-    nullptr, // 1
-    _destTransformUnit6x2,
-    _destTransformUnit6x3,
-    _destTransformUnit6x4,
-    _destTransformUnit6x5,
-};
-
-
 WinogradFunction::TransformFunc WinogradFunction::chooseSourceTransform(int k, int w) {
     if (8 == k && 8 == w) {
         return _sourceTransformUnit8x8;
@@ -812,18 +789,23 @@ WinogradFunction::TransformPackFunc WinogradFunction::chooseWinoSourceTransformP
     return nullptr;
 }
 
+#define SELECT_KH(K, H) if (h == H) return _destTransformUnit##K##x##H
 WinogradFunction::TransformFunc WinogradFunction::chooseDestTransform(int k, int h) {
     if (8 == k) {
-        if (h <= 1 || h > 7) {
-            return nullptr;
-        }
-        return gProcUnit8[h];
+        SELECT_KH(8, 7);
+        SELECT_KH(8, 6);
+        SELECT_KH(8, 5);
+        SELECT_KH(8, 4);
+        SELECT_KH(8, 3);
+        SELECT_KH(8, 2);
+        return nullptr;
     }
     if (6 == k) {
-        if (h <= 1 || h > 5) {
-            return nullptr;
-        }
-        return gProcUnit6[h];
+        SELECT_KH(6, 5);
+        SELECT_KH(6, 4);
+        SELECT_KH(6, 3);
+        SELECT_KH(6, 2);
+        return nullptr;
     }
     if (2 == h && 4 == k) {
         return _destTransformUnit4x2;

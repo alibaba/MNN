@@ -140,7 +140,7 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (nullptr == proc) {
                 return NOT_SUPPORT;
             }
-            if (batch > 1) {
+            if (batch != 1) {
                 // Divide in batch
                 int offset[2] = {
                     outside * inside,
@@ -212,7 +212,7 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (nullptr == proc) {
                 return NOT_SUPPORT;
             }
-            if (batch > 1) {
+            if (batch != 1) {
                 // Divide in batch
                 int offset[2] = {
                     area,
@@ -266,18 +266,29 @@ std::tuple<int, int, int> CPUTensorConverter::splitDimensions(const halide_buffe
     }
     return std::make_tuple(batch, area, channel);
 }
+
+static int _getBytes(const CoreFunctions* core, const Tensor* output) {
+    auto bytes = output->getType().bytes();
+    auto quant = TensorUtils::getDescribe(output)->quantAttr.get();
+    if (output->getType().code == halide_type_float) {
+        bytes = core->bytes;
+    }
+    if (nullptr != quant && TensorUtils::getDescribe(output)->type == DataType_DT_INT8) {
+        bytes = 1;
+    }
+    return bytes;
+}
 ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output, const CoreFunctions* core, int tId, int numberThread) {
     auto ib     = input->buffer();
     auto ob     = output->buffer();
+    MNN_ASSERT(TensorUtils::getDescribe(input)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
+    MNN_ASSERT(TensorUtils::getDescribe(output)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
     if (nullptr == core) {
         core = MNNGetCoreFunctions();
     }
-    int bitLength = ib.type.bytes();
-    if (ib.type.code == halide_type_float) {
-        bitLength = core->bytes;
-    }
+    int bitLength = _getBytes(core, input);
     if (ib.dimensions <= 1 || source == dest) {
         int dataSize = 1;
         for (int i = 0; i < input->dimensions(); i++) {

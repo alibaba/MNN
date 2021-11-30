@@ -10,9 +10,9 @@
 #include "cpp/IDSTEncoder.hpp"
 
 static float findAbsMax(const float *weights, const int count) {
-    float absMax = abs(weights[0]);
+    float absMax = fabs(weights[0]);
     for (int i = 1; i < count; i++) {
-        float value = abs(weights[i]);
+        float value = fabs(weights[i]);
         if (value > absMax) {
             absMax = value;
         }

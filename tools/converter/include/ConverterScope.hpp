@@ -36,7 +36,7 @@ public:
     // build an int const op in this scope
     int buildIntConstOp(std::vector<int> data, std::string name);
     // add input tensor for op, add depend in parent scope
-    void addInputForOp(MNN::OpT* op, std::string inputName);
+    void addInputForOp(MNN::OpT* op, std::string inputName, bool allowSameInput = false);
     // deal with subgraph input depend
     void dealSubgraphDeps();
     void dealSubgraphDepsForOp(MNN::OpT* op);
@@ -53,6 +53,8 @@ public:
     std::vector<std::string>& tensors();
     // get oplists
     std::vector<std::unique_ptr<MNN::OpT>>& oplists();
+    // get deps
+    std::vector<std::string>& deps();
 protected:
     std::map<std::string, int> mTensorIdx;
     MNN::NetT* mNet;

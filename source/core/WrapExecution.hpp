@@ -36,6 +36,8 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     static bool needWrap(const Tensor* input, Backend* current);
+    static Tensor* copyConstCache(Tensor* tensor, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache);
+
 private:
     Tensor *_getCopyTensor(Tensor *input);
     Backend *mCPUBackend;
@@ -49,10 +51,10 @@ private:
 /** execution cast wrapper. insert tensor cast dynamic. */
 class CastWrapExecution : public Execution {
 public:
-    CastWrapExecution(Backend* backend, halide_type_t runT, const Op* op, Execution* exe)
-                    : Execution(backend), runType(runT), mType(op->type()), mExecution(exe) {}
+    CastWrapExecution(Backend* backend, DataType runT, const Op* op, Execution* exe)
+                    : Execution(backend), mRunType(runT), mType(op->type()), mExecution(exe) {}
     CastWrapExecution(const CPUBackend::Creator* creator, const Op* op, Backend* backend,
-                      const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, halide_type_t runT);
+                      const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, DataType runT);
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
 
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -60,24 +62,13 @@ public:
 private:
     OpType mType;
     const CPUBackend::Creator* mCreator;
-    halide_type_t runType;
+    DataType mRunType;
     std::shared_ptr<Execution> mExecution;
     Tensor* mRasterInput;
     std::vector<Tensor*> mWrapInputs, mInputs;
     std::unique_ptr<Tensor> mRasterInputTensor;
     std::vector<std::unique_ptr<Tensor>> mWrapInputTensor;
     std::map<const Tensor*, const Tensor*> mCasts;
-    std::map<const Tensor*, std::vector<float>> mScales;
-    bool firstResize = true;
-};
-class CheckNANExecution : public Execution {
-public:
-    CheckNANExecution(Execution* exe);
-    virtual ~CheckNANExecution();
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-private:
-    Execution* mExecution;
 };
 } // namespace MNN
 

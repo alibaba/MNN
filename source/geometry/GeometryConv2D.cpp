@@ -127,6 +127,10 @@ public:
         }
         return true;
     }
+    virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+            Context& context, CommandBuffer& res) const override {
+        return false;
+    }
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
         if (inputs.size() == 1) {
@@ -320,12 +324,41 @@ public:
         }
     }
 };
+class GeometryIm2Col : public GeometryConv2D {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        auto common = op->main_as_Convolution2D()->common();
+        auto input  = inputs[0];
+        auto output = outputs[0];
+        auto kw    = common->kernelX();
+        auto kh    = common->kernelY();
+        auto sw    = common->strideX();
+        auto sh    = common->strideY();
+        auto dw    = common->dilateX();
+        auto dh    = common->dilateY();
+        auto pw    = common->padX();
+        auto ph    = common->padY();
+        auto batch = input->batch();
+        auto ic    = input->channel();
+        auto iw    = input->width();
+        auto ih    = input->height();
+        auto pads  = std::make_pair(pw, ph);
+        auto ow    = (iw + pw * 2 - kw) / sw + 1;
+        auto oh    = (ih + ph * 2 - kh) / sh + 1;
+        GeometryConvUtils::im2Col(output, input, ic, kh, kw, batch, oh, ow, ih, iw, sh, sw, dh, dw, pads);
+        return true;
+    }
+};
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryConv2D);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Convolution});
 
     std::shared_ptr<GeometryComputer> comp2(new GeometryConvTranspose2D);
     GeometryComputer::registerGeometryComputer(comp2, {OpType_Deconvolution});
+
+    std::shared_ptr<GeometryComputer> comp3(new GeometryIm2Col);
+    GeometryComputer::registerGeometryComputer(comp3, {OpType_Im2Col});
 }
 
 REGISTER_GEOMETRY(GeometryConv2D, _create);

@@ -19,8 +19,8 @@ public:
     MNN_PUBLIC static WhileModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
 
     struct Info {
-        int mCondInputNumber;
-        int mBodyInputNumber;
+        int mCondInputNumber = 0;
+        int mBodyInputNumber = 0;
         int mOutputNumber;
 
         // First mCondInputs' index, Second: inputs's index

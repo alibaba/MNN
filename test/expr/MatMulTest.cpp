@@ -11,7 +11,12 @@
 #include <random>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Module.hpp>
+
 using namespace MNN::Express;
+using namespace MNN;
 
 static void fillFloat(float* dst, int h, int w, float offset = 0.0f) {
     for (int y = 0; y < h; ++y) {
@@ -242,28 +247,44 @@ public:
             int b0 = 5;
             int b1 = 1;
             auto x0   = _Input({}, NHWC, halide_type_of<float>());
+            x0->setName("x0");
             auto x1   = _Input({}, NHWC, halide_type_of<float>());
-            x0->resize({b0, h, l});
-            x1->resize({b1, l, e});
-            auto x0Ptr = x0->writeMap<float>();
-            auto x1Ptr = x1->writeMap<float>();
-            for (int b = 0; b < b0; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
+            x1->setName("x1");
+            // Run as Module
+            flatbuffers::FlatBufferBuilder builderOutput(1024);
+            {
+                auto tranposeA = _Transpose(x0, {0, 2, 1});
+                auto tranposeB = _Transpose(x1, {0, 2, 1});
+                auto y = Variable::create(Expr::create(op.get(), {tranposeA, tranposeB}));
+                y->setName("y");
+                std::unique_ptr<MNN::NetT> net(new NetT);
+                Variable::save({y}, net.get());
+                auto len = MNN::Net::Pack(builderOutput, net.get());
+                builderOutput.Finish(len);
             }
-            for (int b = 0; b < b1; ++b) {
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
-            }
-            auto tranposeA = _Transpose(x0, {0, 2, 1});
-            auto tranposeB = _Transpose(x1, {0, 2, 1});
-
-            auto y = Variable::create(Expr::create(op.get(), {tranposeA, tranposeB}));
-
-            auto yPtr = y->readMap<float>();
-            for (int b = 0; b < b0; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr, e, l, h);
-                if (!res) {
-                    FUNC_PRINT(1);
-                    return false;
+            int sizeOutput    = builderOutput.GetSize();
+            auto bufferOutput = builderOutput.GetBufferPointer();
+            std::shared_ptr<MNN::Express::Module> module(Module::load(std::vector<std::string>{"x0", "x1"}, std::vector<std::string>{"y"}, bufferOutput, sizeOutput));
+            for (int k=2; k<5; ++k) {
+                b0 = k;
+                x0->resize({b0, h, l});
+                x1->resize({b1, l, e});
+                auto x0Ptr = x0->writeMap<float>();
+                auto x1Ptr = x1->writeMap<float>();
+                for (int b = 0; b < b0; ++b) {
+                    fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
+                }
+                for (int b = 0; b < b1; ++b) {
+                    fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                }
+                auto y = module->onForward({x0, x1})[0];
+                auto yPtr = y->readMap<float>();
+                for (int b = 0; b < b0; ++b) {
+                    auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr, e, l, h);
+                    if (!res) {
+                        FUNC_PRINT(1);
+                        return false;
+                    }
                 }
             }
         }

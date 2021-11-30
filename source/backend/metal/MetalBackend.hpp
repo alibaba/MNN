@@ -10,70 +10,112 @@
 #define MetalBackend_hpp
 
 #include "core/Backend.hpp"
+#include "core/BufferAllocator.hpp"
+#include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
 #include "MetalDefine.h"
 #include <vector>
+//#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
 using namespace MetalCache;
 
 #if MNN_METAL_ENABLED
 namespace MNN {
+
 /** MetalRuntime */
 enum MetalTuneLevel {Never = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 
-class MetalRuntime : public Runtime {
+class MetalRuntime {
 public:
     friend class MetalBackend;
-    class BufferAllocator {
-    public:
-        BufferAllocator(void* context);
-        ~ BufferAllocator();
-        id<MTLBuffer> alloc(size_t size, bool seperate = false);
-        void release(id<MTLBuffer> buffer);
-        void clear();
-        float computeSizeInMB() const;
-    private:
-        std::map<id<MTLBuffer>, size_t> mAllocated;
-        std::multimap<size_t, id<MTLBuffer>> mReusableBuffers;
-        void* mContext = nullptr;
-    };
-    virtual float onGetMemoryInMB() override;
-
-    MetalRuntime(const Backend::Info& info);
+    MetalRuntime(const Backend::Info info);
     virtual ~ MetalRuntime();
-    virtual Backend* onCreate(const BackendConfig* config) const override;
-    virtual void onGabageCollect(int level) override;
+    
     void *context() const {
         return mContext;
     }
-    id<MTLBuffer> getHostBuffer(size_t size) const;
+
+    bool isCreateError() const {
+        return mIsCreateError;
+    }
+    void setGpuMode(const int cl_mode_num);
     
-    virtual std::pair<const void*, size_t> onGetCache() override;
-    virtual bool onSetCache(const void* buffer, size_t size) override;
-    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
-        return mTunedThreadGroup;
-    };
+    std::pair<const void*, size_t> makeCache();
+    bool setCache(std::pair<const void*, size_t> cache);
     
     MetalTuneLevel getTuneLevel() {
         return mTuneLevel;
     }
-    void setGpuMode(const int cl_mode_num);
-    
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
+        return mTunedThreadGroup;
+    };
 private:
     void* mContext = nullptr;
     std::shared_ptr<BufferAllocator> mStatic;
-    std::shared_ptr<BufferAllocator> mDynamic;
-    mutable id<MTLBuffer> mHostBuffer = nullptr;
-    
+    bool mIsCreateError = false;
+    MetalTuneLevel mTuneLevel = Wide;
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
+
+private:
     std::vector<uint8_t> mBuffer;
     const void* mCacheOutside = nullptr;
     size_t mCacheOutsideSize = 0;
-    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
-    MetalTuneLevel mTuneLevel = Wide;
+};
+
+
+class MetalRuntimeWrapper : public Runtime {
+public:
+    MetalRuntimeWrapper(const Backend::Info info);
+    virtual ~MetalRuntimeWrapper();
+    virtual Backend *onCreate(const BackendConfig* config) const override;
+    virtual void onGabageCollect(int level) override;
+    bool isCreateError() const {
+        return mIsCreateError;
+    }
+    virtual CompilerType onGetCompilerType() const override {
+        return Compiler_Loop;
+    }
+    virtual float onGetMemoryInMB() override;
+
+    virtual std::pair<const void*, size_t> onGetCache() override;
+    virtual bool onSetCache(const void* buffer, size_t size) override;
+
+    
+private:
+    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<MetalRuntime> mMetalRuntime;
+    bool mIsCreateError{false};
+};
+
+class MetalRuntimeAllocator : public BufferAllocator::Allocator {
+public:
+    class MetalBufferAlloc {
+    public:
+        MetalBufferAlloc(id<MTLBuffer> buffer) {
+            mBuffer = buffer;
+        }
+        id<MTLBuffer> getBuffer() {
+            return mBuffer;
+        }
+        ~MetalBufferAlloc(){};
+    private:
+        id<MTLBuffer> mBuffer = nil;
+    };
+    
+    MetalRuntimeAllocator(MetalRuntime *rt): mMetalRuntime(rt) {
+        // Do nothing
+    }
+    virtual ~ MetalRuntimeAllocator() = default;
+    virtual std::pair<void*, int> onAlloc(int size, int align) override;
+    virtual void onRelease(std::pair<void*, int> ptr) override;
+    
+private:
+    MetalRuntime *mMetalRuntime;
+    id<MTLBuffer> mBuffer = nil;
 };
 
 /** Metal backend */
-class MetalBackend final : public Backend {
+class MetalBackend : public Backend {
 public:
     /** Metal execution creator */
     class Creator {
@@ -94,29 +136,16 @@ public:
      */
     static void addCreator(OpType type, Creator *creator);
 
-    class AutoBuffer {
-    public:
-        AutoBuffer(const MetalRuntime* runtime) {
-            mRuntime = runtime;
-        }
-        ~ AutoBuffer();
-        void reset(size_t length);
-        id<MTLBuffer> buffer() const {
-            return mBuffer;
-        }
-    private:
-        const MetalRuntime* mRuntime = nullptr;
-        id<MTLBuffer> mBuffer = nil;
-    };
+    id<MTLBuffer> getHostBuffer(size_t size) const;
+    id<MTLBuffer> getConstBuffer(size_t size) const;
+public:
+    MetalBackend(std::shared_ptr<BufferAllocator> staticMem, const MetalRuntime* runtime);
+    virtual ~MetalBackend();
     const MetalRuntime* runtime() const {
         return mRuntime;
     }
-public:
-    MetalBackend(const MetalRuntime* runtime);
-    virtual ~MetalBackend();
-
-    virtual bool onAcquireBuffer(const Tensor *Tensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor *Tensor, StorageType storageType) override;
+    
+    virtual Backend::MemObj* onAcquire(const Tensor *Tensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const override;
 
@@ -152,13 +181,21 @@ public:
     
     bool isCommandEncoderSet();
     void setOpEncoder() const;
+    
+    BufferAllocator *getBufferPool() const {
+        return mBufferPool.get();
+    }
+    BufferAllocator *getStaticBufferPool() const {
+        return mStaticBufferPool.get();
+    }
+
     bool isCmdBufferCommit();
     
 private:
     const MetalRuntime* mRuntime;
     std::vector<id<MTLBuffer>> mHoldBuffers;
-    AutoBuffer mShapeH2D;
-    AutoBuffer mShapeD2H;
+    id<MTLBuffer> mShapeH2D;
+    id<MTLBuffer> mShapeD2H;
     mutable NSUInteger mEncoderCount = 0;
     mutable bool mOpEncoderSet = false;//whether has set encoder
     mutable bool mOpFullSupport = true;
@@ -166,9 +203,11 @@ private:
 
     std::vector<std::function<void(void)>> mOpEncoders;
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
+    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<BufferAllocator> mStaticBufferPool;
 
 private:
-    id<MTLBuffer> getHostBuffer(size_t size) const;
+    mutable id<MTLBuffer> mHostBuffer = nullptr;
     void onCopyHostToDevice(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;

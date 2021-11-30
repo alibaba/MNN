@@ -77,12 +77,6 @@ private:
 
     const VulkanDevice& mDevice;
     bool mPermitFp16 = false;
-    
-    // For buffer alloc, key: size - usage
-    std::multimap<std::tuple<size_t, VkBufferUsageFlags, VkSharingMode>, VkBuffer> mFreeVkBuffers;
-    
-    // For Image alloc
-    std::multimap<std::tuple<VkImageType,uint32_t,uint32_t,uint32_t,VkFormat>, VkImage> mFreeImages;
 };
 } // namespace MNN
 #endif /* VulkanMemoryPool_hpp */

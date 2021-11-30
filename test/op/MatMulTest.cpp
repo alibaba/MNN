@@ -104,7 +104,7 @@ protected:
             output  = _MatMul(input_a, input_b, tranpose_a, tranpose_b);
         }
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), 0.05)) {
+        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), 5e-3)) {
             MNN_ERROR("%s: %d x %d - %d x %d -> %d, %d , transpose: %d, %d, test failed!\n", test_op_name.c_str(),
                       width_a, height_a, width_b, height_b, output->getInfo()->dim[1], output->getInfo()->dim[0],
                       tranpose_a, tranpose_b);
@@ -182,9 +182,9 @@ protected:
                 return false;
             }
         }
-        for (int height_c = 1; height_c <= 48; ++height_c) {
-            for (int width_c = 1; width_c <= 48; ++width_c) {
-                for (int length = 1; length <= 20; ++length) {
+        for (int height_c = 1; height_c <= 48; height_c+=3) {
+            for (int width_c = 1; width_c <= 48; width_c+=5) {
+                for (int length = 1; length <= 20; length+=7) {
                     int height_a = height_c, height_b = length, width_a = length, width_b = width_c;
                     for (int tranpose_a = 0; tranpose_a <= 1; ++tranpose_a) {
                         int height_a = height_c, width_a = length;

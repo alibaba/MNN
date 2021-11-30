@@ -219,11 +219,12 @@ public:
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else {
-            Command cmd;
+            SharedPtr<Command> cmdP = new Command;
+            auto& cmd = *cmdP;;
             cmd.op      = op;
             cmd.inputs  = std::move(newInputs);
             cmd.outputs = std::move(newOutputs);
-            res.command.emplace_back(std::move(cmd));
+            res.command.emplace_back(std::move(cmdP));
         }
         if (originOutput != output) {
             ConvertUtils::compute(output, originOutput, res);

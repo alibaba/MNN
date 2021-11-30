@@ -158,6 +158,7 @@ class RefCount
                 delete this;
             }
         }
+    inline int count() const{return mNum;}
     protected:
         RefCount():mNum(1){}
         RefCount(const RefCount& f):mNum(f.mNum){}
@@ -170,7 +171,6 @@ class RefCount
         }
         virtual ~RefCount(){}
     private:
-        inline int count() const{return mNum;}
         mutable int mNum;
 };
 
@@ -216,6 +216,25 @@ class SharedPtr {
     private:
         T* mT;
 };
+
+struct BufferStorage {
+    size_t size() const {
+        return allocated_size - offset;
+    }
+
+    const uint8_t* buffer() const {
+        return storage + offset;
+    }
+    ~ BufferStorage() {
+        if (nullptr != storage) {
+            delete [] storage;
+        }
+    }
+    size_t allocated_size;
+    size_t offset;
+    uint8_t* storage = nullptr;
+};
+
 } // namespace MNN
 
 #endif /* AutoStorage_h */

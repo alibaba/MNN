@@ -29,7 +29,7 @@ static id<MTLBuffer> biasForConv(MNNMetalContext *context, const Convolution2D *
     return buffer;
 }
 
-MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *op) : Execution(backend), mConstBuffer(static_cast<MetalBackend*>(backend)->runtime()) {
+MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *op) : Execution(backend) {
     auto context    = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto conv       = op->main_as_Convolution2D();
     auto common     = conv->common();

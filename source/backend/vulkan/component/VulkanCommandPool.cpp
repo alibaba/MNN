@@ -59,40 +59,6 @@ VulkanCommandPool::Buffer::Buffer(const VulkanCommandPool* pool) : mPool(pool) {
 VulkanCommandPool::Buffer::~Buffer() {
     mPool->mFreeBuffers.emplace_back(mBuffer);
 }
-void VulkanCommandPool::Buffer::barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout, BarrierType type) const {
-    barrierImage(image->get(), image->layout(), newLayout, type);
-    const_cast<VulkanImage*>(image)->setLayout(newLayout);
-}
-
-void VulkanCommandPool::Buffer::barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout, BarrierType type) const {
-    VkImageMemoryBarrier barrier;
-    ::memset(&barrier, 0, sizeof(VkImageMemoryBarrier));
-
-    barrier.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
-    barrier.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
-    switch (type) {
-        case READ_WRITE:
-            barrier.dstAccessMask               = VK_ACCESS_SHADER_READ_BIT;
-            barrier.srcAccessMask               = VK_ACCESS_SHADER_WRITE_BIT;
-            break;
-        case WRITE_WRITE:
-            barrier.dstAccessMask               = VK_ACCESS_SHADER_WRITE_BIT;
-            barrier.srcAccessMask               = VK_ACCESS_SHADER_WRITE_BIT;
-            break;
-        default:
-            break;
-    }
-    barrier.image                       = source;
-    barrier.newLayout                   = newLayout;
-    barrier.oldLayout                   = oldLayout;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.layerCount = 1;
-
-    vkCmdPipelineBarrier(mBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
-                         nullptr, 0, nullptr, 1, &barrier);
-}
 
 void VulkanCommandPool::Buffer::barrierSource(VkBuffer source, size_t start, size_t size, BarrierType type) const {
     VkBufferMemoryBarrier barrier;

@@ -57,7 +57,7 @@ typedef enum {
     MNN_GPU_TUNING_WIDE   = 1 << 2,/* widely tuning, performance good. Default */
     MNN_GPU_TUNING_NORMAL = 1 << 3,/* normal tuning, performance may be ok */
     MNN_GPU_TUNING_FAST   = 1 << 4,/* fast tuning, performance may not good */
-    
+
     // choose one opencl memory mode Only
     /* User can try OpenCL_MEMORY_BUFFER and OpenCL_MEMORY_IMAGE both,
      then choose the better one according to performance*/
@@ -86,6 +86,25 @@ struct BackendConfig {
         size_t flags; // Valid for CPU Backend
     };
 };
+
+    /** acquire runtime status by Runtime::getCurrentStatus with following keys,
+    */
+    enum RuntimeStatus {
+        /**
+         * get status whether this runtime support 16-bits float point arithmetic
+         */
+        STATUS_SUPPORT_FP16,
+        /**
+         * get status whether this runtime support dot-product arithmetic
+         */
+        STATUS_SUPPORT_DOT_PRODUCT,
+        /**
+         * emum total number
+         */
+        STATUS_COUNT
+    };
+
+
 }; // namespace MNN
 #endif
 #endif /* MNNForwardType_h */

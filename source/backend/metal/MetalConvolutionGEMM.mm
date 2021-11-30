@@ -84,8 +84,8 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer.reset(sizeof(constants));
-    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
+    mConstBuffer = backend->getConstBuffer(sizeof(constants));
+    ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
 
     // create mat mul const buffer
     int shapes[] = {UP_DIV(ow * oh * ob, 4), oc_4, mKernelX * mKernelY * ic_4, 1};
@@ -113,9 +113,8 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
         NSUInteger gid_x = gw;
         NSUInteger gid_y = gh;
         NSUInteger gid_z = 1;
-        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId(),
-                        (__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId(),
-                        mWeight, mShapeBuffer, nil];
+        NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempInput->deviceId())->getBuffer(),
+                        (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)mTempOutput->deviceId()))->getBuffer(), mWeight, mShapeBuffer, nil];
 
         std::string name = "matmul4x4";
         MetalRuntime *rt = (MetalRuntime *)backend->runtime();
@@ -142,25 +141,25 @@ ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *outpu
         auto encoder    = backend->encoder();
         { // im2col
             [encoder setComputePipelineState:mPipelineIm2Col];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempInput->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempInput.get())->extra.offset atIndex:1];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
             [encoder dispatchThreadgroups:mIm2Col.first threadsPerThreadgroup:mIm2Col.second];
         }
         { // gemm
             [encoder setComputePipelineState:mPipelineGEMM];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempInput->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempInput.get())->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempOutput->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempOutput.get())->extra.offset atIndex:1];
             [encoder setBuffer:mWeight offset:0 atIndex:2];
             [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
             [encoder dispatchThreadgroups:mGemm.first threadsPerThreadgroup:mGemm.second];
         }
         { // col2im
             [encoder setComputePipelineState:mPipelineCol2Im];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempOutput->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempOutput.get())->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
             [encoder setBuffer:mBias offset:0 atIndex:2];
-            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
             [encoder dispatchThreadgroups:mCol2Im.first threadsPerThreadgroup:mCol2Im.second];
         }
         

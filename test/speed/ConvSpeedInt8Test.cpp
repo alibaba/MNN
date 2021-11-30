@@ -187,42 +187,16 @@ protected:
 class ConvSpeedInt8Test : public ConvSpeedInt8TestCommon {
 public:
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {46, 45}; // {w, h}
-        INTS channel = {256, 128}; // {ci, co}
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {28, 28}; // {w, h}
+        INTS channel = {128, 128}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
-            {3, 3}, {1, 3}, {1, 1}, {5, 1}, {7, 1}, {9, 1}, {11, 1}, {13, 1}, {15, 1}, {5, 5}
+            {1, 1}, {3, 3}, {5, 5}, {7, 1}, {1, 7} // {w, h}
         };
-        std::vector<std::string> titles = {"3x3", "1x3", "1x1", "5x1", "7x1", "9x1", "11x1", "13x1", "15x1", "5x5"};
+        std::vector<std::string> titles = {"3x3", "5x5", "1x7", "7x1"};
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
-                return false;
-            }
-            res = testKernel("ConvInt8 (im2col + gemm) + 7bit", inputShape, kernels[i], channel, pad, strides, dilate, 7);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 7bit (im2col + gemm)\n", titles[i].c_str());
-                return false;
-            }
-        }
-        return true;
-    }
-};
-
-class ConvSpeedInt8WinogradTest : public ConvSpeedInt8TestCommon {
-    public:
-    virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {128, 128}; // {w, h}
-        INTS channel = {32, 56};
-        std::vector<std::vector<int>> kernels = {
-            {3, 3}, {1, 7}
-        };
-        std::vector<std::string> titles = {"3x3", "1x7"};
-        std::vector<int> bits = {6, 7};
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel("ConvInt8 (Winograd)", inputShape, kernels[i], channel, pad, strides, dilate, bits[i]);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
                 return false;
             }
         }
@@ -250,5 +224,4 @@ class ConvSpeedInt8MultiInstanceTest : public ConvSpeedInt8TestCommon {
     }
 };
 MNNTestSuiteRegister(ConvSpeedInt8Test, "speed/ConvInt8/im2col_gemm");
-MNNTestSuiteRegister(ConvSpeedInt8WinogradTest, "speed/ConvInt8/winograd");
 MNNTestSuiteRegister(ConvSpeedInt8MultiInstanceTest, "speed/ConvInt8/multi_instance");

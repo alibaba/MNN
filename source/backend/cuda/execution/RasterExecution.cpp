@@ -22,12 +22,64 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor*>& inputs, const st
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero      = !TensorUtils::regionIsFull(input);
     mTempInputCopy.clear();
-    for (int i = 0; i < des->regions.size(); ++i) {
-        auto& slice = des->regions[i];
-        if (nullptr == slice.origin) {
-            continue;
+
+    mFuseRaster.first = false;
+    if(des->regions.size() > 1) {
+        mFuseRaster.first = true;
+        mFuseRaster.second = des->regions.size();
+        auto& slice0 = des->regions[0];
+        for (int i = 1; i < des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            if (slice0.origin->deviceId() != slice.origin->deviceId()) {
+                mFuseRaster.first = false;
+                break;
+            }
+            if (slice0.src.stride[0] != slice.src.stride[0] || slice0.dst.stride[0] != slice.dst.stride[0]) {
+                mFuseRaster.first = false;
+                break;
+            }
+            if (slice0.src.stride[1] != slice.src.stride[1] || slice0.dst.stride[1] != slice.dst.stride[1]) {
+                mFuseRaster.first = false;
+                break;
+            }      
+            if (slice0.src.stride[2] != slice.src.stride[2] || slice0.dst.stride[2] != slice.dst.stride[2]) {
+                mFuseRaster.first = false;
+                break;
+            }
+            if (slice0.size[0] != slice.size[0] || slice0.size[1] != slice.size[1] || slice0.size[2] != slice.size[2]) {
+                mFuseRaster.first = false;
+                break;
+            }
         }
-        mTempInputCopy.emplace_back(std::make_pair((void*)slice.origin->deviceId(), &slice));
+    }
+    //mFuseRaster.first = false;
+    if(!mFuseRaster.first) {
+        for (int i = 0; i < des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            if (nullptr == slice.origin) {
+                continue;
+            }
+            mTempInputCopy.emplace_back(std::make_pair((void*)slice.origin->deviceId(), &slice));
+        }
+    } else {
+        auto& slice0 = des->regions[0];
+        if (nullptr != slice0.origin) {
+            mTempInputCopy.emplace_back(std::make_pair((void*)slice0.origin->deviceId(), &slice0));
+        }
+
+        int regionSize = des->regions.size();
+        std::vector<int32_t> temp(2*regionSize, 0);
+        for (int i = 0; i < regionSize; ++i) {
+            auto& slice = des->regions[i];
+            temp[i] = slice.src.offset;
+            temp[regionSize+i] = slice.dst.offset;
+            //printf("%d-", tmpSrc[i]);
+        }
+        //save srcOffset/dstOffset to Device
+        offsetTensor.reset(Tensor::createDevice<int32_t>({2*regionSize}));
+        backend()->onAcquireBuffer(offsetTensor.get(), Backend::STATIC);
+        mOffset = (void *)offsetTensor.get()->buffer().device;
+        cuda_check(cudaMemcpy(mOffset, temp.data(), 2*regionSize*sizeof(int32_t), cudaMemcpyHostToDevice));
     }
     return NO_ERROR;
 }
@@ -39,6 +91,17 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor*>& inputs, const s
     auto bytes   = input->getType().bytes();
     if (mNeedZero) {
         runtime->memset((void*)output->deviceId(), 0, output->size());
+    }
+    if(mFuseRaster.first) {
+        MNN_ASSERT(mTempInputCopy.size() == 1);
+        auto& iter  = mTempInputCopy[0];
+        auto& slice = *(iter.second);
+        auto srcPtr = (uint8_t*)iter.first;
+        auto dstPtr = (uint8_t*)output->deviceId();
+        //printf("fuseRaster:%p-%p\n", mSrcOffset, mDstOffset);
+
+        FuseRasterBlit(dstPtr, srcPtr, slice.size, slice.src.stride, slice.dst.stride, mFuseRaster.second, mOffset, bytes, runtime);
+        return NO_ERROR;
     }
     for (int u = 0; u < mTempInputCopy.size(); ++u) {
         auto& iter  = mTempInputCopy[u];

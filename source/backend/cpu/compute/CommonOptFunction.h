@@ -153,6 +153,7 @@ void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t i
 void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, 
                             size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
 
+
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
@@ -179,11 +180,11 @@ struct CoreFunctions {
 
     // sparse matrix multiply
     void(*MNNPackForSparseMatMul_B)(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
+    void(*MNNGetOptimalBlockShape)(size_t& weightNNZElement, size_t& weightBlockNumber, const float* source, int sparseBlockOC, size_t h, size_t l);
 
     // B matrix is sparsed
-    void(*MNNPackedSparseMatMulEpx1)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
-    void(*MNNPackedSparseMatMulEpx4)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
-
+    typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+    void(*MNNAdjustOptimalSparseKernel)(int& sparseBlockOC, MNNPackedSparseMatMul& packedSparseMatMul);
     /**Lowp Backend Setting*/
     void(*MNNFp32ToLowp)(const float* src, int16_t* dst, size_t size);
     void(*MNNLowpToFp32)(const int16_t* src, float* dst, size_t size);
@@ -249,6 +250,15 @@ struct CoreFunctions {
     void(*MNNPoolingMax)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                            int strideHeight, int padWidth, int padHeight, int padType, int countType);
+    // ImageProcess Funtions
+    void(*MNNRGBAToBGRA)(const unsigned char* source, unsigned char* dest, size_t count);
+    void(*MNNNV21ToRGBA)(const unsigned char* source, unsigned char* dest, size_t count);
+    void(*MNNNV21ToRGB)(const unsigned char* source, unsigned char* dest, size_t count);
+    void(*MNNNV21ToBGRA)(const unsigned char* source, unsigned char* dest, size_t count);
+    void(*MNNNV21ToBGR)(const unsigned char* source, unsigned char* dest, size_t count);
+    void(*MNNC1ToFloatC1)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+    void(*MNNC3ToFloatC3)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+    void(*MNNC3ToFloatRGBA)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

@@ -13,20 +13,9 @@
 #include "Type_generated.h"
 #include "MNN_generated.h"
 #include <MNN/expr/Executor.hpp>
+#include "core/AutoStorage.h"
 namespace MNN {
 namespace Express {
-struct BufferStorage {
-    size_t size() const {
-        return allocated_size - offset;
-    }
-
-    const uint8_t* buffer() const {
-        return storage.get() + offset;
-    }
-    size_t allocated_size;
-    size_t offset;
-    std::unique_ptr<uint8_t> storage;
-};
 struct Expr::Inside {
     Inside(int outputSize);
     Inside(Tensor* tensor, bool own = false);
@@ -41,6 +30,11 @@ struct Expr::Inside {
     bool mContentDirty = true;
     bool mOwnTensor = true;
     Tensor* mHostTensor = nullptr;
+    std::shared_ptr<Backend> mHoldBackend;
+};
+struct Executor::DebugTools {
+    TensorCallBackWithInfo before = nullptr;
+    TensorCallBackWithInfo after = nullptr;
 };
 class Utils {
 public:

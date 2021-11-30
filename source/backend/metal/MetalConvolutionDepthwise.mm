@@ -21,6 +21,7 @@ MetalConvolutionDepthwise::MetalConvolutionDepthwise(Backend *backend, const MNN
 ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
                                               const std::vector<Tensor *> &outputs) {
     MetalConvolutionCommon::onResize(inputs, outputs);
+    auto backend = static_cast<MetalBackend *>(this->backend());
 
     // prepare
     auto input = inputs[0], output = outputs[0];
@@ -56,11 +57,10 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer.reset(sizeof(constants));
+    mConstBuffer = backend->getConstBuffer(sizeof(constants));
+
+    ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
-    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
-    
-    auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     mPipeline = [context pipelineWithName:@"conv_depthwise"];
             
@@ -68,9 +68,9 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     NSUInteger gid_y = oh;
     NSUInteger gid_z = oc_4*ob;
             
-    NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                    (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                    mConstBuffer.buffer(), mWeight, mBias, nil];
+    NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
+                    (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
+                    mConstBuffer, mWeight, mBias, nil];
 
     std::string name = "conv_depthwise";
     MetalRuntime *rt = (MetalRuntime *)backend->runtime();
@@ -84,13 +84,15 @@ ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *
     if(backend->isCommandEncoderSet()) {
         return NO_ERROR;
     }
-    
+
     auto func = [=](){
         auto encoder    = backend->encoder();
         [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset: TensorUtils::getDescribe(input)->extra.offset
+atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset: TensorUtils::getDescribe(output)->extra.offset
+atIndex:1];
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
         [encoder setBuffer:mWeight offset:0 atIndex:3];
         [encoder setBuffer:mBias offset:0 atIndex:4];
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];

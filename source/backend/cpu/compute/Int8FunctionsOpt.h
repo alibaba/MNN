@@ -14,7 +14,6 @@
 #include <sys/types.h>
 #include "core/Macro.h"
 #include "core/ConvolutionCommon.hpp"
-#include "WinogradInt8Helper.hpp"
 #if defined(_MSC_VER)
 #include <BaseTsd.h>
 typedef SSIZE_T ssize_t;
@@ -76,11 +75,6 @@ struct CoreInt8Functions {
     void(*MNNPackedSparseQuantMatMulEpx4)(int8_t* C, const int8_t* A, const int8_t* B, const size_t* sparseQuantParam, const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap);
     void(*MNNSparseQuantIm2col)(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
                               const ConvolutionCommon::Im2ColParameter* im2colParameter, const size_t* sparseQuantParam, size_t xIndexStart);
-    // winograd
-    using WinoSrcTransFunc = WinogradInt8Helper::SrcTransFunc;
-    using WinoDstTransFunc = WinogradInt8Helper::DstTransFunc;
-    WinoSrcTransFunc(*chooseWinoSourceTransform)(int alpha, int inPack, int outPack);
-    WinoDstTransFunc(*chooseWinoDestTransform)(int alpha, int unit);
 
     void(*ConvDepthwiseLineInt8)(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                  size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);

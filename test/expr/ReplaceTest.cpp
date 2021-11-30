@@ -111,7 +111,7 @@ public:
                 std::vector<float> yData(number);
                 for (int i = 0; i < number; ++i) {
                     if (yPtr[i] != fabs((float)i - 50.0f)) {
-                        MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                        MNN_PRINT("0: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
                         return false;
                     }
                     yData[i] = yPtr[i];
@@ -122,7 +122,7 @@ public:
                     auto target = sinf(yPtr[i] * yPtr[i]);
                     auto diff   = fabsf(uPtr[i] - target);
                     if (diff > 0.00001f) {
-                        MNN_PRINT("PrecomputeTest Error: %f, %f\n", uPtr[i], target);
+                        MNN_PRINT("1: PrecomputeTest Error: %f, %f\n", uPtr[i], target);
                         return false;
                     }
                 }
@@ -131,7 +131,7 @@ public:
                     auto target = cosf(yPtr[i] * yPtr[i]);
                     auto diff   = fabsf(vPtr[i] - target);
                     if (diff > 0.00001f) {
-                        MNN_PRINT("PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                        MNN_PRINT("2: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
                         return false;
                     }
                 }
@@ -139,6 +139,7 @@ public:
             return true;
         };
         if (!check(100)) {
+            FUNC_PRINT(1);
             return false;
         }
         {
@@ -149,6 +150,7 @@ public:
             }
         }
         if (!check(101)) {
+            FUNC_PRINT(1);
             return false;
         }
         // Delete end var, check if the cache can work
@@ -166,7 +168,7 @@ public:
             }
             for (int i = 0; i < number; ++i) {
                 if (yPtr[i] != fabs((float)i - 50.0f)) {
-                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    MNN_PRINT("4: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
                     return false;
                 }
             }
@@ -175,7 +177,7 @@ public:
                 auto target = cosf(yPtr[i] * yPtr[i]);
                 auto diff   = fabsf(vPtr[i] - target);
                 if (diff > 0.00001f) {
-                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                    MNN_PRINT("5: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
                     return false;
                 }
             }
@@ -193,7 +195,7 @@ public:
             std::vector<float> yData(number);
             for (int i = 0; i < number; ++i) {
                 if (yPtr[i] != fabs((float)i - 50.0f)) {
-                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    MNN_PRINT("6: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
                     return false;
                 }
                 yData[i] = yPtr[i];
@@ -204,7 +206,7 @@ public:
                 auto target = cosf(yPtr[i] * yPtr[i]);
                 auto diff   = fabsf(vPtr[i] - target);
                 if (diff > 0.00001f) {
-                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                    MNN_PRINT("7: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
                     return false;
                 }
             }

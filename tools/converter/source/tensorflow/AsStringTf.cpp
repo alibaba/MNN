@@ -47,4 +47,4 @@ void AsStringTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = parameter;
 }
 
-REGISTER_CONVERTER(AsStringTf, AsString);
+//REGISTER_CONVERTER(AsStringTf, AsString);

@@ -88,11 +88,16 @@ ErrorCode VulkanDeconvolutionDepthwise::onEncode(const std::vector<Tensor*>& inp
         mConvParam->unmap();
     }
     mPipelineSet->writeImage(((VulkanTensor*)dst->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-    mPipelineSet->writeImage(((VulkanTensor*)src->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 1);
-    mPipelineSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 2);
-    mPipelineSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 3);
+    mPipelineSet->writeImage(((VulkanTensor*)src->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+    mPipelineSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
+    mPipelineSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 3);
     mPipelineSet->writeBuffer(mConvParam->buffer(), 4, mConvParam->size());
     mPipeline->bind(cmdBuffer->get(), mPipelineSet->get());
+
+    mKernel->barrierRead(cmdBuffer->get());
+    mBias->barrierRead(cmdBuffer->get());
+    ((VulkanTensor*)src->deviceId())->image()->barrierRead(cmdBuffer->get());
+    ((VulkanTensor*)dst->deviceId())->image()->barrierWrite(cmdBuffer->get());
 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), mLocalSize[0]), UP_DIV(dst->height(), mLocalSize[1]),
                   UP_DIV(ocDiv4, mLocalSize[2]));

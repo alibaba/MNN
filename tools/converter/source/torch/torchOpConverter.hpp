@@ -22,7 +22,7 @@ static inline T getValue(const torch::jit::Value* value) {
     auto optional_ivalue = toIValue(value);
     T res;
     if (!optional_ivalue) {
-        MNN_ERROR("getValue: must Constant Node.");
+        MNN_ERROR("getValue: must Constant Node.\n");
         return res;
     }
     c10::IValue& val = optional_ivalue.value();

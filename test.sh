@@ -8,9 +8,10 @@
 #       5. tflite convert test
 #       6. torch convert test
 #       7. ptq test
+#       8. pymnn test
 #
 # 1. arg = linux: [ all test on linux with coverage ]
-#       0. static check
+#       0. static check (if source change)
 #       1. build for linux;
 #       2. unit-test;
 #       3. model-test;
@@ -19,7 +20,9 @@
 #       6. tflite convert test
 #       7. torch convert test
 #       8. ptq test
-#       9. convert-report;
+#       9. pymnn test (if pymnn change)
+#      10. opencv test (if opencv change)
+#      11. convert-report;
 #
 # 2. arg = android: [ simple test on android ]
 #       1. build Android with static_stl
@@ -32,16 +35,21 @@
 USER_NAME=`whoami`
 USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 
+# detect change
+SOURCE_CHANGE=$(git show --name-only | grep -E "^source/.*\.(cpp|cc|c|h|hpp)$")
+PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
+OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
+
 failed() {
     printf "TEST_NAME_EXCEPTION: Exception\nTEST_CASE_AMOUNT_EXCEPTION: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
     exit 1
 }
 
 static_check() {
-    changefiles=$(git show --name-only | grep -E "^source/.*\.(cpp|cc|c|h|hpp)$")
-    if [ -n "$changefiles" ]; then
-        cppcheck --error-exitcode=1 --addon=tools/script/mnn_rules.py $changefiles 1> /dev/null
+    if [ -z "$SOURCE_CHANGE" ]; then
+        return
     fi
+    cppcheck --error-exitcode=1 --language=c++ --std=c++14 --addon=tools/script/mnn_rules.py $SOURCE_CHANGE 1> /dev/null
     static_check_wrong=$[$? > 0]
     printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
            $static_check_wrong $[1 - $static_check_wrong]
@@ -140,6 +148,8 @@ linux_build() {
         -DMNN_BUILD_DEMO=ON \
         -DMNN_BUILD_CONVERTER=ON \
         -DMNN_BUILD_TORCH=ON \
+        -DMNN_BUILD_OPENCV=ON \
+        -DMNN_IMGCODECS=ON \
         -DMNN_ENABLE_COVERAGE=$COVERAGE
     make -j16
 
@@ -222,6 +232,68 @@ ptq_test() {
     fi
 }
 
+pymnn_test() {
+    if [ -z "$PYMNN_CHANGE" ]; then
+        return
+    fi
+    popd
+    pushd pymnn
+    # 1. build pymnn
+    pushd pip_package
+    python3 build_deps.py
+    # uninstall original MNN
+    pip uninstall --yes MNN MNN-Internal
+    python3 setup.py install --version 1.0
+    pymnn_build_wrong=$[$? > 0]
+    printf "TEST_NAME_PYMNN_BUILD: PYMNN编译测试\nTEST_CASE_AMOUNT_PYMNN_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $pymnn_build_wrong $[1 - $pymnn_build_wrong]
+    if [ $pymnn_build_wrong -ne 0 ]; then
+        echo '### PYMNN编译失败，测试终止！'
+        failed
+    fi
+    popd
+    # 2. unit test
+    pushd test
+    python3 unit_test.py
+    if [ $? -ne 0 ]; then
+        echo '### PYMNN单元测试失败，测试终止！'
+        failed
+    fi
+    # 3. model test
+    python3 model_test.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
+        echo '### PYMNN模型测试失败，测试终止！'
+        failed
+    fi
+    # 4. uninstall pymnn
+    pip uninstall --yes MNN-Internal
+    popd
+    popd
+    pushd build
+}
+
+opencv_test() {
+    if [ -z "$OPENCV_CHANGE" ]; then
+        return
+    fi
+    # 1. build opencv-test
+    cmake -DMNN_OPENCV_TEST=ON ..
+    make -j8
+    opencv_build_wrong=$[$? > 0]
+    printf "TEST_NAME_OPENCV_BUILD: OPENCV编译测试\nTEST_CASE_AMOUNT_OPENCV_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $opencv_build_wrong $[1 - $opencv_build_wrong]
+    if [ $opencv_build_wrong -ne 0 ]; then
+        echo '### OPENCV编译失败，测试终止！'
+        failed
+    fi
+    # 2. run opencv unit test
+    ./opencv_test
+    if [ $? -gt 0 ]; then
+        echo '### OPENCV单元测试失败，测试终止！'
+        failed
+    fi
+}
+
 coverage_init() {
     popd
     lcov -c -i -d ./ -o init.info
@@ -234,8 +306,9 @@ coverage_report() {
     lcov -c -d ./ -o cover.info
     lcov -a init.info -a cover.info -o total.info
     lcov --remove total.info \
-    '*/usr/include/*' '*/usr/lib/*' '*/usr/lib64/*' '*/usr/local/include/*' '*/usr/local/lib/*' '*/usr/local/lib64/*' \
+    '*/usr/include/*' '*/usr/lib/*' '*/usr/lib64/*' '*/usr/local/*'  \
     '*/3rd_party/*' '*/build/*' '*/schema/*' '*/test/*' '/tmp/*' \
+    '*/demo/*' '*/tools/cpp/*' '*/tools/train/*' '*/source/backend/cuda/*' \
     -o final.info
     commitId=$(git log | head -n1 | awk '{print $2}')
     genhtml -o cover_report --legend --title "MNN Coverage Report [commit SHA1:${commitId}]" --prefix=`pwd` final.info
@@ -312,6 +385,7 @@ case "$1" in
         tflite_convert_test
         torch_convert_test
         ptq_test
+        pymnn_test
         ;;
     linux)
         static_check
@@ -324,6 +398,8 @@ case "$1" in
         tflite_convert_test
         torch_convert_test
         ptq_test
+        pymnn_test
+        opencv_test
         coverage_report
         ;;
     android)

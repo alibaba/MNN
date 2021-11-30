@@ -19,6 +19,10 @@
 #include "core/RuntimeFactory.hpp"
 #include "core/Session.hpp"
 
+#ifdef MNN_MODEL_AUTH
+#include "auth/ModelAuth.hpp"
+#endif //MNN_MODEL_AUTH
+
 namespace MNN {
 
 struct Content {
@@ -28,6 +32,7 @@ struct Content {
     std::map<const Tensor*, const Session*> tensorMap;
     Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
     Interpreter::SessionMode inputMode    = Interpreter::Session_Input_Inside;
+    Interpreter::SessionMode outputMode    = Interpreter::Session_Output_Inside;
     AutoStorage<uint8_t> cacheBuffer;
     size_t cacheOffset = 0;
     std::string cacheFile;
@@ -115,12 +120,23 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
             return nullptr;
         }
     }
+
+#ifdef MNN_MODEL_AUTH
+    if (!authenticateModel(net->net)) {
+        MNN_ERROR("Model authentication failed.\n");
+        delete net;
+        return nullptr;
+    }
+#endif // MNN_MODEL_AUTH
+
     return new Interpreter(net);
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
     if (mode == Session_Input_Inside || mode == Session_Input_User) {
         mNet->inputMode = mode;
+    } else if (mode == Session_Output_User || mode == Session_Output_Inside) {
+        mNet->outputMode = mode;
     } else {
         mNet->callBackMode = mode;
     }
@@ -156,7 +172,7 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
 
 ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
     auto buffer = session->getCache();
-    
+
     //When current cacheSize bigger than previous, update
     if (buffer.first != nullptr && buffer.second > mNet->lastCacheSize) {
         MNN_PRINT("Update cache to %s, from size:%zu -> size:%zu\n", mNet->cacheFile.c_str(), mNet->lastCacheSize, buffer.second);
@@ -204,14 +220,14 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     std::unique_lock<std::mutex> _l(mNet->lock);
     bool netBufferHold  = mNet->inputMode == Session_Input_User;
     Schedule::ScheduleInfo info;
-    auto success = Schedule::schedule(info, mNet->net, configs, runtime, netBufferHold);
+    auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
         return nullptr;
     }
     auto validForResize = info.validForResize;
     RuntimeInfo rt = runtime;
     auto newSession =
-        std::unique_ptr<Session>(new Session(std::move(info), mNet->callBackMode, mNet->inputMode, std::move(rt)));
+        std::unique_ptr<Session>(new Session(std::move(info), mNet->callBackMode, mNet->inputMode, mNet->outputMode, std::move(rt)));
     if (!newSession->valid()) {
         MNN_PRINT("Invalide Session!!\n");
         return nullptr;
@@ -226,13 +242,13 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
             result->loadCache(nullptr, 0);
             MNN_PRINT("Cache invalid, will be reset\n");
         }
-        
+
         mNet->lastCacheSize = mNet->cacheBuffer.size() - mNet->cacheOffset;
     }
     if (validForResize && mNet->inputMode == Session_Input_Inside) {
         result->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
     }
-    
+
     if ((!mNet->cacheFile.empty()) && (!valid)) {
         // Try to save extra cache
         auto buffer = result->getCache();

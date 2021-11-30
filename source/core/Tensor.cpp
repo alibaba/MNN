@@ -20,21 +20,23 @@ namespace MNN {
 Tensor::Tensor(int dimSize, DimensionType type) {
     MNN_ASSERT(dimSize <= MNN_MAX_TENSOR_DIM);
     mDescribe          = new InsideDescribe;
+    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = dimSize;
     mBuffer.type       = halide_type_of<float>();
     mBuffer.device     = 0;
     mBuffer.host       = nullptr;
-    mBuffer.dim        = &mDescribe->dims[0];
+    mBuffer.dim        = &nativeDescribe->dims[0];
 
     switch (type) {
         case CAFFE:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             break;
         case TENSORFLOW:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NHWC;
             break;
         case CAFFE_C4:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
             break;
         default:
             break;
@@ -46,27 +48,25 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     auto buffer        = tensor->buffer();
     mDescribe          = new InsideDescribe;
+    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = buffer.dimensions;
     mBuffer.type       = buffer.type;
     mBuffer.device     = 0;
     mBuffer.host       = nullptr;
-    mBuffer.dim        = &mDescribe->dims[0];
-    auto& quantAttr = TensorUtils::getDescribe(tensor)->quantAttr;
-    if (quantAttr && buffer.type == TensorUtils::DataTypeToHalideType(quantAttr->type)) {
-        mBuffer.type = halide_type_of<float>();
-    }
+    mBuffer.dim        = &nativeDescribe->dims[0];
     for (int i = 0; i < buffer.dimensions; ++i) {
         mBuffer.dim[i].extent = buffer.dim[i].extent;
     }
     switch (type) {
         case CAFFE:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             break;
         case TENSORFLOW:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NHWC;
             break;
         case CAFFE_C4:
-            mDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            nativeDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
             type                       = CAFFE;
             break;
         default:
@@ -106,23 +106,25 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
     if (allocMemory) {
         auto memorySize = size();
         if (memorySize > 0) {
-            mDescribe->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+            nativeDescribe->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
             mBuffer.host          = (uint8_t*)MNNMemoryAllocAlign(size(), MNN_MEMORY_ALIGN_DEFAULT);
             MNN_ASSERT(mBuffer.host != nullptr);
         }
     }
 }
+Tensor::Tensor(bool deepCopy, const Tensor* tensor) {
+    mDescribe = new InsideDescribe;
+    mDescribe->mContent = tensor->mDescribe->mContent;
+    mBuffer.dim = TensorUtils::getDescribe(tensor)->dims;
+    mBuffer.type = tensor->getType();
+    mBuffer.device = tensor->deviceId();
+    mBuffer.host = tensor->buffer().host;
+    mBuffer.dimensions = tensor->buffer().dimensions;
+}
 
 Tensor::~Tensor() {
-    if (mBuffer.type.code == halide_type_handle) {
-        auto handles = (void**)mBuffer.host;
-        for (int i = 0; i < elementSize(); ++i) {
-            if (nullptr != handles[i]) {
-                mDescribe->extra.handleFreeFunction(handles[i]);
-            }
-        }
-    }
-    if (mDescribe->memoryType == InsideDescribe::MEMORY_HOST) {
+    auto nativeDescribe = mDescribe->mContent.get();
+    if (nativeDescribe->memoryType == InsideDescribe::MEMORY_HOST) {
         if (nullptr != mBuffer.host) {
             MNNMemoryFreeAlign(mBuffer.host);
         }
@@ -154,9 +156,13 @@ Tensor* Tensor::create(const std::vector<int>& dims, halide_type_t type, void* u
     }
     return result;
 }
+Tensor* Tensor::clone(const Tensor* src, bool deepCopy) {
+    return new Tensor(deepCopy, src);
+}
 
 bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
-    auto bn = mDescribe->backend;
+    auto nativeDescribe = mDescribe->mContent.get();
+    auto bn = nativeDescribe->backend;
     if (nullptr == bn) {
         return false;
     }
@@ -165,7 +171,8 @@ bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
 }
 
 bool Tensor::copyToHostTensor(Tensor* hostTensor) const {
-    auto bn = mDescribe->backend;
+    auto nativeDescribe = mDescribe->mContent.get();
+    auto bn = nativeDescribe->backend;
     if (nullptr == bn) {
         return false;
     }
@@ -182,7 +189,8 @@ Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyConten
 }
 
 Tensor::DimensionType Tensor::getDimensionType() const {
-    if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
+    auto nativeDescribe = mDescribe->mContent.get();
+    if (nativeDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
         return Tensor::TENSORFLOW;
     }
     return Tensor::CAFFE;
@@ -195,6 +203,7 @@ Tensor::HandleDataType Tensor::getHandleDataType() const {
     return HANDLE_STRING;
 }
 void Tensor::setType(int type) {
+    auto nativeDescribe = mDescribe->mContent.get();
     switch (type) {
         case DataType_DT_DOUBLE:
         case DataType_DT_FLOAT:
@@ -225,11 +234,6 @@ void Tensor::setType(int type) {
         case DataType_DT_INT16:
             mBuffer.type = halide_type_of<int16_t>();
             break;
-        case DataType_DT_STRING:
-            mBuffer.type                  = halide_type_t(halide_type_handle, sizeof(void*) * 8);
-            mDescribe->extra.handleFreeFunction = (void (*)(void*))::free;
-            break;
-
         default:
             MNN_PRINT("Unsupported data type!");
             MNN_ASSERT(false);
@@ -388,9 +392,10 @@ void Tensor::printShape() const {
 int Tensor::size() const {
     auto dataSize = mBuffer.type.bytes();
     MNN_ASSERT(dataSize >= 1);
+    auto nativeDescribe = mDescribe->mContent.get();
     for (int i = 0; i < this->buffer().dimensions; i++) {
         int currentDimSize = mBuffer.dim[i].extent;
-        if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+        if (nativeDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
             currentDimSize = ALIGN_UP4(currentDimSize);
         }
         dataSize *= currentDimSize;
@@ -399,7 +404,8 @@ int Tensor::size() const {
 }
 
 void* Tensor::map(MapType mtype, DimensionType dtype) {
-    auto bn = mDescribe->backend;
+    auto nativeDescribe = mDescribe->mContent.get();
+    auto bn = nativeDescribe->backend;
     if (nullptr == bn) {
         return nullptr;
     }
@@ -426,7 +432,8 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
 }
 
 void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
-    auto bn = mDescribe->backend;
+    auto nativeDescribe = mDescribe->mContent.get();
+    auto bn = nativeDescribe->backend;
     if (nullptr == bn) {
         return;
     }

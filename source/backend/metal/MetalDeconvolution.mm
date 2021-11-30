@@ -207,8 +207,8 @@ ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, con
 
         auto encoder   = backend->encoder();
         [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
         [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
         [encoder setBuffer:mWeight offset:0 atIndex:3];
         [encoder setBuffer:mBias offset:0 atIndex:4];

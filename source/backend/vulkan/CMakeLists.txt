@@ -1,5 +1,9 @@
 FILE(GLOB_RECURSE MNN_Vulkan_SRC ${CMAKE_CURRENT_LIST_DIR}/*)
 
+option(MNN_VULKAN_DEBUG "Enable Vulkan validate" OFF)
+IF(MNN_VULKAN_DEBUG)
+    add_definitions(-DMNN_VULKAN_DEBUG)
+ENDIF()
 include_directories("./")
 if(MNN_USE_SYSTEM_LIB)
     find_package(Vulkan REQUIRED)

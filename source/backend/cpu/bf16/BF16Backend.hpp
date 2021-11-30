@@ -19,7 +19,7 @@ public:
     BF16Backend(const CPURuntime* runtime);
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
-    virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
 
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
@@ -27,19 +27,8 @@ public:
         return threadNumber();
     }
 public:
-    class BF16Creator {
-    public:
-        virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                    const MNN::Op* op, Backend* backend) const = 0;
-    };
-
-    static bool addBF16Creator(OpType t, BF16Creator* ct);
 };
 
-#define REGISTER_BF16_OP_CREATOR(type, creator) \
-    void ___##type##__##creator##__() { \
-        BF16Backend::addBF16Creator(type, new creator); \
-    }
 
 } // namespace MNN
 

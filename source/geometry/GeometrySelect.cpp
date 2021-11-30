@@ -47,11 +47,12 @@ public:
             input2 = newTensor.get();
             res.extras.emplace_back(newTensor);
         }
-        Command cmd;
+        SharedPtr<Command> cmdP(new Command);
+        auto& cmd = *cmdP;
         cmd.op      = op;
         cmd.inputs  = {input0, input1, input2};
         cmd.outputs = std::move(outputs);
-        res.command.emplace_back(std::move(cmd));
+        res.command.emplace_back(std::move(cmdP));
         return true;
     }
 };

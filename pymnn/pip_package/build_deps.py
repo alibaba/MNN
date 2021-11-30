@@ -33,12 +33,13 @@ def build_deps():
         -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs/ ' if USE_TRT else ' '
         os.system('cmake ' + extra_opts +
             '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
-            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
-            -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=on .. && make MNN MNNTrain MNNConvert -j4')
+            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
+            -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF .. && make MNN MNNTrain MNNConvert MNNOpenCV -j4')
     else:
         os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_EXPR_SHAPE_EAGER=ON -DMNN_TRAIN_DEBUG=ON\
-            .. && make MNN MNNTrain MNNConvert  -j4')
+            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
+            .. && make MNN MNNTrain MNNConvert MNNOpenCV -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

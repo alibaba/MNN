@@ -52,7 +52,7 @@ struct VecRecipocal {
 #if defined(__aarch64__)
 struct VecSqrt {
     float16x8_t operator()(float16x8_t &x) const {
-        return vabsq_f16(x);
+        return vsqrtq_f16(x);
     }
 };
 #endif

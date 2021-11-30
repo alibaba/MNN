@@ -130,8 +130,9 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
             auto sampler = vkBn->getCommonSampler(true);
             desSet->writeImage(output->view(), sampler->get(),
                                        VK_IMAGE_LAYOUT_GENERAL, 0);
-            cmdBuffer->barrierImage(input0->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            cmdBuffer->barrierImage(input1->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            input0->barrierRead(cmdBuffer->get());
+            input1->barrierRead(cmdBuffer->get());
+            output->barrierWrite(cmdBuffer->get());
             desSet->writeImage(input0->view(), sampler->get(),
                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
             desSet->writeImage(input1->view(), sampler->get(),

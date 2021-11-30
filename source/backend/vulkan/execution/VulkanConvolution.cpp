@@ -183,6 +183,8 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
         std::shared_ptr<VulkanPipeline::DescriptorSet> des(pipeline->createSet());
         des->writeImage(weight->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         des->writeImage(mKernel->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+        weight->barrierRead(cmdBuffer->get());
+        mKernel->barrierWrite(cmdBuffer->get());
         int dim[4] = {
             weight->width(),
             weight->height(),
@@ -195,7 +197,6 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(dim[3], 256), 1, 1);
         mExtraBuffers.emplace_back(uniforms);
         mExtraSets.emplace_back(des);
-        cmdBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     const VulkanImage* bias;
     if (inputs.size() >= 3) {
@@ -223,6 +224,10 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
     mConvSet->writeImage(bias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 3);
     mConvSet->writeBuffer(convCons->buffer(), 4, convCons->size());
     mConvPipeline->bind(cmdBuffer->get(), mConvSet->get());
+    mKernel->barrierRead(cmdBuffer->get());
+    mBias->barrierRead(cmdBuffer->get());
+    ((VulkanTensor*)input->deviceId())->image()->barrierRead(cmdBuffer->get());
+    ((VulkanTensor*)output->deviceId())->image()->barrierWrite(cmdBuffer->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
     return NO_ERROR;
 }

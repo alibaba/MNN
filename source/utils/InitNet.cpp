@@ -18,7 +18,7 @@ bool needComputeOp(const Op* op) {
     }
     return false;
 }
-bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, bool netHold, ErrorCode& code, Backend::StorageType type) {
+bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code) {
     bool valid    = true;
     tensors.resize(net->tensorName()->size());
     // Set up const
@@ -28,6 +28,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
             MNN_ASSERT(nullptr != op->outputIndexes());
             auto index = op->outputIndexes()->data()[0];
             tensors[index].reset(new Tensor);
+            TensorUtils::getDescribe(tensors[index].get())->index = index;
             auto parameter = op->main_as_Blob();
             auto output    = tensors[index].get();
             bool zeroShape = false;
@@ -49,6 +50,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
             }
             TensorUtils::getDescribe(output)->dimensionFormat = parameter->dataFormat();
             TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::CONSTANT;
+            TensorUtils::getDescribe(output)->isMutable = false;
             if (op->type() == OpType_TrainableParam) {
                 TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::TRAINABLE;
             }
@@ -58,29 +60,25 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
             if (zeroShape) {
                 continue;
             }
-            if (parameter->dataType() == DataType_DT_HALF || (!netHold)) {
-                auto res = defaultBackend->onAcquireBuffer(output, type);
-                if (!res) {
-                    code = OUT_OF_MEMORY;
+            auto res = defaultBackend->onAcquireBuffer(output, Backend::STATIC);
+            if (!res) {
+                code = OUT_OF_MEMORY;
+                return false;
+            }
+            if (parameter->dataType() == DataType_DT_HALF) {
+                if (nullptr == parameter->uint8s()) {
+                    // Error half const
+                    code = INVALID_VALUE;
                     return false;
                 }
-                if (parameter->dataType() == DataType_DT_HALF) {
-                    if (nullptr == parameter->uint8s()) {
-                        // Error half const
-                        code = INVALID_VALUE;
-                        return false;
-                    }
-                    auto outputPtr = output->host<float>();
-                    auto src = (half_float::half*)parameter->uint8s()->data();
-                    auto size = output->elementSize();
-                    for (int i=0; i<size; ++i) {
-                        outputPtr[i] = src[i];
-                    }
-                } else {
-                    memcpy(output->host<float>(), OpCommonUtils::blobData(op), output->size());
+                auto outputPtr = output->host<float>();
+                auto src = (half_float::half*)parameter->uint8s()->data();
+                auto size = output->elementSize();
+                for (int i=0; i<size; ++i) {
+                    outputPtr[i] = src[i];
                 }
             } else {
-                output->buffer().host = (uint8_t*)OpCommonUtils::blobData(op);
+                memcpy(output->host<float>(), OpCommonUtils::blobData(op), output->size());
             }
         }
     }
@@ -95,6 +93,7 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
         // Init all tensor except for const
         if (tensors[i].get() == nullptr) {
             tensors[i].reset(new Tensor);
+            TensorUtils::getDescribe(tensors[i].get())->index = i;
         }
     }
     if (describes) {
@@ -111,6 +110,7 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
             quant->zero  =  des[i]->quantInfo()->zero();
             quant->min   =  des[i]->quantInfo()->min();
             quant->max   =  des[i]->quantInfo()->max();
+            // Don't copy datatype, it can be set by backend
         }
     }
     // Set Input Tensor, if the type of input is not the same with ExtraTensorDescribe, use input parameter

@@ -8,17 +8,24 @@
 
 #include <algorithm>
 #include <map>
-#include "core/AutoStorage.h"
+#include <MNN/ImageProcess.hpp>
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#include "cv/ImageBlitter.hpp"
-#include "cv/ImageFloatBlitter.hpp"
-#include "cv/ImageSampler.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"
+#include "backend/cpu/CPUImageProcess.hpp"
 #include <MNN/MNNForwardType.h>
 #include "core/Backend.hpp"
+#ifdef MNN_USE_SSE
+#include "backend/cpu/x86_x64/AVX2Functions.hpp"
+#endif
+
+#include <MNN/Tensor.hpp>
+#include <MNN/Interpreter.hpp>
+#include "core/Execution.hpp"
+#include "core/Backend.hpp"
+#include "MNN_generated.h"
 
 #ifdef _MSC_VER
 #include "backend/cpu/x86_x64/cpu_id.h"
@@ -26,11 +33,13 @@
 
 #define CACHE_SIZE 256
 namespace MNN {
+
+void registerBackend();
+
 namespace CV {
 struct ImageProcess::Inside {
     Config config;
-    AutoStorage<uint8_t> cacheBuffer;
-    AutoStorage<uint8_t> cacheBufferRGBA;
+    std::unique_ptr<CPUImageProcess> execution;
 };
 
 ImageProcess::~ImageProcess() {
@@ -40,12 +49,18 @@ ImageProcess::~ImageProcess() {
 ImageProcess::ImageProcess(const Config& config) {
     mInside         = new Inside;
     mInside->config = config;
-    mInside->cacheBuffer.reset(4 * CACHE_SIZE);
-    mInside->cacheBufferRGBA.reset(4 * CACHE_SIZE);
     for (int i = 0; i < 4; ++i) {
         mInside->config.mean[i]   = config.mean[i];
         mInside->config.normal[i] = config.normal[i];
     }
+    registerBackend();
+    auto coreFunctions =
+#ifdef MNN_USE_SSE
+    AVX2Functions::get();
+#else
+    nullptr;
+#endif
+    mInside->execution.reset(new CPUImageProcess(config, coreFunctions));
 }
 
 ImageProcess* ImageProcess::create(const Config& config, const Tensor* dstTensor) {
@@ -81,19 +96,26 @@ ImageProcess* ImageProcess::create(const ImageFormat sourceFormat, const ImageFo
 void ImageProcess::setMatrix(const Matrix& matrix) {
     mTransform = matrix;
     mTransform.invert(&mTransformInvert);
+    mInside->execution->setMatrix(matrix);
 }
 
 static int _getBpp(ImageFormat format) {
     switch (format) {
         case RGB:
         case BGR:
+        case YCrCb:
+        case YUV:
+        case HSV:
+        case XYZ:
             return 3;
         case RGBA:
         case BGRA:
             return 4;
         case GRAY:
             return 1;
-
+        case BGR555:
+        case BGR565:
+            return 2;
         default:
             break;
     }
@@ -102,93 +124,6 @@ static int _getBpp(ImageFormat format) {
 
 Tensor* ImageProcess::createImageTensor(halide_type_t type, int width, int height, int bpp, void* p) {
     return Tensor::create(std::vector<int>{1, height, width, bpp}, type, p);
-}
-
-static int LEFT   = 1 << 0;
-static int RIGHT  = 1 << 1;
-static int TOP    = 1 << 2;
-static int BOTTOM = 1 << 3;
-inline static uint8_t _encode(const Point& p, int iw, int ih) {
-    uint8_t mask = 0;
-    if (p.fX < 0) {
-        mask |= LEFT;
-    }
-    if (p.fX > iw - 1) {
-        mask |= RIGHT;
-    }
-    if (p.fY < 0) {
-        mask |= TOP;
-    }
-    if (p.fY > ih - 1) {
-        mask |= BOTTOM;
-    }
-    return mask;
-}
-
-static std::pair<int, int> _computeClip(Point* points, int iw, int ih, const Matrix& invert, int xStart, int count) {
-    auto code1 = _encode(points[0], iw, ih);
-    auto code2 = _encode(points[1], iw, ih);
-    int sta    = 0;
-    int end    = count;
-
-    float x1     = points[0].fX;
-    float x2     = points[1].fX;
-    float y1     = points[0].fY;
-    float y2     = points[1].fY;
-    int code     = 0;
-    int pIndex   = 0;
-    float deltaY = y2 - y1;
-    float deltaX = x2 - x1;
-    if (deltaX > 0.01f || deltaX < -0.01f) {
-        deltaY = (y2 - y1) / (x2 - x1);
-    } else {
-        deltaY = 0;
-    }
-    if (deltaY > 0.01f || deltaY < -0.01f) {
-        deltaX = (x2 - x1) / (y2 - y1);
-    } else {
-        deltaX = 0;
-    }
-    while (code1 != 0 || code2 != 0) {
-        if ((code1 & code2) != 0) {
-            sta = end;
-            break;
-        }
-        if (code1 != 0) {
-            code   = code1;
-            pIndex = 0;
-        } else if (code2 != 0) {
-            code   = code2;
-            pIndex = 1;
-        }
-        if ((LEFT & code) != 0) {
-            points[pIndex].fY = points[pIndex].fY + deltaY * (0 - points[pIndex].fX);
-            points[pIndex].fX = 0;
-        } else if ((RIGHT & code) != 0) {
-            points[pIndex].fY = points[pIndex].fY + deltaY * (iw - 1 - points[pIndex].fX);
-            points[pIndex].fX = iw - 1;
-        } else if ((BOTTOM & code) != 0) {
-            points[pIndex].fX = points[pIndex].fX + deltaX * (ih - 1 - points[pIndex].fY);
-            points[pIndex].fY = ih - 1;
-        } else if ((TOP & code) != 0) {
-            points[pIndex].fX = points[pIndex].fX + deltaX * (0 - points[pIndex].fY);
-            points[pIndex].fY = 0;
-        }
-        auto tmp = invert.mapXY(points[pIndex].fX, points[pIndex].fY);
-        if (0 == pIndex) {
-            code1 = _encode(points[pIndex], iw, ih);
-            // FUNC_PRINT_ALL(tmp.fX, f);
-            sta = (int)::ceilf(tmp.fX) - xStart;
-        } else {
-            code2 = _encode(points[pIndex], iw, ih);
-            // FUNC_PRINT_ALL(tmp.fX, f);
-            end = (int)::ceilf(tmp.fX) - xStart + 1;
-        }
-    }
-    if (end > count) {
-        end = count;
-    }
-    return std::make_pair(sta, end);
 }
 
 static ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, ImageFormat format) {
@@ -252,118 +187,17 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
 
 ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh,
                                 int outputBpp, int outputStride, halide_type_t type) {
-    auto sourceBpp = _getBpp(mInside->config.sourceFormat);
-    if (0 == stride) {
-        stride = iw * sourceBpp;
+    auto ic = _getBpp(mInside->config.sourceFormat);
+    auto oc = outputBpp;
+    if (0 == oc) {
+        oc = _getBpp(mInside->config.destFormat);
     }
-
-    // AUTOTIME;
-    auto& config      = mInside->config;
-    auto sourceFormat = config.sourceFormat;
-    auto destFormat   = config.destFormat;
-    destFormat        = _correctImageFormat(outputBpp, type, destFormat);
-    auto blitter      = ImageBlitter::choose(sourceFormat, destFormat);
-    if (nullptr == blitter) {
-        return INPUT_DATA_ERROR;
-    }
-    bool identity = mTransform.isIdentity() && iw >= ow && ih >= oh; // TODO, no need for iw, ih limit
-    auto sampler  = ImageSampler::choose(sourceFormat, config.filterType, identity);
-    if (nullptr == sampler) {
-        return INPUT_DATA_ERROR;
-    }
-    if (0 == outputBpp) {
-        outputBpp = _getBpp(destFormat);
-    }
-
-    int tileCount = UP_DIV(ow, CACHE_SIZE);
-    Point points[2];
-    auto sampleBuffer = (uint8_t*)mInside->cacheBuffer.get();
-    auto srcData      = source;
-    auto destBytes    = type.bytes();
-    auto bpp          = outputBpp;
-    auto needBlit     = sourceFormat != destFormat;
-    bool isFloat      = type.code == halide_type_float;
-    //            MNN_PRINT("bpp:%d, destBytes:%d, destFormat:%d, %d, %d\n",bpp, destBytes, ow, oh, dimensionFormat);
-
-    auto blitFloat = ImageFloatBlitter::choose(destFormat, bpp);
-    for (int dy = 0; dy < oh; ++dy) {
-        auto dstY = (uint8_t*)dest + dy * destBytes * ow * bpp;
-        for (int tIndex = 0; tIndex < tileCount; ++tIndex) {
-            int xStart    = tIndex * CACHE_SIZE;
-            int count     = std::min(CACHE_SIZE, ow - xStart);
-            auto dstStart = dstY + destBytes * bpp * xStart;
-
-            auto samplerDest = sampleBuffer;
-            auto blitDest    = mInside->cacheBufferRGBA.get();
-
-            if (!isFloat) {
-                blitDest = dstStart;
-            }
-            if (!needBlit) {
-                samplerDest = blitDest;
-            }
-
-            // Sample
-            {
-                // Compute position
-                points[0].fX = xStart;
-                points[0].fY = dy;
-
-                points[1].fX = xStart + count;
-                points[1].fY = dy;
-
-                mTransform.mapPoints(points, 2);
-                float deltaY = points[1].fY - points[0].fY;
-                float deltaX = points[1].fX - points[0].fX;
-
-                int sta = 0;
-                int end = count;
-
-                // FUNC_PRINT(sta);
-                if (config.wrap == ZERO) {
-                    // Clip: Cohen-Sutherland
-                    auto clip    = _computeClip(points, iw, ih, mTransformInvert, xStart, count);
-                    sta          = clip.first;
-                    end          = clip.second;
-                    points[0].fX = sta + xStart;
-                    points[0].fY = dy;
-
-                    mTransform.mapPoints(points, 1);
-                    if (sta != 0 || end < count) {
-                        if (sourceBpp > 0) {
-                            if (sta > 0) {
-                                ::memset(samplerDest, mPaddingValue, sourceBpp * sta);
-                            }
-                            if (end < count) {
-                                ::memset(samplerDest + end * sourceBpp, mPaddingValue, (count - end) * sourceBpp);
-                            }
-                        } else {
-                            // TODO, Only support NV12 / NV21
-                            ::memset(samplerDest, mPaddingValue, count);
-                            ::memset(samplerDest + count, 128, UP_DIV(count, 2) * 2);
-                        }
-                    }
-                }
-                points[1].fX = (deltaX) / (float)(count);
-                points[1].fY = (deltaY) / (float)(count);
-
-                sampler(srcData, samplerDest, points, sta, end - sta, count, iw, ih, stride);
-            }
-            // Convert format
-            if (needBlit) {
-                blitter(samplerDest, blitDest, count);
-            }
-            // Turn float
-            if (isFloat) {
-                auto normal = mInside->config.normal;
-                auto mean   = mInside->config.mean;
-                blitFloat(blitDest, (float*)dstStart, mean, normal, count);
-            }
-        }
-    }
-
+    auto ins = { createImageTensor(halide_type_of<uint8_t>(), iw, ih, ic, (void*)source) };
+    auto outs = { createImageTensor(type, ow, oh, oc, dest) };
+    mInside->execution->setPadVal(this->mPaddingValue);
+    mInside->execution->onResize(ins, outs);
+    mInside->execution->onExecute(ins, outs);
     return NO_ERROR;
 }
-
 } // namespace CV
 } // namespace MNN

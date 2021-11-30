@@ -86,8 +86,8 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer.reset(sizeof(constants));
-    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
+    mConstBuffer = backend->getConstBuffer(sizeof(constants));
+    ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
     // update threadgroup memory if needed
     mLocalPreferred = isThreadgroupLocalPreferred(input, output);
@@ -114,9 +114,9 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         NSUInteger gid_y = oh;
         NSUInteger gid_z = UP_DIV(oc_4, 4) * ob;
             
-        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                        mConstBuffer.buffer(), mWeight, mBias, nil];
+        NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
+                        (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
+                        mConstBuffer, mWeight, mBias, nil];
         
         std::string name = "convk3s1d1p1_w2z4";
         MetalRuntime *rt = (MetalRuntime *)backend->runtime();
@@ -137,9 +137,9 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             NSUInteger gid_z = UP_DIV(oc_4, packC) * ob;
 
             mPipeline = [context pipelineWithName:kernelName];
-            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                            mConstBuffer.buffer(), mWeight, mBias, nil];
+            NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
+                            (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
+                            mConstBuffer, mWeight, mBias, nil];
             
             std::string name = [kernelName UTF8String];
             auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
@@ -155,9 +155,9 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             int actual_kernel = 2;
             std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
             
-            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
-                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
-                            mConstBuffer.buffer(), mWeight, mBias, nil];
+            NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
+                            (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
+                            mConstBuffer, mWeight, mBias, nil];
 
             for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
                 id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
@@ -198,9 +198,9 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
         auto bandwidth  = (MetalBandwidth){mPipeline.threadExecutionWidth, mPipeline.maxTotalThreadsPerThreadgroup, NO};
 
         [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
         [encoder setBuffer:mWeight offset:0 atIndex:3];
         [encoder setBuffer:mBias offset:0 atIndex:4];
         if (mLocalPreferred) {

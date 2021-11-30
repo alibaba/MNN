@@ -476,14 +476,12 @@ void StrassenMatrixComputor::onReset() {
 }
 
 ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const std::vector<float>& postParameters, int inputL, int inputH) {
-    mFunctions.clear();
     auto core = static_cast<CPUBackend*>(backend())->functions();
     MNN_ASSERT(inputs.size() == 2 || inputs.size() == 3);
     MNN_ASSERT(outputs.size() == 1);
     auto A  = inputs[0];
     auto B  = inputs[1];
     auto C  = outputs[0];
-    Tensor* CO = nullptr;
     auto l = B->length(1);
     if (inputL != 0) {
         l = inputL;
@@ -493,29 +491,42 @@ ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, c
     if (inputH != 0) {
         h = inputH;
     }
-    mStack = {A->host<uint8_t>(), B->host<uint8_t>(), C->host<uint8_t>()};
-    MatrixInfo a,b,c,bias;
-    bias.stackIndex = -1;
-    if (inputs.size() > 2) {
-        CO = inputs[2];
-        bias.stackIndex = 3;
-        bias.offsetBytes = 0;
-        mStack.emplace_back(CO->host<uint8_t>());
-    }
-    a.stackIndex = 0;
-    a.lineStrideBytes = A->stride(0) * core->bytes;
-    a.offsetBytes = 0;
+    int as = A->stride(0);
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+    int bs = UP_DIV(l, lP) * lP * hP;
+    int cs = C->stride(0);
+    uint8_t* bias = nullptr;
+    bool useBias = false;
+    if (inputs.size() > 2) {
+        bias = inputs[2]->host<uint8_t>();
+        useBias = true;
+    }
+    return onEncode(e, l, h, as, bs, cs, A->host<uint8_t>(), B->host<uint8_t>(), C->host<uint8_t>(), useBias, bias, postParameters);
+}
+
+ErrorCode StrassenMatrixComputor::onEncode(int e, int l, int h, int as, int bs, int cs, const uint8_t* AT, const uint8_t* BT, uint8_t* CT, bool useBias, const uint8_t* Bias, const std::vector<float>& postParameters) {
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    MatrixInfo a,b,c,bias;
+    bias.stackIndex = -1;
+    mFunctions.clear();
+    mStack = {(uint8_t*)AT, (uint8_t*)BT, CT};
+    if (useBias) {
+        bias.stackIndex = 3;
+        bias.offsetBytes = 0;
+        mStack.emplace_back((uint8_t*)Bias);
+    }
+    a.stackIndex = 0;
+    a.lineStrideBytes = as * core->bytes;
+    a.offsetBytes = 0;
 
     b.stackIndex = 1;
-    b.lineStrideBytes = UP_DIV(l, lP) * lP * hP * core->bytes;
+    b.lineStrideBytes = bs * core->bytes;
     b.offsetBytes = 0;
     
     c.stackIndex = 2;
-    c.lineStrideBytes = C->stride(0) * core->bytes;
+    c.lineStrideBytes = cs * core->bytes;
     c.offsetBytes = 0;
-
     return _generateMatMul(e, l, h, a, b, c, bias, 0, postParameters);
 }
 

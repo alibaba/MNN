@@ -51,7 +51,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
 
     mTempInput.clear();
     mTempOutput = nullptr;
-    mOutputPtr = (__bridge id<MTLBuffer>)((void*)output->deviceId());
+    mOutputPtr = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(output->deviceId()))->getBuffer();
 #ifndef MNN_METAL_FORBID_RASTER_C4
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bool fast = true;
@@ -101,7 +101,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
                 writeSamplerInfo(info, newRegion);
                 auto local = [context computeBestGroupAndLocal:mBlitPipeline threads:MTLSizeMake(newRegion.size[0], newRegion.size[1], newRegion.size[2])];
                 auto buffer = [context newDeviceBuffer:sizeof(SamplerInfo) bytes:&info access:CPUWriteOnly];
-                mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)newRegion.origin->deviceId(), buffer, local.first, local.second));
+                mTempInputCopy.emplace_back(std::make_tuple(( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)newRegion.origin->deviceId())->getBuffer(), buffer, local.first, local.second, TensorUtils::getDescribe(newRegion.origin)->extra.offset));
             }
             return NO_ERROR;
         }
@@ -132,7 +132,8 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         if (!res) {
             return OUT_OF_MEMORY;
         }
-        mOutputPtr = (__bridge id<MTLBuffer>)((void*)mTempOutput->deviceId());
+        mOutputPtr = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(mTempOutput->deviceId()))->getBuffer();
+
     }
     for (auto& iter : mTempInput) {
         auto res = backend()->onAcquireBuffer(iter.second.get(), Backend::DYNAMIC);
@@ -180,10 +181,10 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         auto iter = mTempInput.find(slice.origin);
         auto local = [context computeBestGroupAndLocal:mBlitPipeline threads:MTLSizeMake(slice.size[0], slice.size[1], slice.size[2])];
         if (iter != mTempInput.end()) {
-            mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)iter->second->deviceId(), buffer, local.first, local.second));
+            mTempInputCopy.emplace_back(std::make_tuple(( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)iter->second->deviceId())->getBuffer(), buffer, local.first, local.second, TensorUtils::getDescribe(iter->second.get())->extra.offset));
             continue;
         }
-        mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)slice.origin->deviceId(), buffer, local.first, local.second));
+        mTempInputCopy.emplace_back(std::make_tuple(( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(slice.origin->deviceId()))->getBuffer(), buffer, local.first, local.second, TensorUtils::getDescribe(slice.origin)->extra.offset));
     }
     mShapeTemp.clear();
     for (int i = 0; i < mTempInput.size(); ++i) {
@@ -205,6 +206,10 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
     }
 
     auto func = [=](){
+        int out_offset = TensorUtils::getDescribe(outputs[0])->extra.offset;
+        if (nullptr != mTempOutput) {
+            out_offset = TensorUtils::getDescribe(mTempOutput.get())->extra.offset;
+        }
         if (mNeedZero) {
             backend->flushEncoder();
             auto size = outputs[0]->elementSize();
@@ -213,7 +218,7 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
             }
             size = ((size + 3) / 4) * 4 * sizeof(metal_float);
             auto blitEncode = [context encoderBlit_net];
-            [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(0, size) value:0];
+            [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(out_offset, size) value:0];
             [blitEncode endEncoding];
         }
         auto encoder   = backend->encoder();
@@ -224,8 +229,8 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
 
         [encoder setComputePipelineState:mBlitPipeline];
         for (auto& iter : mTempInputCopy) {
-            [encoder setBuffer: std::get<0>(iter) offset:0 atIndex: 0];
-            [encoder setBuffer: mOutputPtr offset:0 atIndex: 1];
+            [encoder setBuffer: std::get<0>(iter) offset: std::get<4>(iter) atIndex: 0];
+            [encoder setBuffer: mOutputPtr offset:out_offset atIndex: 1];
             [encoder setBuffer: std::get<1>(iter) offset:0 atIndex: 2];
             [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
         }

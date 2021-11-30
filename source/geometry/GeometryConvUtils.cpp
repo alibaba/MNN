@@ -236,10 +236,10 @@ bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& 
         newOutputs[0] = output;
         res.extras.emplace_back(newOutput);
     }
-    Command cmd;
-    cmd.op      = op;
-    cmd.inputs  = std::move(newInputs);
-    cmd.outputs = std::move(newOutputs);
+    SharedPtr<Command> cmd(new Command);
+    cmd->op      = op;
+    cmd->inputs  = std::move(newInputs);
+    cmd->outputs = std::move(newOutputs);
     res.command.emplace_back(std::move(cmd));
     if (originOutput != output) {
         ConvertUtils::compute(output, originOutput, res);

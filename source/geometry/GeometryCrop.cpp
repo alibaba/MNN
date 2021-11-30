@@ -10,11 +10,13 @@
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
 
-static int computeOffsetRegion(Tensor::InsideDescribe* outputDes, Tensor* input, Tensor* output, Tensor* real,
+static int computeOffsetRegion(Tensor::InsideDescribe::NativeInsideDescribe* outputDes, Tensor* input, Tensor* output, Tensor* real,
                                const std::vector<int>& offsets, std::vector<int>& seperateInputDims,
                                std::vector<int>& seperateOutputDims, std::vector<int>& seperateOffsets,
                                std::vector<int>& seperateInputStrides, std::vector<int>& seperateOutputStrides,
-                               std::vector<int>& remainStride) {
+                               int* remainStride,
+                               int& remainStrideSize
+                               ) {
     int currentInput  = 1;
     int currentOutput = 1;
     auto inputDim     = input->dimensions();
@@ -46,12 +48,12 @@ static int computeOffsetRegion(Tensor::InsideDescribe* outputDes, Tensor* input,
     OpCommonUtils::computeStride(seperateInputStrides.data(), seperateInputDims.data(), seperateInputDims.size());
 
     int remainDimSize = seperateOffsets.size() > 3 ? (int)seperateOffsets.size() - 3 : 0;
-    remainStride.resize(remainDimSize);
-    int remainSize = OpCommonUtils::computeStride(remainStride.data(), seperateOutputDims.data(), remainDimSize);
+    remainStrideSize = remainDimSize;
+    int remainSize = OpCommonUtils::computeStride(remainStride, seperateOutputDims.data(), remainDimSize);
     outputDes->regions.resize(remainSize);
     outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 
-    std::vector<int> cords(remainDimSize);
+    int cords[MNN_MAX_TENSOR_DIM];
     for (int index = 0; index < remainSize; ++index) {
         OpCommonUtils::unravelIndexHelper(cords, remainStride, remainDimSize, index);
         auto& reg      = outputDes->regions[index];
@@ -109,10 +111,11 @@ public:
         std::vector<int> seperateOffsets;
         std::vector<int> seperateOutputStrides;
         std::vector<int> seperateInputStrides;
-        std::vector<int> remainStride;
+        int remainStride[MNN_MAX_TENSOR_DIM];
+        int remainStrideSize;
         computeOffsetRegion(TensorUtils::getDescribe(outputs[0]), input, outputs[0], input, offsets, seperateInputDims,
                             seperateOutputDims, seperateOffsets, seperateInputStrides, seperateOutputStrides,
-                            remainStride);
+                            remainStride, remainStrideSize);
         return true;
     }
 };
@@ -144,12 +147,13 @@ public:
         std::vector<int> seperateOffsets;
         std::vector<int> seperateOutputStrides;
         std::vector<int> seperateInputStrides;
-        std::vector<int> remainStride;
+        int remainStride[MNN_MAX_TENSOR_DIM];
+        int remainStrideSize;
 
         computeOffsetRegion(outputDes, output, input, input, pads, seperateOutputDims, seperateInputDims,
-                            seperateOffsets, seperateOutputStrides, seperateInputStrides, remainStride);
+                            seperateOffsets, seperateOutputStrides, seperateInputStrides, remainStride, remainStrideSize);
         int remainSize =
-            OpCommonUtils::computeStride(remainStride.data(), seperateOutputDims.data(), remainStride.size());
+            OpCommonUtils::computeStride(remainStride, seperateOutputDims.data(), remainStrideSize);
 
         // Revert region
         for (auto& reg : outputDes->regions) {
@@ -218,7 +222,7 @@ public:
             rightPads[i] = seperateOutputDims[i] - seperateInputDims[i] - seperateOffsets[i];
         }
         std::vector<int> padRegion;
-        for (int i = remainStride.size(); i < seperateInputStrides.size(); ++i) {
+        for (int i = remainStrideSize; i < seperateInputStrides.size(); ++i) {
             // 0: center, 1: left, 2: right
             int r = 1;
             if (seperateOffsets[i] > 0) {
@@ -229,15 +233,15 @@ public:
             }
             padRegion.emplace_back(r);
         }
-        std::vector<int> padRegionMod(padRegion.size());
-        int regionSize      = OpCommonUtils::computeStride(padRegionMod.data(), padRegion.data(), padRegion.size());
-        int remainDimOffset = (int)remainStride.size();
+        int padRegionMod[MNN_MAX_TENSOR_DIM];
+        int regionSize      = OpCommonUtils::computeStride(padRegionMod, padRegion.data(), padRegion.size());
+        int remainDimOffset = (int)remainStrideSize;
         std::vector<int> padCord(padRegion.size());
-        std::vector<int> cords(remainStride.size());
+        std::vector<int> cords(remainStrideSize);
         for (int pos = 0; pos < remainSize; ++pos) {
             int dstBasicOffset = 0;
             int srcBasicOffset = 0;
-            OpCommonUtils::unravelIndexHelper(cords, remainStride, remainDimOffset, pos);
+            OpCommonUtils::unravelIndexHelper(cords.data(), remainStride, remainDimOffset, pos);
             for (int i = 0; i < cords.size(); ++i) {
                 // cords is the pos of output
                 dstBasicOffset += cords[i] * seperateOutputStrides[i];
@@ -256,7 +260,7 @@ public:
             for (int index = 1; index < regionSize; ++index) {
                 int dstOffset = dstBasicOffset;
                 int srcOffset = srcBasicOffset;
-                OpCommonUtils::unravelIndexHelper(padCord, padRegionMod, padRegion.size(), index);
+                OpCommonUtils::unravelIndexHelper(padCord.data(), padRegionMod, padRegion.size(), index);
                 Tensor::InsideDescribe::Region region;
                 region.origin  = padInput;
                 int sizeOffset = 3 - (int)padRegion.size();

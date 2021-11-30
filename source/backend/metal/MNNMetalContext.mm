@@ -7,10 +7,14 @@
 //
 
 #import "backend/metal/MNNMetalContext.h"
+#import "backend/metal/MetalBackend.hpp"
 #import "core/Macro.h"
 #import <sys/utsname.h>
 
 #if MNN_METAL_ENABLED
+#ifdef MNN_METALLIB_SOURCE
+#import "MNNMetalLib.h"
+#endif
 
 using namespace MNN;
 
@@ -42,13 +46,10 @@ using namespace MNN;
     static id<MTLLibrary> library = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-#if TARGET_OS_IOS
+        NSError *err = nil;
+#ifndef MNN_METALLIB_SOURCE
         NSString *remotePath = [self getMetalLibFromRuntimeCore];
         NSString *path = remotePath ? remotePath : [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
-#else
-        NSString *path = @"mnn.metallib";
-#endif
-        NSError *err = nil;
         library = path ? [self.device newLibraryWithFile:path error:&err] : nil;
         if (nil == library) {
             if (err) {
@@ -63,6 +64,15 @@ using namespace MNN;
                 MNN_ERROR("Warning: Metallib version not match.\n");
             }
         }
+#else
+        dispatch_data_t data = dispatch_data_create(MNNMetalLib, MNNMetalLib_len, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        library = [self.device newLibraryWithData:data error:&err];
+        if (nil == library) {
+            if (err) {
+                NSLog(@"Warning: Metallib Library error: %@", err);
+            }
+        }
+#endif
     });
     return library;
 }
@@ -289,7 +299,10 @@ using namespace MNN;
                 for(NSUInteger idx = 0; idx < buffers.count; idx++) {
                     [encoder setBuffer:[buffers objectAtIndex:idx] offset:0 atIndex:idx];
                 }
-                                    
+                MNN_ASSERT(thread.second.width >= 1);
+                MNN_ASSERT(thread.second.height >= 1);
+                MNN_ASSERT(thread.second.depth >= 1);
+
                 [encoder dispatchThreadgroups:thread.first threadsPerThreadgroup:thread.second];
             }
             [encoder endEncoding];
@@ -435,6 +448,9 @@ static NSUInteger smallest_log2(NSUInteger integer) {
 
 - (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
     auto local = [self computeBestGroup:bw threads:t];
+    local.width = ALIMAX(local.width, 1);
+    local.height = ALIMAX(local.height, 1);
+    local.depth = ALIMAX(local.depth, 1);
     auto globalSize = MTLSizeMake(UP_DIV(t.width, local.width), UP_DIV(t.height, local.height), UP_DIV(t.depth, local.depth));
     return std::make_pair(globalSize, local);
 }
@@ -588,6 +604,10 @@ static NSUInteger smallest_log2(NSUInteger integer) {
         UP_DIV(threads.width, threadsPerGroup.width), UP_DIV(threads.height, threadsPerGroup.height),
         UP_DIV(threads.depth, threadsPerGroup.depth),
     };
+    MNN_ASSERT(threadsPerGroup.width >= 1);
+    MNN_ASSERT(threadsPerGroup.height >= 1);
+    MNN_ASSERT(threadsPerGroup.depth >= 1);
+
     [encoder dispatchThreadgroups:groups threadsPerThreadgroup:threadsPerGroup];
 }
 
@@ -615,9 +635,9 @@ void printBuffer(const void *content, unsigned long bytes, const char *fmt) {
                     type:buffer.type.code
                     bits:buffer.type.bits];
     } else if (buffer.type.code == halide_type_float) {
-        [self printBuffer:(__bridge id<MTLBuffer>)(void *)buffer.device type:buffer.type.code bits:16];
+        [self printBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)buffer.device)->getBuffer() type:buffer.type.code bits:16];
     } else {
-        [self printBuffer:(__bridge id<MTLBuffer>)(void *)buffer.device type:buffer.type.code bits:buffer.type.bits];
+        [self printBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)buffer.device)->getBuffer() type:buffer.type.code bits:buffer.type.bits];
     }
 }
 

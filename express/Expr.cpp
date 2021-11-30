@@ -153,6 +153,7 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
     expr->mType = type;
     if (type == VARP::CONSTANT) {
         TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::CONSTANT;
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->isMutable = false;
     } else if (type == VARP::INPUT) {
         TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::INPUT;
     } else {
@@ -254,7 +255,7 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     auto offset = Op::Pack(builder, op);
     builder.Finish(offset);
     std::shared_ptr<BufferStorage> extra(new BufferStorage);
-    extra->storage.reset(builder.ReleaseRaw(extra->allocated_size, extra->offset));
+    extra->storage = builder.ReleaseRaw(extra->allocated_size, extra->offset);
     auto resExpr = Expr::create(extra, std::move(inputs), outputSize);
     resExpr->setName(op->name);
     return resExpr;
@@ -581,7 +582,8 @@ void* Variable::readInternal(bool forShape) {
         //MNN_ASSERT(nullptr != mFrom->inside()->mOutputTensors[0]->buffer().host);
         auto inside = mFrom->inside();
         auto originTensor = inside->mOutputTensors[0];
-        if (WrapExecution::needWrap(originTensor, nullptr)) {
+        auto des = TensorUtils::getDescribe(originTensor);
+        if (WrapExecution::needWrap(originTensor, nullptr) || (des->quantAttr != nullptr && des->type == DataType_DT_INT8)) {
             // For StaticModule will other-device runtime, we may create Variable with other-device's memory
             // The case won't occured for varibale = INPUT
             // Need Copy
@@ -649,15 +651,18 @@ void Variable::informDirty() {
 void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
     std::vector<EXPRP> exprs;
     for (auto v : vars) {
-        if (!v->expr().first->visited()) {
-            v->expr().first->inside()->mCache = nullptr;
-            v->expr().first->requireInfo();
-            v->expr().first->setVisited(true);
-            exprs.emplace_back(v->expr().first);
+        if (nullptr != v && nullptr != v->mFrom->get()) {
+            if (!v->expr().first->visited() && nullptr == v->expr().first->inside()->mCache) {
+                v->expr().first->requireInfo();
+                v->expr().first->setVisited(true);
+                exprs.emplace_back(v->expr().first);
+            }
         }
     }
     for (auto v : vars) {
-        v->expr().first->setVisited(false);
+        if (nullptr != v && nullptr != v->mFrom->get()) {
+            v->expr().first->setVisited(false);
+        }
     }
     ExecutorScope::Current()->makeCache(std::move(exprs), forceCpu);
 }
@@ -665,10 +670,26 @@ void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
 void Variable::compute(const std::vector<VARP>& vars, bool forceCPU) {
     prepareCompute(vars, forceCPU);
     for (auto& v : vars) {
-        if (nullptr != v->mFrom) {
+        if (nullptr != v && nullptr != v->mFrom->get()) {
             auto inside = v->mFrom->inside();
             if (nullptr != inside && nullptr != inside->mCache) {
                 ExecutorScope::Current()->runCache(inside->mCache);
+            }
+        }
+    }
+    for (auto& v : vars) {
+        if (nullptr != v && nullptr != v->mFrom->get()) {
+            auto inside = v->mFrom->inside();
+            if (nullptr != inside && nullptr != inside->mCache) {
+                auto backends = Executor::getBackends(inside->mCache.get());
+                auto newExpr = Expr::create(Tensor::clone(Executor::getOutput(inside->mCache.get(), inside->mCacheOffset)), true);
+                v->mFrom = newExpr;
+                v->mFromIndex = 0;
+                if (backends.first.get() == TensorUtils::getDescribe(newExpr->inside()->mOutputTensors[0])->backend) {
+                    newExpr->inside()->mHoldBackend = backends.first;
+                } else if(backends.second.get() == TensorUtils::getDescribe(newExpr->inside()->mOutputTensors[0])->backend) {
+                    newExpr->inside()->mHoldBackend = backends.second;
+                }
             }
         }
     }
@@ -681,6 +702,7 @@ void* Variable::writeInternal(bool inform) {
     if (inform) {
         informDirty();
     }
+    MNN_ASSERT(TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->quantAttr == nullptr || TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->type == DataType_DT_FLOAT);
     mFrom->mInside->mContentDirty = false;
     return mFrom->inside()->mOutputTensors[0]->host<void>();
 }

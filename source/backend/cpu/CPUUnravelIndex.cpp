@@ -21,11 +21,11 @@ ErrorCode CPUUnravelIndex::onExecute(const std::vector<Tensor*>& inputs, const s
 
     const auto indicesPtr  = indices->host<int32_t>();
     const auto dimsDataPtr = dims->host<int32_t>();
-    std::vector<int32_t> mod(dimsSize);
-    OpCommonUtils::computeStride(mod.data(), dimsDataPtr, dimsSize);
+    int mod[MNN_MAX_TENSOR_DIM];
+    OpCommonUtils::computeStride(mod, dimsDataPtr, dimsSize);
     auto outputDataPtr = outputs[0]->host<int32_t>();
 
-    std::vector<int> coordinate(dimsSize);
+    int coordinate[MNN_MAX_TENSOR_DIM];
     for (int i = 0; i < elmentSize; ++i) {
         OpCommonUtils::unravelIndexHelper(coordinate, mod, dimsSize, indicesPtr[i]);
         // assign value

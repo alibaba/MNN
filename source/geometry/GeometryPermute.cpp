@@ -113,7 +113,7 @@ public:
         }
         outputDes->regions.resize(remainSize);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        std::vector<int32_t> mod(breakAxis + 1);
+        int32_t mod[MNN_MAX_TENSOR_DIM];
         for (int i = 0; i < breakAxis; ++i) {
             int value = 1;
             for (int j = i + 1; j < breakAxis; ++j) {

@@ -48,3 +48,65 @@ void dispatch(std::function<void(MNNForwardType)> payload, MNNForwardType backen
             break;
     }
 }
+
+int getTestPrecision(MNNForwardType forwardType, MNN::BackendConfig::PrecisionMode precision, bool isSupportFp16) {
+    switch (forwardType) {
+        case MNN_FORWARD_CPU: {
+            return isSupportFp16 && precision == MNN::BackendConfig::Precision_Low ?
+                MNN::BackendConfig::Precision_Low + 1 : precision;
+            break;
+        }
+        case MNN_FORWARD_OPENCL:
+        case MNN_FORWARD_OPENGL:
+        case MNN_FORWARD_VULKAN: {
+            return isSupportFp16 && precision != MNN::BackendConfig::Precision_High ?
+                MNN::BackendConfig::Precision_Low + 1 : precision;
+            break;
+        }
+        default: {
+            return isSupportFp16 && precision != MNN::BackendConfig::Precision_High ?
+                MNN::BackendConfig::Precision_Low + 1 : precision;
+            break;
+        }
+    }
+}
+
+// simulate bf16, prune fp32 tailing precision to bf16 precision
+float convertFP32ToBF16(float fp32Value) {
+    uint32_t& s32Value = *(uint32_t*)(&fp32Value);
+    s32Value &= 0xffff0000;
+    return fp32Value;
+}
+
+// simulate fp16 in fp32 bits
+float convertFP32ToFP16(float fp32Value) {
+
+    uint32_t& u32Result = *(uint32_t*)(&fp32Value);
+
+    uint32_t u32Value = u32Result & 0x7FFFFFFF;  //  digits
+    int exp = u32Value >> 23;
+    if(exp == 255) {
+        return fp32Value;
+    }
+    u32Result = u32Result & 0x80000000;          // sign
+    if(exp > 15 + 127) {
+        // inf
+        u32Result |= 0x7F800000;
+        return fp32Value;
+    }
+
+    int g = 0;
+    if(exp > -15 + 127) {
+        g = (u32Value >> 12) & 1;
+        u32Result |= (exp << 23) | (u32Value & (0x3ff << 13));
+    }
+    else if(exp > -26 + 127) {
+        g = (u32Value >> 12) & 1;
+        u32Result |= (exp << 23) | (u32Value & (0x3ff << 13));
+    }
+    u32Result += g << 13;
+    return fp32Value;
+}
+
+
+

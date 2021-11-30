@@ -20,3 +20,45 @@ table GridSample {
     paddingMode:BorderMode;
     alignCorners:bool=false;
 }
+
+enum ImageFormatType : int {
+    RGBA     = 0,
+    RGB      = 1,
+    BGR      = 2,
+    GRAY     = 3,
+    BGRA     = 4,
+    YCrCb    = 5,
+    YUV      = 6,
+    HSV      = 7,
+    XYZ      = 8,
+    BGR555   = 9,
+    BGR565   = 10,
+    YUV_NV21 = 11,
+    YUV_NV12 = 12,
+    YUV_I420 = 13,
+}
+
+enum FilterType : byte {
+    NEAREST = 0,
+    BILINEAR = 1,
+    BICUBIC = 2
+}
+
+enum WrapType : byte {
+    CLAMP_TO_EDGE = 0,
+    ZERO = 1,
+    REPEAT = 2
+}
+
+table ImageProcessParam {
+    filterType:FilterType = NEAREST;
+    sourceFormat:ImageFormatType = RGBA;
+    destFormat:ImageFormatType = RGBA;
+    wrap:WrapType = CLAMP_TO_EDGE;
+    mean:[float];       // float[4]
+    normal:[float];     // float[4]
+    transform:[float];  // float[9] Matrix
+    paddingValue:byte = 0;
+    shape:[int]; // shape: [N, C, H, W]
+    outputType:DataType;
+}

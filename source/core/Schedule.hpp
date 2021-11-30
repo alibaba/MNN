@@ -16,8 +16,7 @@
 #include <vector>
 #include <array>
 #include "core/Backend.hpp"
-#include "core/TensorUtils.hpp"
-
+#include "core/Command.hpp"
 namespace MNN {
 
 struct Op;
@@ -44,6 +43,12 @@ public:
         std::vector<Tensor*> outputs;
         /** schedule type*/
         Schedule::Type type = Schedule::Type::SEPERATE;
+
+        /**Command buffer for cache*/
+        CommandBuffer cacheBuffer;
+
+        /**Command buffer for execute*/
+        CommandBuffer executeBuffer;
     };
 
     /** schedule info */
@@ -60,6 +65,8 @@ public:
         bool validForResize;
         /** Default Backend*/
         std::shared_ptr<Backend> defaultBackend;
+        /** size need input's content*/
+        bool needInputContentForShape = false;
     };
 
     /**
@@ -68,7 +75,7 @@ public:
      * @param config    given configuration.
      * @return schedule info.
      */
-    static bool schedule(ScheduleInfo& result, const Net* net, const std::vector<ScheduleConfig>& config, const RuntimeInfo& runtimeInfo, bool netHold);
+    static bool schedule(ScheduleInfo& result, const Net* net, const std::vector<ScheduleConfig>& config, const RuntimeInfo& runtimeInfo);
     static MNNForwardType getApprociateType(const ScheduleConfig& config);
 };
 } // namespace MNN

@@ -320,6 +320,9 @@ static void _CopyC8ToC4_int8(float* dstPtr, const float* srcPtr, int channelC4, 
 
 Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                   const MNN::Op* op) {
+    if (op->type() == OpType_ImageProcess) {
+        return CPUBackend::onCreate(inputs, outputs, op);
+    }
     for (auto t : outputs) {
         if (t->getType().code != halide_type_float && t->getType().bits != 8) {
             return nullptr;
@@ -335,18 +338,18 @@ Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
     return nullptr;
 }
 
-bool AVX2Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) {
+Backend::MemObj* AVX2Backend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();
-    auto tensorSize = getTensorSize(nativeTensor);
-    auto res = allocBuffer(tensorSize * buffer.type.bytes(), (Tensor*)nativeTensor, storageType);
+    auto tensorSize = getTensorSize(nativeTensor, true);
+    auto res = allocBuffer(tensorSize, (Tensor*)nativeTensor, storageType);
     if (!res) {
-        return false;
+        return nullptr;
     }
     // Set mask in device for easy to determine
     buffer.device = 1;
-    return true;
+    return res;
 }
 
 void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
@@ -357,7 +360,11 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         CPUBackend::onCopyBuffer(srcTensor, dstTensor);
         return;
     }
-    if (ib.type.code != ob.type.code) {
+    if (ib.dimensions <= 1) {
+        CPUBackend::onCopyBuffer(srcTensor, dstTensor);
+        return;
+    }
+    if (getDataType(srcTensor) != getDataType(dstTensor)) {
         auto dimType = Tensor::CAFFE;
         switch (TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
             case MNN_DATA_FORMAT_NCHW:
@@ -371,15 +378,26 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
             default:
                 break;
         }
+        auto convertType = CPUCastCreator::FlOAT_TO_INT8;
+        if (getDataType(srcTensor) == DataType_DT_INT8) {
+            convertType = CPUCastCreator::INT8_TO_FlOAT;
+        }
         wrapTensor.reset(Tensor::createDevice(srcTensor->shape(), dstTensor->getType(), dimType));
+        auto dstType = getDataType(dstTensor);
+        if (dstType != DataType_DT_FLOAT) {
+            wrapTensor->setType(dstType);
+        }
         wrapTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(getTensorSize(wrapTensor.get()) * wrapTensor->getType().bytes(), MNN_MEMORY_ALIGN_DEFAULT);
         TensorUtils::getDescribe(wrapTensor.get())->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
-        auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get(), this);
+        auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get(), this, convertType);
         if (NO_ERROR != code) {
             MNN_ERROR("Error in CPUBackend::onCopyBuffer:cast\n");
         }
         srcTensor = wrapTensor.get();
-    }
+    } else if (srcTensor->getType() != dstTensor->getType()) {
+       MNN_ERROR("Input type not match session's tensor\n");
+       return;
+   }
     auto source = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcType = MNN_FORWARD_CPU;
@@ -405,14 +423,15 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     if (source == MNN_DATA_FORMAT_NC4HW4 && dest == MNN_DATA_FORMAT_NC4HW4) {
         auto outF = _CopyC8ToC4;
         auto inF = _CopyC4ToC8;
-        if (ob.type.bytes() == 1) {
+        auto obBytes = CPUBackend::getBytes(this, dstTensor);
+        if (obBytes == 1) {
             outF = _CopyC8ToC4_int8;
             inF = _CopyC4ToC8_int8;
         }
         if (mCoreFunctions->pack == 16) {
             outF = _CopyC16ToC4;
             inF = _CopyC4ToC16;
-            if (ob.type.bytes() == 1) {
+            if (obBytes == 1) {
                 outF = _CopyC16ToC4_int8;
                 inF = _CopyC4ToC16_int8;
             }

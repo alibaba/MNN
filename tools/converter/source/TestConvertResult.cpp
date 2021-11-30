@@ -39,6 +39,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         outputFileOs << directName << "/" << order <<".txt";
         outputOrigin.open(outputFileOs.str().c_str());
     }
+    MNN_ASSERT(!outputOrigin.fail());
     if (info->order == NC4HW4 && info->dim.size() > 1) {
         output = _Convert(output, dataFormat);
         info = output->getInfo();
@@ -60,6 +61,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     auto absMax = _ReduceMax(_Abs(targetValue), {});
     absMax = _Maximum(absMax, _Scalar<float>(0.0001f));
     auto diff = _Abs(targetValue - output);
+    auto outputPtr = output->readMap<float>();
     auto diffAbsMax = _ReduceMax(diff);
     auto absMaxV = absMax->readMap<float>()[0];
     auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
@@ -154,6 +156,27 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    // create session
+    MNN::ScheduleConfig config;
+    config.type      = MNN_FORWARD_CPU;
+    /*modeNum means gpuMode for GPU usage, Or means numThread for CPU usage.*/
+    config.numThread = 2;
+    // If type not fount, let it failed
+    config.backupType = MNN_FORWARD_CPU;
+    BackendConfig backendConfig;
+    // config.path.outputs.push_back("ResizeBilinear_2");
+    // backendConfig.power = BackendConfig::Power_High;
+    backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(1);
+    // backendConfig.memory = BackendConfig::Memory_High;
+    config.backendConfig     = &backendConfig;
+
+    MNN::Express::Module::Config mConfig;
+    mConfig.shapeMutable = true;
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    std::shared_ptr<Module> net(Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
+    auto mInfo = net->getInfo();
+    std::vector<VARP> inputs(mInfo->inputs.size());
 #define LOAD_DATA(TYPE)\
     if (inputInfo.find(inputName) != inputInfo.end()) {\
         auto value = inputInfo[inputName];\
@@ -173,80 +196,73 @@ int main(int argc, char *argv[]) {
             inputOs >> ptr[i];\
         }\
     }
-    // Expr Branch
-    auto varMap = Variable::loadMap(defaultCacheFile.c_str());
-    for (auto inputName : inputNames) {
-        if (varMap.find(inputName) == varMap.end()) {
-            MNN_ERROR("TESTERROR Can't find var: %s\n", inputName.c_str());
-            continue;
-        }
+    // Load inputs
+    for (int i=0; i<inputs.size(); ++i) {
+        auto inputName = inputNames[i];
         // Resize
         auto shapeIter = inputShape.find(inputName);
         if (shapeIter != inputShape.end()) {
             auto s = shapeIter->second;
-            varMap[inputName]->resize(s);
+            inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+        } else {
+            inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
         }
-        varMap[inputName] = _ChangeInputFormat(varMap[inputName], dataFormat);
-        auto info = varMap[inputName]->getInfo();
+        auto info = inputs[i]->getInfo();
+        auto iter = inputInfo.find(inputNames[i]);
+        if (iter != inputInfo.end()) {
+            auto ptr = inputs[i]->writeMap<float>();
+            for (int v=0; v<mInfo->inputs[i].size; ++v) {
+                ptr[v] = iter->second;
+            }
+            continue;
+        }
         if (info->type == halide_type_of<float>()){
-            auto ptr = varMap[inputName]->writeMap<float>();
+            auto ptr = inputs[i]->writeMap<float>();
             LOAD_DATA(float)
         } else {
             auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
             auto ptr = floatVar->writeMap<float>();
             LOAD_DATA(float)
             auto temp = _Cast(floatVar, info->type);
-            varMap[inputName]->input(temp);
+            inputs[i]->input(temp);
         }
+        inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
     }
 #undef LOAD_DATA
     bool modelError = false;
     // Module Branch
-    if (useControlFlow) {
-        std::shared_ptr<Module> net(Module::load(inputNames, outputNames, defaultCacheFile.c_str()));
-        if (net == nullptr) {
-            MNN_PRINT("Error: can't load module\n");
-            return 0;
+    auto outputs = net->onForward(inputs);
+    for (int i=0; i<outputNames.size(); ++i) {
+        auto name = outputNames[i];
+        auto v = outputs[i];
+        auto info = v->getInfo();
+        if (nullptr == info) {
+            continue;
         }
-        std::vector<VARP> inputs;
-        for (auto inputName : inputNames) {
-            inputs.emplace_back(varMap[inputName]);
+        if (info->order == NC4HW4 && info->dim.size() > 1) {
+            v = _Convert(v, mInfo->defaultFormat);
         }
-        varMap.clear();
-        auto outputs = net->onForward(inputs);
-        for (int i=0; i<outputNames.size(); ++i) {
-            auto output = outputs[i];
-            bool success = compareOutput(output, directName, outputNames[i], dataFormat, i);
-            if (!success) {
-                varMap[outputNames[i]] = _Clone(output, true);
-                modelError = true;
-            }
+        if (info->type.code != halide_type_float) {
+            v = _Cast<float>(v);
         }
-    } else {
-        // Expr Branch
-        for (int i=0; i<outputNames.size(); ++i) {
-            auto name = outputNames[i];
-            if (varMap.find(name) == varMap.end()) {
-                MNN_ERROR("TESTERROR, Can't find var: %s\n", name.c_str());
-                return 0;
-            }
-            auto output = varMap[name];
-            bool success = compareOutput(output, directName, name, dataFormat, i);
-            if (!success) {
-                modelError = true;
-                break;
-            }
+        v.fix(VARP::CONSTANT);
+        outputs[i] = v;
+    }
+
+    for (int i=0; i<outputNames.size(); ++i) {
+        auto output = outputs[i];
+        bool success = compareOutput(output, directName, outputNames[i], mInfo->defaultFormat, i);
+        if (!success) {
+            modelError = true;
+            MNN_ERROR("Error for output %s\n", outputNames[i].c_str());
         }
     }
+
     if (modelError) {
-        std::vector<VARP> outputs;
         MNN_ERROR("Save mnn result to  .error director\n");
         for (int i=0; i<outputNames.size(); ++i) {
+            auto v = outputs[i];
             auto name = outputNames[i];
-            if (varMap.find(name) == varMap.end()) {
-                continue;
-            }
-            auto v = varMap[name];
             auto info = v->getInfo();
             if (nullptr == info) {
                 continue;

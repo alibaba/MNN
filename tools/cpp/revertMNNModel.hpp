@@ -17,7 +17,7 @@ public:
     ~Revert();
     void* getBuffer() const;
     const size_t getBufferSize() const;
-    void initialize(float sparsity = 0.0f, int sparseBlockOC = 1);
+    void initialize(float sparsity = 0.0f, int sparseBlockOC = 1, bool rewrite = false);
     static void fillRandValue(float * data, size_t size);
 private:
     Revert();

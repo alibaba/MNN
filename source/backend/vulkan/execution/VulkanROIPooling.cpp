@@ -67,6 +67,10 @@ ErrorCode VulkanROIPooling::onEncode(const std::vector<Tensor*>& inputs, const s
 
     mVulkanROIPoolingPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 
+    reinterpret_cast<VulkanTensor*>(output->deviceId())->image()->barrierWrite(cmdBuffer->get());
+    reinterpret_cast<VulkanTensor*>(input->deviceId())->image()->barrierRead(cmdBuffer->get());
+    reinterpret_cast<VulkanTensor*>(roi->deviceId())->image()->barrierRead(cmdBuffer->get());
+
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(output->width(), 8), UP_DIV(output->height(), 8),
                   channelDiv4 * output->batch());
 

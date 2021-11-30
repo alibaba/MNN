@@ -68,6 +68,8 @@ ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::v
     mDescriptorSet->writeBuffer(mScaleParam->buffer(), 4, mScaleParam->size());
     mScalePipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 
+    reinterpret_cast<VulkanTensor*>(output->deviceId())->image()->barrierWrite(cmdBuffer->get());
+    reinterpret_cast<VulkanTensor*>(input->deviceId())->image()->barrierRead(cmdBuffer->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
                   channelDiv4 * input->batch());
 

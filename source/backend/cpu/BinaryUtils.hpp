@@ -46,9 +46,16 @@ struct BinaryRealDiv {
 };
 
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
-struct BinaryMod {
+struct BinaryModInt {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return x - (x / y) * y;
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryMod {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return fmodf(x, y);
     }
 };
 

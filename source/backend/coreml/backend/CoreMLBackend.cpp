@@ -77,7 +77,7 @@ namespace MNN {
         invokeModel();
     }
 
-    bool CoreMLBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
+    Backend::MemObj* CoreMLBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
         bool isInputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         if(isInputCopy){
@@ -86,12 +86,8 @@ namespace MNN {
         if(isOutputCopy){
             mOutputIdxMap.insert(std::make_pair(tensor, mOutputIdxMap.size()));
         }
-        return true;
-    }
-
-    bool CoreMLBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
-        ((Tensor*)tensor)->buffer().device = uint64_t(0);
-        return true;
+        // Don't need release
+        return new Backend::MemObj;
     }
 
     bool CoreMLBackend::onClearBuffer() {

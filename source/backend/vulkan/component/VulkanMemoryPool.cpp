@@ -25,7 +25,7 @@ public:
     virtual ~ VulkanAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, int> onAlloc(int size) override {
+    virtual std::pair<void*, int> onAlloc(int size, int align) override {
         VkMemoryAllocateInfo info;
         info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         info.pNext = nullptr;
@@ -56,7 +56,7 @@ VulkanMemoryPool::VulkanMemoryPool(const VulkanMemoryPool* parent) : mDevice(par
     mAllocators.resize(mDevice.memProty().memoryTypeCount);
     for (int i=0; i<mAllocators.size(); ++i) {
         std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(parent->mAllocators[i].get());
-        mAllocators[i].reset(new BufferAllocator(allocReal, parent->mDevice.proty().limits.nonCoherentAtomSize));
+        mAllocators[i].reset(new BufferAllocator(allocReal, mDevice.proty().limits.nonCoherentAtomSize));
     }
 }
 
@@ -65,19 +65,13 @@ VulkanMemoryPool::~VulkanMemoryPool() {
 }
 
 VkBuffer VulkanMemoryPool::allocBuffer(size_t size, VkBufferUsageFlags flags, VkSharingMode shared) {
-    auto iter = mFreeVkBuffers.find(std::make_tuple(size, flags, shared));
-    if (iter != mFreeVkBuffers.end()) {
-        auto res = iter->second;
-        mFreeVkBuffers.erase(iter);
-        return res;
-    }
     VkBuffer res;
     CALL_VK(mDevice.createBuffer(res, size, flags, shared));
     return res;
 }
 
 void VulkanMemoryPool::returnBuffer(VkBuffer buffer, size_t size, VkBufferUsageFlags flags, VkSharingMode shared) {
-    mFreeVkBuffers.insert(std::make_pair(std::make_tuple(size, flags, shared), buffer));
+    mDevice.destroyBuffer(buffer);
 }
 
 std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
@@ -96,7 +90,9 @@ std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& 
     }
     MNN_ASSERT(index >= 0);
     MNN_ASSERT(index < mAllocators.size());
-    return mAllocators[index]->alloc(requirements.size, seperate);
+    auto mem = mAllocators[index]->alloc(requirements.size, seperate, requirements.alignment);
+    MNN_ASSERT(mem.second % requirements.alignment ==0);
+    return mem;
 }
 
 void VulkanMemoryPool::returnMemory(std::pair<void*, int> memory) {
@@ -109,29 +105,15 @@ void VulkanMemoryPool::clear() {
     for (auto& iter : mAllocators) {
         iter->release(false);
     }
-    for (auto& iter : mFreeVkBuffers) {
-        mDevice.destroyBuffer(iter.second);
-    }
-    mFreeVkBuffers.clear();
-    for (auto& iter : mFreeImages) {
-        mDevice.destroyImage(iter.second);
-    }
-    mFreeImages.clear();
 }
 VkImage VulkanMemoryPool::allocImage(const std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>& info) {
-    auto iter = mFreeImages.find(info);
-    if (iter != mFreeImages.end()) {
-        auto res = iter->second;
-        mFreeImages.erase(iter);
-        return res;
-    }
     VkImage image;
     VkImageView imageView;
     CALL_VK(mDevice.createImage(image, std::get<0>(info), std::get<1>(info), std::get<2>(info), std::get<3>(info), std::get<4>(info)));
     return image;
 }
 void VulkanMemoryPool::returnImage(VkImage dst, std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>&& info) {
-    mFreeImages.insert(std::make_pair(info, dst));
+    mDevice.destroyImage(dst);
 }
 
 

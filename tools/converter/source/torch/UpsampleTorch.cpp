@@ -36,9 +36,28 @@ void UpsampleTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
         }
     } else if (opType == "upsample_bilinear2d") {
         param->resizeType = 2;
+        if (toIValue(node->input(1))) {
+            auto output_size = getValue<std::vector<int64_t>>(node->input(1));
+            if (output_size.size() == 2) {
+                param->outputWidth = output_size[0];
+                param->outputHeight = output_size[1];
+            }
+        } else {
+            const auto inputName = node->input(1)->debugName();
+            scope->addInputForOp(dstOp, inputName, true);
+        }
         param->alignCorners = getValue<bool>(node->input(2));
-        param->heightScale = getValue<float>(node->input(3));
-        param->widthScale = getValue<float>(node->input(4));
+        if (node->inputs().size() == 4) {
+            auto scales = getValue<std::vector<double>>(node->input(3));
+            if (scales.size() == 2) {
+                param->heightScale = scales[0];
+                param->widthScale = scales[1];
+            }
+            else { param->heightScale = 2; param->widthScale = 2; }
+        } else if (node->inputs().size() == 5) {
+            param->heightScale = getValue<float>(node->input(3));
+            param->widthScale = getValue<float>(node->input(4));
+        }
     } else if (opType == "upsample_bicubic2d") {
         param->resizeType = 3;
         param->alignCorners = getValue<bool>(node->input(2));
@@ -50,6 +69,7 @@ void UpsampleTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
 }
 
 // aten::upsample_bilinear2d(Tensor self, int[] output_size, bool align_corners, float? scales_h, float? scales_w) -> Tensor
+// aten::upsample_bilinear2d(Tensor self, int[] output_size, bool align_corners, float[]? scale_factors) -> Tensor
 REGISTER_CONVERTER(UpsampleTorch, upsample_bilinear2d);
 // aten::upsample_nearest2d(Tensor self, int[] output_size, float? scales_h, float? scales_w) -> Tensor
 // aten::upsample_nearest2d(Tensor self, int[] output_size, float[]? scale_factors) -> Tensor

@@ -48,7 +48,7 @@ protected:
 
     id<MTLBuffer> mWeight      = nil;
     id<MTLBuffer> mBias        = nil;
-    MetalBackend::AutoBuffer mConstBuffer;
+    id<MTLBuffer> mConstBuffer = nil;
 };
 
 } // namespace MNN

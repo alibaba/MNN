@@ -1796,6 +1796,39 @@ std::vector<VARP> _TopKV2(VARP input0, VARP input1) {
     return res;
 }
 
+VARP _ImageProcess(VARP input, CV::ImageProcess::Config config, CV::Matrix matrix, int oh, int ow, int oc, int dtype, uint8_t padVal) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_ImageProcess;
+    op->main.type = OpParameter_ImageProcessParam;
+    auto process = new ImageProcessParamT;
+    op->main.value = process;
+    process->destFormat = (MNN::ImageFormatType)config.destFormat;
+    process->sourceFormat = (MNN::ImageFormatType)config.sourceFormat;
+    process->filterType = (MNN::FilterType)config.filterType;
+    process->wrap = (MNN::WrapType)config.wrap;
+    process->shape = {1, oc, oh, ow};
+    process->outputType = (DataType)dtype;
+    process->paddingValue = padVal;
+    process->mean.resize(4);
+    process->normal.resize(4);
+    process->transform.resize(9);
+    for (int i = 0; i < 4; i++) {
+        process->mean[i] = config.mean[i];
+        process->normal[i] = config.normal[i];
+    }
+    for (int i = 0; i < 9; i++) {
+        process->transform[i] = matrix.get(i);
+    }
+    return (Variable::create(Expr::create(std::move(op), {input})));
+}
+
+VARP _Where(VARP x) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_Where;
+    op->main.type = OpParameter_Extra;
+    op->main.value = new ExtraT;
+    return (Variable::create(Expr::create(std::move(op), {x})));
+}
 
 } // namespace Express
 } // namespace MNN

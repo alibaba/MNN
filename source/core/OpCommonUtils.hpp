@@ -18,7 +18,7 @@ public:
     static void broastCastComputeDim(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0,
                                      const Tensor* input1, const Tensor* output);
     static std::vector<std::tuple<int, int, int>> computeReduceDims(const std::vector<Tensor*>& inputs, const Op* op);
-    static void unravelIndexHelper(std::vector<int32_t>& coordinate, const std::vector<int32_t>& mod, int size,
+    static void unravelIndexHelper(int32_t* coordinate, const int32_t* mod, int size,
                                    int indice);
     static int computeStride(int32_t* strides, const int* shape, int length);
     static void* blobData(const Op* op);
@@ -37,8 +37,6 @@ public:
 
     // For lowp CPU Backend
     static bool opCompabilityForLowp(const Op* op);
-    static std::pair<bool,DataType> getQuantInfo(const std::vector<Tensor*>& inputs);
-
 };
 } // namespace MNN
 

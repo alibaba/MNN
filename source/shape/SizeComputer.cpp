@@ -18,7 +18,7 @@ SizeComputerSuite* SizeComputerSuite::gInstance = nullptr;
 
 SizeComputerSuite::~SizeComputerSuite() {
     for (auto& iter : mRegistry) {
-        delete iter.second;
+        delete iter;
     }
 }
 
@@ -27,6 +27,8 @@ void SizeComputerSuite::init() {
         return;
     }
     gInstance = new SizeComputerSuite;
+    gInstance->mRegistry.resize(OpType_MAX + 1);
+    ::memset(gInstance->mRegistry.data(), 0, gInstance->mRegistry.size() * sizeof(SizeComputer*));
     registerShapeOps();
 }
 
@@ -35,15 +37,15 @@ SizeComputerSuite* SizeComputerSuite::get() {
 }
 
 void SizeComputerSuite::insert(SizeComputer* t, OpType type) {
-    mRegistry.insert(std::make_pair(type, t));
+    mRegistry[type] = t;
 }
 
 SizeComputer* SizeComputerSuite::search(OpType name) {
-    auto iter = mRegistry.find(name);
-    if (iter == mRegistry.end()) {
+    auto iter = mRegistry[name];
+    if (iter == nullptr) {
         return nullptr;
     }
-    return iter->second;
+    return iter;
 }
 float SizeComputer::onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                    const std::vector<Tensor*>& outputs) const {

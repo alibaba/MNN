@@ -15,7 +15,7 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : Execution(backend), mConst(static_cast<MetalBackend*>(backend)->runtime()) {
+MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : Execution(backend) {
     mTransposeA = matmul->transposeA();
     mTransposeB = matmul->transposeB();
 }
@@ -51,8 +51,10 @@ ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::
         buffer.stride[2] = 1;
         buffer.stride[3] = h;
     }
-    mConst.reset(sizeof(matP));
-    ::memcpy(mConst.buffer().contents, &buffer, sizeof(matP));
+    
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    mConstBuffer = backend->getConstBuffer(sizeof(matP));
+    ::memcpy(mConstBuffer.contents, &buffer, sizeof(matP));
     return NO_ERROR;
 }
 
@@ -73,20 +75,20 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
         auto encoder   = backend->encoder();
         if (inputs.size() > 2) {
             auto bandwidth = [context load:@"matmul_bias" encoder:encoder];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)inputs[2]->deviceId() offset:0 atIndex:2];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:3];
-            [encoder setBuffer:mConst.buffer() offset:0 atIndex:4];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[2]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[2])->extra.offset atIndex:2];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:3];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:4];
             [context dispatchEncoder:encoder
                              threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
                            bandwidth:bandwidth];
         } else {
             auto bandwidth = [context load:@"matmul" encoder:encoder];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-            [encoder setBuffer:mConst.buffer() offset:0 atIndex:3];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
             [context dispatchEncoder:encoder
                              threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
                            bandwidth:bandwidth];

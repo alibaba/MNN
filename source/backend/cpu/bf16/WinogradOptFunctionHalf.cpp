@@ -490,16 +490,6 @@ static void _destTransformUnit6x2(const int16_t* srcBlock, int16_t* dstStart, si
     BFVec4::save(dstStart + 0 * dstStep, m0);
     BFVec4::save(dstStart + 1 * dstStep, m1);
 }
-
-static WinogradFunctionHalf::TransformFunc gProcUnit6[] = {
-    nullptr, // 0
-    nullptr, // 1
-    _destTransformUnit6x2,
-    _destTransformUnit6x3,
-    _destTransformUnit6x4,
-    _destTransformUnit6x5,
-};
-
 WinogradFunctionHalf::TransformPackFunc WinogradFunctionHalf::chooseWinoSourceTransformPack(int k, int w, int ePack, int lPack, int packCUnit) {
 
     if (ePack == 12 && lPack == 1 && packCUnit == 4) {
@@ -515,8 +505,6 @@ WinogradFunctionHalf::TransformPackFunc WinogradFunctionHalf::chooseWinoSourceTr
         // other packing size
     }
     // if (ePack == 3 && lPack == 8 && packCUnit == 4)  no need to transformPack for x86 bf16 pack format of 3 x 8 x 4, will not be called in ConvolutionWinograd.cpp by allow_x86_bf16_winograd
-    MNN_ERROR("WinogradFunctionHalf Can not find function for ePack:%d, packCUnit:%d\n", ePack, packCUnit);
-    MNN_ASSERT(false);
     return nullptr;
 }
 
@@ -534,10 +522,18 @@ WinogradFunctionHalf::TransformFunc WinogradFunctionHalf::chooseSourceTransform(
 
 WinogradFunctionHalf::TransformFunc WinogradFunctionHalf::chooseDestTransform(int k, int h) {
     if (6 == k) {
-        if (h <= 1 || h > 5) {
-            return nullptr;
+        switch (h) {
+            case 5:
+                return _destTransformUnit6x5;
+            case 4:
+                return _destTransformUnit6x4;
+            case 3:
+                return _destTransformUnit6x3;
+            case 2:
+                return _destTransformUnit6x2;
+            default:
+                return nullptr;
         }
-        return gProcUnit6[h];
     }
     if (2 == h && 4 == k) {
         return _destTransformUnit4x2;

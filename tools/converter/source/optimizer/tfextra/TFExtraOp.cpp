@@ -56,9 +56,34 @@ public:
         return newVar->expr().first;
     }
 };
+
+VARP _BroadcastToForward(VARP a, VARP shape) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_BroadcastTo;
+    op->main.type  = OpParameter_Axis;
+    auto param = new AxisT;
+    param->axis = 1;
+    op->main.value = param;
+    return (Variable::create(Expr::create(std::move(op), {a, shape})));
+}
+
+class SelectTransform : public TFExtraManager::Transform {
+public:
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        auto inputs    = expr->inputs();
+        MNN_ASSERT(inputs.size() == 3);
+        auto cond   = inputs[0];
+        auto tvalue = inputs[1];
+        auto fvalue = inputs[1];
+        auto newVar = _Select(_BroadcastToForward(inputs[0], _Shape(inputs[1])), inputs[1], inputs[2]);
+        return newVar->expr().first;
+    }
+};
+
 static auto gRegister = []() {
     TFExtraManager::get()->insert("LogicalNot", std::shared_ptr<TFExtraManager::Transform>(new LogicalNotTransform));
     TFExtraManager::get()->insert("LogSoftmax", std::shared_ptr<TFExtraManager::Transform>(new LogSoftmaxTransform));
+    TFExtraManager::get()->insert("Select", std::shared_ptr<TFExtraManager::Transform>(new SelectTransform));
     return true;
 }();
 } // namespace Express

@@ -205,13 +205,7 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
                    mSumValue.host<float>(), threadNum);
         return NO_ERROR;
     }
-    auto outputSize = outputTensor->elementSize();
-    int batchSize = outputSize / batch;
     auto functions = static_cast<CPUBackend*>(backend())->functions();
-    int offset[] = {
-        areaInput,
-        areaInput
-    };
     CPUTensorConverter::convert(inputDataPtr, outputDataPtr, MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
     _softmaxCommon(outputDataPtr, tempData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(), threadNum);
     CPUTensorConverter::convert(tempData, outputDataPtr, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
@@ -231,7 +225,6 @@ class CPUSoftmaxCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        auto axis = op->main_as_Axis()->axis();
         return CPUSoftmax::create(op, backend);
     }
 };

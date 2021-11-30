@@ -56,8 +56,8 @@ void Revert::packMNNNet() {
     mMNNNet.reset();
 }
 
-void Revert::initialize(float spasity, int sparseBlockOC) {
-    if (mMNNNet->bizCode == "benchmark") {
+void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
+    if (mMNNNet->bizCode == "benchmark" || rewrite) {
         randStart();
         for (auto& op : mMNNNet->oplists) {
             const auto opType = op->type;

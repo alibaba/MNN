@@ -35,8 +35,9 @@ public:
         for (int i = 0; i < input->dimensions(); ++i) {
             copyTimes *= mulPtr[i];
         }
-        std::vector<int32_t> modMulti(input->dimensions());
-        for (int i = 0; i < modMulti.size(); ++i) {
+        auto modMultiSize = input->dimensions();
+        int32_t modMulti[MNN_MAX_TENSOR_DIM];
+        for (int i = 0; i < modMultiSize; ++i) {
             int value = 1;
             for (int j = i + 1; j < input->dimensions(); ++j) {
                 value *= mulPtr[j];
@@ -63,11 +64,11 @@ public:
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->regions.resize(copyTimes * remainSize);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        std::vector<int> coordinates(modMulti.size());
+        int coordinates[MNN_MAX_TENSOR_DIM];
         for (int u = 0; u < copyTimes; ++u) {
             int dstOffset = 0;
-            OpCommonUtils::unravelIndexHelper(coordinates, modMulti, modMulti.size(), u);
-            for (int i = 0; i < modMulti.size(); ++i) {
+            OpCommonUtils::unravelIndexHelper(coordinates, modMulti, modMultiSize, u);
+            for (int i = 0; i < modMultiSize; ++i) {
                 dstOffset += coordinates[i] * input->length(i) * outputStrides[i];
             }
             for (int v = 0; v < remainSize; ++v) {

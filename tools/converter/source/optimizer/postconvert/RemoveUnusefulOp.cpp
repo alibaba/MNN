@@ -51,8 +51,21 @@ public:
                 return true;
             }
         }
-        if (op->type == OpType_Slice && op->outputIndexes.size() == 1) {
-            return true;
+        if (op->type == OpType_Slice) {
+            auto slice = op->main.AsSlice();
+            if (slice->sourceType != NetSource_TENSORFLOW &&
+                op->outputIndexes.size() == 1) {
+                return true;
+            }
+            if (slice->slicePoints.empty() &&
+                op->outputIndexes.size() == 1) {
+                return true;
+            }
+            if (slice->slicePoints.size() == 1 &&
+                slice->slicePoints[0] == 1 &&
+                op->outputIndexes.size() == 1) {
+                return true;
+            }
         }
         return false;
     };

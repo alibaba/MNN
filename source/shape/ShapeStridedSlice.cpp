@@ -162,21 +162,23 @@ public:
             }
             auto inputDim = inputShape[inputDimOffset++];
             strideDealDims++;
+            stridedShape[i] = shrinkAxisMasks[i] > 0 ? 1 : strides[i];
             if (beginMasks[i] > 0) {
-                beginShape[i] = 0;
+                beginShape[i] = stridedShape[i] < 0 ? inputDim - 1 : 0;
             } else {
-                beginShape[i] = std::min(inputDim, begins[i]);
+                beginShape[i] = stridedShape[i] < 0 ? beginAndEndShapeLimit(begins[i], inputDim, false) :
+                                                      std::min(inputDim, begins[i]);
             }
             if (beginShape[i] < 0) {
                 auto temp = -beginShape[i];
                 beginShape[i] = UP_DIV(temp, inputDim) * inputDim + beginShape[i];
             }
             if (endMasks[i] > 0) {
-                endShape[i] = inputDim;
+                endShape[i] = stridedShape[i] < 0 ? -1 : inputDim;
             } else {
-                endShape[i] = beginAndEndShapeLimit(ends[i], inputDim, true);
+                endShape[i] = stridedShape[i] < 0 ? std::max(-1, std::min(inputDim, ends[i])) :
+                                                    beginAndEndShapeLimit(ends[i], inputDim, true);
             }
-            stridedShape[i] = shrinkAxisMasks[i] > 0 ? 1 : strides[i];
 
             if (endShape[i] < beginShape[i]) {
                 int t         = beginShape[i];

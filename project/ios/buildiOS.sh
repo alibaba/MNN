@@ -31,4 +31,3 @@ rm ios_32/Release-iphoneos/MNN.framework/MNN_32
 echo "Patching Framework Headers"
 rm -rf ./MNN.framework
 cp -R ios_32/Release-iphoneos/MNN.framework ./MNN.framework
-cp -R ../../include/MNN/expr ./MNN.framework/Headers/expr

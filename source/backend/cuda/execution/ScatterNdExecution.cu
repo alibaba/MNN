@@ -29,12 +29,10 @@ __global__ void SCATTERND(const int n, const int indicesLastDim, const int accNu
 }
 
 ScatterNdExecution::ScatterNdExecution(Backend *backend) : Execution(backend) {
-
+    // Do nothing
 }
 ScatterNdExecution::~ScatterNdExecution() {
-    if (nullptr != dimsTensor) {
-        backend()->onReleaseBuffer(dimsTensor.get(), Backend::DYNAMIC_SEPERATE);
-    }
+    // Do nothing
 }
 
 ErrorCode ScatterNdExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -65,7 +63,7 @@ ErrorCode ScatterNdExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
     //save dimToCount to Device
     dimsTensor.reset(Tensor::createDevice<int>({mIndicesLastDim}));
-    backend()->onAcquireBuffer(dimsTensor.get(), Backend::DYNAMIC_SEPERATE);
+    backend()->onAcquireBuffer(dimsTensor.get(), Backend::STATIC);
     mDimsToCount = (void *)dimsTensor.get()->buffer().device;
     cuda_check(cudaMemcpy(mDimsToCount, temp.data(), mIndicesLastDim*sizeof(int), cudaMemcpyHostToDevice));
 

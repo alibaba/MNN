@@ -355,18 +355,14 @@ namespace MNN {
         process(0);
     }
 
-    bool NPUBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
+    Backend::MemObj* NPUBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
         bool isInputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         if(isInputCopy){
             mInputMap.insert(make_pair((unsigned long)tensor, mInputMap.size()));
         }
-        return true;
-    }
-
-    bool NPUBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
-        ((Tensor*)tensor)->buffer().device = uint64_t(0);
-        return true;
+        // Don't need extra release
+        return new Backend::MemObj;
     }
 
     bool NPUBackend::onClearBuffer() {

@@ -11,7 +11,6 @@
 
 #include "core/NonCopyable.hpp"
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
-
 namespace MNN {
 class VulkanInstance : public NonCopyable {
 public:

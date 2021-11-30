@@ -137,11 +137,81 @@ public:
                 return false;
             }
         }
+        // Test Release order, should be test in debug mode
+        interp0.reset();
+        interp1.reset();
+        MNN::ScheduleConfig sconfig;
+        std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+        interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+        auto z0 = interp0->onForward({x});
+        // Release runtime and module, then trigger var's release
+        interp0.reset();
+        rtMgr.reset();
+        z0.clear();
         return true;
     }
 };
 MNNTestSuiteRegister(ModuleTest, "expr/ModuleTest");
 
+class ModuleTestSpeed : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto y = _mobileNetV1Expr();
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        // Force use CPU Runtime
+        BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        Module::Config config;
+        config.shapeMutable = false;
+        config.rearrange = true;
+        std::shared_ptr<Module> interp0;
+        {
+            MNN::ScheduleConfig sconfig;
+            sconfig.numThread = 1;
+            std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+            std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+            interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+        }
+        std::shared_ptr<Module> interp1;
+        {
+            MNN::ScheduleConfig sconfig;
+            sconfig.numThread = 4;
+            std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+            std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+            interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+        }
+        auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
+        auto xPtr = x->writeMap<float>();
+        ::memset(xPtr, 0, 1*3*224*224*sizeof(float));
+        x->unMap();
+        int runTime = 10;
+        {
+            Timer _l;
+            for (int i=0; i<runTime; ++i) {
+                auto y0 = interp0->onForward({x});
+            }
+            MNN_PRINT("Thread 1 avg cost: %f ms\n", (float)_l.durationInUs() / 1000.0f / runTime);
+        }
+        {
+            Timer _l;
+            for (int i=0; i<runTime; ++i) {
+                auto y0 = interp1->onForward({x});
+            }
+            MNN_PRINT("Thread 4 avg cost: %f ms\n", (float)_l.durationInUs() / 1000.0f / runTime);
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ModuleTestSpeed, "expr/ModuleTestSpeed");
 
 class SessionTest : public MNNTestCase {
 public:

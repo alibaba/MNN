@@ -105,6 +105,7 @@ MNN_PUBLIC VARP _EltwiseMaxInt8(VARP x, VARP y,
                       std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
+MNN_PUBLIC VARP _Mod(VARP x, VARP y);
 
 
 //OtherOPs
@@ -123,6 +124,9 @@ MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape);
 MNN_PUBLIC VARP _OneHot(VARP indices, VARP depth, VARP onValue, VARP offValue, int axis = -1);
 MNN_PUBLIC VARP _BroadcastTo(VARP a, VARP shape);
 MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
+
+MNN_PUBLIC VARP _RandomUnifom(VARP shape, halide_type_t dtype, float low = 0.0f, float high = 1.0f, int seed0 = 0, int seed1 = 0);
+
 }; // namespace Express
 }; // namespace MNN
 

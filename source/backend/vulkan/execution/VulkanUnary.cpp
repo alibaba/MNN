@@ -96,11 +96,13 @@ bool VulkanUnary::encoderSingle(const VulkanCommandPool::Buffer* cmdBuffer, cons
     param->unmap();
     auto totalSize = size[0] * size[1] * size[2];
     std::shared_ptr<VulkanPipeline::DescriptorSet> des(mUnaryPipeline->createSet());
-    cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     des->writeImage(dest->view(), vkbackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
     des->writeImage(source->view(), vkbackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     des->writeBuffer(param->buffer(), 2, sizeof(Param), 0);
     mUnaryPipeline->bind(cmdBuffer->get(), des->get());
+
+    source->barrierRead(cmdBuffer->get());
+    dest->barrierWrite(cmdBuffer->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
     mDesSet.emplace_back(des);
     mParams.emplace_back(param);

@@ -42,32 +42,39 @@ public:
                 return true;
             }
         }
-        auto inputSlice = inputDes->regions;
-        if (inputSlice.empty()) {
-            // Create Full Refence
-            Tensor::InsideDescribe::Region totalSlice = TensorUtils::makeFullSlice(input);
-            inputSlice.emplace_back(std::move(totalSlice));
-        }
-        outputDes->regions    = std::move(inputSlice);
+        outputDes->regions = {TensorUtils::makeFullSlice(input)};
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         return true;
     }
 };
 class SingleGeometryComputer : public GeometryComputer {
 public:
+    virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             Context& context, CommandBuffer& cmd) const override {
+        auto inputDes = TensorUtils::getDescribe(inputs[0]);
+        auto des = TensorUtils::getDescribe(outputs[0]);
+        if (des->regions.size() != 1 || inputDes->regions.size() > 0) {
+            return false;
+        }
+        des->regions[0].origin = inputs[0];
+        des->regions[0].size[0] = 1;
+        des->regions[0].size[1] = 1;
+        des->regions[0].size[2] = inputs[0]->elementSize();
+        des->regions[0].src.stride[2] = 1;
+        des->regions[0].dst.stride[2] = 1;
+        des->regions[0].src.offset = 0;
+        des->regions[0].dst.offset = 0;
+        des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        return true;
+    }
+
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
         auto input      = inputs[0];
         auto output     = outputs[0];
         auto inputDes   = TensorUtils::getDescribe(input);
         auto outputDes  = TensorUtils::getDescribe(output);
-        auto inputSlice = inputDes->regions;
-        if (inputSlice.empty()) {
-            // Create Full Refence
-            Tensor::InsideDescribe::Region totalSlice = TensorUtils::makeFullSlice(input);
-            inputSlice.emplace_back(std::move(totalSlice));
-        }
-        outputDes->regions    = std::move(inputSlice);
+        outputDes->regions = {TensorUtils::makeFullSlice(input)};
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         return true;
     }

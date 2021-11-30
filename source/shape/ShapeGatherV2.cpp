@@ -27,7 +27,9 @@ class GatherV2Computer : public SizeComputer {
         if (op->main_type() == OpParameter_Axis) {
             axis = op->main_as_Axis()->axis();
         }
-        MNN_ASSERT(axis > -params->buffer().dimensions && axis < params->buffer().dimensions);
+        if( axis <= -params->buffer().dimensions || axis >= params->buffer().dimensions) {
+            return false;
+        }
 
         if (axis < 0) {
             axis = params->buffer().dimensions + axis;

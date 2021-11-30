@@ -424,7 +424,7 @@ std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const st
     }
     return result;
 }
-void OpCommonUtils::unravelIndexHelper(std::vector<int32_t>& coordinate, const std::vector<int32_t>& mod, int size,
+void OpCommonUtils::unravelIndexHelper(int32_t* coordinate, const int32_t* mod, int size,
                                        int indice) {
     int value = indice;
     for (int i = 0; i < size; ++i) {
@@ -492,22 +492,6 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
             break;
     }
     return false;
-}
-
-std::pair<bool, DataType> OpCommonUtils::getQuantInfo(const std::vector<Tensor*>& inputs) {
-    if (!inputs.empty()) {
-        for (auto t : inputs) {
-            if (TensorUtils::getDescribe(t)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL
-                && !TensorUtils::getDescribe(t)->regions.empty()) {
-                t = TensorUtils::getDescribe(t)->regions[0].origin;
-            }
-            auto& quantAttr = TensorUtils::getDescribe(t)->quantAttr;
-            if (quantAttr != nullptr) {
-                return std::make_pair(true, quantAttr->type);
-            }
-        }
-    }
-    return std::make_pair(false, DataType_DT_FLOAT);
 }
 
 } // namespace MNN

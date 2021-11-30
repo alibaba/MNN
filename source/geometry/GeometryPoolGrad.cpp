@@ -173,15 +173,7 @@ public:
                 flatbuffers::FlatBufferBuilder builder1;
                 auto lastOffset1 = Op::Pack(builder1, cast2float.get());
                 builder1.Finish(lastOffset1);
-                Command cmd1;
-                cmd1.buffer.resize(builder1.GetSize());
-                ::memcpy(cmd1.buffer.data(), builder1.GetBufferPointer(), cmd1.buffer.size());
-                cmd1.inputs.resize(1);
-                cmd1.inputs[0] = originGEqualInt.get();
-
-                cmd1.outputs = {originGEqual[index].get()};
-                cmd1.op      = flatbuffers::GetMutableRoot<Op>(cmd1.buffer.data());
-
+                auto cmd1 = GeometryComputerUtils::makeCommand(builder1, {originGEqualInt.get()}, {originGEqual[index].get()});
                 // mul inputDiff
                 originDiff[index].reset(new Tensor);
                 originDiff[index]->buffer().type       = halide_type_of<float>();
@@ -247,19 +239,13 @@ public:
             flatbuffers::FlatBufferBuilder builder;
             auto lastOffset = Op::Pack(builder, eltWise.get());
             builder.Finish(lastOffset);
-            Command cmd;
-            cmd.buffer.resize(builder.GetSize());
-            ::memcpy(cmd.buffer.data(), builder.GetBufferPointer(), cmd.buffer.size());
-            cmd.inputs.resize(kernel_w * kernel_h);
+            std::vector<Tensor*> inputs(kernel_w * kernel_h);
             for (int i = 0; i < kernel_w * kernel_h; i++) {
-                cmd.inputs[i] = inpDiffAdd[i].get();
+                inputs[i] = inpDiffAdd[i].get();
             }
-            cmd.outputs = outputs;
-            cmd.op      = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
-
+            auto cmd = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
             res.command.emplace_back(std::move(cmd));
         }
-
         return true;
     }
 
@@ -412,15 +398,7 @@ public:
             flatbuffers::FlatBufferBuilder builder;
             auto lastOffset = Op::Pack(builder, mean.get());
             builder.Finish(lastOffset);
-            Command cmd;
-            cmd.buffer.resize(builder.GetSize());
-            ::memcpy(cmd.buffer.data(), builder.GetBufferPointer(), cmd.buffer.size());
-
-            cmd.inputs = {inpDifTrans.get()};
-
-            cmd.outputs = {tmpOutput.get()};
-            cmd.op      = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
-
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {inpDifTrans.get()}, {tmpOutput.get()});
             auto outputDes        = TensorUtils::getDescribe(outputs[0]);
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             Tensor::InsideDescribe::Region desReg;

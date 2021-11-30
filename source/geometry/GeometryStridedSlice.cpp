@@ -133,6 +133,7 @@ public:
         int32_t endShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t stridedShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t outputShape[MNN_MAX_TENSOR_DIM] = { 0 };
+        int32_t reverseDim = -1;
         int32_t shapeNum = 0;
 
         auto beginAndEndShapeLimit = [](int shape, int dimSize, bool exclusive) -> int {
@@ -154,21 +155,26 @@ public:
                 // ignore newAxis beacuse it is 1
                 continue;
             }
+            stridedShape[shapeNum] = (shrinkAxisMasks[i] > 0 ? 1 : strides[i]);
+            if (stridedShape[shapeNum] < 0) {
+                reverseDim = i;
+            }
             if (beginMasks[i] > 0) {
-                beginShape[shapeNum] = 0;
+                beginShape[shapeNum] = stridedShape[shapeNum] < 0 ? inputShape[shapeNum] - 1 : 0;
             } else {
-                beginShape[shapeNum] = std::min(inputShape[shapeNum], begins[i]);
+                beginShape[shapeNum] = stridedShape[shapeNum] < 0 ? beginAndEndShapeLimit(begins[i], inputShape[shapeNum], false) :
+                                                                    std::min(inputShape[shapeNum], begins[i]);
             }
             if (beginShape[shapeNum] < 0) {
                 auto temp = -beginShape[shapeNum];
                 beginShape[shapeNum] = UP_DIV(temp, input->buffer().dim[i].extent) * input->buffer().dim[i].extent + beginShape[shapeNum];
             }
             if (endMasks[i] > 0) {
-                endShape[shapeNum] = inputShape[shapeNum];
+                endShape[shapeNum] = stridedShape[shapeNum] < 0 ? -1 : inputShape[shapeNum];
             } else {
-                endShape[shapeNum] = beginAndEndShapeLimit(ends[i], inputShape[shapeNum], true);
+                endShape[shapeNum] = stridedShape[shapeNum] < 0 ? std::max(-1, std::min(inputDim, ends[i])) :
+                                                                  beginAndEndShapeLimit(ends[i], inputShape[shapeNum], true);
             }
-            stridedShape[shapeNum] = (shrinkAxisMasks[i] > 0 ? 1 : strides[i]);
 
             if (shrinkAxisMasks[i] == 0) {
                 if (stridedShape[shapeNum] > 0) {
@@ -192,15 +198,26 @@ public:
             shapeNum++;
         }
         int remainSize = 1;
-        std::vector<int> remainDims;
+        int remainDims[MNN_MAX_TENSOR_DIM];
+        int remainDimSize = shapeNum - 3;
         for (int i = 0; i < (int)shapeNum - 3; ++i) {
             remainSize *= outputShape[i];
-            remainDims.emplace_back(outputShape[i]);
+            remainDims[i] = outputShape[i];
         }
         outputDes->regions.resize(remainSize);
         int regionSize        = shapeNum < 3 ? shapeNum : 3;
-        std::vector<int32_t> mod(remainDims.size());
-        OpCommonUtils::computeStride(mod.data(), remainDims.data(), (int)remainDims.size());
+        if (reverseDim >= 0) {
+            remainDimSize = reverseDim;
+            for (int i = 0; i < reverseDim; ++i) {
+                remainSize *= outputShape[i];
+                remainDims[i] = outputShape[i];
+            }
+            outputDes->regions.resize(remainSize);
+            regionSize = shapeNum - reverseDim;
+            MNN_ASSERT(regionSize <= 3);
+        }
+        int mod[MNN_MAX_TENSOR_DIM];
+        OpCommonUtils::computeStride(mod, remainDims, (int)remainDimSize);
         int outputStrideTotal = 1;
         int basicInputOffset  = 0;
         for (int i = 0; i < regionSize; ++i) {
@@ -209,11 +226,11 @@ public:
             basicInputOffset += inputStride[pos] * beginShape[pos];
             outputStrideTotal *= len;
         }
-        std::vector<int> coordinates(remainSize);
+        int coordinates[MNN_MAX_TENSOR_DIM];
         for (int r = 0; r < remainSize; ++r) {
-            OpCommonUtils::unravelIndexHelper(coordinates, mod, mod.size(), r);
+            OpCommonUtils::unravelIndexHelper(coordinates, mod, remainDimSize, r);
             int inputOffset = basicInputOffset;
-            for (int i = 0; i < remainDims.size(); ++i) {
+            for (int i = 0; i < remainDimSize; ++i) {
                 inputOffset += coordinates[i] * inputStride[i] * stridedShape[i];
             }
 

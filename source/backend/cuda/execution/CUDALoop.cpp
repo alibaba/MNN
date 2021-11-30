@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #include <map>
+#include "BatchMatMulExecution.hpp"
 #include "MatMulExecution.hpp"
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "Raster.cuh"
@@ -29,6 +30,25 @@ public:
         // Do nothing
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        if (1 == mLoop->commands()->size()) {
+            auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
+            auto op = cmd->op();
+            if (OpType_MatMul == op->type() && mLoop->parallel() && mLoop->loopNumber() > 1) {
+                auto& unit = mExecutions[0];
+                unit.exe.reset(new BatchMatMulExecution(op->main_as_MatMul()->transposeA(),  op->main_as_MatMul()->transposeB(), backend()));
+                if (nullptr == unit.exe) {
+                    return OUT_OF_MEMORY;
+                } 
+                unit.inputs = inputs;
+                unit.outputs = outputs;
+                auto code = unit.exe->onResize(unit.inputs, unit.outputs);
+                if (NO_ERROR != code) {
+                    return code;
+                }
+                return NO_ERROR;
+            }
+        }
+
         mMidTensors.clear();
         mIndiceCopy.clear();
         int inputIndexSize = mLoop->inputIndexes()->size();
@@ -117,6 +137,19 @@ public:
         if (1 == mLoop->commands()->size()) {
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
             auto op = cmd->op();
+
+            if (OpType_MatMul == op->type() && mLoop->parallel() && mLoop->loopNumber() > 1) {
+                auto& unit = mExecutions[0];
+                unit.inputs = originInputs;
+                unit.outputs = originOutputs;
+
+                auto code = unit.exe->onExecute(unit.inputs, unit.outputs);
+                if (NO_ERROR != code) {
+                    return code;
+                }
+                return NO_ERROR;
+            }
+
             if (OpType_UnaryOp == op->type() && nullptr == op->main()) {
                 Tensor::InsideDescribe::Region reg;
                 auto srcView = cmd->view()->GetAs<View>(1);

@@ -14,7 +14,9 @@ namespace MNN {
 class ConvertUtils {
 public:
     static bool compute(Tensor* input, Tensor* output, CommandBuffer& res);
-    static void broadcastto(Tensor* input, Tensor* output);
+    // numpy broadcast like: [3, 4] -> [2, 3, 4]
+    // forward = true: [4] -> [4, 3, 2]
+    static void broadcastto(Tensor* input, Tensor* output, bool forward = false);
 };
 } // namespace MNN
 

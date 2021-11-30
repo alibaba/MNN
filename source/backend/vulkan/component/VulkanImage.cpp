@@ -80,6 +80,7 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
     // FUNC_PRINT(format);
     mImage.first = const_cast<VulkanMemoryPool&>(mPool).allocImage(mInfo);
     mLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    mAccess = VK_ACCESS_SHADER_READ_BIT;
     VkMemoryRequirements memRequirements;
     mDevice.getImageMemoryRequirements(mImage.first, memRequirements);
 
@@ -96,5 +97,50 @@ VulkanImage::~VulkanImage() {
         const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
     }
 }
+void VulkanImage::barrierWrite(VkCommandBuffer buffer) const {
+    VkImageMemoryBarrier barrier;
+    ::memset(&barrier, 0, sizeof(VkImageMemoryBarrier));
+
+    barrier.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask               = mAccess;
+    barrier.dstAccessMask               = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.image                       = mImage.first;
+    barrier.newLayout                   = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.oldLayout                   = mLayout;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+                         nullptr, 0, nullptr, 1, &barrier);
+    mLayout = VK_IMAGE_LAYOUT_GENERAL;
+    mAccess = VK_ACCESS_SHADER_WRITE_BIT;
+}
+void VulkanImage::barrierRead(VkCommandBuffer buffer) const {
+    if (mAccess == VK_ACCESS_SHADER_READ_BIT && mLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        return;
+    }
+    VkImageMemoryBarrier barrier;
+    ::memset(&barrier, 0, sizeof(VkImageMemoryBarrier));
+
+    barrier.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask               = mAccess;
+    barrier.dstAccessMask               = VK_ACCESS_SHADER_READ_BIT;
+    barrier.image                       = mImage.first;
+    barrier.newLayout                   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.oldLayout                   = mLayout;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+                         nullptr, 0, nullptr, 1, &barrier);
+    mLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    mAccess = VK_ACCESS_SHADER_READ_BIT;
+}
+
 
 } // namespace MNN

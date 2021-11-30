@@ -35,33 +35,32 @@ class CLRuntime : public Runtime {
 public:
     CLRuntime(const Backend::Info& info);
     virtual ~CLRuntime();
-    
+
     virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
     bool isCLRuntimeError();
-    
+    int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
 private:
     Backend::Info mInfo;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
-    
+
     BackendConfig::PrecisionMode mPrecision;
     bool mCLRuntimeError = false;
 
     friend class OpenCLBackend;
-    
-};
- 
 
-class OpenCLBackend final : public Backend {
+};
+
+
+class OpenCLBackend : public Backend {
 public:
     OpenCLBackend(const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
-    virtual bool onAcquireBuffer(const Tensor *nativeTensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor *nativeTensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor *nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -69,7 +68,7 @@ public:
 
     virtual void onResizeBegin() override;
     virtual void onResizeEnd() override;
-    
+
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
 
@@ -87,18 +86,18 @@ public:
     BufferPool *getBufferPool() const {
         return mBufferPool.get();
     }
- 
+
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
     }
-    
+
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                              const MNN::Op* op) override;
 
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
     virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
-    
+
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
@@ -114,7 +113,7 @@ private:
     cl::Kernel mNCHWBufferToImageFloat;
     cl::Kernel mNHWCBufferToImageFloat;
     cl::Kernel mNHWCBufferToImageInt8;
-    
+
     cl::Kernel mNC4HW4BufferToNCHWBufferOut;
     cl::Kernel mNC4HW4BufferToNHWCBufferOut;
     cl::Kernel mNC4HW4BufferToNC4HW4BufferOut;
@@ -124,20 +123,20 @@ private:
     cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
 
     const CLRuntime* mCLRuntime;
-    
+
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
     std::shared_ptr<BufferPool> mStaticBufferPool;
-    
+
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
-    
+
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
     BackendConfig::PrecisionMode mPrecision;
     bool mIsCreateError{false};
-    
+
 private:
-    
+
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
 

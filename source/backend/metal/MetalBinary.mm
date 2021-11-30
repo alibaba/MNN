@@ -49,9 +49,9 @@ ErrorCode MetalBinary::onExecute(const std::vector<Tensor *> &inputs, const std:
         auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
         auto encoder           = backend->encoder();
         [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
         [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         

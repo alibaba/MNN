@@ -56,7 +56,8 @@ class MNNLogger(object):
         machine_id = ""
 
         if os_type == "Linux":
-            machine_id = os.popen("cat /var/lib/dbus/machine-id").readline().strip().lower()
+            if os.path.exists("/etc/machine-id"):
+                machine_id = os.popen("cat /etc/machine-id").readline().strip().lower()
         elif os_type == "Darwin":
             res = os.popen("ioreg -rd1 -c IOPlatformExpertDevice | grep UUID").readline().strip().split('"')
             if len(res) > 1:

@@ -5,5 +5,5 @@ RUN set -x; buildDeps='cmake protobuf-compiler lcov unzip wget git netcat python
     && echo 'deb http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse\ndeb http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse\ndeb http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse\ndeb http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse\ndeb http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse' > /etc/apt/sources.list \
     && apt-get update \
     && apt-get install -y $buildDeps
-# install java8
-RUN set -x; apt-get install -y openjdk-8-jdk
+# install python deps
+RUN set -x; pip install numpy tensorflow torch

@@ -107,7 +107,7 @@ private:
     /** shared instance */
     static SizeComputerSuite* gInstance;
     /** registered size computer */
-    std::map<OpType, SizeComputer*> mRegistry;
+    std::vector<SizeComputer*> mRegistry;
 };
 
 /** register for size computer */

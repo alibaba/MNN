@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_AVX512_VNNI
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
 #define PACK_UNIT 16
@@ -14,15 +13,30 @@ namespace {
 static inline __m128i mm_loadu_si128(const void* addr) {
     return _mm_loadu_si128((__m128i const*)addr);
 }
+static inline __m512i _mm512_madd_i8_i32_(__m512i src, __m512i a0, __m512i a1, __m512i b) {
+    auto oneValue  = _mm512_set1_epi16(1);
+    a0  = _mm512_maddubs_epi16(a0, b);
+    a0  = _mm512_madd_epi16(a0, oneValue);
+    a1  = _mm512_maddubs_epi16(a1, b);
+    a1  = _mm512_madd_epi16(a1, oneValue);
+    return _mm512_add_epi32(src, _mm512_add_epi32(a0, a1));
+}
 }  // namespace
+
+#ifdef MNN_AVX512_VNNI
+extern void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
+extern void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+#endif
 
 void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
-    __m128 zero128 = _mm_set1_ps(0.0f);
-    __m128 minValue = _mm_set1_ps(post->minValue);
-    __m128 maxValue = _mm_set1_ps(post->maxValue);
-    __m128 plus = _mm_set1_ps(0.5f);
-    __m128 minus = _mm_set1_ps(-0.5f);
+    auto zero512 = _mm512_set1_ps(0.0f);
+    auto minValue = _mm512_set1_ps(post->minValue);
+    auto maxValue = _mm512_set1_ps(post->maxValue);
+    auto plus = _mm512_set1_ps(0.5f);
+    auto minus = _mm512_set1_ps(-0.5f);
+    auto offset = _mm256_set1_epi16(128);
+
     if (realDst == 2) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * src_depth_quad * (16 * 16);
@@ -53,16 +67,19 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
 
                 auto s0 = _mm512_broadcast_i32x4(mm_loadu_si128(src_z + 16 * 0));
                 auto s1 = _mm512_broadcast_i32x4(mm_loadu_si128(src_z + 16 * 1));
-                
-                D0 = _mm512_dpbusds_epi32(D0, s0, w0);
-                D1 = _mm512_dpbusds_epi32(D1, s0, w1);
-                D2 = _mm512_dpbusds_epi32(D2, s0, w2);
-                D3 = _mm512_dpbusds_epi32(D3, s0, w3);
+                auto s00 = _mm512_mask_set1_epi8(s0, 0x5555555555555555, 0);
+                auto s01 = _mm512_mask_set1_epi8(s0, 0xaaaaaaaaaaaaaaaa, 0);
+                auto s10 = _mm512_mask_set1_epi8(s1, 0x5555555555555555, 0);
+                auto s11 = _mm512_mask_set1_epi8(s1, 0xaaaaaaaaaaaaaaaa, 0);
+                D0 = _mm512_madd_i8_i32_(D0, s00, s01, w0);
+                D1 = _mm512_madd_i8_i32_(D1, s00, s01, w1);
+                D2 = _mm512_madd_i8_i32_(D2, s00, s01, w2);
+                D3 = _mm512_madd_i8_i32_(D3, s00, s01, w3);
 
-                D4 = _mm512_dpbusds_epi32(D4, s1, w0);
-                D5 = _mm512_dpbusds_epi32(D5, s1, w1);
-                D6 = _mm512_dpbusds_epi32(D6, s1, w2);
-                D7 = _mm512_dpbusds_epi32(D7, s1, w3);
+                D4 = _mm512_madd_i8_i32_(D4, s10, s11, w0);
+                D5 = _mm512_madd_i8_i32_(D5, s10, s11, w1);
+                D6 = _mm512_madd_i8_i32_(D6, s10, s11, w2);
+                D7 = _mm512_madd_i8_i32_(D7, s10, s11, w3);
             }
             auto d00 = _mm512_extracti32x4_epi32(D0, 0);
             auto d01 = _mm512_extracti32x4_epi32(D0, 1);
@@ -103,163 +120,84 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
             auto d71 = _mm512_extracti32x4_epi32(D7, 1);
             auto d72 = _mm512_extracti32x4_epi32(D7, 2);
             auto d73 = _mm512_extracti32x4_epi32(D7, 3);
-            
-            d00 = _mm_hadd_epi32(d00, d01);
-            d02 = _mm_hadd_epi32(d02, d03);
-            d10 = _mm_hadd_epi32(d10, d11);
-            d12 = _mm_hadd_epi32(d12, d13);
-            auto d0 = _mm_hadd_epi32(d00, d02);
-            auto d1 = _mm_hadd_epi32(d10, d12);
 
-            d20 = _mm_hadd_epi32(d20, d21);
-            d22 = _mm_hadd_epi32(d22, d23);
-            d30 = _mm_hadd_epi32(d30, d31);
-            d32 = _mm_hadd_epi32(d32, d33);
-            auto d2 = _mm_hadd_epi32(d20, d22);
-            auto d3 = _mm_hadd_epi32(d30, d32);
+            auto _d00 = _mm256_set_m128i(d10, d00);
+            auto _d01 = _mm256_set_m128i(d11, d01);
+            auto _d02 = _mm256_set_m128i(d12, d02);
+            auto _d03 = _mm256_set_m128i(d13, d03);
+            auto _d0  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d00, _d01),
+                                          _mm256_hadd_epi32(_d02, _d03));
 
-            d40 = _mm_hadd_epi32(d40, d41);
-            d42 = _mm_hadd_epi32(d42, d43);
-            d50 = _mm_hadd_epi32(d50, d51);
-            d52 = _mm_hadd_epi32(d52, d53);
-            auto d4 = _mm_hadd_epi32(d40, d42);
-            auto d5 = _mm_hadd_epi32(d50, d52);
+            auto _d10 = _mm256_set_m128i(d30, d20);
+            auto _d11 = _mm256_set_m128i(d31, d21);
+            auto _d12 = _mm256_set_m128i(d32, d22);
+            auto _d13 = _mm256_set_m128i(d33, d23);
+            auto _d1  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d10, _d11),
+                                          _mm256_hadd_epi32(_d12, _d13));
 
-            d60 = _mm_hadd_epi32(d60, d61);
-            d62 = _mm_hadd_epi32(d62, d63);
-            d70 = _mm_hadd_epi32(d70, d71);
-            d72 = _mm_hadd_epi32(d72, d73);
-            auto d6 = _mm_hadd_epi32(d60, d62);
-            auto d7 = _mm_hadd_epi32(d70, d72);
+            auto _d20 = _mm256_set_m128i(d50, d40);
+            auto _d21 = _mm256_set_m128i(d51, d41);
+            auto _d22 = _mm256_set_m128i(d52, d42);
+            auto _d23 = _mm256_set_m128i(d53, d43);
+            auto _d2  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d20, _d21),
+                                          _mm256_hadd_epi32(_d22, _d23));
 
+            auto _d30 = _mm256_set_m128i(d70, d60);
+            auto _d31 = _mm256_set_m128i(d71, d61);
+            auto _d32 = _mm256_set_m128i(d72, d62);
+            auto _d33 = _mm256_set_m128i(d73, d63);
+            auto _d3  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d30, _d31),
+                                          _mm256_hadd_epi32(_d32, _d33));
+
+            auto d0 = _mm512_castsi256_si512(_d0);
+            d0 = _mm512_inserti32x8(d0, _d1, 1);
+            auto d1 = _mm512_castsi256_si512(_d2);
+            d1 = _mm512_inserti32x8(d1, _d3, 1);
             if (post->scale != nullptr) {
-                auto biasValue0 = _mm_loadu_si128((__m128i*)(bias_dz));
-                auto biasValue1 = _mm_loadu_si128((__m128i*)(bias_dz + 4));
-                auto biasValue2 = _mm_loadu_si128((__m128i*)(bias_dz + 8));
-                auto biasValue3 = _mm_loadu_si128((__m128i*)(bias_dz + 12));
-                d0 = _mm_add_epi32(d0, biasValue0);
-                d1 = _mm_add_epi32(d1, biasValue1);
-                d2 = _mm_add_epi32(d2, biasValue2);
-                d3 = _mm_add_epi32(d3, biasValue3);
-                d4 = _mm_add_epi32(d4, biasValue0);
-                d5 = _mm_add_epi32(d5, biasValue1);
-                d6 = _mm_add_epi32(d6, biasValue2);
-                d7 = _mm_add_epi32(d7, biasValue3);
-                auto scaleValue0 = _mm_loadu_ps(scale_dz);
-                auto scaleValue1 = _mm_loadu_ps(scale_dz + 4);
-                auto scaleValue2 = _mm_loadu_ps(scale_dz + 8);
-                auto scaleValue3 = _mm_loadu_ps(scale_dz + 12);
-                __m128 f0 = _mm_cvtepi32_ps(d0);
-                __m128 f1 = _mm_cvtepi32_ps(d1);
-                __m128 f2 = _mm_cvtepi32_ps(d2);
-                __m128 f3 = _mm_cvtepi32_ps(d3);
-                __m128 f4 = _mm_cvtepi32_ps(d4);
-                __m128 f5 = _mm_cvtepi32_ps(d5);
-                __m128 f6 = _mm_cvtepi32_ps(d6);
-                __m128 f7 = _mm_cvtepi32_ps(d7);
-                f0 = _mm_mul_ps(f0, scaleValue0);
-                f1 = _mm_mul_ps(f1, scaleValue1);
-                f2 = _mm_mul_ps(f2, scaleValue2);
-                f3 = _mm_mul_ps(f3, scaleValue3);
-                f4 = _mm_mul_ps(f4, scaleValue0);
-                f5 = _mm_mul_ps(f5, scaleValue1);
-                f6 = _mm_mul_ps(f6, scaleValue2);
-                f7 = _mm_mul_ps(f7, scaleValue3);
-                f0 = _mm_min_ps(f0, maxValue);
-                f1 = _mm_min_ps(f1, maxValue);
-                f2 = _mm_min_ps(f2, maxValue);
-                f3 = _mm_min_ps(f3, maxValue);
-                f4 = _mm_min_ps(f4, maxValue);
-                f5 = _mm_min_ps(f5, maxValue);
-                f6 = _mm_min_ps(f6, maxValue);
-                f7 = _mm_min_ps(f7, maxValue);
-                f0 = _mm_max_ps(f0, minValue);
-                f1 = _mm_max_ps(f1, minValue);
-                f2 = _mm_max_ps(f2, minValue);
-                f3 = _mm_max_ps(f3, minValue);
-                f4 = _mm_max_ps(f4, minValue);
-                f5 = _mm_max_ps(f5, minValue);
-                f6 = _mm_max_ps(f6, minValue);
-                f7 = _mm_max_ps(f7, minValue);
-                auto m0 = _mm_cmplt_ps(f0, zero128);
-                auto m1 = _mm_cmplt_ps(f1, zero128);
-                auto m2 = _mm_cmplt_ps(f2, zero128);
-                auto m3 = _mm_cmplt_ps(f3, zero128);
-                auto m4 = _mm_cmplt_ps(f4, zero128);
-                auto m5 = _mm_cmplt_ps(f5, zero128);
-                auto m6 = _mm_cmplt_ps(f6, zero128);
-                auto m7 = _mm_cmplt_ps(f7, zero128);
-                m0 = _mm_blendv_ps(plus, minus, m0);
-                m1 = _mm_blendv_ps(plus, minus, m1);
-                m2 = _mm_blendv_ps(plus, minus, m2);
-                m3 = _mm_blendv_ps(plus, minus, m3);
-                m4 = _mm_blendv_ps(plus, minus, m4);
-                m5 = _mm_blendv_ps(plus, minus, m5);
-                m6 = _mm_blendv_ps(plus, minus, m6);
-                m7 = _mm_blendv_ps(plus, minus, m7);
-                f0 = _mm_add_ps(f0, m0);
-                f1 = _mm_add_ps(f1, m1);
-                f2 = _mm_add_ps(f2, m2);
-                f3 = _mm_add_ps(f3, m3);
-                f4 = _mm_add_ps(f4, m4);
-                f5 = _mm_add_ps(f5, m5);
-                f6 = _mm_add_ps(f6, m6);
-                f7 = _mm_add_ps(f7, m7);
+                auto biasValue = _mm512_loadu_si512(bias_dz);
+                d0 = _mm512_add_epi32(d0, biasValue);
+                d1 = _mm512_add_epi32(d1, biasValue);
+                auto scaleValue = _mm512_loadu_ps(scale_dz);
+                auto f0 = _mm512_cvtepi32_ps(d0);
+                auto f1 = _mm512_cvtepi32_ps(d1);
+                f0 = _mm512_mul_ps(f0, scaleValue);
+                f1 = _mm512_mul_ps(f1, scaleValue);
+                f0 = _mm512_min_ps(f0, maxValue);
+                f1 = _mm512_min_ps(f1, maxValue);
+                f0 = _mm512_max_ps(f0, minValue);
+                f1 = _mm512_max_ps(f1, minValue);
+                auto m0 = _mm512_cmplt_ps_mask(f0, zero512);
+                auto m1 = _mm512_cmplt_ps_mask(f1, zero512);
+                auto b0 = _mm512_mask_blend_ps(m0, plus, minus);
+                auto b1 = _mm512_mask_blend_ps(m1, plus, minus);
+                f0 = _mm512_add_ps(f0, b0);
+                f1 = _mm512_add_ps(f1, b1);
                 // 3: _MM_FROUND_TO_ZERO
-                d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-                d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-                d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
-                d3 = _mm_cvtps_epi32(_mm_round_ps(f3, 3));
-                d4 = _mm_cvtps_epi32(_mm_round_ps(f4, 3));
-                d5 = _mm_cvtps_epi32(_mm_round_ps(f5, 3));
-                d6 = _mm_cvtps_epi32(_mm_round_ps(f6, 3));
-                d7 = _mm_cvtps_epi32(_mm_round_ps(f7, 3));
-
+                d0 = _mm512_cvtps_epi32(_mm512_roundscale_ps(f0, 3));
+                d1 = _mm512_cvtps_epi32(_mm512_roundscale_ps(f1, 3));
                 // Int32 -> Int8
-                auto offset = _mm_set1_epi16(128);
-                d0 = _mm_packs_epi32(d0, d1);
-                d2 = _mm_packs_epi32(d2, d3);
-                d0 = _mm_add_epi16(d0, offset);
-                d2 = _mm_add_epi16(d2, offset);
-                d0 = _mm_packus_epi16(d0, d2);
+                auto hd0 = _mm512_cvtsepi32_epi16(d0);
+                auto hd1 = _mm512_cvtsepi32_epi16(d1);
+                hd0 = _mm256_add_epi16(hd0, offset);
+                hd1 = _mm256_add_epi16(hd1, offset);
+                auto h0 = _mm256_extracti128_si256(hd0, 0);
+                auto h1 = _mm256_extracti128_si256(hd0, 1);
+                auto h2 = _mm256_extracti128_si256(hd1, 0);
+                auto h3 = _mm256_extracti128_si256(hd1, 1);
+                h0 = _mm_packus_epi16(h0, h1);
+                h1 = _mm_packus_epi16(h2, h3);
 
-                d4 = _mm_packs_epi32(d4, d5);
-                d6 = _mm_packs_epi32(d6, d7);
-                d4 = _mm_add_epi16(d4, offset);
-                d6 = _mm_add_epi16(d6, offset);
-                d4 = _mm_packus_epi16(d4, d6);
-
-                _mm_storeu_si128((__m128i*)dst_x, d0);
-                _mm_storeu_si128((__m128i*)dst_x + 1, d4);
+                _mm_storeu_si128((__m128i*)dst_x, h0);
+                _mm_storeu_si128((__m128i*)dst_x + 1, h1);
             } else {
-                auto biasValue0 = _mm_loadu_si128((__m128i*)(bias_dz));
-                auto biasValue1 = _mm_loadu_si128((__m128i*)(bias_dz + 4));
-                auto biasValue2 = _mm_loadu_si128((__m128i*)(bias_dz + 8));
-                auto biasValue3 = _mm_loadu_si128((__m128i*)(bias_dz + 12));
-                d0 = _mm_add_epi32(d0, biasValue0);
-                d1 = _mm_add_epi32(d1, biasValue1);
-                d2 = _mm_add_epi32(d2, biasValue2);
-                d3 = _mm_add_epi32(d3, biasValue3);
-                d4 = _mm_add_epi32(d4, biasValue0);
-                d5 = _mm_add_epi32(d5, biasValue1);
-                d6 = _mm_add_epi32(d6, biasValue2);
-                d7 = _mm_add_epi32(d7, biasValue3);
-                __m128 f0 = _mm_cvtepi32_ps(d0);
-                __m128 f1 = _mm_cvtepi32_ps(d1);
-                __m128 f2 = _mm_cvtepi32_ps(d2);
-                __m128 f3 = _mm_cvtepi32_ps(d3);
-                __m128 f4 = _mm_cvtepi32_ps(d4);
-                __m128 f5 = _mm_cvtepi32_ps(d5);
-                __m128 f6 = _mm_cvtepi32_ps(d6);
-                __m128 f7 = _mm_cvtepi32_ps(d7);
-                _mm_storeu_ps(((float*)dst_x), f0);
-                _mm_storeu_ps(((float*)dst_x) + 4, f1);
-                _mm_storeu_ps(((float*)dst_x) + 8, f2);
-                _mm_storeu_ps(((float*)dst_x) + 12, f3);
-                _mm_storeu_ps(((float*)dst_x) + 16, f4);
-                _mm_storeu_ps(((float*)dst_x) + 20, f5);
-                _mm_storeu_ps(((float*)dst_x) + 24, f6);
-                _mm_storeu_ps(((float*)dst_x) + 28, f7);
+                auto biasValue = _mm512_loadu_si512(bias_dz);
+                d0 = _mm512_add_epi32(d0, biasValue);
+                d1 = _mm512_add_epi32(d1, biasValue);
+                auto scaleValue = _mm512_loadu_ps(scale_dz);
+                auto f0 = _mm512_cvtepi32_ps(d0);
+                auto f1 = _mm512_cvtepi32_ps(d1);
+                _mm512_storeu_ps(((float*)dst_x), f0);
+                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
             }
         }
         return;
@@ -288,12 +226,13 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
             auto w3 = _mm512_loadu_si512(weight_sz + 64 * 3);
 
             auto s0 = _mm512_broadcast_i32x4(mm_loadu_si128(src_z + 16 * 0));
-            
-            D0 = _mm512_dpbusds_epi32(D0, s0, w0);
-            D1 = _mm512_dpbusds_epi32(D1, s0, w1);
-            D2 = _mm512_dpbusds_epi32(D2, s0, w2);
-            D3 = _mm512_dpbusds_epi32(D3, s0, w3);
+            auto s00 = _mm512_mask_set1_epi8(s0, 0x5555555555555555, 0);
+            auto s01 = _mm512_mask_set1_epi8(s0, 0xaaaaaaaaaaaaaaaa, 0);
 
+            D0 = _mm512_madd_i8_i32_(D0, s00, s01, w0);
+            D1 = _mm512_madd_i8_i32_(D1, s00, s01, w1);
+            D2 = _mm512_madd_i8_i32_(D2, s00, s01, w2);
+            D3 = _mm512_madd_i8_i32_(D3, s00, s01, w3);
         }
         auto d00 = _mm512_extracti32x4_epi32(D0, 0);
         auto d01 = _mm512_extracti32x4_epi32(D0, 1);
@@ -315,93 +254,49 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
         auto d32 = _mm512_extracti32x4_epi32(D3, 2);
         auto d33 = _mm512_extracti32x4_epi32(D3, 3);
 
-        d00 = _mm_hadd_epi32(d00, d01);
-        d02 = _mm_hadd_epi32(d02, d03);
-        d10 = _mm_hadd_epi32(d10, d11);
-        d12 = _mm_hadd_epi32(d12, d13);
-        auto d0 = _mm_hadd_epi32(d00, d02);
-        auto d1 = _mm_hadd_epi32(d10, d12);
+        auto _d00 = _mm256_set_m128i(d10, d00);
+        auto _d01 = _mm256_set_m128i(d11, d01);
+        auto _d02 = _mm256_set_m128i(d12, d02);
+        auto _d03 = _mm256_set_m128i(d13, d03);
+        auto _d0  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d00, _d01),
+                                      _mm256_hadd_epi32(_d02, _d03));
 
-        d20 = _mm_hadd_epi32(d20, d21);
-        d22 = _mm_hadd_epi32(d22, d23);
-        d30 = _mm_hadd_epi32(d30, d31);
-        d32 = _mm_hadd_epi32(d32, d33);
-        auto d2 = _mm_hadd_epi32(d20, d22);
-        auto d3 = _mm_hadd_epi32(d30, d32);
+        auto _d10 = _mm256_set_m128i(d30, d20);
+        auto _d11 = _mm256_set_m128i(d31, d21);
+        auto _d12 = _mm256_set_m128i(d32, d22);
+        auto _d13 = _mm256_set_m128i(d33, d23);
+        auto _d1  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d10, _d11),
+                                      _mm256_hadd_epi32(_d12, _d13));
 
+        auto d0 = _mm512_castsi256_si512(_d0);
+        d0 = _mm512_inserti32x8(d0, _d1, 1);
         if (post->scale != nullptr) {
-            auto biasValue0 = _mm_loadu_si128((__m128i*)(bias_dz));
-            auto biasValue1 = _mm_loadu_si128((__m128i*)(bias_dz + 4));
-            auto biasValue2 = _mm_loadu_si128((__m128i*)(bias_dz + 8));
-            auto biasValue3 = _mm_loadu_si128((__m128i*)(bias_dz + 12));
-            d0 = _mm_add_epi32(d0, biasValue0);
-            d1 = _mm_add_epi32(d1, biasValue1);
-            d2 = _mm_add_epi32(d2, biasValue2);
-            d3 = _mm_add_epi32(d3, biasValue3);
-            auto scaleValue0 = _mm_loadu_ps(scale_dz);
-            auto scaleValue1 = _mm_loadu_ps(scale_dz + 4);
-            auto scaleValue2 = _mm_loadu_ps(scale_dz + 8);
-            auto scaleValue3 = _mm_loadu_ps(scale_dz + 12);
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            __m128 f3 = _mm_cvtepi32_ps(d3);
-            f0 = _mm_mul_ps(f0, scaleValue0);
-            f1 = _mm_mul_ps(f1, scaleValue1);
-            f2 = _mm_mul_ps(f2, scaleValue2);
-            f3 = _mm_mul_ps(f3, scaleValue3);
-            f0 = _mm_min_ps(f0, maxValue);
-            f1 = _mm_min_ps(f1, maxValue);
-            f2 = _mm_min_ps(f2, maxValue);
-            f3 = _mm_min_ps(f3, maxValue);
-            f0 = _mm_max_ps(f0, minValue);
-            f1 = _mm_max_ps(f1, minValue);
-            f2 = _mm_max_ps(f2, minValue);
-            f3 = _mm_max_ps(f3, minValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            auto m1 = _mm_cmplt_ps(f1, zero128);
-            auto m2 = _mm_cmplt_ps(f2, zero128);
-            auto m3 = _mm_cmplt_ps(f3, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            m1 = _mm_blendv_ps(plus, minus, m1);
-            m2 = _mm_blendv_ps(plus, minus, m2);
-            m3 = _mm_blendv_ps(plus, minus, m3);
-            f0 = _mm_add_ps(f0, m0);
-            f1 = _mm_add_ps(f1, m1);
-            f2 = _mm_add_ps(f2, m2);
-            f3 = _mm_add_ps(f3, m3);
+            auto biasValue = _mm512_loadu_si512(bias_dz);
+            d0 = _mm512_add_epi32(d0, biasValue);
+            auto scaleValue = _mm512_loadu_ps(scale_dz);
+            auto f0 = _mm512_cvtepi32_ps(d0);
+            f0 = _mm512_mul_ps(f0, scaleValue);
+            f0 = _mm512_min_ps(f0, maxValue);
+            f0 = _mm512_max_ps(f0, minValue);
+            auto m0 = _mm512_cmplt_ps_mask(f0, zero512);
+            auto b0 = _mm512_mask_blend_ps(m0, plus, minus);
+            f0 = _mm512_add_ps(f0, b0);
             // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-            d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
-            d3 = _mm_cvtps_epi32(_mm_round_ps(f3, 3));
-
+            d0 = _mm512_cvtps_epi32(_mm512_roundscale_ps(f0, 3));
             // Int32 -> Int8
-            auto offset = _mm_set1_epi16(128);
-            d0 = _mm_packs_epi32(d0, d1);
-            d2 = _mm_packs_epi32(d2, d3);
-            d0 = _mm_add_epi16(d0, offset);
-            d2 = _mm_add_epi16(d2, offset);
-            d0 = _mm_packus_epi16(d0, d2);
+            auto hd0 = _mm512_cvtsepi32_epi16(d0);
+            hd0 = _mm256_add_epi16(hd0, offset);
+            auto h0 = _mm256_extracti128_si256(hd0, 0);
+            auto h1 = _mm256_extracti128_si256(hd0, 1);
+            h0 = _mm_packus_epi16(h0, h1);
 
-            _mm_storeu_si128((__m128i*)dst_x, d0);
+            _mm_storeu_si128((__m128i*)dst_x, h0);
         } else {
-            auto biasValue0 = _mm_loadu_si128((__m128i*)(bias_dz));
-            auto biasValue1 = _mm_loadu_si128((__m128i*)(bias_dz + 4));
-            auto biasValue2 = _mm_loadu_si128((__m128i*)(bias_dz + 8));
-            auto biasValue3 = _mm_loadu_si128((__m128i*)(bias_dz + 12));
-            d0 = _mm_add_epi32(d0, biasValue0);
-            d1 = _mm_add_epi32(d1, biasValue1);
-            d2 = _mm_add_epi32(d2, biasValue2);
-            d3 = _mm_add_epi32(d3, biasValue3);
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            __m128 f3 = _mm_cvtepi32_ps(d3);
-            _mm_storeu_ps(((float*)dst_x), f0);
-            _mm_storeu_ps(((float*)dst_x) + 4, f1);
-            _mm_storeu_ps(((float*)dst_x) + 8, f2);
-            _mm_storeu_ps(((float*)dst_x) + 12, f3);
+            auto biasValue = _mm512_loadu_si512(bias_dz);
+            d0 = _mm512_add_epi32(d0, biasValue);
+            auto scaleValue = _mm512_loadu_ps(scale_dz);
+            auto f0 = _mm512_cvtepi32_ps(d0);
+            _mm512_storeu_ps(((float*)dst_x), f0);
         }
     }
 }
@@ -740,7 +635,7 @@ static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin, int32_t 
         int fxC = efx - sfx;
 
         auto colAddrI    = colAddr + 16 * i;
-        
+
         auto inputOffset = inputOrigin + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * PACK_UNIT;
         auto indexOffset = sfy * kw + sfx;
         for (int fy = 0; fy < fyC; ++fy) {
@@ -784,7 +679,7 @@ static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin, int32_t in
         int fxC = efx - sfx;
 
         auto colAddrI    = colAddr + 16 * i;
-        
+
         auto inputOffset = inputOrigin + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * PACK_UNIT;
         auto indexOffset = (sfy * kw + sfx) * icDiv4;
         for (int fy = 0; fy < fyC; ++fy) {
@@ -822,11 +717,22 @@ static void _AVX512_MNNGetGemmUnit(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *DST_XUNIT = 2;
 }
 
-
-void _AVX512_MNNInt8FunctionInit(void* functions) {
+void _AVX512_MNNInt8FunctionInit(void* functions, bool supportVNNI) {
     auto gAVX2CoreInt8Functions = (MNN::CoreInt8Functions*)functions;
-    gAVX2CoreInt8Functions->Int8GemmKernel = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
-    gAVX2CoreInt8Functions->Int8GemmKernelFast = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
+#ifdef MNN_AVX512_VNNI
+    if (supportVNNI) {
+        gAVX2CoreInt8Functions->Int8GemmKernel = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI;
+        gAVX2CoreInt8Functions->Int8GemmKernelFast = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI;
+        // conv depthwise
+        gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI;
+    } else
+#endif
+    {
+        gAVX2CoreInt8Functions->Int8GemmKernel = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
+        gAVX2CoreInt8Functions->Int8GemmKernelFast = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
+        // conv depthwise
+        gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit;
+    }
     // MatMul
     gAVX2CoreInt8Functions->MNNGetGemmUnit = _AVX512_MNNGetGemmUnit;
     // Im2Col
@@ -834,10 +740,4 @@ void _AVX512_MNNInt8FunctionInit(void* functions) {
     // Int8 <-> Float
     gAVX2CoreInt8Functions->MNNFloat2Int8 = _AVX512_MNNFloat2Int8;
     gAVX2CoreInt8Functions->MNNInt8ScaleToFloat = _AVX512_MNNInt8ScaleToFloat;
-
-    // conv depthwise
-    gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit;
-
 }
-
-#endif

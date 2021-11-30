@@ -48,6 +48,7 @@ static int global_new_python_flag = 0;
 #else
 #define PyType_FindTLSType
 #include <Python.h>
+#include <pythread.h>
 #include "structmember.h"
 #include "numpy/arrayobject.h"
 #endif // PYMNN_USE_ALINNPYTHON

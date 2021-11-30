@@ -11,22 +11,34 @@
 
 namespace MNN {
 
+template <typename T>
+std::vector<int32_t> _collect(Tensor* t) {
+    const T* ptr = t->host<T>();
+    std::vector<int32_t> collect;
+    for (int i = 0; i < t->elementSize(); i++) {
+        if (ptr[i] > 0) {
+            collect.push_back(i);
+        }
+    }
+    return collect;
+}
+
 ErrorCode CPUWhere::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib           = inputs[0]->buffer();
-    int32_t* inputData = inputs[0]->host<int32_t>();
     auto outputData    = outputs[0]->host<int32_t>();
-    auto inputTotal = inputs[0]->elementSize();
 
-    std::vector<int32_t> trueVec;
-    for (int i = 0; i < inputTotal; i++) {
-        if (inputData[i] > 0) {
-            trueVec.push_back(i);
-        }
+    std::vector<int32_t> collect;
+    if (ib.type == halide_type_of<float>()) {
+        collect = _collect<float>(inputs[0]);
+    } else if (ib.type == halide_type_of<int32_t>()) {
+        collect = _collect<int32_t>(inputs[0]);
+    } else if (ib.type == halide_type_of<uint8_t>()) {
+        collect = _collect<uint8_t>(inputs[0]);
     }
 
     //MNN_ASSERT(outputs[0]->batch() == trueVec.size());
-    for (int i = 0; i < trueVec.size(); i++) {
-        int index = trueVec[i];
+    for (int i = 0; i < collect.size(); i++) {
+        int index = collect[i];
         for (int j = 0; j < ib.dimensions; j++) {
             int result    = ib.dim[j].stride == 0 ? index : index / ib.dim[j].stride;
             index         = index - result * ib.dim[j].stride;

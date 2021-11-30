@@ -62,8 +62,6 @@ ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, const float* c
 
     auto vkOutput = reinterpret_cast<VulkanTensor*>(output->deviceId());
     auto vkInput  = reinterpret_cast<VulkanTensor*>(input->deviceId());
-    cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
-    cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     
     mDescriptorSet.reset(mVulkanResizePipeline->createSet());
     mDescriptorSet->writeImage(((VulkanTensor*)input->deviceId())->image()->view(), extra->getCommonSampler()->get(),
@@ -73,6 +71,8 @@ ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, const float* c
     mDescriptorSet->writeBuffer(mParamBuffer->buffer(), 2, mParamBuffer->size());
     mVulkanResizePipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 
+    vkInput->image()->barrierRead(cmdBuffer->get());
+    vkOutput->image()->barrierWrite(cmdBuffer->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(output->width(), 16), UP_DIV(output->height(), 16),
                   channelDiv4 * input->batch());
 

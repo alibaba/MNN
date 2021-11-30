@@ -593,6 +593,34 @@ static MNNCopyWithStride _selectBlit(int bytesC4) {
     return nullptr;
 }
 
+static void _AVX512_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
+    if(sparseBlockOC == 8) {
+        packedSparseMatMul = _AVX512_MNNPackedSparseMatMulEpx8;
+        return;
+    } else if(sparseBlockOC % 8 == 0) {
+        // MNN_PRINT("avx512 downgrade sparse from:%d, ",sparseBlockOC);
+        sparseBlockOC = 8;
+        packedSparseMatMul = _AVX512_MNNPackedSparseMatMulEpx8;
+        // MNN_PRINT(" to:%d\n",sparseBlockOC);
+        return;
+    }
+    else if(sparseBlockOC == 4) {
+        packedSparseMatMul = _AVX512_MNNPackedSparseMatMulEpx4;
+        return;
+    } else if(sparseBlockOC % 4 == 0) {
+        // MNN_PRINT("avx512 downgrade sparse from:%d, ",sparseBlockOC);
+        sparseBlockOC = 4;
+        packedSparseMatMul = _AVX512_MNNPackedSparseMatMulEpx4;
+        // MNN_PRINT(" to:%d\n",sparseBlockOC);
+        return;
+    } else {
+        sparseBlockOC = 1;
+        packedSparseMatMul = _AVX512_MNNPackedSparseMatMulEpx1;
+        return;
+    }
+}
+
+
 void _AVX512_ExtraInit(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNSelectBlitFunction = _selectBlit;
@@ -618,4 +646,8 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX512_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX512_MNNGridSampleComputeCord;
     coreFunction->MNNGridSampleInterp = _AVX512_MNNGridSampleInterp;
+
+    coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
+    coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
+
 }

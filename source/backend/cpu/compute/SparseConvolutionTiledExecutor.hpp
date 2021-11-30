@@ -16,17 +16,18 @@
 #define SPARSITY_THRESHOLD (0.3f)
 namespace MNN {
 
+typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
 
 class SparseConvolutionTiledImpl : public ConvolutionTiledImpl {
 public:
-    SparseConvolutionTiledImpl(const Convolution2DCommon *common, const SparseCommon* sparseCommon, Backend *b) : mSparseCommon{sparseCommon}, ConvolutionTiledImpl(common, b) {
-        mSparseBlockOC = mSparseCommon->args()->LookupByKey("sparseBlockOC")->i();
+    SparseConvolutionTiledImpl(const Convolution2DCommon *common, MNNPackedSparseMatMul packedSparseMatmul, int sparseBlockOC, Backend *b) : mPackedSparseMatmul{packedSparseMatmul}, mSparseBlockOC{sparseBlockOC}, ConvolutionTiledImpl(common, b) {
+
     }
     virtual ~SparseConvolutionTiledImpl() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, Tensor* NNZMap, Tensor* dataOffsetMap);
     void getPackParameter(int* eP, int* lP, int* hP, const CoreFunctions* core) override;
 public:
-    const SparseCommon* mSparseCommon;
+    MNNPackedSparseMatMul mPackedSparseMatmul;
     int mSparseBlockOC;
 };
 
@@ -36,7 +37,7 @@ public:
                                    size_t originWeightSize, const SparseCommon* sparseCommon, const float *bias, size_t biasSize);
 
     SparseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, std::shared_ptr<Tensor> NNZMapSharePtr, std::shared_ptr<Tensor> dataOffsetMapSharePtr,
-                                  const Convolution2DCommon *common, const SparseCommon* sparseCommon, Backend *b);
+                                  const Convolution2DCommon *common, MNNPackedSparseMatMul packedSparseMatmul, int sparseBlockOC, Backend *b);
     virtual ~SparseConvolutionTiledExecutor();
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {

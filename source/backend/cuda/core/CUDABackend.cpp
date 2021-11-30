@@ -30,7 +30,7 @@ public:
         // Do nothing
     }
     virtual ~ CUDARuntimeAllocator() = default;
-    virtual std::pair<void*, int> onAlloc(int size) override {
+    virtual std::pair<void*, int> onAlloc(int size, int align) override {
         return std::make_pair(mRuntime->alloc(size), 0);
     }
     virtual void onRelease(std::pair<void*, int> ptr) override {
@@ -90,46 +90,45 @@ CUDARuntime* CUDABackend::getCUDARuntime() {
     return mCUDARuntime.get();
 }
 
-bool CUDABackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) {
+class CUDAMemObj : public Backend::MemObj {
+public:
+    CUDAMemObj(BufferAllocator* allocator, std::pair<void*, int> points) {
+        mPoint = std::move(points);
+        mAllocator = allocator;
+    }
+    virtual ~ CUDAMemObj() {
+        mAllocator->free(mPoint);
+    }
+private:
+    BufferAllocator* mAllocator;
+    std::pair<void*, int> mPoint;
+};
+Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start CUDABackend::onAcquireBuffer !\n");
 #endif
+    BufferAllocator* allocator = nullptr;
     int mallocSize = realSize(nativeTensor) * nativeTensor->getType().bytes();
     std::pair<void*, int> buffer;
     if (storageType == DYNAMIC_SEPERATE) {
         buffer                              = mBufferPool->alloc(mallocSize, true);
+        allocator = mBufferPool.get();
     } else if (storageType == DYNAMIC) {
         buffer                              = mBufferPool->alloc(mallocSize, false);
+        allocator = mBufferPool.get();
     } else {
         MNN_ASSERT(storageType == STATIC);
         buffer                              = mStaticBufferPool->alloc(mallocSize, false);
+        allocator = mStaticBufferPool.get();
     }
     if(nullptr == buffer.first) {
-        return false;
+        return nullptr;
     };
     auto host = (uint8_t*)buffer.first + buffer.second;
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
     auto des = TensorUtils::getDescribe(nativeTensor);
     des->extra.offset = buffer.second;
-    return true;
-}
-
-bool CUDABackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) {
-    if (storageType == DYNAMIC_SEPERATE) {
-        return true;
-    }
-    auto buffer = (uint8_t*)nativeTensor->deviceId();
-    auto des = TensorUtils::getDescribe(nativeTensor);
-    auto pointer = std::make_pair(buffer - des->extra.offset, des->extra.offset);
-
-    if (storageType == DYNAMIC) {
-        mBufferPool->free(pointer);
-        return true;
-    }
-    if (storageType == STATIC) {
-        mStaticBufferPool->free(pointer);
-    }
-    return true;
+    return new CUDAMemObj(allocator, buffer);
 }
 
 bool CUDABackend::onClearBuffer() {

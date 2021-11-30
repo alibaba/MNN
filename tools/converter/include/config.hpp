@@ -51,6 +51,7 @@ public:
     int optimizeLevel = 1;
     bool keepInputFormat = false;
     std::string customOpLibs = "";
+    std::string authCode = "";
 };
 
 #endif // CONFIG_HPP

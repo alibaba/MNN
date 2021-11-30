@@ -14,8 +14,8 @@ def reportError(token, msg, id):
     cppcheckdata.reportError(token, 'warning', msg, 'mnn-rules', id)
 
 def mnn_rules(var):
-    # 1. global static variable
-    if var.isStatic and (var.isGlobal or var.access == 'Namespace'):
+    # 1. global static variable: Class, not Pointer, Static, Global
+    if var.isClass and not var.isPointer and var.isStatic and (var.isGlobal or var.access == 'Namespace'):
         reportError(var.typeStartToken, 'Global static variable \'' + var.nameToken.str + '\', dangerous on iOS', 'global-static')
 
 if __name__ == '__main__':

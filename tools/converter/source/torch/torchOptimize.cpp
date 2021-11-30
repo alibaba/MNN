@@ -61,7 +61,8 @@ void removeUselessOps(Block* block) {
         if (it->kind().toUnqualString() == std::string("data") ||
             it->kind() == prim::NumToTensor ||
             it->kind() == aten::ScalarImplicit ||
-            it->kind() == aten::contiguous) {
+            it->kind() == aten::contiguous ||
+            it->kind() == aten::clone) {
             it->output()->replaceAllUsesWith(it->input(0));
             for (int i = it->inputs().size()-1; i >= 0; i--) {
                 it->removeInput(i);
@@ -216,10 +217,10 @@ void LoopBodyLegal(Graph* graph, Block* block) {
         for (Block* sub_block : node->blocks()) {
             LoopBodyLegal(graph, sub_block);
         }
-        if (it->kind() == prim::Loop) {
-            auto body = it->blocks()[0];
+        if (node->kind() == prim::Loop) {
+            auto body = node->blocks()[0];
             for (int i = body->inputs().size() - 1; i > 0; i--) {
-                body->inputs().at(i)->replaceAllUsesWith(it->inputs().at(i + 1));
+                body->inputs().at(i)->replaceAllUsesWith(node->inputs().at(i + 1));
             }
         }
     }
@@ -362,21 +363,48 @@ void overloadDistinguish(Block* block) {
         for (Block* sub_block : node->blocks()) {
             overloadDistinguish(sub_block);
         }
-        switch (it->kind()) {
+        switch (node->kind()) {
             // min/max(Tensor, Tensor) is compare
             // min/max(Tensor, int) is reduce
             case aten::min:
             case aten::max:
-                if (it->inputs().size() > 1 &&
-                    it->input(1)->type()->kind() == c10::TypeKind::IntType) {
-                    it->s_(symb, "reduce");
+                if (node->inputs().size() > 1 &&
+                    node->input(1)->type()->kind() == c10::TypeKind::IntType) {
+                    node->s_(symb, "reduce");
                 } else {
-                    it->s_(symb, "compare");
+                    node->s_(symb, "compare");
                 }
                 break;
             default:
                 // do nothing
                 break;
+        }
+    }
+}
+/*
+fuse as_tensor, such as below:
+    d = prim::dtype(b);
+    c = aten::as_tensor(a, d);
+ -> c = aten::type_as(a, b)
+*/
+void FuseAsTensor(Graph* graph, Block* block) {
+    for (auto it = block->nodes().begin(); it != block->nodes().end();) {
+        auto* node = *it;
+        it++;
+        for (Block* sub_block : node->blocks()) {
+            FuseAsTensor(graph, sub_block);
+        }
+        if (node->kind() == prim::dtype) {
+            for (auto use : node->output(0)->uses()) {
+                auto as_tensor = use.user;
+                Node* typeAs = graph->create(aten::type_as, 1);
+                typeAs->addInput(as_tensor->input(0));
+                typeAs->addInput(node->input(0));
+                typeAs->output(0)->copyMetadata(as_tensor->output(0));
+                as_tensor->replaceAllUsesWith(typeAs);
+                as_tensor->removeAllInputs();
+                as_tensor->destroy();
+            }
         }
     }
 }
@@ -406,7 +434,7 @@ std::shared_ptr<Graph> torchOptPass(Module& module) {
     FuseGraph(graph, true);
     PeepholeOptimize(graph);
     FuseAddMM(graph);
-    FoldConvBatchNorm(module);
+    // FoldConvBatchNorm(module);
     FuseListUnpack(graph->block());
     // distinguish overload function
     overloadDistinguish(graph->block());
@@ -416,6 +444,8 @@ std::shared_ptr<Graph> torchOptPass(Module& module) {
     InputTypeInfer(graph.get());
     // split output tensor if wrap with list/tuple
     OutputsUnpack(graph.get());
+    // dtype + as_tensor -> type_as
+    FuseAsTensor(graph.get(), graph->block());
 #ifdef MNN_DUMP_TORCHSCRIPT
     graph->dump();
 #endif

@@ -35,4 +35,4 @@ void ReduceJoinTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = parameter;
 }
 
-REGISTER_CONVERTER(ReduceJoinTf, ReduceJoin);
+//REGISTER_CONVERTER(ReduceJoinTf, ReduceJoin);

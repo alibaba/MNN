@@ -1,4 +1,8 @@
 set(MNN_CPP_TOOLS "")
+add_executable(ModuleBasic.out ${CMAKE_CURRENT_LIST_DIR}/ModuleBasic.cpp)
+list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
+add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)
+list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 
 add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
@@ -12,8 +16,14 @@ list(APPEND MNN_CPP_TOOLS mobilenetTest.out)
 add_executable(backendTest.out ${CMAKE_CURRENT_LIST_DIR}/backendTest.cpp)
 list(APPEND MNN_CPP_TOOLS backendTest.out)
 
+add_executable(modelCompare.out ${CMAKE_CURRENT_LIST_DIR}/modelCompare.cpp)
+list(APPEND MNN_CPP_TOOLS modelCompare.out)
+
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
+
+add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
+list(APPEND MNN_CPP_TOOLS testModel_expr.out)
 
 add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp)
 list(APPEND MNN_CPP_TOOLS testModelWithDescrisbe.out)
@@ -29,6 +39,17 @@ list(APPEND MNN_CPP_TOOLS timeProfile.out)
 
 add_executable(testTrain.out ${CMAKE_CURRENT_LIST_DIR}/testTrain.cpp)
 list(APPEND MNN_CPP_TOOLS testTrain.out)
+
+add_executable(aoa_nlu_encoder.out ${CMAKE_CURRENT_LIST_DIR}/aoa/aoa_nlu_encoder.cpp ${CMAKE_CURRENT_LIST_DIR}/../../tools/cpp/revertMNNModel.cpp)
+list(APPEND MNN_CPP_TOOLS aoa_nlu_encoder.out)
+
+add_executable(aoa_nlu_decoder1.out ${CMAKE_CURRENT_LIST_DIR}/aoa/aoa_nlu_decoder1.cpp ${CMAKE_CURRENT_LIST_DIR}/../../tools/cpp/revertMNNModel.cpp)
+list(APPEND MNN_CPP_TOOLS aoa_nlu_decoder1.out)
+
+add_executable(aoa_nlu_decoder2.out ${CMAKE_CURRENT_LIST_DIR}/aoa/aoa_nlu_decoder2.cpp ${CMAKE_CURRENT_LIST_DIR}/../../tools/cpp/revertMNNModel.cpp)
+list(APPEND MNN_CPP_TOOLS aoa_nlu_decoder2.out)
+
+
 
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})

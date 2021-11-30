@@ -15,7 +15,10 @@
 #include "core/Macro.h"
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
+#ifndef MNN_BUILD_MINI
 #include "shape/SizeComputer.hpp"
+#include "geometry/GeometryComputerUtils.hpp"
+#endif
 #include "utils/InitNet.hpp"
 
 //#define MNN_OPEN_TIME_TRACE
@@ -87,7 +90,7 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& tensors, cons
         TensorUtils::getDescribe(tensors[i].get())->dimensionFormat = blob->dataFormat();
         if (auto regions = des[i]->regions()) {
             auto& regs = TensorUtils::getDescribe(tensors[i].get())->regions;
-            TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
             regs.reserve(regions->size());
             for (int r = 0; r < regions->size(); r++) {
                 auto region = regions->GetAs<Region>(r);
@@ -230,7 +233,7 @@ static vector<Schedule::PipelineInfo> _scheduleUnit(const Net* net, const Schedu
     return oplists;
 }
 
-bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtimeInfo, bool netHold) {
+bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtimeInfo) {
     if (nullptr == net->oplists()) {
         MNN_PRINT("Empty net for schedule\n");
         return false;
@@ -241,7 +244,7 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         defaultConfig.flags = 4;
         scheduleInfo.defaultBackend.reset(runtimeInfo.second->onCreate(&defaultConfig));
         ErrorCode code = NO_ERROR;
-        initConstTensors(scheduleInfo.allTensors, net, scheduleInfo.defaultBackend.get(), netHold, code);
+        initConstTensors(scheduleInfo.allTensors, net, scheduleInfo.defaultBackend.get(), code);
         if (NO_ERROR != code) {
             MNN_ERROR("Schedule Const init errorcode = %d\n", code);
             return false;
@@ -333,6 +336,32 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
                        std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
         }
     }
+#ifndef MNN_BUILD_MINI
+    for (auto iter = scheduleInfo.pipelineInfo.begin(); iter != scheduleInfo.pipelineInfo.end();) {
+        auto breakIndex = GeometryComputerUtils::buildConstantTensors(iter->second);
+        if (breakIndex >= 0) {
+            scheduleInfo.needInputContentForShape = true;
+        }
+#ifdef MNN_SEPERTE_SIZE
+        if (breakIndex >= 0 && (breakIndex + 1) < iter->second.size()) {
+            // Split oplist
+            std::vector<Schedule::PipelineInfo> fuse;
+            std::vector<Schedule::PipelineInfo> seperate;
+            fuse.insert(fuse.begin(), iter->second.begin(), iter->second.begin() + breakIndex + 1);
+            seperate.insert(seperate.begin(), iter->second.begin() + breakIndex + 1, iter->second.end());
+            oplists.clear();
+            iter->second = std::move(seperate);
+            iter = scheduleInfo.pipelineInfo.insert(iter, std::make_pair(iter->first, fuse));
+            iter++;
+            iter++;
+        } else {
+            iter++;
+        }
+#else
+        iter++;
+#endif
+    }
+#endif
     return true;
 }
 } // namespace MNN

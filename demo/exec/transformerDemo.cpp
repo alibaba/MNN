@@ -20,20 +20,23 @@ using namespace MNN;
 using namespace std;
 
 int main(int argc, const char* argv[]) {
+    int testSpeedTime = 10;
     if (argc < 2) {
         MNN_ERROR("Don't has model name\n");
         return 0;
     }
     BackendConfig config;
-    //Executor::getGlobalExecutor()->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
+//    Executor::getGlobalExecutor()->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
     auto modelName = argv[1];
     std::shared_ptr<Module> model;
-    model.reset(Module::load({"NmtModel/Placeholder", "NmtModel/Placeholder_1"}, {"NmtModel/transpose_2"}, modelName));
-    std::vector<int> input0 = {32,16,234,3215,61,135,29,10,24317,4661,4,0};
-    std::vector<int> input1 = {1,1,1,1,1,1,1,1,1,1,1,1};
-    auto first = _Input({1, (int)input0.size()}, NHWC, halide_type_of<int>());
+    Module::Config mdconfig;
+    mdconfig.rearrange = true;
+    model.reset(Module::load({"NmtModel/Placeholder", "NmtModel/Placeholder_1"}, {"NmtModel/transpose_2"}, modelName, &mdconfig));
+    std::vector<int> input0 = {4405, 17, 235, 2441, 8, 27 ,1969,0};
+    std::vector<int> input1 = {1, 1, 1, 1, 1,1,1, 1};
+    auto first = _Input({8, 1}, NHWC, halide_type_of<int>());
     ::memcpy(first->writeMap<int>(), input0.data(), input0.size() * sizeof(int));
-    auto second = _Input({1, (int)input1.size()}, NHWC, halide_type_of<int>());
+    auto second = _Input({8, 1}, NHWC, halide_type_of<int>());
     ::memcpy(second->writeMap<int>(), input1.data(), input1.size() * sizeof(int));
     std::vector<VARP> outputs;
     for (int i = 0; i < 2; ++i) {
@@ -58,7 +61,7 @@ int main(int argc, const char* argv[]) {
             outputOs << ptr[i] << "\n";
         }
     }
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < testSpeedTime; ++i) {
         AUTOTIME;
         outputs = model->onForward({first, second});
     }

@@ -184,6 +184,27 @@ public:
                     {4, 2}, {2}, {4, 2});
     }
 };
+class ModTest : public BinaryTestCommon {
+public:
+    virtual ~ModTest() = default;
+    virtual bool run(int precision) {
+        std::vector<float> x = {
+            1.1f, 2.3f, 3.5f, 4.7f, 5.9f, 6.2f, 7.4f, 8.6f
+        };
+        std::vector<float> y = {
+            0.4f, 0.6f
+        };
+        std::vector<float> z(x.size());
+        for (int i=0; i<2; ++i) {
+            for (int j=0; j<4; ++j) {
+                z[i + j * 2] = fmodf(x[i+j*2], y[i]);
+            }
+        }
+        return test<float, float>(_Mod, "ModTest", 0,
+                    x,y,z,
+                    {4, 2}, {2}, {4, 2});
+    }
+};
 class SquaredDifferenceTest : public BinaryTestCommon {
 public:
     virtual ~SquaredDifferenceTest() = default;
@@ -312,6 +333,7 @@ MNNTestSuiteRegister(SquaredDifferenceTest, "op/binary/squareddifference");
 MNNTestSuiteRegister(EqualTest, "op/binary/equal");
 MNNTestSuiteRegister(LessEqualTest, "op/binary/lessequal");
 MNNTestSuiteRegister(FloorModTest, "op/binary/floormod");
+MNNTestSuiteRegister(ModTest, "op/binary/mod");
 MNNTestSuiteRegister(Atan2Test, "op/binary/atan2");
 MNNTestSuiteRegister(LogicalOrTest, "op/binary/logicalor");
 MNNTestSuiteRegister(NotEqualTest, "op/binary/notqual");

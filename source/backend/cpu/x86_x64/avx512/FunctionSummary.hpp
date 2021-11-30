@@ -36,9 +36,24 @@ void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size
 void _AVX512_MNNPackC8ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+
+void _AVX512_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);
+void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                    const float* postParameters, const float* bias, unsigned int* NNZMap,
+                                    int* dataOffsetMap);
+void _AVX512_MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                    const float* postParameters, const float* bias, unsigned int* NNZMap,
+                                    int* dataOffsetMap);
+void _AVX512_MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                    const float* postParameters, const float* bias, unsigned int* NNZMap,
+                                    int* dataOffsetMap);
+
+
 void _AVX512_ReorderInit(void* functions);
 void _AVX512_ExtraInit(void* functions);
 void _AVX512_WinogradInit(void* functions);
-void _AVX512_MNNInt8FunctionInit(void* functions);
+void _AVX512_MNNInt8FunctionInit(void* functions, bool suppotVNNI);
+
+
 
 }

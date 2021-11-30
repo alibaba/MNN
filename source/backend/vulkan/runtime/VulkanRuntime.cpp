@@ -92,6 +92,23 @@ Backend* VulkanRuntime::onCreate(const BackendConfig* config) const {
     // FIXME: Use config
     return new VulkanBackend(this, mInfo);
 }
+int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
+    switch (statusEnum) {
+        case STATUS_SUPPORT_FP16: {
+            return 1;
+            break;
+        }
+        case STATUS_SUPPORT_DOT_PRODUCT: {
+            return 0;
+            break;
+        }
+        default: {
+            MNN_ERROR("unsupported interface");
+            break;
+        }
+    }
+    return 0;
+}
 static bool _testVulkan() {
     // std::make_unique need c++14
     std::unique_ptr<VulkanInstance> instance(new VulkanInstance());

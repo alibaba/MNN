@@ -33,7 +33,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #endif
 
 #ifdef MNN_USE_SPARSE_COMPUTE
-#ifndef MNN_AVX512 // Currently AVX512 don't support sparse
+
     auto core = static_cast<CPUBackend*>(backend)->functions();
     int bytes = core->bytes;
 #ifdef MNN_USE_SSE
@@ -47,7 +47,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                                                       conv2d->sparseParameter(), bias, biasSize);
         }
     }
-#endif
+
 #endif
     bool fastWay = common->kernelY() == 1 && common->kernelX() == 1
         && output->width() == input->width() && output->height() == input->height()

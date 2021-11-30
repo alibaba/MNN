@@ -66,9 +66,10 @@ ErrorCode VulkanGridSample::onEncode(const std::vector<Tensor*>& inputs, const s
     auto outputTensor    = reinterpret_cast<VulkanTensor*>(output->deviceId());
     auto gridSampleParam = reinterpret_cast<GpuGridSampleParam*>(mGridSampleParam->map());
     
-    cmdBuffer->barrierImageIfNeeded(outputTensor->image(), VK_IMAGE_LAYOUT_GENERAL);
-    cmdBuffer->barrierImageIfNeeded(inputTensor->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    
+    outputTensor->image()->barrierWrite(cmdBuffer->get());
+    inputTensor->image()->barrierRead(cmdBuffer->get());
+    gridTensor->image()->barrierRead(cmdBuffer->get());
+
     ::memset(gridSampleParam, 0, sizeof(GpuGridSampleParam));
 
     gridSampleParam->outImgSize[0] = outputTensor->image()->width();

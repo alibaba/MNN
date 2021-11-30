@@ -14,7 +14,7 @@ namespace MNN {
 class SliceComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == inputs.size());
+        //MNN_ASSERT(1 == inputs.size());
         auto outputSize = (int)outputs.size();
         auto slice = op->main_as_Slice();
 
@@ -46,16 +46,25 @@ class SliceComputer : public SizeComputer {
 
             output.dim[axis].extent = input.dim[axis].extent - previous;
         } else {
-            // tensorflow Split
+            // tensorflow/Torch Split
             if (nullptr == slice->slicePoints() || 1 == slice->slicePoints()->size()) {
-                // scalar
-                int numSplits = outputSize;
-                if (nullptr != slice->slicePoints() && slice->slicePoints()->data()[0] < outputSize) {
-                    numSplits = slice->slicePoints()->data()[0];
+                // slicePoint size is 1:
+                // TF value is num_split, Torch value is split_size
+                int numSplits = outputSize,
+                    splitDim = input.dim[axis].extent / numSplits;
+                if (MNN::NetSource_TORCH == slice->sourceType()) {
+                    if (nullptr != slice->slicePoints()) {
+                        splitDim = slice->slicePoints()->data()[0];
+                    }
+                    numSplits = input.dim[axis].extent / splitDim;
+                } else if (MNN::NetSource_TENSORFLOW == slice->sourceType()) {
+                    if (nullptr != slice->slicePoints() && slice->slicePoints()->data()[0] != outputSize) {
+                        numSplits = slice->slicePoints()->data()[0];
+                    }
+                    MNN_ASSERT(0 == input.dim[axis].extent % numSplits);
+                    splitDim = input.dim[axis].extent / numSplits;
                 }
-                MNN_ASSERT(0 == input.dim[axis].extent % numSplits);
-                const int splitDim = input.dim[axis].extent / numSplits;
-                for (int i = 0; i < numSplits; i++) {
+                for (int i = 0; i < outputSize; i++) {
                     auto& output      = outputs[i]->buffer();
                     output.dimensions = input.dimensions;
                     output.type       = input.type;

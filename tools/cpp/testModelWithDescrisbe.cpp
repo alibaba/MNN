@@ -23,6 +23,9 @@
 #include "core/Macro.h"
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
+#include <MNN/expr/Module.hpp>
+#include <MNN/expr/MathOp.hpp>
+#include <MNN/expr/NeuralNetWorkOp.hpp>
 
 #define NONE "\e[0m"
 #define RED "\e[0;31m"
@@ -32,6 +35,8 @@
 #define L_BLUE "\e[1;34m"
 #define BOLD "\e[1m"
 
+using namespace MNN::Express;
+
 template<typename T>
 inline T stringConvert(const char* number) {
     std::istringstream os(number);
@@ -40,36 +45,33 @@ inline T stringConvert(const char* number) {
     return v;
 }
 
-MNN::Tensor* createTensor(const MNN::Tensor* shape, const std::string path) {
-    std::ifstream stream(path.c_str());
+int loadData(const std::string name, void* ptr, int size, halide_type_t dtype) {
+    std::ifstream stream(name.c_str());
     if (stream.fail()) {
-        return NULL;
+        return -1;
     }
-
-    auto result           = new MNN::Tensor(shape, shape->getDimensionType());
-    result->buffer().type = shape->buffer().type;
-    switch (result->getType().code) {
+    switch (dtype.code) {
         case halide_type_float: {
-            auto data = result->host<float>();
-            for (int i = 0; i < result->elementSize(); ++i) {
+            auto data = static_cast<float*>(ptr);
+            for (int i = 0; i < size; ++i) {
                 double temp = 0.0f;
                 stream >> temp;
                 data[i] = temp;
             }
         } break;
         case halide_type_int: {
-            MNN_ASSERT(result->getType().bits == 32);
-            auto data = result->host<int>();
-            for (int i = 0; i < result->elementSize(); ++i) {
+            MNN_ASSERT(dtype.bits == 32);
+            auto data = static_cast<int32_t*>(ptr);
+            for (int i = 0; i < size; ++i) {
                 int temp = 0;
                 stream >> temp;
                 data[i] = temp;
             }
         } break;
         case halide_type_uint: {
-            MNN_ASSERT(result->getType().bits == 8);
-            auto data = result->host<uint8_t>();
-            for (int i = 0; i < result->elementSize(); ++i) {
+            MNN_ASSERT(dtype.bits == 8);
+            auto data = static_cast<uint8_t*>(ptr);
+            for (int i = 0; i < size; ++i) {
                 int temp = 0;
                 stream >> temp;
                 data[i] = temp;
@@ -77,12 +79,58 @@ MNN::Tensor* createTensor(const MNN::Tensor* shape, const std::string path) {
         } break;
         default: {
             stream.close();
-            return NULL;
+            return -1;
         }
     }
 
     stream.close();
-    return result;
+    return 0;
+}
+
+MNN::Tensor* createTensor(const MNN::Tensor* shape, const std::string name) {
+    auto result = new MNN::Tensor(shape, shape->getDimensionType());
+    result->buffer().type = shape->buffer().type;
+    if (!loadData(name, result->host<void>(), result->elementSize(), result->getType())) {
+        return result;
+    }
+    delete result;
+    return NULL;
+}
+
+VARP createVar(const std::string name, INTS shape, halide_type_t dtype) {
+    int size = 1;
+    for (int dim : shape) {
+        size *= dim;
+    }
+    std::unique_ptr<char[]> data(new char[size * dtype.bytes()]);
+    loadData(name, data.get(), size, dtype);
+    return _Const(data.get(), shape, NHWC, dtype);
+}
+
+template <typename T>
+bool compareVar(VARP var, std::string name) {
+    auto targetValue = createVar(name, var->getInfo()->dim, var->getInfo()->type);
+    auto absMax = _ReduceMax(_Abs(targetValue), {});
+    absMax = _Maximum(absMax, _Scalar<T>(0));
+    auto diff = _Abs(targetValue - var);
+    auto diffAbsMax = _ReduceMax(diff);
+    auto absMaxV = absMax->readMap<T>()[0];
+    auto diffAbsMaxV = diffAbsMax->readMap<T>()[0];
+    if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
+        std::cout << "TESTERROR " << name << " value error : absMaxV:" << absMaxV << " - DiffMax:" << diffAbsMaxV << std::endl;
+        return false;
+    }
+    return true;
+}
+
+void log_result(bool correct) {
+    if (correct) {
+#if defined(_MSC_VER)
+        std::cout << "Correct!" << std::endl;
+#else
+        std::cout << GREEN << BOLD << "Correct!" << NONE << std::endl;
+#endif
+    }
 }
 
 int main(int argc, const char* argv[]) {
@@ -113,103 +161,133 @@ int main(int argc, const char* argv[]) {
     auto inputNames  = splitNames(numOfInputs, config.Read<std::string>("input_names"));
     auto inputDims   = splitDims(numOfInputs, config.Read<std::string>("input_dims"));
     auto expectNames = splitNames(numOfOuputs, config.Read<std::string>("output_names"));
-
+    bool controlFlow = config.KeyExists("control_flow") && config.Read<bool>("control_flow");
+    auto dataType = halide_type_of<float>();
+    if (config.KeyExists("data_type")) {
+        auto dtype = config.Read<std::string>("data_type");
+        if (dtype == "float") {
+            dataType = halide_type_of<float>();
+        } else if (dtype == "int32_t") {
+            dataType = halide_type_of<int32_t>();
+        } else if (dtype == "uint8_t") {
+            dataType = halide_type_of<uint8_t>();
+        }
+    }
     // create net & session
 #if defined(_MSC_VER)
     MNN_PRINT("Testing Model ====> %s\n", modelName);
 #else
     MNN_PRINT(GREEN "Testing Model ====> %s\n" NONE, modelName);
 #endif
-    auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelName));
-    MNN::ScheduleConfig schedule;
-    schedule.type = type;
-    MNN::BackendConfig backendConfig;
-    backendConfig.precision = precision;
+    if (controlFlow) {
+        std::shared_ptr<Module> model(Module::load(inputNames, expectNames, modelName));
+        std::vector<VARP> inputs;
+        for (int i = 0; i < numOfInputs; i++) {
+            auto inputName = modelDir + inputNames[i] + ".txt";
+            inputs.push_back(createVar(inputName, inputDims[i], dataType));
+        }
+        auto outputs = model->onForward(inputs);
+        bool correct = true;
+        for (int i = 0; i < numOfOuputs; i++) {
+            auto dtype = outputs[i]->getInfo()->type;
+            auto outputName = modelDir + expectNames[i] + ".txt";
+            if (dtype == halide_type_of<int32_t>()) {
+                correct = compareVar<int32_t>(outputs[i], outputName);
+            } else if (dtype == halide_type_of<uint8_t>()) {
+                correct = compareVar<uint8_t>(outputs[i], outputName);
+            } else {
+                correct = compareVar<float>(outputs[i], outputName);
+            }
+            if (!correct) {
+                break;
+            }
+        }
+        log_result(correct);
+    } else {
+        auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelName));
+        MNN::ScheduleConfig schedule;
+        schedule.type = type;
+        MNN::BackendConfig backendConfig;
+        backendConfig.precision = precision;
 
-    schedule.backendConfig = &backendConfig;
+        schedule.backendConfig = &backendConfig;
 
-    auto session  = net->createSession(schedule);
+        auto session  = net->createSession(schedule);
 
-    // resize
-    for (int i = 0; i < numOfInputs; ++i) {
-        auto inputTensor = net->getSessionInput(session, inputNames[i].c_str());
-        net->resizeTensor(inputTensor, inputDims[i]);
-    }
-    net->resizeSession(session);
-    auto checkFunction = [&]() {
-        // [second] set input-tensor data
+        // resize
         for (int i = 0; i < numOfInputs; ++i) {
             auto inputTensor = net->getSessionInput(session, inputNames[i].c_str());
-            auto inputName   = modelDir + inputNames[i] + ".txt";
-            std::cout << "The " << i << " input: " << inputName << std::endl;
-
-            auto givenTensor = createTensor(inputTensor, inputName);
-            if (!givenTensor) {
-#if defined(_MSC_VER)
-                std::cout << "Failed to open " << inputName << std::endl;
-#else
-                std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
-#endif
-                break;
-            }
-            inputTensor->copyFromHostTensor(givenTensor);
-            delete givenTensor;
+            net->resizeTensor(inputTensor, inputDims[i]);
         }
+        net->resizeSession(session);
+        auto checkFunction = [&]() {
+            // [second] set input-tensor data
+            for (int i = 0; i < numOfInputs; ++i) {
+                auto inputTensor = net->getSessionInput(session, inputNames[i].c_str());
+                auto inputName   = modelDir + inputNames[i] + ".txt";
+                std::cout << "The " << i << " input: " << inputName << std::endl;
 
-        // inference
-        net->runSession(session);
-
-        // get ouput-tensor and compare data
-        bool correct = true;
-        for (int i = 0; i < numOfOuputs; ++i) {
-            auto outputTensor = net->getSessionOutput(session, expectNames[i].c_str());
-            MNN::Tensor* expectTensor = nullptr;
-            std::string expectName;
-            // First Check outputname.txt
-            {
-                std::ostringstream iStrOs;
-                iStrOs << expectNames[i];
-                expectName   = modelDir + iStrOs.str() + ".txt";
-                expectTensor = createTensor(outputTensor, expectName);
-            }
-            if (!expectTensor) {
-                // Second check number outputs
-                std::ostringstream iStrOs;
-                iStrOs << i;
-                expectName   = modelDir + iStrOs.str() + ".txt";
-                expectTensor = createTensor(outputTensor, expectName);
-            }
-            if (!expectTensor) {
+                auto givenTensor = createTensor(inputTensor, inputName);
+                if (!givenTensor) {
 #if defined(_MSC_VER)
-                std::cout << "Failed to open " << expectName << std::endl;
+                    std::cout << "Failed to open " << inputName << std::endl;
 #else
-                std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
+                    std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
 #endif
-                break;
+                    break;
+                }
+                inputTensor->copyFromHostTensor(givenTensor);
+                delete givenTensor;
             }
-            if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
-                correct = false;
-                break;
+
+            // inference
+            net->runSession(session);
+
+            // get ouput-tensor and compare data
+            bool correct = true;
+            for (int i = 0; i < numOfOuputs; ++i) {
+                auto outputTensor = net->getSessionOutput(session, expectNames[i].c_str());
+                MNN::Tensor* expectTensor = nullptr;
+                std::string expectName;
+                // First Check outputname.txt
+                {
+                    std::ostringstream iStrOs;
+                    iStrOs << expectNames[i];
+                    expectName   = modelDir + iStrOs.str() + ".txt";
+                    expectTensor = createTensor(outputTensor, expectName);
+                }
+                if (!expectTensor) {
+                    // Second check number outputs
+                    std::ostringstream iStrOs;
+                    iStrOs << i;
+                    expectName   = modelDir + iStrOs.str() + ".txt";
+                    expectTensor = createTensor(outputTensor, expectName);
+                }
+                if (!expectTensor) {
+#if defined(_MSC_VER)
+                    std::cout << "Failed to open " << expectName << std::endl;
+#else
+                    std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
+#endif
+                    break;
+                }
+                if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
+                    correct = false;
+                    break;
+                }
+                delete expectTensor;
             }
-            delete expectTensor;
+            return correct;
+        };
+        auto correct = checkFunction();
+        if (!correct) {
+            return 0;
+        } else {
+            std::cout << "First Time Pass"<<std::endl;
         }
-        return correct;
-    };
-    auto correct = checkFunction();
-    if (!correct) {
-        return 0;
-    } else {
-        std::cout << "First Time Pass"<<std::endl;
+        // Second time
+        correct =  checkFunction();
+        log_result(correct);
     }
-    // Second time
-    correct =  checkFunction();
-    if (correct) {
-#if defined(_MSC_VER)
-        std::cout << "Correct!" << std::endl;
-#else
-        std::cout << GREEN << BOLD << "Correct!" << NONE << std::endl;
-#endif
-    }
-
     return 0;
 }

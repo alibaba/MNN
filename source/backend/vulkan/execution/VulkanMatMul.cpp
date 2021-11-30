@@ -107,7 +107,7 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumber, 256), 1, 1);
     
     // Second: nc4hw4 to image2d
-    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_GENERAL);
+    dest->barrierWrite(cmdBuffer->get());
     mImageBufferSet->writeImage(dest->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
     mImageBufferSet->writeBuffer(middleBuffer, 1, middelBufferSize);
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
@@ -115,8 +115,6 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     cmdBuffer->barrierSource(middleBuffer, 0, middelBufferSize);
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
-
-    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 int VulkanMatMul::Reorder::computeMiddleBufferSize(int b, int h, int w, int c) const {
     auto cDiv4 = UP_DIV(c, 4);
@@ -139,7 +137,7 @@ void VulkanMatMul::Reorder::revert(VkBuffer dest, size_t destSize, VkBuffer midd
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
     mSecond->bind(cmdBuffer->get(), mImageBufferSet->get());
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
-    cmdBuffer->barrierImageIfNeeded(source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    source->barrierRead(cmdBuffer->get());
     // cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
 
@@ -240,7 +238,10 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
         mTempBuffer.emplace_back(uniformBuffer);
         mSets.emplace_back(des);
         mWeightPipline->bind(cmdBuffer->get(), des->get());
-        cmdBuffer->barrierImage(input1T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        input1T->image()->barrierRead(cmdBuffer->get());
+        mKernelImage->barrierWrite(cmdBuffer->get());
+
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(buffer.size[3], 256), 1, 1);
     }
     {
@@ -295,7 +296,10 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
         mTempBuffer.emplace_back(uniformBuffer);
         mSets.emplace_back(des);
         mInputPipline->bind(cmdBuffer->get(), des->get());
-        cmdBuffer->barrierImage(input0T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        input0T->image()->barrierRead(cmdBuffer->get());
+        mInputImage->barrierWrite(cmdBuffer->get());
+
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(buffer.size[3], 256), 1, 1);
     }
     mCore.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, l, h, 1, mKernelImage));
@@ -356,7 +360,9 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
         }
         mSets.emplace_back(des);
         mOutputPipeline->bind(cmdBuffer->get(), des->get());
-        cmdBuffer->barrierImage(mOutputImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        outputT->image()->barrierWrite(cmdBuffer->get());
+        mOutputImage->barrierRead(cmdBuffer->get());
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(buffer.size[3], 256), 1, 1);
 
         mTempBuffer.emplace_back(uniformBuffer);

@@ -25,7 +25,7 @@ public:
     public:
         Allocator() = default;
         virtual ~ Allocator() = default;
-        virtual std::pair<void*, int> onAlloc(int size) = 0;
+        virtual std::pair<void*, int> onAlloc(int size, int align) = 0;
         virtual void onRelease(std::pair<void*, int> ptr) = 0;
         static std::shared_ptr<Allocator> createDefault();
         static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
@@ -53,7 +53,7 @@ public:
      * @sa free
      * @sa release
      */
-    std::pair<void*, int> alloc(int size, bool seperate = false);
+    std::pair<void*, int> alloc(int size, bool seperate = false, int align = 0);
 
     /**
      * @brief mark CHUNK pointer as reusable.
@@ -106,7 +106,7 @@ private:
     typedef std::multimap<size_t, SharedPtr<Node>> FREELIST;
 
     static void returnMemory(FREELIST* list, SharedPtr<Node> node, bool permitMerge = true);
-    std::pair<void*, int> getFromFreeList(FREELIST* list, int size, bool permiteSplit = true);
+    std::pair<void*, int> getFromFreeList(FREELIST* list, int size, bool permiteSplit, int align);
 
     std::map<std::pair<void*, int>, SharedPtr<Node>> mUsedList;
     FREELIST mFreeList;

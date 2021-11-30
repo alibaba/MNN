@@ -42,7 +42,9 @@ public:
         }
         int offset = 0;
         outputDes->regions.clear();
-        if (output->elementSize() <= 0) {
+        outputDes->regions.reserve(inputs.size());
+        auto axisLength = output->length(axis);
+        if (outside <= 0 || inside <= 0 || axisLength <= 0) {
             return true;
         }
 
@@ -64,7 +66,7 @@ public:
             } else {
                 dstSlice.size[1] = t->length(axis);
             }
-            dstSlice.dst.stride[0] = inside * output->length(axis);
+            dstSlice.dst.stride[0] = inside * axisLength;
             dstSlice.dst.stride[1] = inside;
             dstSlice.dst.stride[2] = 1;
             dstSlice.size[2]       = inside;

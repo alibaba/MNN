@@ -62,9 +62,9 @@ ErrorCode MetalGridSample::onExecute(const std::vector<Tensor *> &inputs, const 
     auto func = [=](){
         auto encoder = backend->encoder();
         [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(__bridge id <MTLBuffer>) (void *) inputs[0]->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id <MTLBuffer>) (void *) inputs[1]->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id <MTLBuffer>) (void *) outputs[0]->deviceId() offset:0 atIndex:2];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[0])->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[1]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[1])->extra.offset atIndex:1];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(outputs[0])->extra.offset atIndex:2];
         [encoder setBuffer:mParams offset:0 atIndex:3];
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         

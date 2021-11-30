@@ -25,23 +25,29 @@ class ShapeBroadcastTo : public SizeComputer {
         output->buffer().dimensions = inputDims > shapeDims ? inputDims : shapeDims;
         const int dimension = output->dimensions();
         const int* shapeData        = shape->host<int>();
-        for (int i = 1; i <= dimension; ++i) {
-            int inputDim = 1, shapeDim = 1;
-            if (i <= inputDims) {
-                inputDim = input->length(inputDims - i);
+        if (op->main() && op->main_as_Axis()->axis()) {
+            for (int i = 0; i < dimension; i++) {
+                output->setLength(i, shapeData[i]);
             }
-            if (i <= shapeDims) {
-                shapeDim = shapeData[shapeDims - i];
-            }
-            if (shapeDim <= 1) {
-                // shapeDim is {-1,0,1}, keep inputDim
-                output->setLength(dimension - i, inputDim);
-            } else {
-                // broadcast inputDim to shapeDim, need shapDim % inputDim == 0
-                // inputDim == 0, need shapeDim <= 0 keep dim
-                MNN_ASSERT(inputDim != 0);
-                MNN_ASSERT(shapeDim % inputDim == 0);
-                output->setLength(dimension - i, shapeDim);
+        } else {
+            for (int i = 1; i <= dimension; ++i) {
+                int inputDim = 1, shapeDim = 1;
+                if (i <= inputDims) {
+                    inputDim = input->length(inputDims - i);
+                }
+                if (i <= shapeDims) {
+                    shapeDim = shapeData[shapeDims - i];
+                }
+                if (shapeDim <= 1) {
+                    // shapeDim is {-1,0,1}, keep inputDim
+                    output->setLength(dimension - i, inputDim);
+                } else {
+                    // broadcast inputDim to shapeDim, need shapDim % inputDim == 0
+                    // inputDim == 0, need shapeDim <= 0 keep dim
+                    MNN_ASSERT(inputDim != 0);
+                    MNN_ASSERT(shapeDim % inputDim == 0);
+                    output->setLength(dimension - i, shapeDim);
+                }
             }
         }
         output->buffer().type                             = input->buffer().type;

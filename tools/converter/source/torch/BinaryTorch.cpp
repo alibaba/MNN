@@ -37,11 +37,11 @@ void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope*
         {"lt", MNN::BinaryOpOperation_LESS}, {"less", MNN::BinaryOpOperation_LESS},
         {"floordiv", MNN::BinaryOpOperation_FLOORDIV}, {"floor_divide", MNN::BinaryOpOperation_FLOORDIV},
         {"le", MNN::BinaryOpOperation_LESS_EQUAL},
-        {"eq", MNN::BinaryOpOperation_EQUAL},
+        {"eq", MNN::BinaryOpOperation_EQUAL}, {"__is__", MNN::BinaryOpOperation_EQUAL},
         {"mode", MNN::BinaryOpOperation_MOD}, {"remainder", MNN::BinaryOpOperation_MOD},
         {"atan2", MNN::BinaryOpOperation_ATAN2},
         {"logical_or", MNN::BinaryOpOperation_LOGICALOR}, {"__or__", MNN::BinaryOpOperation_LOGICALOR},
-        {"ne", MNN::BinaryOpOperation_NOTEQUAL}
+        {"ne", MNN::BinaryOpOperation_NOTEQUAL}, {"__isnot__", MNN::BinaryOpOperation_NOTEQUAL}
     };
     auto param = new MNN::BinaryOpT;
     std::string opType = getRealOpType(node);
@@ -81,3 +81,5 @@ REGISTER_CONVERTER(BinaryTorch, logical_or);
 REGISTER_CONVERTER(BinaryTorch, __or__);
 REGISTER_CONVERTER(BinaryTorch, ne);
 REGISTER_CONVERTER(BinaryTorch, rsub);
+REGISTER_CONVERTER(BinaryTorch, __is__);
+REGISTER_CONVERTER(BinaryTorch, __isnot__);

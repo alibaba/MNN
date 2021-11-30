@@ -9,19 +9,24 @@
 #ifndef Command_hpp
 #define Command_hpp
 #include <MNN/Tensor.hpp>
+#include "AutoStorage.h"
 #include <string>
 #include <memory>
 namespace MNN {
 struct Op;
-
-struct Command {
+class Execution;
+class OperatorInfo;
+struct Command : public RefCount {
     const Op* op;
     std::vector<Tensor*> inputs;
     std::vector<Tensor*> outputs;
-    std::vector<uint8_t> buffer; // storage for op
+    std::shared_ptr<BufferStorage> buffer;
+    std::shared_ptr<Execution> execution;
+    std::shared_ptr<Execution> executionOrigin;
+    std::shared_ptr<OperatorInfo> info;
 };
 struct CommandBuffer {
-    std::vector<Command> command;
+    std::vector<SharedPtr<Command>> command;
     std::vector<std::shared_ptr<Tensor>> extras;
 };
 }; // namespace MNN
