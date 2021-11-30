@@ -14,7 +14,6 @@ namespace MNN {
 extern void registerCPURuntimeCreator();
 
 #ifdef MNN_CODEGEN_REGISTER
-extern void registerArm82RuntimeCreator();
 #if MNN_METAL_ENABLED
 extern void registerMetalRuntimeCreator();
 #endif
@@ -37,9 +36,6 @@ void registerBackend() {
 #ifdef MNN_CODEGEN_REGISTER
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
-#endif
-#ifdef MNN_USE_ARMV82
-        registerArm82RuntimeCreator();
 #endif
 #endif
     });

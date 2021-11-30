@@ -25,9 +25,12 @@ class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
     struct Unit;
+    struct DebugTools;
+    /**Internal Usage Begin*/
     static void setShapeDirty(ComputeCache* cache);
     static void setContentDirty(ComputeCache* cache);
     static Tensor* getOutput(ComputeCache* cache, int offset);
+    static std::pair<std::shared_ptr<Backend>, std::shared_ptr<Backend>> getBackends(ComputeCache* cache);
     static void* mapOutput(ComputeCache* cache, int offset, Tensor* dest);
     struct Requirement {
         std::vector<bool> contentNeedContent;
@@ -38,7 +41,10 @@ public:
     ErrorCode computeInfo(Expr* expr);
     void makeCache(const std::vector<EXPRP>& expr, bool forceCPU = false);
     ErrorCode runCache(std::shared_ptr<ComputeCache> cache);
+    /**Internal Usage End*/
+
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
+    int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
     enum GCFlag {
         FULL,
         PART
@@ -51,23 +57,33 @@ public:
                                                  int numberThread);
     void resetProfile();
     void dumpProfile();
+    /**Internal Usage Begin*/
     void addOpCostTime(int op, float costTime);
     void addOpCostTime(const std::string& type, float costTime);
     void addOpFlops(const std::string& type, float flops);
     class Profiler;
+    /**Internal Usage End*/
     static RuntimeInfo getRuntime();
-    
+    void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
+    const DebugTools* getDebugTools() const {
+        return mDebug.get();
+    }
     struct Cache;
     class RuntimeManager {
     public:
-        RuntimeManager(std::vector<ScheduleConfig> &configs);
         ~RuntimeManager() {};
-        
         /**
          * @param configs: schedule configs.
          * @param cacheName: full path for cache file. Note: should choose location for reading and writing.
          */
-        static RuntimeManager* createRuntimeManager(std::vector<ScheduleConfig> &configs);
+        static RuntimeManager* createRuntimeManager(const ScheduleConfig& config);
+
+        /**
+         * Deceperate, the same as createRuntimeManager(configs[0])
+         * @param configs: schedule configs.
+         * @param cacheName: full path for cache file. Note: should choose location for reading and writing.
+         */
+        static RuntimeManager* createRuntimeManager(std::vector<ScheduleConfig>& configs);
 
         /**
          * @brief set cache file. when file not exist -- create it, when file exist -- load it.
@@ -86,25 +102,26 @@ public:
         RuntimeInfo getRuntimeInfo() {
             return mRuntime;
         }
+        friend class Executor;
     private:
+        RuntimeManager() {}
         RuntimeInfo mRuntime;
         std::shared_ptr<Runtime> mInfo;
         std::shared_ptr<Cache> mCache;
-        
     };
-
-    
 private:
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
     void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::set<std::shared_ptr<Expr::Inside>>&& inputNode, bool forceCPU);
 
     void _visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::set<std::shared_ptr<Expr::Inside>>& inputNode);
+    std::map<std::pair<MNNForwardType, int>, std::shared_ptr<Runtime>> mRuntimes;
 
-    Executor(std::shared_ptr<Runtime> backend, MNNForwardType type);
-    std::pair<std::shared_ptr<Runtime>, MNNForwardType> mRuntime;
-    std::pair<std::shared_ptr<Runtime>, MNNForwardType> mBackupRuntime;
+    Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
     std::mutex mMutex;
     std::shared_ptr<Profiler> mProfiler;
+    std::shared_ptr<DebugTools> mDebug;
+
+    std::pair<MNNForwardType, int> mFirstType;
 };
 } // namespace Express
 } // namespace MNN

@@ -27,6 +27,10 @@ public:
 private:
     std::vector<std::pair<void *, Tensor::InsideDescribe::Region *>> mTempInputCopy;
     bool mNeedZero = false;
+    std::pair<bool, int> mFuseRaster;
+
+    void *mOffset;
+    std::shared_ptr<Tensor> offsetTensor;
 };
 } // namespace CUDA
 } // namespace MNN

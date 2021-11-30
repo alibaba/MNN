@@ -48,7 +48,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
         "batch", "if model input's batch is not set, set as the batch size you set", cxxopts::value<int>())(
         "keepInputFormat", "keep input dimension format or not, default: false", cxxopts::value<bool>())(
-        "optimizeLevel", "graph optimize option, 1: use graph optimize only for every input case is right, 2: normally right but some case may be wrong, default 1", cxxopts::value<int>())(
+        "optimizeLevel", "graph optimize option, 0: don't run optimize(only support for MNN source), 1: use graph optimize only for every input case is right, 2: normally right but some case may be wrong, default 1", cxxopts::value<int>())(
         "optimizePrefer", "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest", cxxopts::value<int>())(
         "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
         "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())(
@@ -69,7 +69,8 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "OP", "print framework supported op", cxxopts::value<bool>())(
         "saveStaticModel", "save static model with fix shape, default: false", cxxopts::value<bool>())(
         "targetVersion", "compability for old mnn engine, default: 1.2f", cxxopts::value<float>())(
-        "customOpLibs", "custom op libs ex: libmy_add.so;libmy_sub.so", cxxopts::value<std::string>())(
+        "customOpLibs", "custom op libs ex: libmy_add.so;libmy_sub.so", cxxopts::value<std::string>())
+        ("authCode", "code for model authentication.", cxxopts::value<std::string>())(
         "inputConfigFile", "set input config file for static model, ex: ~/config.txt", cxxopts::value<std::string>());
 
     auto result = options.parse(argc, argv);
@@ -227,8 +228,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
             result["compressionParamsFile"].as<std::string>();
     }
     if (result.count("customOpLibs")) {
-        modelPath.customOpLibs =
-            result["customOpLibs"].as<std::string>();
+        modelPath.customOpLibs = result["customOpLibs"].as<std::string>();
+    }
+    if (result.count("authCode")) {
+        modelPath.authCode = result["authCode"].as<std::string>();
     }
     return true;
 }
@@ -270,7 +273,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
             }
         }
     }
-    if (modelPath.model != modelConfig::MNN) {
+    if (modelPath.model != modelConfig::MNN || modelPath.optimizeLevel >= 2) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath);
         error = writeFb(newNet, modelPath.MNNModel, modelPath);

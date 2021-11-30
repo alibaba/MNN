@@ -59,6 +59,33 @@ WrapExecution::WrapExecution(Backend* CPUBackend, std::shared_ptr<Execution> exe
     mValid  = execution->valid();
     mStatic = isStatic;
 }
+Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache) {
+    auto des = TensorUtils::getDescribe(t);
+    if ((!des->isMutable) && curBackend->type() != MNN_FORWARD_CPU) {
+        auto constCacheiter = cache.find(t);
+        if (constCacheiter != cache.end()) {
+            // The tensor has been copy by op before, just use it
+            return constCacheiter->second.get();
+        } else {
+            // search or create const for new backend
+            std::shared_ptr<Tensor> wrapTensor(new Tensor);
+            TensorUtils::copyShape(t, wrapTensor.get(), true);
+            wrapTensor->buffer().type = t->buffer().type;
+            TensorUtils::adjustTensorForCompability(wrapTensor.get());
+            TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(t)->quantAttr;
+            TensorUtils::getDescribe(wrapTensor.get())->usage = Tensor::InsideDescribe::CONSTANT;
+            auto tempRes = curBackend->onAcquireBuffer(wrapTensor.get(), Backend::STATIC);
+            if (!tempRes) {
+                return nullptr;
+            }
+            TensorUtils::getDescribe(wrapTensor.get())->backend = curBackend;
+            curBackend->onCopyBuffer(t, wrapTensor.get());
+            cache.insert(std::make_pair(t, wrapTensor));
+            return wrapTensor.get();
+        }
+    }
+    return nullptr;
+}
 
 Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
     auto dstBackend = mExecution->backend();
@@ -67,6 +94,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
     if (nullptr == srcBackend) {
         srcBackend = mCPUBackend;
     }
+    MNN_ASSERT(inputDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
     // CPU -> CPU or XPU -> XPU
     //if (srcBackend == dstBackend) {
     if (srcBackend->type() == dstBackend->type()) {
@@ -117,10 +145,11 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
     mInputMaps.clear();
 
     auto dstBackend = mExecution->backend();
+    bool isRaster = inputs.size() == 1 && inputs[0] == outputs[0];
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor = inputs[i];
         auto des         = TensorUtils::getDescribe(inputTensor);
-        if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        if (isRaster) {
             MNN_ASSERT(inputs.size() == 1);
             mWrapForRaster.reset(new Tensor);
             TensorUtils::copyShape(inputTensor, mWrapForRaster.get(), true);
@@ -149,7 +178,8 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
         auto dst       = std::get<2>(iter.second).get();
 
         if (TensorUtils::getDescribe(src)->usage == TensorUsage::CONSTANT && mStatic) {
-            memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::DYNAMIC_SEPERATE);
+            auto srcDes = TensorUtils::getDescribe(src);
+            memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::STATIC);
             if (memoryAllocSuccess) {
                 converter->onCopyBuffer(src, dst);
                 TensorUtils::getDescribe(dst)->usage = TensorUtils::getDescribe(src)->usage;
@@ -171,7 +201,7 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
         auto dst     = std::get<2>(iter.second).get();
 
         if (TensorUtils::getDescribe(dst)->usage == TensorUsage::CONSTANT && mStatic) {
-            backend->onReleaseBuffer(dst, Backend::DYNAMIC_SEPERATE);
+            // Do nothing
         } else {
             backend->onReleaseBuffer(dst, Backend::DYNAMIC);
         }
@@ -196,26 +226,15 @@ ErrorCode WrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std
 }
 
 CastWrapExecution::CastWrapExecution(const CPUBackend::Creator* creator, const Op* op, Backend* backend,
-                                     const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, halide_type_t runT)
-                                   : Execution(backend), runType(runT), mCreator(creator), mType(op->type()), mInputs(inputs) {
-    std::vector<int> types(inputs.size());
-    for (int i = 0; i < inputs.size(); i++) {
-        types[i] = TensorUtils::HaildeTypeToDataType(inputs[i]->getType());
-        inputs[i]->setType(TensorUtils::HaildeTypeToDataType(runType));
-    }
+                                     const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, DataType runT)
+                                   : Execution(backend), mRunType(runT), mCreator(creator), mType(op->type()), mInputs(inputs) {
     mExecution.reset(mCreator->onCreate(inputs, outputs, op, backend));
-    for (int i = 0; i < inputs.size(); i++) {
-        inputs[i]->setType(types[i]);
-    }
 }
 ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
                                       const std::vector<Tensor*>& outputs) {
-    for (auto output : outputs) {
-        output->setType(TensorUtils::HaildeTypeToDataType(runType));
-    }
     mWrapInputs.clear();
     mCasts.clear();
-    mScales.clear();
+    mWrapInputTensor.clear();
     auto& cachedCastTensor = static_cast<CPUBackend*>(backend())->getCachedCastTensor();
     std::vector<Tensor*> realInput;
     if (mType == OpType_Raster) {
@@ -227,7 +246,7 @@ ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
     }
     for (int i = 0; i < realInput.size(); i++) {
         auto input = realInput[i];
-        if (input->getType() == runType || !OpCommonUtils::opNeedContent(mType, i) || input->getType() == halide_type_of<int>()) {
+        if (CPUBackend::getDataType(input) == mRunType || !OpCommonUtils::opNeedContent(mType, i)) {
             mWrapInputs.push_back(input);
             continue;
         }
@@ -238,8 +257,13 @@ ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
         std::unique_ptr<Tensor> wrapTensor(new Tensor);
         TensorUtils::copyShape(input, wrapTensor.get(), true);
         TensorUtils::setLinearLayout(wrapTensor.get());
-        TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(input)->quantAttr;
-        wrapTensor->buffer().type = runType;
+        auto des = TensorUtils::getDescribe(wrapTensor.get());
+        auto originDes = TensorUtils::getDescribe(input);
+        if (originDes->quantAttr != nullptr) {
+            des->quantAttr.reset(new QuantAttr);
+            *des->quantAttr = *originDes->quantAttr;
+            des->type = mRunType;
+        }
         bool memoryAllocSuccess = backend()->onAcquireBuffer(wrapTensor.get(), Backend::DYNAMIC);
         if (!memoryAllocSuccess) {
             return {};
@@ -247,14 +271,9 @@ ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
         mWrapInputs.push_back(wrapTensor.get());
         auto wrapPointer = wrapTensor.get();
         mCasts.insert(std::make_pair(input, wrapTensor.get()));
+        TensorUtils::getDescribe(wrapPointer)->useCount = TensorUtils::getDescribe(input)->useCount;
         cachedCastTensor.insert(std::make_pair(input, wrapTensor.get()));
         mWrapInputTensor.emplace_back(std::move(wrapTensor));
-        auto pack = static_cast<CPUBackend*>(backend())->functions()->pack;
-        mScales[input] = std::vector<float>(pack);
-        auto& quantAttr = TensorUtils::getDescribe(input)->quantAttr;
-        float scale = runType == halide_type_of<float>() ? quantAttr->scale : 1/quantAttr->scale;
-        // set 4xscale for SSE compute
-        mScales[input] = std::vector<float>(pack, scale);
     }
     ErrorCode res = NO_ERROR;
     if (mType == OpType_Raster) {
@@ -270,22 +289,24 @@ ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
     } else {
         res = mExecution->onResize(mWrapInputs, outputs);
     }
-    for (auto& iter : mCasts) {
-        if (TensorUtils::getDescribe(iter.first)->useCount <= 1) {
-            backend()->onReleaseBuffer(iter.second, Backend::DYNAMIC);
+    for (auto input : realInput) {
+        auto iter = cachedCastTensor.find(input);
+        if (iter != cachedCastTensor.end()) {
+            if (--TensorUtils::getDescribe(iter->second)->useCount == 0) {
+                backend()->onReleaseBuffer(iter->second, Backend::DYNAMIC);
+            }
         }
     }
     return res;
 }
 ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs,
                                        const std::vector<Tensor*>& outputs) {
+    auto convertType = mRunType == DataType_DT_INT8 ? CPUCastCreator::FlOAT_TO_INT8 : CPUCastCreator::INT8_TO_FlOAT;
     for (const auto& iter : mCasts) {
         auto input = iter.first;
         auto output = iter.second;
-        auto& quantAttr = TensorUtils::getDescribe(input)->quantAttr;
-        MNN_ASSERT(quantAttr != nullptr);
         auto cpuBackend = ((CPUBackend*)backend());
-        CPUCastCreator::cast(input, output, cpuBackend);
+        CPUCastCreator::cast(input, output, cpuBackend, convertType);
     }
     if (mType == OpType_Raster) {
         return mExecution->onExecute({ mRasterInput }, outputs);
@@ -299,62 +320,7 @@ bool CastWrapExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
     }
     Execution* exe;
     mExecution->onClone(bn, op, &exe);
-    *dst = new CastWrapExecution(bn, runType, op, exe);
+    *dst = new CastWrapExecution(bn, mRunType, op, exe);
     return true;
 }
-
-CheckNANExecution::CheckNANExecution(Execution* exe) : Execution(exe->backend()) {
-    mExecution = exe;
-    mValid = exe->valid();
-}
-
-CheckNANExecution::~CheckNANExecution() {
-    delete mExecution;
-}
-
-ErrorCode CheckNANExecution::onResize(const std::vector<Tensor*>& inputs,
-                                      const std::vector<Tensor*>& outputs) {
-    return mExecution->onResize(inputs, outputs);
-}
-
-ErrorCode CheckNANExecution::onExecute(const std::vector<Tensor*>& inputs,
-                                       const std::vector<Tensor*>& outputs) {
-    for (auto tensor : inputs) {
-        if (halide_type_float != tensor->getType().code) {
-            continue;
-        }
-        if (TensorUtils::getDescribe(tensor)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-            continue;
-        }
-#define MNN_IS_INF(x) (fabs(x) == INFINITY)
-#define MNN_IS_NAN(x) ((x) != (x))
-        auto size = tensor->elementSize();
-        auto ptr  = tensor->host<float>();
-        for (int i = 0; i < size; ++i) {
-            auto value = ptr[i];
-            if (MNN_IS_INF(value) || MNN_IS_NAN(value)) {
-                return INVALID_VALUE;
-            }
-        }
-    }
-    auto code = mExecution->onExecute(inputs, outputs);
-    if (NO_ERROR != code) {
-        return code;
-    }
-    for (auto tensor : outputs) {
-        if (halide_type_float != tensor->getType().code) {
-            continue;
-        }
-        auto size = tensor->elementSize();
-        auto ptr  = tensor->host<float>();
-        for (int i = 0; i < size; ++i) {
-            auto value = ptr[i];
-            if (MNN_IS_INF(value) || MNN_IS_NAN(value)) {
-                return INVALID_VALUE;
-            }
-        }
-    }
-    return NO_ERROR;
-}
-
 } // namespace MNN

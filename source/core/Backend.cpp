@@ -12,6 +12,7 @@
 #include "MNN_generated.h"
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -68,6 +69,22 @@ bool MNNCPUCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) {
     if (NO_ERROR != code) {
         MNN_ERROR("Error in CPUBackend::onCopyBuffer\n");
     }
+    return true;
+}
+
+bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
+    auto mem = this->onAcquire(tensor, storageType);
+    if (nullptr == mem) {
+        return false;
+    }
+    if (mem == TensorUtils::getDescribe(tensor)->mem.get()) {
+        return true;
+    }
+    TensorUtils::getDescribe(tensor)->mem.reset(mem);
+    return true;
+}
+bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
+    TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
     return true;
 }
 

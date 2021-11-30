@@ -20,14 +20,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
     if (MNN_DATA_FORMAT_NC4HW4 == outputFormat) {
         outputFormat = MNN_DATA_FORMAT_NCHW;
     }
-    auto inputSlice = inputDes->regions;
-    MNN_ASSERT(input->dimensions() >= 1);
-    MNN_ASSERT(output->dimensions() == input->dimensions());
-    if (inputSlice.empty()) {
-        inputSlice.resize(1);
-        // Create Full Refence
-        inputSlice[0] = TensorUtils::makeFullSlice(input);
-    }
+    std::vector<Tensor::InsideDescribe::Region> inputSlice = {TensorUtils::makeFullSlice(input)};
     if (inputFormat == outputFormat || 2 == input->dimensions()) {
         // No need for treat for NCWH <-> NC4HW4
         outputDes->regions    = std::move(inputSlice);
@@ -79,20 +72,38 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
     return true;
 }
 
-void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
-    auto inputDes         = TensorUtils::getDescribe(input);
+void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
     auto outputDes        = TensorUtils::getDescribe(output);
     outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     if (input->elementSize() == output->elementSize()) {
         // Just Copy Tensor
-        auto inputSlice = inputDes->regions;
-        if (inputSlice.empty()) {
-            // Create Full Refence
-            Tensor::InsideDescribe::Region totalSlice = TensorUtils::makeFullSlice(input);
-            inputSlice.emplace_back(std::move(totalSlice));
-        }
-        outputDes->regions = std::move(inputSlice);
+        outputDes->regions = {TensorUtils::makeFullSlice(input)};
         return;
+    }
+    // if forward ( tf select broadcast )
+    if (forward) {
+        MNN_ASSERT(input->dimensions() == 1 && output->dimensions() > 1);
+        MNN_ASSERT(input->length(0) == output->length(0));
+        int srcSize = input->length(0);
+        int multipler = output->length(1);
+        for (int i = 2; i < output->dimensions(); i++) {
+            multipler *= output->length(i);
+        }
+        // [srcSize] -> [srcSize, multipler]
+        outputDes->regions.resize(1);
+        auto& reg = outputDes->regions[0];
+        reg.size[0] = 1;
+        reg.size[1] = srcSize;
+        reg.size[2] = multipler;
+        reg.src.offset = 0;
+        reg.src.stride[0] = srcSize;
+        reg.src.stride[1] = 1;
+        reg.src.stride[2] = 0;
+        reg.dst.offset = 0;
+        reg.dst.stride[0] = srcSize * multipler;
+        reg.dst.stride[1] = multipler;
+        reg.dst.stride[2] = 1;
+        reg.origin = input;
     }
     int32_t inputShape[MNN_MAX_TENSOR_DIM];
     auto outputDim = output->dimensions();
@@ -141,10 +152,10 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
 
     // Split region by size, use stride to determine src and dst mapping
     int remainDimSize = sepInputShapeSize > 3 ? (int)sepInputShapeSize - 3 : 0;
-    std::vector<int> remainStride(remainDimSize + 1);
-    int remainSize = OpCommonUtils::computeStride(remainStride.data(), sepOutputShape, remainDimSize);
+    int remainStride[MNN_MAX_TENSOR_DIM];
+    int remainSize = OpCommonUtils::computeStride(remainStride, sepOutputShape, remainDimSize);
     outputDes->regions.resize(remainSize);
-    std::vector<int> cords(remainDimSize + 1);
+    int cords[MNN_MAX_TENSOR_DIM];
     for (int index = 0; index < remainSize; ++index) {
         OpCommonUtils::unravelIndexHelper(cords, remainStride, remainDimSize, index);
         auto& reg = outputDes->regions[index];

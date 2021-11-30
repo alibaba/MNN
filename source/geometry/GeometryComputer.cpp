@@ -15,33 +15,27 @@
 
 namespace MNN {
 GeometryComputer::Context::~Context() {
-    for (auto& iter : mConstTensors) {
-        for (auto& t : iter.second) {
-            auto des = TensorUtils::getDescribe(t.get());
-            des->backend->onReleaseBuffer(t.get(), Backend::STATIC);
-        }
-    }
+    // Do nothing
 }
-
 GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, bool permitVirtual, MNNForwardType type) {
-    mPermitVirtual = permitVirtual;
     mBackend       = allocBackend;
-    flatbuffers::FlatBufferBuilder builder;
+    flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
     opBuilder.add_type(OpType_Raster);
     auto lastOffset = opBuilder.Finish();
     builder.Finish(lastOffset);
-    mRasterOp.resize(builder.GetSize());
-    ::memcpy(mRasterOp.data(), builder.GetBufferPointer(), builder.GetSize());
+    mRasterOp.reset(new BufferStorage);
+    mRasterOp->storage = builder.ReleaseRaw(mRasterOp->allocated_size, mRasterOp->offset);
     mForwardType = type;
 }
-
-void GeometryComputer::Context::clear() {
-    pOutputs.clear();
-    for (auto& t : mTempConstTensors) {
-        auto des = TensorUtils::getDescribe(t.get());
-        des->backend->onReleaseBuffer(t.get(), Backend::STATIC);
+void GeometryComputer::Context::pushCache(const CommandBuffer& buffer) {
+    for (auto cmd : buffer.command) {
+        if (cmd->op->type() == OpType_Raster) {
+            mRasterCmdCache.emplace_back(cmd);
+        }
     }
+}
+void GeometryComputer::Context::clear() {
     mTempConstTensors.clear();
 }
 const std::vector<std::shared_ptr<Tensor>>& GeometryComputer::Context::searchConst(const Op* op) {
@@ -107,42 +101,31 @@ void GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuffer&
     if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
         return;
     }
-    Command cmd;
-    cmd.op = flatbuffers::GetRoot<Op>(mRasterOp.data());
-    auto output = src;
-    auto oldDes = TensorUtils::getDescribe(output);
-    MNN_ASSERT(oldDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL);
-    std::shared_ptr<Tensor> newTensor(new Tensor);
-    TensorUtils::copyShape(output, newTensor.get(), true);
-    newTensor->buffer().type = output->getType();
-    auto newDes = TensorUtils::getDescribe(newTensor.get());
-    newDes->regions = std::move(oldDes->regions);
-    newDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-    oldDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
-    cmd.inputs = {newTensor.get()};
-    cmd.outputs = {src};
-    cmdBuffer.command.emplace_back(std::move(cmd));
-    cmdBuffer.extras.emplace_back(newTensor);
-}
-bool GeometryComputer::compute(const Op* op, const std::vector<Tensor*>& inputs,
-                               const std::vector<Tensor*>& outputs, GeometryComputer::Context& context,
-                               CommandBuffer& cmdBuffer) const {
-    std::map<std::shared_ptr<Tensor>, Tensor*> rasterMap;
-    auto status = this->onCompute(op, inputs, outputs, context, cmdBuffer);
-    for (int i = 0; i < outputs.size(); ++i) {
-        auto oldDes = TensorUtils::getDescribe(outputs[i]);
-        if (oldDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-            continue;
-        }
-        if (!context.supportVirtual()) {
-            context.pOutputs.emplace_back(outputs[i]);
-        } else {
-            if (oldDes->usage == Tensor::InsideDescribe::OUTPUT) {
-                context.pOutputs.emplace_back(outputs[i]);
-            }
-        }
+    srcDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+    if (mRasterCmdCache.empty()) {
+        SharedPtr<Command> cmdP(new Command);
+        auto& cmd = *cmdP;
+        cmd.op = flatbuffers::GetRoot<Op>(mRasterOp->buffer());
+        cmd.buffer = mRasterOp;
+        cmd.inputs = {src};
+        cmd.outputs = {src};
+        cmdBuffer.command.emplace_back(std::move(cmdP));
+        return;
     }
-    return status;
+    auto iter = mRasterCmdCache.begin() + ((int)mRasterCmdCache.size() - 1);
+    auto cmdP = *iter;
+    mRasterCmdCache.erase(iter);
+    cmdP->inputs[0] = src;
+    cmdP->outputs[0] = src;
+    cmdBuffer.command.emplace_back(std::move(cmdP));
+}
+
+bool DefaultGeometryComputer::onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                         Context& context, CommandBuffer& cmd) const {
+    if (1 != cmd.command.size()) {
+        return false;
+    }
+    return true;
 }
 
 bool DefaultGeometryComputer::onCompute(const Op* op, const std::vector<Tensor*>& originInputs,
@@ -150,11 +133,12 @@ bool DefaultGeometryComputer::onCompute(const Op* op, const std::vector<Tensor*>
                                         CommandBuffer& res) const {
     auto inputs = originInputs;
     // Last Command
-    Command cmd;
+    SharedPtr<Command> cmdP(new Command);
+    auto& cmd = *cmdP;
     cmd.op      = op;
     cmd.inputs  = std::move(inputs);
     cmd.outputs = std::move(outputs);
-    res.command.emplace_back(std::move(cmd));
+    res.command.emplace_back(std::move(cmdP));
     return true;
 }
 
@@ -165,35 +149,37 @@ public:
             return &mDefault;
         }
         if (Runtime::Compiler_Loop == compType) {
-            auto iter = mLoopTable.find(type);
-            if (iter != mLoopTable.end()) {
-                return iter->second.get();
+            auto iter = mLoopTable[type].get();
+            if (iter != nullptr) {
+                return iter;
             }
         }
         // Geometry
-        auto iter = mTable.find(type);
-        if (iter != mTable.end()) {
+        auto iter = mTable[type].get();
+        if (iter != nullptr) {
             // FUNC_PRINT(type);
-            return iter->second.get();
+            return iter;
         }
         return &mDefault;
     }
     static void init() {
         gInstance = new GeometryComputerManager;
+        gInstance->mTable.resize(OpType_MAX + 1);
+        gInstance->mLoopTable.resize(OpType_MAX + 1);
     }
     static GeometryComputerManager* get() {
         return gInstance;
     }
     void insert(std::shared_ptr<GeometryComputer> c, int type, Runtime::CompilerType compType) {
         if (Runtime::Compiler_Geometry == compType) {
-            mTable.insert(std::make_pair(type, c));
+            mTable[type] = c;
         } else if (Runtime::Compiler_Loop == compType) {
-            mLoopTable.insert(std::make_pair(type, c));
+            mLoopTable[type] = c;
         }
     }
 private:
-    std::map<int, std::shared_ptr<GeometryComputer>> mTable;
-    std::map<int, std::shared_ptr<GeometryComputer>> mLoopTable;
+    std::vector<std::shared_ptr<GeometryComputer>> mTable;
+    std::vector<std::shared_ptr<GeometryComputer>> mLoopTable;
     static GeometryComputerManager* gInstance;
     DefaultGeometryComputer mDefault;
 };

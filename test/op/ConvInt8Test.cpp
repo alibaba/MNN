@@ -13,6 +13,8 @@
 #include "MNNTestSuite.h"
 #include "common/CommonCompute.hpp"
 #include "common/MemoryFormater.h"
+#include "common/WinogradInt8Helper.hpp"
+#include <MNN/AutoTime.hpp>
 
 using namespace MNN::Express;
 using namespace MNN;
@@ -73,28 +75,28 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     if (sparseAlgo == MNN::SparseAlgo_RANDOM || sparseAlgo == MNN::SparseAlgo_SIMD_OC) {
         size_t weightNNZElement, weightBlockNumber = 0;
         CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight.data(), bias.size(), weight.size() / bias.size(), sparseBlockOC);
-        MNN::AttributeT* arg1(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg1(new MNN::AttributeT);
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        MNN::AttributeT* arg2(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        MNN::AttributeT* arg3(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        MNN::AttributeT* arg4(new MNN::AttributeT);
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
-        auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
-        auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
-        auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
-        auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+        auto sparseArg1 = MNN::CreateAttribute(builder, arg1.get());
+        auto sparseArg2 = MNN::CreateAttribute(builder, arg2.get());
+        auto sparseArg3 = MNN::CreateAttribute(builder, arg3.get());
+        auto sparseArg4 = MNN::CreateAttribute(builder, arg4.get());
 
         argsVector.emplace_back(sparseArg1);
         argsVector.emplace_back(sparseArg2);
@@ -396,22 +398,130 @@ public:
     }
 };
 
-class ConvInt8WinogradTest : public ConvInt8TestCommon {
+class ConvInt8WinogradTestCommon : public MNNTestCase {
 public:
+    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, bool speed, std::string title) {
+        auto createWinogradConv = [](std::vector<int8_t>& weight, std::vector<int>& bias, std::vector<float>& scale,
+                                     std::vector<int>& attrs, VARP x, INTS kernel, INTS channel, INTS pad,
+                                     int8_t inputZeroPoint, int8_t outputZeroPoint) -> VARP {
+            std::unique_ptr<OpT> convOp(new OpT);
+            convOp->type = OpType_ConvInt8;
+            convOp->main.type  = OpParameter_Convolution2D;
+            convOp->main.value = new Convolution2DT;
+            auto conv2D        = convOp->main.AsConvolution2D();
+            conv2D->common.reset(new Convolution2DCommonT);
+            conv2D->common->padMode = PadMode_CAFFE;
+            conv2D->common->padX = pad[0];
+            conv2D->common->padY = pad[1];
+            conv2D->common->inputCount  = channel[0];
+            conv2D->common->outputCount = channel[1];
+            conv2D->common->kernelX = kernel[0];
+            conv2D->common->kernelY = kernel[1];
+            conv2D->common->relu = false;
+            conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
+            conv2D->symmetricQuan->weight = weight;
+            conv2D->symmetricQuan->bias = bias;
+            conv2D->symmetricQuan->scale = scale;
+            conv2D->symmetricQuan->zeroPoint = inputZeroPoint;
+            conv2D->symmetricQuan->outputZeroPoint = outputZeroPoint;
+            conv2D->symmetricQuan->clampMin = -127;
+            conv2D->symmetricQuan->clampMax = 127;
+            conv2D->symmetricQuan->winogradAttr = attrs;
+            return (Variable::create(Expr::create(convOp.get(), {x})));
+        };
+        int ic = channel[0], oc = channel[1], iw = inputShape[0], ih = inputShape[1], kx = kernel[0], ky = kernel[1];
+        int8_t inputZeroPoint = 0, outputZeroPoint = 0, xMin = -31, xMax = 31;
+        std::vector<int> bias(oc, 0);
+        std::vector<float> scale(oc, 1.0f);
+        std::vector<int8_t> weight(oc * ic * ky * kx);
+        VARP x = _Input({1, ic, ih, iw}, NCHW, halide_type_of<int8_t>());
+        auto xInfo = x->getInfo();
+        auto xPtr  = x->writeMap<int8_t>();
+        for (int i = 0; i < xInfo->size; ++i) {
+            xPtr[i] = (i % (xMax - xMin + 1)) + xMin; // x in [xMin, xMax]
+        }
+        for (int oz = 0; oz < oc; ++oz) {
+            for (int sz = 0; sz < ic; ++sz) {
+                for (int k = 0; k < ky * kx; ++k) {
+                    auto w = (oz * oz + sz * sz + k * k) % 15 - 7;
+                    weight[(oz * ic + sz) * ky * kx + k] = w * 4; // ww = 4*w, w in [-7, 7]
+                }
+            }
+        }
+        std::vector<float> weightFloat(weight.size()), transWeightFloat;
+        std::vector<int> attrs;
+        std::transform(weight.begin(), weight.end(), weightFloat.begin(), [](int8_t val) -> float { return val; });
+        WinogradInt8Helper::transformWeight(weightFloat, transWeightFloat, attrs, oc, ic, ky, kx);
+        std::vector<int8_t> transWeight(transWeightFloat.size());
+        std::transform(transWeightFloat.begin(), transWeightFloat.end(), transWeight.begin(), [=](float val) -> int8_t { return val; });
+        x = _Convert(x, NC4HW4);
+        // For sse we use uint8 instead of int8, use FloatToInt8 to hidden detail
+        x = _FloatToInt8(_Cast<float>(x), _Scalar<float>(1.0f), -127, 127);
+        VARP y = createWinogradConv(transWeight, bias, scale, attrs, x, kernel, channel, pad, inputZeroPoint, outputZeroPoint);
+        VARP yr = _Cast<int8_t>(_Int8ToFloat(y, _Scalar<float>(1.0f)));
+        yr = _Convert(yr, NCHW);
+        auto yInfo = yr->getInfo();
+        auto yPtr  = yr->readMap<int8_t>();
+        auto ow = yInfo->dim[3], oh = yInfo->dim[2];
+        auto targetValues = naiveConvInt8(xPtr, weight.data(), bias.data(), scale.data(),
+                                            ow, oh, iw, ih, channel[0], channel[1], kernel[0], kernel[1], pad[0], pad[1], 1, 0, 1, 1, 1, 1);
+        for (int i = 0; i < targetValues.size(); ++i) {
+            int8_t targetValue = targetValues[i], computeResult = yPtr[i];
+            if (targetValue != computeResult) {
+                MNN_PRINT("ConvInt8 Winograd %s %d x %d, ConvInt8 result %d Error: %d -> %d\n", title.c_str(), ow, oh, i, targetValue, computeResult);
+                return false;
+            }
+        }
+        if (speed) {
+            x.fix(VARP::INPUT);
+            MNN::Timer _t;
+            const int LOOP = 20;
+            for (int i = 0; i < LOOP; ++i) {
+                x->writeMap<float>();
+                y->readMap<float>();
+            }
+            auto time = (float)_t.durationInUs() / 1000.0f;
+            MNN_PRINT("ConvInt8 Winograd %s input=(1x%dx%dx%d) output=(1x%dx%dx%d) avg time = %f\n",
+                      title.c_str(), ic, ih, iw, oc, oh, ow, 1.0 * time / LOOP);
+        }
+        return true;
+    }
+};
+
+class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {76, 31}; // {w, h}
+        INTS pad = {1, 1}, inputShape = {128, 128}; // {w, h}
         INTS channel = {32, 32}; // {ci, co}
 
         std::vector<std::vector<int>> kernels = {
-            {4, 4}, {3, 3}, {7, 1}, {1, 7}, {2, 3}, {3, 2} // {w, h}
+            {3, 3}, {3, 2}, {2, 3}, {2, 2}, {4, 4}, {7, 1}, {1, 7} // {w, h}
         };
         std::vector<std::string> titles = {
-            "4x4", "3x3", "1x7", "7x1", "3x2", "2x3"
+            "3x3", "2x3", "3x2", "2x2", "4x4", "1x7", "7x1"
         };
-        std::vector<int> bits = {5, 5, 5, 5, 5, 5};
-
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, bits[i], false, 1, 3, MNN::SparseAlgo_RANDOM, 1, false);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, false, titles[i]);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+class ConvSpeedInt8WinogradTest : public ConvInt8WinogradTestCommon {
+    public:
+    virtual bool run(int precision) {
+        INTS pad = {1, 1}, inputShape = {28, 28}; // {w, h}
+        INTS channel = {128, 128};
+        std::vector<INTS> kernels = {
+            {3, 3}, {5, 5}, {7, 1}, {1, 7} // {w, h}
+        };
+        
+        std::vector<std::string> titles = {"3x3", "5x5", "1x7", "7x1"};
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], channel, pad, true, titles[i]);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
                 return false;
@@ -454,4 +564,5 @@ MNNTestSuiteRegister(ConvInt8Im2colGemmTest, "op/ConvInt8/im2col_gemm");
 MNNTestSuiteRegister(SparseConvInt8Im2colGemmTest, "op/ConvInt8/im2col_spmm");
 #endif
 MNNTestSuiteRegister(ConvInt8WinogradTest, "op/ConvInt8/winograd");
+MNNTestSuiteRegister(ConvSpeedInt8WinogradTest, "speed/ConvInt8/winograd");
 MNNTestSuiteRegister(DepthwiseConvInt8Test, "op/ConvInt8/depthwise");

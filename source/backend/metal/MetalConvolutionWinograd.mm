@@ -87,8 +87,8 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     transform.unitHeight    = uh;
     transform.unit          = mDstUnit;
     transform.activation    = mActivationType;
-    mConstBuffer.reset(sizeof(transform));
-    ::memcpy(mConstBuffer.buffer().contents, &transform, sizeof(transform));
+    mConstBuffer = backend->getConstBuffer(sizeof(transform));
+    ::memcpy(mConstBuffer.contents, &transform, sizeof(transform));
 
     // create matmul buffer
     int shapes[] = {us, oz, iz, mSrcUnit * mSrcUnit};
@@ -130,25 +130,25 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         auto encoder = backend->encoder();
         { // transform
             auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
-            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:1];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
             [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
         }
         { // gemm
             auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:1];
             [encoder setBuffer:mWeight offset:0 atIndex:2];
             [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
             [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
         }
         { // transform
             auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:0];
             [encoder setBuffer:mBias offset:0 atIndex:1];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
             [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
         }
         MNN_PRINT_ENCODER(context, encoder);

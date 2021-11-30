@@ -65,7 +65,7 @@ void CPUConvolution::ResourceInt8::updateInputOutputScale(std::vector<float> inp
         }
         auto scalePtr = mScaleFloat->host<float>();
         auto biasPtr = mBiasInt32->host<int>();
-        int size = mScaleFloat->elementSize();
+        int size = mOutputCount;
         float is = mInputScale / inputScale;
         float os = mOutputScale / outputScale;
 
@@ -111,15 +111,7 @@ void CPUConvolution::ResourceInt8::updateInputOutputScale(std::vector<float> inp
     });
 }
 CPUConvolution::ResourceInt8::~ResourceInt8() {
-    if(mWeightInt8 != nullptr) {
-        backend->onReleaseBuffer(mWeightInt8.get(), Backend::STATIC);
-    }
-    if(mBiasInt32 != nullptr){
-        backend->onReleaseBuffer(mBiasInt32.get(), Backend::STATIC);
-    }
-    if(mScaleFloat != nullptr){
-        backend->onReleaseBuffer(mScaleFloat.get(), Backend::STATIC);
-    }
+    // Do nothing
 }
 std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam,
                                                                                std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
@@ -136,7 +128,6 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     resource->mInputScale = inputQuantInfo[0];
     resource->mOutputScale = outputQuantInfo[0];
     const auto convCommon  = convParam->common();
-    const auto kernelCount = convCommon->kernelY() * convCommon->kernelX();
     const auto group = convParam->common()->group();
     const auto outputCount = convCommon->outputCount();
     const auto outputChannleUp4 = UP_DIV(outputCount, UNIT) * UNIT;
@@ -158,6 +149,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const int8_t* weightSrc = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    resource->mOutputCount = outputCount;
     if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr,
                                                   inputQuantInfo[0], outputQuantInfo[0],
                                                   convParam->symmetricQuan()->zeroPoint(),
@@ -283,25 +275,15 @@ public:
 #ifdef MNN_USE_ONEDNN
         return OneDNNConvInt8::create(backend, convOp, inputs, outputs);
 #endif
-        /*int nbit = 6;
-        auto quantAttr = new QuantAttr;
-        quantAttr->min = -(1<<(nbit-1))+1;
-        quantAttr->max = (1<<(nbit-1))-1;
-        TensorUtils::getDescribe(inputs[0])->quantAttr.reset(quantAttr);*/
         auto res = CPUConvolution::makeResourceInt8(backend, convOp, inputQuantInfo, outputQuantInfo);
-
 #ifdef MNN_USE_SPARSE_COMPUTE
         auto core = static_cast<CPUBackend*>(backend)->int8Functions();
         if (static_cast<CPUBackend*>(backend)->functions()->pack == 4 && convOp->sparseParameter() && SparseConvInt8TiledExecutor::shouldUseSparse(convOp)) {
             return new SparseConvInt8TiledExecutor(backend, convOp, res);
         }
 #endif
-
-        if (!inputs.empty()) {
-            std::vector<ConvInt8Winograd::UnitAttr> unitAttrs;
-            if (ConvInt8Winograd::bestWinogradUnit(convOp, inputs[0], res->mWeightInt8.get(), outputs[0], backend, unitAttrs)) {
-                return new ConvInt8Winograd(backend, convOp, res, unitAttrs);
-            }
+        if (ConvInt8Winograd::mustUse(convOp)) {
+            return new ConvInt8Winograd(backend, convOp, res);
         }
         return new DenseConvInt8TiledExecutor(backend, convOp, res);
     }

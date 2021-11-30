@@ -73,6 +73,7 @@ public:
     ~Tensor();
 
 private:
+    Tensor(bool deepCopy, const Tensor* tensor);
     // remove all assignment operator
     Tensor(const Tensor& tensor)  = delete;
     Tensor(const Tensor&& tensor) = delete;
@@ -125,6 +126,12 @@ public:
         return create(shape, halide_type_of<T>(), data, dimType);
     }
 
+    /**
+     * @brief copy tensor.
+     * @param src     tensor
+     * @param deepCopy whether create new content and copy, currently only support deepCopy = false
+     */
+    static Tensor* clone(const Tensor* src, bool deepCopy = false);
 public:
     /**
      * @brief for DEVICE tensor, copy data from given host tensor.

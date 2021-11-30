@@ -77,6 +77,14 @@ public:
 
     static Module* clone(const Module* module, const bool shareParams = false);
 
+    struct Info {
+        // Input info load from model
+        // If the ith input has no info, it will be nullptr
+        std::vector<Variable::Info> inputs;
+        Dimensionformat defaultFormat;
+        std::shared_ptr<MNN::Express::Executor::RuntimeManager> runTimeManager;
+    };
+    const Info* getInfo() const;
     class CloneContext {
     public:
         CloneContext() = default;

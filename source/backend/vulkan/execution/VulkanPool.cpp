@@ -106,9 +106,7 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         auto vkBackend = (VulkanBackend*)backend();
         auto vkOutput  = (VulkanTensor*)output->deviceId();
         auto vkInput   = (VulkanTensor*)input->deviceId();
-        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
-        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        
+
         mDescriptorSet.reset(mPoolPipeline->createSet());
         mDescriptorSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_GENERAL, 0);
@@ -116,6 +114,9 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
         mPoolPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+
+        vkOutput->image()->barrierWrite(cmdBuffer->get());
+        vkInput->image()->barrierRead(cmdBuffer->get());
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, 8), UP_DIV(oh, 8), UP_DIV(ocDiv4 * output->batch(), 1));
     }
     return NO_ERROR;

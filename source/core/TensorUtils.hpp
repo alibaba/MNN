@@ -10,6 +10,8 @@
 #define TensorUtils_hpp
 
 #include <MNN/Tensor.hpp>
+#include "Backend.hpp"
+#include "AutoStorage.h"
 #include "Tensor_generated.h"
 
 #ifdef CONSTANT
@@ -17,7 +19,6 @@
 #endif // CONSTANT
 
 namespace MNN {
-class Backend;
 struct TensorArrayAttr {
     // array size is dynamic or not
     bool isDynamicSize = false;
@@ -33,21 +34,19 @@ struct QuantAttr {
     float zero = 0.0f;
     float min  = -127.0f;
     float max  = 127.0f;
-    DataType type = DataType_DT_INT8;
 };
-/** extra tensor info container */
 struct Tensor::InsideDescribe {
-public:
-    /** dimension format */
-    MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-    union {
-        /** Serperate memory offset*/
-        int offset;
-
-        /** function used to free handle */
-        void (*handleFreeFunction)(void*);
-    } extra;
-
+    struct View {
+        int32_t offset = 0;
+        int32_t stride[3] = {1, 1, 1};
+    };
+    struct Region {
+        View src;
+        View dst;
+        int32_t size[3] = {1, 1, 1};
+        Tensor* origin;
+        int mask = 0;
+    };
     enum MemoryType {
         /** The tensor's memory come from Backend */
         MEMORY_BACKEND = 0,
@@ -60,13 +59,7 @@ public:
 
         /** host memory is owned by tensor or not */
         MEMORY_OUTSIDE,
-
     };
-    MemoryType memoryType = MEMORY_BACKEND;
-    /** for DEVICE tensor only. backend used to manage tensor's device memory. */
-    Backend* backend = nullptr;
-    /** for DEVICE tensor only. */
-    int useCount = 0;
     enum Usage {
         NORMAL,
         INPUT,
@@ -75,25 +68,39 @@ public:
         /** Whether the tensor is a trainable parameter. Trainable parameter should be stored in a different area. */
         TRAINABLE,
     };
-    Usage usage = NORMAL;
-    struct View {
-        int32_t offset = 0;
-        int32_t stride[3] = {1, 1, 1};
+    /** extra tensor info container */
+    struct NativeInsideDescribe : public RefCount {
+    public:
+        /** dimension format */
+        MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        union {
+            /** Serperate memory offset*/
+            int offset;
+
+            /** function used to free handle */
+            void (*handleFreeFunction)(void*);
+        } extra;
+        MemoryType memoryType = MEMORY_BACKEND;
+        /** for DEVICE tensor only. backend used to manage tensor's device memory. */
+        Backend* backend = nullptr;
+        /** for DEVICE tensor only. */
+        int useCount = 0;
+        Usage usage = NORMAL;
+        std::vector<Region> regions;
+        halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
+        // TensorArray Attribute
+        std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
+        // Tensor Quant Attribute
+        std::shared_ptr<QuantAttr> quantAttr;
+        // Only valid when quantAttr is not nullptr
+        DataType type = DataType_DT_FLOAT;
+        AutoRelease<Backend::MemObj> mem;
+        bool isMutable = true;
+        int index;
     };
-    struct Region {
-        View src;
-        View dst;
-        int32_t size[3] = {1, 1, 1};
-        Tensor* origin;
-        int mask = 0;
-    };
-    std::vector<Region> regions;
-    halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
-    // TensorArray Attribute
-    std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
-    // Tensor Quant Attribute
-    std::shared_ptr<QuantAttr> quantAttr;
+    SharedPtr<NativeInsideDescribe> mContent;
 };
+
 typedef Tensor::InsideDescribe::Usage TensorUsage;
 
 /** tensor utils */
@@ -104,7 +111,9 @@ public:
      * @param tensor    given tensor.
      * @return extra tensor info.
      */
-    static Tensor::InsideDescribe* getDescribe(const Tensor* tensor);
+    static Tensor::InsideDescribe::NativeInsideDescribe* getDescribe(const Tensor* tensor);
+
+    static Tensor::InsideDescribe* getDescribeOrigin(const Tensor* tensor);
 
     /**
      * @brief copy shape from source tensor to dest tensor.
@@ -126,12 +135,6 @@ public:
      * @param tensor    given tensor.
      */
     static void setLinearLayout(Tensor* tensor);
-
-    /**
-     * @brief call handle free function to clear handle of tensor.
-     * @param tensor    given tensor.
-     */
-    static void clearHandleData(Tensor* tensor);
 
     /**
      * @brief compare tensor to expected with tolerance.

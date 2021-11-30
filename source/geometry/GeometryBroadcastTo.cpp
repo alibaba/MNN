@@ -16,7 +16,8 @@ public:
                            Context& context, CommandBuffer& res) const override {
         auto input  = inputs[0];
         auto output = outputs[0];
-        ConvertUtils::broadcastto(input, output);
+        bool forward = op->main() && op->main_as_Axis()->axis();
+        ConvertUtils::broadcastto(input, output, forward);
         return true;
     }
 };

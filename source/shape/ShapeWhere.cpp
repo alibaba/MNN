@@ -12,6 +12,16 @@
 namespace MNN {
 #define MNN_WHERE_OLD_VERSION
 
+template <typename T>
+int _count(Tensor* t) {
+    const T* ptr = t->host<T>();
+    int count = 0;
+    for (int i = 0; i < t->elementSize(); i++) {
+        count += (ptr[i] > 0);
+    }
+    return count;
+}
+
 class WhereSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
@@ -19,7 +29,6 @@ class WhereSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();
-        MNN_ASSERT(ib.type.code == halide_type_int);
         ob.dimensions = 2;
         ob.dim[0].extent = inputs[0]->elementSize();
         ob.dim[1].extent = ib.dimensions;
@@ -30,19 +39,23 @@ class WhereSizeComputer : public SizeComputer {
             // support old version
             return true;
         }
-        const int32_t* inputData = inputs[0]->host<int32_t>();
         // For compability
-        if (nullptr == inputData) {
+        if (nullptr == inputs[0]->host<void>()) {
             return true;
         }
-        std::vector<int32_t> trueVec;
-        for (int i = 0; i < ob.dim[0].extent; i++) {
-            if (inputData[i] > 0) {
-                trueVec.push_back(i);
-            }
+        int count = 0;
+        if (ib.type == halide_type_of<float>()) {
+            count = _count<float>(inputs[0]);
+        } else if (ib.type == halide_type_of<int32_t>()) {
+            count = _count<int32_t>(inputs[0]);
+        } else if (ib.type == halide_type_of<uint8_t>()) {
+            count = _count<uint8_t>(inputs[0]);
+        } else {
+            return false;
         }
-        if (trueVec.size() > 0) {
-            ob.dim[0].extent = (int)trueVec.size();
+
+        if (count > 0) {
+            ob.dim[0].extent = count;
         }
         return true;
     }

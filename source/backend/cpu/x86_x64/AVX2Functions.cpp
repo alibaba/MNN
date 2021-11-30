@@ -11,20 +11,15 @@
 #include "avx/FunctionSummary.hpp"
 #include "avxfma/FunctionSummary.hpp"
 #include "avx512/FunctionSummary.hpp"
+#include "sse/FunctionSummary.hpp"
 namespace MNN {
-struct MatMulPackParam {
-    int eP;
-    int lP;
-    int hP;
-};
-
-static MatMulPackParam gPackInfo;
+static int geP, glP, ghP;
 static CoreFunctions* gAVX2CoreFunctions = nullptr;
 static CoreInt8Functions* gAVX2CoreInt8Functions = nullptr;
 static void _MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
-    *eP = gPackInfo.eP;
-    *lP = gPackInfo.lP;
-    *hP = gPackInfo.hP;
+    *eP = geP;
+    *lP = glP;
+    *hP = ghP;
 }
 
 bool AVX2Functions::init(int cpuFlags) {
@@ -37,9 +32,9 @@ bool AVX2Functions::init(int cpuFlags) {
     _AVX_MNNInt8FunctionInit(gAVX2CoreInt8Functions);
     // Init AVX2
     coreFunction->MNNGetMatMulPackMode = _MNNGetMatMulPackMode;
-    gPackInfo.eP                    = 24;
-    gPackInfo.lP                    = 1;
-    gPackInfo.hP                    = 4;
+    geP = 24;
+    glP = 1;
+    ghP = 4;
     _AVX_ReorderInit(coreFunction);
 
     coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMul;
@@ -61,6 +56,8 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1FMA;
         _AVX_ExtraInitFMA(coreFunction);
     }
+    // For ImageProcess Functions
+    _SSE_ImageProcessInit(coreFunction);
 #ifdef MNN_AVX512
     if ((cpuFlags & libyuv::kCpuHasAVX512VNNI)
         || (cpuFlags & libyuv::kCpuHasAVX512VL)
@@ -78,15 +75,11 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNPackC4ForMatMul_A  = _AVX512_MNNPackC8ForMatMul_A;
         coreFunction->MNNPackedMatMul = _AVX512_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _AVX512_MNNPackedMatMulRemain;
-        gPackInfo.eP                    = 48;
-        gPackInfo.hP                    = 8;
-        gPackInfo.lP                    = 1;
+        geP = 48;
+        ghP = 8;
+        glP = 1;
+        _AVX512_MNNInt8FunctionInit(gAVX2CoreInt8Functions, cpuFlags & libyuv::kCpuHasAVX512VNNI);
     }
-#ifdef MNN_AVX512_VNNI
-    if (cpuFlags & libyuv::kCpuHasAVX512VNNI) {
-        _AVX512_MNNInt8FunctionInit(gAVX2CoreInt8Functions);
-    }
-#endif
 #endif
     return true;
 }

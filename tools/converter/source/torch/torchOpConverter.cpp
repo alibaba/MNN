@@ -86,6 +86,7 @@ bool TorchScope::dealPrime(const torch::jit::Node *node) {
         case at::prim::ListConstruct:
         case at::prim::ListUnpack:
         case at::prim::TupleConstruct:
+        case at::prim::Uninitialized:
             for (const auto output : node->outputs()) {
                 declareVar(output->debugName(), node);
             }
@@ -162,7 +163,7 @@ void TorchScope::buildSubGraph(const torch::jit::Block* block,
                 break;
             }
             const auto inputName = node->input(inputIdx)->debugName();
-            scope->addInputForOp(MNNOp, inputName);
+            scope->addInputForOp(MNNOp, inputName, true);
         }
         for (const auto output : node->outputs()) {
             MNNOp->outputIndexes.push_back(scope->declareTensor(output->debugName()));
@@ -175,7 +176,7 @@ void TorchScope::buildSubGraph(const torch::jit::Block* block,
         int idx = scope->lookupTensor(output->debugName());
         if (idx < 0) {
             idx = scope->buildIntInputOp(output->debugName());
-            scope->subgraphDeps.push_back(output->debugName());
+            scope->deps().push_back(output->debugName());
         }
         if (idx >= 0) {
             subgraph->outputs.push_back(idx);

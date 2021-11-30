@@ -126,6 +126,11 @@ public:
         Session_Input_Inside = 2,
         /** The input tensor is alloced by user, set input data before session resize*/
         Session_Input_User = 3,
+
+        /** The output tensor depends on session, and can't be seperate used*/
+        Session_Output_Inside = 4,
+        /** The output tensor can be seperated from session*/
+        Session_Output_User = 5,
     };
     /**
      * @brief The API shoud be called before create session.

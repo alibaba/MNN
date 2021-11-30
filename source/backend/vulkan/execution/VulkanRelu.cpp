@@ -79,6 +79,8 @@ ErrorCode VulkanRelu::onEncode(const std::vector<Tensor *> &inputs, const std::v
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
     mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+    outputTensor->image()->barrierWrite(cmdBuffer->get());
+    inputTensor->image()->barrierRead(cmdBuffer->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputTensor->image()->width(), 16), UP_DIV(inputTensor->image()->height(), 16), 1);
     return NO_ERROR;
 }
@@ -129,9 +131,6 @@ ErrorCode VulkanPrelu::onEncode(const std::vector<Tensor *> &inputs, const std::
     auto vkBackend = (VulkanBackend*)backend();
     auto vkOutput  = (VulkanTensor*)output->deviceId();
     auto vkInput   = (VulkanTensor*)input->deviceId();
-    cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
-    cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    cmdBuffer->barrierImageIfNeeded(mSlope.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     mDescriptorSet.reset(mPreluPipeline->createSet());
     mDescriptorSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), vkBn->getCommonSampler()->get(),
@@ -141,6 +140,10 @@ ErrorCode VulkanPrelu::onEncode(const std::vector<Tensor *> &inputs, const std::
     mDescriptorSet->writeImage((mSlope->view()), vkBn->getCommonSampler()->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
     mDescriptorSet->writeBuffer(mGpuPreluParam->buffer(), 3, mGpuPreluParam->size());
+
+    vkOutput->image()->barrierWrite(cmdBuffer->get());
+    vkInput->image()->barrierRead(cmdBuffer->get());
+    mSlope->barrierRead(cmdBuffer->get());
 
     mPreluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 

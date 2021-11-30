@@ -60,6 +60,7 @@ movq %rsi, %r13
 LoopDz:
     movq %rcx, %r11
     shlq $5, %r11
+    subq $32,  %r11
     movq %r13, %rsi
 
     Init:
@@ -146,6 +147,39 @@ LoopDz:
         jne LoopSz
 
     Last:
+    // last of pipline
+    vbroadcastss (%rdx, %rbx), %zmm4
+    vbroadcastss 4(%rdx, %rbx), %zmm5
+    vbroadcastss 8(%rdx, %rbx), %zmm6
+    vbroadcastss 12(%rdx, %rbx), %zmm7
+
+    vfmadd231ps %zmm4, %zmm2, %zmm8
+    vfmadd231ps %zmm4, %zmm3, %zmm9
+
+    vfmadd231ps %zmm5, %zmm2, %zmm11
+    vfmadd231ps %zmm5, %zmm3, %zmm12
+
+    vfmadd231ps %zmm6, %zmm2, %zmm14
+    vfmadd231ps %zmm6, %zmm3, %zmm15
+
+    vfmadd231ps %zmm7, %zmm2, %zmm17
+    vfmadd231ps %zmm7, %zmm3, %zmm18
+
+    vbroadcastss 16(%rdx, %rbx), %zmm4
+    vbroadcastss 20(%rdx, %rbx), %zmm5
+    vbroadcastss 24(%rdx, %rbx), %zmm6
+    vbroadcastss 28(%rdx, %rbx), %zmm7
+
+    vfmadd231ps %zmm4, %zmm2, %zmm20
+    vfmadd231ps %zmm4, %zmm3, %zmm21
+    vfmadd231ps %zmm5, %zmm2, %zmm23
+    vfmadd231ps %zmm5, %zmm3, %zmm24
+    vfmadd231ps %zmm6, %zmm2, %zmm26
+    vfmadd231ps %zmm6, %zmm3, %zmm27
+
+    vfmadd231ps %zmm7, %zmm2, %zmm29
+    vfmadd231ps %zmm7, %zmm3, %zmm30
+    addq $32,  %r11
     addq %r11, %rdx
 
 .macro TRANSPOSE_SAVE x0, x1, x2, x3, x4, x5, x6, x7
@@ -276,4 +310,3 @@ popq    %rbx
 popq    %rbp
 
 retq
-

@@ -171,8 +171,9 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
                 MNN__mm_storeu_si64(dst_x, d0);
                 MNN__mm_storeu_si64(dst_x + 8, d1);
             } else {
-                auto f0 = _mm256_cvtepi32_ps(D0);
-                auto f1 = _mm256_cvtepi32_ps(D1);
+                auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
+                auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue0));
+                auto f1 = _mm256_cvtepi32_ps(_mm256_add_epi32(D1, biasValue0));
                 _mm256_storeu_ps(((float*)dst_x), f0);
                 _mm256_storeu_ps(((float*)dst_x) + 8, f1);
             }
@@ -266,7 +267,8 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             auto d0 = _mm_packus_epi16(_mm256_castsi256_si128(D0), _mm256_castsi256_si128(_mm256_castps_si256(zero128)));
             MNN__mm_storeu_si64(dst_x, d0);
         } else {
-            auto f0 = _mm256_cvtepi32_ps(D0);
+            auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
+            auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue0));
             _mm256_storeu_ps(((float*)dst_x), f0);
         }
     }

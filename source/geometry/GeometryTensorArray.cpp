@@ -33,7 +33,7 @@ static std::pair<int, int> getElemSize(const Tensor* t, int index) {
     }
 }
 
-static bool isFirstWrite(const Tensor::InsideDescribe* des) {
+static bool isFirstWrite(const Tensor::InsideDescribe::NativeInsideDescribe* des) {
     if (des->tensorArrayAttr->elemShape.empty()) {
         return true;
     }

@@ -105,6 +105,16 @@ int main(int argc, const char* argv[]) {
         stbi_image_free(inputImage);
     }
     input->copyFromHostTensor(inputUser.get());
+    if (false) {
+        std::ofstream outputOs("input_0.txt");
+        std::shared_ptr<Tensor> inputUserPrint(new Tensor(input, Tensor::CAFFE));
+        input->copyToHostTensor(inputUserPrint.get());
+        auto size = inputUserPrint->elementSize();
+        for (int i=0; i<size; ++i) {
+            outputOs << inputUserPrint->host<float>()[i] << std::endl;
+        }
+    }
+
     net->runSession(session);
     auto dimType = output->getDimensionType();
     if (output->getType().code != halide_type_float) {

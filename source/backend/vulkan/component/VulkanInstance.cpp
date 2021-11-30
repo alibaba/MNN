@@ -20,18 +20,25 @@ VulkanInstance::VulkanInstance() : mOwner(true), mInstance(VK_NULL_HANDLE) {
         /* .engineVersion      = */ VK_MAKE_VERSION(1, 0, 0),
         /* .apiVersion         = */ VK_MAKE_VERSION(1, 0, 0),
     };
-
     std::vector<const char*> instance_extensions;
-
-    // **********************************************************
+#ifdef MNN_VULKAN_DEBUG
+    const std::vector<const char*> validationLayers = {
+        "VK_LAYER_KHRONOS_validation"
+    };
+#endif
     // Create the Vulkan instance
     VkInstanceCreateInfo instanceCreateInfo{
         /* .sType                   = */ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         /* .pNext                   = */ nullptr,
         /* .flags                   = */ 0,
         /* .pApplicationInfo        = */ &appInfo,
+#ifdef MNN_VULKAN_DEBUG
+        /* .enabledLayerCount       = */ 1,
+        /* .ppEnabledLayerNames     = */ validationLayers.data(),
+#else
         /* .enabledLayerCount       = */ 0,
         /* .ppEnabledLayerNames     = */ nullptr,
+#endif
         /* .enabledExtensionCount   = */ static_cast<uint32_t>(instance_extensions.size()),
         /* .ppEnabledExtensionNames = */ instance_extensions.data(),
     };

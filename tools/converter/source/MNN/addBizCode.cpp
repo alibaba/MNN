@@ -12,7 +12,7 @@
 #include "logkit.h"
 
 int addBizCode(const std::string modelFile, const std::string bizCode,
-            std::unique_ptr<MNN::NetT>& netT) {
+               std::unique_ptr<MNN::NetT>& netT) {
     std::ifstream inputFile(modelFile, std::ios::binary);
     inputFile.seekg(0, std::ios::end);
     auto size = inputFile.tellg();
@@ -24,7 +24,10 @@ int addBizCode(const std::string modelFile, const std::string bizCode,
     netT = MNN::UnPackNet(buffer);
     CHECK(netT->oplists.size() > 0) << "MNN Molde ERROR: " << modelFile;
 
-    netT->bizCode = bizCode;
+    // if no set bizCode and has original bizCode, then keep using original bizCode
+    if (bizCode != "MNNTest" || netT->bizCode.empty()) {
+        netT->bizCode = bizCode;
+    }
 
     delete[] buffer;
 

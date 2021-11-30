@@ -115,13 +115,15 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
     engine_compile_args = ['-DBUILD_OPTYPE', '-DPYMNN_TRAIN_API']
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
+    engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "cv")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
+    print(engine_library_dirs)
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         engine_library_dirs += ['/usr/local/cuda/lib64/']
@@ -144,10 +146,13 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
+    # cv include
+    engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
     engine_include_dirs += [np.get_include()]
 
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
-    engine_depend = ['-lMNN', '-lz']
+    engine_depend = ['-lMNN']
+    engine_depend = ['-lMNN', '-lMNNOpenCV']
     if USE_TRT:
         engine_depend += trt_depend
 
@@ -156,6 +161,7 @@ def configure_extension_build():
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "3rd_party", "protobuf", "cmake")]
 
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
@@ -188,10 +194,8 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
     tools_include_dirs += [os.path.join(root_dir, "source")]
     tools_include_dirs += [np.get_include()]
-    if IS_WINDOWS:
-        tools_include_dirs += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'src')]
 
-    tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lz']
+    tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lprotobuf']
 
     if USE_TRT:
         tools_depend += trt_depend
@@ -212,19 +216,16 @@ def configure_extension_build():
     if IS_DARWIN:
         tools_extra_link_args += ['-Wl,-all_load']
         tools_extra_link_args += tools_depend
-        tools_extra_link_args += ['/usr/local/lib/libprotobuf.a']
         tools_extra_link_args += ['-Wl,-noall_load']
     if IS_LINUX:
         tools_extra_link_args += ['-Wl,--whole-archive']
         tools_extra_link_args += tools_depend
         tools_extra_link_args += ['-fopenmp']
-        tools_extra_link_args += ['/usr/local/lib/libprotobuf.a']
         tools_extra_link_args += ['-Wl,--no-whole-archive']
         tools_extra_link_args += ['-lz']
     if IS_WINDOWS:
         tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
         tools_extra_link_args += ['/WHOLEARCHIVE:MNNConvertDeps.lib']
-        tools_extra_link_args += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'vsprojects', BUILD_ARCH, BUILD_TYPE.lower().capitalize(), 'libprotobuf.lib')]
 
     if BUILD_TYPE == 'DEBUG':
         if IS_WINDOWS:

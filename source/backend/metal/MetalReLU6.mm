@@ -40,8 +40,8 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
 
         auto encoder   = backend->encoder();
         auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
         [encoder setBuffer:mConst offset:0 atIndex:2];
         [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
 

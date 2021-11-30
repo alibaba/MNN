@@ -22,6 +22,7 @@ public:
     friend class CPUBackend;
     CPURuntime(const Backend::Info& info);
     virtual ~ CPURuntime();
+    int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
@@ -45,6 +46,7 @@ private:
 struct CoreFunctions;
 struct CoreInt8Functions;
 
+class CPUResizeCache;
 class CPUBackend : public Backend {
 public:
     CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
@@ -53,8 +55,7 @@ public:
     // Return sizeDivide, scheduleNumber aligned memory
     std::pair<int, int> multiThreadDivide(int size) const;
 public:
-    virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) override;
+    virtual MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -70,11 +71,10 @@ public:
     }
 
     // Return element size for Tensor, conside pack
-    int getTensorSize(const Tensor* tensor) const;
+    int getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }
-    Execution* makePostWrapExectuion(Execution* execution) const;
 public:
     class Creator {
     public:
@@ -101,25 +101,27 @@ public:
     std::map<const Tensor*, const Tensor*>& getCachedCastTensor() {
         return mCachedCastTensor;
     }
+    CPUResizeCache* getCache() const {
+        return mCache;
+    }
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
 #endif
     static void initCreatorMap();
-    halide_type_t getRunType(const Op* op, halide_type_t qtype, halide_type_t rtype) override;
-private:
-    OpType getRealOpType(OpType opType, halide_type_t dataType);
+    static int getBytes(const Backend* backend, const Tensor* output);
+    static DataType getDataType(const Tensor* tensor);
 protected:
-    bool allocBuffer(int size, Tensor* dest,  StorageType storageType);
+    MemObj* allocBuffer(int size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
     const CoreInt8Functions* mInt8CoreFunctions;
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
-    bool mCheckNAN = false;
     const CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     std::map<const Tensor*, const Tensor*> mCachedCastTensor;
+    CPUResizeCache* mCache;
 };
 
 #define REGISTER_CPU_OP_CREATOR(name, opType)     \

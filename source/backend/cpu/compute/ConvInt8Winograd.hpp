@@ -14,71 +14,57 @@
 
 namespace MNN {
 class ConvInt8Winograd : public CPUConvolution {
+    class WinoExecution;
 public:
-    using CommonPair = std::pair<const Convolution2DCommon*, unsigned char*>;
-    struct UnitAttr {
-        int kyStart;
-        int kySize;
-        int kxStart;
-        int kxSize;
-        int unitY;
-        int unitX;
-    };
     struct Unit {
-        UnitAttr attr;
-        std::shared_ptr<CommonPair> common;
+        int kyStart;
+        int kxStart;
         std::shared_ptr<Tensor> input;
         std::shared_ptr<Tensor> output;
-        std::shared_ptr<Execution> runner;
+        std::shared_ptr<WinoExecution> runner;
     };
-    ConvInt8Winograd(Backend *b, const Convolution2D *convOp, std::shared_ptr<ResourceInt8> res, std::vector<ConvInt8Winograd::UnitAttr>& unitAttrs);
+    ConvInt8Winograd(Backend *b, const Convolution2D *convOp, std::shared_ptr<ResourceInt8> res);
     virtual ~ConvInt8Winograd();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    static bool bestWinogradUnit(const Convolution2D *convOp, const Tensor *input, const Tensor* weightSrc, const Tensor *output, Backend* bn, std::vector<UnitAttr>& unitAttrs);
+    static bool mustUse(const Convolution2D *convOp);
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
     ConvInt8Winograd(Backend* backend, const Convolution2DCommon* common, const ConvInt8Winograd& exe);
-    // transform func
-    using WinoSrcTransFunc = WinogradInt8Helper::SrcTransFunc;
-    using WinoDstTransFunc = WinogradInt8Helper::DstTransFunc;
     // subExecutions
     std::vector<Unit> mUnits;
     std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
     
-    class WinoExecution : public CPUConvolution {
+    struct WinoResource {
+        std::shared_ptr<Tensor> weight;
+        std::shared_ptr<Tensor> offsets;
+        Backend* backend;
+        ~WinoResource() {
+            backend->onReleaseBuffer(weight.get(), Backend::STATIC);
+            backend->onReleaseBuffer(offsets.get(), Backend::STATIC);
+        }
+    };
+    static std::shared_ptr<WinoResource> makeWinoResource(const int8_t* originWeight, Backend* bn, int oc, int ic, int alpha2, int step);
+    class WinoExecution : public Execution {
     public:
-        WinoExecution(Backend *b, const Convolution2DCommon* common, Tensor* weight, int unitY, int unitX, bool fastgemm);
+        WinoExecution(std::shared_ptr<WinoResource> res, int kernelY, int kernelX, int unitY, int unitX, int outputCount, int inputCount);
         
-        WinoExecution(Backend* bn, const Convolution2DCommon* common, const WinoExecution& exe);
-        virtual ~WinoExecution();
+        WinoExecution(Backend* bn, const WinoExecution& exe);
+        virtual ~WinoExecution() = default;
         virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
         virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-        virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
         // weight
-        std::shared_ptr<Tensor> mWeight;
+        std::shared_ptr<WinoResource> mWinoResource;
         // buffer
         std::shared_ptr<Tensor> mTempInputBuffer;
         std::shared_ptr<Tensor> mTempOutputBuffer;
         std::shared_ptr<Tensor> mTransformMidBuffer;
-        // transform func
-        WinoSrcTransFunc mSourceTransformY = nullptr;
-        WinoSrcTransFunc mSourceTransformX = nullptr;
-        WinoDstTransFunc mDestTransformY = nullptr;
-        WinoDstTransFunc mDestTransformX = nullptr;
-        // unit and kernel
         int mUnitY, mUnitX;
         int mKernelY, mKernelX;
-        // gemm func
-        decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
-        // other quan attr
-        int8_t mInputZeroPoint;
-        std::shared_ptr<Tensor> mOffsets;
+        int mPadY, mPadX;
         friend class ConvInt8Winograd;
     };
-    
-    static bool chooseTransformFuncs(int kernelY, int kernelX, int unitY, int unitX, ConvInt8Winograd::WinoExecution* exe, Backend* bn);
 };
 } // namespace MNN
 #endif /* ConvInt8Winograd_hpp */

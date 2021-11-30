@@ -132,7 +132,24 @@ for name in os.listdir(root_dir):
     jsonName = os.path.join(root_dir, name, 'train.json')
     message = run_cmd([command, jsonName, os.path.join(root_dir, name)])
     if (message.find('Correct') == -1):
-        gWrong.append(modelName)
+        gWrong.append("Train:" + name)
+    print(message)
+
+# model test for module
+command = 'testModel_expr.out.exe' if os.name == 'nt' else './testModel_expr.out'
+root_dir = os.path.join(model_root_dir, 'TestModule')
+print('Model Root Path For Train: ' + root_dir + '\n')
+
+for name in os.listdir(root_dir):
+    print(name)
+    if name == '.DS_Store':
+        continue
+    moduleName = os.path.join(root_dir, name, 'model.mnn')
+    inputName = os.path.join(root_dir, name, 'input.mnn')
+    outputName = os.path.join(root_dir, name, 'output.mnn')
+    message = run_cmd([command, moduleName, inputName, outputName])
+    if (message.find('Correct') == -1):
+        gWrong.append("Module:" + name)
     print(message)
 
 print('Wrong: ', len(gWrong))

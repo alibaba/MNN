@@ -32,8 +32,23 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
     }
     auto whileParam = op->main_as_WhileParam();
     auto& body = subGraph.find(whileParam->body_graph()->str())->second;
-    auto& cond = subGraph.find(whileParam->cond_graph()->str())->second;
     module->mBody = body.m;
+    if (whileParam->cond_graph() == nullptr) {
+        // From onnx's loop, use easy way to init
+        info->mOutputNumber = op->outputIndexes()->size();
+        info->mBodyInputNumber = op->inputIndexes()->size();
+        // Body Input: 2 + N, Body Output: 1 + N + K, Op output: N + K
+        int N = info->mBodyInputNumber - 2;
+        int K = info->mOutputNumber - N;
+        for (int i=0; i<info->mBodyInputNumber; ++i) {
+            info->mInputForBody.emplace_back(std::make_pair(i, i));
+        }
+        for (int i=0; i<N; ++i) {
+            info->mUpdateForBody.emplace_back(std::make_pair(i+2, i+1));
+        }
+        return module;
+    }
+    auto& cond = subGraph.find(whileParam->cond_graph()->str())->second;
     module->mCond = cond.m;
     /** Compute map index
      int mCondInputNumber;
@@ -149,9 +164,6 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
             }
         }
     }
-    if (module->mBody->type() == "StaticModule") {
-        static_cast<StaticModule*>(module->mBody.get())->setReusedTensors(reusedTensors);
-    }
     return module;
 }
 
@@ -171,6 +183,35 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
         outputs[i] = inputs[mInfo->mOutputFromInput[i]];
     }
     int step = 0;
+    if (mCond == nullptr) {
+        bodyInputs[0] = _Input({}, NCHW, halide_type_of<int>());
+        auto limit = inputs[0]->readMap<int>()[0];
+        int cond = inputs[1]->readMap<int>()[0];
+        int N = mInfo->mBodyInputNumber - 2;
+        int K = mInfo->mOutputNumber - N;
+        std::vector<std::vector<VARP>> spans(K);
+        std::vector<VARP> bodyOutputs;
+
+        while (step < limit && cond > 0) {
+            bodyInputs[0]->writeMap<int>()[0] = step;
+            bodyOutputs = mBody->onForward(bodyInputs);
+            for (auto& p : mInfo->mUpdateForBody) {
+                bodyInputs[p.first] = bodyOutputs[p.second];
+            }
+            for (int i=0; i<K; ++i) {
+                spans[i].emplace_back(bodyOutputs[1+N+i]);
+            }
+            step++;
+            cond = bodyOutputs[0]->readMap<int>()[0];
+        }
+        for (int i=0; i<N; ++i) {
+            outputs[i] = bodyOutputs[i+1];
+        }
+        for (int i=0; i<K; ++i) {
+            outputs[i+N] = _Stack(spans[i]);
+        }
+        return outputs;
+    }
     while (true) {
         auto res = mCond->onForward(condInputs)[0];
         auto resPtr = res->readMap<int>();
@@ -180,22 +221,6 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
         step++;
         //MNN_PRINT("%s - %d\n", name().c_str(), step);
         auto bodyOutputs = mBody->onForward(bodyInputs);
-        Express::Variable::prepareCompute(bodyOutputs);
-        for (int i=0; i<bodyOutputs.size(); ++i) {
-            auto p = bodyOutputs[i];
-            if (p.get() == nullptr) {
-                continue;
-            }
-            if (p->expr().first->get() != nullptr) {
-                auto ptr = p->readMap<void>();
-                auto info = p->getInfo();
-                auto newV = Express::_Input(info->dim, info->order, info->type);
-                if (nullptr != ptr) {
-                    ::memcpy(newV->writeMap<void>(), ptr, info->type.bytes() * info->size);
-                }
-                bodyOutputs[i] = newV;
-            }
-        }
         for (auto& p : mInfo->mUpdateForCond) {
             condInputs[p.first] = bodyOutputs[p.second];
         }

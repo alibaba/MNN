@@ -42,7 +42,12 @@ std::vector<int> Relu6Torch::inputTensorIdx() {
 
 void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::Relu6T;
+    if (getRealOpType(node) == "clamp") {
+        param->minValue = getValue<double>(node->input(1));
+        param->maxValue = getValue<double>(node->input(2));
+    }
     dstOp->main.value = param;
 }
 
 REGISTER_CONVERTER(Relu6Torch, hardtanh);
+REGISTER_CONVERTER(Relu6Torch, clamp);

@@ -28,7 +28,7 @@ template <typename T, int N>
 struct Vec {
     using VecType = Vec<T, N>;
     std::array<T, N> value;
-    VecType operator+(const VecType& lr) {
+    VecType operator+(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] + lr.value[i];
@@ -188,7 +188,6 @@ struct Vec<float, 4> {
         v1 = v1 - v2 * v3;
 #endif
     }
-
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
 #ifdef __aarch64__
         auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
@@ -224,11 +223,11 @@ struct Vec<float, 4> {
 #endif
     }
 
-    VecType operator+(const VecType& lr) {
+    VecType operator+(const VecType& lr) const {
         VecType dst = { vaddq_f32(value, lr.value) };
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst = { vsubq_f32(value, lr.value) };
         return dst;
     }
@@ -258,18 +257,18 @@ template<>
 struct Vec<int8_t, 8> {
     using VecType = Vec<int8_t, 8>;
     int8x8_t value;
-
-    VecType operator + (const VecType& lr) {
+    
+    VecType operator + (const VecType& lr) const {
         VecType dst = { vqadd_s8(value, lr.value) };
         return dst;
     }
-
-    VecType operator - (const VecType& lr) {
+    
+    VecType operator - (const VecType& lr) const {
         VecType dst = { vqsub_s8(value, lr.value) };
         return dst;
     }
-
-    VecType operator - () {
+    
+    VecType operator - () const {
         VecType dst = { vqneg_s8(value) };
         return dst;
     }
@@ -313,28 +312,28 @@ template<>
 struct Vec<int8_t, 16> {
     using VecType = Vec<int8_t, 16>;
     int8x16_t value;
-
-    VecType operator + (const VecType& lr) {
+    
+    VecType operator + (const VecType& lr) const {
         VecType dst = { vqaddq_s8(value, lr.value) };
         return dst;
     }
-
-    VecType operator - (const VecType& lr) {
+    
+    VecType operator - (const VecType& lr) const {
         VecType dst = { vqsubq_s8(value, lr.value) };
         return dst;
     }
-
-    VecType operator - () {
+    
+    VecType operator - () const {
         VecType dst = { vqnegq_s8(value) };
         return dst;
     }
 
-    VecType operator*(int8_t lr) {
+    VecType operator*(int8_t lr) const {
         MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
         VecType dst = { vmulq_s8(value, vdupq_n_s8(lr)) };
         return dst;
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator*(const VecType& lr) const {
         MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
         VecType dst = { vmulq_s8(value, lr.value) };
         return dst;
@@ -379,11 +378,11 @@ template<>
 struct Vec<float, 4> {
     using VecType = Vec<float, 4>;
     __m128 value;
-    VecType operator+(const VecType& lr) {
+    VecType operator+(const VecType& lr) const {
         VecType dst = { _mm_add_ps(value, lr.value) };
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst = { _mm_sub_ps(value, lr.value) };
         return dst;
     }
@@ -470,11 +469,11 @@ template<>
 struct Vec<int8_t, 16> {
     using VecType = Vec<int8_t, 16>;
     __m128i value;
-    VecType operator+(const VecType& lr) {
+    VecType operator+(const VecType& lr) const {
         VecType dst = { _mm_add_epi8(value, lr.value) };
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst = { _mm_sub_epi8(value, lr.value) };
         return dst;
     }
@@ -493,7 +492,7 @@ struct Vec<int8_t, 16> {
         value = lr.value;
         return *this;
     }
-    VecType operator-() {
+    VecType operator-() const {
         VecType dst;
 #if defined(_MSC_VER)
         dst.value = _mm_sign_epi8(value, _mm_set1_epi8(-1)); // Using unary operation to SSE vec is GCC extension. We can not do this directly in MSVC.

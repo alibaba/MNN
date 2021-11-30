@@ -54,7 +54,8 @@ using namespace MNN;
         outputOs << "\n";                                              \
     }
 
-static void dumpTensor2File(const Tensor* tensor, const char* file) {
+static void dumpTensor2File(const Tensor* tensor, const char* file, std::ofstream& orderFile) {
+    orderFile << file << std::endl;
     std::ofstream outputOs(file);
     auto type = tensor->getType();
 
@@ -305,7 +306,8 @@ static int test_main(int argc, const char* argv[]) {
         }
         inputTensor->copyFromHostTensor(&givenTensor);
     }
-
+    std::ofstream orderFileOs;
+    orderFileOs.open(".order");
     if (saveAllTensors) {
         MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
             if (!saveInput) {
@@ -331,7 +333,7 @@ static int test_main(int argc, const char* argv[]) {
                 MNN_PRINT("Dump %s Input, %d, %d X %d X %d X %d\n", opName.c_str(), i, tensor->width(),
                           tensor->height(), tensor->channel(), tensor->batch());
                 outputFileName << "output/Input_" << opCopyName << "_" << i;
-                dumpTensor2File(expectTensor, outputFileName.str().c_str());
+                dumpTensor2File(expectTensor, outputFileName.str().c_str(), orderFileOs);
                 delete expectTensor;
             }
             return true;
@@ -365,7 +367,7 @@ static int test_main(int argc, const char* argv[]) {
                 }
 
                 outputFileName << "output/" << opCopyName << "_" << i;
-                dumpTensor2File(expectTensor, outputFileName.str().c_str());
+                dumpTensor2File(expectTensor, outputFileName.str().c_str(), orderFileOs);
                 delete expectTensor;
             }
             return true;
@@ -382,7 +384,7 @@ static int test_main(int argc, const char* argv[]) {
         outputTensor->copyToHostTensor(&expectTensor);
         auto outputFile = pwd + "output.txt";
         if (outputTensor->size() > 0) {
-            dumpTensor2File(&expectTensor, outputFile.c_str());
+            dumpTensor2File(&expectTensor, outputFile.c_str(), orderFileOs);
         }
     }
     auto allOutputs = net->getSessionOutputAll(session);
@@ -393,7 +395,7 @@ static int test_main(int argc, const char* argv[]) {
             iter.second->copyToHostTensor(&expectTensor2);
             auto outputFile = pwd + "/output/" +  iter.first + ".txt";
             if (iter.second->size() > 0) {
-                dumpTensor2File(&expectTensor2, outputFile.c_str());
+                dumpTensor2File(&expectTensor2, outputFile.c_str(), orderFileOs);
             }
         }
     }

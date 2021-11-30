@@ -102,11 +102,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     int maxDepth = 5;
     auto icAlign = UP_DIV(ic, lPack) * lPack;
     auto weightTensor = mResource->mWeight.get();
-    AutoRelease<Tensor> tempWeight;
-    if (icAlign != ic) {
-        tempWeight.reset(Tensor::create<float>(std::vector<int>{oc, ic, hPack}, mResource->mWeight->host<uint8_t>()));
-        weightTensor = tempWeight.get();
-    }
     if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
         // Divide in plane, in this case the divide equal numberThread
         int divideStep = UP_DIV(matrixSizeE, numberThread);
@@ -125,16 +120,15 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.offset[0] = core->pack * planeStart * bytes;
             unit.offset[3] = core->pack * planeStart * bytes;
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
-            AutoRelease<Tensor> mTempInput(
-                Tensor::create<float>(std::vector<int>{icC4, planeSize, core->pack}, inputPtr + core->pack * planeStart * bytes));
-            mTempInput->setStride(0, matrixSizeE * core->pack);
-            AutoRelease<Tensor> mTempOutput(
-                Tensor::create<float>(std::vector<int>{ocC4, planeSize, core->pack}, outputPtr + core->pack * planeStart * bytes));
-            mTempOutput->setStride(0, matrixSizeE * core->pack);
-            auto mTempInputVector  = std::vector<Tensor *>{mTempInput.get(), weightTensor, mResource->mBias.get()};
-            auto mTempOutputVector = std::vector<Tensor *>{mTempOutput.get()};
+            int e = planeSize;
+            int l = ic;
+            int h = oc;
+            auto aPtr = inputPtr + core->pack * planeStart * bytes;
+            auto bPtr = weightTensor->host<uint8_t>();
+            auto cPtr = outputPtr + core->pack * planeStart * bytes;
+            auto biasPtr = mResource->mBias->host<uint8_t>();
             memoryPool->beginGroup();
-            auto code = unit.mStracssenComputor->onEncode(mTempInputVector, mTempOutputVector, postParameters, ic, oc);
+            auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
                 memoryPool->endGroup();
                 return code;
@@ -170,16 +164,15 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.offset[3] = core->pack * matrixSizeE * ocStart * bytes;
 
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
-            AutoRelease<Tensor> mTempInput(Tensor::create<float>(std::vector<int>{icC4, matrixSizeE, core->pack}, inputPtr));
-            AutoRelease<Tensor> mTempBias(Tensor::create<float>({ocSize, 1, core->pack}, mResource->mBias->host<uint8_t>() + core->pack * ocStart * bytes));
-            AutoRelease<Tensor> mTempOutput(
-                Tensor::create<float>(std::vector<int>{ocSize, matrixSizeE, core->pack}, outputPtr + core->pack * matrixSizeE * ocStart * bytes));
-            AutoRelease<Tensor> mTempWeight(Tensor::create<float>(std::vector<int>{ocWeightSize, ic, hPack},
-                                                         mResource->mWeight->host<uint8_t>() + hPack * icAlign * ocStartWeight * bytes));
-            auto mTempInputVector  = std::vector<Tensor *>{mTempInput.get(), mTempWeight.get(), mTempBias.get()};
-            auto mTempOutputVector = std::vector<Tensor *>{mTempOutput.get()};
+            int e = matrixSizeE;
+            int l = ic;
+            int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
+            auto aPtr = inputPtr;
+            auto bPtr = mResource->mWeight->host<uint8_t>() + hPack * icAlign * ocStartWeight * bytes;
+            auto cPtr = outputPtr + core->pack * matrixSizeE * ocStart * bytes;
+            auto biasPtr = mResource->mBias->host<uint8_t>() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
-            auto code = unit.mStracssenComputor->onEncode(mTempInputVector, mTempOutputVector, postParameters, ic);
+            auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
                 memoryPool->endGroup();
                 return code;

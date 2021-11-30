@@ -6,9 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <fstream>
 #include "CommonUtils.hpp"
 #include "MNN/expr/ExprCreator.hpp"
 #include "cpp/IDSTEncoder.hpp"
+#include "common/WinogradInt8Helper.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -96,9 +98,19 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     const int kh = common->kernelY;
     const int kw = common->kernelX;
     const int kernelNum = common->outputCount;
-    const int kernelSize = weightFloat.size() / kernelNum;
+    int kernelSize = weightFloat.size() / kernelNum;
 
-    VARP weightVar      = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
+    VARP weightVar;
+    std::vector<int> attrs;
+    if (quantParams.method() == MNN::Compression::LayerQuantizeParams::WinogradAware) {
+        std::vector<float> transWeight;
+        WinogradInt8Helper::transformWeight(weightFloat, transWeight, attrs, ko, ki, kh, kw);
+        weightVar = _Const(transWeight.data(), {ko, ki, attrs[2], attrs[3]}, NCHW);
+        kernelSize = transWeight.size() / kernelNum;
+    } else {
+        weightVar = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
+    }
+    
     VARP biasVar        = _Const(biasFloat.data(), {ko, 1, 1, 1}, NCHW);
     VARP inputScaleVar  = _Const(inputParams.scales(0), {}, NCHW);
     VARP outputScaleVar = _Const(outputParams.scales(0), {}, NCHW);
@@ -159,6 +171,10 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     convParams->symmetricQuan->clampMax = outputParams.clamp_max();
 
     convParams->bias = std::move(biasData);
+    
+    if (quantParams.method() == MNN::Compression::LayerQuantizeParams::WinogradAware) {
+        convParams->symmetricQuan->winogradAttr = attrs;
+    }
 };
 
 void fullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto) {

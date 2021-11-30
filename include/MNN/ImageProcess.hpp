@@ -16,11 +16,17 @@
 namespace MNN {
 namespace CV {
 enum ImageFormat {
-    RGBA = 0,
-    RGB,
-    BGR,
-    GRAY,
-    BGRA,
+    RGBA     = 0,
+    RGB      = 1,
+    BGR      = 2,
+    GRAY     = 3,
+    BGRA     = 4,
+    YCrCb    = 5,
+    YUV      = 6,
+    HSV      = 7,
+    XYZ      = 8,
+    BGR555   = 9,
+    BGR565   = 10,
     YUV_NV21 = 11,
     YUV_NV12 = 12,
     YUV_I420 = 13,

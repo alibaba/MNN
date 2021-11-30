@@ -23,8 +23,7 @@ public:
     VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info);
     virtual ~VulkanBackend();
 
-    virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
@@ -76,6 +75,9 @@ public:
         return device().proty();
     }
 
+    const VulkanCommandPool::Buffer* getInitCommandBuffer() const {
+        return mInitBuffer.get();
+    }
 private:
     bool _supportImageSize(const Tensor* tensor);
     const VulkanDevice& device() const;
@@ -83,8 +85,8 @@ private:
     void _allocHostBuffer(size_t size) const;
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
+    std::shared_ptr<VulkanCommandPool::Buffer> mInitBuffer;
 
-    std::map<uint64_t, std::shared_ptr<VulkanTensor>> mStaticeBuffers;
     std::map<uint64_t, std::shared_ptr<VulkanTensor>> mAllBuffers;
 
     mutable std::shared_ptr<VulkanBuffer> mHostBuffer;

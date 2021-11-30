@@ -33,8 +33,6 @@ class SparseConvInt8TiledExecutor : public ConvInt8TiledExecutor {
 public:
     // given weight+bias+scale, do post process
     SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res);
-    // only given weight, not do post process
-    SparseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, std::shared_ptr<Tensor> weight, const SparseCommon* sparseCommon, bool fastgemm);
     virtual ~SparseConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -54,7 +52,6 @@ public:
 
 private:
     SparseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const SparseConvInt8TiledExecutor& exe);
-    friend class ConvInt8Winograd;
 
     SparseQuantMatMulParam mSparseQuantParam;
     decltype(CoreInt8Functions::MNNPackedSparseQuantMatMulEpx1) mSparseQuantMatMulKernel;

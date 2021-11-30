@@ -21,9 +21,9 @@ namespace MNN {
 namespace Express {
 
 static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
-    const MNN::Net* net, std::map<const Op*, std::shared_ptr<Execution>>& cache, Backend* backend, Backend* backupBackend) {
+    const MNN::Net* net, std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>>& cache, Backend* backend, Backend* backupBackend) {
     std::unique_ptr<MNN::NetT> net_table(net->UnPack());
-    std::map<int, std::shared_ptr<Execution>> exeCache;
+    std::map<int, std::pair<std::shared_ptr<Execution>, DataType>> exeCache;
     bool isQuantModel = !net_table->extraTensorDescribe.empty();
     std::vector<TensorQuantInfoT*> quantInfos;
     std::vector<std::unique_ptr<Tensor>> inputTensors;
@@ -45,7 +45,9 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
             case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Convolution: {
                 std::shared_ptr<Execution> exe;
+                DataType type = DataType_DT_FLOAT;
                 if (isQuantModel) {
+                    type = DataType_DT_INT8;
                     int inputIdx = op->inputIndexes()->Get(0);
                     auto inputTensor = Tensor::create({1}, halide_type_of<float>());
                     inputTensors.emplace_back(inputTensor);
@@ -56,6 +58,9 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
                         inputQuantAttr->min = quantInfos[inputIdx]->min;
                         inputQuantAttr->max = quantInfos[inputIdx]->max;
                         inputQuantAttr->zero = quantInfos[inputIdx]->zero;
+                        // Input Set float to create CastWrapExecution
+                        // FIXME: Use better way
+                        TensorUtils::getDescribe(inputTensor)->type = DataType_DT_FLOAT;
                     } else {
                         inputQuantAttr.reset();
                     }
@@ -69,6 +74,9 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
                         outputQuantAttr->min = quantInfos[outputIdx]->min;
                         outputQuantAttr->max = quantInfos[outputIdx]->max;
                         outputQuantAttr->zero = quantInfos[outputIdx]->zero;
+                        // Output Set int8 to create Int8 Execution
+                        // FIXME: Use better way
+                        TensorUtils::getDescribe(outputTensor)->type = DataType_DT_INT8;
                     } else {
                         outputQuantAttr.reset();
                     }
@@ -90,7 +98,7 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
                 if (!exe->onClone(nullptr, op, nullptr)) {
                     break;
                 }
-                exeCache.insert(std::make_pair(i, exe));
+                exeCache.insert(std::make_pair(i, std::make_pair(exe, type)));
                 if (OpParameter_Convolution2D == op_table->main.type) {
                     op_table->main.AsConvolution2D()->bias.clear();
                     op_table->main.AsConvolution2D()->weight.clear();
@@ -114,8 +122,8 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
     builder.Finish(MNN::Net::Pack(builder, net_table.get()));
     // Swap the raw buffer ownership.
     std::shared_ptr<BufferStorage> net_storage(new BufferStorage);
-    net_storage->storage.reset(builder.ReleaseRaw(net_storage->allocated_size, // NOLINT
-                                                  net_storage->offset));
+    net_storage->storage = builder.ReleaseRaw(net_storage->allocated_size, // NOLINT
+                                                  net_storage->offset);
     net = GetNet(net_storage->buffer());
     for (auto& iter : exeCache) {
         auto op = net->oplists()->Get(iter.first);
@@ -124,76 +132,54 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
     return net_storage;
 }
 
-class UseContentCFG {
-public:
-    UseContentCFG(const Schedule::ScheduleInfo& scheduleInfo) {
-        static const std::set<OpType> OutputNotDependInputContent = { OpType_Shape, OpType_Rank, OpType_Size, OpType_PriorBox };
-        // build a cfg of use content info: edge is Op, node is Tensor
-        for (const auto& info : scheduleInfo.pipelineInfo[0].second) {
-            if (OutputNotDependInputContent.find(info.op->type()) != OutputNotDependInputContent.end()) {
-                continue;
-            }
-            opToInput[info.op] = {};
-            for (auto input : info.inputs) {
-                opToInput[info.op].push_back(input);
-            }
-            for (auto output : info.outputs) {
-                outputToOp[output] = info.op;
-            }
-            auto needInputs = SizeComputer::needInputContent(info.op, info.inputs.size());
-            for (auto inputIdx : needInputs) {
-                if (info.inputs.size() > inputIdx) {
-                    tensorQueue.emplace(info.inputs[inputIdx]);
-                }
+static void _resizeTensor(Tensor* tensor, const Tensor* dims, Session* session) {
+    MNN_ASSERT(nullptr != tensor);
+    bool dirty = false;
+    if (tensor->buffer().dimensions != dims->dimensions()) {
+        dirty = true;
+    } else {
+        for (int i = 0; i < dims->dimensions(); ++i) {
+            if (tensor->buffer().dim[i].extent != dims->length(i)) {
+                dirty = true;
+                break;
             }
         }
     }
-    bool hasUseContentTensor(const std::vector<Tensor*>& inputs) {
-        // bfs find all tensor content used by shape compute in graph
-        std::set<const Tensor*> visited;
-        while (!tensorQueue.empty()) {
-            auto t = tensorQueue.front();
-            tensorQueue.pop();
-            if (std::find(inputs.begin(), inputs.end(), t) != inputs.end()) {
-                return true;
-            }
-            if (visited.find(t) == visited.end()) {
-                visited.insert(t);
-                auto op = outputToOp.find(t);
-                if (op != outputToOp.end()) {
-                    auto inputs = opToInput.find(op->second);
-                    if (inputs != opToInput.end()) {
-                        for (const auto input : inputs->second) {
-                            tensorQueue.push(input);
-                        }
-                    }
-                }
-            }
-        }
-        return false;
+
+    if (!dirty) {
+        return;
     }
-private:
-    // output_tensor -> op
-    std::map<const Tensor*, const Op*> outputToOp;
-    // op -> input_tensors
-    std::map<const Op*, std::vector<const Tensor*>> opToInput;
-    // root: init use content tensors
-    std::queue<const Tensor*> tensorQueue;
-};
+
+    tensor->buffer().dimensions = (int)dims->dimensions();
+    for (int i = 0; i < dims->dimensions(); ++i) {
+        tensor->buffer().dim[i].extent = dims->length(i);
+    }
+    session->setNeedResize();
+}
 
 StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs,
-                           const std::vector<std::string>& outputs, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& moduleconfig, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+                           const std::vector<std::string>& outputs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& moduleconfig, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
     setType("StaticModule");
     mResource.reset(new Resource);
     mResource->mInputs = inputs;
     mResource->mOutputs = outputs;
-    mResource->mCopyOutput = copyOutput;
     mResource->mSharedConst = sharedConst;
+    mResource->mShapeMutable = moduleconfig.shapeMutable;
     std::shared_ptr<BufferStorage> net_storage;
-    std::map<const Op*, std::shared_ptr<Execution>> exeCache;
+    std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> exeCache;
+    RuntimeInfo rt;;
+    if(nullptr == rtMgr && moduleconfig.backend != nullptr) {
+        ScheduleConfig sche_config;
+        sche_config.type = moduleconfig.backend->type;
+        sche_config.backendConfig = moduleconfig.backend->config;
+        rtMgr.reset(Executor::RuntimeManager::createRuntimeManager(sche_config));
+    }
+    if (nullptr == rtMgr) {
+        rt = Executor::getRuntime();
+    } else {
+        rt = rtMgr->getRuntimeInfo();
+    }
     if (moduleconfig.rearrange) {
-        auto rt = Express::ExecutorScope::Current()->getRuntime();
-        MNN_CHECK(rt.first.size() == 1, "The number of formal backends should be 1.");
         mResourceBackend.reset(rt.first.begin()->second->onCreate());
         if (mResourceBackend->type() == MNN_FORWARD_CPU) {
             mBackupResourceBackend = mResourceBackend;
@@ -207,18 +193,17 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
         length      = net_storage->size();
     } else {
         net_storage.reset(new BufferStorage);
-        net_storage->storage.reset((uint8_t*)malloc(length));
-        if (nullptr == net_storage->storage.get()) {
+        net_storage->storage = new uint8_t[length];
+        if (nullptr == net_storage->storage) {
             MNN_ERROR("Allock Error in StaticModule's net\n");
             return;
         }
         net_storage->allocated_size = length;
         net_storage->offset         = 0;
-        ::memcpy(net_storage->storage.get(), buffer, length);
-        buffer = net_storage->storage.get();
+        ::memcpy(net_storage->storage, buffer, length);
+        buffer = net_storage->storage;
     }
     mResource->mNetStorage    = std::move(net_storage);
-    mResource->mShapeFix      = !moduleconfig.shapeMutable;
     mResource->mOutputNumbers = (int)outputs.size();
     /** Compute:
      std::vector<int, int> mOutputFromTensor;
@@ -242,20 +227,6 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     if (mResource->mOutputFromTensor.empty()) {
         return;
     }
-    
-    RuntimeInfo rt;
-    if(rtMgr) {
-        rt = rtMgr->getRuntimeInfo();
-    } else {
-        if (moduleconfig.backend == nullptr) {
-            rt = Express::ExecutorScope::Current()->getRuntime();
-        } else {
-            ScheduleConfig sche_config;
-            sche_config.type = moduleconfig.backend->type;
-            sche_config.backendConfig = moduleconfig.backend->config;
-            rt = Interpreter::createRuntime(std::vector<ScheduleConfig>({sche_config}));
-        }
-    }
     // TODO: Add Config
     mResource->mConfig.numThread   = 1;
     mResource->mConfig.type        = rt.first.begin()->first;
@@ -270,7 +241,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
         scheduleInfo.allTensors = mResource->mSharedConst->allTensors;
     }
     // Schedule
-    auto res = Schedule::schedule(scheduleInfo, GetNet(buffer), {mResource->mConfig}, rt, true);
+    auto res = Schedule::schedule(scheduleInfo, GetNet(buffer), {mResource->mConfig}, rt);
     if (!res) {
         return;
     }
@@ -279,11 +250,13 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
 #else
     Interpreter::SessionMode callBackMode = Interpreter::Session_Release;
 #endif
-    UseContentCFG cfg(scheduleInfo);
-    Interpreter::SessionMode inputMode =
-    mResource->mShapeFix ? Interpreter::Session_Input_Inside : Interpreter::Session_Input_User;
-    mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, std::move(rt)));
-    mSession->cloneExecution(exeCache, 0);
+    mResource->mUseContentInputs = scheduleInfo.needInputContentForShape;
+    if (mResource->mUseContentInputs) {
+        mResource->mShapeMutable = true;
+    }
+    Interpreter::SessionMode inputMode = mResource->mShapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
+    mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, Interpreter::Session_Output_User, std::move(rt)));
+    mSession->cloneExecution(exeCache);
     if (scheduleInfo.validForResize && inputMode == Interpreter::Session_Input_Inside) {
         mSession->resize(false);
     }
@@ -291,12 +264,10 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     for (int i = 0; i < inputs.size(); ++i) {
         mInputTensors[i] = mSession->getInput(inputs[i].c_str());
     }
-    mResource->mUseContentInputs = cfg.hasUseContentTensor(mInputTensors);
     mOutputTensors.resize(mResource->mOutputFromTensor.size());
     for (int i = 0; i < mResource->mOutputFromTensor.size(); ++i) {
         mOutputTensors[i] = mSession->getOutput(outputs[mResource->mOutputFromTensor[i]].c_str());
     }
-    mOutputTensorsWrap.resize(mOutputTensors.size());
 }
 StaticModule::~StaticModule() {
     mSession         = nullptr;
@@ -313,42 +284,19 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         return outputs;
     }
     Variable::compute(inputs);
+#ifdef MNN_DUMP_MEMORY
+    auto rt = Executor::getRuntime();
+    auto mem = rt.second->onGetMemoryInMB();
+    for (auto iter : rt.first) {
+        if (iter.second.get() != rt.second.get()) {
+            mem += iter.second->onGetMemoryInMB();
+        }
+    }
+    FUNC_PRINT_ALL(mem, f);
+#endif
 
     MNN_ASSERT(inputs.size() == mInputTensors.size());
-    for (int i = 0; i < inputs.size(); ++i) {
-        if (nullptr == mInputTensors[i]) {
-            continue;
-        }
-        auto exprInfo    = inputs[i]->expr();
-        auto inside      = exprInfo.first->inside();
-        auto inputTensor = inside->mOutputTensors[exprInfo.second];
-        if (nullptr != inside->mCache) {
-            inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
-        }
-        auto srcDes = TensorUtils::getDescribe(inputTensor);
-        auto des = TensorUtils::getDescribe(mInputTensors[i]);
-        des->dimensionFormat = srcDes->dimensionFormat;
-        des->tensorArrayAttr = srcDes->tensorArrayAttr;
-        mInputTensors[i]->buffer().type = inputTensor->buffer().type;
-        resizeTensor(mInputTensors[i], inputTensor->shape());
-    }
-    if (!mResource->mShapeFix) {
-        for (int i = 0; i < inputs.size(); ++i) {
-            if (nullptr == mInputTensors[i]) {
-                continue;
-            }
-            auto srcPtr = (uint8_t*)inputs[i]->readMap<void>();
-            if (srcPtr != mInputTensors[i]->buffer().host) {
-                mInputTensors[i]->buffer().host = srcPtr;
-                mSession->setNeedMalloc();
-            }
-        }
-        if (mResource->mUseContentInputs) {
-            mSession->setNeedResize();
-        }
-    }
-    mSession->resize();
-    if (mResource->mShapeFix) {
+    if (mResource->mShapeMutable) {
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
                 continue;
@@ -359,29 +307,79 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             if (nullptr != inside->mCache) {
                 inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
             }
-            auto backend = TensorUtils::getDescribe(mInputTensors[i])->backend;
-            if (nullptr != backend) {
-                // For zero shape, backend is null
-                backend->onCopyBuffer(inputTensor, mInputTensors[i]);
+            auto srcDes = TensorUtils::getDescribe(inputTensor);
+            auto des = TensorUtils::getDescribe(mInputTensors[i]);
+            des->quantAttr = srcDes->quantAttr;
+            des->type = srcDes->type;
+            des->dimensionFormat = srcDes->dimensionFormat;
+            des->tensorArrayAttr = srcDes->tensorArrayAttr;
+            des->backend = srcDes->backend;
+            mInputTensors[i]->buffer().type = inputTensor->buffer().type;
+            _resizeTensor(mInputTensors[i], inputTensor, mSession.get());
+            if (mInputTensors[i]->buffer().host != inputTensor->buffer().host || mInputTensors[i]->buffer().device != inputTensor->buffer().device) {
+                mSession->setNeedMalloc();
             }
+            mInputTensors[i]->buffer().host = inputTensor->buffer().host;
+            mInputTensors[i]->buffer().device = inputTensor->buffer().device;
+        }
+        if (mResource->mUseContentInputs) {
+            mSession->setNeedResize();
+        }
+        mSession->resize();
+    } else {
+        // Resize
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (nullptr == mInputTensors[i]) {
+                continue;
+            }
+            auto exprInfo    = inputs[i]->expr();
+            auto inside      = exprInfo.first->inside();
+            auto inputTensor = inside->mOutputTensors[exprInfo.second];
+            if (nullptr != inside->mCache) {
+                inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
+            }
+            auto srcDes = TensorUtils::getDescribe(inputTensor);
+            auto des = TensorUtils::getDescribe(mInputTensors[i]);
+            des->dimensionFormat = srcDes->dimensionFormat;
+            mInputTensors[i]->buffer().type = inputTensor->buffer().type;
+            _resizeTensor(mInputTensors[i], inputTensor, mSession.get());
+        }
+        mSession->resize();
+        // Copy
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (nullptr == mInputTensors[i]) {
+                continue;
+            }
+            auto exprInfo    = inputs[i]->expr();
+            auto inside      = exprInfo.first->inside();
+            auto inputTensor = inside->mOutputTensors[exprInfo.second];
+            if (nullptr != inside->mCache) {
+                inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
+            }
+            mInputTensors[i]->copyFromHostTensor(inputTensor);
         }
     }
     ErrorCode code;
 #ifdef MNN_EXPR_ENABLE_PROFILER
     auto globalExecutor = ExecutorScope::Current();
-    Timer cost;
-    TensorCallBackWithInfo beforeCallBack = [&cost](const std::vector<Tensor*>&, const OperatorInfo* info) {
-        cost.reset();
-        return true;
-    };
-    TensorCallBackWithInfo afterCallBack = [&cost, globalExecutor](const std::vector<Tensor*>&,
-                                                                   const OperatorInfo* info) {
-        auto costTimes = (float)cost.durationInUs() / 1000.0f;
-        globalExecutor->addOpCostTime(info->type(), costTimes);
-        globalExecutor->addOpFlops(info->type(), info->flops());
-        return true;
-    };
-    code = mSession->runWithCallBack(beforeCallBack, afterCallBack);
+    auto debug = globalExecutor->getDebugTools();
+    if (debug->after != nullptr && debug->before != nullptr) {
+        code = mSession->runWithCallBack(debug->before, debug->after);
+    } else {
+        Timer cost;
+        TensorCallBackWithInfo beforeCallBack = [&cost](const std::vector<Tensor*>&, const OperatorInfo* info) {
+            cost.reset();
+            return true;
+        };
+        TensorCallBackWithInfo afterCallBack = [&cost, globalExecutor](const std::vector<Tensor*>&,
+                                                                       const OperatorInfo* info) {
+            auto costTimes = (float)cost.durationInUs() / 1000.0f;
+            globalExecutor->addOpCostTime(info->type(), costTimes);
+            globalExecutor->addOpFlops(info->type(), info->flops());
+            return true;
+        };
+        code = mSession->runWithCallBack(beforeCallBack, afterCallBack);
+    }
 #else
     code = mSession->run();
 #endif
@@ -389,33 +387,10 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         return {};
     }
     for (int i = 0; i < mOutputTensors.size(); ++i) {
-        auto currentTensor = mOutputTensors[i];
-        auto& quantAttr = TensorUtils::getDescribe(currentTensor)->quantAttr;
-        bool isQuant = (quantAttr && TensorUtils::DataTypeToHalideType(quantAttr->type) == currentTensor->getType());
-        // copy the data when reused as input tensor with data;
-        if (currentTensor->elementSize() > 0 && (mResource->mReusedTensors.find(mResource->mOutputFromTensor[i]) != mResource->mReusedTensors.end() || mResource->mCopyOutput || isQuant)) {
-            auto des = TensorUtils::getDescribe(mOutputTensors[i]);
-            auto tmpTensor = new Tensor(currentTensor, currentTensor->getDimensionType(), false);
-            TensorUtils::getDescribe(tmpTensor)->dimensionFormat = des->dimensionFormat;
-            TensorUtils::getDescribe(tmpTensor)->tensorArrayAttr = des->tensorArrayAttr;
-            tmpTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(tmpTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
-            TensorUtils::getDescribe(tmpTensor)->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
-            if (nullptr != des->backend) {
-                currentTensor->copyToHostTensor(tmpTensor);
-            } else {
-                MNNCPUCopyBuffer(currentTensor, tmpTensor);
-            }
-            outputs[mResource->mOutputFromTensor[i]] =
-                Express::Variable::create(Express::Expr::create(tmpTensor, true), 0);
-        } else {
-            outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(mOutputTensors[i]));
-        }
+        auto tensor = Tensor::clone(mOutputTensors[i]);
+        outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
     }
     return outputs;
-}
-
-void StaticModule::setReusedTensors(std::set<int> reused) {
-    mResource->mReusedTensors = std::move(reused);
 }
 
 Module* StaticModule::clone(CloneContext* ctx) const {
@@ -430,7 +405,7 @@ Module* StaticModule::clone(CloneContext* ctx) const {
         scheduleInfo.defaultBackend = mResource->mSharedConst->defaultBackend;
         scheduleInfo.allTensors = mResource->mSharedConst->allTensors;
     }
-    auto res = Schedule::schedule(scheduleInfo, GetNet(mResource->mNetStorage->buffer()), {mResource->mConfig}, rt, true);
+    auto res = Schedule::schedule(scheduleInfo, GetNet(mResource->mNetStorage->buffer()), {mResource->mConfig}, rt);
     if (!res) {
         return nullptr;
     }
@@ -439,10 +414,9 @@ Module* StaticModule::clone(CloneContext* ctx) const {
 #else
     Interpreter::SessionMode callBackMode = Interpreter::Session_Release;
 #endif
-    Interpreter::SessionMode inputMode =
-        mResource->mShapeFix ? Interpreter::Session_Input_Inside : Interpreter::Session_Input_User;
-    module->mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, std::move(rt)));
-    module->mSession->cloneExecution(mSession->getExecution(0), 0);
+    Interpreter::SessionMode inputMode = mResource->mShapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
+    module->mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, Interpreter::Session_Output_User, std::move(rt)));
+    module->mSession->cloneExecution(mSession->getExecution());
     if (scheduleInfo.validForResize && inputMode == Interpreter::Session_Input_Inside) {
         module->mSession->resize(false);
     }
@@ -457,33 +431,6 @@ Module* StaticModule::clone(CloneContext* ctx) const {
         module->mOutputTensors[i] = module->mSession->getOutput(mResource->mOutputs[mResource->mOutputFromTensor[i]].c_str());
     }
     return this->cloneBaseTo(ctx, module);
-}
-
-void StaticModule::resizeTensor(Tensor* tensor, const std::vector<int>& dims) {
-    MNN_ASSERT(nullptr != tensor);
-    bool dirty = false;
-    if (tensor->buffer().dimensions != dims.size()) {
-        dirty = true;
-    } else {
-        for (int i = 0; i < dims.size(); ++i) {
-            if (tensor->buffer().dim[i].extent != dims[i]) {
-                dirty = true;
-                break;
-            }
-        }
-    }
-
-    if (!dirty) {
-        return;
-    }
-
-    tensor->buffer().dimensions = (int)dims.size();
-    for (int i = 0; i < dims.size(); ++i) {
-        tensor->buffer().dim[i].extent = dims[i];
-    }
-
-    MNN_ASSERT(nullptr != mSession);
-    mSession->setNeedResize();
 }
 
 } // namespace Express

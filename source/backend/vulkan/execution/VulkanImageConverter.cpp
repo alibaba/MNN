@@ -57,6 +57,10 @@ void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor
     cmdBuffer->barrierSource(srcBuffer, 0, bufferSize);
     auto tensor = destTensor;
     _setUpPipeline(sourceFormat, destFormat, BUFFER_TO_IMAGE, tensor->buffer().type);
+    auto vkTensor = (VulkanTensor*)(destTensor->deviceId());
+    for (int i=0; i<vkTensor->imageSize(); ++i) {
+        vkTensor->image(i)->barrierWrite(cmdBuffer->get());
+    }
     _encodeImageBufferConvert(tensor, srcBuffer, bufferSize, bufferOffset, cmdBuffer, VK_IMAGE_LAYOUT_GENERAL, srcBufferFormat);
 }
 void VulkanImageConverter::_encodeImageBufferConvert(const Tensor* tensor, VkBuffer destBuffer, const int bufferSize, VkDeviceSize bufferOffset, const VulkanCommandPool::Buffer* cmdBuffer, VkImageLayout layout, MNN_DATA_FORMAT bufferFormat) {
@@ -131,7 +135,7 @@ void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffe
     auto tensor = srcTensor;
     _setUpPipeline(sourceFormat, destFormat, IMAGE_TO_BUFFER, tensor->buffer().type);
     for (int i=0; i<vkTensor->imageSize(); ++i) {
-        cmdBuffer->barrierImage(vkTensor->image(i)->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkTensor->image(i)->barrierRead(cmdBuffer->get());
     }
     _encodeImageBufferConvert(tensor, destBuffer, bufferSize, bufferOffset, cmdBuffer,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, destBufferFormat);

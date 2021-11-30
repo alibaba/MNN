@@ -11,17 +11,13 @@
 
 #include <MNN/MNNForwardType.h>
 #include <MNN/ErrorCode.hpp>
-#include <MNN/Tensor.hpp>
 #include <map>
-#include <memory>
-#include <vector>
 #include "Command.hpp"
 #include "NonCopyable.hpp"
 
 namespace MNN {
 
 struct Op;
-struct GpuLibrary;
 class Execution;
 
 class Runtime;
@@ -140,7 +136,7 @@ public:
      * @param storageType   buffer storage type.
      * @return success or not.
      */
-    virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) = 0;
+    MNN_PUBLIC bool onAcquireBuffer(const Tensor* tensor, StorageType storageType);
 
     /**
      * @brief release buffer of tensor for given storage type.
@@ -148,7 +144,20 @@ public:
      * @param storageType   buffer storage type.
      * @return success or not.
      */
-    virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) = 0;
+    MNN_PUBLIC bool onReleaseBuffer(const Tensor* tensor, StorageType storageType);
+
+    class MemObj {
+    public:
+        MemObj() {}
+        virtual ~ MemObj() {}
+    };
+    /**
+     * @brief allocate buffer of tensor for given storage type.
+     * @param tensor        buffer provider.
+     * @param storageType   buffer storage type.
+     * @return MemObj for release, if failed, return nullptr.
+     */
+    virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
 
     /**
      * @brief clear all dynamic buffers.
@@ -163,15 +172,6 @@ public:
      */
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const = 0;
 
-    /**
-     * @brief get runtime datatype.
-     * @param op      the run op.
-     * @param qtype    quant data type.
-     * @return support type for op.
-     */
-    virtual halide_type_t getRunType(const MNN::Op* op, halide_type_t qtype, halide_type_t rtype) {
-        return rtype;
-    }
 public:
     /**
      * @brief get forward type.
@@ -180,7 +180,7 @@ public:
     inline MNNForwardType type() const {
         return mType;
     }
-    
+
 public:
     /**
      * @brief get Gpu Tensor map host ptr/ unmap
@@ -193,7 +193,7 @@ public:
         return false;
     }
 
-    
+
 private:
     const MNNForwardType mType;
 };
@@ -245,6 +245,10 @@ public:
     virtual std::pair<const void*, size_t> onGetCache() {
         return std::make_pair(nullptr, 0);
     }
+    virtual int onGetRuntimeStatus(RuntimeStatus statusEnum) const {
+        return 0;
+    }
+
 };
 
 /** abstract Runtime register */

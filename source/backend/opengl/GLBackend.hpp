@@ -51,6 +51,9 @@ public:
     virtual float onGetMemoryInMB() override {
         return 0.0f;
     }
+
+    int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
+
 private:
     Backend::Info mInfo;
 };
@@ -85,10 +88,7 @@ public:
     void compute(int dim1, int dim2, int dim3, bool needWait = false) const;
 
     /*For Buffer alloc and release*/
-    virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
-
-    // If STATIC, delete the buffer. If dynamic don't free the buffer, just set it to reused
-    virtual bool onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
 
     // Clear All Dynamic Buffer
     virtual bool onClearBuffer() override;
@@ -111,13 +111,12 @@ public:
     static bool addCreator(OpType t, Creator *c);
     bool isCreateError() const;
     bool isSupportHalf() const;
-    bool getOpenGLExtensions(std::string extStr);
+    static bool getOpenGLExtensions(const std::string& extStr);
     GLenum getTextrueFormat() const;
     std::string getImageFormat() const;
     std::shared_ptr<GLProgram> getTreatedProgramWithPrefix(const char *content,
                                                               const std::vector<std::string> &prefix);
     std::shared_ptr<GLProgram> getTreatedProgram(const char *content);
-private:
     struct Runtime {
         std::shared_ptr<GLProgram> mNchw2ImageProgram;
         std::shared_ptr<GLProgram> mImage2NchwProgram;
@@ -133,6 +132,7 @@ private:
         std::list<std::pair<const Tensor*, GLuint>> mFreeTextures;
         mutable std::shared_ptr<GLSSBOBuffer> mTempBuffer;
     };
+private:
     Runtime* mRuntime = nullptr;
     static std::unique_ptr<GLContext> mContext;
     GPUType mGpuType = OTHER;

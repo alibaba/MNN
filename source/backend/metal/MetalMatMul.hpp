@@ -26,7 +26,7 @@ public:
 private:
     id<MTLBuffer> mBias   = nil;
     id<MTLBuffer> mWeight = nil;
-    MetalBackend::AutoBuffer mConst;
+    id<MTLBuffer> mConstBuffer = nil;
     bool mTransposeA = false;
     bool mTransposeB = false;
 };

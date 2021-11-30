@@ -1,0 +1,14 @@
+//
+//  ExtraInfo.fbs
+//  MNN
+//
+//  Created by MNN on 2019/1/4.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+include "Tensor.fbs";
+namespace MNN;
+table ExtraInfo {
+    buffer:[int8];
+    name: string;
+}

@@ -197,7 +197,7 @@ void TRTBackend::onExecuteBegin() const {
 void TRTBackend::onExecuteEnd() const {
 }
 
-bool TRTBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
+Backend::MemObj* TRTBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
     int currentIndex = mTensorMaps.size();
     mTensorMaps.insert(std::make_pair(tensor, std::make_pair(nullptr, currentIndex)));
     bool isInput = TensorUtils::getDescribe(tensor)->usage == Tensor::InsideDescribe::Usage::INPUT;
@@ -220,11 +220,7 @@ bool TRTBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) 
         sprintf(name, "O%d", mOutputs.size());
         mOutputs.insert(std::make_pair(tensor, std::make_pair(std::string(name), nullptr)));
     }
-    return true;
-}
-
-bool TRTBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
-    return true;
+    return new Backend::MemObj;
 }
 
 bool TRTBackend::onClearBuffer() {

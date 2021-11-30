@@ -21,7 +21,7 @@ using namespace std;
 
 namespace MNN {
 Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode,
-                 Interpreter::SessionMode inputMode, RuntimeInfo&& runtime) {
+                 Interpreter::SessionMode inputMode, Interpreter::SessionMode outputMode, RuntimeInfo&& runtime) {
     mRuntime = std::move(runtime);
     if (info.pipelineInfo.empty()) {
         mValid = false;
@@ -41,11 +41,14 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
         if (first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
             second = first;
         } else {
+            // Const Backend shouldn't be used as default backend
+            // The session may be schedule multi-thread but const backend is the same
+            // We need create a new backend to do size compute / not support op compute
             BackendConfig defaultConfig;
             defaultConfig.flags = 4;
             second.reset(cpuRuntime->onCreate(&defaultConfig));
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType()));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, inputMode == Interpreter::Session_Input_Inside, outputMode == Interpreter::Session_Output_User, rt->onGetCompilerType(), mOriginExecutions));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);
@@ -54,12 +57,10 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
 }
 
 Session::~Session() {
-    for (auto& t : mTensors) {
-        TensorUtils::clearHandleData(t.get());
-    }
+    mOriginExecutions.clear();
+    mTensors.clear();
     mPipelines.clear();
     mRuntime.first.clear();
-    mTensors.clear();
     mRuntime.second = nullptr;
 }
 
@@ -82,11 +83,35 @@ std::pair<const void*, size_t> Session::getCache() {
     }
     return std::make_pair(nullptr, 0);
 }
-void Session::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex) {
-    mPipelines[pipelineIndex]->cloneExecution(cache);
-}
-const std::map<const Op*, std::shared_ptr<Execution>>& Session::getExecution(int pipelineIndex) {
-    return mPipelines[pipelineIndex]->getCache();
+
+void Session::cloneExecution(const CacheExecutionMap& cache) {
+    Execution* dst;
+    std::map<MNNForwardType, Backend*> allBackends;
+    for (auto& p : mPipelines) {
+        auto t = p->mBackend->type();
+        if (allBackends.find(t) == allBackends.end()) {
+            allBackends.insert(std::make_pair(t, p->mBackend.get()));
+        }
+        t = p->mBackupBackend->type();
+        if (allBackends.find(t) == allBackends.end()) {
+            allBackends.insert(std::make_pair(t, p->mBackupBackend.get()));
+        }
+    }
+    for (auto& iter : cache) {
+        dst = nullptr;
+        for (auto& bnIter : allBackends) {
+            auto backend = bnIter.second;
+            if (iter.second.first->backend()->type() != bnIter.first) {
+                continue;
+            }
+            bool res = iter.second.first->onClone(backend, iter.first, &dst);
+            if (!res) {
+                continue;
+            }
+            MNN_ASSERT(nullptr != dst);
+            mOriginExecutions.insert(std::make_pair(iter.first, std::make_pair(std::shared_ptr<Execution>(dst), iter.second.second)));
+        }
+    }
 }
 
 ErrorCode Session::run() const {
@@ -124,14 +149,12 @@ void Session::_clearCache() {
         if (describe->usage == Tensor::InsideDescribe::TRAINABLE || describe->usage == Tensor::InsideDescribe::CONSTANT) {
             continue;
         }
-        TensorUtils::clearHandleData(t.get());
-        describe->useCount = 0;
-        describe->backend  = nullptr;
         describe->regions.clear();
     }
 }
 
 ErrorCode Session::resize(bool isStatic) {
+    bool firstMalloc = false;
     if (mNeedResize) {
         if (!isStatic) {
             _clearCache();
@@ -145,6 +168,7 @@ ErrorCode Session::resize(bool isStatic) {
         }
         mNeedResize = false;
         mNeedMalloc = true;
+        firstMalloc = true;
     }
     if (mNeedMalloc) {
         // Set needResize = true for easy for judge in runSession when error
@@ -152,7 +176,7 @@ ErrorCode Session::resize(bool isStatic) {
         // Turn Pipeline to Command Buffer and Malloc resource
         // TODO: Seperate Schedule and Malloc
         for (auto& iter : mPipelines) {
-            auto error = iter->allocMemory();
+            auto error = iter->allocMemory(firstMalloc);
             if (NO_ERROR != error) {
                 return error;
             }

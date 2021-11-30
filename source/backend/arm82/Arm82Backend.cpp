@@ -55,9 +55,10 @@ Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std:
             return nullptr;
         }
     }
-    auto quantInfo = OpCommonUtils::getQuantInfo(inputs);
-    if (quantInfo.first) {
-        return nullptr;
+    if (outputs.size() == 1) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
+            return nullptr;
+        }
     }
     bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
     if (originCreate) {
@@ -95,20 +96,20 @@ static int _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT format)
     return size;
 }
 
-bool Arm82Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) {
+Backend::MemObj* Arm82Backend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();
     if (buffer.type != halide_type_of<float>() && buffer.type != halide_type_of<FLOAT16>()) {
-        return CPUBackend::onAcquireBuffer(nativeTensor, storageType);
+        return CPUBackend::onAcquire(nativeTensor, storageType);
     }
     auto res = allocBuffer(_getAliginSize(buffer, TensorUtils::getDescribe(nativeTensor)->dimensionFormat), (Tensor*)nativeTensor, storageType);
     if (!res) {
-        return false;
+        return nullptr;
     }
     // Set mask in device for easy to determine
     buffer.device = 1;
-    return true;
+    return res;
 }
 void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& ib     = srcTensor->buffer();
@@ -196,12 +197,5 @@ void registerArm82RuntimeCreator() {
     Arm82Functions::init();
     registerArm82Ops();
 };
-#ifndef MNN_CODEGEN_REGISTER
-static const auto __arm82_global_initializer = []() {
-    registerArm82RuntimeCreator();
-    return true;
-}();
-#endif
-
 } // namespace MNN
 #endif

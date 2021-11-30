@@ -1748,6 +1748,31 @@ class CppGenerator : public BaseGenerator {
       code_ += "    return {{STRUCT_NAME}}TypeTable();";
       code_ += "  }";
     }
+    // Generate field id constants.
+    if (struct_def.fields.vec.size() > 0 && Name(struct_def).find("Loop") != std::string::npos) {
+      // We need to add a trailing comma to all elements except the last one as
+      // older versions of gcc complain about this.
+      code_.SetValue("SEP", "");
+      code_ += "  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {";
+      for (auto it = struct_def.fields.vec.begin();
+           it != struct_def.fields.vec.end(); ++it) {
+        const auto &field = **it;
+        if (field.deprecated) {
+          // Deprecated fields won't be accessible.
+          continue;
+        }
+        std::string uname = Name(field);
+        std::transform(uname.begin(), uname.end(), uname.begin(), ToUpper);
+        std::string spec_offsetName = "VT_" + uname;
+
+        code_.SetValue("OFFSET_NAME_SPEC", spec_offsetName);
+        code_.SetValue("OFFSET_VALUE", NumToString(field.value.offset));
+        code_ += "{{SEP}}    {{OFFSET_NAME_SPEC}} = {{OFFSET_VALUE}}\\";
+        code_.SetValue("SEP", ",\n");
+      }
+      code_ += "";
+      code_ += "  };";
+    }
 
     GenFullyQualifiedNameGetter(struct_def, Name(struct_def));
 

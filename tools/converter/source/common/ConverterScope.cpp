@@ -22,6 +22,10 @@ std::vector<std::unique_ptr<MNN::OpT>>& ConverterScope::oplists() {
     return mSubNet ? mSubNet->nodes : mNet->oplists;
 }
 
+std::vector<std::string>& ConverterScope::deps() {
+    return mParent ? mParent->subgraphDeps : this->subgraphDeps;
+}
+
 int ConverterScope::declareTensor(std::string name) {
     auto iter = mTensorIdx.find(name);
     if (iter != mTensorIdx.end()) {
@@ -75,7 +79,7 @@ int ConverterScope::buildIntInputOp(std::string name) {
     return idx;
 }
 
-void ConverterScope::addInputForOp(MNN::OpT* op, std::string inputName) {
+void ConverterScope::addInputForOp(MNN::OpT* op, std::string inputName, bool allowSameInput) {
     int idx = this->lookupTensor(inputName);
     if (idx < 0) {
         idx = this->buildIntInputOp(inputName);
@@ -83,7 +87,7 @@ void ConverterScope::addInputForOp(MNN::OpT* op, std::string inputName) {
             mParent->subgraphDeps.push_back(inputName);
         }
     }
-    if (std::find(op->inputIndexes.begin(), op->inputIndexes.end(), idx) == op->inputIndexes.end()) {
+    if (allowSameInput || std::find(op->inputIndexes.begin(), op->inputIndexes.end(), idx) == op->inputIndexes.end()) {
         op->inputIndexes.push_back(idx);
     }
 }

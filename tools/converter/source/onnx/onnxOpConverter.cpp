@@ -315,11 +315,42 @@ void OnnxScope::buildAccumulate(const std::string& name, const std::string& uNam
     mSubNet->outputs.push_back(idxAcc);
 }
 
-void OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, std::string& uName, bool increment) {
+std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, int N, int K) {
+    MNN_ASSERT(graph->input_size() == N+2);
+    MNN_ASSERT(graph->output_size() == N+K+1);
     std::unique_ptr<MNN::SubGraphProtoT> subgraph(new MNN::SubGraphProtoT);
     subgraph->name = name;
     std::unique_ptr<OnnxScope> scope(new OnnxScope(graph, subgraph.get(), mNet, this));
-    const auto& initializers = scope->mInitializers;
+    const auto& initializers         = scope->mInitializers;
+    const auto& inputs               = scope->mInputs;
+    const auto& outputs              = scope->mOutputs;
+    // set input node to MNN net
+    for (int index=0; index < graph->input_size(); ++index) {
+        auto inputName = graph->input(index).name();
+        bool notHaveInitializer = initializers.find(inputName) == initializers.end();
+        if (notHaveInitializer) {
+            MNN::OpT* MNNOp  = new MNN::OpT;
+            MNNOp->name      = inputName;
+            MNNOp->type      = MNN::OpType_Input;
+            MNNOp->main.type = MNN::OpParameter_Input;
+            auto inputParam  = new MNN::InputT;
+            const auto it    = inputs.find(inputName);
+            const auto& tensorInfo = (it->second)->type().tensor_type();
+            const int inputDimSize = tensorInfo.shape().dim_size();
+            inputParam->dims.resize(inputDimSize);
+            for (int i = 0; i < inputDimSize; ++i) {
+                inputParam->dims[i] = tensorInfo.shape().dim(i).dim_value();
+            }
+            inputParam->dtype   = onnxOpConverter::convertDataType(tensorInfo.elem_type());
+            inputParam->dformat = MNN::MNN_DATA_FORMAT_NCHW;
+            MNNOp->outputIndexes.push_back(scope->declareTensor(inputName));
+            MNNOp->main.value = inputParam;
+            subgraph->inputs.emplace_back(MNNOp->outputIndexes[0]);
+            subgraph->nodes.emplace_back(MNNOp);
+        }
+    }
+    // Find Extra Input from outside graph
+    std::map<std::string, int> outsideInputs;
     for (int i = 0; i < graph->node_size(); i++) {
         const auto& onnxNode = graph->node(i);
         const auto& opType   = onnxNode.op_type();
@@ -346,7 +377,28 @@ void OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, 
         }
         // build input and output
         for (int k = 0; k < onnxNode.input_size(); k++) {
-            scope->addInputForOp(MNNOp, onnxNode.input(k));
+            auto inputName = onnxNode.input(k);
+            int idx = scope->lookupTensor(inputName);
+            if (idx < 0) {
+                auto iter = outsideInputs.find(inputName);
+                if (iter == outsideInputs.end()) {
+                    idx = scope->declareTensor(inputName);
+                    std::unique_ptr<MNN::OpT> inputOp(new MNN::OpT);
+                    inputOp->name      = inputName;
+                    inputOp->type      = MNN::OpType_Input;
+                    inputOp->main.type = MNN::OpParameter_Input;
+                    auto param  = new MNN::InputT;
+                    param->dtype = MNN::DataType_DT_INT32;
+                    param->dformat = MNN::MNN_DATA_FORMAT_NCHW;
+                    inputOp->main.value = param;
+                    inputOp->outputIndexes.push_back(idx);
+                    subgraph->nodes.emplace_back(std::move(inputOp));
+                    outsideInputs.insert(std::make_pair(inputName, idx));
+                } else {
+                    idx = iter->second;
+                }
+            }
+            MNNOp->inputIndexes.push_back(idx);
         }
         for (int k = 0; k < onnxNode.output_size(); k++) {
             MNNOp->outputIndexes.push_back(scope->declareTensor(onnxNode.output(k)));
@@ -354,19 +406,26 @@ void OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, 
         opConverter->run(MNNOp, &onnxNode, scope.get());
         subgraph->nodes.emplace_back(MNNOp);
     }
-    scope->dealSubgraphDeps();
-    for (int i = 0; i < graph->output_size(); i++) {
+    for (int i = 0; i < N + 1; i++) {
         int idx = scope->lookupTensor(graph->output(i).name());
+        MNN_ASSERT(idx >= 0);
         if (idx >= 0) {
             subgraph->outputs.push_back(idx);
         }
     }
-    if (!uName.empty()) {
-        // %user_defined_val = Add(%user_defined_val, %output)
-        scope->buildAccumulate(name, uName, graph->input(0).name(), graph->output(1).name());
+    std::vector<std::string> resOutside;
+    for (auto& iter : outsideInputs) {
+        subgraph->inputs.emplace_back(iter.second);
+        subgraph->outputs.emplace_back(iter.second);
+        resOutside.emplace_back(iter.first);
     }
-    if (increment) {
-        scope->buildIncrement(name, graph->input(0).name());
+    for (int i = 0; i < K; ++i) {
+        int idx = scope->lookupTensor(graph->output(i + N + 1).name());
+        MNN_ASSERT(idx >= 0);
+        if (idx >= 0) {
+            subgraph->outputs.push_back(idx);
+        }
     }
     mNet->subgraphs.emplace_back(std::move(subgraph));
+    return resOutside;
 }

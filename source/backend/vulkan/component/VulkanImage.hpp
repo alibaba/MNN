@@ -57,12 +57,14 @@ public:
         return std::get<4>(mInfo);
     }
     void release();
-    inline VkImageLayout layout() const {
+    void resetBarrier() {
+        mLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    VkImageLayout currentLayout() const {
         return mLayout;
     }
-    inline void setLayout(VkImageLayout layout) {
-        mLayout = layout;
-    }
+    void barrierWrite(VkCommandBuffer buffer) const;
+    void barrierRead(VkCommandBuffer buffer) const;
 private:
     std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat> mInfo;
     std::pair<VkImage, VkImageView> mImage;
@@ -70,7 +72,8 @@ private:
     std::vector<int> mDims;
     const VulkanMemoryPool& mPool;
     std::pair<void*, int> mMemory;
-    VkImageLayout mLayout;
+    mutable VkImageLayout mLayout;
+    mutable VkAccessFlagBits mAccess;
 };
 } // namespace MNN
 

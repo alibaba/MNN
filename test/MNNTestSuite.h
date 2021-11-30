@@ -56,7 +56,9 @@ public:
      */
     virtual ~MNNTestCase() = default;
     /**
-     * @brief run test case with runtime precision: BackendConfig::PrecisionMode
+     * @brief run test case with runtime precision, see FP32Converter in TestUtil.h.
+     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * fp16 precision should use FP32Converter[3].
      */
     virtual bool run(int precision) = 0;
 
@@ -86,12 +88,15 @@ public:
      */
     void add(MNNTestCase* test, const char* name);
     /**
-     * @brief run all registered test case
+     * @brief run all registered test case with runtime precision, see FP32Converter in TestUtil.h.
+     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * fp16 precision should use FP32Converter[3].
      */
     static void runAll(int precision, const char* flag = "");
     /**
-     * @brief run registered test case that matches in name
-     * @param name case name
+     * @brief run test case with runtime precision, see FP32Converter in TestUtil.h.
+     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * fp16 precision should use FP32Converter[3].
      */
     static void run(const char* name, int precision, const char* flag = "");
 

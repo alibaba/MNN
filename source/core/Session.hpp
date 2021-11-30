@@ -24,7 +24,7 @@ struct Net;
 /** infer unit. multiple sessions could share one net. */
 class MNN_PUBLIC Session {
 public:
-    Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode, Interpreter::SessionMode inputMode,
+    Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode, Interpreter::SessionMode inputMode, Interpreter::SessionMode outputMode,
             RuntimeInfo&& runtime);
     ~Session();
 
@@ -46,8 +46,10 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
-    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex);
-    const std::map<const Op*, std::shared_ptr<Execution>>& getExecution(int pipelineIndex);
+    void cloneExecution(const CacheExecutionMap& cache);
+    const CacheExecutionMap& getExecution() {
+        return mOriginExecutions;
+    }
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.
@@ -132,6 +134,7 @@ private:
     bool mValid      = true;
     bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
+    CacheExecutionMap mOriginExecutions;
 };
 } // namespace MNN
 

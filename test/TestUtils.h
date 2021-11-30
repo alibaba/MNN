@@ -18,6 +18,7 @@
 #include <math.h>
 #include <iostream>
 #include "core/Backend.hpp"
+#include <MNN/expr/Executor.hpp>
 #include "MNN_generated.h"
 /**
  * @brief dispatch payload on all available backends
@@ -62,8 +63,9 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
     for(int i = 0; i < size; ++i){
         maxValue = fmax(fabs(rightData[i]), maxValue);
     }
+    float reltiveError = maxValue * rtol;
     for(int i = 0; i < size; ++i){
-        if (fabs(result[i] - rightData[i]) > maxValue * rtol) {
+        if (fabs(result[i] - rightData[i]) > reltiveError) {
             std::cout << i << ": right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
@@ -71,27 +73,46 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
     return true;
 }
 
-#ifdef MNN_SUPPORT_BF16
-// simulate bf16, prune fp32 tailing precision to bf16 precision
-inline float convertFP32Precision(float fp32Value) {
-    int32_t* s32Value = (int32_t*)(&fp32Value);
-    *s32Value &= 0xffff0000;
-    return fp32Value;
-}
-#else
-// simulate fp16
-inline float convertFP32Precision(float fp32Value) {
-    // todo: convert exp part and fraction part.
-    return fp32Value;
+template <typename T>
+bool checkVectorByRelativeError(const T* result, const T* rightData, const T* alterRightData, int size, float rtol) {
+    MNN_ASSERT(result != nullptr);
+    MNN_ASSERT(rightData != nullptr);
+    MNN_ASSERT(size >= 0);
+
+    float maxValue = 0.0f;
+    for(int i = 0; i < size; ++i) {
+        maxValue = fmax(fmax(fabs(rightData[i]), fabs(alterRightData[i])), maxValue);
+    }
+    float reltiveError = maxValue * rtol;
+    for(int i = 0; i < size; ++i) {
+        if (fabs(result[i] - rightData[i]) > reltiveError && fabs(result[i] - alterRightData[i]) > reltiveError) {
+            std::cout << i << ": right: " << rightData[i] << " or " << alterRightData[i] << ", compute: " << result[i] << std::endl;
+            return false;
+        }
+    }
+    return true;
 }
 
-#endif
+int getTestPrecision(MNNForwardType forwardType, MNN::BackendConfig::PrecisionMode precision, bool isSupportFp16);
+
+float convertFP32ToBF16(float fp32Value);
+float convertFP32ToFP16(float fp32Value);
 
 inline float keepFP32Precision(float fp32Value) {
     return fp32Value;
 }
 
 using ConvertFP32 = float(*)(float fp32Value);
-const static ConvertFP32 FP32Converter[MNN::BackendConfig::Precision_Low + 1] = {keepFP32Precision, keepFP32Precision, convertFP32Precision};
+
+const static ConvertFP32 FP32Converter[MNN::BackendConfig::Precision_Low + 2] = {
+    keepFP32Precision,
+    keepFP32Precision,
+#ifdef MNN_SUPPORT_BF16
+    convertFP32ToBF16,
+#else
+    keepFP32Precision,
+#endif
+    convertFP32ToFP16
+};
 
 #endif /* TestUtils_h */

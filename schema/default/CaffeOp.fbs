@@ -87,6 +87,8 @@ table QuantizedFloatParam{
     outputZeroPoint: byte = 0;
     clampMin: byte = -128;
     clampMax: byte = 127;
+    // binary proto: [originKySize, originKxSize, transKySize, transKxSize, {kyStart, kxStart, unitY, unitX}, {...} ...]
+    winogradAttr:[int];
 }
 
 table Convolution2D {

@@ -28,9 +28,6 @@ public:
 
         void clear();
         void setBackend(Backend* backend);
-        bool supportVirtual() const {
-            return mPermitVirtual;
-        }
         void getRasterCacheCreateRecurrse(Tensor* src, CommandBuffer& cmd);
 
         // If has cache, return. Otherwise create cache
@@ -38,29 +35,30 @@ public:
         std::shared_ptr<Tensor> allocConst(const Op* key, const std::vector<int>& shape, halide_type_t type,
                                            Tensor::DimensionType dimType = Tensor::TENSORFLOW);
         bool allocTensor(Tensor* tenosr);
-        std::vector<Tensor*> pOutputs;
         inline MNNForwardType forwardType() const {
             return mForwardType;
         }
+        void pushCache(const CommandBuffer& buffer);
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::map<const Op*, std::vector<std::shared_ptr<Tensor>>> mConstTensors;
         std::vector<std::shared_ptr<Tensor>> mEmpty;
         std::vector<std::shared_ptr<Tensor>> mTempConstTensors;
-        bool mPermitVirtual;
         std::shared_ptr<Backend> mBackend;
-        std::vector<uint8_t> mRasterOp;
+        std::shared_ptr<BufferStorage> mRasterOp;
         MNNForwardType mForwardType;
+        std::vector<SharedPtr<Command>> mRasterCmdCache;
     };
     static void init();
     MNN_PUBLIC static const GeometryComputer* search(int opType, Runtime::CompilerType compType);
     static void registerGeometryComputer(std::shared_ptr<GeometryComputer> comp, std::vector<int> type, Runtime::CompilerType compType = Runtime::Compiler_Geometry);
-    MNN_PUBLIC bool compute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                            Context& context, CommandBuffer& cmd) const;
 
-protected:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const = 0;
+    virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             Context& context, CommandBuffer& cmd) const {
+        return false;
+    }
 };
 
 class DefaultGeometryComputer : public GeometryComputer {
@@ -68,6 +66,8 @@ public:
     DefaultGeometryComputer() {
         // Do nothing
     }
+    virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             Context& context, CommandBuffer& cmd) const override;
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const override;
 };

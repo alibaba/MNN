@@ -45,6 +45,7 @@ public:
         Backend* backend;
         float mInputScale;
         float mOutputScale;
+        int mOutputCount;
 #ifdef MNN_USE_SSE
         std::vector<int> offsets;
 #endif

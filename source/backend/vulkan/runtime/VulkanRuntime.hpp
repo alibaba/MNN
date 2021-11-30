@@ -24,11 +24,12 @@ class VulkanRuntime : public Runtime {
 public:
     VulkanRuntime(const Backend::Info& info);
     virtual ~ VulkanRuntime();
-    
+
     virtual Backend* onCreate(const BackendConfig* config) const override;
     enum GPUType { ADRENO = 0, MALI = 1, OTHER = 2 };
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
+    int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
 private:
     Backend::Info mInfo;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;

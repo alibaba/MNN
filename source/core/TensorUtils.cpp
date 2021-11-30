@@ -15,14 +15,11 @@
 #include "core/Backend.hpp"
 #include "core/Macro.h"
 namespace MNN {
-Tensor::InsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {
-    return tensor->mDescribe;
+Tensor::InsideDescribe::NativeInsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {
+    return tensor->mDescribe->mContent.get();
 }
 bool TensorUtils::regionIsFull(Tensor* input) {
     auto des = TensorUtils::getDescribe(input);
-    if (des->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-        return true;
-    }
     int size = 1;
     for (int i = 0; i < input->dimensions(); ++i) {
         size *= input->length(i);
@@ -125,29 +122,11 @@ void TensorUtils::setLinearLayout(Tensor* tensor) {
     for (int i = 0; i < buffer.dimensions; ++i) {
         auto index  = buffer.dimensions - i - 1;
         auto extent = buffer.dim[index].extent;
-        if (1 == index && tensor->mDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        if (1 == index && tensor->mDescribe->mContent->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
             extent = ROUND_UP(extent, 4);
         }
         buffer.dim[index].stride = size;
         size *= extent;
-    }
-}
-
-void TensorUtils::clearHandleData(Tensor* tensor) {
-    if (tensor->buffer().type.code != halide_type_handle) {
-        return;
-    }
-    auto handle = tensor->host<void*>();
-    if (nullptr == handle) {
-        return;
-    }
-
-    MNN_ASSERT(tensor->mDescribe->extra.handleFreeFunction != nullptr);
-    for (int i = 0; i < tensor->elementSize(); ++i) {
-        if (nullptr != handle[i]) {
-            tensor->mDescribe->extra.handleFreeFunction(handle[i]);
-            handle[i] = nullptr;
-        }
     }
 }
 
@@ -694,4 +673,9 @@ std::vector<float> TensorUtils::getQuantInfo(const Tensor* t) {
     float max = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->max : 127.0f;
     return {scale, zero, min, max};
 }
+
+Tensor::InsideDescribe* TensorUtils::getDescribeOrigin(const Tensor* tensor) {
+    return tensor->mDescribe;
+}
+
 } // namespace MNN

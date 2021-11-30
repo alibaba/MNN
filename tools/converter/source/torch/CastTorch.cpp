@@ -24,7 +24,7 @@ std::vector<int> CastTorch::inputTensorIdx() {
 void CastTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::CastParamT;
     std::string opType = getRealOpType(node);
-    if (opType == "to") {
+    if (opType == "to" || opType == "as_tensor") {
         /*
          scalar_type_to_pytorch_type = [
              torch.uint8,        # 0
@@ -75,3 +75,4 @@ REGISTER_CONVERTER(CastTorch, Float);
 REGISTER_CONVERTER(CastTorch, FloatImplicit);
 REGISTER_CONVERTER(CastTorch, to);
 REGISTER_CONVERTER(CastTorch, type_as);
+REGISTER_CONVERTER(CastTorch, as_tensor);

@@ -39,14 +39,13 @@ private:
     bool mIsCreateError{false};
 };
 
-class CUDABackend final : public Backend {
+class CUDABackend : public Backend {
 public:
     CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
-    virtual bool onAcquireBuffer(const Tensor *nativeTensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor *nativeTensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor *nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,

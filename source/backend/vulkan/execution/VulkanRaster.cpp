@@ -64,8 +64,8 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         auto totalSize = UP_DIV(uniformInfo.imageSize[3], 256);
         mExtraDescribes.emplace_back(des);
         fillPipeline->bind(cmdBuffer->get(), des->get());
+        image->barrierWrite(cmdBuffer->get());
         vkCmdDispatch(cmdBuffer->get(), totalSize, 1, 1);
-        cmdBuffer->barrierImage(image->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VulkanCommandPool::Buffer::WRITE_WRITE);
     }
     
     auto blitPipeline = vkBn->getPipeline("glsl_blit_image_comp", {
@@ -100,7 +100,8 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         dst.describe->writeImage(srcTensor->image()->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         dst.describe->writeImage(dstTensor->image()->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         dst.describe->writeBuffer(dst.uniform->buffer(), 2, dst.uniform->size());
-        cmdBuffer->barrierImage(srcTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        srcTensor->image()->barrierRead(cmdBuffer->get());
+        dstTensor->image()->barrierWrite(cmdBuffer->get());
         blitPipeline->bind(cmdBuffer->get(), dst.describe->get());
         vkCmdDispatch(cmdBuffer->get(), group, 1, 1);
     }

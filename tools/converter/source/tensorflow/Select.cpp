@@ -23,4 +23,4 @@ MNN::OpParameter SelectTf::type() {
 void SelectTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     // Do nothing
 }
-REGISTER_CONVERTER(SelectTf, Select);
+REGISTER_CONVERTER(SelectTf, SelectV2);

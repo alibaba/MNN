@@ -586,8 +586,6 @@ int GenerateSubGraph(std::unique_ptr<MNN::NetT>& netT) {
     if (!hasControlFlow) {
         return 0;
     }
-    MNN_PRINT("The modle has control flow, please use MNN::Module to run it\n");
-
     // We broadly divided all nodes into clusters by the prefix of the node
     // name, and each cluster belongs to one of the tree categories,
     // Normal, Condition or WhileLoop.

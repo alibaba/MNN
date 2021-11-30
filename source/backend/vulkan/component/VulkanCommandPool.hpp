@@ -35,9 +35,6 @@ public:
             WRITE_WRITE,
         };
         void barrierSource(VkBuffer source, size_t start, size_t end, BarrierType type = READ_WRITE) const;
-        void barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout, BarrierType type = READ_WRITE) const;
-        void barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout, BarrierType type = READ_WRITE) const;
-
     private:
         VkCommandBuffer mBuffer;
         const VulkanCommandPool* mPool;

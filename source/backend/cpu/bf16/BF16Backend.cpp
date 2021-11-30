@@ -16,22 +16,9 @@
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
 
-void registerBF16Ops();
-static std::map<OpType, BF16Backend::BF16Creator*>* gInstance = nullptr;
 // The Function Will be Called in init
 void registerBF16Backend() {
-    gInstance = new std::map<OpType, BF16Backend::BF16Creator*>;
-    bool success = BF16Functions::init();
-    if (success) {
-        registerBF16Ops();
-    }
-}
-bool BF16Backend::addBF16Creator(OpType t, BF16Creator* ct) {
-    auto creatorContainer = gInstance;
-    if (creatorContainer->find(t) == creatorContainer->end()) {
-        creatorContainer->insert(std::make_pair(t, ct));
-    }
-    return true;
+    BF16Functions::init();
 }
 
 BF16Backend::BF16Backend(const CPURuntime* runtime) : CPUBackend(runtime, BackendConfig::Precision_Low, MNN_FORWARD_CPU_EXTENSION) {
@@ -49,25 +36,16 @@ Execution* BF16Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
             return nullptr;
         }
     }
-    auto quantInfo = OpCommonUtils::getQuantInfo(inputs);
-    if (quantInfo.first) {
-        return nullptr;
+    if (outputs.size() == 1) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
+            return nullptr;
+        }
     }
     bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
     if (originCreate) {
         return CPUBackend::onCreate(inputs, outputs, op);
     }
-    auto creatorContainer = gInstance;
-    auto iter = creatorContainer->find(op->type());
-
-    if (iter == creatorContainer->end()) {
-        return nullptr;
-    }
-    auto exe = iter->second->onCreate(inputs, outputs, op, this);
-    if (exe == nullptr) {
-        return nullptr;
-    }
-    return exe;
+    return nullptr;
 }
 
 static int _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT format) {
@@ -86,20 +64,20 @@ static int _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT format)
     return size;
 }
 
-bool BF16Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) {
+Backend::MemObj* BF16Backend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();
     if (buffer.type != halide_type_of<float>()) {
-        return CPUBackend::onAcquireBuffer(nativeTensor, storageType);
+        return CPUBackend::onAcquire(nativeTensor, storageType);
     }
     auto res = allocBuffer(_getAliginSize(buffer, TensorUtils::getDescribe(nativeTensor)->dimensionFormat), (Tensor*)nativeTensor, storageType);
     if (!res) {
-        return false;
+        return nullptr;
     }
     // Set mask in device for easy to determine
     buffer.device = 1;
-    return true;
+    return res;
 }
 
 void BF16Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {

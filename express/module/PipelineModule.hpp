@@ -40,7 +40,7 @@ private:
 class PipelineModule : public Module {
 public:
     typedef std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(Express::EXPRP)> Transformer;
-    MNN_PUBLIC static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config = nullptr);
+    MNN_PUBLIC static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config = nullptr);
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
     MNN_PUBLIC std::vector<int> countOutputReference(std::vector<int> outputIndices);

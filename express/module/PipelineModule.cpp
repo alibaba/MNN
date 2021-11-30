@@ -420,6 +420,8 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(const MNN::Net* net, cons
             continue;
         }
         bool merged = false;
+#ifdef MNN_MODULE_FUSE_OPT
+        // TODO: Currently has bug
         // Find old approciate submodule
         for (auto& m : submodule) {
             if (m.isBreak) {
@@ -451,6 +453,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(const MNN::Net* net, cons
                 break;
             }
         }
+#endif
         if (!merged) {
             current.opList.emplace_back(i);
         }
@@ -610,7 +613,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     return load(inputs, outputs, buffer, length, rtMgr, config, subGraphMap);
 }
 
-Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce) {
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce) {
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto net = GetNet(buffer);
     if (!config->dynamic) {
@@ -638,7 +641,11 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     sharedConst->allTensors.resize(net->tensorName()->size());
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;
-    initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), false, code, Backend::DYNAMIC_SEPERATE);
+    initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), code);
+    if (NO_ERROR != code) {
+        MNN_ERROR("Alloc memory for const tensor error\n");
+        return nullptr;
+    }
     for (int i=0; i<sharedConst->allTensors.size(); ++i) {
         if (sharedConst->allTensors[i].get() != nullptr) {
             noneedComputeIndexes.insert(i);

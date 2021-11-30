@@ -9,7 +9,7 @@
 include "CaffeOp.fbs";
 include "TensorflowOp.fbs";
 include "TFQuantizeOp.fbs";
-include "GpuLibrary.fbs";
+include "ExtraInfo.fbs";
 include "UserDefine.fbs";
 namespace MNN;
 attribute "priority";
@@ -31,7 +31,7 @@ enum OpType : int {
     ConvolutionDepthwise,
     Crop,
     CropAndResize,
-    Cubic,
+    ImageProcess,
     Deconvolution,
     DeconvolutionDepthwise,
     Dequantize,
@@ -44,7 +44,7 @@ enum OpType : int {
     ExpandDims,
     Fill,
     Flatten,
-    FloorMod,
+    Im2Col,
     Gather,
     GatherV2,
     Im2Seq,
@@ -369,6 +369,7 @@ union OpParameter {
     LSTMBlockCell,
     GridSample,
     LoopParam,
+    ImageProcessParam,
 }
 
 table Op {
@@ -445,7 +446,7 @@ table TensorQuantInfo {
 table Net {
     bizCode: string;
     extraTensorDescribe: [TensorDescribe];
-    gpulibrary: GpuLibrary;
+    extraInfo: ExtraInfo;
     oplists: [Op];
     outputName: [string];
     preferForwardType: ForwardType = CPU;

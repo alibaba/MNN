@@ -36,6 +36,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     }
 
     addUUID(netT, proto);
+    netT->extraInfo.reset(new ExtraInfoT);
+    netT->extraInfo->name = config.authCode;
     
     if (config.benchmarkModel) {
         removeParams(netT);
@@ -137,6 +139,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     } else {
         std::ofstream output(MNNModelFile, std::ofstream::binary);
         output.write((const char*)bufferOutput, sizeOutput);
+    }
+    if (!netT->subgraphs.empty()) {
+        MNN_PRINT("The modle has subgraphs, please use MNN::Module to run it\n");
     }
 
 #ifdef MNN_DUMP_SUBGRAPH

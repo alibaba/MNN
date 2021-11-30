@@ -162,6 +162,32 @@ public:
         return true;
     }
 };
+class Im2ColSizeComputer : public ConvolutionSizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(1 == inputs.size() && 1 == outputs.size());
+        // get kh, kw
+        const Convolution2DCommon* layer = loadCommon(op);
+        auto kh    = layer->kernelY();
+        auto kw    = layer->kernelX();
+        // get oh, ow
+        ConvolutionSizeComputer::onComputeSize(op, inputs, outputs);
+        auto output = outputs[0];
+        int oh = output->height();
+        int ow = output->width();
+        // [n, ic, ih, iw] -> [ic*kh*kw, n*oh*ow]
+        auto input = inputs[0];
+        int n = input->batch();
+        int ic = input->channel();
+        int ih = input->height();
+        int iw = input->width();
+        output->buffer().dimensions = 2;
+        output->setLength(0, ic * kh * kw);
+        output->setLength(1, n * oh * ow);
+        return true;
+    }
+};
 
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_Convolution);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvolutionDepthwise);
@@ -171,4 +197,5 @@ REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvInt8);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_DepthwiseConvInt8);
 REGISTER_SHAPE(Dilation2DSizeComputer, OpType_Dilation2D);
 REGISTER_SHAPE(Conv2DBackpropFilterSizeComputer, OpType_Conv2DBackPropFilter);
+REGISTER_SHAPE(Im2ColSizeComputer, OpType_Im2Col);
 } // namespace MNN

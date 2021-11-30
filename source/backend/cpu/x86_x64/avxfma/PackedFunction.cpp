@@ -153,13 +153,29 @@ void _AVX_MNNConvDwF23MulTransUnitFMA(float **cacheLine, const float *weigth, fl
     }
 }
 
+static void _AVXFMA_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
+    if(sparseBlockOC == 4) {
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx4NFMA;
+        return;
+    } else if(sparseBlockOC % 4 == 0) {
+        // MNN_PRINT("avxfma downgrade sparse from:%d, ",sparseBlockOC);
+        sparseBlockOC = 4;
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx4NFMA;
+        // MNN_PRINT(" to:%d\n",sparseBlockOC);
+        return;
+    } else {
+        sparseBlockOC = 1;
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx1NFMA;
+        return;
+    }
+}
+
 void _AVX_ExtraInitFMA(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwiseFMA;
     coreFunction->MNNConvRunForUnitDepthWise = _AVX_MNNConvRunForUnitDepthWiseFMA;
     coreFunction->MNNConvDwF23MulTransUnit = _AVX_MNNConvDwF23MulTransUnitFMA;
     // sparse conv init
-    coreFunction->MNNPackedSparseMatMulEpx1 = _AVX_MNNPackedSparseMatMulEpx1NFMA;
-    coreFunction->MNNPackedSparseMatMulEpx4 = _AVX_MNNPackedSparseMatMulEpx4NFMA;
+    coreFunction->MNNAdjustOptimalSparseKernel = _AVXFMA_MNNAdjustOptimalSparseKernel;
 
 }

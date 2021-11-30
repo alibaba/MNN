@@ -139,6 +139,10 @@ class TestModel():
             print(inputVar.type)
             if inputVar.type.find("int64") >= 0:
                 inputs[inputVar.name] = np.random.uniform(0, 12, shapes).astype(np.int64)
+            elif inputVar.type.find("int32") >=0:
+                inputs[inputVar.name] = np.random.uniform(0, 12, shapes).astype(np.int32)
+            elif inputVar.type.find('bool') >=0:
+                inputs[inputVar.name] = np.random.uniform(0, 1, shapes).astype(np.bool)
             else:
                 # Float
                 inputs[inputVar.name] = np.random.uniform(0.1, 1.2, shapes).astype(np.float32)

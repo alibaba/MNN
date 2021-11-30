@@ -11,6 +11,12 @@
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
 #include "MNN_generated.h"
+#include "Utils.hpp"
+
+#ifdef MNN_MODEL_AUTH
+#include "auth/ModelAuth.hpp"
+#endif //MNN_MODEL_AUTH
+
 namespace MNN {
 namespace Express {
 
@@ -145,16 +151,102 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     }
     return load(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
 }
+class NetModule : public Module {
+public:
+    NetModule(std::shared_ptr<Module> m, std::shared_ptr<Module::Info> info) {
+        mModule = m;
+        mInfo = info;
+        setType("Net");
+    }
+    virtual ~ NetModule(){}
+
+    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
+        return mModule->onForward(inputs);
+    }
+    virtual Module* clone(CloneContext* ctx) const override {
+        NetModule* module(new NetModule(mModule, mInfo));
+        return this->cloneBaseTo(ctx, module);
+    }
+    const Module::Info* info() const {
+        return mInfo.get();
+    }
+private:
+    std::shared_ptr<Module> mModule;
+    std::shared_ptr<Module::Info> mInfo;
+};
+
+const Module::Info* Module::getInfo() const {
+    if (mType != "Net") {
+        MNN_ERROR("The Module is not load from buffer, can't get info\n");
+        return nullptr;
+    }
+    return ((NetModule*)(this))->info();
+}
+
+static void _loadInputs(Module::Info* info, const std::vector<std::string>& inputs, const Net* net) {
+    auto type = net->sourceType();
+    if (type == NetSource_TENSORFLOW || type == NetSource_TFLITE) {
+        info->defaultFormat = NHWC;
+    } else {
+        info->defaultFormat = NCHW;
+    }
+    info->inputs.resize(inputs.size());
+    std::map<std::string, Variable::Info> allInputs;
+    for (int i=0; i<net->oplists()->size(); ++i) {
+        auto op = net->oplists()->GetAs<Op>(i);
+        if (op->type() == OpType_Input && op->main_as_Input() != nullptr) {
+            auto name = net->tensorName()->GetAsString(op->outputIndexes()->data()[0])->str();
+            auto inputInfo = op->main_as_Input();
+            std::vector<int> dims;
+            if (nullptr != inputInfo->dims()) {
+                dims.resize(inputInfo->dims()->size());
+                for (int v=0; v<dims.size(); ++v) {
+                    dims[v] = inputInfo->dims()->data()[v];
+                }
+            }
+            auto dtype = Utils::revertDataType(inputInfo->dtype());
+            Variable::Info vinfo;
+            vinfo.dim = std::move(dims);
+            vinfo.order = Utils::revertFormat(inputInfo->dformat());
+            vinfo.type = dtype;
+            vinfo.syncSize();
+            allInputs.insert(std::make_pair(name, std::move(vinfo)));
+        }
+    }
+    for (int i=0; i<inputs.size(); ++i) {
+        auto iter = allInputs.find(inputs[i]);
+        if (iter != allInputs.end()) {
+            info->inputs[i] = iter->second;
+        }
+    }
+}
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
+    // Check if runtime is valid
+    if (nullptr != rtMgr && rtMgr->getRuntimeInfo().first.empty()) {
+        MNN_ERROR("Invalid runtime\n");
+        return nullptr;
+    }
     // Check Auto Inputs and Outputs
     auto net = GetNet(buffer);
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
         MNN_ERROR("Invalid net, for null oplist or tensorName\n");
         return nullptr;
     }
+
+#ifdef MNN_MODEL_AUTH
+    if (!authenticateModel(net)) {
+        MNN_ERROR("Model authentication failed.\n");
+        return nullptr;
+    }
+#endif // MNN_MODEL_AUTH
+
+    std::shared_ptr<Info> info(new Info);
     if ((!inputs.empty()) && (!outputs.empty())) {
-        return PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config);
+        _loadInputs(info.get(), inputs, net);
+        info->runTimeManager = rtMgr;
+        std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
+        return new NetModule(m, info);
     }
     std::vector<std::string> newInputs = inputs;
     std::vector<std::string> newOutputs = outputs;
@@ -190,7 +282,10 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             newOutputs.emplace_back(net->tensorName()->GetAsString(index)->str());
         }
     }
-    return PipelineModule::load(newInputs, newOutputs, buffer, length, rtMgr, config);
+    std::shared_ptr<Module> m(PipelineModule::load(newInputs, newOutputs, buffer, length, rtMgr, config));
+    _loadInputs(info.get(), newInputs, net);
+    info->runTimeManager = rtMgr;
+    return new NetModule(m, info);
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {

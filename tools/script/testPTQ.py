@@ -31,8 +31,8 @@ def parseRes(res):
 def compare(origin, quant):
     img_dir = '../resource/images'
     for name in os.listdir(img_dir):
-        origin_res = run_cmd(['./pictureRecognition.out', origin, img_dir + '/' + name])
-        quant_res = run_cmd(['./pictureRecognition.out', quant, img_dir + '/' + name])
+        origin_res = run_cmd(['./pictureRecognition_module.out', origin, img_dir + '/' + name])
+        quant_res = run_cmd(['./pictureRecognition_module.out', quant, img_dir + '/' + name])
         # print(origin_res, quant_res)
         originIdx, originPoint = parseRes(origin_res)
         quantIdx, quantPoint = parseRes(quant_res)

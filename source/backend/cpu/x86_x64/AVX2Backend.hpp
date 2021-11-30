@@ -20,7 +20,7 @@ public:
     AVX2Backend(const CPURuntime* runtime, size_t flags);
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
-    virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
 
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 

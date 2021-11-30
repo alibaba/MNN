@@ -148,7 +148,7 @@ protected:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 5e-3)) {
             MNN_PRINT("%s expect:\t real:\n", test_op_name.c_str());
             for (int i = 0; i < outputData.size(); ++i) {
                 MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);

@@ -50,6 +50,10 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     for (auto o : subgraph->outputs) {
         outputNames.emplace_back(subgraph->tensors[o]);
     }
+    std::vector<std::string> inputNames;
+    for (auto index : subgraph->inputs) {
+        inputNames.emplace_back(subgraph->tensors[index]);
+    }
 
     SubGraphProtoT* mutable_subgraph = // NOLINT
         FindSubGraphByName(ctx->subgraphs, subgraph->name);
@@ -65,7 +69,19 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
 
     MNN::SubGraphProtoT* new_subgraph(new MNN::SubGraphProtoT);
     new_subgraph->name    = mutable_subgraph->name;
-    new_subgraph->inputs  = NetInputIndices(new_subnet.get());
+    if (ctx->source != NetSource_ONNX) {
+        new_subgraph->inputs  = NetInputIndices(new_subnet.get());
+    } else {
+        new_subgraph->inputs.resize(inputNames.size());
+        for (int i=0; i<inputNames.size(); ++i) {
+            for (int j=0; j<new_subnet->tensorName.size(); ++j) {
+                if (new_subnet->tensorName[j] == inputNames[i]) {
+                    new_subgraph->inputs[i] = j;
+                    break;
+                }
+            }
+        }
+    }
     new_subgraph->outputs.clear();
     for (auto& output : outputNames) {
         for (int i = 0; i < new_subnet->tensorName.size(); ++i) {
@@ -327,6 +343,11 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
             continue;
         }
         auto param = op->main.AsWhileParam();
+        if (param->cond_graph.empty()) {
+            // If cond_graph is empty, it come from onnx's loop
+            // TODO: Support Loop from onnx
+            continue;
+        }
         auto body  = subGraphMaps[param->body_graph];
         auto cond  = subGraphMaps[param->cond_graph];
         // Don't support for shared subgrah's optimize

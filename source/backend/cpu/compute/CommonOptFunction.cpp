@@ -10,6 +10,7 @@
 #include "ConvOpt.h"
 #include "WinogradOptFunction.hpp"
 #include "Int8FunctionsOpt.h"
+#include "ImageProcessFunction.hpp"
 #include <string.h>
 #include <algorithm>
 #include <cmath>
@@ -174,6 +175,32 @@ void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffset
 
         *dataOffsetMap = columOffset; //
     }
+    return;
+}
+
+
+void MNNGetOptimalBlockShape(size_t& weightNNZElement, size_t& weightBlockNumber, const float* source, int sparseBlockOC, size_t h, size_t l) {
+    size_t nnzBlock = 0;
+    size_t nnzTail = 0;
+    int ocEven = (h / sparseBlockOC) * sparseBlockOC;
+    size_t ioc = 0;
+    for (; ioc < ocEven; ioc += sparseBlockOC) {
+        for (size_t i = 0; i < l; i++) {
+            bool isZero = MNN::CommonCompute::checkAllZeros(source, l, sparseBlockOC, 1);
+            nnzBlock += !isZero;
+            source++;
+        }
+        source += (sparseBlockOC - 1) * l;
+    }
+    for (; ioc < h; ioc++) {
+        for (size_t i = 0; i < l; i++) {
+            bool isZero = (*source) == 0.0f;
+            nnzTail += !isZero;
+            source++;
+        }
+    }
+    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
+    weightBlockNumber = nnzBlock + nnzTail;
     return;
 }
 
@@ -2595,6 +2622,22 @@ void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit) 
 }
 #endif
 
+static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
+    if(sparseBlockOC == 4) {
+        packedSparseMatMul = MNNPackedSparseMatMulEpx4;
+        return;
+    } else if(sparseBlockOC % 4 == 0) {
+        sparseBlockOC = 4;
+        packedSparseMatMul = MNNPackedSparseMatMulEpx4;
+        // MNN_PRINT("common downgrade sparse to:%d\n",sparseBlockOC);
+        return;
+    } else {
+        sparseBlockOC = 1;
+        packedSparseMatMul = MNNPackedSparseMatMulEpx1;
+        return;
+    }
+}
+
 namespace MNN {
 
 static CoreFunctions* gCoreFunction = nullptr;
@@ -2603,15 +2646,15 @@ void MNNCoreFunctionInit() {
     gCoreFunction = new CoreFunctions;
     // MatMul
     gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode;
-    gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A;
     gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B;
     gCoreFunction->MNNPackedMatMul = MNNPackedMatMul;
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
 
+    gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNPackForSparseMatMul_B = MNNPackForSparseMatMul_B; // sparse packing B
-    gCoreFunction->MNNPackedSparseMatMulEpx4 = MNNPackedSparseMatMulEpx4;
-    gCoreFunction->MNNPackedSparseMatMulEpx1 = MNNPackedSparseMatMulEpx1;
+    gCoreFunction->MNNGetOptimalBlockShape = MNNGetOptimalBlockShape;
+    gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
     gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;
@@ -2665,6 +2708,15 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
     // Set min value as 1 << 24
     gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
+    // ImageProcess Functions
+    gCoreFunction->MNNRGBAToBGRA = MNNRGBAToBGRA;
+    gCoreFunction->MNNNV21ToRGBA = MNNNV21ToRGBA;
+    gCoreFunction->MNNNV21ToRGB = MNNNV21ToRGB;
+    gCoreFunction->MNNNV21ToBGRA = MNNNV21ToBGRA;
+    gCoreFunction->MNNNV21ToBGR = MNNNV21ToBGR;
+    gCoreFunction->MNNC1ToFloatC1 = MNNC1ToFloatC1;
+    gCoreFunction->MNNC3ToFloatC3 = MNNC3ToFloatC3;
+    gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
 
 #ifdef MNN_USE_ARMV82
     cpuinfo_arm_isa gCPUInfo;

@@ -14,12 +14,12 @@
 #include <cmath>
 
 namespace MNN {
-ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_type_t inputType, halide_type_t outputType,
+ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, ConvertType type,
                                int number, float scale, float zero, float min, float max, const CPUBackend* bn) {
     auto pack = bn->functions()->pack;
     int c4Size = number / pack;
     int remain = number % pack;
-    if (inputType == halide_type_of<float>() && outputType == halide_type_of<int8_t>()) {
+    if (type == FlOAT_TO_INT8) {
         scale = (scale == 0.f ? 0.f : 1.f / scale);
         std::vector<float> scales(pack, scale);
         bn->int8Functions()->MNNFloat2Int8(static_cast<float*>(inputRaw), static_cast<int8_t*>(outputRaw), c4Size, scales.data(), min, max, zero);
@@ -32,7 +32,7 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
         }
         return NO_ERROR;
     }
-    if (inputType == halide_type_of<int8_t>() && outputType == halide_type_of<float>()) {
+    if (type == INT8_TO_FlOAT) {
         std::vector<float> scales(pack, scale);
         bn->int8Functions()->MNNInt8ScaleToFloat(static_cast<float*>(outputRaw), static_cast<int8_t*>(inputRaw), scales.data(), c4Size, zero);
         if (remain > 0) {
@@ -48,23 +48,16 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
     return NOT_SUPPORT;
 }
 
-ErrorCode CPUCastCreator::cast(const Tensor* input, const Tensor* output, const CPUBackend* bn) {
-    auto srcT = input->getType();
-    auto dstT = output->getType();
-    auto ib     = input->buffer();
-    auto ob     = output->buffer();
+ErrorCode CPUCastCreator::cast(const Tensor* input, const Tensor* output, const CPUBackend* bn, ConvertType type) {
+    auto& ib     = input->buffer();
+    auto& ob     = output->buffer();
     int totalSize = bn->getTensorSize(input);
-    auto bytes = ib.type.bytes();
-    if (srcT == dstT) {
-        ::memcpy(ib.host, ob.host, totalSize * bytes);
-        return NO_ERROR;
-    }
-    auto& quantAttr = TensorUtils::getDescribe(input)->quantAttr;
+    auto quantAttr = TensorUtils::getDescribe(input)->quantAttr;
     if (quantAttr == nullptr) {
         MNN_ERROR("No quant info for Cast\n");
         return INVALID_VALUE;
     }
-    auto code = cast(ib.host, ob.host, srcT, dstT, totalSize, quantAttr->scale, quantAttr->zero, quantAttr->min, quantAttr->max, bn);
+    auto code = cast(ib.host, ob.host, type, totalSize, quantAttr->scale, quantAttr->zero, quantAttr->min, quantAttr->max, bn);
     if (NO_ERROR != code) {
         MNN_ERROR("Error in CPUCast\n");
         return code;

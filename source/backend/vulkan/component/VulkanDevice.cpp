@@ -61,6 +61,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         /* .queueCount       = */ 1,
         /* .pQueuePriorities = */ priorities,
     };
+    VkPhysicalDeviceFeatures mDeviceFeature;
+    ::memset(&mDeviceFeature, 0, sizeof(mDeviceFeature));
+    mDeviceFeature.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+    //vkGetPhysicalDeviceFeatures(mPhysicalDevice, &mDeviceFeature);
 
     VkDeviceCreateInfo deviceCreateInfo{
         /* .sType                   = */ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -72,9 +76,8 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         /* .ppEnabledLayerNames     = */ nullptr,
         /* .enabledExtensionCount   = */ static_cast<uint32_t>(device_extensions.size()),
         /* .ppEnabledExtensionNames = */ device_extensions.data(),
-        /* .pEnabledFeatures        = */ nullptr,
+        /* .pEnabledFeatures        = */ &mDeviceFeature,
     };
-
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
@@ -305,7 +308,7 @@ const VkResult VulkanDevice::createImage(VkImage& image, const VkImageType image
     info.format            = format;
     info.tiling            = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    info.usage             = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.usage             = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     info.samples           = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
     info.pNext             = nullptr;

@@ -36,14 +36,13 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
     netT->usage = Usage_INFERENCE_STATIC;
     std::map<Tensor*, int> tensorMap;
     // add Tensors to netT
-    for (auto& iter : buffer.command) {
+    for (auto& iterP : buffer.command) {
+        auto& iter = *iterP;
         std::function<void(Tensor*)> insertTensor = [&](Tensor* t) {
             if (tensorMap.find(t) == tensorMap.end()) {
                 auto des = TensorUtils::getDescribe(t);
-                if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                    for (auto reg : des->regions) {
-                        insertTensor(reg.origin);
-                    }
+                for (auto reg : des->regions) {
+                    insertTensor(reg.origin);
                 }
                 int index = static_cast<int>(tensorMap.size());
                 tensorMap.insert(std::make_pair(t, index));
@@ -109,30 +108,34 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         if (tensor->dimensions() == 0) {
             describe->blob->dims.push_back(1);
         }
-        if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-            for (auto& reg : des->regions) {
-                auto regionT = std::unique_ptr<MNN::RegionT>(new MNN::RegionT);
-                regionT->src = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
-                regionT->dst = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
-                regionT->src->offset = reg.src.offset;
-                regionT->dst->offset = reg.dst.offset;
-                for (int s = 0; s < 3; s++) {
-                    regionT->src->stride.push_back(reg.src.stride[s]);
-                    regionT->dst->stride.push_back(reg.dst.stride[s]);
-                    regionT->size.push_back(reg.size[s]);
-                }
-                regionT->origin = tensorMap[reg.origin];
-                describe->regions.emplace_back(std::move(regionT));
+        auto tensorDes = TensorUtils::getDescribe(tensor);
+        if (nullptr != tensorDes->quantAttr) {
+            describe->quantInfo.reset(new TensorQuantInfoT);
+            describe->quantInfo->max = tensorDes->quantAttr->max;
+            describe->quantInfo->min = tensorDes->quantAttr->min;
+            describe->quantInfo->zero = tensorDes->quantAttr->zero;
+            describe->quantInfo->scale = tensorDes->quantAttr->scale;
+        }
+        for (auto& reg : des->regions) {
+            auto regionT = std::unique_ptr<MNN::RegionT>(new MNN::RegionT);
+            regionT->src = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
+            regionT->dst = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
+            regionT->src->offset = reg.src.offset;
+            regionT->dst->offset = reg.dst.offset;
+            for (int s = 0; s < 3; s++) {
+                regionT->src->stride.push_back(reg.src.stride[s]);
+                regionT->dst->stride.push_back(reg.dst.stride[s]);
+                regionT->size.push_back(reg.size[s]);
             }
+            regionT->origin = tensorMap[reg.origin];
+            describe->regions.emplace_back(std::move(regionT));
         }
         netT->extraTensorDescribe.emplace_back(std::move(describe));
     }
     // add op to netT
     int idx = 0;
-    for (auto& iter : buffer.command) {
-        if (!iter.buffer.empty()) {
-            iter.op = flatbuffers::GetMutableRoot<Op>((void*)iter.buffer.data());
-        }
+    for (auto& iterP : buffer.command) {
+        auto& iter = *iterP;
         auto opt = iter.op->UnPack();
         if (opt->name.size() <= 0) {
             opt->name = std::string("Geometry_") + MNN::EnumNameOpType(opt->type) + std::to_string(idx++);
@@ -178,7 +181,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     std::vector<std::shared_ptr<Tensor>> allTensors;
     allTensors.resize(net->tensorName()->size());
     ErrorCode code = NO_ERROR;
-    initConstTensors(allTensors, net, defaultBackend.get(), true, code);
+    initConstTensors(allTensors, net, defaultBackend.get(), code);
     if (NO_ERROR != code) {
         MNN_ERROR("Init tensor error code = %d\n", code);
         return;
@@ -197,12 +200,10 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     std::vector<Schedule::PipelineInfo> infos;
     initPipelineInfosFromNet(infos, net, allTensors);
     GeometryComputer::Context ctx(defaultBackend, true);
-    CommandBuffer buffer;
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
-    std::vector<Tensor*> midConstTensors;
-    GeometryComputerUtils::buildConstantTensors(infos, defaultBackend, false, midConstTensors);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, buffer, ctx, defaultBackend, runtime->onGetCompilerType());
+    GeometryComputerUtils::buildConstantTensors(infos);
+    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, ctx, defaultBackend, runtime->onGetCompilerType());
     std::map<Tensor*, std::string> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = net->tensorName()->GetAsString(i)->str();
@@ -219,6 +220,12 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
             }
         }
     }
+    CommandBuffer newBuffer;
+    for (auto& info : infos) {
+        auto& buf = info.executeBuffer;
+        newBuffer.command.insert(newBuffer.command.end(), buf.command.begin(), buf.command.end());
+        newBuffer.extras.insert(newBuffer.extras.end(), buf.extras.begin(), buf.extras.end());
+    }
     // store buffer to STATIC model file
-    genStaticModel(buffer, mnnFile, tensorName, std::move(outputNames));
+    genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames));
 }

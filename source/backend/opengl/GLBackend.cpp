@@ -53,13 +53,9 @@ std::shared_ptr<GLProgram> GLBackend::getTreatedProgram(const char *content) {
     return std::shared_ptr<GLProgram>(new GLProgram(tc.str()));
 }
 
-bool GLBackend::getOpenGLExtensions(std::string extStr){
+bool GLBackend::getOpenGLExtensions(const std::string& extStr) {
     const std::string extension_str((const char*)glGetString(GL_EXTENSIONS));
-    if(extension_str.find(extStr.c_str()) != std::string::npos){
-        return true;
-    }else{
-        return false;
-    }
+    return extension_str.find(extStr.c_str()) != std::string::npos;
 }
 
 bool GLBackend::isSupportHalf() const{
@@ -89,7 +85,7 @@ GLBackend::GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::Powe
         }
     }
     mIsSupportHalf = getOpenGLExtensions("GL_EXT_color_buffer_half_float");
-    if(mIsSupportHalf && precision != BackendConfig::Precision_High){
+    if(mIsSupportHalf && precision != BackendConfig::Precision_High) {
         mTextrueFormat = GL_RGBA16F;
         mImageFormat = "rgba16f";
     }else{
@@ -300,7 +296,7 @@ Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::v
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
         } else {
-            MNN_PRINT("Don't support type %d\n", op->type());            
+            MNN_PRINT("Don't support type %d\n", op->type());
         }
         return nullptr;
     }
@@ -309,7 +305,7 @@ Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::v
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
         } else {
-            MNN_PRINT("The Creator Don't support type %d\n", op->type());            
+            MNN_PRINT("The Creator Don't support type %d\n", op->type());
         }
         return nullptr;
     }
@@ -361,15 +357,22 @@ bool GLBackend::onClearBuffer() {
     return true;
 }
 
-bool GLBackend::onReleaseBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
-    // collects only for dynamic storage
-    if (Backend::DYNAMIC == storageType) {
-        mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
+class GLMemObj : public Backend::MemObj {
+public:
+    GLMemObj(const Tensor *nativeTensor, uint64_t device, GLBackend::Runtime* runtime) {
+        mTensor = nativeTensor;
+        mDevice = device;
+        mRuntime = runtime;
     }
-    return true;
-}
-
-bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
+    virtual ~ GLMemObj() {
+        mRuntime->mFreeTextures.push_back(std::make_pair(mTensor, mDevice));
+    }
+private:
+    const Tensor* mTensor;
+    uint64_t mDevice;
+    GLBackend::Runtime* mRuntime;
+};
+Backend::MemObj* GLBackend::onAcquire(const Tensor *nativeTensor, Backend::StorageType storageType) {
     auto tensor = (Tensor *)nativeTensor;
 
     // reuse only for dynamic storage
@@ -378,17 +381,20 @@ bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType
             auto preiousTensor = iter->first;
             if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
                 UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
-                mRuntime->mFreeTextures.erase(iter);
                 tensor->buffer().device = iter->second;
-                return true;
+                mRuntime->mFreeTextures.erase(iter);
+                return new GLMemObj(nativeTensor, tensor->buffer().device, mRuntime);
             }
         }
     }
-    
+
     std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel(), getTextrueFormat()));
     tensor->buffer().device = newTexture->id();
     mRuntime->mBlocks.push_back(std::move(newTexture));
-    return true;
+    if (Backend::DYNAMIC == storageType) {
+        return new GLMemObj(nativeTensor, tensor->buffer().device, mRuntime);
+    }
+    return new Backend::MemObj;
 }
 
 std::shared_ptr<GLProgram> GLBackend::getProgram(const std::string &key, const char *content,
@@ -431,6 +437,7 @@ bool GLBackend::isCreateError() const {
     return mIsCreateError;
 }
 
+
 Backend* GLRuntime::onCreate(const BackendConfig* config) const {
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
     BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
@@ -440,6 +447,25 @@ Backend* GLRuntime::onCreate(const BackendConfig* config) const {
     }
     auto backend = new GLBackend(precision, power);
     return backend;
+}
+
+int GLRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
+    MNN_ERROR("in GLRuntime\n");
+    switch (statusEnum) {
+        case STATUS_SUPPORT_FP16: {
+            return GLBackend::getOpenGLExtensions("GL_EXT_color_buffer_half_float");
+            break;
+        }
+        case STATUS_SUPPORT_DOT_PRODUCT: {
+            return 0;
+            break;
+        }
+        default: {
+            MNN_ERROR("unsupported interface");
+            break;
+        }
+    }
+    return 0;
 }
 
 Runtime::CompilerType GLRuntime::onGetCompilerType() const {
@@ -461,9 +487,13 @@ public:
     }
 };
 
-static const auto __opengl_global_initializer = []() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, true);
+bool placeholder = []() {
+    static std::once_flag createOnce;
+    std::call_once(createOnce, []() {
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, true);
+    });
     return true;
 }();
+
 } // namespace OpenGL
 } // namespace MNN

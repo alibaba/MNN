@@ -14,7 +14,6 @@
 #import "MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
-
 #define MNN_PRINT_ENCODER(context, encoder) ((void)0)
 
 namespace MNN {

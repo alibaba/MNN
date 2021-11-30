@@ -72,7 +72,7 @@ private:
     friend class TRTBackend;
 };
 
-class TRTBackend final : public Backend {
+class TRTBackend : public Backend {
 public:
     TRTBackend(const TRTRuntime* runtime);
     virtual ~TRTBackend();
@@ -83,8 +83,7 @@ public:
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
 
-    virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;
-    virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) override;
+    virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 

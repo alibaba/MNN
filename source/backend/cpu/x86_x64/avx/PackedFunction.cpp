@@ -620,6 +620,22 @@ void _AVX_MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float
     }
 }
 
+static void _AVX_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
+    if(sparseBlockOC == 4) {
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx4EFMA;
+        return;
+    } else if(sparseBlockOC % 4 == 0) {
+        sparseBlockOC = 4;
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx4EFMA;
+        // MNN_PRINT("avx downgrade sparse to:%d\n",sparseBlockOC);
+        return;
+    } else {
+        sparseBlockOC = 1;
+        packedSparseMatMul = _AVX_MNNPackedSparseMatMulEpx1EFMA;
+        return;
+    }
+}
+
 void _AVX_ExtraInit(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNSelectBlitFunction = _selectBlit;
@@ -648,6 +664,5 @@ void _AVX_ExtraInit(void* functions) {
 
     // sparse conv funcs
     coreFunction->MNNGetSparseMatMulPackMode = _AVX_MNNGetSparseMatMulPackMode;
-    coreFunction->MNNPackedSparseMatMulEpx1 = _AVX_MNNPackedSparseMatMulEpx1EFMA;
-    coreFunction->MNNPackedSparseMatMulEpx4 = _AVX_MNNPackedSparseMatMulEpx4EFMA;
+    coreFunction->MNNAdjustOptimalSparseKernel = _AVX_MNNAdjustOptimalSparseKernel;
 }

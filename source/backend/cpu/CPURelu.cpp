@@ -15,18 +15,6 @@
 #include "CPUBackend.hpp"
 #include "core/TensorUtils.hpp"
 namespace MNN {
-static int getTensorElementSizeHelper(const Tensor* t, int pack) {
-    int size = 1;
-    for (int i = 0; i < t->dimensions(); i++) {
-        int currentDimSize = t->length(i);
-        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
-            currentDimSize = UP_DIV(currentDimSize, pack) * pack;
-        }
-        size *= currentDimSize;
-    }
-    return size;
-}
-
 CPURelu::CPURelu(Backend *b, float slope) : Execution(b) {
     auto core = static_cast<CPUBackend*>(b)->functions();
     mSlope.reset(core->bytes * core->pack);
@@ -45,7 +33,7 @@ CPURelu::CPURelu(Backend *b, float slope) : Execution(b) {
 }
 ErrorCode CPURelu::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    mRealSize = getTensorElementSizeHelper(inputs[0], core->pack);
+    mRealSize = static_cast<CPUBackend*>(backend())->getTensorSize(inputs[0]);
     if (mRealSize % core->pack != 0) {
         mCacheDst.reset(core->pack * core->bytes);
         mCacheSrc.reset(core->pack * core->bytes);
@@ -57,10 +45,10 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     auto& ib = inputs[0]->buffer();
     auto& ob = outputs[0]->buffer();
 
-    if (inputs[0]->getType() == halide_type_of<int8_t>()) {
+    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
         const int8_t* srcO = (const int8_t*)ib.host;
         int8_t* dstO       = (int8_t*)ob.host;
-        auto size         = inputs[0]->size() / sizeof(int8_t);
+        auto size         = mRealSize;
         auto numberThread = ((CPUBackend*)backend())->threadNumber();
         int sizeQuad     = size / 16;
         int remain       = sizeQuad * 16;
@@ -108,7 +96,7 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
 
 ErrorCode CPURelu6::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    mRealSize = getTensorElementSizeHelper(inputs[0], core->pack);
+    mRealSize = static_cast<CPUBackend*>(backend())->getTensorSize(inputs[0]);
     if (mRealSize % core->pack != 0) {
         mCacheDst.reset(core->pack * core->bytes);
         mCacheSrc.reset(core->pack * core->bytes);

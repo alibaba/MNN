@@ -73,7 +73,6 @@ void UnpackC4(uint8_t* output, const uint8_t* input, int inside, int axis, int o
     }
 }
 
-
 // Blit don't care offset
 template <typename T>
 __global__ void blitRegion(const T *inputO, T *outputO,
@@ -237,6 +236,68 @@ void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, cons
         default:
             break;
     }
+}
+
+template<typename T>
+__global__ void fuseblit(const T *input, T *output,
+        int fuseNum, const int32_t* sliceOffset,
+        int sizeZ, int sizeY, int sizeX,
+        int strideZ, int strideY, int strideX,
+        int dstStrideZ, int dstStrideY, int dstStrideX
+        ) {
+    int count = fuseNum*sizeZ * sizeY * sizeX;
+
+    for (size_t c = blockIdx.x * blockDim.x + threadIdx.x; c < (count); c += blockDim.x * gridDim.x) {
+        int j = c / (sizeZ * sizeY * sizeX);
+        int i = c % (sizeZ * sizeY * sizeX);
+        int ix = i % sizeX;
+        int tmp = i / sizeX;
+        int iy = tmp % sizeY;
+        int iz = tmp / sizeY;
+        int src_offset = sliceOffset[j] + iz * strideZ + iy * strideY + ix * strideX;
+        int dst_offset = sliceOffset[fuseNum+j] + iz * dstStrideZ + iy * dstStrideY + ix * dstStrideX;
+        output[dst_offset] = input[src_offset];
+    }
+
+
+}
+
+void FuseRasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int fuseNum, void* sliceOffset, int bytes, CUDARuntime* runtime) {
+    int count = size[0] * size[1] * size[2];
+    int block_num = runtime->blocks_num(count);
+    int threads_num = runtime->threads_num();
+
+    int numBlocks = block_num;
+    int threadsPerBlock = threads_num;
+    // dim3 numBlocks(block_num, fuseNum);
+    // dim3 threadsPerBlock(threads_num, 1);
+
+    switch (bytes) {
+        case 4:
+            fuseblit<<<numBlocks, threadsPerBlock>>>((const float*)input, (float*)output, 
+                fuseNum, (const int32_t*)sliceOffset,
+                size[0], size[1], size[2],
+                srcStride[0], srcStride[1], srcStride[2],
+                dstStride[0], dstStride[1], dstStride[2]);
+            break;
+        case 2:
+            fuseblit<<<numBlocks, threadsPerBlock>>>((const int16_t*)input, (int16_t*)output,
+                fuseNum, (const int32_t*)sliceOffset,
+                size[0], size[1], size[2],
+                srcStride[0], srcStride[1], srcStride[2],
+                dstStride[0], dstStride[1], dstStride[2]);
+            break;
+        case 1:
+            fuseblit<<<numBlocks, threadsPerBlock>>>((const int8_t*)input, (int8_t*)output,
+                fuseNum, (const int32_t*)sliceOffset, 
+                size[0], size[1], size[2],
+                srcStride[0], srcStride[1], srcStride[2],
+                dstStride[0], dstStride[1], dstStride[2]);
+            break;
+        default:
+            break;
+    }
+    //printf("%s, %d-%d-%d-%d\n", cudaGetErrorString(cudaGetLastError()), numBlocks.x, numBlocks.y, threadsPerBlock.x, threadsPerBlock.y);
 }
 
 void UnaryBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int bytes, CUDARuntime* runtime, int opType) {

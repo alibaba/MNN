@@ -21,21 +21,18 @@ struct OperatorInfo::Info {
 };
 class SizeComputer;
 /** pipeline. one session may contains multiple pipeline, and one pipeline may contains more than one unit. */
+typedef std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> CacheExecutionMap;
 class Pipeline : public NonCopyable {
 public:
     Pipeline(std::vector<Schedule::PipelineInfo>&& info, std::shared_ptr<Backend> major,
-             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, Runtime::CompilerType compilerType);
+             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, bool outputStatic, Runtime::CompilerType compilerType, CacheExecutionMap& cache);
     ~Pipeline();
     class UnitInfo : public OperatorInfo {
     public:
         UnitInfo()          = default;
         virtual ~UnitInfo() = default;
-        void setUp(const Command& cmd, int index);
+        void setUp(const Command& cmd, int index, const Op* originOp, int totalIndex);
     };
-    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache);
-    const std::map<const Op*, std::shared_ptr<Execution>>& getCache() {
-        return mOriginExecution;
-    }
 public:
     /** encode :
        1. compute shape for every op's inputs and outputs;
@@ -45,7 +42,7 @@ public:
     */
     ErrorCode encode(bool isStatic = false, bool supportDebug = false);
     /** allocMemory: create Execution and alloc memory for every op */
-    ErrorCode allocMemory();
+    ErrorCode allocMemory(bool firstMalloc);
     /** execute this pipline */
     ErrorCode execute();
     ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
@@ -54,17 +51,19 @@ public:
     float flops() const {
         return mFlops;
     }
+    friend class Session;
 private:
     std::shared_ptr<Backend> mBackend, mBackupBackend, mConstBackend;
-    std::vector<std::shared_ptr<Execution>> mExecutions;
-    std::vector<UnitInfo> mDebugInfos;
-    CommandBuffer mBuffer;
     std::vector<Schedule::PipelineInfo> mInfo;
-    std::vector<Tensor*> mMidConstTensors;
     bool mAllocInput;
+    bool mOutputStatic;
     bool mInit = false;
     float mFlops = 0.0f;
-    std::map<const Op*, std::shared_ptr<Execution>> mOriginExecution;
+    bool mIsQuantModel = false;
+    CacheExecutionMap& mOriginExecution;
+
+    // For gpu or other backend
+    std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;

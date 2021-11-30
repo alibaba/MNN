@@ -175,7 +175,7 @@ static MNNBinaryExecute selectForInt(int type) {
             return execute<int32_t, int32_t, BinaryNotEqual<int32_t, int32_t, int32_t>>;
             break;
         case BinaryOpOperation_MOD:
-            return execute<int32_t, int32_t, BinaryMod<int32_t, int32_t, int32_t>>;
+            return execute<int32_t, int32_t, BinaryModInt<int32_t, int32_t, int32_t>>;
             break;
         default:
             MNN_ASSERT(false);

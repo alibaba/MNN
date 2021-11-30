@@ -37,3 +37,4 @@ if (MSVC)
                      ${TORCH_DLLS}
                      $<TARGET_FILE_DIR:MNNConverterTorch>)
 endif (MSVC)
+list(APPEND MNN_CONVERTER_BACKENDS_OBJECTS $<TARGET_OBJECTS:MNNConverterTorch>)

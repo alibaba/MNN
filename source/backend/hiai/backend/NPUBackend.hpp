@@ -251,7 +251,7 @@ namespace MNN {
         friend class NPUBackend;
     };
 
-    class NPUBackend final : public Backend {
+    class NPUBackend : public Backend {
     public:
 
         NPUBackend(const NPURuntime* runtime);
@@ -262,8 +262,7 @@ namespace MNN {
         virtual void onExecuteBegin() const override;
         virtual void onExecuteEnd() const override;
 
-        virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;
-        virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) override;
+        virtual Backend::MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
         virtual bool onClearBuffer() override;
         virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 

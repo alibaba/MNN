@@ -6,7 +6,7 @@
 
 
 #include "CaffeOp_generated.h"
-#include "GpuLibrary_generated.h"
+#include "ExtraInfo_generated.h"
 #include "TFQuantizeOp_generated.h"
 #include "Tensor_generated.h"
 #include "TensorflowOp_generated.h"
@@ -102,7 +102,7 @@ enum OpType {
   OpType_ConvolutionDepthwise = 13,
   OpType_Crop = 14,
   OpType_CropAndResize = 15,
-  OpType_Cubic = 16,
+  OpType_ImageProcess = 16,
   OpType_Deconvolution = 17,
   OpType_DeconvolutionDepthwise = 18,
   OpType_Dequantize = 19,
@@ -115,7 +115,7 @@ enum OpType {
   OpType_ExpandDims = 26,
   OpType_Fill = 27,
   OpType_Flatten = 28,
-  OpType_FloorMod = 29,
+  OpType_Im2Col = 29,
   OpType_Gather = 30,
   OpType_GatherV2 = 31,
   OpType_Im2Seq = 32,
@@ -270,7 +270,7 @@ inline const OpType (&EnumValuesOpType())[162] {
     OpType_ConvolutionDepthwise,
     OpType_Crop,
     OpType_CropAndResize,
-    OpType_Cubic,
+    OpType_ImageProcess,
     OpType_Deconvolution,
     OpType_DeconvolutionDepthwise,
     OpType_Dequantize,
@@ -283,7 +283,7 @@ inline const OpType (&EnumValuesOpType())[162] {
     OpType_ExpandDims,
     OpType_Fill,
     OpType_Flatten,
-    OpType_FloorMod,
+    OpType_Im2Col,
     OpType_Gather,
     OpType_GatherV2,
     OpType_Im2Seq,
@@ -438,7 +438,7 @@ inline const char * const *EnumNamesOpType() {
     "ConvolutionDepthwise",
     "Crop",
     "CropAndResize",
-    "Cubic",
+    "ImageProcess",
     "Deconvolution",
     "DeconvolutionDepthwise",
     "Dequantize",
@@ -451,7 +451,7 @@ inline const char * const *EnumNamesOpType() {
     "ExpandDims",
     "Fill",
     "Flatten",
-    "FloorMod",
+    "Im2Col",
     "Gather",
     "GatherV2",
     "Im2Seq",
@@ -1132,11 +1132,12 @@ enum OpParameter {
   OpParameter_LSTMBlockCell = 90,
   OpParameter_GridSample = 91,
   OpParameter_LoopParam = 92,
+  OpParameter_ImageProcessParam = 93,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_LoopParam
+  OpParameter_MAX = OpParameter_ImageProcessParam
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[93] {
+inline const OpParameter (&EnumValuesOpParameter())[94] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1230,7 +1231,8 @@ inline const OpParameter (&EnumValuesOpParameter())[93] {
     OpParameter_TensorArray,
     OpParameter_LSTMBlockCell,
     OpParameter_GridSample,
-    OpParameter_LoopParam
+    OpParameter_LoopParam,
+    OpParameter_ImageProcessParam
   };
   return values;
 }
@@ -1330,13 +1332,14 @@ inline const char * const *EnumNamesOpParameter() {
     "LSTMBlockCell",
     "GridSample",
     "LoopParam",
+    "ImageProcessParam",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_LoopParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_ImageProcessParam) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1711,6 +1714,10 @@ template<> struct OpParameterTraits<GridSample> {
 
 template<> struct OpParameterTraits<LoopParam> {
   static const OpParameter enum_value = OpParameter_LoopParam;
+};
+
+template<> struct OpParameterTraits<ImageProcessParam> {
+  static const OpParameter enum_value = OpParameter_ImageProcessParam;
 };
 
 struct OpParameterUnion {
@@ -2480,6 +2487,14 @@ struct OpParameterUnion {
     return type == OpParameter_LoopParam ?
       reinterpret_cast<const LoopParamT *>(value) : nullptr;
   }
+  ImageProcessParamT *AsImageProcessParam() {
+    return type == OpParameter_ImageProcessParam ?
+      reinterpret_cast<ImageProcessParamT *>(value) : nullptr;
+  }
+  const ImageProcessParamT *AsImageProcessParam() const {
+    return type == OpParameter_ImageProcessParam ?
+      reinterpret_cast<const ImageProcessParamT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -3098,6 +3113,15 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LoopParamTypeTable();
   }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_TENSORNUMBER = 4,
+    VT_OUTPUTINDEXES = 6,
+    VT_INPUTINDEXES = 8,
+    VT_MIDTENSORS = 10,
+    VT_PARALLEL = 12,
+    VT_LOOPNUMBER = 14,
+    VT_COMMANDS = 16
+  };
   int32_t tensorNumber() const {
     return GetField<int32_t>(4, 0);
   }
@@ -3504,6 +3528,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const LoopParam *main_as_LoopParam() const {
     return main_type() == OpParameter_LoopParam ? static_cast<const LoopParam *>(main()) : nullptr;
   }
+  const ImageProcessParam *main_as_ImageProcessParam() const {
+    return main_type() == OpParameter_ImageProcessParam ? static_cast<const ImageProcessParam *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -3902,6 +3929,10 @@ template<> inline const GridSample *Op::main_as<GridSample>() const {
 
 template<> inline const LoopParam *Op::main_as<LoopParam>() const {
   return main_as_LoopParam();
+}
+
+template<> inline const ImageProcessParam *Op::main_as<ImageProcessParam>() const {
+  return main_as_ImageProcessParam();
 }
 
 struct OpBuilder {
@@ -4427,7 +4458,7 @@ struct NetT : public flatbuffers::NativeTable {
   typedef Net TableType;
   std::string bizCode;
   std::vector<std::unique_ptr<TensorDescribeT>> extraTensorDescribe;
-  std::unique_ptr<GpuLibraryT> gpulibrary;
+  std::unique_ptr<ExtraInfoT> extraInfo;
   std::vector<std::unique_ptr<OpT>> oplists;
   std::vector<std::string> outputName;
   ForwardType preferForwardType;
@@ -4456,8 +4487,8 @@ struct Net FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *extraTensorDescribe() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *>(6);
   }
-  const GpuLibrary *gpulibrary() const {
-    return GetPointer<const GpuLibrary *>(8);
+  const ExtraInfo *extraInfo() const {
+    return GetPointer<const ExtraInfo *>(8);
   }
   const flatbuffers::Vector<flatbuffers::Offset<Op>> *oplists() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Op>> *>(10);
@@ -4494,7 +4525,7 @@ struct Net FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(extraTensorDescribe()) &&
            verifier.VerifyVectorOfTables(extraTensorDescribe()) &&
            VerifyOffset(verifier, 8) &&
-           verifier.VerifyTable(gpulibrary()) &&
+           verifier.VerifyTable(extraInfo()) &&
            VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(oplists()) &&
            verifier.VerifyVectorOfTables(oplists()) &&
@@ -4529,8 +4560,8 @@ struct NetBuilder {
   void add_extraTensorDescribe(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorDescribe) {
     fbb_.AddOffset(6, extraTensorDescribe);
   }
-  void add_gpulibrary(flatbuffers::Offset<GpuLibrary> gpulibrary) {
-    fbb_.AddOffset(8, gpulibrary);
+  void add_extraInfo(flatbuffers::Offset<ExtraInfo> extraInfo) {
+    fbb_.AddOffset(8, extraInfo);
   }
   void add_oplists(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Op>>> oplists) {
     fbb_.AddOffset(10, oplists);
@@ -4575,7 +4606,7 @@ inline flatbuffers::Offset<Net> CreateNet(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::String> bizCode = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorDescribe = 0,
-    flatbuffers::Offset<GpuLibrary> gpulibrary = 0,
+    flatbuffers::Offset<ExtraInfo> extraInfo = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Op>>> oplists = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> outputName = 0,
     ForwardType preferForwardType = ForwardType_CPU,
@@ -4592,7 +4623,7 @@ inline flatbuffers::Offset<Net> CreateNet(
   builder_.add_tensorName(tensorName);
   builder_.add_outputName(outputName);
   builder_.add_oplists(oplists);
-  builder_.add_gpulibrary(gpulibrary);
+  builder_.add_extraInfo(extraInfo);
   builder_.add_extraTensorDescribe(extraTensorDescribe);
   builder_.add_bizCode(bizCode);
   builder_.add_usage(usage);
@@ -5090,7 +5121,7 @@ inline void Net::UnPackTo(NetT *_o, const flatbuffers::resolver_function_t *_res
   (void)_resolver;
   { auto _e = bizCode(); if (_e) _o->bizCode = _e->str(); };
   { auto _e = extraTensorDescribe(); if (_e) { _o->extraTensorDescribe.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->extraTensorDescribe[_i] = std::unique_ptr<TensorDescribeT>(_e->Get(_i)->UnPack(_resolver)); } } };
-  { auto _e = gpulibrary(); if (_e) _o->gpulibrary = std::unique_ptr<GpuLibraryT>(_e->UnPack(_resolver)); };
+  { auto _e = extraInfo(); if (_e) _o->extraInfo = std::unique_ptr<ExtraInfoT>(_e->UnPack(_resolver)); };
   { auto _e = oplists(); if (_e) { _o->oplists.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->oplists[_i] = std::unique_ptr<OpT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = outputName(); if (_e) { _o->outputName.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputName[_i] = _e->Get(_i)->str(); } } };
   { auto _e = preferForwardType(); _o->preferForwardType = _e; };
@@ -5112,7 +5143,7 @@ inline flatbuffers::Offset<Net> CreateNet(flatbuffers::FlatBufferBuilder &_fbb, 
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const NetT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _bizCode = _o->bizCode.empty() ? 0 : _fbb.CreateString(_o->bizCode);
   auto _extraTensorDescribe = _o->extraTensorDescribe.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorDescribe>> (_o->extraTensorDescribe.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorDescribe(*__va->__fbb, __va->__o->extraTensorDescribe[i].get(), __va->__rehasher); }, &_va ) : 0;
-  auto _gpulibrary = _o->gpulibrary ? CreateGpuLibrary(_fbb, _o->gpulibrary.get(), _rehasher) : 0;
+  auto _extraInfo = _o->extraInfo ? CreateExtraInfo(_fbb, _o->extraInfo.get(), _rehasher) : 0;
   auto _oplists = _o->oplists.size() ? _fbb.CreateVector<flatbuffers::Offset<Op>> (_o->oplists.size(), [](size_t i, _VectorArgs *__va) { return CreateOp(*__va->__fbb, __va->__o->oplists[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _outputName = _o->outputName.size() ? _fbb.CreateVectorOfStrings(_o->outputName) : 0;
   auto _preferForwardType = _o->preferForwardType;
@@ -5126,7 +5157,7 @@ inline flatbuffers::Offset<Net> CreateNet(flatbuffers::FlatBufferBuilder &_fbb, 
       _fbb,
       _bizCode,
       _extraTensorDescribe,
-      _gpulibrary,
+      _extraInfo,
       _oplists,
       _outputName,
       _preferForwardType,
@@ -5509,6 +5540,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
     }
     case OpParameter_LoopParam: {
       auto ptr = reinterpret_cast<const LoopParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_ImageProcessParam: {
+      auto ptr = reinterpret_cast<const ImageProcessParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return false;
@@ -5897,6 +5932,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const LoopParam *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_ImageProcessParam: {
+      auto ptr = reinterpret_cast<const ImageProcessParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6271,6 +6310,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const LoopParamT *>(value);
       return CreateLoopParam(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_ImageProcessParam: {
+      auto ptr = reinterpret_cast<const ImageProcessParamT *>(value);
+      return CreateImageProcessParam(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6643,6 +6686,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_LoopParam: {
       FLATBUFFERS_ASSERT(false);  // LoopParamT not copyable.
+      break;
+    }
+    case OpParameter_ImageProcessParam: {
+      value = new ImageProcessParamT(*reinterpret_cast<ImageProcessParamT *>(u.value));
       break;
     }
     default:
@@ -7112,6 +7159,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_ImageProcessParam: {
+      auto ptr = reinterpret_cast<ImageProcessParamT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -7304,7 +7356,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "ConvolutionDepthwise",
     "Crop",
     "CropAndResize",
-    "Cubic",
+    "ImageProcess",
     "Deconvolution",
     "DeconvolutionDepthwise",
     "Dequantize",
@@ -7317,7 +7369,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "ExpandDims",
     "Fill",
     "Flatten",
-    "FloorMod",
+    "Im2Col",
     "Gather",
     "GatherV2",
     "Im2Seq",
@@ -7551,7 +7603,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 88 },
     { flatbuffers::ET_SEQUENCE, 0, 89 },
     { flatbuffers::ET_SEQUENCE, 0, 90 },
-    { flatbuffers::ET_SEQUENCE, 0, 91 }
+    { flatbuffers::ET_SEQUENCE, 0, 91 },
+    { flatbuffers::ET_SEQUENCE, 0, 92 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7645,7 +7698,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     TensorArrayTypeTable,
     LSTMBlockCellTypeTable,
     GridSampleTypeTable,
-    LoopParamTypeTable
+    LoopParamTypeTable,
+    ImageProcessParamTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7740,10 +7794,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "TensorArray",
     "LSTMBlockCell",
     "GridSample",
-    "LoopParam"
+    "LoopParam",
+    "ImageProcessParam"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 93, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 94, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -8110,7 +8165,7 @@ inline const flatbuffers::TypeTable *NetTypeTable() {
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorDescribeTypeTable,
-    GpuLibraryTypeTable,
+    ExtraInfoTypeTable,
     OpTypeTable,
     ForwardTypeTypeTable,
     NetSourceTypeTable,
@@ -8120,7 +8175,7 @@ inline const flatbuffers::TypeTable *NetTypeTable() {
   static const char * const names[] = {
     "bizCode",
     "extraTensorDescribe",
-    "gpulibrary",
+    "extraInfo",
     "oplists",
     "outputName",
     "preferForwardType",

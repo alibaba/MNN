@@ -73,6 +73,9 @@ option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OF
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
+option(MNN_MODEL_AUTH "Build with model authentication enable" OFF)
+option(MNN_BUILD_PROTOBUFFER "Build with protobuffer in MNN" ON)
+option(MNN_BUILD_OPENCV "Build OpenCV api in MNN." OFF)
 
 IF (NOT DEFINED MNN_USE_SPARSE_COMPUTE)
   IF (TARGET_OS_IPHONE OR TARGET_OS_SIMULATOR)
@@ -116,6 +119,11 @@ IF( MNN_ENABLE_COVERAGE)
 ENDIF()
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)
+IF(MNN_BUILD_PROTOBUFFER)
+IF(MNN_BUILD_CONVERTER)
+  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/3rd_party/protobuf/cmake)
+ENDIF()
+ENDIF()
 
 IF(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT MNN_BUILD_SHARED_LIBS AND NOT (MSVC OR WIN32))
   SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
@@ -196,6 +204,7 @@ message(STATUS "\tOpenMP: ${MNN_OPENMP}")
 message(STATUS "\tBF16: ${MNN_SUPPORT_BF16}")
 message(STATUS "\tThreadPool: ${MNN_USE_THREAD_POOL}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
+message(STATUS "\tModel Auth: ${MNN_MODEL_AUTH}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
 
 if(MSVC)
@@ -438,6 +447,12 @@ if(MNN_WITH_PLUGIN)
     include(${CMAKE_CURRENT_LIST_DIR}/source/plugin/CMakeLists.txt)
 endif()
 
+# Model Auth. Disabled for Open Source MNN.
+if (MNN_MODEL_AUTH)
+    target_compile_options(MNNCore PRIVATE -DMNN_MODEL_AUTH)
+    include(${CMAKE_CURRENT_LIST_DIR}/source/auth/CMakeLists.txt)
+endif()
+
 # Metal
 if(MNN_METAL AND APPLE)
     target_compile_options(MNNCore PRIVATE -DMNN_METAL_ENABLED=1)
@@ -639,6 +654,7 @@ if(APPLE)
 endif()
 add_dependencies(MNN MNNCore MNNCV MNNTransform MNNMath MNNCPU)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/cv)
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
 # Using -pthread, needed by thread-safe implemention of glibc, is better than only using -lpthread
