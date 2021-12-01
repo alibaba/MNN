@@ -3,6 +3,8 @@ import sys
 from os import listdir
 from os.path import isfile, join
 shaderPath=sys.argv[1]
+# when target=macosx, build for Macos=10.11 and osx-metal1.1 for compatibility
+target=None if len(sys.argv) < 3 else sys.argv[2]
 cppPath= shaderPath + "/MetalOPRegister.mm"
 def genRegister():
     shaders=[]
@@ -42,7 +44,10 @@ def genSchema():
 
 def genShader():
     tempCacheFile = "MNNMetalLib"
-    cmd = "xcrun metal *.metal -o " + tempCacheFile
+    if target == 'macosx':
+        cmd = "xcrun -sdk macosx metal -mmacosx-version-min=10.11 -std=osx-metal1.1 *.metal -o " + tempCacheFile
+    else:
+        cmd = "xcrun metal *.metal -o " + tempCacheFile
     print(os.popen(cmd).read())
     os.popen("xxd -i " + tempCacheFile + " > MNNMetalLib.h").read()
     os.popen("rm -f " + tempCacheFile).read()

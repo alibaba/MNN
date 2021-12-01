@@ -11,6 +11,8 @@
 
 set -e
 
+export MACOSX_DEPLOYMENT_TARGET=10.11
+
 usage() {
     echo "Usage: $0 -o path [-b backends] [-f] [-s] [-c] [-t build_type -t lib_type [-c]]"
     echo -e "\t-o package files output directory"
@@ -65,12 +67,13 @@ if [ "$backends" ]; then
             "onednn" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_ONEDNN=ON" ;;
             "avx512" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_AVX512=ON" ;;
             "coreml" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_COREML=ON" ;;
+            "metal" ) CMAKE_ARGS="$CMAKE_ARGS -DMNN_METAL=ON" ;;
         esac
     done
 fi
 
 if [ $clean_build ]; then
-    rm -rf pymnn && mkdir build
+    rm -rf build && mkdir build
 fi
 pushd build
 

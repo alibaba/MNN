@@ -17,6 +17,8 @@ else()
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMAND xcrun -sdk ${METAL_SDK_PLAT} metal "${MNN_Metal_KERNELS_SRC}" -o ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMAND_EXPAND_LISTS)
     add_custom_target(MNNMetalLib DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMENT "Generating mnn.metallib")
     add_dependencies(MNNMetal MNNMetalLib)
+    # Adding mnn.metallib into MNN.framework/Resources need provide it as add_library's argument
+    list(APPEND MNN_OBJECTS_TO_LINK ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib)
 endif()
 set_property(TARGET MNNMetal APPEND_STRING PROPERTY COMPILE_FLAGS "-fobjc-arc")
 
