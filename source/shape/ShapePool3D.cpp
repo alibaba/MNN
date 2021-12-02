@@ -51,7 +51,11 @@ public:
                 const int kernel = (*layer->kernels())[i], stride = (*layer->strides())[i];
                 if (layer->padType() == PoolPadType_CAFFE) {
                     int pad = (*layer->pads())[i];
-                    outputLength = (inputLength + 2 * pad - kernel) / stride + 1;
+                    if (layer->ceilMode()) {
+                        outputLength = UP_DIV(inputLength + 2 * pad - kernel, stride) + 1;
+                    } else {
+                        outputLength = (inputLength + 2 * pad - kernel) / stride + 1;
+                    }
                 } else if (layer->padType() == PoolPadType_SAME) {
                     outputLength = UP_DIV(inputLength, stride);
                 } else if (layer->padType() == PoolPadType_VALID) {

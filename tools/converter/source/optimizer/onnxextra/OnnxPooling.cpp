@@ -36,6 +36,10 @@ public:
                 const auto attr          = info->attr()->GetAs<Attribute>(i);
                 const auto attributeName = attr->key()->str();
                 auto list                = attr->list();
+                if (attributeName == "ceil_mode"){
+                    pool->ceilMode = static_cast<bool>(attr->i());
+                    continue;
+                }
                 if (nullptr == list || nullptr == list->i()) {
                     continue;
                 }

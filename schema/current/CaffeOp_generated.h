@@ -1740,10 +1740,12 @@ struct Pool3DT : public flatbuffers::NativeTable {
   PoolType type;
   PoolPadType padType;
   bool isGlobal;
+  bool ceilMode;
   Pool3DT()
       : type(PoolType_MAXPOOL),
         padType(PoolPadType_CAFFE),
-        isGlobal(false) {
+        isGlobal(false),
+        ceilMode(false) {
   }
 };
 
@@ -1770,6 +1772,9 @@ struct Pool3D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool isGlobal() const {
     return GetField<uint8_t>(14, 0) != 0;
   }
+  bool ceilMode() const {
+    return GetField<uint8_t>(16, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -1781,6 +1786,7 @@ struct Pool3D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int8_t>(verifier, 10) &&
            VerifyField<int8_t>(verifier, 12) &&
            VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<uint8_t>(verifier, 16) &&
            verifier.EndTable();
   }
   Pool3DT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1809,6 +1815,9 @@ struct Pool3DBuilder {
   void add_isGlobal(bool isGlobal) {
     fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(isGlobal), 0);
   }
+  void add_ceilMode(bool ceilMode) {
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(ceilMode), 0);
+  }
   explicit Pool3DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1828,11 +1837,13 @@ inline flatbuffers::Offset<Pool3D> CreatePool3D(
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads = 0,
     PoolType type = PoolType_MAXPOOL,
     PoolPadType padType = PoolPadType_CAFFE,
-    bool isGlobal = false) {
+    bool isGlobal = false,
+    bool ceilMode = false) {
   Pool3DBuilder builder_(_fbb);
   builder_.add_pads(pads);
   builder_.add_kernels(kernels);
   builder_.add_strides(strides);
+  builder_.add_ceilMode(ceilMode);
   builder_.add_isGlobal(isGlobal);
   builder_.add_padType(padType);
   builder_.add_type(type);
@@ -4493,6 +4504,7 @@ inline void Pool3D::UnPackTo(Pool3DT *_o, const flatbuffers::resolver_function_t
   { auto _e = type(); _o->type = _e; };
   { auto _e = padType(); _o->padType = _e; };
   { auto _e = isGlobal(); _o->isGlobal = _e; };
+  { auto _e = ceilMode(); _o->ceilMode = _e; };
 }
 
 inline flatbuffers::Offset<Pool3D> Pool3D::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Pool3DT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4509,6 +4521,7 @@ inline flatbuffers::Offset<Pool3D> CreatePool3D(flatbuffers::FlatBufferBuilder &
   auto _type = _o->type;
   auto _padType = _o->padType;
   auto _isGlobal = _o->isGlobal;
+  auto _ceilMode = _o->ceilMode;
   return MNN::CreatePool3D(
       _fbb,
       _strides,
@@ -4516,7 +4529,8 @@ inline flatbuffers::Offset<Pool3D> CreatePool3D(flatbuffers::FlatBufferBuilder &
       _pads,
       _type,
       _padType,
-      _isGlobal);
+      _isGlobal,
+      _ceilMode);
 }
 
 inline ReluT *Relu::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5851,6 +5865,7 @@ inline const flatbuffers::TypeTable *Pool3DTypeTable() {
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5863,10 +5878,11 @@ inline const flatbuffers::TypeTable *Pool3DTypeTable() {
     "pads",
     "type",
     "padType",
-    "isGlobal"
+    "isGlobal",
+    "ceilMode"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
