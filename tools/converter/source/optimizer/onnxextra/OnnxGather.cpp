@@ -34,10 +34,10 @@ public:
         if (config->optimizeLevel < 2) {
             // Add negative protect, may decrease performance
             auto rankVar = _Rank(inputs[0]);
-            axisVar = _Select(_GreaterEqual(axisVar, _Scalar<int>(0)), axisVar, axisVar + rankVar);
+            axisVar = _Mod(axisVar + rankVar, rankVar);
             auto shapeVar = _Shape(inputs[0], true);
             auto axisLengthVar = _Squeeze(_StridedSlice(shapeVar, _Unsqueeze(axisVar, {0}), _Unsqueeze(axisVar + _Scalar<int>(1), {0}),  _Unsqueeze(_Scalar<int32_t>(1), {0}), 0, 0, 0, 0, 0));
-            inputs[1] = _Select(_GreaterEqual(inputs[1], _Scalar<int>(0)), inputs[1], inputs[1] + axisLengthVar);
+            inputs[1] = _Mod(inputs[1] + axisLengthVar, axisLengthVar);
         }
         auto output = _GatherV2(inputs[0], inputs[1], axisVar);
         output->setName(expr->name());
