@@ -18,7 +18,7 @@ template <typename T>
 class TopContainer {
 public:
     TopContainer() = delete;
-    TopContainer(int32_t k, int32_t rowSize) : mK(k) {
+    TopContainer(int32_t k, int32_t rowSize, bool largest) : mK(k), mLargest(largest) {
         mContainer.reserve(std::min(k, rowSize) + 1);
     }
 
@@ -27,7 +27,12 @@ public:
         mContainer.clear();
     }
     void push(int32_t a) {
-        auto comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+        std::function<bool(int32_t, int32_t)> comparator;
+        if (mLargest) {
+            comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+        } else {
+            comparator = [this](int32_t a, int32_t b) { return !compareFunc(a, b); };
+        }
         if (mContainer.size() <= mK) {
             mContainer.push_back(a);
             if (mContainer.size() == mK + 1) {
@@ -42,7 +47,12 @@ public:
     }
 
     const std::vector<int32_t>& sortedResult() {
-        auto comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+        std::function<bool(int32_t, int32_t)> comparator;
+        if (mLargest) {
+            comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+        } else {
+            comparator = [this](int32_t a, int32_t b) { return !compareFunc(a, b); };
+        }
         if (mContainer.size() <= mK) {
             std::sort(mContainer.begin(), mContainer.end(), comparator);
         } else {
@@ -54,6 +64,7 @@ public:
 
 private:
     int32_t mK;
+    bool mLargest;
     std::vector<int32_t> mContainer;
     const T* mValues = nullptr;
 
@@ -69,8 +80,8 @@ private:
 };
 
 template <typename T>
-void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_t* outputIndexes, T* outputValues) {
-    TopContainer<T> topc(k, rowSize);
+void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_t* outputIndexes, T* outputValues, bool largest) {
+    TopContainer<T> topc(k, rowSize, largest);
     for (int row = 0; row < numRows; row++) {
         const T* valuesRow = data + row * rowSize;
         topc.startCollecting(valuesRow);
@@ -87,7 +98,7 @@ void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_
     }
 }
 
-CPUTopKV2::CPUTopKV2(Backend* b) : MNN::Execution(b) {
+CPUTopKV2::CPUTopKV2(Backend* b, const Op* op) : MNN::Execution(b), mLargest(op->main_as_TopKV2()->largest()) {
     // nothing to do
 }
 
@@ -106,7 +117,7 @@ ErrorCode CPUTopKV2::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     MNN_ASSERT(k <= rowSize);
     const int numRows = inputTensor->elementSize() / rowSize;
 
-    if (k == 1) {
+    if (k == 1 && mLargest) {
         if (halide_type_float == inputTensor->getType().code) {
             float* inputData   = inputTensor->host<float>();
             float* topkData    = outputData->host<float>();
@@ -158,12 +169,12 @@ ErrorCode CPUTopKV2::onExecute(const std::vector<Tensor*>& inputs, const std::ve
         auto inputData   = inputTensor->host<float>();
         auto topkData    = outputData->host<float>();
         int* indicesData = outputIndices->host<int32_t>();
-        findTopK<float>(rowSize, numRows, inputData, k, indicesData, topkData);
+        findTopK<float>(rowSize, numRows, inputData, k, indicesData, topkData, mLargest);
     } else if(halide_type_int == inputTensor->getType().code && 32 == inputTensor->getType().bits) {
         auto inputData   = inputTensor->host<int32_t>();
         auto topkData    = outputData->host<int32_t>();
         int* indicesData = outputIndices->host<int32_t>();
-        findTopK<int32_t>(rowSize, numRows, inputData, k, indicesData, topkData);
+        findTopK<int32_t>(rowSize, numRows, inputData, k, indicesData, topkData, mLargest);
     } else {
         MNN_PRINT("TODO\n");
         MNN_ASSERT(false);
@@ -175,7 +186,7 @@ class CPUTopKV2Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new CPUTopKV2(backend);
+        return new CPUTopKV2(backend, op);
     }
 };
 

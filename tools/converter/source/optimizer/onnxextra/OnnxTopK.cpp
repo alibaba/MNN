@@ -27,37 +27,26 @@ public:
         // not the last axis, we had to transpose `x`, do topk with the transposed `x`,
         // and finally transpose the result back.
         auto inputs = expr->inputs();
-        int k = 0;
+        VARP kVar = (inputs.size() == 2 ? inputs[1] : nullptr);
         int axis = 0;
+        bool largest = true;
         auto attrs = op->main_as_Extra()->attr();
         MNN_THROW_CHECK(attrs != nullptr, "TopKV's attr is empty");
         for (int i=0; i<attrs->size(); ++i) {
             auto attr = attrs->GetAs<Attribute>(i);
             if (attr->key()->str() == "axis") {
                 axis = attr->i();
-            } else if (attr->key()->str() == "k") {
-                k = attr->i();
+            } else if (attr->key()->str() == "k" && inputs.size() == 1) {
+                kVar = _Scalar<int32_t>(attr->i());
+            } else if (attr->key()->str() == "largest") {
+                largest = attr->i();
             }
         }
-        if(inputs.size() == 2) {
-            auto ptr = inputs[1]->readMap<int>();
-            MNN_THROW_CHECK(ptr != nullptr, "TopKV's k is not const");
-            k = ptr[0];
-        }
-
-        if (nullptr == inputs[0]->getInfo()) {
-            return nullptr;
-        }
-        int numAxes = inputs[0]->getInfo()->dim.size();
-        while (axis < 0) {
-            axis += numAxes;
-        }
-        MNN_ASSERT(axis < numAxes);
-        MNN_ASSERT(k <= inputs[0]->getInfo()->dim[axis]);
 
         std::unique_ptr<TopKV2T> onnxTopKParam(new TopKV2T);
         onnxTopKParam->T      = DataType_DT_FLOAT;
         onnxTopKParam->sorted = false;
+        onnxTopKParam->largest = largest;
 
         std::unique_ptr<OpT> onnxTopKOp(new OpT);
         onnxTopKOp->name       = op->name()->str();
@@ -65,27 +54,11 @@ public:
         onnxTopKOp->main.type  = OpParameter_TopKV2;
         onnxTopKOp->main.value = onnxTopKParam.release();
 
-        EXPRP output = nullptr;
-        if (axis != numAxes - 1) {
-            std::vector<int> permute(numAxes);
-            std::iota(permute.begin(), permute.end(), 0);
-            permute[axis]        = numAxes - 1;
-            permute[numAxes - 1] = axis;
-            VARP transX          = _Transpose(inputs[0], permute);
-            auto transY          = Expr::create(onnxTopKOp.get(), {transX, _Scalar<int32_t>(k)}, 2 /*output size*/);
-            transY->setName(expr->name());
-
-            // TODO(houjiang): Support tuple expression, and return tuple([values, indices])
-            MNN_ERROR("Only the last axis is supported for onnx topk currently.");
-
-            // VARP values = _Transpose(Variable::create(transY, 0), permute);
-            // VARP indices = _Transpose(Variable::create(transY, 1), permute);
-            // return _Tuple({values, indices});
-            return nullptr;
-        } else {
-            output = Expr::create(onnxTopKOp.get(), {inputs[0], _Scalar<int32_t>(k)}, 2 /*output size*/);
-            output->setName(expr->name());
-        }
+        EXPRP output;
+            output = Expr::create(onnxTopKOp.get(), {inputs[0], kVar, _Scalar<int>(axis)}, 2);
+        output->setName(expr->name());
+        Variable::create(output, 0)->setName(expr->outputName(0));
+        Variable::create(output, 1)->setName(expr->outputName(1));
         return output;
     }
 };

@@ -15,11 +15,12 @@
 namespace MNN {
 class CPUTopKV2 : public Execution {
 public:
-    CPUTopKV2(Backend *b);
+    CPUTopKV2(Backend *b, const Op* op);
     virtual ~CPUTopKV2() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    bool mLargest;
 };
 } // namespace MNN
 

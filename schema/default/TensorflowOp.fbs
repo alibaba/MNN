@@ -152,6 +152,7 @@ table UnaryOp {
 table TopKV2 {
     T:DataType=DT_FLOAT;
     sorted:bool=false;
+    largest:bool=true;
 }
 enum CropAndResizeMethod : byte{
     BILINEAR=0,
