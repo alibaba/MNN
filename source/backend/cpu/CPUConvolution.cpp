@@ -17,7 +17,6 @@
 #include <MNN/AutoTime.hpp>
 #include "core/ConvolutionCommon.hpp"
 
-#include "backend/cpu/compute/ConvInt8Winograd.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 #include "backend/cpu/compute/SparseConvInt8TiledExecutor.hpp"
 #ifdef MNN_USE_ONEDNN
@@ -282,9 +281,6 @@ public:
             return new SparseConvInt8TiledExecutor(backend, convOp, res);
         }
 #endif
-        if (ConvInt8Winograd::mustUse(convOp)) {
-            return new ConvInt8Winograd(backend, convOp, res);
-        }
         return new DenseConvInt8TiledExecutor(backend, convOp, res);
     }
 };

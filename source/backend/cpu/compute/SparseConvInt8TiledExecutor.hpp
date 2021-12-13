@@ -11,7 +11,6 @@
 #define SparseConvInt8TiledExecutor_hpp
 #include "ConvInt8TiledExecutor.hpp"
 #include "backend/cpu/CPUConvolution.hpp"
-#include "ConvInt8Winograd.hpp"
 #include "Int8FunctionsOpt.h"
 
 #define SPARSITY_THRESHOLD (0.2f)

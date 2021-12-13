@@ -10,7 +10,6 @@
 #define ConvInt8TiledExecutor_hpp
 
 #include "backend/cpu/CPUConvolution.hpp"
-#include "ConvInt8Winograd.hpp"
 #include "Int8FunctionsOpt.h"
 
 namespace MNN {
