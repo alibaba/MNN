@@ -43,12 +43,12 @@ void LRNOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             bias = attributeProto.f();
         }
     }
-    DCHECK(bias == 1.0) << "LRN bias must be 1.0";
-
+    
     param->alpha      = alpha;
     param->beta       = beta;
     param->localSize  = size;
     param->regionType = 0;
+    param->bias       = bias;
     dstOp->main.value = param;
 }
 

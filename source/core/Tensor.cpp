@@ -457,5 +457,14 @@ void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
         mapPtr = nullptr;
     }
 }
+int Tensor::wait(MapType mtype, bool finish) {
+    auto nativeDescribe = mDescribe->mContent.get();
+    auto bn = nativeDescribe->backend;
+    if (nullptr == bn) {
+        return 0;
+    }
+    return bn->onSync(mtype, finish, this);
+}
+
 
 } // namespace MNN

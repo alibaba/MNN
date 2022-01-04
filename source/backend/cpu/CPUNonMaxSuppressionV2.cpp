@@ -107,8 +107,13 @@ void NonMaxSuppressionSingleClasssImpl(const Tensor* decodedBoxes, const float* 
 ErrorCode CPUNonMaxSuppressionV2::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     std::vector<int> selected;
     const int maxDetections    = inputs[2]->host<int32_t>()[0];
-    const float iouThreshold   = inputs[3]->host<float>()[0];
-    const float scoreThreshold = std::numeric_limits<float>::lowest();
+    float iouThreshold = 0, scoreThreshold = std::numeric_limits<float>::lowest();
+    if (inputs.size() > 3) {
+        iouThreshold   = inputs[3]->host<float>()[0];
+    }
+    if (inputs.size() > 4) {
+        scoreThreshold = inputs[4]->host<float>()[0];
+    }
     const auto scores          = inputs[1]->host<float>();
     NonMaxSuppressionSingleClasssImpl(inputs[0], scores, maxDetections, iouThreshold, scoreThreshold, &selected);
     std::copy_n(selected.begin(), selected.size(), outputs[0]->host<int32_t>());

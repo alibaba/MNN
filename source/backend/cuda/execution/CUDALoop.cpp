@@ -238,7 +238,7 @@ public:
                     auto dst = mStackPtr[cmd->indexes()->data()[0]];
                     auto opType = op->main_as_BinaryOp()->opType();
                     auto srcStride0 = cmd->view()->GetAs<View>(1)->stride()->data();
-                    auto srcStride1 = cmd->view()->GetAs<View>(1)->stride()->data();
+                    auto srcStride1 = cmd->view()->GetAs<View>(2)->stride()->data();
                     auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
 
                     BinaryBlit((uint8_t*)dst, (const uint8_t*)src0, (const uint8_t*)src1,

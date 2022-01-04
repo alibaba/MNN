@@ -110,6 +110,15 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
     }
 };
 
+static VARP _OnnxReshape(VARP x, VARP shape) {
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type = OpType_Reshape;
+    reshape->main.type = OpParameter_Reshape;
+    reshape->main.value = new ReshapeT;
+    reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NCHW;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
+
 class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
@@ -134,17 +143,9 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
             }
         }
 
-        std::vector<int> dims {0};
-        int len = 4;
-        auto info = input->getInfo();
-        if (info) {
-            len = info->dim.size();
-        }
-        for (int i = 2; i < len; i++) {
-            dims.push_back(i);
-        }
-        auto scale      = _Unsqueeze(inputs[1], dims);
-        auto bias       = _Unsqueeze(inputs[2], dims);
+        auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Size(_Shape(input, true)) - _Scalar<int>(2), _Scalar<int>(1))}, 0);
+        auto scale      = _OnnxReshape(inputs[1], compatShape);
+        auto bias       = _OnnxReshape(inputs[2], compatShape);
         auto epsilonVar = _Scalar<float>(epsilon);
         auto mean       = _ReduceMean(input, {2, 3}, true);
         auto temp       = input - mean;
@@ -159,11 +160,69 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
     }
 };
 
+class OnnxMeanVarianceNormTransform : public OnnxExtraManager::Transform {
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        std::vector<int> axes {0, 2, 3};
+        auto attrs = expr->get()->main_as_Extra()->attr();
+        if (attrs != nullptr) {
+            for (const auto& attr : *attrs) {
+                if (attr->key()->str() == "axes") {
+                    axes.clear();
+                    for (int i = 0; i < attr->list()->i()->size(); ++i) {
+                        axes.push_back(attr->list()->i()->Get(i));
+                    }
+                }
+            }
+        }
+        auto input = expr->inputs()[0];
+        auto mean = _ReduceMean(input, axes, true);
+        auto temp = input - mean;
+        auto var = _ReduceMean(temp * temp, axes, true);
+        auto res = temp * _Rsqrt(var);
+        res->setName(expr->name());
+        return res->expr().first;
+    }
+};
+
+class OnnxLpNormTransform : public OnnxExtraManager::Transform {
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        auto input = expr->inputs()[0];
+        int p = 2, axis = -1;
+        auto attrs = expr->get()->main_as_Extra()->attr();
+        if (attrs != nullptr) {
+            for (const auto& attr : *attrs) {
+                auto attrName = attr->key()->str();
+                if (attrName == "axis") {
+                    axis = attr->i();
+                } else if (attrName == "p") {
+                    p = attr->i();
+                }
+            }
+        }
+        if (p != 1 && p != 2) {
+            MNN_ERROR("Onnx's LpNormalization only support attr p is 1 or 2");
+            return nullptr;
+        }
+        VARP res;
+        if (p == 1) {
+            res = input / _ReduceSumMutable(_Abs(input), _Scalar<int>(axis), true);
+        } else {
+            res = input * _Rsqrt(_ReduceSumMutable(input * input, _Scalar<int>(axis), true));
+        }
+        res->setName(expr->name());
+        return res->expr().first;
+    }
+};
+
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("BatchNormalization",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxBatchNormTransform));
     OnnxExtraManager::get()->insert("InstanceNormalization",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxInstanceNormalTransform));
+    OnnxExtraManager::get()->insert("MeanVarianceNormalization",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxMeanVarianceNormTransform));
+    OnnxExtraManager::get()->insert("LpNormalization",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxLpNormTransform));
     return true;
 }();
 

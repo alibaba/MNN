@@ -17,10 +17,12 @@ class WinogradFunctionHalf {
 public:
     typedef void (*TransformFunc)(const int16_t* srcBlock, int16_t* dstStart, size_t srcStep, size_t dstStep);
     typedef void (*TransformPackFunc)(int16_t* srcBlock, int16_t* dstStart, size_t dstStep);
+    typedef void (*WinoUnrollTransFunc)(const int16_t* srcBlock, int16_t* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
+
     /*Use the generator with interp 0.5*/
-    static TransformFunc chooseSourceTransform(int k, int w);
-    static TransformFunc chooseDestTransform(int k, int h);
     static TransformPackFunc chooseWinoSourceTransformPack(int k, int h, int ePack, int lPack, int packCUnit);
+    static WinoUnrollTransFunc chooseSourceUnrollTransform(int k, int w) ;
+    static void chooseWinoDestUnrollTransform(WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h);
 };
 } // namespace MNN
 

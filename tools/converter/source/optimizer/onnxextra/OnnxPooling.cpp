@@ -119,6 +119,10 @@ public:
                         poolParam->ceilModel = static_cast<bool>(attr->i());
                         continue;
                     }
+                    if (attributeName == "count_include_pad" && attr->i() != 0) {
+                        poolParam->countType = AvgPoolCountType_INCLUDE_PADDING;
+                        continue;
+                    }
                     auto list = attr->list();
                     if (nullptr == list || nullptr == list->i()) {
                         continue;
@@ -157,6 +161,31 @@ public:
                 }
             } while (false);
         }
+        if (type == "LpPool" || type == "GlobalLpPool") {
+            float p = 2;
+            for (int i = 0; i < attrSize; ++i) {
+                auto attr = extraParam->attr()->GetAs<Attribute>(i);
+                if (attr->key()->str() == "p") {
+                    p = (float)attr->i();
+                }
+            }
+            auto input = _Pow(_Abs(inputs[0]), _Scalar<float>(p));
+            poolOp->name = "";
+            auto param = (MNN::PoolT*)poolOp->main.value;
+            param->type = MNN::PoolType_AVEPOOL;
+            param->countType = MNN::AvgPoolCountType_INCLUDE_PADDING;
+            param->isGlobal = (type == "GlobalLpPool");
+            auto res = Variable::create(Expr::create(poolOp.get(), {input}));
+            VARP count;
+            if (type == "GlobalLpPool") {
+                count = _Cast<float>(_ReduceProd(_Slice(_Shape(input, true), _Unsqueeze(_Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(-1), {0}))));
+            } else {
+                count = _Scalar<float>((float)(param->kernelX * param->kernelY));
+            }
+            res = _Pow(res * count, _Scalar<float>(1/p));
+            res->setName(expr->outputName(0));
+            return res->expr().first;
+        }
         auto poolExpr = Expr::create(poolOp.get(), {inputs[0]});
         auto res      = Variable::create(poolExpr);
         poolExpr->setName(expr->name());
@@ -171,6 +200,9 @@ static auto gRegister = []() {
     OnnxExtraManager::get()->insert("GlobalAveragePool",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
     OnnxExtraManager::get()->insert("AveragePool",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
+    OnnxExtraManager::get()->insert("LpPool", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
+    OnnxExtraManager::get()->insert("GlobalLpPool",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
     return true;
 }();

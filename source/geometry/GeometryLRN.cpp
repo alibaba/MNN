@@ -129,6 +129,7 @@ public:
         // Across channel
         auto alpha  = parameter->alpha();
         auto beta   = parameter->beta();
+        auto bias = parameter->bias();
         auto input  = inputs[0];
         int outside = input->length(0);
         int channel = input->length(1);
@@ -283,27 +284,27 @@ public:
         {
             Tensor* Alpha     = nullptr;
             Tensor* Beta      = nullptr;
-            Tensor* One       = nullptr;
+            Tensor* Bias       = nullptr;
             auto constTensors = context.searchConst(op);
             if (!constTensors.empty()) {
                 Alpha = constTensors[0].get();
                 Beta  = constTensors[1].get();
-                One   = constTensors[2].get();
+                Bias  = constTensors[2].get();
             } else {
                 auto t0              = context.allocConst(op, {}, halide_type_of<float>());
                 auto t1              = context.allocConst(op, {}, halide_type_of<float>());
                 auto t2              = context.allocConst(op, {}, halide_type_of<float>());
                 t0->host<float>()[0] = alpha;
                 t1->host<float>()[0] = -beta; // turn input / pow(filter, beta) -> input * pow(filter, -beta)
-                t2->host<float>()[0] = 1.0f;
+                t2->host<float>()[0] = bias;
                 Alpha                = t0.get();
                 Beta                 = t1.get();
-                One                  = t2.get();
+                Bias                 = t2.get();
             }
             res.command.emplace_back(
                 GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, filterOutput.get(), Alpha, temp0.get()));
             res.command.emplace_back(
-                GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, temp0.get(), One, temp1.get()));
+                GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, temp0.get(), Bias, temp1.get()));
             res.command.emplace_back(
                 GeometryComputerUtils::makeBinary(BinaryOpOperation_POW, temp1.get(), Beta, temp0.get()));
         }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		48BDF97427579425001E99A7 /* Pretreat.metal in Sources */ = {isa = PBXBuildFile; fileRef = 48BDF97327579425001E99A7 /* Pretreat.metal */; };
 		922CC9BE2206B7DC0085D404 /* synset_words.txt in Resources */ = {isa = PBXBuildFile; fileRef = 922CC9B92206B7DC0085D404 /* synset_words.txt */; };
 		922CC9BF2206B7DC0085D404 /* testcat.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 922CC9BA2206B7DC0085D404 /* testcat.jpg */; };
 		922CC9C02206B7DC0085D404 /* squeezenet.txt in Resources */ = {isa = PBXBuildFile; fileRef = 922CC9BC2206B7DC0085D404 /* squeezenet.txt */; };
@@ -28,6 +29,7 @@
 /* Begin PBXFileReference section */
 		19D6949C3BE113930E7EB826 /* libPods-simple.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-simple.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		443959A142C9F5A9260064A1 /* libPods-playground.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-playground.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		48BDF97327579425001E99A7 /* Pretreat.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = Pretreat.metal; sourceTree = "<group>"; };
 		78072E65338A363D5816A269 /* Pods-simple.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-simple.release.xcconfig"; path = "Pods/Target Support Files/Pods-simple/Pods-simple.release.xcconfig"; sourceTree = "<group>"; };
 		823F14839C64B7FBF3FE2122 /* Pods-simple.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-simple.debug.xcconfig"; path = "Pods/Target Support Files/Pods-simple/Pods-simple.debug.xcconfig"; sourceTree = "<group>"; };
 		83E77ED818CBE7A7F809B82C /* Pods-playground.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-playground.debug.xcconfig"; path = "Pods/Target Support Files/Pods-playground/Pods-playground.debug.xcconfig"; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 		AE2CFE1D21FFE7390053943C /* playground */ = {
 			isa = PBXGroup;
 			children = (
+				48BDF97327579425001E99A7 /* Pretreat.metal */,
 				AE2CFE1E21FFE7390053943C /* AppDelegate.h */,
 				AE2CFE1F21FFE7390053943C /* AppDelegate.m */,
 				AE2CFE2121FFE7390053943C /* ViewController.h */,
@@ -278,6 +281,7 @@
 			files = (
 				AE2CFE2321FFE7390053943C /* ViewController.mm in Sources */,
 				AE2CFE2E21FFE73B0053943C /* main.m in Sources */,
+				48BDF97427579425001E99A7 /* Pretreat.metal in Sources */,
 				AE2CFE2021FFE7390053943C /* AppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -422,14 +426,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6G7464HHUS;
+				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = playground/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnndemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnndemo34;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -441,7 +446,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6G7464HHUS;
+				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = playground/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -449,7 +455,7 @@
 					"@executable_path/Frameworks",
 				);
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnndemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnndemo34;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

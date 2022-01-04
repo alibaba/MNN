@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 #include <opencv2/imgproc/imgproc.hpp>
+#include "cv/imgcodecs.hpp"
 #include "test_env.hpp"
-#include "imgcodecs.hpp"
 
 #define MNN_DRAW_TEST
 #ifdef MNN_DRAW_TEST

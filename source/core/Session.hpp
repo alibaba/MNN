@@ -18,13 +18,22 @@
 #include "core/Backend.hpp"
 #include "core/Macro.h"
 #include "shape/SizeComputer.hpp"
+#define MNN_DEFAULT_TUNING_NUMBER 5
 
 namespace MNN {
 struct Net;
 /** infer unit. multiple sessions could share one net. */
 class MNN_PUBLIC Session {
 public:
-    Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode, Interpreter::SessionMode inputMode, Interpreter::SessionMode outputMode,
+    struct ModeGroup {
+        Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
+        Interpreter::SessionMode inputMode = Interpreter::Session_Input_Inside;
+        Interpreter::SessionMode outputMode = Interpreter::Session_Output_Inside;
+        Interpreter::SessionMode backendMode = Interpreter::Session_Backend_Fix;
+        Interpreter::SessionMode resizeMode = Interpreter::Session_Resize_Direct;
+        int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
+    };
+    Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
             RuntimeInfo&& runtime);
     ~Session();
 
@@ -112,9 +121,13 @@ public:
      */
     ErrorCode updateToModel(Net* net) const;
 
+    void waitAsyncResize();
     bool loadCache(const void* buffer, size_t size);
     std::pair<const void*, size_t> getCache();
 
+    RuntimeInfo& runtime() {
+        return mRuntime;
+    }
 protected:
     const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const {
         return this->mPipelines;

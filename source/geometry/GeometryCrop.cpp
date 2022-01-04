@@ -288,6 +288,9 @@ public:
                             if (seperateOffsets[si] > 0) {
                                 // left part: dst: 0 -> src: seperateOffsets  + extra - 1
                                 auto srcPos = seperateOffsets[si] - 1 + extraSub;
+                                if (mode == PadValueMode_EDGE) {
+                                    srcPos = 0;
+                                }
                                 srcOffset += srcPos * seperateInputStrides[si];
                                 region.size[di]       = seperateOffsets[si];
                                 region.src.stride[di] = -seperateInputStrides[si];
@@ -303,6 +306,9 @@ public:
                             break;
                         default:
                             break;
+                    }
+                    if (padCord[i] != 0 && mode == PadValueMode_EDGE) {
+                        region.src.stride[di] = 0;
                     }
                 }
                 region.src.offset = srcOffset;

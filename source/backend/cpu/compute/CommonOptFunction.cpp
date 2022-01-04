@@ -2697,9 +2697,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNAddC4WithStride = MNNAddC4WithStride;
     gCoreFunction->MNNCopyC4WithStride = MNNCopyC4WithStride;
 
-    gCoreFunction->chooseWinoSourceTransform = WinogradFunction::chooseSourceTransform;
     gCoreFunction->chooseWinoSourceTransformPack = WinogradFunction::chooseWinoSourceTransformPack;
-    gCoreFunction->chooseWinoDestTransform = WinogradFunction::chooseDestTransform;
+    gCoreFunction->chooseWinoSourceUnrollTransform = WinogradFunction::chooseSourceUnrollTransform;
+    gCoreFunction->chooseWinoDestUnrollTransform = WinogradFunction::chooseWinoDestUnrollTransform;
     gCoreFunction->MNNDeconvRunForLineDepthwise = MNNDeconvRunForLineDepthwise;
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
     gCoreFunction->MNNSelectBinaryFunctionForFloat = CPUBinary::selectForFloat;

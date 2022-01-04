@@ -286,7 +286,12 @@ public:
      */
     void* map(MapType mtype, DimensionType dtype);
     void unmap(MapType mtype, DimensionType dtype, void* mapPtr);
-    
+    /**
+     * @brief wait until the tensor is ready to read / write
+     * @param mtype wait for read or write
+     * @param finish wait for command flush or finish
+     */
+    int wait(MapType mtype, bool finish);
 private:
     halide_buffer_t mBuffer;
     struct InsideDescribe* mDescribe;

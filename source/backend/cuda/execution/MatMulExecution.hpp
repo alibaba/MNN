@@ -11,6 +11,7 @@
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
+#include "TensorCoreGemm.cuh"
 namespace MNN {
 namespace CUDA {
 class MatMulExecution : public Execution {
@@ -21,9 +22,12 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    std::shared_ptr<Tensor> mTempOutput;
     bool mTransposeA;
     bool mTransposeB;
+    std::pair<void*, int> mTempA;
+    std::pair<void*, int> mTempB;
+    std::pair<void*, int> mParameters; // In GPU
+    MatMulParam mParam; // In CPU
 };
 } // namespace CUDA
 } // namespace MNN

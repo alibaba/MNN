@@ -24,7 +24,7 @@ void MNNBGRAToGRAY(const unsigned char* source, unsigned char* dest, size_t coun
 void MNNRGBAToGRAY(const unsigned char* source, unsigned char* dest, size_t count);
 void MNNC3ToYUV(const unsigned char* source, unsigned char* dest, size_t count, bool bgr, bool yuv);
 void MNNC3ToXYZ(const unsigned char* source, unsigned char* dest, size_t count, bool bgr);
-void MNNC3ToHSV(const unsigned char* source, unsigned char* dest, size_t count, bool bgr);
+void MNNC3ToHSV(const unsigned char* source, unsigned char* dest, size_t count, bool bgr, bool full);
 void MNNC3ToBGR555(const unsigned char* source, unsigned char* dest, size_t count, bool bgr);
 void MNNC3ToBGR565(const unsigned char* source, unsigned char* dest, size_t count, bool bgr);
 void MNNRGBToGRAY(const unsigned char* source, unsigned char* dest, size_t count);
@@ -68,10 +68,16 @@ inline void MNNBGRToXYZ(const unsigned char* source, unsigned char* dest, size_t
     MNNC3ToXYZ(source, dest, count, true);
 }
 static void MNNRGBToHSV(const unsigned char* source, unsigned char* dest, size_t count) {
-    MNNC3ToHSV(source, dest, count, false);
+    MNNC3ToHSV(source, dest, count, false, false);
 }
 inline void MNNBGRToHSV(const unsigned char* source, unsigned char* dest, size_t count) {
-    MNNC3ToHSV(source, dest, count, true);
+    MNNC3ToHSV(source, dest, count, true, false);
+}
+static void MNNRGBToHSV_FULL(const unsigned char* source, unsigned char* dest, size_t count) {
+    MNNC3ToHSV(source, dest, count, false, true);
+}
+inline void MNNBGRToHSV_FULL(const unsigned char* source, unsigned char* dest, size_t count) {
+    MNNC3ToHSV(source, dest, count, true, true);
 }
 inline void MNNRGBToBGR555(const unsigned char* source, unsigned char* dest, size_t count) {
     MNNC3ToBGR555(source, dest, count, false);

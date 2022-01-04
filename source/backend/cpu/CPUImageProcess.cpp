@@ -59,6 +59,7 @@ BLITTER CPUImageProcess::choose(ImageFormatType source, ImageFormatType dest) {
     CHECKFORMAT(RGB, HSV, MNNRGBToHSV);
     CHECKFORMAT(RGB, BGR555, MNNRGBToBGR555);
     CHECKFORMAT(RGB, BGR565, MNNRGBToBGR565);
+    CHECKFORMAT(RGB, HSV_FULL, MNNRGBToHSV_FULL);
 
     CHECKFORMAT(BGR, BGR, MNNCopyC3);
     CHECKFORMAT(BGR, RGB, MNNRGBToBGR);
@@ -70,6 +71,7 @@ BLITTER CPUImageProcess::choose(ImageFormatType source, ImageFormatType dest) {
     CHECKFORMAT(BGR, HSV, MNNBGRToHSV);
     CHECKFORMAT(BGR, BGR555, MNNBGRToBGR555);
     CHECKFORMAT(BGR, BGR565, MNNBGRToBGR565);
+    CHECKFORMAT(BGR, HSV_FULL, MNNBGRToHSV_FULL);
 
     CHECKFORMAT(GRAY, RGBA, MNNGRAYToC4);
     CHECKFORMAT(GRAY, BGRA, MNNGRAYToC4);
@@ -261,6 +263,9 @@ static std::pair<int, int> _computeClip(CV::Point* points, int iw, int ih, const
     }
     if (end > count) {
         end = count;
+    }
+    if (sta > end) {
+        sta = end;
     }
     return std::make_pair(sta, end);
 }

@@ -58,6 +58,7 @@ LoopDz:
     movq %rcx, %r11
     shlq $5, %r11
     movq %r13, %rsi
+    subq $32,  %r11
     Init:
         vmovups (%rsi), %zmm0
         vmovups 64(%rsi), %zmm1
@@ -103,13 +104,15 @@ LoopDz:
         //addq $32, %rdx
 
     cmpq %rbx, %r11
-    //cmpq $0, %r11
+    jl Last
 
-    je Last
         vmovups (%rsi), %zmm3
         vmovups 64(%rsi), %zmm4
         vmovups 128(%rsi), %zmm5
         addq $192, %rsi
+
+    cmpq %rbx, %r11
+    je LastLoop
 
     LoopSz:
         vmovups %zmm3, %zmm0
@@ -170,7 +173,52 @@ LoopDz:
 
         jne LoopSz
 
+    LastLoop:
+
+        vbroadcastss (%rdx, %rbx), %zmm1
+        vbroadcastss 4(%rdx, %rbx), %zmm2
+        vbroadcastss 8(%rdx, %rbx), %zmm6
+        vbroadcastss 12(%rdx, %rbx), %zmm7
+
+        vfmadd231ps %zmm1, %zmm3, %zmm8
+        vfmadd231ps %zmm1, %zmm4, %zmm9
+        vfmadd231ps %zmm1, %zmm5, %zmm10
+
+        vfmadd231ps %zmm2, %zmm3, %zmm11
+        vfmadd231ps %zmm2, %zmm4, %zmm12
+        vfmadd231ps %zmm2, %zmm5, %zmm13
+
+        vfmadd231ps %zmm6, %zmm3, %zmm14
+        vfmadd231ps %zmm6, %zmm4, %zmm15
+        vfmadd231ps %zmm6, %zmm5, %zmm16
+
+        vfmadd231ps %zmm7, %zmm3, %zmm17
+        vfmadd231ps %zmm7, %zmm4, %zmm18
+        vfmadd231ps %zmm7, %zmm5, %zmm19
+
+        vbroadcastss 16(%rdx, %rbx), %zmm1
+        vbroadcastss 20(%rdx, %rbx), %zmm2
+        vbroadcastss 24(%rdx, %rbx), %zmm6
+        vbroadcastss 28(%rdx, %rbx), %zmm7
+
+        vfmadd231ps %zmm1, %zmm3, %zmm20
+        vfmadd231ps %zmm1, %zmm4, %zmm21
+        vfmadd231ps %zmm1, %zmm5, %zmm22
+
+        vfmadd231ps %zmm2, %zmm3, %zmm23
+        vfmadd231ps %zmm2, %zmm4, %zmm24
+        vfmadd231ps %zmm2, %zmm5, %zmm25
+
+        vfmadd231ps %zmm6, %zmm3, %zmm26
+        vfmadd231ps %zmm6, %zmm4, %zmm27
+        vfmadd231ps %zmm6, %zmm5, %zmm28
+
+        vfmadd231ps %zmm7, %zmm3, %zmm29
+        vfmadd231ps %zmm7, %zmm4, %zmm30
+        vfmadd231ps %zmm7, %zmm5, %zmm31
+
     Last:
+    addq $32,  %r11
     addq %r11, %rdx
 
 .macro TRANSPOSE_SAVE x0, x1, x2, x3, x4, x5, x6, x7

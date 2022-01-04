@@ -73,17 +73,10 @@ bool FileLoader::read() {
     return true;
 }
 
-bool FileLoader::write(const char* filePath, std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo) {
+bool FileLoader::write(const char* filePath, std::pair<const void*, size_t> cacheInfo) {
     FILE* f = fopen(filePath, "wb");
     if (nullptr == f) {
         MNN_ERROR("Open %s error\n", filePath);
-        return false;
-    }
-    // Write key
-    auto tsize = fwrite((const char*)verifyInfo.first, 1, verifyInfo.second, f);
-    if (tsize != verifyInfo.second) {
-        MNN_ERROR("Write %s error\n", filePath);
-        fclose(f);
         return false;
     }
     // Write Cache

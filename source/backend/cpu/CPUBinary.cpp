@@ -177,6 +177,24 @@ static MNNBinaryExecute selectForInt(int type) {
         case BinaryOpOperation_MOD:
             return execute<int32_t, int32_t, BinaryModInt<int32_t, int32_t, int32_t>>;
             break;
+        case BinaryOpOperation_LOGICALXOR:
+            return execute<int32_t, int32_t, BinaryLogicalXor<int32_t, int32_t, int32_t>>;
+            break;
+        case BinaryOpOperation_LEFTSHIFT:
+            return execute<int32_t, int32_t, BinaryLeftShift<int32_t, int32_t, int32_t>>;
+            break;
+        case BinaryOpOperation_RIGHTSHIFT:
+            return execute<int32_t, int32_t, BinaryRightShift<int32_t, int32_t, int32_t>>;
+            break;
+        case BinaryOpOperation_BITWISE_AND:
+            return execute<int32_t, int32_t, BinaryBitwiseAnd<int32_t, int32_t, int32_t>>;
+            break;
+        case BinaryOpOperation_BITWISE_OR:
+            return execute<int32_t, int32_t, BinaryBitwiseOr<int32_t, int32_t, int32_t>>;
+            break;
+        case BinaryOpOperation_BITWISE_XOR:
+            return execute<int32_t, int32_t, BinaryBitwiseXor<int32_t, int32_t, int32_t>>;
+            break;
         default:
             MNN_ASSERT(false);
             break;

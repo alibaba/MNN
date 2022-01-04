@@ -83,6 +83,7 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
         }
     }
     new_subgraph->outputs.clear();
+    outputNames = new_subnet->outputName;
     for (auto& output : outputNames) {
         for (int i = 0; i < new_subnet->tensorName.size(); ++i) {
             if (new_subnet->tensorName[i] == output) {

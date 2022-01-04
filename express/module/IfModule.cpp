@@ -85,6 +85,13 @@ IfModule* IfModule::create(const Op* op, const std::map<std::string, SubGraph>& 
     MNN_ASSERT(module->mInputForThen.size() == thenG.inputs.size());
     // Map outputs
     auto output = ifParam->aliases_outputs();
+    if (output == nullptr) { // Onnx
+        for (int i = 0; i < op->outputIndexes()->size(); ++i) {
+            module->mOutputFromThen.push_back(i);
+            module->mOutputFromElse.push_back(i);
+        }
+        return module;
+    }
     module->mOutputFromThen.resize(output->size());
     module->mOutputFromElse.resize(output->size());
     for (int i=0; i<output->size(); ++i) {

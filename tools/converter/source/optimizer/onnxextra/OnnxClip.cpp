@@ -35,24 +35,34 @@ public:
                 }
             }
         }
+        bool known_min_max = true;
         if (inputs.size() == 2 && (!setReady)) {
             auto minPtr = inputs[1]->readMap<float>();
-            if (nullptr == minPtr) {
-                return nullptr;
+            if (nullptr != minPtr) {
+                minValue = minPtr[0];
+            } else {
+                known_min_max = false;
             }
-            minValue    = minPtr[0];
         }
         if (inputs.size() >= 3 && (!setReady)) {
             auto minPtr = inputs[1]->readMap<float>();
-            if (nullptr == minPtr) {
-                return nullptr;
+            if (nullptr != minPtr) {
+                minValue = minPtr[0];
+            } else {
+                known_min_max = false;
             }
-            minValue    = minPtr[0];
             auto maxPtr = inputs[2]->readMap<float>();
-            if (nullptr == maxPtr) {
-                return nullptr;
+            if (nullptr != maxPtr) {
+                maxValue = maxPtr[0];
+            } else {
+                known_min_max = false;
             }
-            maxValue = maxPtr[0];
+        }
+        if (!known_min_max) {
+            auto res = _Minimum(_Maximum(inputs[0], inputs[1]), inputs[2]);
+            auto newExpr = res->expr().first;
+            newExpr->setName(expr->name());
+            return newExpr;
         }
         std::unique_ptr<OpT> newOp(new OpT);
         newOp->type                     = OpType_ReLU6;

@@ -114,6 +114,9 @@ public:
 
         auto gruExpr = Expr::create(gru.get(), gruInput, expr->outputSize());
         gruExpr->setName(expr->name());
+        for (int i = 0; i < expr->outputSize(); ++i) {
+            Variable::create(gruExpr, i)->setName(expr->outputName(i));
+        }
         return gruExpr;
     }
 };

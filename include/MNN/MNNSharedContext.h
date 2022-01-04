@@ -8,19 +8,14 @@
 
 #ifndef MNNSharedContext_h
 #define MNNSharedContext_h
+#include "MNNDefine.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #include <stdint.h> /*uint32_t*/
+#ifdef MNN_VULKAN
 
-#ifndef VK_DEFINE_HANDLE
-#define VK_DEFINE_HANDLE(object) typedef struct object##_T* object;
-VK_DEFINE_HANDLE(VkInstance)
-VK_DEFINE_HANDLE(VkPhysicalDevice)
-VK_DEFINE_HANDLE(VkDevice)
-VK_DEFINE_HANDLE(VkQueue)
-#endif
 struct MNNVulkanContext {
     VkInstance pInstance;
     VkPhysicalDevice pPhysicalDevice;
@@ -28,6 +23,26 @@ struct MNNVulkanContext {
     VkQueue pQueue;
     uint32_t iQueueFamilyIndex;
 };
+
+#endif
+
+#ifdef MNN_METAL
+struct MNNMetalSharedContext {
+    id<MTLDevice> device;
+    id<MTLCommandQueue> queue;
+};
+
+struct MNNMetalTensorContent {
+    id<MTLBuffer> buffer;
+    int32_t offset;
+    id<MTLTexture> texture;
+    int32_t forFuture[8];
+};
+
+MNN_PUBLIC int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor);
+#endif
+
+
 #ifdef __cplusplus
 }
 #endif

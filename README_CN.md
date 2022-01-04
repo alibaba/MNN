@@ -7,7 +7,7 @@
 ## 简介
 MNN是一个高效、轻量的深度学习框架。它支持深度模型推理与训练，尤其在端侧的推理与训练性能在业界处于领先地位。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷、钉钉、闲鱼等20多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等70多个场景。此外，IoT等场景下也有若干应用。
 
-MNN的架构设计理念与性能数据在MLSys 2020上面发表。Paper [在此处](https://proceedings.mlsys.org/static/paper_files/mlsys/2020/7-Paper.pdf)。如果MNN对你的研究有所助益，欢迎引用MNN的论文：
+MNN的架构设计理念与性能数据在MLSys 2020上面发表。Paper [在此处](https://arxiv.org/pdf/2002.12418.pdf)。如果MNN对你的研究有所助益，欢迎引用MNN的论文：
 
     @inproceedings{alibaba2020mnn,
       author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},

@@ -9,7 +9,6 @@
 #ifndef VulkanRuntime_hpp
 #define VulkanRuntime_hpp
 
-#include <MNN/MNNSharedContext.h>
 #include "VulkanBuffer.hpp"
 #include "VulkanCommandPool.hpp"
 #include "VulkanDevice.hpp"
@@ -18,6 +17,8 @@
 #include "VulkanInstance.hpp"
 #include "VulkanPipeline.hpp"
 #include "core/Backend.hpp"
+#define MNN_VULKAN
+#include <MNN/MNNSharedContext.h>
 
 namespace MNN {
 class VulkanRuntime : public Runtime {

@@ -90,11 +90,15 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
     for (int n = 0; n < numROI; ++n) {
         auto batchOutput = output->host<float>() + os * n;
         auto roiPtr      = mROI.host<float>() + rs * n;
-        int batchIdx     = static_cast<int>(roiPtr[0]);
-        float x1         = roiPtr[1] * mSpatialScale + alignOffset;
-        float y1         = roiPtr[2] * mSpatialScale + alignOffset;
-        float x2         = roiPtr[3] * mSpatialScale + alignOffset;
-        float y2         = roiPtr[4] * mSpatialScale + alignOffset;
+        int batchIdx     = (int)roiPtr[0], idxRoi = 1;
+        if (inputs.size() == 3) {
+            batchIdx = inputs[2]->host<int>()[n];
+            idxRoi = 0;
+        }
+        float x1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
+        float y1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
+        float x2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
+        float y2         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
         MNN_ASSERT(batchIdx < input->batch());
 
         float roiW = x2 - x1;
@@ -124,7 +128,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
                 int preCalcIdx  = 0;
-                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledHeight * 4) {
+                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledWidth * 4) {
                     for (int w = 0; w < mPooledWidth; ++w) {
 #ifdef MNN_USE_NEON
                         float32x4_t res = vmovq_n_f32(0.f);
@@ -194,7 +198,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                 auto sliceInput = batchInput + is * input->batch() * s;
                 auto rowOutput  = batchOutput + os * output->batch() * s;
                 int preCalcIdx  = 0;
-                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledHeight * 4) {
+                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledWidth * 4) {
                     for (int w = 0; w < mPooledWidth; ++w) {
 #ifdef MNN_USE_NEON
                         float32x4_t res = vmovq_n_f32(-FLT_MAX);
@@ -302,7 +306,7 @@ ErrorCode CPUROIAlign::preCalcBilinearInterpolate(int height, int width, int poo
                     } else {
                         py1 = py0 + 1;
                     }
-                    if (px0 > width - 1) {
+                    if (px0 >= width - 1) {
                         px1 = px0 = width - 1;
                         px        = static_cast<float>(px0);
                     } else {

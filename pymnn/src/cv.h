@@ -7,11 +7,6 @@ def_enum(Format, CV::ImageFormat,
         CV::YUV_NV21, "YUV_NV21",
         CV::YUV_NV12, "YUV_NV12"
         )
-def_enum(ImreadModes, CV::ImreadModes,
-        CV::IMREAD_GRAYSCALE, "IMREAD_GRAYSCALE",
-        CV::IMREAD_COLOR, "IMREAD_COLOR",
-        CV::IMREAD_ANYDEPTH, "IMREAD_ANYDEPTH"
-        )
 def_enum(ColorConversionCodes, CV::ColorConversionCodes,
         CV::COLOR_BGR2BGRA, "COLOR_BGR2BGRA",
         CV::COLOR_RGB2RGBA, "COLOR_RGB2RGBA",
@@ -91,42 +86,37 @@ def_enum(ThresholdTypes, CV::ThresholdTypes,
         CV::THRESH_OTSU, "THRESH_OTSU",
         CV::THRESH_TRIANGLE, "THRESH_TRIANGLE"
         )
+def_enum(RetrievalModes, CV::RetrievalModes,
+        CV::RETR_EXTERNAL, "RETR_EXTERNAL",
+        CV::RETR_LIST, "RETR_LIST",
+        CV::RETR_CCOMP, "RETR_CCOMP",
+        CV::RETR_TREE, "RETR_TREE",
+        CV::RETR_FLOODFILL, "RETR_FLOODFILL"
+        )
+def_enum(ContourApproximationModes, CV::ContourApproximationModes,
+        CV::CHAIN_APPROX_NONE, "CHAIN_APPROX_NONE",
+        CV::CHAIN_APPROX_SIMPLE, "CHAIN_APPROX_SIMPLE",
+        CV::CHAIN_APPROX_TC89_L1, "CHAIN_APPROX_TC89_L1",
+        CV::CHAIN_APPROX_TC89_KCOS, "CHAIN_APPROX_TC89_KCOS"
+        )
 // helper functions
 INTS default_size = {0, 0}, default_param = {};
-bool isSize(PyObject* obj) {
-    return (isInts(obj) && toInts(obj).size() == 2);
-}
-CV::Size toSize(PyObject* obj) {
-    auto vals = toInts(obj);
-    MNN_ASSERT(val.size() == 2);
-    return CV::Size(vals[0], vals[1]);
-}
-bool isPoint(PyObject* obj) {
-    return (isFloats(obj) && toFloats(obj).size() == 2);
-}
-CV::Point toPoint(PyObject* obj) {
-    auto vals = toFloats(obj);
-    MNN_ASSERT(val.size() == 2);
-    CV::Point point;
-    point.set(vals[0], vals[1]);
-    return point;
-}
-bool isPoints(PyObject* obj) {
-    return (isFloats(obj) && toFloats(obj).size() % 2 == 0);
-}
-std::vector<CV::Point> toPoints(PyObject* obj) {
-    auto vals = toFloats(obj);
-    MNN_ASSERT(val.size() % 2 == 0);
-    std::vector<CV::Point> points(vals.size() / 2);
-    for (int i = 0; i < points.size(); i++) {
-        points[i].set(vals[i*2], vals[i*2+1]);
-    }
-    return points;
-}
-bool isMatrx(PyObject* obj);
+bool isSize(PyObject* obj);
+CV::Size toSize(PyObject* obj);
+bool isPoint(PyObject* obj);
+CV::Point toPoint(PyObject* obj);
+bool isPoints(PyObject* obj);
+std::vector<CV::Point> toPoints(PyObject* obj);
+PyObject* toPyObj(std::vector<CV::Point> _points);
+bool isMatrix(PyObject* obj);
 CV::Matrix toMatrix(PyObject* obj);
 PyObject* toPyObj(CV::Matrix m);
-// imgcodecs
+#ifdef PYMNN_IMGCODECS
+def_enum(ImreadModes, CV::ImreadModes,
+        CV::IMREAD_GRAYSCALE, "IMREAD_GRAYSCALE",
+        CV::IMREAD_COLOR, "IMREAD_COLOR",
+        CV::IMREAD_ANYDEPTH, "IMREAD_ANYDEPTH"
+        )
 static PyObject* PyMNNCV_haveImageReader(PyObject *self, PyObject *args) {
     const char *filename = NULL;
     if (PyArg_ParseTuple(args, "s", &filename) && filename) {
@@ -176,6 +166,7 @@ static PyObject* PyMNNCV_imwrite(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("imwrite require args: (string, Var, |[int])");
 }
+#endif
 // color
 static PyObject* PyMNNCV_cvtColor(PyObject *self, PyObject *args) {
     PyObject *src, *code;
@@ -207,7 +198,7 @@ static PyObject* PyMNNCV_boxFilter(PyObject *self, PyObject *args) {
     PyObject *src, *ksize, *borderType = toPyObj(REFLECT);
     int ddepth;
     int normalize = 1;
-    if (PyArg_ParseTuple(args, "OiO|pO", &src, &ddepth, &ksize, &normalize, &borderType) &&
+    if (PyArg_ParseTuple(args, "OiO|iO", &src, &ddepth, &ksize, &normalize, &borderType) &&
         isVar(src) && isSize(ksize) && isPadValue_Mode(borderType)) {
         return toPyObj(CV::boxFilter(toVar(src), ddepth, toSize(ksize), normalize, toEnum<MNN::Express::PadValueMode>(borderType)));
     }
@@ -244,7 +235,7 @@ static PyObject* PyMNNCV_GaussianBlur(PyObject *self, PyObject *args) {
 static PyObject* PyMNNCV_getDerivKernels(PyObject *self, PyObject *args) {
     int dx, dy, ksize;
     int normalize = 0;
-    if (PyArg_ParseTuple(args, "iii|p", &dx, &dy, &ksize, &normalize)) {
+    if (PyArg_ParseTuple(args, "iii|i", &dx, &dy, &ksize, &normalize)) {
         return toPyObj<VARP, toPyObj, VARP, toPyObj>(CV::getDerivKernels(dx, dy, ksize, normalize));
     }
     PyMNN_ERROR("getDerivKernels require args: (int, int, int, |bool)");
@@ -343,7 +334,7 @@ static PyObject* PyMNNCV_sqrBoxFilter(PyObject *self, PyObject *args) {
     PyObject *src, *ksize, *borderType = toPyObj(REFLECT);
     int ddepth;
     int normalize = 1;
-    if (PyArg_ParseTuple(args, "OiO|pO", &src, &ddepth, &ksize, &normalize, &borderType) &&
+    if (PyArg_ParseTuple(args, "OiO|iO", &src, &ddepth, &ksize, &normalize, &borderType) &&
         isVar(src) && isSize(ksize) && isPadValue_Mode(borderType)) {
         return toPyObj(CV::sqrBoxFilter(toVar(src), ddepth, toSize(ksize), normalize, toEnum<MNN::Express::PadValueMode>(borderType)));
     }
@@ -372,6 +363,21 @@ static PyObject* PyMNNCV_getRectSubPix(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("getRectSubPix require args: (Var, [int], [float])");
 }
+static PyObject* PyMNNCV_getRotationMatrix2D(PyObject *self, PyObject *args) {
+    PyObject *center;
+    float angle, scale;
+    if (PyArg_ParseTuple(args, "Off", &center, &angle, &scale) && isPoint(center)) {
+        return toPyObj(CV::getRotationMatrix2D(toPoint(center), angle, scale));
+    }
+    PyMNN_ERROR("getRotationMatrix2D require args: ([float], float, float)");
+}
+static PyObject* PyMNNCV_invertAffineTransform(PyObject *self, PyObject *args) {
+    PyObject *M;
+    if (PyArg_ParseTuple(args, "O", &M) && isMatrix(M)) {
+        return toPyObj(CV::invertAffineTransform(toMatrix(M)));
+    }
+    PyMNN_ERROR("invertAffineTransform require args: (Matrix)");
+}
 static PyObject* PyMNNCV_resize(PyObject *self, PyObject *args) {
     PyObject *src, *dsize, *interpolation = toPyObj(CV::INTER_LINEAR);
     float fx = 0, fy = 0;
@@ -385,7 +391,7 @@ static PyObject* PyMNNCV_warpAffine(PyObject *self, PyObject *args) {
     PyObject *src, *M, *dsize, *flag = toPyObj(CV::INTER_LINEAR), *borderMode = toPyObj(CV::BORDER_CONSTANT);
     int borderValue = 0;
     if (PyArg_ParseTuple(args, "OOO|OOi", &src, &M, &dsize, &flag, &borderMode, &borderValue) &&
-        isVar(src) && isSize(dsize) && isInterpolationFlags(flag) && isBorderTypes(borderMode)) {
+        isVar(src) && isMatrix(M) && isSize(dsize) && isInterpolationFlags(flag) && isBorderTypes(borderMode)) {
         return toPyObj(CV::warpAffine(toVar(src), toMatrix(M), toSize(dsize),
                        toEnum<CV::InterpolationFlags>(flag), toEnum<CV::BorderTypes>(borderMode), borderValue));
     }
@@ -395,7 +401,7 @@ static PyObject* PyMNNCV_warpPerspective(PyObject *self, PyObject *args) {
     PyObject *src, *M, *dsize, *flag = toPyObj(CV::INTER_LINEAR), *borderMode = toPyObj(CV::BORDER_CONSTANT);
     int borderValue = 0;
     if (PyArg_ParseTuple(args, "OOO|OOi", &src, &M, &dsize, &flag, &borderMode, &borderValue) &&
-        isVar(src) && isSize(dsize) && isInterpolationFlags(flag) && isBorderTypes(borderMode)) {
+        isVar(src) && isMatrix(M) && isSize(dsize) && isInterpolationFlags(flag) && isBorderTypes(borderMode)) {
         return toPyObj(CV::warpPerspective(toVar(src), toMatrix(M), toSize(dsize),
                        toEnum<CV::InterpolationFlags>(flag), toEnum<CV::BorderTypes>(borderMode), borderValue));
     }
@@ -419,8 +425,102 @@ static PyObject* PyMNNCV_threshold(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("threshold require args: (Var, float, float, ThresholdTypes)");
 }
+// structural
+static PyObject* PyMNNCV_findContours(PyObject *self, PyObject *args) {
+    PyObject *image, *mode, *method, *offset = toPyObj(std::vector<float>{0, 0});
+    if (PyArg_ParseTuple(args, "OOO|O", &image, &mode, &method, &offset) &&
+        isVar(image) && isRetrievalModes(mode) && isContourApproximationModes(method) && isPoint(offset)) {
+        auto contours = CV::findContours(toVar(image), toEnum<CV::RetrievalModes>(mode),
+                                         toEnum<CV::ContourApproximationModes>(method), toPoint(offset));
+        PyObject* obj = PyTuple_New(2);
+        PyTuple_SetItem(obj, 0, toPyObj<std::vector<CV::Point>, toPyObj>(contours));
+        PyTuple_SetItem(obj, 1, toPyObj("no hierarchy"));
+        return obj;
+    }
+    PyMNN_ERROR("findContours require args: (Var, RetrievalModes, ContourApproximationModes, [float])");
+}
+static PyObject* PyMNNCV_contourArea(PyObject *self, PyObject *args) {
+    PyObject *points;
+    int oriented = 0;
+    if (PyArg_ParseTuple(args, "O|i", &points, &oriented) && isPoints(points)) {
+        float area = CV::contourArea(toPoints(points), oriented);
+        return toPyObj(area);
+    }
+    PyMNN_ERROR("contourArea require args: ([float], |bool)");
+}
+static PyObject* PyMNNCV_convexHull(PyObject *self, PyObject *args) {
+    PyObject *points;
+    int clockwise = 0, returnPoints = 1;
+    if (PyArg_ParseTuple(args, "O|ii", &points, &clockwise, &returnPoints) && isPoints(points)) {
+        return toPyObj(CV::convexHull(toPoints(points), clockwise, returnPoints));
+    }
+    PyMNN_ERROR("convexHull require args: ([float], |bool, bool)");
+}
+static PyObject* PyMNNCV_minAreaRect(PyObject *self, PyObject *args) {
+    PyObject *points;
+    if (PyArg_ParseTuple(args, "O", &points) && isPoints(points)) {
+        auto rect = CV::minAreaRect(toPoints(points));
+        PyObject* center = PyTuple_New(2);
+        PyTuple_SetItem(center, 0, toPyObj(rect.center.x));
+        PyTuple_SetItem(center, 1, toPyObj(rect.center.y));
+        PyObject* size = PyTuple_New(2);
+        PyTuple_SetItem(size, 0, toPyObj(rect.size.width));
+        PyTuple_SetItem(size, 1, toPyObj(rect.size.height));
+        PyObject* obj = PyTuple_New(3);
+        PyTuple_SetItem(obj, 0, center);
+        PyTuple_SetItem(obj, 1, size);
+        PyTuple_SetItem(obj, 2, toPyObj(rect.angle));
+        return obj;
+    }
+    PyMNN_ERROR("minAreaRect require args: ([float])");
+}
+static PyObject* PyMNNCV_boundingRect(PyObject *self, PyObject *args) {
+    PyObject *points;
+    if (PyArg_ParseTuple(args, "O", &points) && isPoints(points)) {
+        auto rect = CV::boundingRect(toPoints(points));
+        std::vector<int> res { rect.x, rect.y, rect.width, rect.height };
+        return toPyObj(res);
+    }
+    PyMNN_ERROR("boundingRect require args: ([float])");
+}
+static PyObject* PyMNNCV_connectedComponentsWithStats(PyObject *self, PyObject *args) {
+    PyObject *image;
+    int connectivity = 8;
+    if (PyArg_ParseTuple(args, "O|i", &image, &connectivity) && isVar(image)) {
+        VARP labels, statsv, centroids;
+        int nlabels = CV::connectedComponentsWithStats(toVar(image), labels, statsv, centroids, connectivity);
+        PyObject* obj = PyTuple_New(4);
+        PyTuple_SetItem(obj, 0, toPyObj(nlabels));
+        PyTuple_SetItem(obj, 1, toPyObj(labels));
+        PyTuple_SetItem(obj, 2, toPyObj(statsv));
+        PyTuple_SetItem(obj, 3, toPyObj(centroids));
+        return obj;
+    }
+    PyMNN_ERROR("connectedComponentsWithStats require args: (Var, int)");
+}
+static PyObject* PyMNNCV_boxPoints(PyObject *self, PyObject *args) {
+    PyObject *_box;
+    if (PyArg_ParseTuple(args, "O", &_box) && PyTuple_Check(_box) && PyTuple_Size(_box) == 3) {
+        auto _center = PyTuple_GetItem(_box, 0);
+        auto _size = PyTuple_GetItem(_box, 1);
+        auto _angle = PyTuple_GetItem(_box, 2);
+        if (!(PyTuple_Check(_center) && PyTuple_Size(_center) == 2) ||
+            !(PyTuple_Check(_size) && PyTuple_Size(_size) == 2) ||
+            !isFloat(_angle)) goto error_;
+        CV::RotatedRect box;
+        box.center.x = toFloat(PyTuple_GetItem(_center, 0));
+        box.center.y = toFloat(PyTuple_GetItem(_center, 1));
+        box.size.width = toFloat(PyTuple_GetItem(_size, 0));
+        box.size.height = toFloat(PyTuple_GetItem(_size, 1));
+        box.angle = toFloat(_angle);
+        return toPyObj(CV::boxPoints(box));
+    }
+error_:
+    PyMNN_ERROR("boxPoints require args: [(float, (float, float), (float, float))])");
+}
 static PyMethodDef PyMNNCV_methods[] = {
     register_methods(CV,
+#ifdef PYMNN_IMGCODECS
         // imgcodecs
         haveImageReader, "haveImageReader",
         haveImageWriter, "haveImageWriter",
@@ -428,6 +528,7 @@ static PyMethodDef PyMNNCV_methods[] = {
         imencode, "imencode",
         imread, "imread",
         imwrite, "imwrite",
+#endif
         // color
         cvtColor, "cvtColor.",
         cvtColorTwoPlane, "cvtColorTwoPlane.",
@@ -453,11 +554,21 @@ static PyMethodDef PyMNNCV_methods[] = {
         getAffineTransform, "getAffineTransform",
         getPerspectiveTransform, "getPerspectiveTransform",
         getRectSubPix, "getRectSubPix",
+        getRotationMatrix2D, "getRotationMatrix2D",
+        invertAffineTransform, "invertAffineTransform",
         resize, "resize",
         warpAffine, "warpAffine",
         warpPerspective, "warpPerspective",
         // miscellaneous
         blendLinear, "blendLinear",
-        threshold, "threshold"
+        threshold, "threshold",
+        // structural
+        findContours, "findContours",
+        contourArea, "contourArea",
+        convexHull, "convexHull",
+        minAreaRect, "minAreaRect",
+        boundingRect, "boundingRect",
+        connectedComponentsWithStats, "connectedComponentsWithStats",
+        boxPoints, "boxPoints"
     )
 };

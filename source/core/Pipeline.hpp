@@ -24,8 +24,12 @@ class SizeComputer;
 typedef std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> CacheExecutionMap;
 class Pipeline : public NonCopyable {
 public:
+    struct TuningAttr {
+        bool autoSetOpType;
+        int maxTuningNumber;
+    };
     Pipeline(std::vector<Schedule::PipelineInfo>&& info, std::shared_ptr<Backend> major,
-             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, bool outputStatic, Runtime::CompilerType compilerType, CacheExecutionMap& cache);
+             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, CacheExecutionMap& cache);
     ~Pipeline();
     class UnitInfo : public OperatorInfo {
     public:
@@ -52,12 +56,17 @@ public:
         return mFlops;
     }
     friend class Session;
+    MNNForwardType getMainForwardType() const  {
+        return mBackend->type();
+    }
 private:
+    void _pushTuningTask(std::vector<Schedule::PipelineInfo>&& initInfos);
+    void _recycleDynamicMemory(Command* command);
     std::shared_ptr<Backend> mBackend, mBackupBackend, mConstBackend;
     std::vector<Schedule::PipelineInfo> mInfo;
     bool mAllocInput;
     bool mOutputStatic;
-    bool mInit = false;
+    TuningAttr mTuneAttr;
     float mFlops = 0.0f;
     bool mIsQuantModel = false;
     CacheExecutionMap& mOriginExecution;
@@ -68,6 +77,8 @@ private:
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;
 #endif
+    const Runtime* mRuntime;
+    const Runtime* mCpuRuntime;
 };
 } // namespace MNN
 

@@ -245,7 +245,12 @@ static PyTypeObject PyMNNVarType = {
     0,                                        /*tp_getattro*/
     0,                                        /*tp_setattro*/
     0,                                        /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE
+#if PY_MAJOR_VERSION < 3
+    // this flag `tp_as_number` accept arguments of arbitrary object types in py2
+    | Py_TPFLAGS_CHECKTYPES
+#endif
+    ,                                         /*tp_flags*/
     "MNN Var objects",                        /*tp_doc*/
     0,                                        /*tp_traverse*/
     0,                                        /*tp_clear*/
@@ -362,6 +367,7 @@ PyObject *PyMNNVar_richcompare(PyObject *l, PyObject *r, int op) {
         case Py_GE:
             return toPyObj(Express::_GreaterEqual(vl, vr));
     }
+    Py_RETURN_NONE;
 }
 static PyObject* PyMNNVar_add(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
@@ -415,9 +421,13 @@ static PyObject* PyMNNVar_subscript(PyObject* x, PyObject* slice) {
     auto dealItem = [&](PyObject* item) {
         if (PySlice_Check(item)) {
             Py_ssize_t startl = 0, stopl = 0, stepl = 1;
-            if (!PySlice_Unpack(item, &startl, &stopl, &stepl)) {
+            auto slice_res = PySlice_Unpack(item, &startl, &stopl, &stepl);
+            // py2 don't check return value.
+#if PY_MAJOR_VERSION >= 3
+            if (!slice_res) {
                 PyMNN_ERROR_LOG("slice is invalid.");
             }
+#endif
             int start = static_cast<int>(startl);
             int stop = static_cast<int>(stopl);
             int step = static_cast<int>(stepl);
@@ -661,6 +671,7 @@ static PyObject* PyMNNVar_reorder(PyMNNVar *self, PyObject *args) {
     }
     auto newInput = _ChangeInputFormat(*(self->var), toEnum<Dimensionformat>(order));
     *(self->var) = newInput;
+    Py_RETURN_NONE;
 }
 static PyObject* PyMNNVar_resize(PyMNNVar *self, PyObject *args) {
     PyObject* shape = NULL;
@@ -774,7 +785,7 @@ static PyObject* PyMNNExpr_save(PyObject *self, PyObject *args) {
     PyObject* vars = NULL;
     const char *fileName = NULL;
     int forInference = 1;
-    if (!PyArg_ParseTuple(args, "Os|p", &vars, &fileName, &forInference)) {
+    if (!PyArg_ParseTuple(args, "Os|i", &vars, &fileName, &forInference)) {
         return NULL;
     }
     auto newVars = toVars(vars);
@@ -810,7 +821,7 @@ static PyObject* PyMNNExpr_get_inputs_and_outputs(PyObject *self, PyObject *args
 }
 static PyObject* PyMNNExpr_gc(PyObject *self, PyObject *args) {
     int full;
-    if (!PyArg_ParseTuple(args, "p", &full)) {
+    if (!PyArg_ParseTuple(args, "i", &full)) {
         return NULL;
     }
     auto exe = Executor::getGlobalExecutor();
@@ -887,6 +898,9 @@ def_binary(Expr,
     logical_or, Express::_LogicalOr,
     not_equal, Express::_NotEqual,
     bias_add, Express::_BiasAdd,
+    bitwise_and, Express::_BitwiseAnd,
+    bitwise_or, Express::_BitwiseOr,
+    bitwise_xor, Express::_BitwiseXor,
     // other binary-like
     fill, Express::_Fill,
     tile, Express::_Tile,
@@ -941,7 +955,7 @@ static PyObject* PyMNNExpr_matmul(PyObject *self, PyObject *args) {
     PyObject *a, *b;
     int transposeA = false;
     int transposeB = false;
-    if (PyArg_ParseTuple(args, "OOpp", &a, &b, &transposeA, &transposeB) && isVar(a) && isVar(b)) {
+    if (PyArg_ParseTuple(args, "OOii", &a, &b, &transposeA, &transposeB) && isVar(a) && isVar(b)) {
         return toPyObj(Express::_MatMul(toVar(a), toVar(b), transposeA, transposeB));
     }
     PyMNN_ERROR("matmul require args: (Var, Var, bool, bool)");
@@ -998,7 +1012,7 @@ static PyObject* PyMNNExpr_placeholder(PyObject *self, PyObject *args) {
 static PyObject* PyMNNExpr_clone(PyObject *self, PyObject *args) {
     PyObject *source;
     int deepCopy = 0;
-    if (PyArg_ParseTuple(args, "O|p", &source, &deepCopy) && isVar(source)) {
+    if (PyArg_ParseTuple(args, "O|i", &source, &deepCopy) && isVar(source)) {
         return toPyObj(Express::_Clone(toVar(source), deepCopy));
     }
     PyMNN_ERROR("clone require args: (Var, |bool)");
@@ -1012,7 +1026,6 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
         PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes, [ints], |data_format, dtype)");
     }
     if (!isVals(value) || !isInts(shapes) || !isdata_format(format) || !isdtype(type)) {
-        printf("val %d, shapes %d, format %d, type %d\n", isVals(value), isInts(shapes), isdata_format(format), isdtype(type));
         PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes, [ints], |data_format, dtype)");
     }
     auto data_format = toEnum<Dimensionformat>(format);
@@ -1293,7 +1306,7 @@ static PyObject* PyMNNExpr_elu(PyObject *self, PyObject *args) {
 static PyObject* PyMNNExpr_moments(PyObject *self, PyObject *args) {
     PyObject *x, *axis, *shift;
     int keep_dims;
-    if (PyArg_ParseTuple(args, "OOOp", &x, &axis, &shift, &keep_dims)
+    if (PyArg_ParseTuple(args, "OOOi", &x, &axis, &shift, &keep_dims)
         && isVar(x) && isInts(axis) && isVar(shift)) {
         return toPyObj<VARP, toPyObj>(Express::_Moments(toVar(x), toInts(axis), toVar(shift), keep_dims));
     }
@@ -1404,7 +1417,10 @@ static PyMethodDef PyMNNExpr_methods[] = {
         squared_difference, "build squared_difference expr.",
         atan2, "build atan2 expr.",
         logical_or, "build logical_or expr.",
-        bias_add, "build bias_add expr."
+        bias_add, "build bias_add expr.",
+        bitwise_and, "build bitwise_and expr.",
+        bitwise_or, "build bitwise_or expr.",
+        bitwise_xor, "build bitwise_xor expr."
     )
     register_methods(Expr,
         // reduce expr

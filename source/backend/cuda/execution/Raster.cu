@@ -209,6 +209,9 @@ UNARY_FUNC(ROUND, round(x));
 UNARY_FUNC(SINH, sinh(x));
 UNARY_FUNC(ASINH, asinh(x));
 UNARY_FUNC(HARDSWISH, 1.0/6.0 * x * min(max(x+3.0, 0.0), 6.0));
+UNARY_FUNC(ERF, erf(x));
+UNARY_FUNC(ERFC, erfc(x));
+UNARY_FUNC(ERFINV, erfinv(x));
 
 void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int bytes, CUDARuntime* runtime) {
     int count = size[0] * size[1] * size[2];
@@ -343,6 +346,9 @@ void UnaryBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const
     COMPUTE(SINH);
     COMPUTE(ASINH);
     COMPUTE(HARDSWISH);
+    COMPUTE(ERF);
+    COMPUTE(ERFC);
+    COMPUTE(ERFINV);
 
     #undef COMPUTE
 }

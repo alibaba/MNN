@@ -60,6 +60,18 @@ public:
                     }
                 }
             }
+#else
+            // If subnet's output is from removed op, use removed op's input name as output name
+            if (!deleteOutput) {
+                for (auto idx : originOutputs) {
+                    for (auto& o : net->outputName) {
+                        if (o == net->tensorName[idx]) {
+                            o = net->tensorName[originInput];
+                            break;
+                        }
+                    }
+                }
+            }
 #endif
             for (auto subIter = net->oplists.begin(); subIter != net->oplists.end(); subIter++) {
                 auto& subOp = *subIter;

@@ -563,6 +563,6 @@ MNNTestSuiteRegister(ConvInt8Im2colGemmTest, "op/ConvInt8/im2col_gemm");
 #if defined(__arm__) || defined(__aarch64__) // arm32 or arm64
 MNNTestSuiteRegister(SparseConvInt8Im2colGemmTest, "op/ConvInt8/im2col_spmm");
 #endif
-MNNTestSuiteRegister(ConvInt8WinogradTest, "op/ConvInt8/winograd");
+//MNNTestSuiteRegister(ConvInt8WinogradTest, "op/ConvInt8/winograd");
 MNNTestSuiteRegister(ConvSpeedInt8WinogradTest, "speed/ConvInt8/winograd");
 MNNTestSuiteRegister(DepthwiseConvInt8Test, "op/ConvInt8/depthwise");

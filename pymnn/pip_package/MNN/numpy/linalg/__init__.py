@@ -1,8 +1,8 @@
 import MNN.expr as _F
-import MNN.numpy as np
 
 # Linear algebra
 def norm(x, ord=None, axis=None, keepdims=False):
+    from MNN import numpy as np
     x = np.array(x, dtype=np.float32)
     ndim = x.ndim
     if axis is None:
@@ -37,7 +37,7 @@ def norm(x, ord=None, axis=None, keepdims=False):
         # None of the str-type keywords for ord ('fro', 'nuc')
         # are valid for vectors
         elif isinstance(ord, str):
-            raise ValueError(f"Invalid norm order '{ord}' for vectors")
+            raise ValueError('Invalid norm order for vectors')
         else:
             ord = float(ord)
             return np.sum(np.abs(x)**ord, axis=axis, keepdims=keepdims)**(1./ord)

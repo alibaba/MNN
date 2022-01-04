@@ -20,8 +20,7 @@
 using namespace std;
 
 namespace MNN {
-Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBackMode,
-                 Interpreter::SessionMode inputMode, Interpreter::SessionMode outputMode, RuntimeInfo&& runtime) {
+Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
     mRuntime = std::move(runtime);
     if (info.pipelineInfo.empty()) {
         mValid = false;
@@ -48,15 +47,19 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
             defaultConfig.flags = 4;
             second.reset(cpuRuntime->onCreate(&defaultConfig));
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, inputMode == Interpreter::Session_Input_Inside, outputMode == Interpreter::Session_Output_User, rt->onGetCompilerType(), mOriginExecutions));
+        Pipeline::TuningAttr attr;
+        attr.maxTuningNumber = mode.maxTuningNumber;
+        attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), mOriginExecutions));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);
     mOutputs      = std::move(info.outputTensor);
-    mCallBackMode = callBackMode;
+    mCallBackMode = mode.callBackMode;
 }
 
 Session::~Session() {
+    waitAsyncResize();
     mOriginExecutions.clear();
     mTensors.clear();
     mPipelines.clear();
@@ -73,8 +76,14 @@ bool Session::loadCache(const void* buffer, size_t size) {
     }
     return false;
 }
+void Session::waitAsyncResize() {
+    for (auto& iter : mRuntime.first) {
+        iter.second->waitAsyncWork();
+    }
+}
 
 std::pair<const void*, size_t> Session::getCache() {
+    waitAsyncResize();
     for (auto iter : mRuntime.first) {
         auto res = iter.second->onGetCache();
         if (res.first != nullptr) {
@@ -205,8 +214,9 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
         case Interpreter::BACKENDS: {
             int pos = 0;
             auto res = (int32_t*)ptr;
-            for (auto& r : mRuntime.first) {
-                res[pos++] = r.first;
+            for (auto& r : mPipelines) {
+                auto type = r->getMainForwardType();
+                res[pos++] = type;
             }
             return true;
         } break;

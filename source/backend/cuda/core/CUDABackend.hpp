@@ -73,8 +73,6 @@ public:
     BufferAllocator *getStaticBufferPool() const {
         return mStaticBufferPool.get();
     }
-    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                             const MNN::Op *op) override;
     static size_t realSize(const Tensor *tensor);
 
 private:

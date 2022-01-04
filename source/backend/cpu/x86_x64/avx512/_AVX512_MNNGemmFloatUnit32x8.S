@@ -60,8 +60,8 @@ movq %rsi, %r13
 LoopDz:
     movq %rcx, %r11
     shlq $5, %r11
-    subq $32,  %r11
     movq %r13, %rsi
+    subq $32,  %r11
 
     Init:
         vmovups (%rsi), %zmm0
@@ -98,10 +98,14 @@ LoopDz:
         addq %r14, %rsi
 
     cmpq %rbx, %r11
-    je Last
+    jl Last
+
         vmovups (%rsi), %zmm2
         vmovups 64(%rsi), %zmm3
         addq %r14, %rsi
+
+    cmpq %rbx, %r11
+    je LastLoop
 
     LoopSz:
         vmovups %zmm2, %zmm0
@@ -146,7 +150,7 @@ LoopDz:
         cmpq %rbx, %r11
         jne LoopSz
 
-    Last:
+    LastLoop:
     // last of pipline
     vbroadcastss (%rdx, %rbx), %zmm4
     vbroadcastss 4(%rdx, %rbx), %zmm5
@@ -179,6 +183,8 @@ LoopDz:
 
     vfmadd231ps %zmm7, %zmm2, %zmm29
     vfmadd231ps %zmm7, %zmm3, %zmm30
+
+    Last:
     addq $32,  %r11
     addq %r11, %rdx
 

@@ -7,7 +7,7 @@
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models, and has industry leading performance for inference and training on-device. At present, MNN has been integrated in more than 20 apps of Alibaba Inc, such as Taobao, Tmall, Youku, Dingtalk, Xianyu and etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
 
-The design principles and performance data of MNN has been published in an MLSys 2020 paper [here](https://proceedings.mlsys.org/static/paper_files/mlsys/2020/7-Paper.pdf). Please cite MNN in your publications if it helps your research:
+The design principles and performance data of MNN has been published in an MLSys 2020 paper [here](https://arxiv.org/pdf/2002.12418.pdf). Please cite MNN in your publications if it helps your research:
 
     @inproceedings{alibaba2020mnn,
       author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},

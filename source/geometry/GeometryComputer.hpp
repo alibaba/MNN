@@ -39,13 +39,13 @@ public:
             return mForwardType;
         }
         void pushCache(const CommandBuffer& buffer);
+        std::shared_ptr<BufferStorage> mRasterOp;
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::map<const Op*, std::vector<std::shared_ptr<Tensor>>> mConstTensors;
         std::vector<std::shared_ptr<Tensor>> mEmpty;
         std::vector<std::shared_ptr<Tensor>> mTempConstTensors;
         std::shared_ptr<Backend> mBackend;
-        std::shared_ptr<BufferStorage> mRasterOp;
         MNNForwardType mForwardType;
         std::vector<SharedPtr<Command>> mRasterCmdCache;
     };

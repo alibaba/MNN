@@ -17,6 +17,7 @@
 #include "geometry/GeometryComputerUtils.hpp"
 #include <MNN/expr/ExecutorScope.hpp>
 #include "core/Backend.hpp"
+#include "RuntimeAttr.hpp"
 #define DEFAULT_BACKUP_RUNTIME_KEY (std::make_pair(MNN_FORWARD_CPU, 1))
 #ifdef MNN_EXPR_ENABLE_PROFILER
 #define MNN_EXPRESS_ERROR_REPORT
@@ -237,7 +238,7 @@ static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime> &rt) {
 
 static void writeCacheFile(std::shared_ptr<Executor::Cache> cache, std::pair<const void*, size_t> buffer) {
     auto verifyInfo = std::make_pair((const void*)cache->modelBuffer.get(), cache->cacheOffset);
-    bool res = FileLoader::write(cache->cacheFile.c_str(), verifyInfo, buffer);
+    bool res = FileLoader::write(cache->cacheFile.c_str(), buffer);
     if (!res) {
         MNN_ERROR("Write Cache File error!\n");
         return;
@@ -250,6 +251,53 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(std::ve
     return createRuntimeManager(configs[0]);
 }
 
+void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
+    if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
+        mInside->modes.inputMode = mode;
+    } else if (mode == Interpreter::Session_Output_User || mode == Interpreter::Session_Output_Inside) {
+        mInside->modes.outputMode = mode;
+    } else if (mode == Interpreter::Session_Backend_Auto || mode == Interpreter::Session_Backend_Fix) {
+        mInside->modes.backendMode = mode;
+    } else if (mode == Interpreter::Session_Debug || mode == Interpreter::Session_Release) {
+        mInside->modes.callBackMode = mode;
+    } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
+        mInside->modes.resizeMode = mode;
+    }
+}
+void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
+    mInside->modes.maxTuningNumber = value;
+}
+bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
+    // Only support get memory
+    switch (code) {
+        case Interpreter::MEMORY: {
+            auto dst     = (float*)ptr;
+            float summer = mRuntime.second->onGetMemoryInMB();
+            for (auto& r : mRuntime.first) {
+                if (r.second.get() != mRuntime.second.get()) {
+                    summer += r.second->onGetMemoryInMB();
+                }
+            }
+            *dst = summer;
+            return true;
+        } break;
+        default: {
+            // Do nothing
+        } break;
+    }
+    return false;
+}
+
+Executor::RuntimeManager::RuntimeManager() {
+    mInside = new RuntimeAttr;
+    // Default set release for better performance
+    mInside->modes.callBackMode = Interpreter::Session_Release;
+    mInside->modes.inputMode = Interpreter::Session_Input_User;
+    mInside->modes.outputMode = Interpreter::Session_Output_User;
+}
+Executor::RuntimeManager::~RuntimeManager() {
+    delete mInside;
+}
 Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
     auto res = new RuntimeManager;
     auto glo = ExecutorScope::Current();
@@ -324,6 +372,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
 }
 
 void Executor::RuntimeManager::updateCache() {
+    mInfo->waitAsyncWork();
     auto buffer = getCache(mInfo);
 
     //When current cacheSize bigger than previous, update
@@ -576,6 +625,7 @@ ErrorCode Executor::ComputeCache::resize() {
             bool zeroShape = false;
             for (int i=0; i<iter.outputs.size(); ++i) {
                 TensorUtils::copyShape(inside->mOutputTensors[i], iter.outputs[i], true);
+                TensorUtils::getDescribe(iter.outputs[i])->tensorArrayAttr = TensorUtils::getDescribe(inside->mOutputTensors[i])->tensorArrayAttr;
                 auto t = iter.outputs[i];
                 iter.outputs[i]->buffer().type = inside->mOutputTensors[i]->buffer().type;
                 auto des = TensorUtils::getDescribe(iter.outputs[i]);

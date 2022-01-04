@@ -30,5 +30,6 @@ class RandomUniformComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE_INPUTS(RandomUniformComputer, OpType_RandomUniform, {0});
+REGISTER_SHAPE_INPUTS(RandomUniformComputer, OpType_RandomNormal, {0});
 
 } // namespace MNN

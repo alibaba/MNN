@@ -15,11 +15,15 @@ def_class_methods(_Module,
     train, "set is_training",
     load_parameters, "load parameters",
     clear_cache, "clear cache",
-    register_submodules, "register submodules",
-    add_parameter, "add parameter"
+    _register_submodules, "register submodules",
+    _add_parameter, "add parameter"
 )
 def_class_end(_Module, Module)
-class_basic_new_impl(_Module)
+static PyObject* PyMNN_Module_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    PyMNN_Module *self = (PyMNN_Module *)type->tp_alloc(type, 0);
+    self->ptr = Module::createEmpty({});
+    return (PyObject*)self;
+}
 // PyMNN_Module getter/setter impl
 static PyObject* PyMNN_Module_getname(PyMNN_Module *self, void *closure) {
     if (self->ptr) {
@@ -45,7 +49,13 @@ static PyObject* PyMNN_Module_forward(PyMNN_Module *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O", &input)) {
         Py_RETURN_NONE;
     }
-    return toPyObj(self->ptr->forward(toVar(input)));
+    if (isVars(input)) {
+        return toPyObj<VARP, toPyObj>(self->ptr->onForward(toVars(input)));
+    }
+    if (isVar(input)) {
+        return toPyObj(self->ptr->forward(toVar(input)));
+    }
+    PyMNN_ERROR("PyMNN_Module_forward: args must be Var/[Var].");
 }
 static PyObject* PyMNN_Module_onForward(PyMNN_Module *self, PyObject *args) {
     PyObject *inputs;
@@ -64,7 +74,7 @@ static PyObject* PyMNN_Module_set_name(PyMNN_Module *self, PyObject *args) {
 }
 static PyObject* PyMNN_Module_train(PyMNN_Module *self, PyObject *args) {
     int isTraining;
-    if (!PyArg_ParseTuple(args, "p", &isTraining)) {
+    if (!PyArg_ParseTuple(args, "i", &isTraining)) {
         Py_RETURN_NONE;
     }
     self->ptr->setIsTraining(isTraining);
@@ -81,16 +91,18 @@ static PyObject* PyMNN_Module_clear_cache(PyMNN_Module *self, PyObject *args) {
     self->ptr->clearCache();
     Py_RETURN_NONE;
 }
-static PyObject* PyMNN_Module_register_submodules(PyMNN_Module *self, PyObject *args) {
+std::shared_ptr<Module> toSharedModule(PyObject* obj)  {
+    return std::shared_ptr<Module>(to_Module(obj), [](Module*){});
+}
+static PyObject* PyMNN_Module__register_submodules(PyMNN_Module *self, PyObject *args) {
     PyObject *children;
     if (!PyArg_ParseTuple(args, "O", &children)) {
         Py_RETURN_NONE;
     }
-    // TODO: registerModel is protected func
-    // self->ptr->registerModel({});
+    self->ptr->registerModel(toVec<std::shared_ptr<Module>, toSharedModule>(children));
     Py_RETURN_NONE;
 }
-static PyObject* PyMNN_Module_add_parameter(PyMNN_Module *self, PyObject *args) {
+static PyObject* PyMNN_Module__add_parameter(PyMNN_Module *self, PyObject *args) {
     PyObject *parameter;
     if (!PyArg_ParseTuple(args, "O", &parameter)) {
         Py_RETURN_NONE;
@@ -101,7 +113,7 @@ static PyObject* PyMNN_Module_add_parameter(PyMNN_Module *self, PyObject *args) 
 static PyObject* PyMNNNN_load_module(PyObject *self, PyObject *args) {
     PyObject *inputs, *outputs;
     int fortrain;
-    if (!PyArg_ParseTuple(args, "OOp", &inputs, &outputs, &fortrain)) {
+    if (!PyArg_ParseTuple(args, "OOi", &inputs, &outputs, &fortrain)) {
         printf("PyArg_ParseTuple Error\n");
         return NULL;
     }
@@ -117,7 +129,7 @@ static PyObject* PyMNNNN_load_module_from_file(PyObject *self, PyObject *args) {
     const char* file_name;
     int dynamic, shape_mutable, rearrange;
     int thread_num;
-    if (!PyArg_ParseTuple(args, "OOspppOOOOi", &inputs, &outputs, &file_name, &dynamic,
+    if (!PyArg_ParseTuple(args, "OOsiiiOOOOi", &inputs, &outputs, &file_name, &dynamic,
                           &shape_mutable, &rearrange, &backend, &memory_mode,
                           &power_mode, &precision_mode, &thread_num)) {
         printf("PyArg_ParseTuple Error\n");
@@ -157,7 +169,7 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
              *dilation = toPyObj(default_1),
              *padding_mode = toPyObj(PaddingMode::VALID);
     int depthwise = 0, bias = 1;
-    if (!PyArg_ParseTuple(args, "iiO|OOOppO", &in_channel, &out_channel, &kernel_size,
+    if (!PyArg_ParseTuple(args, "iiO|OOOiiO", &in_channel, &out_channel, &kernel_size,
                           &stride, &padding, &dilation, &depthwise, &bias, &padding_mode)) {
         printf("PyArg_ParseTuple Error\n");
         return NULL;
@@ -184,7 +196,7 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
 static PyObject* PyMNNNN_linear(PyObject *self, PyObject *args) {
     int in_channel, out_channel;
     int bias = 1;
-    if (!PyArg_ParseTuple(args, "ii|p", &in_channel, &out_channel, &bias)) {
+    if (!PyArg_ParseTuple(args, "ii|i", &in_channel, &out_channel, &bias)) {
         printf("PyArg_ParseTuple Error\n");
         return NULL;
     }

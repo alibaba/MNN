@@ -1,13 +1,10 @@
 _Int = int
 _Float = float
 _Range = range
+_Sequence = (list, tuple, bytes, str)
+
 from _mnncengine._expr import *
 import _mnncengine._expr as _F
-from collections.abc import Sequence
-from typing import Union
-
-var_like = Union[_F.Var, list, tuple, _Int, _Float]
-axis_like = Union[list, tuple, _Int]
 
 _numpy_supported = False
 try:
@@ -29,21 +26,21 @@ def scalar(value, dtype=None):
     else:
         raise NotImplementedError("not supported data type for creating scalar variable")
 def _list_shape_type(object, shape=()):
-    if not isinstance(object, Sequence):
-        if type(object) == type(1):
+    if not isinstance(object, _Sequence):
+        if type(object) in (type(1), type(1<<64)):
             dst_type = _F.int
         else:
             dst_type = _F.float
         return list(shape), dst_type
     dst_type = _F.int
-    if isinstance(object[0], Sequence):
+    if isinstance(object[0], _Sequence):
         l = len(object[0])
         if not all (len(item) == l for item in object):
             raise ValueError('not all lists have the same length')
     shape += (len(object), )
     # recurse
     shape, dst_type = _list_shape_type(object[0], shape)
-    if isinstance(object, bytes):
+    if isinstance(object, (bytes, str)):
         dst_type = _F.uint8
     return list(shape), dst_type
 def _can_broadcast(src_shape, dst_shape):
@@ -89,7 +86,7 @@ def _to_var(x, dtype=None):
             else:
                 raise ValueError('Just support i/f dtype numpy.')
     # 3. Sequence
-    if isinstance(x, Sequence) and x:
+    if isinstance(x, _Sequence) and x:
         dst_shape, item_type = _list_shape_type(x)
         x = _F.const(x, dst_shape, dtype=item_type)
     # 4. asssert
@@ -1183,6 +1180,81 @@ def bias_add(value, bias):
     if value.shape[-1] != bias.shape[-1]:
         raise RuntimeError("parameter bias's dim must match parameter value's dim in bias_add")
     return _F.bias_add(value, bias)
+def bitwise_and(x, y):
+    '''
+    bitwise_and(x, y)
+    The dtype of x, y must be same and be int32.
+
+    Parameters
+    ----------
+    x : var_like, input value, dtype just support int32.
+    y : var_like, input value, dtype just support int32.
+
+    Returns
+    -------
+    z : Var. The ``x & y`` of `x` and `y`, dtype is int32.
+
+    Example:
+    -------
+    >>> expr.bitwise_and([1, 2], [3, 4])
+    var([1, 0])
+    '''
+    x = _to_var(x)
+    y = _to_var(y)
+    x, y = _match_dtype(x, y)
+    if x.dtype != _F.int or y.dtype != _F.int:
+        raise ValueError('MNN.expr.bitwise_and just support int32')
+    return _F.bitwise_and(x, y)
+def bitwise_or(x, y):
+    '''
+    bitwise_or(x, y)
+    The dtype of x, y must be same and be int32.
+
+    Parameters
+    ----------
+    x : var_like, input value, dtype just support int32.
+    y : var_like, input value, dtype just support int32.
+
+    Returns
+    -------
+    z : Var. The ``x | y`` of `x` and `y`, dtype is int32.
+
+    Example:
+    -------
+    >>> expr.bitwise_or([1, 2], [3, 4])
+    var([3, 6])
+    '''
+    x = _to_var(x)
+    y = _to_var(y)
+    x, y = _match_dtype(x, y)
+    if x.dtype != _F.int or y.dtype != _F.int:
+        raise ValueError('MNN.expr.bitwise_or just support int32')
+    return _F.bitwise_or(x, y)
+def bitwise_xor(x, y):
+    '''
+    bitwise_xor(x, y)
+    The dtype of x, y must be same and be int32.
+
+    Parameters
+    ----------
+    x : var_like, input value, dtype just support int32.
+    y : var_like, input value, dtype just support int32.
+
+    Returns
+    -------
+    z : Var. The ``x ^ y`` of `x` and `y`, dtype is int32.
+
+    Example:
+    -------
+    >>> expr.bitwise_xor([1, 2], [3, 4])
+    var([2, 6])
+    '''
+    x = _to_var(x)
+    y = _to_var(y)
+    x, y = _match_dtype(x, y)
+    if x.dtype != _F.int or y.dtype != _F.int:
+        raise ValueError('MNN.expr.bitwise_xor just support int32')
+    return _F.bitwise_xor(x, y)
 def reduce_sum(x, axis=[], keepdims=False):
     '''
     reduce_sum(x, axis=[], keepdims=False)

@@ -98,8 +98,11 @@ void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_
     }
 }
 
-CPUTopKV2::CPUTopKV2(Backend* b, const Op* op) : MNN::Execution(b), mLargest(op->main_as_TopKV2()->largest()) {
-    // nothing to do
+CPUTopKV2::CPUTopKV2(Backend* b, const Op* op) : MNN::Execution(b) {
+    auto param = op->main_as_TopKV2();
+    if (param != nullptr) {
+        mLargest = param->largest();
+    }
 }
 
 ErrorCode CPUTopKV2::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

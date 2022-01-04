@@ -149,8 +149,9 @@ __global__ void CONV_DW(const float* input, const float* kernel, const float* bi
 
 ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    int block_num = runtime->blocks_num(mTotalCount);
-    int threads_num = runtime->threads_num();
+    auto& prop = runtime->prop();
+    int threads_num = prop.maxThreadsPerBlock;
+    int block_num = prop.multiProcessorCount;
     auto constPtr = (uint8_t*)mConstBuffer.first + mConstBuffer.second;
     if (inputs.size() == 1) {
         CONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)mFilter,

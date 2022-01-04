@@ -136,6 +136,7 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
                     tb.dim[i].extent = extent;
                 }
                 tb.dimensions = idims->size();
+                TensorUtils::setLinearLayout(tensor);
             } else {
                 tb.dimensions = 0;
             }

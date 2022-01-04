@@ -18,15 +18,12 @@ class NonMaxSuppressionV2Computer : public SizeComputer {
         const Tensor* boxes = inputs[0];
         // scores: [num_boxes]
         const Tensor* scores = inputs[1];
-        // max_output_size: scalar
-        const Tensor* max_output_size = inputs[2];
         // iou_threshold: scalar
-        const Tensor* iou_threshold = inputs[3];
-
-        const float iou_threshold_val = iou_threshold->host<float>()[0];
-
-        MNN_ASSERT(iou_threshold_val >= 0 && iou_threshold_val <= 1);
-
+        if (inputs.size() > 3 && inputs[3]->host<float>() != nullptr) {
+            auto iou_threshold_val = inputs[3]->host<float>()[0];
+            MNN_ASSERT(iou_threshold_val >= 0 && iou_threshold_val <= 1);
+        }
+        
         int num_boxes = 0;
         MNN_ASSERT(boxes->buffer().dimensions == 2);
         num_boxes = boxes->buffer().dim[0].extent;
@@ -34,7 +31,10 @@ class NonMaxSuppressionV2Computer : public SizeComputer {
         MNN_ASSERT(boxes->buffer().dimensions == 2 && scores->buffer().dim[0].extent == num_boxes &&
                    boxes->buffer().dim[1].extent == 4 && scores->buffer().dimensions == 1);
 
-        const int output_size = std::min(max_output_size->host<int32_t>()[0], num_boxes);
+        int output_size = num_boxes;
+        if (inputs.size() > 2 && inputs[2]->host<int32_t>() != nullptr) {
+            output_size = std::min(inputs[2]->host<int32_t>()[0], num_boxes);
+        }
 
         // TODO ramdom output shape only for fast rcnn
         outputs[0]->buffer().dimensions = 1;

@@ -87,5 +87,16 @@ bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
     return true;
 }
+bool Runtime::hasAsyncWork() const {
+    return mFuture.valid();
+}
+void Runtime::setAsyncWork(std::future<int>&& future) {
+    mFuture = std::move(future);
+}
+void Runtime::waitAsyncWork() {
+    if (mFuture.valid()) {
+        mFuture.wait();
+    }
+}
 
 } // namespace MNN

@@ -16,7 +16,7 @@
 namespace MNN {
 namespace Express {
 
-class OnnxReduceL2Transform : public OnnxExtraManager::Transform {
+class OnnxReduceTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
@@ -39,18 +39,39 @@ public:
                 }
             }
         }
-        // ReduceL2(x) = sqrt(Sum(x*x))
-        auto x = _Multiply(inputs[0], inputs[0]);
-        x      = _ReduceSum(x, axis, keepDims);
-        x      = _Sqrt(x);
-        x->setName(opName);
-        return x->expr().first;
+        auto type = op->main_as_Extra()->type()->str();
+        VARP x = inputs[0], y;
+        if (type == "ReduceL1") {
+            // ReduceL1(x) = Sum(Abs(x))
+            y = _ReduceSum(_Abs(x), axis, keepDims);
+        } else if (type == "ReduceL2") {
+            // ReduceL2(x) = sqrt(Sum(x*x))
+            y = _Sqrt(_ReduceSum(_Multiply(x, x), axis, keepDims));
+        } else if (type == "ReduceLogSum") {
+            // ReduceLogSum(x) = Log(Sum(x))
+            y = _Log(_ReduceSum(x, axis, keepDims));
+        } else if (type == "ReduceLogSumExp") {
+            // ReduceLogSumExp(x) = Log(Sum(Exp(x)))
+            y = _Log(_ReduceSum(_Exp(x), axis, keepDims));
+        } else if (type == "ReduceSumSquare") {
+            y = _ReduceSum(_Multiply(x, x), axis, keepDims);
+        }
+        y->setName(opName);
+        return y->expr().first;
     }
 };
 
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("ReduceL2",
-                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceL2Transform));
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceTransform));
+    OnnxExtraManager::get()->insert("ReduceL1",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceTransform));
+    OnnxExtraManager::get()->insert("ReduceLogSum",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceTransform));
+    OnnxExtraManager::get()->insert("ReduceLogSumExp",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceTransform));
+    OnnxExtraManager::get()->insert("ReduceSumSquare",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReduceTransform));
     return true;
 }();
 

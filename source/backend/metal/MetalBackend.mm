@@ -5,16 +5,31 @@
 //  Created by MNN on 2019/01/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#if MNN_METAL_ENABLED
 
 #import "backend/metal/MetalBackend.hpp"
 #import <mutex>
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
-
+#include "MetalCache_generated.h"
+int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
+    if (nullptr == content || nullptr == tensor) {
+        return 0;
+    }
+    auto t = (MNN::Tensor*)tensor;
+    auto des = MNN::TensorUtils::getDescribe(t);
+    content->buffer = ((MNN::MetalRuntimeAllocator::MetalBufferAlloc*)t->deviceId())->getBuffer();
+    content->texture = nil;
+    content->offset = des->extra.offset;
+    return 0;
+}
 
 namespace MNN {
-#if MNN_METAL_ENABLED
+
+struct TunedInfo {
+    std::vector<std::unique_ptr<MetalCache::OpInfoT>> mInfos;
+};
 
 void registerMetalOps();
 
@@ -115,15 +130,6 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
 bool MetalBackend::onClearBuffer() {
     mBufferPool->release(true);
     return true;
-}
-std::pair<float, bool> MetalBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                              const MNN::Op* op) {
-    auto map  = getCreatorMap();
-    auto iter = map->find(op->type());
-    if (iter == map->end()) {
-        return std::make_pair(0.0f, false);
-    }
-    return std::make_pair(0.05f, true);
 }
 
 Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -541,6 +547,15 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
         MNN_ASSERT(false); // should not be handled here
     }
 }
+int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    flushEncoder();
+    auto ctx = (__bridge MNNMetalContext *)context();
+    [ctx commit_net];
+    if (toCpu) {
+        [ctx wait];
+    }
+    return 0;
+}
 
 void MetalRuntime::setGpuMode(const int mode_num) {
     int totalSet = 0;
@@ -592,28 +607,48 @@ void MetalRuntime::setGpuMode(const int mode_num) {
     }
 }
 
-MetalRuntime::MetalRuntime(const Backend::Info info) {
-    mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
-    if(nullptr == mContext) {
-        mIsCreateError = true;
-    } else {
-        auto ctx = (__bridge MNNMetalContext *)mContext;
-        // according to
-        // https://developer.apple.com/library/archive/documentation/DeviceInformation/Reference/iOSDeviceCompatibility/HardwareGPUInformation/HardwareGPUInformation.html
-        // not all device with iOS 8+ supports metal.
-        if (nullptr == ctx.device) {
-            mIsCreateError = true;
+MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> device) {
+    MNNMetalSharedContext sharedContext;
+    sharedContext.device = nil;
+    sharedContext.queue = nil;
+    if (info.user != nullptr) {
+        if (info.user->sharedContext != nullptr) {
+            sharedContext.device = ((MNNMetalSharedContext*)info.user->sharedContext)->device;
+            sharedContext.queue = ((MNNMetalSharedContext*)info.user->sharedContext)->queue;
         }
     }
-    setGpuMode(info.gpuMode);
+    if (nil == sharedContext.device) {
+        sharedContext.device = device;
+    }
+    if (nil == sharedContext.queue) {
+        sharedContext.queue = [sharedContext.device newCommandQueue];
+    }
+    auto mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
+    auto ctx = (__bridge MNNMetalContext *)mContext;
+    BOOL res = [ctx initWithSharedContext:&sharedContext dev:device];
+    if (!res) {
+        CFRelease(mContext);
+        return nullptr;
+    }
+    auto rt = new MetalRuntime(mContext);
+    rt->setGpuMode(info.gpuMode);
+    return rt;
+}
+
+MetalRuntime::MetalRuntime(void* context) {
+    mContext = context;
+    auto ctx = (__bridge MNNMetalContext *)mContext;
+    std::shared_ptr<BufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
+    mStatic.reset(new BufferAllocator(allocator));
+    mTunedInfo = new TunedInfo;
 }
 
 MetalRuntime::~ MetalRuntime() {
     if(mContext) {
         CFRelease(mContext);
     }
+    delete mTunedInfo;
 }
-
 
 bool MetalRuntime::setCache(std::pair<const void*, size_t> cache) {//Get Cache
     auto buffer = cache.first;
@@ -622,11 +657,18 @@ bool MetalRuntime::setCache(std::pair<const void*, size_t> cache) {//Get Cache
         mCacheOutside = nullptr;
         mCacheOutsideSize = 0;
         mBuffer.clear();
-        return true;//actually get nothing
+        return false;//actually get nothing
     }
     mCacheOutsideSize = size;
     mCacheOutside = buffer;
     auto cacheBuffer = GetCache(buffer);
+    flatbuffers::Verifier verify((const uint8_t*)cache.first, cache.second);
+    if (false == VerifyCacheBuffer(verify)) {
+        return false;
+    }
+    if (nullptr == cacheBuffer->tunings()) {
+        return false;
+    }
 
     // Load Auto Tuning Info
     if (nullptr != cacheBuffer->tunings()) {
@@ -656,12 +698,8 @@ bool MetalRuntime::setCache(std::pair<const void*, size_t> cache) {//Get Cache
     return true;
 }
 
-std::pair<const void*, size_t> MetalRuntime::makeCache() {//make Cache
-    if (nullptr != mCacheOutside) {
-        return std::make_pair(mCacheOutside, mCacheOutsideSize);
-    }
+std::pair<const void*, size_t> MetalRuntime::makeCache(TunedInfo* info) {//make Cache
     std::unique_ptr<CacheT> cache(new CacheT);
-
     // Get All Autotuning cache
     for (auto& iter : mTunedThreadGroup) {
         std::unique_ptr<AutotuningT> tuning(new AutotuningT);
@@ -674,6 +712,7 @@ std::pair<const void*, size_t> MetalRuntime::makeCache() {//make Cache
 
         cache->tunings.emplace_back(std::move(tuning));
     }
+    cache->tuned = std::move(info->mInfos);
 
     flatbuffers::FlatBufferBuilder builder;
     auto lastOffset = Cache::Pack(builder, cache.get());
@@ -683,85 +722,162 @@ std::pair<const void*, size_t> MetalRuntime::makeCache() {//make Cache
     return std::make_pair(mBuffer.data(), mBuffer.size());
 }
 
-MetalRuntimeWrapper::MetalRuntimeWrapper(const Backend::Info info) {
-    mMetalRuntime.reset(new MetalRuntime(info));
-
-    if (mMetalRuntime.get()) {
-        if (mMetalRuntime->isCreateError() == true) {
-            mIsCreateError = true;
-            return;
-        }
-        
-        std::shared_ptr<BufferAllocator::Allocator> allocator(new MetalRuntimeAllocator(mMetalRuntime.get()));
-        mBufferPool.reset(new BufferAllocator(allocator));
-    }
-}
-MetalRuntimeWrapper::~MetalRuntimeWrapper() {
-    // Do nothing
-}
-
-float MetalRuntimeWrapper::onGetMemoryInMB() {
-    auto staticMemoryInMB = mBufferPool->totalSize() / 1024.0f / 1024.0f;
+float MetalRuntime::onGetMemoryInMB() {
+    auto staticMemoryInMB = mStatic->totalSize() / 1024.0f / 1024.0f;
     return staticMemoryInMB;
 }
 
-Backend* MetalRuntimeWrapper::onCreate(const BackendConfig* config) const {
-    return new MetalBackend(mBufferPool, mMetalRuntime.get());
+void MetalRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           const MNN::Op* op) {
+    if (nullptr != op->name()) {
+        auto dstInfo = mTunedInfo;
+        std::unique_ptr<MetalCache::OpInfoT> opInfo(new MetalCache::OpInfoT);;
+        opInfo->type = op->type();
+        opInfo->name = op->name()->str();
+        opInfo->inputs.resize(inputs.size());
+        for (int v=0; v<opInfo->inputs.size(); ++v) {
+            opInfo->inputs[v].reset(new MetalCache::TensorInfoT);
+            opInfo->inputs[v]->shape.resize(inputs[v]->dimensions());
+            for (int u=0; u<opInfo->inputs[v]->shape.size(); ++u) {
+                opInfo->inputs[v]->shape[u] = inputs[v]->length(u);
+            }
+        }
+        opInfo->outputs.resize(outputs.size());
+        for (int v=0; v<opInfo->outputs.size(); ++v) {
+            opInfo->outputs[v].reset(new MetalCache::TensorInfoT);
+            opInfo->outputs[v]->shape.resize(outputs[v]->dimensions());
+            for (int u=0; u<opInfo->outputs[v]->shape.size(); ++u) {
+                opInfo->outputs[v]->shape[u] = outputs[v]->length(u);
+            }
+        }
+        dstInfo->mInfos.emplace_back(std::move(opInfo));
+    }
+}
+static bool _checkTensorInfo(const MetalCache::TensorInfoT* dst, const Tensor* src) {
+    if (dst->shape.size() != src->dimensions()) {
+        return false;
+    }
+    for (int j=0; j<dst->shape.size(); ++j) {
+        if (dst->shape[j] != src->length(j)) {
+            return false;
+        }
+    }
+    return true;
+}
+bool MetalRuntime::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                       const MNN::Op* op, Runtime::OpInfo& dstInfo) const {
+    dstInfo.initCostLong = true;
+    if (nullptr == op->name()) {
+        dstInfo.initCostLong = false;
+        return true;
+    }
+    for(auto& info : mTunedInfo->mInfos) {
+        if (info->type != op->type()) {
+            continue;
+        }
+        if (info->name != op->name()->str()) {
+            continue;
+        }
+        if (info->inputs.size() != inputs.size() || info->outputs.size() != outputs.size()) {
+            continue;
+        }
+        bool match = true;
+        for (int i=0; i<inputs.size(); ++i) {
+            auto& dst = info->inputs[i];
+            auto src = inputs[i];
+            if (!_checkTensorInfo(dst.get(), src)) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) {
+            continue;
+        }
+        for (int i=0; i<outputs.size(); ++i) {
+            auto& dst = info->outputs[i];
+            auto src = outputs[i];
+            if (!_checkTensorInfo(dst.get(), src)) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            // All Info is match
+            dstInfo.initCostLong = false;
+            break;
+        }
+    }
+    return true;
 }
 
-void MetalRuntimeWrapper::onGabageCollect(int level) {
-    mBufferPool->release(false);
+Backend* MetalRuntime::onCreate(const BackendConfig* config) const {
+    return new MetalBackend(mStatic, this);
 }
 
-std::pair<const void*, size_t> MetalRuntimeWrapper::onGetCache() {//make Cache
-    return mMetalRuntime->makeCache();
+void MetalRuntime::onGabageCollect(int level) {
+    mStatic->release(false);
 }
 
-bool MetalRuntimeWrapper::onSetCache(const void* buffer, size_t size) {//set Cache
-    return mMetalRuntime->setCache(std::make_pair(buffer, size));
+std::pair<const void*, size_t> MetalRuntime::onGetCache() {//make Cache
+    return makeCache(mTunedInfo);
+}
+
+bool MetalRuntime::onSetCache(const void* buffer, size_t size) {//set Cache
+    if (nullptr == buffer) {
+        return false;
+    }
+    auto cacheBuffer = MetalCache::GetCache(buffer);
+    flatbuffers::Verifier verify((const uint8_t*)buffer, size);
+    if (false == VerifyCacheBuffer(verify)) {
+        return false;
+    }
+    if(nullptr != cacheBuffer->tuned()) {
+        for (int i=0; i<cacheBuffer->tuned()->size(); ++i) {
+            auto srcInfo = cacheBuffer->tuned()->GetAs<MetalCache::OpInfo>(i);
+            std::unique_ptr<MetalCache::OpInfoT> dst(srcInfo->UnPack());
+            mTunedInfo->mInfos.emplace_back(std::move(dst));
+        }
+    }
+    return setCache(std::make_pair(buffer, size));
 }
 
 std::pair<void*, int> MetalRuntimeAllocator::onAlloc(int size, int align) {
-    auto context = (__bridge MNNMetalContext *)mMetalRuntime->context();
-    mBuffer = [context newDeviceBuffer:size access:CPUWriteOnly];
-    auto mMetalBufferAlloc = (new MetalBufferAlloc(mBuffer));
+    auto buffer = [mDevice newBufferWithLength:size options:MTLCPUCacheModeDefaultCache];
+    auto mMetalBufferAlloc = new MetalBufferAlloc(buffer);
     return std::make_pair((void *)mMetalBufferAlloc, 0);
 }
 void MetalRuntimeAllocator::onRelease(std::pair<void*, int> ptr) {
     delete (MetalBufferAlloc *)ptr.first;
 }
 
-
 class MetalRuntimeCreator : public RuntimeCreator {
-    virtual Runtime *onCreate(const Backend::Info &info) const {
-        static std::once_flag s_flag;
-        std::call_once(s_flag, [&]() { registerMetalOps(); });
-        
-        auto rt = new MetalRuntimeWrapper(info);
-        if (rt != nullptr) {
-            if (!rt->isCreateError()) {
-                return rt;
-            } else {
-                delete rt;
-            }
-        }
-        return nullptr;
+public:
+    MetalRuntimeCreator(id<MTLDevice> device) {
+        mDevice = device;
     }
+    virtual ~ MetalRuntimeCreator() {
+        // Do nothing
+    }
+    virtual Runtime *onCreate(const Backend::Info &info) const {
+        auto rt = MetalRuntime::create(info, mDevice);
+        return rt;
+    }
+private:
+    id<MTLDevice> mDevice;
 };
 
 void registerMetalRuntimeCreator() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator, true);
+    // according to
+    // https://developer.apple.com/library/archive/documentation/DeviceInformation/Reference/iOSDeviceCompatibility/HardwareGPUInformation/HardwareGPUInformation.html
+    // not all device with iOS 8+ supports metal.
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (nil != device) {
+        registerMetalOps();
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
+    } else {
+        MNN_ERROR("Init Metal Error\n");
+    }
 }
-
-#ifndef MNN_CODEGEN_REGISTER
-static const auto __metal_global_initializer = []() {
-    registerMetalRuntimeCreator();
-    return true;
-}();
-#endif
-#else
-void registerMetalRuntimeCreator() {
-    // Do nothing
-}
-#endif
 } // namespace MNN
+
+#endif

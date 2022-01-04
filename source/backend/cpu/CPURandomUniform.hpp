@@ -24,6 +24,18 @@ private:
     const MNN::Op *mOp;
 };
 
+class CPURandomNormal : public Execution {
+public:
+    CPURandomNormal(Backend *b, const MNN::Op *op) : MNN::Execution(b), mOp(op) {
+       // nothing to do
+    }
+    virtual ~CPURandomNormal() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+private:
+    const MNN::Op *mOp;
+};
+
 } // namespace MNN
 
 #endif /* CPURandomUniform_h */

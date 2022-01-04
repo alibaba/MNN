@@ -24,3 +24,19 @@ void ShapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
 }
 
 REGISTER_CONVERTER(ShapeOnnx, Shape);
+
+DECLARE_OP_CONVERTER(SizeOnnx);
+
+MNN::OpType SizeOnnx::opType() {
+    return MNN::OpType_Size;
+}
+MNN::OpParameter SizeOnnx::type() {
+    return MNN::OpParameter_NONE;
+}
+
+void SizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
+                   OnnxScope* scope) {
+    dstOp->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
+}
+
+REGISTER_CONVERTER(SizeOnnx, Size);

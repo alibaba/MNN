@@ -73,9 +73,9 @@ option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OF
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
-option(MNN_MODEL_AUTH "Build with model authentication enable" OFF)
 option(MNN_BUILD_PROTOBUFFER "Build with protobuffer in MNN" ON)
 option(MNN_BUILD_OPENCV "Build OpenCV api in MNN." OFF)
+option(MNN_INTERNAL "Build with MNN internal features, such as model authentication, metrics logging" OFF)
 
 IF (NOT DEFINED MNN_USE_SPARSE_COMPUTE)
   IF (TARGET_OS_IPHONE OR TARGET_OS_SIMULATOR)
@@ -204,7 +204,6 @@ message(STATUS "\tOpenMP: ${MNN_OPENMP}")
 message(STATUS "\tBF16: ${MNN_SUPPORT_BF16}")
 message(STATUS "\tThreadPool: ${MNN_USE_THREAD_POOL}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
-message(STATUS "\tModel Auth: ${MNN_MODEL_AUTH}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
 
 if(MSVC)
@@ -386,6 +385,7 @@ list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/Matrix.h")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/Rect.h")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/MNNForwardType.h")
 list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/AutoTime.hpp")
+list(APPEND MNN_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/MNNSharedContext.h")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Expr.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/ExprCreator.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/MathOp.hpp")
@@ -394,9 +394,15 @@ list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Opti
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Executor.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Module.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/NeuralNetWorkOp.hpp")
+list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/ExecutorScope.hpp")
+list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Scope.hpp")
 
 set(MNN_DEPS "")
 set(MNN_EXTRA_DEPENDS "")
+
+# Add Thread dependency
+find_package(Threads)
+list(APPEND MNN_EXTRA_DEPENDS ${CMAKE_THREAD_LIBS_INIT})
 
 if (NOT APPLE)
   if(MNN_OPENMP)
@@ -404,7 +410,6 @@ if (NOT APPLE)
       find_package(OpenMP)
       # For CMake < 3.9, we need to make the target ourselves
       if(NOT TARGET OpenMP::OpenMP_CXX)
-          find_package(Threads REQUIRED)
           add_library(OpenMP::OpenMP_CXX IMPORTED INTERFACE)
           set_property(TARGET OpenMP::OpenMP_CXX
               PROPERTY INTERFACE_COMPILE_OPTIONS ${OpenMP_CXX_FLAGS})
@@ -445,12 +450,6 @@ list(APPEND MNN_DEPS MNN)
 if(MNN_WITH_PLUGIN)
     add_definitions(-DMNN_WITH_PLUGIN)
     include(${CMAKE_CURRENT_LIST_DIR}/source/plugin/CMakeLists.txt)
-endif()
-
-# Model Auth. Disabled for Open Source MNN.
-if (MNN_MODEL_AUTH)
-    target_compile_options(MNNCore PRIVATE -DMNN_MODEL_AUTH)
-    include(${CMAKE_CURRENT_LIST_DIR}/source/auth/CMakeLists.txt)
 endif()
 
 # Metal
@@ -555,6 +554,14 @@ ELSE()
    list(APPEND MNN_TARGETS MNN_Express)
    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Express>)
 ENDIF()
+
+# Model Internal. Enable MNN internal features such as model authentication and metrics logging.
+if (MNN_INTERNAL)
+    target_compile_options(MNNCore PRIVATE -DMNN_INTERNAL_ENABLED)
+    target_compile_options(MNN_Express PRIVATE -DMNN_INTERNAL_ENABLED)
+    include(${CMAKE_CURRENT_LIST_DIR}/source/internal/auth/CMakeLists.txt)
+    include(${CMAKE_CURRENT_LIST_DIR}/source/internal/logging/CMakeLists.txt)
+endif()
 
 # Train
 IF(MNN_BUILD_TRAIN OR MNN_BUILD_QUANTOOLS)

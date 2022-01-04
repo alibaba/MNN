@@ -292,7 +292,9 @@ inline int getitemsize(int dtype) {
 // define a submodule of module m
 static PyObject* def_submodule(PyObject* m, const char* name) {
     std::string full_name = std::string(PyModule_GetName(m)) + "." + name;
-    return PyImport_AddModule(full_name.c_str());
+    PyObject* submodule = PyImport_AddModule(full_name.c_str());
+    PyObject_SetAttrString(m, name, submodule);
+    return submodule;
 }
 
 // define a method of module m
@@ -349,7 +351,11 @@ static inline bool isString(PyObject* obj) {
     return PyBytes_Check(obj) || PyUnicode_Check(obj);
 }
 static inline bool isInt(PyObject* obj) {
-    return PyLong_Check(obj);
+    return PyLong_Check(obj)
+#if PY_MAJOR_VERSION < 3
+    || PyInt_Check(obj)
+#endif
+    ;
 }
 static inline bool isFloat(PyObject* obj) {
     return PyFloat_Check(obj);
@@ -794,6 +800,7 @@ PyObject *PyEnum_richcompare(PyObject *self, PyObject *other, int op) {
         case Py_GT: return toPyObj(l > r);
         case Py_GE: return toPyObj(l >= r);
     }
+    Py_RETURN_NONE;
 }
 static PyObject* toPyEnum(PyObject* type, int val) {
     auto args = PyTuple_New(1);
@@ -922,7 +929,7 @@ static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
 static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
     PyObject *x, *axis = toPyObj(default_shape); \
     int keep_dims = 0; \
-    if (PyArg_ParseTuple(args, "O|Op", &x, &axis, &keep_dims) \
+    if (PyArg_ParseTuple(args, "O|Oi", &x, &axis, &keep_dims) \
         && isVar(x) && isInts(axis)) { \
         return toPyObj(FUNC(toVar(x), toInts(axis), keep_dims)); \
     } \

@@ -11,24 +11,16 @@
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-#include "half.hpp"
-
+#include "TensorCoreGemm.cuh"
 namespace MNN {
 namespace CUDA {
 
-struct IOInfo {
-    int ib, ic, ih, iw;
-    int ob, oc, oh, ow;
-};
 struct KernelInfo {
     int groups         = 0;
     int kernelN        = 0;
     int kernelC        = 0;
     int kernelX        = 0;
     int kernelY        = 0;
-    PadMode padMode    = PadMode_CAFFE;
-    int padX           = 0;
-    int padY           = 0;
     int strideX        = 0;
     int strideY        = 0;
     int dilateX        = 0;
@@ -47,18 +39,8 @@ public:
         std::shared_ptr<Tensor> weightTensor;
         std::shared_ptr<Tensor> biasTensor;
         KernelInfo mKernelInfo;
-        bool use_bias_ = false;
-        bool use_relu_ = false;
-        bool use_relu6_ = false;
         Backend* mBackend = nullptr;
-        cudnnFilterDescriptor_t filter_desc_;
-        cudnnTensorDescriptor_t bias_desc_;
-        cudnnActivationDescriptor_t act_desc_;
-        cudnnConvolutionDescriptor_t conv_desc_;
-        cudnnDataType_t cudnn_data_type_;
-        int cudnn_data_type_len_;
     };
-    ConvSingleInputExecution(Backend* backend, const MNN::Op* op);
     ConvSingleInputExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
     virtual ~ConvSingleInputExecution();
     virtual ErrorCode onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
@@ -67,35 +49,15 @@ public:
 
 private:
     std::shared_ptr<Resource> mResource;
-    cudnnHandle_t cudnn_handle_;
-    cudnnTensorDescriptor_t input_desc_;
-    cudnnTensorDescriptor_t output_desc_;
-    cudnnConvolutionFwdAlgo_t conv_algorithm_;
-    cudnnTensorDescriptor_t padded_desc_;
 
-    bool use_pad_ = false;
-    int pad_top_ = 0;
-    int pad_bottom_ = 0;
-    int pad_left_ = 0;
-    int pad_right_ = 0;
-
-    void* mPadPtr;
-    void* mWorkSpace;
-    std::shared_ptr<Tensor> padTensor;
-    std::shared_ptr<Tensor> workspaceTensor;
-
-    std::shared_ptr<Tensor> mPad;
-    std::shared_ptr<Tensor> mWorkspaceForward;
-
-    size_t input_size_;
-    size_t filter_size_;
-    size_t output_size_;
-    size_t padded_size_;
-    size_t workspace_size_;
-
-    IOInfo mIOInfo;
-    std::shared_ptr<Tensor> mTempInput;
     const Op* mOp = nullptr;
+    MatMulParam mMatMulParam;
+    std::pair<void*, int> mGpuMatMulParam;
+
+    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
+    std::pair<void*, int> mGpuIm2ColParam;
+
+    __half* mIm2ColBuffer;
 };
 
 } // namespace CUDA

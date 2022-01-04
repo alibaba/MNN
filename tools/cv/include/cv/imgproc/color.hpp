@@ -11,6 +11,7 @@
 
 #include <MNN/MNNDefine.h>
 #include <MNN/expr/Expr.hpp>
+#include "cv/types.hpp"
 
 namespace MNN {
 namespace CV {

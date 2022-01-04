@@ -7,7 +7,7 @@
 //
 
 #include <MNN/ImageProcess.hpp>
-#include "imgproc/color.hpp"
+#include "cv/imgproc/color.hpp"
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 
 namespace MNN {
@@ -34,6 +34,7 @@ static std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code) {
         CONVERT(RGB, HSV)
         CONVERT(RGB, BGR555)
         CONVERT(RGB, BGR565)
+        CONVERT(RGB, HSV_FULL)
         // BGR -> *
         // CONVERT(BGR, RGB) = CONVERT(RGB, BGR)
         CONVERT(BGR, GRAY)
@@ -43,6 +44,7 @@ static std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code) {
         CONVERT(BGR, HSV)
         CONVERT(BGR, BGR555)
         CONVERT(BGR, BGR565)
+        CONVERT(BGR, HSV_FULL)
         // RGBA -> *
         CONVERT(RGBA, RGB)
         CONVERT(RGBA, BGR)
@@ -104,20 +106,21 @@ static VARP cvtImpl(VARP src, int code, int h, int w) {
     auto dest = Tensor::create({1, h, w, oc}, halide_type_of<uint8_t>());
     std::unique_ptr<CV::ImageProcess> process(CV::ImageProcess::create(format.first, format.second));
     process->convert(src->readMap<uint8_t>(), w, h, 0, dest);
-    return Express::Variable::create(Express::Expr::create(dest, true), 0);
+    auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
+    return _Squeeze(res, {0});
 }
 
 VARP cvtColor(VARP src, int code, int dstCn) {
-    auto dims = src->getInfo()->dim; // NHWC
-    int ih = dims[1], iw = dims[2];
-    return cvtImpl(src, code, ih, iw);
+    int h, w, c;
+    getVARPSize(src, &h, &w, &c);
+    return cvtImpl(src, code, h, w);
 }
 
 VARP cvtColorTwoPlane(VARP src1, VARP src2, int code) {
-    auto dims = src1->getInfo()->dim; // NHWC
-    int ih = dims[1], iw = dims[2];
+    int h, w, c;
+    getVARPSize(src1, &h, &w, &c);
     auto src = _Concat({ _Reshape(src1, {-1}), _Reshape(src2, {-1})}, 0);
-    return cvtImpl(src, code, ih, iw);
+    return cvtImpl(src, code, h, w);
 }
 
 void demosaicing(VARP src, VARP& dst, int code, int dstCn) {

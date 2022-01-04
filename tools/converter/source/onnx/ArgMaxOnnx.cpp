@@ -10,6 +10,7 @@
 #include <MNN/MNNDefine.h>
 
 DECLARE_OP_CONVERTER(ArgMaxOnnx);
+DECLARE_OP_CONVERTER(ArgMinOnnx);
 
 MNN::OpType ArgMaxOnnx::opType(){
     return MNN::OpType_ArgMax;
@@ -19,7 +20,15 @@ MNN::OpParameter ArgMaxOnnx::type(){
     return MNN::OpParameter_ArgMax;
 }
 
-void ArgMaxOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
+MNN::OpType ArgMinOnnx::opType(){
+    return MNN::OpType_ArgMin;
+}
+
+MNN::OpParameter ArgMinOnnx::type(){
+    return MNN::OpParameter_ArgMax;
+}
+
+static void _run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     auto axisT              = new MNN::ArgMaxT;
     int axis = 0;
     int keepdims = 1;
@@ -40,13 +49,36 @@ void ArgMaxOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope
             selectLastIndex = attributeProto.i();
         }
     }
-    if (keepdims == 1) {
-        MNN_ERROR("ONNX ArgMax with keepdims == true is currently not supported.\n");
-    }
     axisT->axis = axis;
     axisT->topK = 1;
     axisT->outMaxVal = 0;
+    if (keepdims == 1) {
+        std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+        op->name = dstOp->name + "/not_keepdim";
+        op->type = dstOp->type;
+        op->main.type = dstOp->main.type;
+        op->main.value = axisT;
+        op->inputIndexes = dstOp->inputIndexes;
+        std::vector<int> midIndexs(1, scope->declareTensor(op->name));
+        op->outputIndexes = dstOp->inputIndexes = midIndexs;
+        dstOp->type = MNN::OpType_Unsqueeze;
+        auto param = new MNN::SqueezeParamT;
+        param->squeezeDims.assign({axis});
+        dstOp->main.type = MNN::OpParameter_SqueezeParam;
+        dstOp->main.value = param;
+        scope->oplists().emplace_back(std::move(op));
+        return;
+    }
     dstOp->main.value = axisT;
 }
 
+void ArgMaxOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
+    _run(dstOp, onnxNode, scope);
+}
+
+void ArgMinOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
+    _run(dstOp, onnxNode, scope);
+}
+
 REGISTER_CONVERTER(ArgMaxOnnx, ArgMax);
+REGISTER_CONVERTER(ArgMinOnnx, ArgMin);

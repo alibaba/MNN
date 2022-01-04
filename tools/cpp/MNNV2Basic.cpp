@@ -114,7 +114,7 @@ static inline int64_t getTimeInUs() {
 static int test_main(int argc, const char* argv[]) {
     if (argc < 2) {
         MNN_PRINT("========================================================================\n");
-        MNN_PRINT("Arguments: model.MNN runLoops saveAllTensors forwardType numberThread inputSize precision\n");
+        MNN_PRINT("Arguments: model.MNN runLoops runMask forwardType numberThread inputSize precision\n");
         MNN_PRINT("========================================================================\n");
         return -1;
     }
@@ -134,19 +134,23 @@ static int test_main(int argc, const char* argv[]) {
         runTime = ::atoi(argv[2]);
     }
 
-    int saveAllTensors = 0;
+    int runMask = 0;
     if (argc > 3) {
-        saveAllTensors = atoi(argv[3]);
-        if (saveAllTensors) {
-            MNN_PRINT("Save AllTensors to output/*.txt\n");
-        }
+        runMask = atoi(argv[3]);
     }
-
+    int saveOutput = 0;
+    if ((runMask & 1) || (runMask & 2)) {
+        MNN_PRINT("Save AllTensors to output/*.txt\n");
+        saveOutput = 1;
+    }
     int saveInput = 0;
-    if (saveAllTensors > 1) {
+    if (runMask & 2) {
         saveInput = 1;
     }
-
+    bool autoBackend = false;
+    if (runMask & 16) {
+        autoBackend = true;
+    }
     auto type = MNN_FORWARD_CPU;
     if (argc > 4) {
         type = (MNNForwardType)atoi(argv[4]);
@@ -194,6 +198,13 @@ static int test_main(int argc, const char* argv[]) {
     }
     net->setCacheFile(".tempcache");
     net->setSessionMode(Interpreter::Session_Debug);
+    if (autoBackend) {
+        net->setSessionMode(Interpreter::Session_Backend_Auto);
+        net->setSessionHint(Interpreter::MAX_TUNING_NUMBER, 15);
+    }
+    if (!inputDims.empty()) {
+        net->setSessionMode(Interpreter::Session_Resize_Defer);
+    }
 
     // create session
     MNN::ScheduleConfig config;
@@ -222,10 +233,9 @@ static int test_main(int argc, const char* argv[]) {
             net->resizeTensor(inputTensor, inputDims);
             net->resizeSession(session);
             //Set when size is changed, After resizeSession
-            net->updateCacheFile(session);
         }
     }
-    
+
     float memoryUsage = 0.0f;
     net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
     float flops = 0.0f;
@@ -246,7 +256,9 @@ static int test_main(int argc, const char* argv[]) {
     }
     MNN_PRINT("===========> Session Resize Done.\n");
     MNN_PRINT("===========> Session Start running...\n");
-    net->releaseModel();
+    if (type == MNN_FORWARD_CPU || (!autoBackend)) {
+        net->releaseModel();
+    }
 
     // input
     auto dimType = inputTensor->getDimensionType();
@@ -308,7 +320,7 @@ static int test_main(int argc, const char* argv[]) {
     }
     std::ofstream orderFileOs;
     orderFileOs.open(".order");
-    if (saveAllTensors) {
+    if (saveOutput) {
         MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
             if (!saveInput) {
                 return true;
@@ -463,6 +475,7 @@ static int test_main(int argc, const char* argv[]) {
             MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, *minTime, *maxTime);
         }
     }
+    net->updateCacheFile(session);
     return 0;
 }
 

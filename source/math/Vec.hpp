@@ -59,6 +59,18 @@ struct Vec {
         }
         return dst;
     }
+    VecType operator+=(const VecType& lr) {
+        for (int i = 0; i < N; ++i) {
+            value[i] = value[i] + lr.value[i];
+        }
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        for (int i = 0; i < N; ++i) {
+            value[i] = value[i] - lr.value[i];
+        }
+        return *this;
+    }
 
     VecType& operator=(const VecType& lr) {
         for (int i = 0; i < N; ++i) {
@@ -116,11 +128,11 @@ struct Vec {
         }
         return dst;
     }
-    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
-        v1 = v1 + v2 * v3;
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+         return v1 + v2 * v3;
     }
-    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
-        v1 = v1 - v2 * v3;
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 - v2 * v3;
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
         VecType source[4] = {vec0, vec1, vec2, vec3};
@@ -174,19 +186,13 @@ struct Vec<float, 4> {
         VecType dst = { vminq_f32(v1.value, v2.value) };
         return dst;
     }
-    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
-#ifdef __aarch64__
-        v1.value = vfmaq_f32(v1.value, v2.value, v3.value);
-#else
-        v1 = v1 + v2 * v3;
-#endif
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlaq_f32(v1.value, v2.value, v3.value)};
+        return dst;
     }
-    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
-#ifdef __aarch64__
-        v1.value = vfmsq_f32(v1.value, v2.value, v3.value);
-#else
-        v1 = v1 - v2 * v3;
-#endif
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlsq_f32(v1.value, v2.value, v3.value)};
+        return dst;
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
 #ifdef __aarch64__
@@ -231,6 +237,14 @@ struct Vec<float, 4> {
         VecType dst = { vsubq_f32(value, lr.value) };
         return dst;
     }
+    VecType operator+=(const VecType& lr) {
+        value = vaddq_f32(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = vsubq_f32(value, lr.value);
+        return *this;
+    }
     VecType operator*(float lr) const {
         VecType dst = { vmulq_n_f32(value, lr) };
         return dst;
@@ -253,126 +267,6 @@ struct Vec<float, 4> {
     }
 };
 
-template<>
-struct Vec<int8_t, 8> {
-    using VecType = Vec<int8_t, 8>;
-    int8x8_t value;
-    
-    VecType operator + (const VecType& lr) const {
-        VecType dst = { vqadd_s8(value, lr.value) };
-        return dst;
-    }
-    
-    VecType operator - (const VecType& lr) const {
-        VecType dst = { vqsub_s8(value, lr.value) };
-        return dst;
-    }
-    
-    VecType operator - () const {
-        VecType dst = { vqneg_s8(value) };
-        return dst;
-    }
-
-    VecType& operator = (const VecType& lr) {
-        value = lr.value;
-        return *this;
-    }
-    Vec() {
-    }
-    Vec(const int8_t v) {
-        value = vdup_n_s8(v);
-    }
-    Vec(int8x8_t&& v) {
-        value = v;
-    }
-    Vec(const VecType& lr) {
-        value = lr.value;
-    }
-    int8_t operator[](size_t i) {
-        return value[i];
-    }
-    static VecType load(const int8_t* addr) {
-        VecType v = { vld1_s8(addr) };
-        return v;
-    }
-    static void save(int8_t* addr, const VecType& v) {
-        vst1_s8(addr, v.value);
-    }
-    static VecType max(const VecType& v1, const VecType& v2) {
-        VecType dst = { vmax_s8(v1.value, v2.value) };
-        return dst;
-    }
-    static VecType min(const VecType& v1, const VecType& v2) {
-        VecType dst = { vmin_s8(v1.value, v2.value) };
-        return dst;
-    }
-};
-
-template<>
-struct Vec<int8_t, 16> {
-    using VecType = Vec<int8_t, 16>;
-    int8x16_t value;
-    
-    VecType operator + (const VecType& lr) const {
-        VecType dst = { vqaddq_s8(value, lr.value) };
-        return dst;
-    }
-    
-    VecType operator - (const VecType& lr) const {
-        VecType dst = { vqsubq_s8(value, lr.value) };
-        return dst;
-    }
-    
-    VecType operator - () const {
-        VecType dst = { vqnegq_s8(value) };
-        return dst;
-    }
-
-    VecType operator*(int8_t lr) const {
-        MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
-        VecType dst = { vmulq_s8(value, vdupq_n_s8(lr)) };
-        return dst;
-    }
-    VecType operator*(const VecType& lr) const {
-        MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
-        VecType dst = { vmulq_s8(value, lr.value) };
-        return dst;
-    }
-
-    VecType& operator=(const VecType& lr) {
-        value = lr.value;
-        return *this;
-    }
-    Vec() {
-    }
-    Vec(const int8_t v) {
-        value = vdupq_n_s8(v);
-    }
-    Vec(int8x16_t&& v) {
-        value = v;
-    }
-    Vec(const VecType& lr) {
-        value = lr.value;
-    }
-    int8_t operator[](size_t i) {
-        return value[i];
-    }
-    static VecType load(const int8_t* addr) {
-        VecType v = { vld1q_s8(addr) };
-        return v;
-    }
-    static void save(int8_t* addr, const VecType& v) {
-        vst1q_s8(addr, v.value);
-    }
-    static VecType max(const VecType& v1, const VecType& v2) {
-        VecType dst = { vmaxq_s8(v1.value, v2.value) };
-        return dst;
-    }
-    static VecType min(const VecType& v1, const VecType& v2) {
-        VecType dst = { vminq_s8(v1.value, v2.value) };
-        return dst;
-    }
-};
 #elif defined(MNN_USE_SSE)
 template<>
 struct Vec<float, 4> {
@@ -385,6 +279,14 @@ struct Vec<float, 4> {
     VecType operator-(const VecType& lr) const {
         VecType dst = { _mm_sub_ps(value, lr.value) };
         return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = _mm_add_ps(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = _mm_sub_ps(value, lr.value);
+        return *this;
     }
     VecType operator*(const VecType& lr) const {
         VecType dst = { _mm_mul_ps(value, lr.value) };
@@ -447,11 +349,11 @@ struct Vec<float, 4> {
         VecType dst = { _mm_min_ps(v1.value, v2.value) };
         return dst;
     }
-    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
-        v1 = v1 + v2 * v3; // TODO: use fma instruction
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 + v2 * v3; // TODO: use fma instruction
     }
-    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
-        v1 = v1 - v2 * v3; // TODO: use fma instruction
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 - v2 * v3; // TODO: use fma instruction
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
         __m128 tmp3, tmp2, tmp1, tmp0;

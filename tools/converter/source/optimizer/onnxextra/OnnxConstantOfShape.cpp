@@ -68,7 +68,8 @@ public:
             }
             const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
         } else {
-            const_shape = _Scalar<float>(1.0f);
+            // https://github.com/onnx/onnx/blob/master/docs/Operators.md#attributes-12
+            const_shape = _Scalar<float>(0.0f);
         }
         return Expr::create(mnnFill.get(), {inputs[0], const_shape});
     }

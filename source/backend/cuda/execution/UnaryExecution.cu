@@ -188,15 +188,7 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         if (op->type() == OpType_UnaryOp) {
-            switch (op->main_as_UnaryOp()->opType()) {
-                // Dont' support erf function
-                case UnaryOpOperation_ERF:
-                case UnaryOpOperation_ERFC:
-                case UnaryOpOperation_ERFINV:
-                    return nullptr;
-                default:
-                    return new UnaryExecution(op->main_as_UnaryOp()->opType(), backend);
-            }
+            return new UnaryExecution(op->main_as_UnaryOp()->opType(), backend);
         }
         if (op->type() == OpType_Sigmoid) {
             return new UnaryExecution(UnaryOpOperation_SIGMOID, backend);

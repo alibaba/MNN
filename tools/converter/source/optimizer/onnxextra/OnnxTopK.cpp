@@ -28,7 +28,7 @@ public:
         // and finally transpose the result back.
         auto inputs = expr->inputs();
         VARP kVar = (inputs.size() == 2 ? inputs[1] : nullptr);
-        int axis = 0;
+        int axis = -1;
         bool largest = true;
         auto attrs = op->main_as_Extra()->attr();
         MNN_THROW_CHECK(attrs != nullptr, "TopKV's attr is empty");
@@ -54,8 +54,7 @@ public:
         onnxTopKOp->main.type  = OpParameter_TopKV2;
         onnxTopKOp->main.value = onnxTopKParam.release();
 
-        EXPRP output;
-            output = Expr::create(onnxTopKOp.get(), {inputs[0], kVar, _Scalar<int>(axis)}, 2);
+        EXPRP output = Expr::create(onnxTopKOp.get(), {inputs[0], kVar, _Scalar<int>(axis)}, 2);
         output->setName(expr->name());
         Variable::create(output, 0)->setName(expr->outputName(0));
         Variable::create(output, 1)->setName(expr->outputName(1));

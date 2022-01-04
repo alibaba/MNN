@@ -28,20 +28,7 @@ class OnnxNoneZeroTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto input   = expr->inputs()[0];
-        auto info = input->getInfo();
-        VARP zero = _Scalar<int32_t>(0);
-        if (nullptr == info) {
-            MNN_PRINT("Can't get data type for none zero op, set as int default\n");
-        } else {
-            switch (info->type.code) {
-                case halide_type_float:
-                    zero = _Scalar<float>(0.0f);
-                    break;
-                default:
-                    break;
-            }
-        }
-        auto mask = _NotEqual(input, zero);
+        auto mask = _NotEqual(input, _ZerosLike(input));
         std::unique_ptr<OpT> whereOp(new OpT);
         whereOp->type = OpType_Where;
         whereOp->main.type = OpParameter_Extra;

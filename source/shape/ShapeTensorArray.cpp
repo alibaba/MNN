@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <numeric>
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 #include "math.h"
@@ -26,7 +27,7 @@ static void updateTensorArrayDims(Tensor* t) {
     auto des = TensorUtils::getDescribe(t);
     // shape : [Sum(elemShape)]
     t->buffer().dimensions = 1;
-    int totalSize = 0;
+    int totalSize = 0, arraySize = des->tensorArrayAttr->arraySize;
     for (auto elem : des->tensorArrayAttr->elemShape) {
         int elemSize = 1;
         for (auto dim : elem) {
@@ -34,7 +35,12 @@ static void updateTensorArrayDims(Tensor* t) {
         }
         totalSize += elemSize;
     }
-    t->setLength(0, des->tensorArrayAttr->arraySize * totalSize);
+    if (des->tensorArrayAttr->elemShape.size() == 1 && arraySize > 1) {
+        totalSize *= arraySize;
+    } else if (totalSize == 0) {
+        totalSize = 1; // bypass MNNV3 Dynamic Graph Executor zeroShape check
+    }
+    t->setLength(0, totalSize);
     t->setLength(1, 1);
     t->setLength(2, 1);
     t->setLength(3, 1);
@@ -68,7 +74,7 @@ class TensorArrayComputer : public SizeComputer {
             des->tensorArrayAttr->arraySize = inputs[0]->host<uint32_t>()[0];
             // 2. set dtype, dimension format and dims
             output->setType(param->T());
-            TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+            TensorUtils::getDescribe(output)->dimensionFormat = op->defaultDimentionFormat();
             updateTensorArrayDims(output);
             MNN_ASSERT(des->tensorArrayAttr != nullptr);
         }
@@ -88,7 +94,7 @@ class TensorArraySizeComputer : public SizeComputer {
         outputs[0]->setType(DataType_DT_INT32);
         outputs[0]->buffer().dimensions    = 1;
         outputs[0]->setLength(0, 1);
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
         return true;
     }
 };
@@ -119,7 +125,7 @@ class TensorArrayReadComputer : public SizeComputer {
         for (int i = 0; i < readElemShape.size(); i++) {
             outputs[0]->setLength(i, readElemShape[i]);
         }
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[2])->dimensionFormat;
         return true;
     }
 };
@@ -135,6 +141,10 @@ class TensorArrayWriteComputer : public SizeComputer {
         auto inDes  = TensorUtils::getDescribe(inputs[3]);
         auto outDes = TensorUtils::getDescribe(outputs[0]);
         if (inDes->tensorArrayAttr == nullptr) {
+            MNN_ASSERT(false);
+            return false;
+        }
+        if (TensorUtils::getDescribe(inputs[2])->dimensionFormat != inDes->dimensionFormat) {
             MNN_ASSERT(false);
             return false;
         }
@@ -224,6 +234,10 @@ class TensorArrayScatterComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
+        if (TensorUtils::getDescribe(inputs[2])->dimensionFormat != inDes->dimensionFormat) {
+            MNN_ASSERT(false);
+            return false;
+        }
         copyTensorArrayAttribute(inputs[3], outputs[0]);
         for (int i = 0; i < inputs[1]->length(0); i++) {
             int writeIndex = inputs[1]->host<uint32_t>()[i];
@@ -260,39 +274,49 @@ class TensorArraySplitComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
+        auto taParam = op->main_as_TensorArray();
+        int splitAxis = (taParam->axis() + inputs[1]->dimensions()) % inputs[1]->dimensions();
+        int keepdims = taParam->keepdims();
         copyTensorArrayAttribute(inputs[3], outputs[0]);
         outputs[0]->setType(op->main_as_TensorArray()->T());
         auto outDes = TensorUtils::getDescribe(outputs[0]);
         if (outDes->tensorArrayAttr->isIdenticalShape) {
             std::vector<int> writeElemShape(inputs[1]->shape());
-            outDes->tensorArrayAttr->arraySize = writeElemShape[0];
-            writeElemShape.erase(writeElemShape.begin());
+            outDes->tensorArrayAttr->arraySize = writeElemShape[splitAxis];
+            if (keepdims) {
+                writeElemShape[splitAxis] = 1;
+            } else {
+                writeElemShape.erase(writeElemShape.begin() + splitAxis);
+            }
             outDes->tensorArrayAttr->elemShape.emplace_back(std::move(writeElemShape));
         } else {
             auto value = inputs[1];
             auto lengths = inputs[2];
-            if (!lengths->shape().empty()) {
-                // split by lengths
-                outDes->tensorArrayAttr->arraySize = lengths->length(0);
-                std::vector<int> vShape(value->shape());
-                const int* lengthPtr = lengths->host<int>();
-                for (int i = 0; i < lengths->length(0); i++) {
-                    auto elemShape = vShape;
-                    elemShape[0] = lengthPtr[i];
-                    outDes->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
-                }
-            } else if (lengths->host<int>() != nullptr) {
-                // split by a length
-                int splitLen = lengths->host<int>()[0];
-                int totalLen = value->elementSize();
-                int splitNum = UP_DIV(totalLen, splitLen);
-                outDes->tensorArrayAttr->arraySize = splitNum;
-                for (int i = 0; i < splitNum - 1; i++) {
-                    outDes->tensorArrayAttr->elemShape.push_back({splitLen});
-                }
-                outDes->tensorArrayAttr->elemShape.push_back({ totalLen - splitLen *  (splitNum - 1)});
+            bool scalarSplit = (lengths->elementSize() == 1);
+            std::vector<int> vShape(value->shape());
+            int totalLen = value->shape()[splitAxis], splitNum;
+            if (scalarSplit) {
+                splitNum = UP_DIV(totalLen, lengths->host<int>()[0]);
+                MNN_ASSERT(keepdims || lengths->host<int>()[0] == 1);
+            } else {
+                splitNum = lengths->length(0);
+                MNN_ASSERT(std::accumulate(lengths->host<int>(), lengths->host<int>() + splitNum, 0) == totalLen);
             }
-
+            outDes->tensorArrayAttr->arraySize = splitNum;
+            for (int i = 0; i < splitNum; ++i) {
+                auto elemShape = vShape;
+                if (scalarSplit) {
+                    if (!keepdims) {
+                        elemShape.erase(elemShape.begin() + splitAxis);
+                    } else {
+                        int splitLen = lengths->host<int>()[0];
+                        elemShape[splitAxis] = ALIMIN(splitLen, totalLen - i * splitLen);
+                    }
+                } else {
+                    elemShape[splitAxis] = lengths->host<int>()[i];
+                }
+                outDes->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
+            }
         }
         updateTensorArrayDims(outputs[0]);
         MNN_ASSERT(outDes->tensorArrayAttr != nullptr);
@@ -309,22 +333,114 @@ class TensorArrayConcatComputer : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(2 == inputs.size() && 1 == outputs.size());
         auto inDes  = TensorUtils::getDescribe(inputs[1]);
-        if (inDes->tensorArrayAttr == nullptr) {
+        if (inDes->tensorArrayAttr == nullptr || inDes->tensorArrayAttr->arraySize == 0) {
             MNN_ASSERT(false);
             return false;
         }
+        copyTensorArrayAttribute(inputs[1], outputs[0]);
+        auto tpParam = op->main_as_TensorArray();
+        int concatAxis = tpParam->axis(), newAxis = tpParam->new_axis();
         outputs[0]->setType(op->main_as_TensorArray()->T());
-        if (inDes->tensorArrayAttr->elemShape.size() >= 1) {
-            outputs[0]->buffer().dimensions = inDes->tensorArrayAttr->elemShape[0].size() + 1;
-            outputs[0]->setLength(0, inDes->tensorArrayAttr->arraySize);
-            for (int i = 0; i < inDes->tensorArrayAttr->elemShape[0].size(); i++) {
-                outputs[0]->setLength(1 + i, inDes->tensorArrayAttr->elemShape[0][i]);
+        
+        const auto& elemShapes = inDes->tensorArrayAttr->elemShape;
+        auto outShape = elemShapes[0];
+        bool valid = true; // avoid use MNN_ASSERT because it's no-op in release mode
+        for (int i = 1; valid && (i < elemShapes.size()); ++i) {
+            auto elemShape = elemShapes[inDes->tensorArrayAttr->isIdenticalShape ? 0 : i];
+            valid &= (outShape.size() == elemShape.size());
+            if (newAxis) {
+                valid &= (std::equal(outShape.begin(), outShape.end(), elemShape.begin()));
+            } else {
+                valid &= (std::equal(outShape.begin(), outShape.begin() + concatAxis, elemShape.begin()));
+                valid &= (std::equal(outShape.begin() + concatAxis + 1, outShape.end(), elemShape.begin() + concatAxis + 1));
+                outShape[concatAxis] += elemShape[concatAxis];
             }
-        } else {
-            MNN_ASSERT(false);
+        }
+        if (!valid) {
+            MNN_ERROR("Invalid input, elements in seq have different shape [new_axis=true need same shape, new_axis=false need same shape except concat_axis dim]\n");
+            return false;
+        }
+        if (newAxis) {
+            outShape.insert(outShape.begin() + concatAxis, inDes->tensorArrayAttr->arraySize);
+        }
+        outputs[0]->buffer().dimensions = outShape.size();
+        for (int i = 0; i < outShape.size(); ++i) {
+            outputs[0]->setLength(i, outShape[i]);
         }
         return true;
     }
 };
 REGISTER_SHAPE(TensorArrayConcatComputer, OpType_TensorArrayConcat);
+
+// ============================ TensorArrayInsert ============================
+class TensorArrayInsertComputer : public SizeComputer {
+    // inputs : handle, position, value, flow_in
+    // outputs: flow_out
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(4 == inputs.size() && 1 == outputs.size());
+        auto inDes  = TensorUtils::getDescribe(inputs[3]);
+        if (inDes->tensorArrayAttr == nullptr) {
+            MNN_ASSERT(false);
+            return false;
+        }
+        if (TensorUtils::getDescribe(inputs[2])->dimensionFormat != inDes->dimensionFormat) {
+            MNN_ASSERT(false);
+            return false;
+        }
+        MNN_ASSERT(inDes->tensorArrayAttr->isDynamicSize);
+        
+        copyTensorArrayAttribute(inputs[3], outputs[0]);
+        auto outSeq = TensorUtils::getDescribe(outputs[0])->tensorArrayAttr;
+        outputs[0]->buffer().type = inputs[3]->buffer().type;
+        int inSeqSize = inDes->tensorArrayAttr->arraySize, insertIndex = inputs[1]->host<int32_t>()[0];
+        MNN_ASSERT(insertIndex >= -inSeqSize && insertIndex <= inSeqSize); // [-n, n]
+        insertIndex += (insertIndex < 0 ? inSeqSize : 0);
+        // update arraySize
+        outSeq->arraySize += 1;
+        // update elemShape
+        auto insertShape = inputs[2]->shape();
+        auto& outSeqShapes = outSeq->elemShape;
+        if (outSeq->isIdenticalShape && !outSeqShapes.empty()) {
+            MNN_ASSERT(std::equal(insertShape.begin(), insertShape.end(), outSeqShapes[0].begin()));
+        } else {
+            outSeqShapes.insert(outSeqShapes.begin() + insertIndex, insertShape);
+        }
+        updateTensorArrayDims(outputs[0]);
+        return true;
+    }
+};
+REGISTER_SHAPE_INPUTS(TensorArrayInsertComputer, OpType_TensorArrayInsert, {1});
+
+// ============================ TensorArrayErase ============================
+class TensorArrayEraseComputer : public SizeComputer {
+    // inputs : handle, position, flow_in
+    // outputs: flow_out
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(3 == inputs.size() && 1 == outputs.size());
+        auto inDes  = TensorUtils::getDescribe(inputs[2]);
+        if (inDes->tensorArrayAttr == nullptr) {
+            MNN_ASSERT(false);
+            return false;
+        }
+        MNN_ASSERT(inDes->tensorArrayAttr->isDynamicSize);
+        
+        copyTensorArrayAttribute(inputs[2], outputs[0]);
+        auto outSeq = TensorUtils::getDescribe(outputs[0])->tensorArrayAttr;
+        outputs[0]->buffer().type = inputs[2]->buffer().type;
+        int inSeqSize = outSeq->arraySize, eraseIndex = inputs[1]->host<int32_t>()[0];
+        MNN_ASSERT(eraseIndex >= -inSeqSize && eraseIndex < inSeqSize); // [-n, n-1]
+        eraseIndex += (eraseIndex < 0 ? inSeqSize : 0);
+        // update arraySize
+        outSeq->arraySize -= 1;
+        // update elemShape
+        if (!outSeq->isIdenticalShape) {
+            outSeq->elemShape.erase(outSeq->elemShape.begin() + eraseIndex);
+        }
+        updateTensorArrayDims(outputs[0]);
+        return true;
+    }
+};
+REGISTER_SHAPE_INPUTS(TensorArrayEraseComputer, OpType_TensorArrayErase, {1});
 } // namespace MNN

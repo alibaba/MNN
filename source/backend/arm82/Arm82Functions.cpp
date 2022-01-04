@@ -134,7 +134,7 @@ static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_
 
     // areaRemain
     int areaLack = 8 - areaRemain;
-    auto cordH = vld2q_f16(src - areaLack * 2); // use data of the last pack to fill the vacancy. 
+    auto cordH = vld2q_f16(src - areaLack * 2); // use data of the last pack to fill the vacancy.
     cordH.val[0] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[0]), inW_sub_a), b));
     cordH.val[1] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[1]), inH_sub_a), b));
     if (src != dst) {
@@ -640,10 +640,9 @@ bool Arm82Functions::init() {
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;
 
-    FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceTransform, Arm82WinogradFunction::chooseSourceTransform);
-    FUNC_PTR_ASSIGN(gInstance->chooseWinoDestTransform, Arm82WinogradFunction::chooseDestTransform);
     FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceTransformPack, Arm82WinogradFunction::chooseWinoSourceTransformPack);
-
+    FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceUnrollTransform, Arm82WinogradFunction::chooseSourceUnrollTransform);
+    FUNC_PTR_ASSIGN(gInstance->chooseWinoDestUnrollTransform, Arm82WinogradFunction::chooseWinoDestUnrollTransform);
 
     gInstance->MNNDeconvRunForLineDepthwise = (decltype(gInstance->MNNDeconvRunForLineDepthwise))_MNNDeconvRunForLineDepthwise;
     gInstance->MNNDeconvRunForUnitDepthWise = (decltype(gInstance->MNNDeconvRunForUnitDepthWise))_MNNDeconvRunForUnitDepthWise;

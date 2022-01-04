@@ -36,7 +36,7 @@ USER_NAME=`whoami`
 USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 
 # detect change
-SOURCE_CHANGE=$(git show --name-only | grep -E "^source/.*\.(cpp|cc|c|h|hpp)$")
+SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | grep -v "aliyun-log-c-sdk")
 PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
 OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
 
@@ -194,6 +194,9 @@ model_test() {
 
 onnx_convert_test() {
     ../tools/script/convertOnnxTest.py ~/AliNNModel
+    if [ $? -eq 0 ] && [ -f ~/AliNNModel/TestOnnx/ops/run.py ]; then
+        ~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode
+    fi
     if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
         failed

@@ -18,7 +18,7 @@ public:
 
     bool read();
     
-    static bool write(const char* filePath, std::pair<const void*, size_t> verifyInfo, std::pair<const void*, size_t> cacheInfo);
+    static bool write(const char* filePath, std::pair<const void*, size_t> cacheInfo);
 
     bool valid() const {
         return mFile != nullptr;

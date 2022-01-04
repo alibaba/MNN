@@ -12,9 +12,10 @@
 #import "MetalDefine.h"
 #import <MNN/Tensor.hpp>
 #import "MetalBackend.hpp"
-
 #if MNN_METAL_ENABLED
 #define MNN_PRINT_ENCODER(context, encoder) ((void)0)
+#define MNN_METAL
+#import <MNN/MNNSharedContext.h>
 
 namespace MNN {
 typedef enum {
@@ -95,6 +96,7 @@ typedef struct {
 
 - (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MNN::MetalRuntime *) rt shaderName:(std::string) kernelName;
 
+- (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device;
 /**
  * @brief commit commands
  */

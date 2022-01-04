@@ -24,6 +24,12 @@ enum BinaryOpOperation : byte {
     ATAN2 = 20,
     LOGICALOR = 21,
     NOTEQUAL = 22,
+    BITWISE_AND = 23,
+    BITWISE_OR = 24,
+    BITWISE_XOR = 25,
+    LOGICALXOR = 26,
+    LEFTSHIFT = 27,
+    RIGHTSHIFT = 28,
 }
 
 table BinaryOp {
@@ -286,7 +292,8 @@ table OneHotParam{
 enum PadValueMode : byte{
     CONSTANT = 0,
     REFLECT = 1,
-    SYMMETRIC = 2
+    SYMMETRIC = 2,
+    EDGE=3,
 }
 
 table PadParam{
@@ -313,6 +320,10 @@ table TensorArray {
     identical_element_shapes:bool = false;
     element_shape:[int];
     T:DataType = DT_FLOAT;
+    // onnx related attributes
+    axis:int = 0;
+    keepdims:bool = true;
+    new_axis:bool = false;
 }
 
 table LSTMBlockCell {

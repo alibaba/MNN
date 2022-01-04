@@ -12,6 +12,7 @@
 #include "StaticModule.hpp"
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
+#include "NMSModule.hpp"
 #include "Utils.hpp"
 #include "core/Backend.hpp"
 #include "utils/InitNet.hpp"
@@ -316,7 +317,7 @@ static void _computeTensorMask(SubModuleInfo& m, const Net* net) {
 }
 
 static bool isBreakOp(const Op* op) {
-    if (op->type() == OpType_If || op->type() == OpType_While || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique) {
+    if (op->type() == OpType_If || op->type() == OpType_While || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
         return true;
     }
     return false;
@@ -550,6 +551,9 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
         }
         if (OpType_While == op->type()) {
             return WhileModule::create(op, subs);
+        }
+        if (OpType_NonMaxSuppressionV2 == op->type()) {
+            return NMSModule::create(op);
         }
         // MNN_ASSERT(false);
     }

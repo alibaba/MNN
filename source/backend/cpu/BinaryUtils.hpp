@@ -132,9 +132,51 @@ struct BinaryLogicalOr {
 };
 
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryLogicalXor {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x ^ y) ? 1 : 0);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryNotEqual {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return (_ErrorCode)((x != y) ? 1 : 0);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryLeftShift {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)(x << y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryBitwiseAnd {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)(x & y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryRightShift {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)(x >> y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryBitwiseOr {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)(x | y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryBitwiseXor {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)(x ^ y);
     }
 };
 

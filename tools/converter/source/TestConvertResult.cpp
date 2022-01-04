@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include "common/MemoryFormater.h"
 #include "cli.hpp"
 using namespace MNN::Express;
 using namespace MNN;
@@ -58,6 +59,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     for (int i=0; i<info->size; ++i) {
         outputOrigin >> targetPtr[i];
     }
+
     auto absMax = _ReduceMax(_Abs(targetValue), {});
     absMax = _Maximum(absMax, _Scalar<float>(0.0001f));
     auto diff = _Abs(targetValue - output);
@@ -67,6 +69,12 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
     if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
         MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
+
+        MNN_PRINT("expected value\n");
+        formatMatrix(targetValue->readMap<float>(), targetValue->getInfo()->dim);
+        MNN_PRINT("real value\n");
+        formatMatrix(output->readMap<float>(), output->getInfo()->dim);
+
         return false;
     }
     return true;

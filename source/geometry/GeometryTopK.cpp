@@ -19,11 +19,18 @@ public:
             MNN_ERROR("TopK should have 2 output and 2~3 input, get %lu in and %lu out\n", inputs.size(), outputs.size());
             return false;
         }
-        if (inputs.size() == 2) {
+        int numAxes = inputs[0]->dimensions(), axis = numAxes - 1;
+        if (inputs.size() == 3) {
+            axis = inputs[2]->host<int32_t>()[0];
+            if (axis < 0) {
+                axis += numAxes;
+            }
+        }
+        if (axis == numAxes - 1) {
             SharedPtr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
-            cmd.inputs = std::move(inputs);
+            cmd.inputs.assign({inputs[0], inputs[1]});
             cmd.outputs = std::move(outputs);
             res.command.emplace_back(std::move(cmdP));
             return true;
@@ -32,13 +39,10 @@ public:
             MNN_ERROR("Invalid k or axis\n");
             return false;
         }
-        int k = inputs[1]->host<int32_t>()[0], axis = inputs[2]->host<int32_t>()[0];
+        int k = inputs[1]->host<int32_t>()[0];
         auto shape = inputs[0]->shape();
         int outside = std::accumulate(shape.begin(), shape.begin() + axis, 1, [](int a, int b) { return a * b; });
         int inside = std::accumulate(shape.begin() + axis + 1, shape.end(), 1, [](int a, int b) { return a * b; });
-        if (axis < 0) {
-            axis = axis + shape.size();
-        }
         std::shared_ptr<Tensor> transInput, transVal, transInd;
         { // transpose TopK's axis to last axis
             transInput.reset(Tensor::createDevice({outside * inside, shape[axis]}, inputs[0]->getType(), inputs[0]->getDimensionType()));

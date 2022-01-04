@@ -115,6 +115,9 @@ public:
         return mProp.major;
     }
     int blocks_num(const int total_threads);
+    const cudaDeviceProp& prop() const {
+        return mProp;
+    }
 
 private:
     cudaDeviceProp mProp;

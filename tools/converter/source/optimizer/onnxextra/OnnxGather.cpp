@@ -85,7 +85,7 @@ public:
             MNN_ERROR("Currently don't suport GatherElements with no rank input\n");
             return nullptr;
         }
-        auto shape = _Shape(input, NCHW);
+        auto shape = _Shape(input, NCHW), shapeIndex = _Shape(index, NCHW);
         if (axis < 0) {
             axis = axis + info->dim.size();
         }
@@ -110,24 +110,30 @@ public:
         // Compute auto index
         auto outputRange = _Range(zero, outsideDims, oneV) * axisLength * insideDims;
         auto insideRange = _Range(zero, insideDims, oneV);
-        // Fuse outputRange and insideRange
-        std::vector<int> outputReshapeDims = {-1, 1, 1};
-        std::vector<int> insideReshapeDims = {1, 1, -1};
-        if (axis == 0) {
-            // No outside
-            outputReshapeDims.erase(outputReshapeDims.begin());
-            insideReshapeDims.erase(insideReshapeDims.begin());
-        }
-        if (axis + 1 == info->dim.size()) {
-            outputReshapeDims.erase(outputReshapeDims.end() - 1);
-            insideReshapeDims.erase(insideReshapeDims.end() - 1);
-        }
-        auto autoIndex = _Reshape(outputRange, outputReshapeDims) + _Reshape(insideRange, insideReshapeDims);
-        auto shapeIndex = _Shape(index);
-
+        auto sliceShapeLeft = [=](VARP shape) {
+            std::vector<int32_t> broadDimData(info->dim.size() - axis, 1);
+            auto broadDim = _Const(broadDimData.data(), {(int32_t)broadDimData.size()}, NCHW, halide_type_of<int32_t>());
+            if (axis == 0) {
+                return broadDim;
+            }
+            return _Concat({_Slice(shape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(_Scalar<int>(axis), {0})), broadDim}, 0);
+        };
+        auto sliceShapeRight = [=](VARP shape) {
+            std::vector<int32_t> broadDimData(axis + 1, 1);
+            auto broadDim = _Const(broadDimData.data(), {(int32_t)broadDimData.size()}, NCHW, halide_type_of<int32_t>());
+            if (axis == info->dim.size() - 1) {
+                return broadDim;
+            }
+            return _Concat({broadDim, _Slice(shape, _Unsqueeze(_Unsqueeze(_Scalar<int>(axis + 1), {0})), _Unsqueeze(_Scalar<int>(info->dim.size() - axis - 1), {0}))}, 0);
+        };
+        auto reshapeSliceRange = [=](VARP range, std::function<VARP(VARP)> sliceFunc) {
+            std::vector<int32_t> beginData(info->dim.size(), 0);
+            auto begin = _Const(beginData.data(), {(int32_t)beginData.size()}, NCHW, halide_type_of<int32_t>());
+            return _Slice(_Reshape(range, sliceFunc(shape)), begin, sliceFunc(shapeIndex));
+        };
+        auto autoIndex = reshapeSliceRange(outputRange, sliceShapeLeft) + reshapeSliceRange(insideRange, sliceShapeRight);
         // index -> index * insideDims + autoindex
-        index = index * _Fill(shapeIndex, insideDims);
-        index = index + autoIndex;
+        index = index * insideDims + autoIndex;
 
         auto output = _GatherV2(_Reshape(input, {-1}), _Reshape(index, {-1}), _Scalar<int>(0));
         output = _Reshape(output, shapeIndex);
@@ -136,10 +142,42 @@ public:
     }
 };
 
+class OnnxCompressTransform : public OnnxExtraManager::Transform {
+public:
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        auto inputs = expr->inputs();
+        int axis = 0, axisExist = 0;
+        auto op = expr->get();
+        for (int i = 0; i < op->main_as_Extra()->attr()->size(); ++i) {
+            auto attr = op->main_as_Extra()->attr()->GetAs<Attribute>(i);
+            auto key  = attr->key()->str();
+            if (key == "axis") {
+                axis = attr->i();
+                axisExist = 1;
+                break;
+            }
+        }
+        VARP input = inputs[0];
+        if (axisExist == 0) {
+            input = _Reshape(input, {-1});
+        }
+        std::unique_ptr<OpT> whereOp(new OpT);
+        whereOp->type = OpType_Where;
+        whereOp->main.type = OpParameter_Extra;
+        whereOp->main.value = new ExtraT;
+        auto cond = Variable::create(Expr::create(std::move(whereOp), {inputs[1]}));
+        
+        auto res = _GatherV2(input, _Reshape(cond, {-1}), _Scalar<int32_t>(axis));
+        res->setName(expr->name());
+        return res->expr().first;
+    }
+};
+
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("Gather", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherTransform));
     OnnxExtraManager::get()->insert("GatherND", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherNDTransform));
     OnnxExtraManager::get()->insert("GatherElements", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherElementTransform));
+    OnnxExtraManager::get()->insert("Compress", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxCompressTransform));
     return true;
 }();
 
