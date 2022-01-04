@@ -61,6 +61,7 @@ LoopDz:
     movq %rcx, %r11
     shlq $5, %r11
     movq %r13, %rsi
+    subq $32,  %r11
 
     Init:
         vmovups (%rsi), %zmm0
@@ -88,9 +89,12 @@ LoopDz:
         addq %r14, %rsi
 
     cmpq %rbx, %r11
-    je Last
+    jl Last
         vmovups (%rsi), %zmm1
         addq %r14, %rsi
+
+    cmpq %rbx, %r11
+    je LastLoop
 
     LoopSz:
         vmovups %zmm1, %zmm0
@@ -126,7 +130,29 @@ LoopDz:
         cmpq %rbx, %r11
         jne LoopSz
 
+    LastLoop:
+        vbroadcastss (%rdx, %rbx), %zmm4
+        vbroadcastss 4(%rdx, %rbx), %zmm5
+        vbroadcastss 8(%rdx, %rbx), %zmm6
+        vbroadcastss 12(%rdx, %rbx), %zmm7
+
+        vfmadd231ps %zmm4, %zmm1, %zmm8
+        vfmadd231ps %zmm5, %zmm1, %zmm11
+        vfmadd231ps %zmm6, %zmm1, %zmm14
+        vfmadd231ps %zmm7, %zmm1, %zmm17
+
+        vbroadcastss 16(%rdx, %rbx), %zmm4
+        vbroadcastss 20(%rdx, %rbx), %zmm5
+        vbroadcastss 24(%rdx, %rbx), %zmm6
+        vbroadcastss 28(%rdx, %rbx), %zmm7
+
+        vfmadd231ps %zmm4, %zmm1, %zmm20
+        vfmadd231ps %zmm5, %zmm1, %zmm23
+        vfmadd231ps %zmm6, %zmm1, %zmm26
+        vfmadd231ps %zmm7, %zmm1, %zmm29
+
     Last:
+    addq $32,  %r11
     addq %r11, %rdx
 
 .macro TRANSPOSE_SAVE x0, x1, x2, x3, x4, x5, x6, x7

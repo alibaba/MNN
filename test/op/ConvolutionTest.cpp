@@ -546,9 +546,10 @@ class ConvolutionTest : public ConvolutionType {
 public:
     virtual ~ConvolutionTest() = default;
 
-
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, int precision, MNN::SparseAlgo sparseAlgo, std::vector<int> blocks) {
+
+
         for (int b = 1; b <= 2; b++) {
             for (int oc = 1; oc <= 17; oc += 4) {
                 for (int ic = 1; ic <= 18; ic += 5) {
@@ -573,6 +574,7 @@ protected:
                                                     return false;
                                                 }
                                             }
+
 
                                             {
                                                 bool succ =
@@ -609,12 +611,33 @@ protected:
             }
         }
         // Check Long convolution
-        bool succ =
+         bool succ =
             ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 24, 24, PadMode_SAME, 0, 0, 3, 3, 1, 1, 1, precision, sparseAlgo, 4, false);
         if (!succ) {
             MNN_ERROR("Error for long conv\n");
             return false;
         }
+        // uncovered and easily wrong case.
+        succ =
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 3, 16, 256, 256, PadMode_CAFFE, 1, 1, 3, 3, 1, 1, 1, 1, sparseAlgo, 1, false);
+        if (!succ) {
+            MNN_ERROR("Error in pick up case 1.\n");
+            return false;
+        }
+        succ =
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 28, 28, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, 1, sparseAlgo, 1, false);
+        if (!succ) {
+            MNN_ERROR("Error in pick up case 2.\n");
+            return false;
+        }
+
+        succ =
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 14, 14, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, 1, sparseAlgo, 1, false);
+        if (!succ) {
+            MNN_ERROR("Error in pick up case 3.\n");
+            return false;
+        }
+
         return true;
     }
 

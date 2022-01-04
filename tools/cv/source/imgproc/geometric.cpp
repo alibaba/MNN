@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "imgproc/geometric.hpp"
+#include "cv/imgproc/geometric.hpp"
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/MathOp.hpp>
 
@@ -57,8 +57,8 @@ Matrix getRotationMatrix2D(Point center, double angle, double scale) {
 }
 
 VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation) {
-    auto dims = src->getInfo()->dim; // NHWC
-    int ih = dims[1], iw = dims[2], ic = dims[3];
+    int ih, iw, ic;
+    getVARPSize(src, &ih, &iw, &ic);
     int oh = dsize.height, ow = dsize.width;
     if (!oh && !ow) {
         oh = ih * fy;
@@ -77,12 +77,13 @@ VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation) {
     tr.postTranslate(0.5 * (fx - 1), 0.5 * (fy - 1));
     process->setMatrix(tr);
     process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, ic, 0, halide_type_of<uint8_t>());
-    return Express::Variable::create(Express::Expr::create(dest, true), 0);
+    auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
+    return _Squeeze(res, {0});
 }
 
 VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int borderValue) {
-    auto dims = src->getInfo()->dim; // NHWC
-    int ih = dims[1], iw = dims[2], ic = dims[3];
+    int ih, iw, ic;
+    getVARPSize(src, &ih, &iw, &ic);
     int oh = dsize.height, ow = dsize.width;
     auto dest = Tensor::create({1, oh, ow, ic}, halide_type_of<uint8_t>());
     ImageProcess::Config config;
@@ -111,7 +112,8 @@ VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int b
     process->setMatrix(M);
     process->setPadding(borderValue);
     process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, ic, 0, halide_type_of<uint8_t>());
-    return Express::Variable::create(Express::Expr::create(dest, true), 0);
+    auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
+    return _Squeeze(res, {0});
 }
 
 VARP warpPerspective(VARP src, Matrix M, Size dsize, int flags, int borderMode, int borderValue) {

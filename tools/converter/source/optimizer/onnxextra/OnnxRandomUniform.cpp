@@ -20,7 +20,11 @@ public:
         auto info = op->main_as_Extra();
         std::unique_ptr<OpT> randomUniform(new OpT);
         randomUniform->name       = expr->name();
-        randomUniform->type       = OpType_RandomUniform;
+        if (info->type()->str() == "RandomUniform" || info->type()->str() == "RandomUniformLike") {
+            randomUniform->type       = OpType_RandomUniform;
+        } else {
+            randomUniform->type       = OpType_RandomNormal;
+        }
         randomUniform->main.type  = OpParameter_RandomUniform;
         auto param = new RandomUniformT;
         randomUniform->main.value = param;
@@ -37,9 +41,9 @@ public:
                         ::memcpy(outoutShape.data(), attr->list()->i()->data(), outoutShape.size() * sizeof(int));
                     }
                     hasShape = true;
-                } else if (attributeName == "low") {
+                } else if (attributeName == "low" || attributeName == "mean") {
                     param->low = attr->f();
-                } else if (attributeName == "high") {
+                } else if (attributeName == "high" || attributeName == "scale") {
                     param->high = attr->f();
                 } else if (attributeName == "seed") {
                     param->seed = attr->i();
@@ -84,6 +88,10 @@ static auto gRegister = []() {
     OnnxExtraManager::get()->insert("RandomUniform",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
     OnnxExtraManager::get()->insert("RandomUniformLike",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
+    OnnxExtraManager::get()->insert("RandomNormal",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
+    OnnxExtraManager::get()->insert("RandomNormalLike",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
     return true;
 }();

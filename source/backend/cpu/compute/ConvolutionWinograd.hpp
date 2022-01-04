@@ -13,6 +13,9 @@
 #include "backend/cpu/compute/ConvolutionFloatFactory.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
 
+#define CONVOLUTION_WINOGRAD_MAX_UNIT 8
+#define CONVOLUTION_WINOGRAD_MIN_UNIT 2
+
 namespace MNN {
 class ConvolutionWinograd : public CPUConvolution {
 public:
@@ -39,9 +42,9 @@ private:
     std::shared_ptr<Tensor> mTransformMidBuffer;
     std::shared_ptr<Tensor> mGemmMidBuffer;
 
-    CoreFunctions::WinoTransFunc mSourceTransform;
-    CoreFunctions::WinoTransFunc mDestTransform;
     CoreFunctions::WinoTransPackFunc mSourceTransformPack;
+    CoreFunctions::WinoUnrollTransFunc mSourceUnrollTransform;
+    std::shared_ptr<CoreFunctions::WinoUnrollTransFunc> mDestUnrollTransform;
     std::vector<float> mPostParameters;
 };
 } // namespace MNN

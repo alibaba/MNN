@@ -46,10 +46,6 @@ using ElementType = FLOAT16;
     VecType::save(srcPtr + 10 * packCUnit, v10);                            \
     VecType::save(srcPtr + 11 * packCUnit, v11);
 
-extern "C" {
-    void MNNConvWinoSourceTransformUnit6x6FP16(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep);
-}
-
 namespace MNN {
 
 static void _sourceTransformUnit4x4Pack12(ElementType* srcBlock, ElementType* dstStart, size_t dstStep) {
@@ -290,7 +286,7 @@ static void _sourceTransformUnit8x8Pack12(ElementType* srcBlock, ElementType* ds
         VecType::save(dstPtr + 6 * dstStep + 0 * packCUnit, ep0);
         VecType::save(dstPtr + 6 * dstStep + 1 * packCUnit, ep1);
         VecType::save(dstPtr + 6 * dstStep + 2 * packCUnit, ep2);
-        
+
         srcPtr += ePack << 1;
         dstPtr += ePack << 1;
     }
@@ -411,115 +407,345 @@ static void _sourceTransformUnit6x6Pack12(ElementType* srcBlock, ElementType* ds
 }
 
 
-static void _sourceTransformUnit4x4(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
+static void _sourceUnrollTransformUnit4x4(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
+    constexpr size_t srcUnit = 4; // srcUnit
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    for (int i = 0; i < srcUnit - 1; ++i) { //Nw iteration
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        auto m0 = s0 - s2;
+        auto m1 = s1 + s2;
+        auto m2 = s2 - s1;
+        auto m3 = s3 - s1;
+
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (srcUnit - 1) * dstRowStep);
     auto m0 = s0 - s2;
     auto m1 = s1 + s2;
     auto m2 = s2 - s1;
     auto m3 = s3 - s1;
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
-    Vec::save(dstStart + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
 }
-static void _destTransformUnit4x2(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
 
+static void _sourceUnrollTransformUnit6x6(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType two(2.f);
+    VecType four(4.f);
+    VecType five(5.f);
+    constexpr size_t srcUnit = 6; // srcUnit
+
+    VecType buf0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType buf1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType buf2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType buf3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType buf4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType buf5 = VecType::load(srcBlock + 5 * srcStep);
+// #pragma unroll(srcUnit)
+    for (int i = 0; i < srcUnit - 1; ++i) { //Nw iteration
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+        auto mid0 = VecType::fma(buf4, buf2, VecType(-4));
+        auto mid1 = VecType::fma(buf3, buf1, VecType(-4));
+        auto mid2 = VecType::fma(buf2, buf0, VecType(-4));
+        auto mid3 = VecType::fma(buf5, buf3, VecType(-4));
+        auto mid4 = buf4 - buf2;
+        auto mid5 = (buf3 - buf1) * VecType(2);
+        VecType m0 = mid0 - mid2;
+        VecType m1 = mid0 + mid1;
+        VecType m2 = mid0 - mid1;
+        VecType m3 = mid4 + mid5;
+        VecType m4 = mid4 - mid5;
+        VecType m5 = mid3 - mid1;
+
+        buf0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        buf1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        buf2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        buf3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        buf4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+        buf5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 5 * dstStep, m5);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (srcUnit - 1) * dstRowStep);
+    auto mid0 = VecType::fma(buf4, buf2, VecType(-4));
+    auto mid1 = VecType::fma(buf3, buf1, VecType(-4));
+    auto mid2 = VecType::fma(buf2, buf0, VecType(-4));
+    auto mid3 = VecType::fma(buf5, buf3, VecType(-4));
+    auto mid4 = buf4 - buf2;
+    auto mid5 = (buf3 - buf1) * VecType(2);
+    VecType m0 = mid0 - mid2;
+    VecType m1 = mid0 + mid1;
+    VecType m2 = mid0 - mid1;
+    VecType m3 = mid4 + mid5;
+    VecType m4 = mid4 - mid5;
+    VecType m5 = mid3 - mid1;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 4 * dstStep, m4);
+    VecType::save(dstFloatPtr + 5 * dstStep, m5);
+
+ }
+
+
+static void _sourceUnrollTransformUnit8x8(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    constexpr size_t srcUnit = 8; // srcUnit
+
+    VecType buf0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType buf1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType buf2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType buf3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType buf4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType buf5 = VecType::load(srcBlock + 5 * srcStep);
+    VecType buf6 = VecType::load(srcBlock + 6 * srcStep);
+    VecType buf7 = VecType::load(srcBlock + 7 * srcStep);
+// #pragma unroll(srcUnit - 1)
+    for (int i = 0; i < srcUnit - 1; ++i) { //Nw iteration
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        VecType mid0, mid1, mid2;
+        mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(36)), buf4, VecType(-13));
+        mid1     = VecType::fma(VecType::fma(buf4, buf0, VecType(36)), buf2, VecType(-13));
+        VecType m0 = mid1 - mid0;
+
+        mid2     = VecType::fma(VecType::fma(buf5, buf1, VecType(36)), buf3, VecType(-13));
+        VecType m1 = mid0 + mid2;
+        VecType m2 = mid0 - mid2;
+        mid1     = VecType::fma(VecType::fma(buf7, buf3, VecType(36)), buf5, VecType(-13));
+        VecType m7 = mid1 - mid2;
+
+        mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(9)), buf4, VecType(-10));
+        mid1     = VecType::fma(buf5, buf1, VecType(18)) + VecType::fma(buf5, buf3, VecType(-20));
+        mid2     = VecType::fma(buf5 * 3, buf1, VecType(12));
+        VecType m3 = mid0 + mid1;
+        VecType m4 = mid0 - mid1;
+
+        mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(4)), buf4, VecType(-5));
+        mid1     = VecType::fma(mid2, buf3, VecType(-15));
+        VecType m5 = mid0 + mid1;
+        VecType m6 = mid0 - mid1;
+
+        buf0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        buf1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        buf2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        buf3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        buf4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+        buf5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 5 * dstStep, m5);
+        buf6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 6 * dstStep, m6);
+        buf7 = VecType::load(srcFloatPtr + 7 * srcStep);
+        VecType::save(dstFloatPtr + 7 * dstStep, m7);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (srcUnit - 1) * dstRowStep);
+    VecType mid0, mid1, mid2;
+    mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(36)), buf4, VecType(-13));
+    mid1     = VecType::fma(VecType::fma(buf4, buf0, VecType(36)), buf2, VecType(-13));
+    VecType m0 = mid1 - mid0;
+
+    mid2     = VecType::fma(VecType::fma(buf5, buf1, VecType(36)), buf3, VecType(-13));
+    VecType m1 = mid0 + mid2;
+    VecType m2 = mid0 - mid2;
+    mid1     = VecType::fma(VecType::fma(buf7, buf3, VecType(36)), buf5, VecType(-13));
+    VecType m7 = mid1 - mid2;
+
+    mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(9)), buf4, VecType(-10));
+    mid1     = VecType::fma(buf5, buf1, VecType(18)) + VecType::fma(buf5, buf3, VecType(-20));
+    mid2     = VecType::fma(buf5 * 3, buf1, VecType(12));
+    VecType m3 = mid0 + mid1;
+    VecType m4 = mid0 - mid1;
+
+    mid0     = VecType::fma(VecType::fma(buf6, buf2, VecType(4)), buf4, VecType(-5));
+    mid1     = VecType::fma(mid2, buf3, VecType(-15));
+    VecType m5 = mid0 + mid1;
+    VecType m6 = mid0 - mid1;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 4 * dstStep, m4);
+    VecType::save(dstFloatPtr + 5 * dstStep, m5);
+    VecType::save(dstFloatPtr + 6 * dstStep, m6);
+    VecType::save(dstFloatPtr + 7 * dstStep, m7);
+
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit4x2(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        auto m0 = s0 + s1 + s2;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m1 = (s1 - s2) + s3;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto m0 = s0 + s1 + s2;
     auto m1 = (s1 - s2) + s3;
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
 }
-static void _destTransformUnit4x3(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
+template<size_t IterLoop>
+static void _destUnrollTransformUnit4x3(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        auto m0 = s0 + s1 + s2;
+        auto m1 = (s1 - s2);
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m2 = (s1 + s2) + s3;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto m0 = s0 + s1 + s2;
     auto m1 = (s1 - s2);
     auto m2 = (s1 + s2) + s3;
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
 }
 
-#define LOAD6                                     \
-Vec s0 = Vec::load(srcBlock + 0 * srcStep); \
-Vec s1 = Vec::load(srcBlock + 1 * srcStep); \
-Vec s2 = Vec::load(srcBlock + 2 * srcStep); \
-Vec s3 = Vec::load(srcBlock + 3 * srcStep); \
-Vec s4 = Vec::load(srcBlock + 4 * srcStep); \
-Vec s5 = Vec::load(srcBlock + 5 * srcStep);
 
-static void MNNConvWinoSourceTransformUnit6x6FP16(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    LOAD6;
+template<size_t IterLoop>
+static void _destUnrollTransformUnit6x5(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
-    auto b0 = Vec::fma(s4, s2, Vec(-4));
-    auto b1 = Vec::fma(s3, s1, Vec(-4));
-    auto b2 = Vec::fma(s2, s0, Vec(-4));
-    auto b3 = Vec::fma(s5, s3, Vec(-4));
-    auto b4 = s4 - s2;
-    auto b5 = (s3 - s1) * Vec(2);
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
 
-    Vec m0 = b0 - b2;
-    Vec m1 = b0 + b1;
-    Vec m2 = b0 - b1;
-    Vec m3 = b4 + b5;
-    Vec m4 = b4 - b5;
-    Vec m5 = b3 - b1;
+        auto m0 = s0 + s1 + s2 + s3 + s4;
+        auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
+        auto m2 = (s1 + s2) + (s3 + s4) * 4.f;
+        auto m3 = (s1 - s2) + (s3 - s4) * 8.f;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m4 = (s1 + s2) + (s3 + s4) * 16.f + s5;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
-    Vec::save(dstStart + 3 * dstStep, m3);
-    Vec::save(dstStart + 4 * dstStep, m4);
-    Vec::save(dstStart + 5 * dstStep, m5);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
+    auto m0 = s0 + s1 + s2 + s3 + s4;
+    auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
+    auto m2 = (s1 + s2) + (s3 + s4) * 4.f;
+    auto m3 = (s1 - s2) + (s3 - s4) * 8.f;
+    auto m4 = (s1 + s2) + (s3 + s4) * 16.f + s5;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 4 * dstStep, m4);
+
+
 }
 
-static void _destTransformUnit6x5(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
-    Vec s4 = Vec::load(srcBlock + 4 * srcStep);
-    Vec s5 = Vec::load(srcBlock + 5 * srcStep);
+template<size_t IterLoop>
+static void _destUnrollTransformUnit6x4(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
-    auto v0 = s1 + s2;
-    auto v1 = s1 - s2;
-    auto v2 = s3 + s4;
-    auto v3 = s3 - s4;
-    
-    auto m0 = s0 + v0 + v2;
-    auto m1 = Vec::fma(v1, v3, Vec(2));
-    auto m2 = Vec::fma(v0, v2, Vec(4));
-    auto m3 = Vec::fma(v1, v3, Vec(8));
-    auto m4 = Vec::fma(v0, v2, Vec(16)) + s5;
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+        auto v0 = s3 + s4;
+        auto v1 = s3 - s4;
+        auto v2 = s1 + s2;
+        auto v3 = s1 - s2;
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
-    Vec::save(dstStart + 3 * dstStep, m3);
-    Vec::save(dstStart + 4 * dstStep, m4);
-}
-static void _destTransformUnit6x4(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
-    Vec s4 = Vec::load(srcBlock + 4 * srcStep);
-    Vec s5 = Vec::load(srcBlock + 5 * srcStep);
+        auto m0 = s0 + v2 + v0;
+        auto m1 = v3 + v1 + v1;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m2 = v2 + v0 * 4.f;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        auto m3 = v3 + v1 * 8.f + s5;
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
 
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto v0 = s3 + s4;
     auto v1 = s3 - s4;
     auto v2 = s1 + s2;
@@ -527,56 +753,427 @@ static void _destTransformUnit6x4(const FLOAT16* srcBlock, FLOAT16* dstStart, si
 
     auto m0 = s0 + v2 + v0;
     auto m1 = v3 + v1 + v1;
-    auto m2 = Vec::fma(v2, v0, Vec(4));
-    auto m3 = Vec::fma(v3, v1, Vec(8)) + s5;
+    auto m2 = v2 + v0 * 4.f;
+    auto m3 = v3 + v1 * 8.f + s5;
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
-    Vec::save(dstStart + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+
 }
-static void _destTransformUnit6x3(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
-    Vec s4 = Vec::load(srcBlock + 4 * srcStep);
-    Vec s5 = Vec::load(srcBlock + 5 * srcStep);
 
-    auto v0 = s1 + s2;
-    auto v1 = s3 + s4;
+template<size_t IterLoop>
+static void _destUnrollTransformUnit6x3(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
-    auto m0 = s0 + v0 + v1;
-    auto m1 = Vec::fma(s1 - s2, s3 - s4, Vec(2));
-    auto m2 = Vec::fma(v0, v1, Vec(4)) + s5;
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
-    Vec::save(dstStart + 2 * dstStep, m2);
-}
-static void _destTransformUnit6x2(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcStep, size_t dstStep) {
-    Vec s0 = Vec::load(srcBlock + 0 * srcStep);
-    Vec s1 = Vec::load(srcBlock + 1 * srcStep);
-    Vec s2 = Vec::load(srcBlock + 2 * srcStep);
-    Vec s3 = Vec::load(srcBlock + 3 * srcStep);
-    Vec s4 = Vec::load(srcBlock + 4 * srcStep);
-    Vec s5 = Vec::load(srcBlock + 5 * srcStep);
+        auto m0 = s0 + s1 + s2 + s3 + s4;
+        auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m2 = (s1 + s2) + (s3 + s4) * 4.f + s5;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
 
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto m0 = s0 + s1 + s2 + s3 + s4;
-    auto m1 = (s1 - s2) + (s3 - s4) * (FLOAT16)2 + s5;
+    auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
+    auto m2 = (s1 + s2) + (s3 + s4) * 4.f + s5;
 
-    Vec::save(dstStart + 0 * dstStep, m0);
-    Vec::save(dstStart + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+
+}
+template<size_t IterLoop>
+static void _destUnrollTransformUnit6x2(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+        VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+        VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+        VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+        VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+        VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+        VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+        auto m0 = s0 + s1 + s2 + s3 + s4;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m1 = (s1 - s2) + (s3 - s4) * 2.f + s5;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
+    auto m0 = s0 + s1 + s2 + s3 + s4;
+    auto m1 = (s1 - s2) + (s3 - s4) * 2.f + s5;
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+
 }
 
-static Arm82WinogradFunction::TransformFunc gProcUnit6[] = {
-    nullptr, // 0
-    nullptr, // 1
-    _destTransformUnit6x2,
-    _destTransformUnit6x3,
-    _destTransformUnit6x4,
-    _destTransformUnit6x5,
-};
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x2(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    for (int i = 0; i < IterLoop; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + i * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+        VecType s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        VecType s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        VecType s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+        auto m0 = s0 + s1 + s2 + s3 + s4 + s5 + s6;
+        auto m1 = (s1 - s2) + (s3 - s4) * 2.f + (s5 - s6) * 3.f + s7;
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    }
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x3(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    VecType s6 = VecType::load(srcBlock + 6 * srcStep);
+    VecType s7 = VecType::load(srcBlock + 7 * srcStep);
+
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+        auto m0 = s0 + s1 + s2 + s3 + s4 + s5 + s6;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m2 = (s1 + s2) + (s3 + s4) * 4.f;
+        auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        m2 += (s5 + s6) * 9.f + s7;
+        m1 += (s5 - s6) * 3.f;
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+
+    }
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
+    auto m0 = s0 + s1 + s2 + s3 + s4 + s5 + s6;
+    auto m1 = (s1 - s2) + (s3 - s4) * 2.f + (s5 - s6) * 3.f;
+    auto m2 = (s1 + s2) + (s3 + s4) * 4.f + (s5 + s6) * 9.f + s7;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x4(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    VecType s6 = VecType::load(srcBlock + 6 * srcStep);
+    VecType s7 = VecType::load(srcBlock + 7 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        VecType mid0, mid1, mid2, mid3, mid4, mid5;
+        mid0 = s1 + s2;
+        mid1 = s1 - s2;
+        mid2 = s3 + s4;
+        mid3 = s3 - s4;
+        mid4 = s5 + s6;
+        mid5 = s5 - s6;
+        auto m0 = s0 + mid0 + mid2 + mid4;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f + s7;
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop  - 1) * dstRowStep);
+    VecType mid0, mid1, mid2, mid3, mid4, mid5;
+    mid0 = s1 + s2;
+    mid1 = s1 - s2;
+    mid2 = s3 + s4;
+    mid3 = s3 - s4;
+    mid4 = s5 + s6;
+    mid5 = s5 - s6;
+    auto m0 = s0 + mid0 + mid2 + mid4;
+    auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+    auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+    auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f + s7;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+
+
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x5(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    VecType s6 = VecType::load(srcBlock + 6 * srcStep);
+    VecType s7 = VecType::load(srcBlock + 7 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        VecType mid0, mid1, mid2, mid3, mid4, mid5;
+        mid0 = s1 + s2;
+        mid1 = s1 - s2;
+        mid2 = s3 + s4;
+        mid3 = s3 - s4;
+        mid4 = s5 + s6;
+        mid5 = s5 - s6;
+        auto m0 = s0 + mid0 + mid2 + mid4;
+        auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f + s7;
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
+    VecType mid0, mid1, mid2, mid3, mid4, mid5;
+    mid0 = s1 + s2;
+    mid1 = s1 - s2;
+    mid2 = s3 + s4;
+    mid3 = s3 - s4;
+    mid4 = s5 + s6;
+    mid5 = s5 - s6;
+    auto m0 = s0 + mid0 + mid2 + mid4;
+    auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+    auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+    auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+    auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f + s7;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 4 * dstStep, m4);
+
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x6(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+    VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+    VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+    VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+    VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+    VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+    VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+    VecType s6 = VecType::load(srcBlock + 6 * srcStep);
+    VecType s7 = VecType::load(srcBlock + 7 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        VecType mid0, mid1, mid2, mid3, mid4, mid5;
+        mid0 = s1 + s2;
+        mid1 = s1 - s2;
+        mid2 = s3 + s4;
+        mid3 = s3 - s4;
+        mid4 = s5 + s6;
+        mid5 = s5 - s6;
+        auto m0 = s0 + mid0 + mid2 + mid4;
+        auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+        auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+        auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+        auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f + s7;
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+        s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+        VecType::save(dstFloatPtr + 5 * dstStep, m5);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart + (IterLoop - 1) * dstRowStep);
+
+    VecType mid0, mid1, mid2, mid3, mid4, mid5;
+    mid0 = s1 + s2;
+    mid1 = s1 - s2;
+    auto m0 = s0 + mid0;
+    mid2 = s3 + s4;
+    mid3 = s3 - s4;
+    m0 = m0 + mid2;
+    mid4 = s5 + s6;
+    mid5 = s5 - s6;
+    m0 = m0 + mid4;
+
+    auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+    auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+    auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+    auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f;
+    auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f + s7;
+
+    VecType::save(dstFloatPtr + 0 * dstStep, m0);
+    VecType::save(dstFloatPtr + 1 * dstStep, m1);
+    VecType::save(dstFloatPtr + 2 * dstStep, m2);
+    VecType::save(dstFloatPtr + 3 * dstStep, m3);
+    VecType::save(dstFloatPtr + 4 * dstStep, m4);
+    VecType::save(dstFloatPtr + 5 * dstStep, m5);
+
+}
+
+template<size_t IterLoop>
+static void _destUnrollTransformUnit8x7(const ElementType* srcBlock, ElementType* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+
+        VecType s0 = VecType::load(srcBlock + 0 * srcStep);
+        VecType s1 = VecType::load(srcBlock + 1 * srcStep);
+        VecType s2 = VecType::load(srcBlock + 2 * srcStep);
+        VecType s3 = VecType::load(srcBlock + 3 * srcStep);
+        VecType s4 = VecType::load(srcBlock + 4 * srcStep);
+        VecType s5 = VecType::load(srcBlock + 5 * srcStep);
+        VecType s6 = VecType::load(srcBlock + 6 * srcStep);
+        VecType s7 = VecType::load(srcBlock + 7 * srcStep);
+    for (int i = 0; i < IterLoop - 1; ++i) {
+        auto srcFloatPtr = (const ElementType*)(srcBlock + (i + 1) * srcRowStep);
+        auto dstFloatPtr = (ElementType*)(dstStart + i * dstRowStep);
+
+        VecType mid0, mid1, mid2, mid3, mid4, mid5;
+        mid0 = s1 + s2;
+        mid1 = s1 - s2;
+        mid2 = s3 + s4;
+        mid3 = s3 - s4;
+        mid4 = s5 + s6;
+        mid5 = s5 - s6;
+        auto m0 = s0 + mid0 + mid2 + mid4;
+        auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+        auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+        auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+        auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f;
+        auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f;
+        s0 = VecType::load(srcFloatPtr + 0 * srcStep);
+        auto m6 = mid0 + mid2 * 64.f + mid4 * 729.f + s7;
+        s1 = VecType::load(srcFloatPtr + 1 * srcStep);
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        s2 = VecType::load(srcFloatPtr + 2 * srcStep);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        s3 = VecType::load(srcFloatPtr + 3 * srcStep);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        s4 = VecType::load(srcFloatPtr + 4 * srcStep);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        s5 = VecType::load(srcFloatPtr + 5 * srcStep);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+        s6 = VecType::load(srcFloatPtr + 6 * srcStep);
+        VecType::save(dstFloatPtr + 5 * dstStep, m5);
+        s7 = VecType::load(srcFloatPtr + 7 * srcStep);
+        VecType::save(dstFloatPtr + 6 * dstStep, m6);
+    }
+
+    auto dstFloatPtr = (ElementType*)(dstStart +(IterLoop  - 1) * dstRowStep);
+
+        VecType mid0, mid1, mid2, mid3, mid4, mid5;
+        mid0 = s1 + s2;
+        mid1 = s1 - s2;
+        mid2 = s3 + s4;
+        mid3 = s3 - s4;
+        mid4 = s5 + s6;
+        mid5 = s5 - s6;
+        auto m0 = s0 + mid0 + mid2 + mid4;
+        auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
+        auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
+        auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
+        auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f;
+        auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f;
+        auto m6 = mid0 + mid2 * 64.f + mid4 * 729.f + s7;
+
+        VecType::save(dstFloatPtr + 0 * dstStep, m0);
+        VecType::save(dstFloatPtr + 1 * dstStep, m1);
+        VecType::save(dstFloatPtr + 2 * dstStep, m2);
+        VecType::save(dstFloatPtr + 3 * dstStep, m3);
+        VecType::save(dstFloatPtr + 4 * dstStep, m4);
+        VecType::save(dstFloatPtr + 5 * dstStep, m5);
+        VecType::save(dstFloatPtr + 6 * dstStep, m6);
+
+}
 
 
 Arm82WinogradFunction::TransformPackFunc Arm82WinogradFunction::chooseWinoSourceTransformPack(int k, int w, int ePack, int lPack, int packCUnit) {
@@ -598,32 +1195,220 @@ Arm82WinogradFunction::TransformPackFunc Arm82WinogradFunction::chooseWinoSource
 }
 
 
-Arm82WinogradFunction::TransformFunc Arm82WinogradFunction::chooseSourceTransform(int k, int w) {
+Arm82WinogradFunction::WinoUnrollTransFunc Arm82WinogradFunction::chooseSourceUnrollTransform(int k, int w) {
+    if (8 == k && 8 == w) {
+        return _sourceUnrollTransformUnit8x8;
+    }
     if (6 == k && 6 == w) {
-        return MNNConvWinoSourceTransformUnit6x6FP16;
+        return _sourceUnrollTransformUnit6x6;
     }
     if (4 == k && 4 == w) {
-        return _sourceTransformUnit4x4;
+        return _sourceUnrollTransformUnit4x4;
     }
     MNN_ASSERT(false);
     return nullptr;
 }
 
-Arm82WinogradFunction::TransformFunc Arm82WinogradFunction::chooseDestTransform(int k, int h) {
-    if (6 == k) {
-        if (h <= 1 || h > 5) {
-            return nullptr;
+
+void Arm82WinogradFunction::chooseWinoDestUnrollTransform(Arm82WinogradFunction::WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h) {
+
+    static Arm82WinogradFunction::WinoUnrollTransFunc gDestTransUnit4[][5] = {
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 0
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 1
+        {
+            nullptr,
+            _destUnrollTransformUnit4x2<1>,
+            _destUnrollTransformUnit4x2<2>,
+            _destUnrollTransformUnit4x2<3>,
+            _destUnrollTransformUnit4x2<4>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit4x3<1>,
+            _destUnrollTransformUnit4x3<2>,
+            _destUnrollTransformUnit4x3<3>,
+            _destUnrollTransformUnit4x3<4>
         }
-        return gProcUnit6[h];
+    };
+
+    static Arm82WinogradFunction::WinoUnrollTransFunc gDestTransUnit6[][7] = {
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 0
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 1
+        {
+            nullptr,
+            _destUnrollTransformUnit6x2<1>,
+            _destUnrollTransformUnit6x2<2>,
+            _destUnrollTransformUnit6x2<3>,
+            _destUnrollTransformUnit6x2<4>,
+            _destUnrollTransformUnit6x2<5>,
+            _destUnrollTransformUnit6x2<6>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit6x3<1>,
+            _destUnrollTransformUnit6x3<2>,
+            _destUnrollTransformUnit6x3<3>,
+            _destUnrollTransformUnit6x3<4>,
+            _destUnrollTransformUnit6x3<5>,
+            _destUnrollTransformUnit6x3<6>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit6x4<1>,
+            _destUnrollTransformUnit6x4<2>,
+            _destUnrollTransformUnit6x4<3>,
+            _destUnrollTransformUnit6x4<4>,
+            _destUnrollTransformUnit6x4<5>,
+            _destUnrollTransformUnit6x4<6>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit6x5<1>,
+            _destUnrollTransformUnit6x5<2>,
+            _destUnrollTransformUnit6x5<3>,
+            _destUnrollTransformUnit6x5<4>,
+            _destUnrollTransformUnit6x5<5>,
+            _destUnrollTransformUnit6x5<6>
+        }
+    };
+
+    static Arm82WinogradFunction::WinoUnrollTransFunc gDestTransUnit8[][9] = {
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 0
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        }, // 1
+        {
+            nullptr,
+            _destUnrollTransformUnit8x2<1>,
+            _destUnrollTransformUnit8x2<2>,
+            _destUnrollTransformUnit8x2<3>,
+            _destUnrollTransformUnit8x2<4>,
+            _destUnrollTransformUnit8x2<5>,
+            _destUnrollTransformUnit8x2<6>,
+            _destUnrollTransformUnit8x2<7>,
+            _destUnrollTransformUnit8x2<8>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit8x3<1>,
+            _destUnrollTransformUnit8x3<2>,
+            _destUnrollTransformUnit8x3<3>,
+            _destUnrollTransformUnit8x3<4>,
+            _destUnrollTransformUnit8x3<5>,
+            _destUnrollTransformUnit8x3<6>,
+            _destUnrollTransformUnit8x3<7>,
+            _destUnrollTransformUnit8x3<8>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit8x4<1>,
+            _destUnrollTransformUnit8x4<2>,
+            _destUnrollTransformUnit8x4<3>,
+            _destUnrollTransformUnit8x4<4>,
+            _destUnrollTransformUnit8x4<5>,
+            _destUnrollTransformUnit8x4<6>,
+            _destUnrollTransformUnit8x4<7>,
+            _destUnrollTransformUnit8x4<8>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit8x5<1>,
+            _destUnrollTransformUnit8x5<2>,
+            _destUnrollTransformUnit8x5<3>,
+            _destUnrollTransformUnit8x5<4>,
+            _destUnrollTransformUnit8x5<5>,
+            _destUnrollTransformUnit8x5<6>,
+            _destUnrollTransformUnit8x5<7>,
+            _destUnrollTransformUnit8x5<8>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit8x6<1>,
+            _destUnrollTransformUnit8x6<2>,
+            _destUnrollTransformUnit8x6<3>,
+            _destUnrollTransformUnit8x6<4>,
+            _destUnrollTransformUnit8x6<5>,
+            _destUnrollTransformUnit8x6<6>,
+            _destUnrollTransformUnit8x6<7>,
+            _destUnrollTransformUnit8x6<8>
+        },
+        {
+            nullptr,
+            _destUnrollTransformUnit8x7<1>,
+            _destUnrollTransformUnit8x7<2>,
+            _destUnrollTransformUnit8x7<3>,
+            _destUnrollTransformUnit8x7<4>,
+            _destUnrollTransformUnit8x7<5>,
+            _destUnrollTransformUnit8x7<6>,
+            _destUnrollTransformUnit8x7<7>,
+            _destUnrollTransformUnit8x7<8>
+        }
+    };
+
+    ::memset((void*)destFunctions, 0, maxUnit * sizeof(Arm82WinogradFunction::WinoUnrollTransFunc));
+    if (8 == k && h > 1 && h < 8) {
+        memcpy((void*)destFunctions, gDestTransUnit8[h], (8 + 1) * sizeof(Arm82WinogradFunction::WinoUnrollTransFunc));
+        return;
     }
-    if (2 == h && 4 == k) {
-        return _destTransformUnit4x2;
+    if (6 == k && h > 1 && h < 6) {
+        ::memcpy((void*)destFunctions, gDestTransUnit6[h], (6 + 1) * sizeof(Arm82WinogradFunction::WinoUnrollTransFunc));
+        return;
     }
-    if (3 == h && 4 == k) {
-        return _destTransformUnit4x3;
+    if (4 == k && h > 1 && h < 4) {
+        memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(Arm82WinogradFunction::WinoUnrollTransFunc));
+        return;
     }
-    return nullptr;
+    MNN_ASSERT(false);
+    MNN_ERROR("Can not find function for bf16 chooseWinoDestUnrollTransform: k:%d, h:%d\n", k, h);
+    return;
 }
+
 
 int Arm82MNNGetConvTileNumber() {
     int eP, lP, hP;

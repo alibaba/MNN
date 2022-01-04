@@ -150,7 +150,7 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
 
 void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
-void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, 
+void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW,
                             size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
 
 
@@ -235,9 +235,11 @@ struct CoreFunctions {
 
     typedef void (*WinoTransFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);
     typedef void (*WinoTransPackFunc)(float* srcBlock, float* dstStart, size_t dstStep);
-    WinoTransFunc(*chooseWinoSourceTransform)(int k, int w);
     WinoTransPackFunc(*chooseWinoSourceTransformPack)(int k, int w, int ePack, int lPack, int packCUnit);
-    WinoTransFunc(*chooseWinoDestTransform)(int k, int h);
+
+    typedef void (*WinoUnrollTransFunc)(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
+    WinoUnrollTransFunc(*chooseWinoSourceUnrollTransform)(int k, int w);
+    void(*chooseWinoDestUnrollTransform)(WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h);
 
     void(*MNNDeconvRunForUnitDepthWise)(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
                                       size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);

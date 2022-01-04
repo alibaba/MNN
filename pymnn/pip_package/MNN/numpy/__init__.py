@@ -1,6 +1,5 @@
 import math
 import MNN.expr as _F
-from collections.abc import Sequence
 
 # origin function
 _Max = max
@@ -14,10 +13,8 @@ float32 = _F.float
 float64 = _F.double
 # constant
 pi = math.pi
-inf = math.inf
-
-from . import random
-from . import linalg
+# inf = math.inf
+inf = float('inf')
 
 # helper functions
 def __not_impl(*args):
@@ -117,7 +114,7 @@ def array(object, dtype=None, copy=True, order='K', subok=False, ndmin=0, like=N
         else:
             x = object
     else:
-        if not isinstance(object, Sequence):
+        if not isinstance(object, _F._Sequence):
             x = _F.scalar(object, dtype)
         else:
             # get shape and dtype of sequence
@@ -167,7 +164,9 @@ def __arange_3(start, stop, step=1, dtype=None):
     return x
 def __arange_1(stop, dtype=None):
     return __arange_3(0, stop, 1, dtype)
-def arange(*args, dtype=None):
+def arange(*args, **kargs):
+    if 'dtype' in kargs: dtype=kargs['dtype']
+    else: dtype = None
     if len(args) == 1:
         return __arange_1(args[0], dtype)
     if len(args) == 4:
@@ -190,8 +189,7 @@ def geomspace(start, stop, num=50, endpoint=True, dtype=None, axis=0):
     base = pow(stop / _F._Float(start), 1./ num)
     start = math.log(start, base)
     return logspace(start, _F._Float(num), num, endpoint, base, dtype, axis)
-def meshgrid(*xi, copy=True, sparse=False, indexing='xy'):
-    __not_impl()
+def meshgrid(xi, copy=True, sparse=False, indexing='xy'): __not_impl()
 # 4. Building matrices
 def diag(v, k=0):__not_impl()
 def diagflat(v, k=0):__not_impl()
@@ -254,7 +252,7 @@ def transpose(a, axes=None):
         axes = [i for i in reversed(range(a.ndim))]
     return _F.transpose(a, axes)
 # 4. Changing number of dimensions
-def __atleast_nd(*arys, n):
+def __atleast_nd(n, *arys):
     res = []
     for ary in arys:
         ary = array(ary, copy=False, ndmin=n)
@@ -264,9 +262,9 @@ def __atleast_nd(*arys, n):
     else:
         return res
 def atleast_1d(*arys):
-    return __atleast_nd(*arys, n=1)
+    return __atleast_nd(1, *arys)
 def atleast_2d(*arys):
-    return __atleast_nd(*arys, n=2)
+    return __atleast_nd(2, *arys)
 def atleast_3d(*arys):
     res = []
     for ary in arys:
@@ -281,13 +279,13 @@ def atleast_3d(*arys):
     else:
         return res
 def broadcast(x, y):__not_impl()
-def broadcast_to(array, shape, subok=False):
+def broadcast_to(array, shape):
     array = asarray(array)
     src_shape = array.shape
     if not _F._can_broadcast(src_shape, shape):
         raise ValueError('can\'t broadcast from ', src_shape, ' to ', shape, '.')
     return _F.broadcast_to(array, shape)
-def broadcast_arrays(*args, subok=False):
+def broadcast_arrays(*args):
     args = [array(_m, copy=False) for _m in args]
     shape = __broadcast_shape(args)
     res = []
@@ -425,7 +423,10 @@ def roll(a, shift, axis=None):__not_impl()
 def rot90(m, k=1, axes=(0, 1)):__not_impl()
 # Binary operations
 # 1. Elementwise bit operations [Not Impl]
-bitwise_and = bitwise_or = bitwise_xor = invert = left_shift = \
+bitwise_and = _F.bitwise_and
+bitwise_or = _F.bitwise_or
+bitwise_xor = _F.bitwise_xor
+invert = left_shift = \
 right_shift = packbits = unpackbits = binary_repr = base_repr = __not_impl
 # String operations [Not Impl]
 # Indexing routines
@@ -552,10 +553,16 @@ ceil = _F.ceil
 trunc = _F.round
 def prod(a, axis=None, out=None, keepdims=False):
     if axis is None: return asscalar(_F.reduce_prod(ravel(a)))
-    return _F.reduce_prod(a, axis, keepdims)
+    res = _F.reduce_prod(a, axis, keepdims)
+    if res.ndim == 0:
+        return asscalar(res)
+    return res
 def sum(a, axis=None, out=None, keepdims=False):
     if axis is None: return asscalar(_F.reduce_sum(ravel(a)))
-    return _F.reduce_sum(a, axis, keepdims)
+    res = _F.reduce_sum(a, axis, keepdims)
+    if res.ndim == 0:
+        return asscalar(res)
+    return res
 nanprod = prod
 nansum = sum
 sqrt = _F.sqrt
@@ -630,7 +637,7 @@ def clip(x, a_min, a_max):
     return _F.cast(_F.relu6(_F.cast(x), a_min, a_max), dtype)
 def cbrt(x):
     x = array(x)
-    return power(x, _F.scalar(1/3, x.dtype))
+    return power(x, _F.scalar(1./3, x.dtype))
 def degrees(x):__not_impl()
 def radians(x):__not_impl()
 def unwrap(p, discont=None, axis=- 1):__not_impl()
@@ -642,7 +649,7 @@ def nancumprod(x):__not_impl()
 def nancumsum(x):__not_impl()
 def diff(a, n=1, axis=-1):__not_impl()
 def ediff1d(ary, to_end=None, to_begin=None):__not_impl()
-def gradient(f, *varargs, axis=None, edge_order=1):__not_impl()
+def gradient(f, varargs, axis=None, edge_order=1):__not_impl()
 def cross(a, b, axisa=-1, axisb=-1, axisc=-1, axis=None):__not_impl()
 def trapz(y, x=None, dx=1.0, axis=-1):__not_impl()
 def i0(x):__not_impl()
@@ -786,3 +793,6 @@ __override_operator(_F.Var, "sum", sum)
 __override_operator(_F.Var, "swapaxes", swapaxes)
 __override_operator(_F.Var, "transpose", transpose)
 __override_operator(_F.Var, "var", var)
+
+from . import random
+from . import linalg

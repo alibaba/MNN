@@ -1,5 +1,5 @@
+# -*- coding: UTF-8 -*-
 import unittest
-
 # test expr
 import MNN
 import MNN.expr as expr
@@ -8,6 +8,7 @@ import MNN.numpy as mp
 import numpy as np
 import torch
 import cv2
+from sys import version_info
 
 img_path = '../../resource/images/cat.jpg'
 
@@ -58,6 +59,49 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(len(l), len(r))
         for x,y in zip(l, r):
             self.assertEqual(x, y)
+    def assertEqualPoints(self, l, r):
+        l = np.asarray(l).astype(r.dtype).flatten()
+        r = r.flatten()
+        self.assertEqualArray(l, r)
+    # test V2 api
+    # test ImageProcess
+    def test_image_process(self):
+        src = np.asarray([[50, 50], [200, 50], [50, 200]], dtype=np.float32)
+        dst = np.asarray([[10, 100], [200, 20], [100, 250]], dtype=np.float32)
+        ih, iw, ic = self.img_.shape
+        # test tensor create
+        tmp = MNN.Tensor((1, ih, iw, ic), MNN.Halide_Type_Uint8, MNN.Tensor_DimensionType_Tensorflow)
+        dest = MNN.Tensor(tmp, MNN.Tensor_DimensionType_Tensorflow)
+        # 1. create config
+        config = {
+            'filterType': MNN.CV_Filter_BILINEAL,
+            'sourceFormat': MNN.CV_ImageFormat_BGR,
+            'destFormat': MNN.CV_ImageFormat_BGR,
+            'wrap': MNN.CV_Wrap_ZERO,
+            'mean': (0., 0., 0., 0.),
+            'normal': (1., 1., 1., 1.),
+        }
+        # 2. create ImageProcess
+        proc = MNN.CVImageProcess(config)
+        # 3. create Matrix
+        m = MNN.CVMatrix()
+        m.setPolyToPoly(src, dst)
+        # 4. set Matrix and padding
+        proc.setPadding(100)
+        proc.setMatrix(m)
+        # get data pointer of ndarray
+        ptr, _ = self.img_.__array_interface__['data']
+        proc.convert(ptr, iw, ih, iw * ic, dest)
+        dest = dest.getNumpyData()
+        dest = np.squeeze(dest, 0)
+        # opencv like
+        n = cv2.getAffineTransform(src, dst)
+        n = cv2.invertAffineTransform(n)
+        dest_ = cv2.warpAffine(self.img_, n, (iw, ih), borderValue=(100, 100, 100))
+        # cv2.imwrite('cv.jpg', dest_)
+        # cv2.imwrite('mnn.jpg', dest)
+        # img is like
+        self.assertEqual(dest.shape, dest_.shape)
     # test unary
     def test_sign(self):
         self.assertEqualVar(expr.sign(self.x), np.sign(self.x_))
@@ -344,7 +388,8 @@ class UnitTest(unittest.TestCase):
     def test_tile(self):
         x = expr.const([-1.0, -2.0, 3.0, 4.0], [2,2])
         mul = expr.const([2, 2], [2], expr.NCHW, expr.int)
-        self.assertEqualVar(expr.tile(x, mul), torch.tile(torch.Tensor(x.read().copy()), [2, 2]))
+        # self.assertEqualVar(expr.tile(x, mul), torch.tile(torch.Tensor(x.read().copy()), [2, 2]))
+        self.assertEqualVar(expr.tile(x, mul), np.tile(x.read().copy(), [2, 2]))
     def test_gather(self):
         vals = np.arange(1, 25).reshape(4, 3, 2).astype(np.float32)
         x  = expr.const(vals, vals.shape)
@@ -456,16 +501,16 @@ class UnitTest(unittest.TestCase):
         pass
     # filter
     def test_blur(self):
-        x = cv.blur(self.imgf, [3, 3])
-        y = cv2.blur(self.imgf_, [3, 3])
+        x = cv.blur(self.imgf, (3, 3))
+        y = cv2.blur(self.imgf_, (3, 3))
         self.assertEqualImg(x, y)
     def test_boxFilter(self):
-        x = cv.boxFilter(self.imgf, -1, [3, 3])
-        y = cv2.boxFilter(self.imgf_, -1, [3, 3])
+        x = cv.boxFilter(self.imgf, -1, (3, 3))
+        y = cv2.boxFilter(self.imgf_, -1, (3, 3))
         self.assertEqualImg(x, y)
     def test_dilate(self):
-        x = cv.dilate(self.imgf, cv.getStructuringElement(0, [3, 3]))
-        y = cv2.dilate(self.imgf_, cv2.getStructuringElement(0, [3, 3]))
+        x = cv.dilate(self.imgf, cv.getStructuringElement(0, (3, 3)))
+        y = cv2.dilate(self.imgf_, cv2.getStructuringElement(0, (3, 3)))
         self.assertEqualImg(x, y)
     def test_filter2D(self):
         cvKernel = np.asarray([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32)
@@ -474,8 +519,8 @@ class UnitTest(unittest.TestCase):
         y = cv2.filter2D(self.imgf_, -1, cvKernel)
         self.assertEqualImg(x, y)
     def test_GaussianBlur(self):
-        x = cv.GaussianBlur(self.imgf, [3, 3], 10)
-        y = cv2.GaussianBlur(self.imgf_, [3, 3], 10)
+        x = cv.GaussianBlur(self.imgf, (3, 3), 10)
+        y = cv2.GaussianBlur(self.imgf_, (3, 3), 10)
         self.assertEqualImg(x, y)
     def test_getDerivKernels(self):
         x0, x1 = cv.getDerivKernels(1, 2, 1)
@@ -485,8 +530,8 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(x0, y0)
         self.assertEqualVar(x1, y1)
     def test_getGaborKernel(self):
-        x = cv.getGaborKernel([3, 3], 10, 5, 5, 5)
-        y = cv2.getGaborKernel([3, 3], 10, 5, 5, 5)
+        x = cv.getGaborKernel((3, 3), 10, 5, 5, 5)
+        y = cv2.getGaborKernel((3, 3), 10, 5, 5, 5)
         self.assertEqualVar(x, y)
     def test_getGaussianKernel(self):
         x = cv.getGaussianKernel(3, 5)
@@ -494,8 +539,8 @@ class UnitTest(unittest.TestCase):
         y = y.reshape(x.shape)
         self.assertEqualVar(x, y)
     def test_getStructuringElement(self):
-        x = cv.getStructuringElement(0, [3, 3])
-        y = cv2.getStructuringElement(0, [3, 3])
+        x = cv.getStructuringElement(0, (3, 3))
+        y = cv2.getStructuringElement(0, (3, 3))
         self.assertEqualVar(x, y)
     def test_Laplacian(self):
         x = cv.Laplacian(self.imgf, -1)
@@ -516,8 +561,8 @@ class UnitTest(unittest.TestCase):
     def test_sepFilter2D(self):
         kernelX = np.asarray([[0, -1, 0]], dtype=np.float32)
         kernelY = np.asarray([[-1, 0, -1]], dtype=np.float32)
-        mnnKernelX = expr.const(kernelX, [1, 3])
-        mnnKernelY = expr.const(kernelY, [1, 3])
+        mnnKernelX = expr.const(kernelX, (1, 3))
+        mnnKernelY = expr.const(kernelY, (1, 3))
         x = cv.sepFilter2D(self.imgf, -1, mnnKernelX, mnnKernelY, 1)
         y = cv2.sepFilter2D(self.imgf_, -1, kernelX, kernelY, delta=1)
         self.assertEqualImg(x, y)
@@ -526,8 +571,8 @@ class UnitTest(unittest.TestCase):
         y = cv2.Sobel(self.imgf_, -1, 1, 0)
         self.assertEqualImg(x, y)
     def test_sqrBoxFilter(self):
-        x = cv.sqrBoxFilter(self.imgf, -1, [1,1], [-1,-1])
-        y = cv2.sqrBoxFilter(self.imgf_, -1, [1,1])
+        x = cv.sqrBoxFilter(self.imgf, -1, (1,1))
+        y = cv2.sqrBoxFilter(self.imgf_, -1, (1,1))
         self.assertEqualImg(x, y)
     # geometric
     def test_getAffineTransform(self):
@@ -545,19 +590,32 @@ class UnitTest(unittest.TestCase):
         x = np.asarray(x.read()).reshape(y.shape)
         self.assertEqualArray(x, y)
     def test_getRectSubPix(self):
-        x = cv.getRectSubPix(self.img, [11, 11], [10.0, 10.0])
-        y = cv2.getRectSubPix(self.img_, [11, 11], [10, 10])
+        x = cv.getRectSubPix(self.img, (11, 11), (10.0, 10.0))
+        y = cv2.getRectSubPix(self.img_, (11, 11), (10, 10))
         self.assertEqualImg(x, y)
+    def test_getRotationMatrix2D(self):
+        x = cv.getRotationMatrix2D((10., 10.), 50, 0.6)
+        y = cv2.getRotationMatrix2D((10., 10.), 50, 0.6)
+        x = np.asarray(x.read()[:6]).reshape(y.shape)
+        self.assertEqualArray(x, y)
+    def test_invertAffineTransform(self):
+        cvM = np.asarray([[0.4, 0.5, 0.6], [0.7, 0.8, 0.9]], dtype=np.float32)
+        mnnM = MNN.CVMatrix()
+        mnnM.write(cvM)
+        x = cv.invertAffineTransform(mnnM)
+        y = cv2.invertAffineTransform(cvM)
+        x = np.asarray(x.read()[:6]).reshape(y.shape)
+        self.assertEqualArray(x, y)
     def test_resize(self):
-        x = cv.resize(self.img, [180, 240])
-        y = cv2.resize(self.img_, [180, 240])
+        x = cv.resize(self.img, (180, 240))
+        y = cv2.resize(self.img_, (180, 240))
         self.assertEqualImg(x, y)
     def test_warpAffine(self):
         cvM = np.asarray([[0.5, 0, 0], [0, 0.8, 0]], dtype=np.float32)
         mnnM = MNN.CVMatrix()
         mnnM.write(cvM)
-        x = cv.warpAffine(self.img, mnnM, [480, 360])
-        y = cv2.warpAffine(self.img_, cvM, [480, 360])
+        x = cv.warpAffine(self.img, mnnM, (480, 360))
+        y = cv2.warpAffine(self.img_, cvM, (480, 360))
         self.assertEqualImg(x, y)
     @unittest.skip("skip for this case is wrong now")
     def test_warpPerspective(self):
@@ -566,11 +624,14 @@ class UnitTest(unittest.TestCase):
                           [-0.0011531961, 0.0011363134, 1]], dtype=np.float32)
         mnnM = MNN.CVMatrix()
         mnnM.write(cvM)
-        x = cv.warpPerspective(self.img, mnnM, [480, 360])
-        y = cv2.warpPerspective(self.img_, cvM, [480, 360])
+        x = cv.warpPerspective(self.img, mnnM, (480, 360))
+        y = cv2.warpPerspective(self.img_, cvM, (480, 360))
         self.assertEqualImg(x, y)
     # miscellaneous
     def test_blendLinear(self):
+        if version_info.major < 3:
+            # py2: cv2 don't have blendLinear
+            return
         w1 = np.ones(self.imgf_.shape, dtype=np.float32)
         w2 = w1 * 0.5
         w1_ = expr.const(w1, [1, w1.shape[0], w1.shape[1], 1], expr.NHWC)
@@ -581,6 +642,52 @@ class UnitTest(unittest.TestCase):
     def test_threshold(self):
         x = cv.threshold(self.imgf, 50, 20, cv.THRESH_BINARY)
         y = cv2.threshold(self.imgf_, 50, 20, cv2.THRESH_BINARY)[1]
+        self.assertEqualImg(x, y)
+    # structural
+    def test_Structural(self):
+        x  = mp.array([[0,0,0,0,0,0,0,0,0,0,0,0,0],
+                        [0,0,0,0,0,0,0,0,0,0,0,0,0],
+                        [0,0,0,1,0,0,0,0,0,0,0,0,0],
+                        [0,0,1,1,1,1,1,1,1,0,0,0,0],
+                        [0,0,1,0,0,1,0,0,0,1,1,0,0],
+                        [0,0,1,0,0,1,0,0,1,0,0,0,0],
+                        [0,0,1,0,0,1,0,0,1,0,0,0,0],
+                        [0,0,1,1,1,1,1,1,1,0,0,0,0],
+                        [0,0,0,1,0,0,1,0,0,0,0,0,0],
+                        [0,0,0,0,0,0,0,0,0,0,0,0,0],
+                        [0,0,0,0,0,0,0,0,0,0,0,0,0],], dtype=mp.uint8)
+        x_ = x.read()
+        contours, _ = cv.findContours(x, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
+        contours_, _ = cv2.findContours(x_, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contour = contours[0]
+        contour_ = contours_[0]
+        self.assertEqualPoints(contour, contour_)
+        self.assertEqual(cv.contourArea(contour), cv2.contourArea(contour_))
+        hull = cv.convexHull(contour)
+        hull_ = cv2.convexHull(contour_)
+        self.assertEqualPoints(hull, hull_)
+        rect = cv.minAreaRect(contour)
+        rect_ = cv2.minAreaRect(contour_)
+        self.assertEqual(rect, rect_)
+        points = cv.boxPoints(rect),
+        points_ = cv2.boxPoints(rect_)
+        self.assertEqualPoints(points, points_)
+        self.assertEqual(tuple(cv.boundingRect(contour)), cv2.boundingRect(contour_))
+        ret, labels, statsv, centroids = cv.connectedComponentsWithStats(x)
+        ret_, labels_, statsv_, centroids_ = cv2.connectedComponentsWithStats(x_)
+        self.assertEqual(ret, ret_)
+        labels = expr.squeeze(labels)
+        self.assertEqualVar(labels, labels_)
+        self.assertEqualVar(statsv, statsv_)
+        self.assertEqualVar(centroids, centroids_)
+    # core
+    def test_vconcat(self):
+        x = cv.vconcat([self.img, self.img])
+        y = cv2.vconcat([self.img_, self.img_])
+        self.assertEqualImg(x, y)
+    def test_hconcat(self):
+        x = cv.hconcat([self.img, self.img])
+        y = cv2.hconcat([self.img_, self.img_])
         self.assertEqualImg(x, y)
     # numpy
     def test_from_shape_or_value(self):
@@ -607,6 +714,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.ascontiguousarray([1, 2, 3]), np.ascontiguousarray([1, 2, 3]))
         self.assertEqualVar(mp.asmatrix([1, 2, 3]), np.asmatrix([1, 2, 3]))
         self.assertEqualVar(mp.copy(mp.array([1, 2, 3])), np.copy(np.array([1, 2, 3])))
+        if version_info.major < 3:
+            # py2: don't support `bytes`
+            return
         self.assertEqualVar(mp.frombuffer(b'\x01\x02', dtype=mp.uint8), np.frombuffer(b'\x01\x02', dtype=np.uint8))
     def test_numerical_ranges(self):
         self.assertEqualVar(mp.arange(3,7,2), np.arange(3,7,2))
@@ -672,6 +782,14 @@ class UnitTest(unittest.TestCase):
         x_ = np.array([0, 1, 2])
         self.assertEqualVar(mp.tile(x, 2), np.tile(x_, 2))
         self.assertEqualVar(mp.repeat(x, 2), np.repeat(x_, 2))
+    def test_binary_operation(self):
+        x = mp.array([1, 2, 3, 4])
+        y = mp.array([4, 3, 2, 1])
+        x_ = np.array([1, 2, 3, 4])
+        y_ = np.array([4, 3, 2, 1])
+        self.assertEqualVar(mp.bitwise_and(x, y), np.bitwise_and(x_, y_))
+        self.assertEqualVar(mp.bitwise_or(x, y), np.bitwise_or(x_, y_))
+        self.assertEqualVar(mp.bitwise_xor(x, y), np.bitwise_xor(x_, y_))
     def test_indexing(self):
         c = mp.array([1, 0, 1, 0])
         c_ = np.array([1, 0, 1, 0])
@@ -790,7 +908,7 @@ class UnitTest(unittest.TestCase):
     def test_padding(self):
         x = mp.array([[1,2],[3,4]])
         x_ = np.array([[1,2],[3,4]])
-        self.assertEqualVar(mp.pad(x, 2), np.pad(x_, 2))
+        self.assertEqualVar(mp.pad(x, 2, 'constant'), np.pad(x_, 2, 'constant'))
         #self.assertEqualVar(mp.pad(x, (2,3), 'reflect'), np.pad(x_, (2,3), 'reflect'))
         #self.assertEqualVar(mp.pad(x, ((2,3),(1,4)), 'symmetric'), np.pad(x_, ((2,3),(1,4)), 'symmetric'))
     def test_rand(self):

@@ -25,7 +25,8 @@ public:
     std::pair<int, int> buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name);
     void buildAccumulate(const std::string& name, const std::string& uName, const std::string& iName, const std::string& oName);
     // Return extra input needed from subgraph
-    std::vector<std::string> buildSubGraph(const onnx::GraphProto* graph, std::string& name, int N, int K);
+    // WhileModule implemention acquire
+    std::vector<std::string> buildSubGraph(const onnx::GraphProto* graph, std::string& name, bool forLoop);
 public:
     virtual int lookupTensor(std::string name);
 public:

@@ -755,6 +755,40 @@ VARP _NotEqual(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_NOTEQUAL);
 }
 
+/*Returns the truth value of x & y element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+
+VARP _BitwiseAnd(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_BITWISE_AND);
+}
+
+/*Returns the truth value of x | y element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _BitwiseOr(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_BITWISE_OR);
+}
+
+/*Returns the truth value of x ^ y element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _BitwiseXor(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_BITWISE_XOR);
+}
+
 /*Computes the sum of elements across dimensions of a variable
 Reduces input_variable along the dimensions given in axis.
 Unless keepdims is true, the rank of the variable is reduced by 1 for each entry in axis.

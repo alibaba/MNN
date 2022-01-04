@@ -33,8 +33,9 @@ public:
                 const auto attr          = info->attr()->GetAs<Attribute>(i);
                 const auto attributeName = attr->key()->str();
                 if (attributeName == "mode") {
-                    const std::map<std::string, PadValueMode> padValueModeMap = {{"constant", CONSTANT},
-                                                                                 {"reflect", REFLECT}};
+                    const std::map<std::string, PadValueMode> padValueModeMap = {
+                        {"constant", CONSTANT}, {"reflect", REFLECT}, {"edge", EDGE}
+                    };
                     auto modeStr                                              = attr->s()->str();
                     if (padValueModeMap.find(modeStr) == padValueModeMap.end()) {
                         LOG(ERROR) << "MNN only support ['constant', 'reflect'] Pad mode";
@@ -79,6 +80,9 @@ public:
                 break;
             case REFLECT:
                 pad->main.AsPadParam()->mode = MNN::PadValueMode_REFLECT;
+                break;
+            case EDGE:
+                pad->main.AsPadParam()->mode = MNN::PadValueMode_EDGE;
                 break;
             default:
                 pad->main.AsPadParam()->mode = MNN::PadValueMode_CONSTANT;

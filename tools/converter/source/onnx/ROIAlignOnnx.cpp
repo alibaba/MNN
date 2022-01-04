@@ -1,4 +1,4 @@
-﻿//
+//
 //  ROIAlignOnnx.cpp
 //  MNNConverter
 //
@@ -16,33 +16,40 @@ MNN::OpParameter ROIAlignOnnx::type() { return MNN::OpParameter_RoiParameters; }
 
 void ROIAlignOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     auto roiAlign = new MNN::RoiParametersT;
-
+    // default value from onnx docs
+    roiAlign->pooledHeight = roiAlign->pooledWidth = 1;
+    roiAlign->poolType = MNN::PoolType_AVEPOOL;
+    roiAlign->spatialScale = 1;
+    roiAlign->samplingRatio = 0;
+    
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {
         const auto& attributeProto = onnxNode->attribute(i);
         const auto& attributeName  = attributeProto.name();
 
-        if (attributeName == "output_size") {
-            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
-            DCHECK(attributeProto.ints_size() == 2) << "Node Attribute ERROR";
-            roiAlign->pooledHeight = attributeProto.ints(0);
-            roiAlign->pooledWidth  = attributeProto.ints(1);
+        if (attributeName == "output_height") {
+            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
+            roiAlign->pooledHeight = attributeProto.i();
+        } else if (attributeName == "output_width") {
+            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
+            roiAlign->pooledWidth  = attributeProto.i();
+        } else if (attributeName == "mode") {
+            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_STRING) << "Node Attribute ERROR";
+            roiAlign->poolType = (attributeProto.s() == "max" ? MNN::PoolType_MAXPOOL : MNN::PoolType_AVEPOOL);
         } else if (attributeName == "spatial_scale") {
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_FLOAT) << "Node Attribute ERROR";
             roiAlign->spatialScale = attributeProto.f();
         } else if (attributeName == "sampling_ratio") {
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
             roiAlign->samplingRatio = attributeProto.i();
-        } else if (attributeName == "aligned") {
-            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
-            roiAlign->aligned = attributeProto.i() == 0 ? false : true;
+        } else if (attributeName == "coordinate_transformation_mode") {
+            roiAlign->aligned = (attributeProto.s() == "half_pixel"); // opset_version = 16
         } else {
             DLOG(ERROR) << "TODO!";
         }
     }
 
-    roiAlign->poolType = MNN::PoolType::PoolType_AVEPOOL;
     dstOp->main.value  = roiAlign;
 };
 
-REGISTER_CONVERTER(ROIAlignOnnx, ROIAlign);
+REGISTER_CONVERTER(ROIAlignOnnx, RoiAlign);

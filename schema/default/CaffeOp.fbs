@@ -181,6 +181,7 @@ table LRN {
     localSize:int;
     alpha:float;
     beta:float;
+    bias:float=1.0;
 }
 
 table ArgMax {
@@ -352,4 +353,9 @@ table EltwiseInt8 {
     inputQuan0:QuantizedFloatParam;
     inputQuan1:QuantizedFloatParam;
     outputQuan:QuantizedFloatParam;
+}
+
+table CumSum {
+    exclusive:bool;
+    reverse:bool;
 }

@@ -51,11 +51,57 @@ public:
     }
 };
 
+class GeometryEyeLike : public GeometryComputer {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        int k = 0;
+        if (inputs.size() == 2) {
+            k = inputs[1]->host<int>()[0];
+        }
+        auto shape = outputs[0]->shape();
+        int row = shape[shape.size() - 2], col = shape[shape.size() - 1];
+        int batch = (shape.size() == 3 ? shape[0] : 1);
+        
+        auto outputDes = TensorUtils::getDescribe(outputs[0]);
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        if (k >= col || k <= -row) {
+            outputDes->regions.clear();
+            return true;
+        }
+        outputDes->regions.resize(1);
+        auto& reg = outputDes->regions[0];
+        auto type = outputs[0]->getType();
+        auto oneConst = context.allocConst(op, {}, type);
+        if (type == halide_type_of<float>()) {
+            oneConst->host<float>()[0] = 1.0;
+        } else {
+            oneConst->host<int>()[0] = 1;
+        }
+        reg.origin = oneConst.get();
+        reg.src.stride[0] = reg.src.stride[1] = 0;
+        reg.dst.stride[0] = row * col;
+        reg.dst.stride[1] = col + 1;
+        reg.size[0] = batch;
+        if (k >= 0) {
+            reg.dst.offset = k;
+            reg.size[1] = ALIMIN(row, col - k);
+        } else {
+            reg.dst.offset = (-k) * col;
+            reg.size[1] = ALIMIN(row + k, col);
+        }
+        
+        return true;
+    }
+};
+
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryFill);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Fill});
     std::shared_ptr<GeometryComputer> comp2(new GeometryZerolike);
     GeometryComputer::registerGeometryComputer(comp2, {OpType_ZerosLike, OpType_ZeroGrad});
+    std::shared_ptr<GeometryComputer> comp3(new GeometryEyeLike);
+    GeometryComputer::registerGeometryComputer(comp3, {OpType_EyeLike});
 }
 
 REGISTER_GEOMETRY(GeometryFill, _create);

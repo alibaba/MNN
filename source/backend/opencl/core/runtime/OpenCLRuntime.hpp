@@ -17,7 +17,6 @@
 #include <string>
 #include <vector>
 
-#include <sstream>
 #include <string>
 #include <vector>
 #include "core/Macro.h"
@@ -111,7 +110,7 @@ public:
     double getQueuedTime(const cl::Event *event);
     double getSubmitTime(const cl::Event *event);
 
-    std::pair<const void*, size_t> makeCache();
+    std::pair<const void*, size_t> makeCache(void* tuneInfo);
     bool setCache(std::pair<const void*, size_t> cache);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);

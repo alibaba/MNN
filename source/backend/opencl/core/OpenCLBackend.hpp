@@ -30,7 +30,7 @@
 
 namespace MNN {
 namespace OpenCL {
-
+struct TuneInfo;
 class CLRuntime : public Runtime {
 public:
     CLRuntime(const Backend::Info& info);
@@ -42,6 +42,10 @@ public:
     virtual bool onSetCache(const void* buffer, size_t size) override;
     bool isCLRuntimeError();
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
+    virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           const MNN::Op* op, OpInfo& dstInfo) const override;
+    virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                               const MNN::Op* op) override;
 private:
     Backend::Info mInfo;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
@@ -50,7 +54,7 @@ private:
     bool mCLRuntimeError = false;
 
     friend class OpenCLBackend;
-
+    TuneInfo* mTunedInfo;
 };
 
 
@@ -90,9 +94,6 @@ public:
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
     }
-
-    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                             const MNN::Op* op) override;
 
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;

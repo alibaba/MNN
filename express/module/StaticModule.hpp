@@ -11,6 +11,7 @@
 
 #include <MNN/expr/Module.hpp>
 #include "core/Schedule.hpp"
+#include "core/Session.hpp"
 
 namespace MNN {
 class Session;
@@ -38,7 +39,7 @@ private:
         std::shared_ptr<BufferStorage> mNetStorage;
         ScheduleConfig mConfig;
         std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
-        bool mShapeMutable;
+        Session::ModeGroup mModes;
     };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;

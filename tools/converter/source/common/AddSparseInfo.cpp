@@ -41,7 +41,7 @@ void AddSparseInfo(std::unique_ptr<MNN::OpT>& op, Compression::Pipeline proto) {
             size_t weightNNZElement, weightBlockNumber = 0;
             CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), biasSize, weightSize / biasSize, sparseBlockOC);
             float sparsity = 1. - float(weightNNZElement) / weightSize;
-            if (sparsity < SparseConvolutionTiledExecutor::getSparsityThreshold()) {
+            if (!SparseConvolutionTiledExecutor::shouldUseSparseConvolution(sparsity, sparseBlockOC)) {
                 return;
             }
 

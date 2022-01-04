@@ -28,7 +28,9 @@ void LoopOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     std::string empty;
     int N = onnxNode->input_size() - 2;
     int K = onnxNode->output_size() - N;
-    auto ousideInputs = scope->buildSubGraph(body, param->body_graph, N, K);
+    MNN_ASSERT(body->input_size() == N+2);
+    MNN_ASSERT(body->output_size() == N+K+1);
+    auto ousideInputs = scope->buildSubGraph(body, param->body_graph, true);
     std::vector<int> outsideIndex(ousideInputs.size());
     std::vector<int> outsideIndexOutside(ousideInputs.size());
     for (int i=0; i<ousideInputs.size(); ++i) {

@@ -223,11 +223,17 @@ enum BinaryOpOperation {
   BinaryOpOperation_ATAN2 = 20,
   BinaryOpOperation_LOGICALOR = 21,
   BinaryOpOperation_NOTEQUAL = 22,
+  BinaryOpOperation_BITWISE_AND = 23,
+  BinaryOpOperation_BITWISE_OR = 24,
+  BinaryOpOperation_BITWISE_XOR = 25,
+  BinaryOpOperation_LOGICALXOR = 26,
+  BinaryOpOperation_LEFTSHIFT = 27,
+  BinaryOpOperation_RIGHTSHIFT = 28,
   BinaryOpOperation_MIN = BinaryOpOperation_ADD,
-  BinaryOpOperation_MAX = BinaryOpOperation_NOTEQUAL
+  BinaryOpOperation_MAX = BinaryOpOperation_RIGHTSHIFT
 };
 
-inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[22] {
+inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[28] {
   static const BinaryOpOperation values[] = {
     BinaryOpOperation_ADD,
     BinaryOpOperation_SUB,
@@ -250,7 +256,13 @@ inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[22] {
     BinaryOpOperation_MOD,
     BinaryOpOperation_ATAN2,
     BinaryOpOperation_LOGICALOR,
-    BinaryOpOperation_NOTEQUAL
+    BinaryOpOperation_NOTEQUAL,
+    BinaryOpOperation_BITWISE_AND,
+    BinaryOpOperation_BITWISE_OR,
+    BinaryOpOperation_BITWISE_XOR,
+    BinaryOpOperation_LOGICALXOR,
+    BinaryOpOperation_LEFTSHIFT,
+    BinaryOpOperation_RIGHTSHIFT
   };
   return values;
 }
@@ -280,13 +292,19 @@ inline const char * const *EnumNamesBinaryOpOperation() {
     "ATAN2",
     "LOGICALOR",
     "NOTEQUAL",
+    "BITWISE_AND",
+    "BITWISE_OR",
+    "BITWISE_XOR",
+    "LOGICALXOR",
+    "LEFTSHIFT",
+    "RIGHTSHIFT",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameBinaryOpOperation(BinaryOpOperation e) {
-  if (e < BinaryOpOperation_ADD || e > BinaryOpOperation_NOTEQUAL) return "";
+  if (e < BinaryOpOperation_ADD || e > BinaryOpOperation_RIGHTSHIFT) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBinaryOpOperation()[index];
 }
@@ -532,15 +550,17 @@ enum PadValueMode {
   PadValueMode_CONSTANT = 0,
   PadValueMode_REFLECT = 1,
   PadValueMode_SYMMETRIC = 2,
+  PadValueMode_EDGE = 3,
   PadValueMode_MIN = PadValueMode_CONSTANT,
-  PadValueMode_MAX = PadValueMode_SYMMETRIC
+  PadValueMode_MAX = PadValueMode_EDGE
 };
 
-inline const PadValueMode (&EnumValuesPadValueMode())[3] {
+inline const PadValueMode (&EnumValuesPadValueMode())[4] {
   static const PadValueMode values[] = {
     PadValueMode_CONSTANT,
     PadValueMode_REFLECT,
-    PadValueMode_SYMMETRIC
+    PadValueMode_SYMMETRIC,
+    PadValueMode_EDGE
   };
   return values;
 }
@@ -550,13 +570,14 @@ inline const char * const *EnumNamesPadValueMode() {
     "CONSTANT",
     "REFLECT",
     "SYMMETRIC",
+    "EDGE",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNamePadValueMode(PadValueMode e) {
-  if (e < PadValueMode_CONSTANT || e > PadValueMode_SYMMETRIC) return "";
+  if (e < PadValueMode_CONSTANT || e > PadValueMode_EDGE) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesPadValueMode()[index];
 }
@@ -3259,10 +3280,16 @@ struct TensorArrayT : public flatbuffers::NativeTable {
   bool identical_element_shapes;
   std::vector<int32_t> element_shape;
   DataType T;
+  int32_t axis;
+  bool keepdims;
+  bool new_axis;
   TensorArrayT()
       : dynamic_size(false),
         identical_element_shapes(false),
-        T(DataType_DT_FLOAT) {
+        T(DataType_DT_FLOAT),
+        axis(0),
+        keepdims(true),
+        new_axis(false) {
   }
 };
 
@@ -3283,6 +3310,15 @@ struct TensorArray FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   DataType T() const {
     return static_cast<DataType>(GetField<int32_t>(10, 1));
   }
+  int32_t axis() const {
+    return GetField<int32_t>(12, 0);
+  }
+  bool keepdims() const {
+    return GetField<uint8_t>(14, 1) != 0;
+  }
+  bool new_axis() const {
+    return GetField<uint8_t>(16, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
@@ -3290,6 +3326,9 @@ struct TensorArray FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(element_shape()) &&
            VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<uint8_t>(verifier, 16) &&
            verifier.EndTable();
   }
   TensorArrayT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3312,6 +3351,15 @@ struct TensorArrayBuilder {
   void add_T(DataType T) {
     fbb_.AddElement<int32_t>(10, static_cast<int32_t>(T), 1);
   }
+  void add_axis(int32_t axis) {
+    fbb_.AddElement<int32_t>(12, axis, 0);
+  }
+  void add_keepdims(bool keepdims) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(keepdims), 1);
+  }
+  void add_new_axis(bool new_axis) {
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(new_axis), 0);
+  }
   explicit TensorArrayBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3329,10 +3377,16 @@ inline flatbuffers::Offset<TensorArray> CreateTensorArray(
     bool dynamic_size = false,
     bool identical_element_shapes = false,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> element_shape = 0,
-    DataType T = DataType_DT_FLOAT) {
+    DataType T = DataType_DT_FLOAT,
+    int32_t axis = 0,
+    bool keepdims = true,
+    bool new_axis = false) {
   TensorArrayBuilder builder_(_fbb);
+  builder_.add_axis(axis);
   builder_.add_T(T);
   builder_.add_element_shape(element_shape);
+  builder_.add_new_axis(new_axis);
+  builder_.add_keepdims(keepdims);
   builder_.add_identical_element_shapes(identical_element_shapes);
   builder_.add_dynamic_size(dynamic_size);
   return builder_.Finish();
@@ -4569,6 +4623,9 @@ inline void TensorArray::UnPackTo(TensorArrayT *_o, const flatbuffers::resolver_
   { auto _e = identical_element_shapes(); _o->identical_element_shapes = _e; };
   { auto _e = element_shape(); if (_e) { _o->element_shape.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->element_shape[_i] = _e->Get(_i); } } };
   { auto _e = T(); _o->T = _e; };
+  { auto _e = axis(); _o->axis = _e; };
+  { auto _e = keepdims(); _o->keepdims = _e; };
+  { auto _e = new_axis(); _o->new_axis = _e; };
 }
 
 inline flatbuffers::Offset<TensorArray> TensorArray::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4583,12 +4640,18 @@ inline flatbuffers::Offset<TensorArray> CreateTensorArray(flatbuffers::FlatBuffe
   auto _identical_element_shapes = _o->identical_element_shapes;
   auto _element_shape = _o->element_shape.size() ? _fbb.CreateVector(_o->element_shape) : 0;
   auto _T = _o->T;
+  auto _axis = _o->axis;
+  auto _keepdims = _o->keepdims;
+  auto _new_axis = _o->new_axis;
   return MNN::CreateTensorArray(
       _fbb,
       _dynamic_size,
       _identical_element_shapes,
       _element_shape,
-      _T);
+      _T,
+      _axis,
+      _keepdims,
+      _new_axis);
 }
 
 inline LSTMBlockCellT *LSTMBlockCell::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4646,12 +4709,18 @@ inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BinaryOpOperationTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
   static const char * const names[] = {
     "ADD",
     "SUB",
@@ -4674,10 +4743,16 @@ inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
     "MOD",
     "ATAN2",
     "LOGICALOR",
-    "NOTEQUAL"
+    "NOTEQUAL",
+    "BITWISE_AND",
+    "BITWISE_OR",
+    "BITWISE_XOR",
+    "LOGICALXOR",
+    "LEFTSHIFT",
+    "RIGHTSHIFT"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 22, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 28, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -4836,6 +4911,7 @@ inline const flatbuffers::TypeTable *PadValueModeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -4844,10 +4920,11 @@ inline const flatbuffers::TypeTable *PadValueModeTypeTable() {
   static const char * const names[] = {
     "CONSTANT",
     "REFLECT",
-    "SYMMETRIC"
+    "SYMMETRIC",
+    "EDGE"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -5526,7 +5603,10 @@ inline const flatbuffers::TypeTable *TensorArrayTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
-    { flatbuffers::ET_INT, 0, 0 }
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     DataTypeTypeTable
@@ -5535,10 +5615,13 @@ inline const flatbuffers::TypeTable *TensorArrayTypeTable() {
     "dynamic_size",
     "identical_element_shapes",
     "element_shape",
-    "T"
+    "T",
+    "axis",
+    "keepdims",
+    "new_axis"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

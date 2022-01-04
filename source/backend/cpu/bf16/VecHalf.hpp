@@ -40,6 +40,18 @@ struct VecHalf {
         }
         return dst;
     }
+    VecType operator+=(const VecType& lr) {
+        for (int i = 0; i < N; ++i) {
+            value[i] = value[i] + lr.value[i];
+        }
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        for (int i = 0; i < N; ++i) {
+            value[i] = value[i] - lr.value[i];
+        }
+        return *this;
+    }
     VecType operator*(float lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
@@ -115,6 +127,12 @@ struct VecHalf {
         }
         return dst;
     }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+         return v1 + v2 * v3;
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 - v2 * v3;
+    }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
         VecType source[4] = {vec0, vec1, vec2, vec3};
         for (int i = 0; i < N; ++i) {
@@ -153,6 +171,14 @@ struct VecHalf<4> {
     VecType operator*(const VecType& lr) const {
         VecType dst = { _mm_mul_ps(value, lr.value) };
         return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = _mm_add_ps(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = _mm_sub_ps(value, lr.value);
+        return *this;
     }
     VecType operator*(float lr) const {
         VecType dst = { _mm_mul_ps(value, _mm_set1_ps(lr)) };
@@ -242,6 +268,12 @@ struct VecHalf<4> {
         VecType dst = { _mm_min_ps(v1.value, v2.value) };
         return dst;
     }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 + v2 * v3;
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return v1 - v2 * v3;
+    }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
         __m128 tmp3, tmp2, tmp1, tmp0;
         tmp0   = _mm_unpacklo_ps((vec0.value), (vec1.value));
@@ -283,6 +315,14 @@ struct VecHalf<4> {
     VecType operator*(const float lr) const {
         VecType dst = { vmulq_f32(value, vdupq_n_f32(lr)) };
         return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = vaddq_f32(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = vsubq_f32(value, lr.value);
+        return *this;
     }
 
     VecType& operator=(const VecType& lr) {
@@ -339,6 +379,14 @@ struct VecHalf<4> {
     }
     static VecType min(const VecType& v1, const VecType& v2) {
         VecType dst = { vminq_f32(v1.value, v2.value) };
+        return dst;
+    }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlaq_f32(v1.value, v2.value, v3.value)};
+        return dst;
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlsq_f32(v1.value, v2.value, v3.value)};
         return dst;
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {

@@ -60,7 +60,7 @@ class GeometryLSTM : public GeometryComputer {
 public:
 
     void _ComputeLSTMOnnx(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, Context& context,
-                          CommandBuffer& res, const LSTM* lstm) const {
+                          CommandBuffer& res, const LSTM* lstm, OpType type) const {
         /* inputs:
         X: T The input sequences packed (and potentially padded) into one 3-D tensor with the shape of [seq_length,
         batch_size, input_size].
@@ -119,11 +119,12 @@ public:
         auto hiddenSize    = Y->length(3);
         auto numDirections = Y->length(1);
         auto encode = [&](Tensor* X, int direction) {
-            // FirstPart: Gate = MatMul(X, W, B) :  4 * hiddenSize, seqLength * batchSize
-            std::shared_ptr<Tensor> Gate(Tensor::createDevice<float>({seqLength * batchSize, 4 * hiddenSize}, Tensor::CAFFE));
+            const int N = (type == OpType_RNN ? 1 : 4);
+            // FirstPart: Gate = MatMul(X, W, B) :  N * hiddenSize, seqLength * batchSize
+            std::shared_ptr<Tensor> Gate(Tensor::createDevice<float>({seqLength * batchSize, N * hiddenSize}, Tensor::CAFFE));
             res.extras.emplace_back(Gate);
             {
-                auto h = 4 * hiddenSize;
+                auto h = N * hiddenSize;
                 auto e = seqLength * batchSize;
                 auto l = inputSize;
                 std::unique_ptr<OpT> newop(new OpT);
@@ -143,11 +144,11 @@ public:
                 rcmd->view[1]->stride = {l, 1, 0};
                 // W
                 rcmd->view[2].reset(new ViewT);
-                rcmd->view[2]->offset = direction * 4 * hiddenSize * inputSize;
+                rcmd->view[2]->offset = direction * N * hiddenSize * inputSize;
                 rcmd->view[2]->stride = {0, 1, l};
                 // Bias
                 rcmd->view[3].reset(new ViewT);
-                rcmd->view[3]->offset = direction * 4 * hiddenSize;
+                rcmd->view[3]->offset = direction * N * hiddenSize;
                 rcmd->view[3]->stride = {0, 0, 1};
 
                 // C
@@ -196,17 +197,17 @@ public:
                     rcmd->size = {1, batchSize, hiddenSize};
                     rcmd->indexes = {I_Temp, I_Gate, I_HR};
                     rcmd->iterIndexes = {-1, -1, -1};
-                    rcmd->steps = {0, batchSize * hiddenSize * 4, 0};
+                    rcmd->steps = {0, batchSize * hiddenSize * N, 0};
                     rcmd->view.resize(3);
                     rcmd->view[0].reset(new ViewT);
                     rcmd->view[0]->offset = 0;
                     rcmd->view[0]->stride = {hiddenSize * batchSize, hiddenSize, 1};
                     rcmd->view[1].reset(new ViewT);
                     rcmd->view[1]->offset = offsetGate;
-                    rcmd->view[1]->stride = {4 * hiddenSize * seqLength * batchSize, 4 * hiddenSize, 1};
+                    rcmd->view[1]->stride = {N * hiddenSize * seqLength * batchSize, N * hiddenSize, 1};
                     rcmd->view[2].reset(new ViewT);
                     rcmd->view[2]->offset = offsetHR;
-                    rcmd->view[2]->stride = {4 * hiddenSize * batchSize, 4 * hiddenSize, 1};
+                    rcmd->view[2]->stride = {N * hiddenSize * batchSize, N * hiddenSize, 1};
                     rcmd->op.reset(new OpT);
                     rcmd->op->type = OpType_BinaryOp;
                     rcmd->op->main.type = OpParameter_BinaryOp;
@@ -236,7 +237,7 @@ public:
                     loop->commands.emplace_back(std::move(rcmd));
                 }
             };
-            std::shared_ptr<Tensor> HRTotal(Tensor::createDevice<float>({batchSize, 4 * hiddenSize}, Tensor::CAFFE));
+            std::shared_ptr<Tensor> HRTotal(Tensor::createDevice<float>({batchSize, N * hiddenSize}, Tensor::CAFFE));
             res.extras.emplace_back(HRTotal);
             std::shared_ptr<Tensor> Temp(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
             res.extras.emplace_back(Temp);
@@ -253,7 +254,7 @@ public:
                 // Compute HR = MatMul(R, O)
                 {
                     std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
-                    rcmd->size = {4 * hiddenSize, hiddenSize, batchSize};
+                    rcmd->size = {N * hiddenSize, hiddenSize, batchSize};
                     rcmd->indexes = {I_HR, I_R, oInit};
                     rcmd->iterIndexes = {-1, -1, -1};
                     rcmd->steps = {0, 0, step};
@@ -266,9 +267,9 @@ public:
                     rcmd->view.resize(3);
                     rcmd->view[0].reset(new ViewT);
                     rcmd->view[0]->offset = 0;
-                    rcmd->view[0]->stride = {1, 0, 4 * hiddenSize};
+                    rcmd->view[0]->stride = {1, 0, N * hiddenSize};
                     rcmd->view[1].reset(new ViewT);
-                    rcmd->view[1]->offset = direction * 4 * hiddenSize * hiddenSize;
+                    rcmd->view[1]->offset = direction * N * hiddenSize * hiddenSize;
                     rcmd->view[1]->stride = {batchSize, 1, 0};
                     rcmd->view[2].reset(new ViewT);
                     if (oInit != I_Y) {
@@ -284,6 +285,12 @@ public:
                     loop->commands.emplace_back(std::move(rcmd));
                 }
 
+                if (type == OpType_RNN) {
+                    subEncoder(I_Y, UnaryOpOperation_TANH, BinaryOpOperation_ADD, start * batchSize * hiddenSize, 0, loop);
+                    loop->commands[loop->commands.size() - 1]->view[0]->offset = offset;
+                    loop->commands[loop->commands.size() - 1]->steps[0] = step;
+                    return;
+                }
                 // I = Sigmoid(WI * XI + BI + HRI)
                 {
                     subEncoder(I_I, UnaryOpOperation_SIGMOID, BinaryOpOperation_ADD, start * batchSize * 4 * hiddenSize, 0, loop);
@@ -333,7 +340,7 @@ public:
                     rcmd->view.resize(2);
                     rcmd->view[1].reset(new ViewT);
                     rcmd->view[1]->offset = index * hiddenSize;
-                    rcmd->view[1]->stride = {4 * hiddenSize * seqLength * batchSize, 4 * hiddenSize, 1};
+                    rcmd->view[1]->stride = {N * hiddenSize * seqLength * batchSize, N * hiddenSize, 1};
                     rcmd->view[0].reset(new ViewT);
                     rcmd->view[0]->offset = 0;
                     rcmd->view[0]->stride = {hiddenSize * batchSize, hiddenSize, 1};
@@ -344,7 +351,10 @@ public:
                     rcmd->op->main.AsUnaryOp()->opType = unOp;
                     loop->commands.emplace_back(std::move(rcmd));
                 };
-                {
+                if (type == OpType_RNN) {
+                    unaryGateEncode(UnaryOpOperation_TANH, I_Y, 0, loop);
+                    loop->commands[loop->commands.size() - 1]->view[0]->offset = direction * (batchSize * hiddenSize) * (1 + (seqLength - 1) * numDirections);
+                } else {
                     // I = Sigmoid(WI * XI + BI)
                     unaryGateEncode(UnaryOpOperation_SIGMOID, I_I, 0, loop);
 
@@ -375,15 +385,20 @@ public:
                 newop->main.type = OpParameter_LoopParam;
                 auto loop = newop->main.AsLoopParam();
                 // Y, Cell, O, Gate, I, C, F, O_Init, Cell_Init
-                loop->tensorNumber = 12;
                 const int I_OInit = 10;
                 const int I_CellInit = 11;
-                loop->inputIndexes = {3, 7, 10, 11};
+                std::vector<Tensor*> inputs;
+                if (type == OpType_RNN) { // only provide initial_h
+                    loop->tensorNumber = 11;
+                    loop->inputIndexes = {3, 7, 10};
+                    inputs.assign({Gate.get(), R, O_Init});
+                } else {
+                    loop->tensorNumber = 12;
+                    loop->inputIndexes = {3, 7, 10, 11};
+                    inputs.assign({Gate.get(), R, O_Init, Cell_Init});
+                }
                 loop->outputIndexes = {0, 4, 5, 6, 8, 9, 2, 1};
                 loop->loopNumber = 1;
-                std::vector<Tensor*> inputs = {
-                    Gate.get(), R, O_Init, Cell_Init
-                };
                 std::vector<Tensor*> suboutputs = {
                     Y, I.get(), C.get(), F.get(), HRTotal.get(), Temp.get(), O.get(), Cell.get()
                 };
@@ -463,8 +478,12 @@ public:
                            Context& context, CommandBuffer& res) const override {
         if (2 < inputs.size()) {
             // Onnx 's LSTM, use origin way
-            _ComputeLSTMOnnx(inputs, outputs, context, res, op->main_as_LSTM());
+            _ComputeLSTMOnnx(inputs, outputs, context, res, op->main_as_LSTM(), op->type());
             return true;
+        }
+        if (op->type() == OpType_RNN) {
+            MNN_ERROR("Navie RNN only support onnx model\n");
+            return false;
         }
         // For Old version's Caffe LSTM compute
         MNN_ASSERT(1 == outputs.size());
@@ -631,7 +650,7 @@ public:
             reg.origin        = inputs[0];
         }
         std::shared_ptr<Tensor> tempOutput(Tensor::createDevice<float>({seqLength, 1, batchSize, hiddenSize}, Tensor::CAFFE));
-        _ComputeLSTMOnnx({tempInput.get(), W, R, B}, {tempOutput.get()}, context, res, op->main_as_LSTM());
+        _ComputeLSTMOnnx({tempInput.get(), W, R, B}, {tempOutput.get()}, context, res, op->main_as_LSTM(), op->type());
         res.extras.emplace_back(tempInput);
         res.extras.emplace_back(tempOutput);
         {
@@ -840,7 +859,7 @@ public:
 };
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryLSTM);
-    GeometryComputer::registerGeometryComputer(comp, {OpType_LSTM}, Runtime::Compiler_Loop);
+    GeometryComputer::registerGeometryComputer(comp, {OpType_LSTM, OpType_RNN}, Runtime::Compiler_Loop);
     std::shared_ptr<GeometryComputer> comp1(new GeometryLSTMBlockCell);
     GeometryComputer::registerGeometryComputer(comp1, {OpType_LSTMBlockCell});
 }

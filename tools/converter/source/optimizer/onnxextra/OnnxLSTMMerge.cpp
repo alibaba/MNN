@@ -19,7 +19,11 @@ public:
         MNN_ASSERT(inputs.size() >= 4);
         std::unique_ptr<OpT> lstm(new OpT);
         lstm->name       = expr->name();
-        lstm->type       = OpType_LSTM;
+        if (expr->get()->main_as_Extra()->type()->str() == "RNN") {
+            lstm->type = OpType_RNN;
+        } else {
+            lstm->type = OpType_LSTM;
+        }
         lstm->main.type  = OpParameter_LSTM;
         lstm->main.value = new LSTMT;
         {
@@ -34,38 +38,22 @@ public:
                 }
             }
         }
-        auto hiddenSize = lstm->main.AsLSTM()->outputCount;
-        {
-            // Merge Bias
-            auto bias = inputs[3];
-            auto info = bias->getInfo();
-            auto ptr  = bias->readMap<float>();
-            if (nullptr == info || nullptr == ptr) {
-                MNN_ERROR("Can't solve LSTM because bias is not const\n");
-                return nullptr;
-            }
-            if (8 * hiddenSize == info->dim[1]) {
-                std::vector<float> biasVector(hiddenSize * 4 * info->dim[0]);
-                for (int z = 0; z < info->dim[0]; ++z) {
-                    auto src = ptr + z * info->dim[1];
-                    auto dst = biasVector.data() + z * 4 * hiddenSize;
-                    for (int i = 0; i < hiddenSize * 4; ++i) {
-                        dst[i] = src[i] + src[i + hiddenSize * 4];
-                    }
-                }
-                auto newBias = _Const(biasVector.data(), {info->dim[0], hiddenSize * 4}, NCHW);
-                inputs[3]    = newBias;
-            }
-        }
+        // onnx docs guarantee bias shape is [num_direction, 8 * hidden_size], we split it to 2x [num_dicection, 4 * hidden_size] (W/R), then add together
+        auto biasWR = _Split(inputs[3], {2}, 1);
+        inputs[3] = _Add(biasWR[0], biasWR[1]);
         // Y, Y_h, Y_c
-        auto originLSTM = Expr::create(lstm.get(), inputs, 3);
+        auto originLSTM = Expr::create(lstm.get(), inputs, (lstm->type == OpType_RNN ? 2 : 3));
         originLSTM->setName(expr->name());
+        for (int i = 0; i < expr->outputSize(); ++i) {
+            Variable::create(originLSTM, i)->setName(expr->outputName(i));
+        }
         return originLSTM;
     }
 };
 
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("LSTM", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxLSTMTransform));
+    OnnxExtraManager::get()->insert("RNN", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxLSTMTransform));
     return true;
 }();
 

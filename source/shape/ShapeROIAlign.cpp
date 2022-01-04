@@ -1,4 +1,4 @@
-﻿//
+//
 //  ShapeROIAlign.cpp
 //  MNN
 //
@@ -14,7 +14,7 @@ namespace MNN {
 class ROIAlignComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(2 == inputs.size());
+        MNN_ASSERT(2 == inputs.size() || 3 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
 
         // copy dims

@@ -59,11 +59,11 @@ struct Vec<FLOAT16, 8> {
         v1.value = vfmsq_f16(v1.value, v2.value, v3.value);
     }
     static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
-        VecType dst = { vfmaq_f16(v1.value, v2.value, v3.value) };
+        VecType dst = {vfmaq_f16(v1.value, v2.value, v3.value)};
         return dst;
     }
     static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
-        VecType dst = { vfmsq_f16(v1.value, v2.value, v3.value) };
+        VecType dst = {vfmsq_f16(v1.value, v2.value, v3.value)};
         return dst;
     }
     VecType operator+(const VecType& lr) {
@@ -77,6 +77,14 @@ struct Vec<FLOAT16, 8> {
     VecType operator*(float lr) {
         VecType dst = { vmulq_n_f16(value, lr) };
         return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = vaddq_f16(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = vsubq_f16(value, lr.value);
+        return *this;
     }
     VecType operator*(const VecType& lr) {
         VecType dst = { vmulq_f16(value, lr.value) };

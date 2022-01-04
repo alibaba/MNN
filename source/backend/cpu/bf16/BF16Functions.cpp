@@ -737,9 +737,9 @@ bool BF16Functions::init() {
     gInstance->MNNScaleAndAddBias = _MNNScaleAndAddBias;
     gInstance->MNNCopyC4WithStride = MNNCopyC4Int16WithStride;
     gInstance->MNNAddC4WithStride = _MNNAddC4WithStride;
-    gInstance->chooseWinoDestTransform = (decltype(gInstance->chooseWinoDestTransform))(WinogradFunctionHalf::chooseDestTransform);
-    gInstance->chooseWinoSourceTransform = (decltype(gInstance->chooseWinoSourceTransform))(WinogradFunctionHalf::chooseSourceTransform);
     gInstance->chooseWinoSourceTransformPack =  (decltype(gInstance->chooseWinoSourceTransformPack))(WinogradFunctionHalf::chooseWinoSourceTransformPack);
+    gInstance->chooseWinoSourceUnrollTransform = (decltype(gInstance->chooseWinoSourceUnrollTransform))(WinogradFunctionHalf::chooseSourceUnrollTransform);
+    gInstance->chooseWinoDestUnrollTransform = (decltype(gInstance->chooseWinoDestUnrollTransform))(WinogradFunctionHalf::chooseWinoDestUnrollTransform);
     gInstance->MNNDeconvRunForLineDepthwise = (decltype(gInstance->MNNDeconvRunForLineDepthwise))_MNNDeconvRunForLineDepthwise;
     gInstance->MNNDeconvRunForUnitDepthWise = (decltype(gInstance->MNNDeconvRunForUnitDepthWise))_MNNDeconvRunForUnitDepthWise;
     gInstance->MNNSelectBinaryFunctionForFloat = BF16BinaryFloatSelect;

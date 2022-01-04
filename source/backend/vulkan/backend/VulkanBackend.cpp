@@ -55,17 +55,6 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) 
     dest->unmap();
 }
 
-std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
-    auto creator = getCreatorMap();
-    auto iter    = creator->find(op->type());
-    if (iter == creator->end()) {
-        return std::make_pair(0.0f, false);
-    }
-    // FIXME: Compute flops
-    auto flops = 0.0f;
-    const float defaultScheduleCost = 0.001f;
-    return std::make_pair(defaultScheduleCost + flops / 1024.0f / mRuntime->mFlops * 1000.0f, true);
-}
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;

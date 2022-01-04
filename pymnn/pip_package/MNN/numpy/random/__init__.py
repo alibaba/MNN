@@ -1,12 +1,12 @@
 import MNN.expr as _F
-import MNN.numpy as np
+
 # Random sampling
 def random(shape):
-    return _F.randomuniform(shape, np.float32)
+    return _F.randomuniform(shape, _F.float)
 def rand(*args):
     return random(args)
 randn = rand
-def randint(low, high=None, size=None, dtype=np.int32):
+def randint(low, high=None, size=None, dtype=_F.int):
     if type(low) in (list, tuple) or type(high) in (list, tuple):
         raise ValueError('MNN.numpy randint just support low/high is int.')
     if high is None:

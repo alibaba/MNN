@@ -27,6 +27,7 @@ void SparseConvolutionTiledExecutor::initWeight(float* dest, unsigned int* NNZMa
                                                 size_t weightBlockNumber, const CoreFunctions* function) {
     ConvolutionTiledExecutor::initWeight(source, cache, depth, outputCount, kernelSize, function);
     function->MNNPackForSparseMatMul_B(dest, NNZMap, dataOffsetMap, sparseBlockOC, cache, outputCount, kernelSize * depth, eP, false);
+
     // MNN_PRINT("\nBCSR origin weight:");
     // formatMatrix(source, {outputCount, kernelSize * depth});
     // MNN_PRINT("\nBCSR new weight:");
@@ -72,50 +73,48 @@ SparseConvolutionTiledExecutor::SparseConvolutionTiledExecutor(const Convolution
         weightBlockNumber = optimalWeightBlockNumber;
     }
 
+    mSparseIndexData.reset(new SparseIndexData(sparseBlockOC, weightNNZElement, weightBlockNumber, backend()));
+
     mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
         { static_cast<int>(weightNNZElement + 1) * bytes }));   // one more element in case of weight are all zeros
     std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({static_cast<int>(outputCount * lSize * sizeof(float))})); // cache must be float
 
-    mNNZMap.reset(Tensor::createDevice<unsigned int>({outputCount / sparseBlockOC + outputCount % sparseBlockOC}));
-    mDataOffsetMap.reset(Tensor::createDevice<int>({static_cast<int>(weightBlockNumber + 1)}));
+    mSparseIndexData->mNNZMap.reset(Tensor::createDevice<unsigned int>({outputCount / sparseBlockOC + outputCount % sparseBlockOC}));
+    mSparseIndexData->mDataOffsetMap.reset(Tensor::createDevice<int>({static_cast<int>(weightBlockNumber + 1)}));
 
     mValid = backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     mValid = mValid && backend()->onAcquireBuffer(cache.get(), Backend::STATIC);
-    mValid = mValid && backend()->onAcquireBuffer(mNNZMap.get(), Backend::STATIC);
-    mValid = mValid && backend()->onAcquireBuffer(mDataOffsetMap.get(), Backend::STATIC);
+    mValid = mValid && backend()->onAcquireBuffer(mSparseIndexData->mNNZMap.get(), Backend::STATIC);
+    mValid = mValid && backend()->onAcquireBuffer(mSparseIndexData->mDataOffsetMap.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
 
-    initWeight(mResource->mWeight->host<float>(), mNNZMap->host<unsigned int>(), mDataOffsetMap->host<int>(), sparseBlockOC, originWeight, cache->host<float>(), srcCount, outputCount, common->kernelX() * common->kernelY(), eP, weightNNZElement, weightBlockNumber, core);
+    initWeight(mResource->mWeight->host<float>(), mSparseIndexData->mNNZMap->host<unsigned int>(), mSparseIndexData->mDataOffsetMap->host<int>(), sparseBlockOC, originWeight, cache->host<float>(), srcCount, outputCount, common->kernelX() * common->kernelY(), eP, weightNNZElement, weightBlockNumber, core);
     backend()->onReleaseBuffer(cache.get(), Backend::STATIC);
     mProxy.reset(new SparseConvolutionTiledImpl(common, packedSparseMatmul, sparseBlockOC, b));
 }
 
 SparseConvolutionTiledExecutor::SparseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res,
-                                                               std::shared_ptr<Tensor> NNZMapSharePtr,
-                                                               std::shared_ptr<Tensor> dataOffsetMapSharePtr,
+                                                               std::shared_ptr<SparseIndexData> sparseIndexData,
                                                                const Convolution2DCommon *common,
                                                                CoreFunctions::MNNPackedSparseMatMul packedSparseMatmul,
                                                                int sparseBlockOC, Backend* b)
-    :mNNZMap(NNZMapSharePtr),
-    mDataOffsetMap(dataOffsetMapSharePtr),
+    :mSparseIndexData(sparseIndexData),
     ConvolutionTiledExecutor(res, b) {
     mProxy.reset(new SparseConvolutionTiledImpl(common, packedSparseMatmul, sparseBlockOC, b));
 }
 SparseConvolutionTiledExecutor::~SparseConvolutionTiledExecutor() {
-    backend()->onReleaseBuffer(mNNZMap.get(), Backend::STATIC);
-    backend()->onReleaseBuffer(mDataOffsetMap.get(), Backend::STATIC);
+
 }
 bool SparseConvolutionTiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) {
-
     if (!mValid) {
         return false;
     }
     if (nullptr == dst) {
         return true;
     }
-    *dst = new SparseConvolutionTiledExecutor(mResource, mNNZMap, mDataOffsetMap, op->main_as_Convolution2D()->common(), mProxy->mPackedSparseMatmul, mProxy->mSparseBlockOC, bn);
+    *dst = new SparseConvolutionTiledExecutor(mResource, mSparseIndexData, op->main_as_Convolution2D()->common(), mProxy->mPackedSparseMatmul, mProxy->mSparseBlockOC, bn);
     return true;
 }
 
@@ -126,6 +125,7 @@ void SparseConvolutionTiledImpl::getPackParameter(int* eP, int* lP, int* hP, con
 
 ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                                Tensor* NNZMap, Tensor* dataOffsetMap) {
+
     CPUConvolution::onResize(inputs, outputs);
     auto input   = inputs[0];
     auto weight  = inputs[1];
@@ -206,7 +206,6 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
     mFunction.first        = threadNumberFirst;
     // MNN_PRINT("sparse convoluton: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, tileCount:%d, ePack:%d, pack:%d, mSparseBlockOC:%d, bytes:%d\n",
     //     batch, src_height, src_width, ic, height, width, outputChannel, mCommon->kernelX(), mCommon->kernelY(), plane, tileCount, eP, unit, mSparseBlockOC, bytes);
-
 
     mFunction.second       = [=](int tId) {
         Timer kernelTimer;
@@ -297,7 +296,7 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
             // formatMatrix((float*)gemmBuffer, {UP_DIV(xC, eP), L, eP});
             //  MNN_PRINT("PackedSparseMatMul packNumber:%d, eP:%d, eSize:%d, l:%zu, h:%zu, cStride:%zu, aStride:%zu\n",
             //     number, eP, xC, parameters[1], parameters[2], parameters[3] / bytes, eP * parameters[1]);
-            kernelTimer.reset();
+            // kernelTimer.reset();
             sparseMatmul((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, weightPtr, xC, parameters, postParameters.data(), biasPtr, NNZMapPtr, dataOffsetPtr);
             // MNN_PRINT("spmm sparseMatmul tile:\n");
             // formatMatrix((float*)(dstOrigin + start * unit * bytes), {UP_DIV(outputChannel, unit), xC, unit});

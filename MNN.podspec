@@ -33,10 +33,6 @@ Pod::Spec.new do |s|
   s.requires_arc = true
 
   #s.source =  { :git => "git@github.com:alibaba/MNN.git", :branch => 'master' }
-  s.prepare_command = <<-CMD
-                          schema/generate.sh
-                          python source/backend/metal/MetalCodeGen.py source/backend/metal/ source/backend/metal/MetalOPRegister.mm
-                      CMD
   s.source = {:git => "/Users/zhang/Development/AliNNPrivate/",:branch=> 'head'}
   s.frameworks = 'Metal', 'Accelerate'
   s.library = 'c++'
@@ -62,6 +58,6 @@ Pod::Spec.new do |s|
   'express/**/*.{hpp,cpp}'
   s.header_mappings_dir = 'include'
 
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1 MNN_MODEL_AUTH=1'}
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include"' }
 end

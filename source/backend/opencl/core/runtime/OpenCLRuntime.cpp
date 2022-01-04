@@ -7,14 +7,13 @@
 //
 
 #include "backend/opencl/core/runtime/OpenCLRuntime.hpp"
-#include <sys/stat.h>
 #include <cstdlib>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 #include "core/Macro.h"
+#include "OpenCLTuneInfo.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "CLCache_generated.h"
@@ -453,11 +452,13 @@ double OpenCLRuntime::getSubmitTime(const cl::Event *event){
 }
 
 
-std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
-    if (nullptr != mCacheOutside) {
-        return std::make_pair(mCacheOutside, mCacheOutsideSize);
-    }
+std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
+    auto tune = reinterpret_cast<MNN::OpenCL::TuneInfo*>(tuneInfo);
     std::unique_ptr<CacheT> cache(new CacheT);
+    for (auto& p : tune->mInfos) {
+        cache->tuned.emplace_back(std::move(p));
+    }
+    tune->mInfos.clear();
     // Get All program's binary
     for (auto& iter : mBuildProgramMap) {
         std::unique_ptr<ShaderT> pro(new ShaderT);

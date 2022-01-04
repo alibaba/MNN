@@ -44,7 +44,7 @@ static PyObject* PyMNNDataLoader_new(PyTypeObject *type, PyObject *args, PyObjec
     PyObject* dataset;
     int batch_size, num_workers = 0;
     int shuffle = 1;
-    if (!PyArg_ParseTuple(args, "Oi|pi", &dataset, &batch_size, &shuffle, &num_workers)) {
+    if (!PyArg_ParseTuple(args, "Oi|ii", &dataset, &batch_size, &shuffle, &num_workers)) {
         Py_RETURN_NONE;
     }
     std::shared_ptr<Dataset> dataset_(toDataset(dataset));

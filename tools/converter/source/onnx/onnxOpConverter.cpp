@@ -111,6 +111,8 @@ MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type
         {onnx::TensorProto_DataType_BOOL, MNN::DataType_DT_INT32},   // For compability, use int32 instead of bool
         {onnx::TensorProto_DataType_INT16, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int16
         {onnx::TensorProto_DataType_UINT16, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint16
+        {onnx::TensorProto_DataType_UINT32, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint32
+        {onnx::TensorProto_DataType_UINT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint64
     };
     if (dataTypeMap.find(type) != dataTypeMap.end()) {
         return dataTypeMap[type];
@@ -148,6 +150,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         CASE_DATA_TYPE(onnx::TensorProto_DataType_INT64, int64);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_INT32, int32);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT, float);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_UINT64, uint64);
         default:
             break;
     }
@@ -236,6 +239,22 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             }
             break;
         }
+        case onnx::TensorProto_DataType_UINT32: {
+            auto source = (uint32_t*)tensor_content;
+            constantParam->float32s.resize(dataSize);
+            for (int i = 0; i < dataSize; ++i) {
+                constantParam->int32s[i] = source[i];
+            }
+            break;
+        }
+        case onnx::TensorProto_DataType_UINT64: {
+            auto source = (uint64_t*)tensor_content;
+            constantParam->float32s.resize(dataSize);
+            for (int i = 0; i < dataSize; ++i) {
+                constantParam->int32s[i] = source[i];
+            }
+            break;
+        }
         default: {
             DLOG(FATAL) << "Don't support " << constantTp->data_type();
             break;
@@ -279,6 +298,7 @@ std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape
     std::unique_ptr<MNN::OpT> tensorArrayOp(new MNN::OpT);
     tensorArrayOp->name      = name;
     tensorArrayOp->type      = MNN::OpType_TensorArray;
+    tensorArrayOp->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
     tensorArrayOp->main.type = MNN::OpParameter_TensorArray;
     auto tensorArray = new MNN::TensorArrayT;
     tensorArray->T = DataType_DT_FLOAT;
@@ -301,6 +321,7 @@ void OnnxScope::buildAccumulate(const std::string& name, const std::string& uNam
     MNN::OpT* accumulateOp  = new MNN::OpT;
     accumulateOp->name      = name + "/accumulate";
     accumulateOp->type      = MNN::OpType_TensorArrayWrite;
+    accumulateOp->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
     accumulateOp->main.type = MNN::OpParameter_TensorArray;
     auto param  = new MNN::TensorArrayT;
     param->T = MNN::DataType_DT_FLOAT;
@@ -315,9 +336,7 @@ void OnnxScope::buildAccumulate(const std::string& name, const std::string& uNam
     mSubNet->outputs.push_back(idxAcc);
 }
 
-std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, int N, int K) {
-    MNN_ASSERT(graph->input_size() == N+2);
-    MNN_ASSERT(graph->output_size() == N+K+1);
+std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, bool forLoop) {
     std::unique_ptr<MNN::SubGraphProtoT> subgraph(new MNN::SubGraphProtoT);
     subgraph->name = name;
     std::unique_ptr<OnnxScope> scope(new OnnxScope(graph, subgraph.get(), mNet, this));
@@ -406,6 +425,23 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
         opConverter->run(MNNOp, &onnxNode, scope.get());
         subgraph->nodes.emplace_back(MNNOp);
     }
+    if (!forLoop) {
+        std::vector<std::string> resOutside;
+        for (auto& iter : outsideInputs) {
+            subgraph->inputs.emplace_back(iter.second);
+            resOutside.emplace_back(iter.first);
+        }
+        for (int i = 0; i < graph->output_size(); ++i) {
+            int idx = scope->lookupTensor(graph->output(i).name());
+            MNN_ASSERT(idx >= 0);
+            if (idx >= 0) {
+                subgraph->outputs.push_back(idx);
+            }
+        }
+        mNet->subgraphs.emplace_back(std::move(subgraph));
+        return resOutside;
+    }
+    int N = graph->input_size() - 2, K = graph->output_size() - N - 1;
     for (int i = 0; i < N + 1; i++) {
         int idx = scope->lookupTensor(graph->output(i).name());
         MNN_ASSERT(idx >= 0);

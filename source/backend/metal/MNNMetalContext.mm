@@ -10,7 +10,8 @@
 #import "backend/metal/MetalBackend.hpp"
 #import "core/Macro.h"
 #import <sys/utsname.h>
-
+//#define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
 #if MNN_METAL_ENABLED
 #ifdef MNN_METALLIB_SOURCE
 #import "MNNMetalLib.h"
@@ -33,51 +34,7 @@ using namespace MNN;
 
 @implementation MNNMetalContext
 
-+ (id<MTLDevice>)device {
-    static id<MTLDevice> device = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        device = MTLCreateSystemDefaultDevice();
-    });
-    return device;
-}
-
-+ (id<MTLLibrary>)library {
-    static id<MTLLibrary> library = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSError *err = nil;
-#ifndef MNN_METALLIB_SOURCE
-        NSString *remotePath = [self getMetalLibFromRuntimeCore];
-        NSString *path = remotePath ? remotePath : [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
-        library = path ? [self.device newLibraryWithFile:path error:&err] : nil;
-        if (nil == library) {
-            if (err) {
-                NSLog(@"Warning: Metallib Library error: %@", err);
-            } else {
-                MNN_ERROR("Warning: Can't load mnn.metallib\n");
-            }
-        } else {
-            id<MTLFunction> func = [library newFunctionWithName:@"version_func_001"];
-            if(nil == func) {
-                library = nil;
-                MNN_ERROR("Warning: Metallib version not match.\n");
-            }
-        }
-#else
-        dispatch_data_t data = dispatch_data_create(MNNMetalLib, MNNMetalLib_len, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
-        library = [self.device newLibraryWithData:data error:&err];
-        if (nil == library) {
-            if (err) {
-                NSLog(@"Warning: Metallib Library error: %@", err);
-            }
-        }
-#endif
-    });
-    return library;
-}
-
-+ (NSString *)getMetalLibFromRuntimeCore {
+static NSString* getMetalLibFromRuntimeCore() {
     id MRTFileSystemClass = NSClassFromString(@"MRTFileSystem");
     NSString *resourcePath = [MRTFileSystemClass performSelector:@selector(resourceContainerWithName:) withObject:@"metallib_transfer"];
     NSString *metallibPath = [resourcePath stringByAppendingPathComponent:@"mnn.metallib"];
@@ -86,6 +43,38 @@ using namespace MNN;
     } else {
         return nil;
     }
+}
+
+static id<MTLLibrary> createLibrary(id<MTLDevice> device) {
+    AUTOTIME;
+    NSError *err = nil;
+#ifndef MNN_METALLIB_SOURCE
+    NSString *remotePath = getMetalLibFromRuntimeCore();
+    NSString *path = remotePath ? remotePath : [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
+    auto library = path ? [device newLibraryWithFile:path error:&err] : nil;
+    if (nil == library) {
+        if (err) {
+            NSLog(@"Warning: Metallib Library error: %@", err);
+        } else {
+            MNN_ERROR("Warning: Can't load mnn.metallib\n");
+        }
+    } else {
+        id<MTLFunction> func = [library newFunctionWithName:@"version_func_001"];
+        if(nil == func) {
+            library = nil;
+            MNN_ERROR("Warning: Metallib version not match.\n");
+        }
+    }
+#else
+    dispatch_data_t data = dispatch_data_create(MNNMetalLib, MNNMetalLib_len, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+    auto library = [device newLibraryWithData:data error:&err];
+    if (nil == library) {
+        if (err) {
+            NSLog(@"Warning: Metallib Library error: %@", err);
+        }
+    }
+#endif
+    return library;
 }
 
 + (BOOL)commit_frequent{
@@ -115,30 +104,26 @@ using namespace MNN;
     return NO;
 }
 
+- (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device {
+    MNN_ASSERT(nullptr != context);
+    _device = context->device;
+    _library = createLibrary(_device);
+    _commandQueue  = context->queue;
+    _commandBuffer = [_commandQueue commandBuffer];
+    _commandBuffer_net = [_commandQueue commandBuffer];
+    _caches   = [NSMutableDictionary dictionary];
+    _waitings = [NSMutableArray array];
+    if (@available(iOS 11.0, *)) {
+        _maxThreadgroupMemoryLength = _device.maxThreadgroupMemoryLength;
+    } else {
+        _maxThreadgroupMemoryLength = 16352; // 16352(16k - 32b) on iOS 11- according to feature set doc
+    }
+    _isCommitEachShader = self.class.commit_frequent;
+    return nil != _library;
+}
+
 - (instancetype)init {
     self = [super init];
-    if (self) {
-        // public
-        _device        = self.class.device;
-        _commandQueue  = [_device newCommandQueue];
-        _commandBuffer = [_commandQueue commandBuffer];
-        _commandBuffer_net = [_commandQueue commandBuffer];
-        if (@available(iOS 11.0, *)) {
-            _maxThreadgroupMemoryLength = _device.maxThreadgroupMemoryLength;
-        } else {
-            _maxThreadgroupMemoryLength = 16352; // 16352(16k - 32b) on iOS 11- according to feature set doc
-        }
-        
-        _isCommitEachShader = self.class.commit_frequent;
-        
-        // private
-        _caches   = [NSMutableDictionary dictionary];
-        _waitings = [NSMutableArray array];
-        _library  = self.class.library;
-        if (nil == _library) {
-            return nil;
-        }
-    }
     return self;
 }
 
@@ -285,6 +270,9 @@ using namespace MNN;
     // set trick by computing
     thread = [self computeBestGroupAndLocal:pipeline threads:threads];
     
+    if(rt->getTuneLevel() == Heavy) {
+        count = 50;
+    }
     NSUInteger min_time = UINT_MAX;
     if(rt->getTuneLevel() != Never)
     {
@@ -368,8 +356,8 @@ using namespace MNN;
                 }
             }
         }
-        //MNN_PRINT("tune prit: %d   us, %d %d %d\n", min_time, thread.second.width, thread.second.height, thread.second.depth);
     }
+    //MNN_PRINT("tune prit: %d   us, %d %d %d\n", min_time, thread.second.width, thread.second.height, thread.second.depth);
 
     if (tunedThreadGroup.find(info) == tunedThreadGroup.end()) {
         //MNN_PRINT("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);

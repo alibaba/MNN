@@ -155,6 +155,11 @@ enum OpType : int {
     LSTMBlockCell = 141,
     Reverse = 142,
     ROIAlign = 143,
+    RandomNormal = 144,
+    TensorArrayInsert = 145,
+    TensorArrayErase = 146,
+    EyeLike = 147,
+    CumSum = 148,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -370,6 +375,7 @@ union OpParameter {
     GridSample,
     LoopParam,
     ImageProcessParam,
+    CumSum
 }
 
 table Op {

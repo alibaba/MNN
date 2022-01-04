@@ -15,6 +15,7 @@
 #include <mutex>
 #include <thread>
 #include "core/Macro.h"
+#include "runtime/OpenCLTuneInfo.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -34,11 +35,71 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
+    mTunedInfo = new TuneInfo;
 }
 
 CLRuntime::~CLRuntime() {
     mOpenCLRuntime = nullptr;
+    delete mTunedInfo;
 }
+static bool _checkTensorInfo(const CLCache::TensorInfoT* dst, const Tensor* src) {
+    if (dst->shape.size() != src->dimensions()) {
+        return false;
+    }
+    for (int j=0; j<dst->shape.size(); ++j) {
+        if (dst->shape[j] != src->length(j)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CLRuntime::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                       const MNN::Op* op, Runtime::OpInfo& dstInfo) const {
+    dstInfo.initCostLong = true;
+    if (nullptr == op->name()) {
+        dstInfo.initCostLong = false;
+        return true;
+    }
+    for(auto& info : mTunedInfo->mInfos) {
+        if (info->type != op->type()) {
+            continue;
+        }
+        if (info->name != op->name()->str()) {
+            continue;
+        }
+        if (info->inputs.size() != inputs.size() || info->outputs.size() != outputs.size()) {
+            continue;
+        }
+        bool match = true;
+        for (int i=0; i<inputs.size(); ++i) {
+            auto& dst = info->inputs[i];
+            auto src = inputs[i];
+            if (!_checkTensorInfo(dst.get(), src)) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) {
+            continue;
+        }
+        for (int i=0; i<outputs.size(); ++i) {
+            auto& dst = info->outputs[i];
+            auto src = outputs[i];
+            if (!_checkTensorInfo(dst.get(), src)) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            // All Info is match
+            dstInfo.initCostLong = false;
+            break;
+        }
+    }
+    return true;
+}
+
 
 int CLRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     switch (statusEnum) {
@@ -57,13 +118,54 @@ int CLRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     }
     return 0;
 }
+void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           const MNN::Op* op) {
+    if (nullptr != op->name()) {
+        auto dstInfo = mTunedInfo;
+        std::unique_ptr<CLCache::OpInfoT> opInfo(new CLCache::OpInfoT);;
+        opInfo->type = op->type();
+        opInfo->name = op->name()->str();
+        opInfo->inputs.resize(inputs.size());
+        for (int v=0; v<opInfo->inputs.size(); ++v) {
+            opInfo->inputs[v].reset(new CLCache::TensorInfoT);
+            opInfo->inputs[v]->shape.resize(inputs[v]->dimensions());
+            for (int u=0; u<opInfo->inputs[v]->shape.size(); ++u) {
+                opInfo->inputs[v]->shape[u] = inputs[v]->length(u);
+            }
+        }
+        opInfo->outputs.resize(outputs.size());
+        for (int v=0; v<opInfo->outputs.size(); ++v) {
+            opInfo->outputs[v].reset(new CLCache::TensorInfoT);
+            opInfo->outputs[v]->shape.resize(outputs[v]->dimensions());
+            for (int u=0; u<opInfo->outputs[v]->shape.size(); ++u) {
+                opInfo->outputs[v]->shape[u] = outputs[v]->length(u);
+            }
+        }
+        dstInfo->mInfos.emplace_back(std::move(opInfo));
+    }
+}
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
+    if (nullptr == buffer) {
+        return false;
+    }
+    auto cacheBuffer = CLCache::GetCache(buffer);
+    flatbuffers::Verifier verify((const uint8_t*)buffer, size);
+    if (false == CLCache::VerifyCacheBuffer(verify)) {
+        return false;
+    }
+    if(nullptr != cacheBuffer->tuned()) {
+        for (int i=0; i<cacheBuffer->tuned()->size(); ++i) {
+            auto srcInfo = cacheBuffer->tuned()->GetAs<CLCache::OpInfo>(i);
+            std::unique_ptr<CLCache::OpInfoT> dst(srcInfo->UnPack());
+            mTunedInfo->mInfos.emplace_back(std::move(dst));
+        }
+    }
     return mOpenCLRuntime->setCache(std::make_pair(buffer, size));
 }
 
 std::pair<const void*, size_t> CLRuntime::onGetCache() {
-    return mOpenCLRuntime->makeCache();
+    return mOpenCLRuntime->makeCache(mTunedInfo);
 }
 
 Backend* CLRuntime::onCreate(const BackendConfig* config) const {
@@ -251,18 +353,6 @@ bool OpenCLBackend::onClearBuffer() {
         }
     }
     return true;
-}
-std::pair<float, bool> OpenCLBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
-    auto creators = gCreator();
-    auto iter      = creators->find(std::make_pair(op->type(), mOpenCLRuntime->getGpuMemType()));
-    if (iter == creators->end()) {
-        return std::make_pair(0.0f, false);
-    }
-    const float defaultScheduleTime = 0.05f;
-    // FIXME: Compute in future
-    auto flops = 0.0f;
-    auto computeFlops = mOpenCLRuntime->flops();
-    return std::make_pair(defaultScheduleTime + flops / 1024.0f / computeFlops * 1000.0f, true);
 }
 
 Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

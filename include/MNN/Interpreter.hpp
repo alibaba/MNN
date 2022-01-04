@@ -131,6 +131,14 @@ public:
         Session_Output_Inside = 4,
         /** The output tensor can be seperated from session*/
         Session_Output_User = 5,
+
+        /** Try Resize Session when create Session or not, default direct: */
+        Session_Resize_Direct = 6,
+        Session_Resize_Defer = 7,
+
+        /** Determine the Execution's forward type is determine by user or auto determine */
+        Session_Backend_Fix = 8, // Use the backend user set, when not support use default backend
+        Session_Backend_Auto = 9, // Auto Determine the Op type by MNN
     };
     /**
      * @brief The API shoud be called before create session.
@@ -143,7 +151,7 @@ public:
      * If the cache exist, try to load cache from file.
      * After createSession, try to save cache to file.
      * @param cacheFile      cache file name
-     * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
+     * @param keySize        depercerate, for future use.
      */
     void setCacheFile(const char* cacheFile, size_t keySize = 128);
     
@@ -156,6 +164,16 @@ public:
      */
     ErrorCode updateCacheFile(Session *session, int flag = 0);
 
+    enum HintMode {
+        // Max Op number for async tuning
+        MAX_TUNING_NUMBER = 0,
+    };
+    /**
+     * @brief The API shoud be called before create session.
+     * @param mode      Hint type
+     * @param value     Hint value
+     */
+    void setSessionHint(HintMode mode, int value);
 public:
     /**
      * @brief create runtimeInfo seperately with schedule config.

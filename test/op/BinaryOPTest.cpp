@@ -282,6 +282,39 @@ public:
                     {4, 2}, {2}, {4, 2});
     }
 };
+class BitwiseAndTest : public BinaryTestCommon {
+public:
+    virtual ~BitwiseAndTest() = default;
+    virtual bool run(int precision) {
+        return test<int, int>(_BitwiseAnd, "BitwiseAndTest", 0,
+                    {1, 2, 3, 4, 5, 6, 7, 8},
+                    {8, 7, 6, 5, 4, 3, 2, 1},
+                    {0, 2, 2, 4, 4, 2, 2, 0},
+                    {8}, {8}, {8});
+    }
+};
+class BitwiseOrTest : public BinaryTestCommon {
+public:
+    virtual ~BitwiseOrTest() = default;
+    virtual bool run(int precision) {
+        return test<int, int>(_BitwiseOr, "BitwiseOrTest", 0,
+                    {1, 2, 3, 4, 5, 6, 7, 8},
+                    {8, 7, 6, 5, 4, 3, 2, 1},
+                    {9, 7, 7, 5, 5, 7, 7, 9},
+                    {8}, {8}, {8});
+    }
+};
+class BitwiseXorTest : public BinaryTestCommon {
+public:
+    virtual ~BitwiseXorTest() = default;
+    virtual bool run(int precision) {
+        return test<int, int>(_BitwiseXor, "BitwiseXorTest", 0,
+                    {1, 2, 3, 4, 5, 6, 7, 8},
+                    {8, 7, 6, 5, 4, 3, 2, 1},
+                    {9, 5, 5, 1, 1, 5, 5, 9},
+                    {8}, {8}, {8});
+    }
+};
 
 class BinaryBroadcastShapeTest : public BinaryTestCommon {
 public:
@@ -338,3 +371,6 @@ MNNTestSuiteRegister(Atan2Test, "op/binary/atan2");
 MNNTestSuiteRegister(LogicalOrTest, "op/binary/logicalor");
 MNNTestSuiteRegister(NotEqualTest, "op/binary/notqual");
 MNNTestSuiteRegister(SubtractBroastTest, "op/binary/subtractBroastTest");
+MNNTestSuiteRegister(BitwiseAndTest, "op/binary/bitwise_and");
+MNNTestSuiteRegister(BitwiseOrTest, "op/binary/bitwise_or");
+MNNTestSuiteRegister(BitwiseXorTest, "op/binary/bitwise_xor");

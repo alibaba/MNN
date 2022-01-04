@@ -13,9 +13,8 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "Utils.hpp"
 #include "core/MNNMemoryUtils.h"
-#include "core/Session.hpp"
+#include "RuntimeAttr.hpp"
 #include "core/TensorUtils.hpp"
-#include <queue>
 
 namespace MNN {
 namespace Express {
@@ -153,6 +152,7 @@ static void _resizeTensor(Tensor* tensor, const Tensor* dims, Session* session) 
     tensor->buffer().dimensions = (int)dims->dimensions();
     for (int i = 0; i < dims->dimensions(); ++i) {
         tensor->buffer().dim[i].extent = dims->length(i);
+        tensor->buffer().dim[i].stride = dims->stride(i);
     }
     session->setNeedResize();
 }
@@ -164,7 +164,8 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     mResource->mInputs = inputs;
     mResource->mOutputs = outputs;
     mResource->mSharedConst = sharedConst;
-    mResource->mShapeMutable = moduleconfig.shapeMutable;
+    mResource->mModes.inputMode = moduleconfig.shapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
+    mResource->mModes.outputMode = Interpreter::Session_Output_User;
     std::shared_ptr<BufferStorage> net_storage;
     std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> exeCache;
     RuntimeInfo rt;;
@@ -177,6 +178,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     if (nullptr == rtMgr) {
         rt = Executor::getRuntime();
     } else {
+        mResource->mModes = rtMgr->getInside()->modes;
         rt = rtMgr->getRuntimeInfo();
     }
     if (moduleconfig.rearrange) {
@@ -245,19 +247,13 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     if (!res) {
         return;
     }
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
-#else
-    Interpreter::SessionMode callBackMode = Interpreter::Session_Release;
-#endif
     mResource->mUseContentInputs = scheduleInfo.needInputContentForShape;
     if (mResource->mUseContentInputs) {
-        mResource->mShapeMutable = true;
+        mResource->mModes.inputMode = Interpreter::Session_Input_User;
     }
-    Interpreter::SessionMode inputMode = mResource->mShapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
-    mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, Interpreter::Session_Output_User, std::move(rt)));
+    mSession.reset(new Session(std::move(scheduleInfo), mResource->mModes, std::move(rt)));
     mSession->cloneExecution(exeCache);
-    if (scheduleInfo.validForResize && inputMode == Interpreter::Session_Input_Inside) {
+    if (scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside) {
         mSession->resize(false);
     }
     mInputTensors.resize(inputs.size());
@@ -296,7 +292,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
 #endif
 
     MNN_ASSERT(inputs.size() == mInputTensors.size());
-    if (mResource->mShapeMutable) {
+    if (mResource->mModes.inputMode == Interpreter::Session_Input_User) {
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
                 continue;
@@ -360,29 +356,17 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         }
     }
     ErrorCode code;
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    auto globalExecutor = ExecutorScope::Current();
-    auto debug = globalExecutor->getDebugTools();
-    if (debug->after != nullptr && debug->before != nullptr) {
-        code = mSession->runWithCallBack(debug->before, debug->after);
+    if (mResource->mModes.callBackMode == Interpreter::Session_Debug) {
+        auto globalExecutor = ExecutorScope::Current();
+        auto debug = globalExecutor->getDebugTools();
+        if (debug->after != nullptr && debug->before != nullptr) {
+            code = mSession->runWithCallBack(debug->before, debug->after);
+        } else {
+            code = mSession->run();
+        }
     } else {
-        Timer cost;
-        TensorCallBackWithInfo beforeCallBack = [&cost](const std::vector<Tensor*>&, const OperatorInfo* info) {
-            cost.reset();
-            return true;
-        };
-        TensorCallBackWithInfo afterCallBack = [&cost, globalExecutor](const std::vector<Tensor*>&,
-                                                                       const OperatorInfo* info) {
-            auto costTimes = (float)cost.durationInUs() / 1000.0f;
-            globalExecutor->addOpCostTime(info->type(), costTimes);
-            globalExecutor->addOpFlops(info->type(), info->flops());
-            return true;
-        };
-        code = mSession->runWithCallBack(beforeCallBack, afterCallBack);
+        code = mSession->run();
     }
-#else
-    code = mSession->run();
-#endif
     if (NO_ERROR != code) {
         return {};
     }
@@ -409,15 +393,9 @@ Module* StaticModule::clone(CloneContext* ctx) const {
     if (!res) {
         return nullptr;
     }
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
-#else
-    Interpreter::SessionMode callBackMode = Interpreter::Session_Release;
-#endif
-    Interpreter::SessionMode inputMode = mResource->mShapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
-    module->mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, Interpreter::Session_Output_User, std::move(rt)));
+    module->mSession.reset(new Session(std::move(scheduleInfo), mResource->mModes, std::move(rt)));
     module->mSession->cloneExecution(mSession->getExecution());
-    if (scheduleInfo.validForResize && inputMode == Interpreter::Session_Input_Inside) {
+    if (scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside) {
         module->mSession->resize(false);
     }
     module->mResourceBackend = mResourceBackend;

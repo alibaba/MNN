@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "imgproc/filter.hpp"
+#include "cv/imgproc/filter.hpp"
 #include <cmath>
 
 namespace MNN {
@@ -101,7 +101,7 @@ static VARP pyr(VARP src, int borderType) {
         0.0234375 , 0.09375   , 0.140625  , 0.09375   , 0.0234375 ,
         0.015625  , 0.0625    , 0.09375   , 0.0625    , 0.015625  ,
         0.00390625, 0.015625  , 0.0234375 , 0.015625  , 0.00390625 };
-    return filter2D(src, -1, _Const(kVec.data(), {5, 5}), 0, borderType);
+    return _Unsqueeze(filter2D(src, -1, _Const(kVec.data(), {5, 5}), 0, borderType), {0});
 }
 
 // Helper Function //////////////////////////////////////////////////////////////
@@ -123,30 +123,41 @@ VARP boxFilter(VARP src, int ddepth, Size ksize, bool normalize, int borderType)
 }
 
 VARP dilate(VARP src, VARP kernel, int iterations, int borderType) {
-    const auto dims = src->getInfo()->dim;
-    int height = dims[1];
-    int width = dims[2];
-    int channel = dims[3];
-    const auto ksize = kernel->getInfo()->dim;
-    int kheight = ksize[0];
-    int kwidth = ksize[1];
+    auto dim = src->getInfo()->dim;
+    int height, width, channel;
+    if (dim.size() == 3) {
+        height = dim[0];
+        width = dim[1];
+        channel = dim[2];
+        src = _Unsqueeze(src, {0});
+    } else {
+        getVARPSize(src, &height, &width, &channel);
+    }
+    int kheight, kwidth, kchannel;
+    getVARPSize(kernel, &kheight, &kwidth, &kchannel);
     auto padSrc = PadForConv(src, kheight, kwidth, borderType);
-    return _MaxPool(padSrc, {3, 3});
+    return _Squeeze(_MaxPool(padSrc, {3, 3}), {0});
 }
 
 VARP filter2D(VARP src, int ddepth, VARP kernel, double delta, int borderType) {
-    const auto dims = src->getInfo()->dim;
-    int height = dims[1];
-    int width = dims[2];
-    int channel = dims[3];
+    auto dim = src->getInfo()->dim;
+    int height, width, channel;
+    if (dim.size() == 3) {
+        height = dim[0];
+        width = dim[1];
+        channel = dim[2];
+        src = _Unsqueeze(src, {0});
+    } else {
+        getVARPSize(src, &height, &width, &channel);
+    }
     const auto ksize = kernel->getInfo()->dim;
-    int kheight = ksize[0];
-    int kwidth = ksize[1];
+    int kheight, kwidth, kchannel;
+    getVARPSize(kernel, &kheight, &kwidth, &kchannel);
     auto padSrc = PadForConv(src, kheight, kwidth, borderType);
     ddepth = ddepth < 0 ? channel : ddepth;
     std::vector<float> bias(ddepth, delta);
-    return _Conv(std::move(VARP2Vec<float>(kernel, ddepth)), std::move(bias), padSrc, {channel, ddepth},
-                 {kwidth, kheight}, VALID, {1, 1}, {1, 1}, channel);
+    return _Squeeze(_Conv(std::move(VARP2Vec<float>(kernel, ddepth)), std::move(bias), padSrc, {channel, ddepth},
+                          {kwidth, kheight}, VALID, {1, 1}, {1, 1}, channel), {0});
 }
 
 std::pair<VARP, VARP> getDerivKernels(int dx, int dy, int ksize, bool normalize) {
@@ -285,6 +296,9 @@ VARP pyrDown(VARP src, Size dstsize, int borderType) {
 }
 
 VARP pyrUp(VARP src, Size dstsize, int borderType) {
+    if (src->getInfo()->dim.size() == 3) {
+        src = _Unsqueeze(src, {0});
+    }
     return pyr(_Convert(_Resize(_Convert(src, NC4HW4), 2, 2), NHWC), borderType);
 }
 

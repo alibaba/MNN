@@ -14,7 +14,7 @@ namespace MNN {
 namespace Express {
 enum PaddingMode {CAFFE, VALID, SAME};
 enum PoolingMode {MAXPOOL, AVEPOOL};
-enum PadValueMode {CONSTANT, REFLECT, SYMMETRIC};
+enum PadValueMode {CONSTANT, REFLECT, SYMMETRIC, EDGE};
 MNN_PUBLIC VARP _Input(INTS shape = {}, Dimensionformat data_format = NC4HW4, halide_type_t dtype = halide_type_of<float>()) ;
 MNN_PUBLIC VARP _Clone(VARP source, bool deepCopy = false);
 

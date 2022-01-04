@@ -166,6 +166,9 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize
         if (inputSize > 1 && (op->type() == OpType_Squeeze || op->type() == OpType_Unsqueeze)) {
             return std::vector<int>{1};
         }
+        if (op->type() == OpType_CumSum) {
+            return std::vector<int>{1};
+        }
         auto computer = computeFactory->search(op->type());
         if (nullptr != computer) {
             return computer->mNeedContentInputIndex;

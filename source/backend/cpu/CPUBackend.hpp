@@ -58,8 +58,6 @@ public:
     virtual MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
-    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                            const MNN::Op* op) override;
 
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;

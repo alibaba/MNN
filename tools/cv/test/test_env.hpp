@@ -13,7 +13,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include "imgproc/imgproc.hpp"
+#include "cv/imgproc/imgproc.hpp"
 
 using namespace MNN;
 using namespace Express;
@@ -127,7 +127,7 @@ public:
         return true;
     }*/
     void cv2mnn(const cv::Mat& src, VARP& dst) {
-        dst = _Input({ 1, src.rows, src.cols, src.channels() }, NHWC, halide_type_of<T>());
+        dst = _Input({ src.rows, src.cols, src.channels() }, NHWC, halide_type_of<T>());
         auto inputPtr = dst->writeMap<T>();
         memcpy(inputPtr, src.ptr(0), dst->getInfo()->size * sizeof(T));
         // _dump<T>("src:", inputPtr, {16, 19, 188, 191, 0, 3}, src.channels(), src.cols * src.channels());

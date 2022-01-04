@@ -127,7 +127,10 @@ int main(int argc, const char* argv[]) {
         profiler->start(info);
         return true;
     };
-    auto afterCallBack = [&](const std::vector<Tensor*>& inputs, const OperatorInfo* info) {
+    auto afterCallBack = [&](const std::vector<Tensor*>& tensors, const OperatorInfo* info) {
+        for (auto o : tensors) {
+            o->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+        }
         profiler->end(info);
         return true;
     };

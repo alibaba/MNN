@@ -224,6 +224,11 @@ enum OpType {
   OpType_LSTMBlockCell = 141,
   OpType_Reverse = 142,
   OpType_ROIAlign = 143,
+  OpType_RandomNormal = 144,
+  OpType_TensorArrayInsert = 145,
+  OpType_TensorArrayErase = 146,
+  OpType_EyeLike = 147,
+  OpType_CumSum = 148,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -252,7 +257,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[162] {
+inline const OpType (&EnumValuesOpType())[167] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -392,6 +397,11 @@ inline const OpType (&EnumValuesOpType())[162] {
     OpType_LSTMBlockCell,
     OpType_Reverse,
     OpType_ROIAlign,
+    OpType_RandomNormal,
+    OpType_TensorArrayInsert,
+    OpType_TensorArrayErase,
+    OpType_EyeLike,
+    OpType_CumSum,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -566,11 +576,11 @@ inline const char * const *EnumNamesOpType() {
     "LSTMBlockCell",
     "Reverse",
     "ROIAlign",
-    "",
-    "",
-    "",
-    "",
-    "",
+    "RandomNormal",
+    "TensorArrayInsert",
+    "TensorArrayErase",
+    "EyeLike",
+    "CumSum",
     "",
     "",
     "",
@@ -1133,11 +1143,12 @@ enum OpParameter {
   OpParameter_GridSample = 91,
   OpParameter_LoopParam = 92,
   OpParameter_ImageProcessParam = 93,
+  OpParameter_CumSum = 94,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_ImageProcessParam
+  OpParameter_MAX = OpParameter_CumSum
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[94] {
+inline const OpParameter (&EnumValuesOpParameter())[95] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1232,7 +1243,8 @@ inline const OpParameter (&EnumValuesOpParameter())[94] {
     OpParameter_LSTMBlockCell,
     OpParameter_GridSample,
     OpParameter_LoopParam,
-    OpParameter_ImageProcessParam
+    OpParameter_ImageProcessParam,
+    OpParameter_CumSum
   };
   return values;
 }
@@ -1333,13 +1345,14 @@ inline const char * const *EnumNamesOpParameter() {
     "GridSample",
     "LoopParam",
     "ImageProcessParam",
+    "CumSum",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_ImageProcessParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_CumSum) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1718,6 +1731,10 @@ template<> struct OpParameterTraits<LoopParam> {
 
 template<> struct OpParameterTraits<ImageProcessParam> {
   static const OpParameter enum_value = OpParameter_ImageProcessParam;
+};
+
+template<> struct OpParameterTraits<CumSum> {
+  static const OpParameter enum_value = OpParameter_CumSum;
 };
 
 struct OpParameterUnion {
@@ -2494,6 +2511,14 @@ struct OpParameterUnion {
   const ImageProcessParamT *AsImageProcessParam() const {
     return type == OpParameter_ImageProcessParam ?
       reinterpret_cast<const ImageProcessParamT *>(value) : nullptr;
+  }
+  CumSumT *AsCumSum() {
+    return type == OpParameter_CumSum ?
+      reinterpret_cast<CumSumT *>(value) : nullptr;
+  }
+  const CumSumT *AsCumSum() const {
+    return type == OpParameter_CumSum ?
+      reinterpret_cast<const CumSumT *>(value) : nullptr;
   }
 };
 
@@ -3531,6 +3556,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const ImageProcessParam *main_as_ImageProcessParam() const {
     return main_type() == OpParameter_ImageProcessParam ? static_cast<const ImageProcessParam *>(main()) : nullptr;
   }
+  const CumSum *main_as_CumSum() const {
+    return main_type() == OpParameter_CumSum ? static_cast<const CumSum *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -3933,6 +3961,10 @@ template<> inline const LoopParam *Op::main_as<LoopParam>() const {
 
 template<> inline const ImageProcessParam *Op::main_as<ImageProcessParam>() const {
   return main_as_ImageProcessParam();
+}
+
+template<> inline const CumSum *Op::main_as<CumSum>() const {
+  return main_as_CumSum();
 }
 
 struct OpBuilder {
@@ -5546,6 +5578,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const ImageProcessParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_CumSum: {
+      auto ptr = reinterpret_cast<const CumSum *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -5936,6 +5972,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const ImageProcessParam *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_CumSum: {
+      auto ptr = reinterpret_cast<const CumSum *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6314,6 +6354,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const ImageProcessParamT *>(value);
       return CreateImageProcessParam(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_CumSum: {
+      auto ptr = reinterpret_cast<const CumSumT *>(value);
+      return CreateCumSum(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6690,6 +6734,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_ImageProcessParam: {
       value = new ImageProcessParamT(*reinterpret_cast<ImageProcessParamT *>(u.value));
+      break;
+    }
+    case OpParameter_CumSum: {
+      value = new CumSumT(*reinterpret_cast<CumSumT *>(u.value));
       break;
     }
     default:
@@ -7164,6 +7212,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_CumSum: {
+      auto ptr = reinterpret_cast<CumSumT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -7333,12 +7386,17 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7478,6 +7536,11 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "LSTMBlockCell",
     "Reverse",
     "ROIAlign",
+    "RandomNormal",
+    "TensorArrayInsert",
+    "TensorArrayErase",
+    "EyeLike",
+    "CumSum",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7504,7 +7567,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 162, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 167, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7604,7 +7667,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 89 },
     { flatbuffers::ET_SEQUENCE, 0, 90 },
     { flatbuffers::ET_SEQUENCE, 0, 91 },
-    { flatbuffers::ET_SEQUENCE, 0, 92 }
+    { flatbuffers::ET_SEQUENCE, 0, 92 },
+    { flatbuffers::ET_SEQUENCE, 0, 93 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7699,7 +7763,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     LSTMBlockCellTypeTable,
     GridSampleTypeTable,
     LoopParamTypeTable,
-    ImageProcessParamTypeTable
+    ImageProcessParamTypeTable,
+    CumSumTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7795,10 +7860,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "LSTMBlockCell",
     "GridSample",
     "LoopParam",
-    "ImageProcessParam"
+    "ImageProcessParam",
+    "CumSum"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 94, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 95, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

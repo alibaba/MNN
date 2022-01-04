@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 #include <opencv2/imgcodecs.hpp>
-#include "imgcodecs.hpp"
+#include "cv/imgcodecs.hpp"
 #include "test_env.hpp"
 
 #define MNN_CODECS_TEST

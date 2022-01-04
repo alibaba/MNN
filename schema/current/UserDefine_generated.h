@@ -103,11 +103,12 @@ enum ImageFormatType {
   ImageFormatType_YUV_NV21 = 11,
   ImageFormatType_YUV_NV12 = 12,
   ImageFormatType_YUV_I420 = 13,
+  ImageFormatType_HSV_FULL = 14,
   ImageFormatType_MIN = ImageFormatType_RGBA,
-  ImageFormatType_MAX = ImageFormatType_YUV_I420
+  ImageFormatType_MAX = ImageFormatType_HSV_FULL
 };
 
-inline const ImageFormatType (&EnumValuesImageFormatType())[14] {
+inline const ImageFormatType (&EnumValuesImageFormatType())[15] {
   static const ImageFormatType values[] = {
     ImageFormatType_RGBA,
     ImageFormatType_RGB,
@@ -122,7 +123,8 @@ inline const ImageFormatType (&EnumValuesImageFormatType())[14] {
     ImageFormatType_BGR565,
     ImageFormatType_YUV_NV21,
     ImageFormatType_YUV_NV12,
-    ImageFormatType_YUV_I420
+    ImageFormatType_YUV_I420,
+    ImageFormatType_HSV_FULL
   };
   return values;
 }
@@ -143,13 +145,14 @@ inline const char * const *EnumNamesImageFormatType() {
     "YUV_NV21",
     "YUV_NV12",
     "YUV_I420",
+    "HSV_FULL",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameImageFormatType(ImageFormatType e) {
-  if (e < ImageFormatType_RGBA || e > ImageFormatType_YUV_I420) return "";
+  if (e < ImageFormatType_RGBA || e > ImageFormatType_HSV_FULL) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesImageFormatType()[index];
 }
@@ -681,6 +684,7 @@ inline const flatbuffers::TypeTable *ImageFormatTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -700,10 +704,11 @@ inline const flatbuffers::TypeTable *ImageFormatTypeTypeTable() {
     "BGR565",
     "YUV_NV21",
     "YUV_NV12",
-    "YUV_I420"
+    "YUV_I420",
+    "HSV_FULL"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 14, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 15, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

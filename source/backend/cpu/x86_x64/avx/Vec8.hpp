@@ -73,15 +73,23 @@ r4 = t4, r5 = t5, r6 = t6, r7 = t7;\
 struct Vec8 {
     using VecType = Vec8;
     __m256 value;
-    VecType operator+(const VecType& lr) {
+    VecType operator+(const VecType& lr) const {
         VecType dst = { _mm256_add_ps(value, lr.value) };
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst = { _mm256_sub_ps(value, lr.value) };
         return dst;
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator+=(const VecType& lr) {
+        value = _mm256_add_ps(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = _mm256_sub_ps(value, lr.value);
+        return *this;
+    }
+    VecType operator*(const VecType& lr) const {
         VecType dst = { _mm256_mul_ps(value, lr.value) };
         return dst;
     }
@@ -136,6 +144,14 @@ struct Vec8 {
     }
     static VecType min(const VecType& v1, const VecType& v2) {
         VecType dst = { _mm256_min_ps(v1.value, v2.value) };
+        return dst;
+    }
+    static VecType fma(const VecType& v0, const VecType& v1, const VecType& v2) {
+        VecType dst = v0 + v1 * v2;// not sure support fmadd or not, { _mm256_fmadd_ps(v1.value, v2.value, v0.value) };
+        return dst;
+    }
+    static VecType fms(const VecType& v0, const VecType& v1, const VecType& v2) {
+        VecType dst = v0 - v1 * v2; // not sure support fnmadd or not, { _mm256_fnmadd_ps(v1.value, v2.value, v0.value) };
         return dst;
     }
     static void transpose8(VecType& v0, VecType& v1, VecType& v2, VecType& v3, VecType& v4, VecType& v5, VecType& v6, VecType& v7) {

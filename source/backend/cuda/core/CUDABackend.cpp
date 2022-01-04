@@ -143,19 +143,6 @@ size_t CUDABackend::realSize(const Tensor* tensor) {
     return res;
 }
 
-std::pair<float, bool> CUDABackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                              const MNN::Op* op) {
-    auto creators = gCreator();
-    auto iter     = creators->find(op->type());
-    if (iter == creators->end()) {
-        return std::make_pair(0.0f, false);
-    }
-    const float defaultScheduleTime = 0.05f;
-    // FIXME: Compute in future
-    auto flops = 0.0f;
-    auto computeFlops = mCUDARuntime->flops();
-    return std::make_pair(defaultScheduleTime + flops / 1024.0f / computeFlops * 1000.0f, true);
-}
 Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                  const MNN::Op* op) {
 #ifdef LOG_VERBOSE

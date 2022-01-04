@@ -2,6 +2,7 @@ set(CUDA_MIN_VERSION "9.0")
 find_package(CUDA ${CUDA_MIN_VERSION})
 
 if(CUDA_FOUND)
+if (FALSE)
     include(${CMAKE_CURRENT_SOURCE_DIR}/SelectCudaComputeArch.cmake)
     CUDA_SELECT_NVCC_ARCH_FLAGS(CUDA_ARCH_FLAGS ${CUDA_ARCHS})
     #set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} ${CUDA_ARCH_FLAGS}")
@@ -30,15 +31,20 @@ if(CUDA_FOUND)
 
     
     # Fix for some combinations of CUDA and GCC (e.g. under Ubuntu 16.04).
+endif()
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -D_FORCE_INLINES -Wno-deprecated-gpu-targets -w")
     if(CMAKE_BUILD_TYPE MATCHES Debug)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0")
     else()
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O2")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O3")
     endif()
     if (WIN32)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler /FS")
     endif ()
+    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}
+        -gencode arch=compute_70,code=sm_70
+        -gencode arch=compute_75,code=sm_75
+    )
     message(STATUS "Enabling CUDA support (version: ${CUDA_VERSION_STRING},"
                     " archs: ${CUDA_ARCH_FLAGS_readable})")
 else()

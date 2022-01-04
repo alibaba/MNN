@@ -25,22 +25,19 @@ namespace MNN {
 /** MetalRuntime */
 enum MetalTuneLevel {Never = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 
-class MetalRuntime {
+struct TunedInfo;
+class MetalRuntime : public Runtime {
 public:
     friend class MetalBackend;
-    MetalRuntime(const Backend::Info info);
     virtual ~ MetalRuntime();
     
     void *context() const {
         return mContext;
     }
 
-    bool isCreateError() const {
-        return mIsCreateError;
-    }
     void setGpuMode(const int cl_mode_num);
     
-    std::pair<const void*, size_t> makeCache();
+    std::pair<const void*, size_t> makeCache(TunedInfo* info);
     bool setCache(std::pair<const void*, size_t> cache);
     
     MetalTuneLevel getTuneLevel() {
@@ -49,29 +46,8 @@ public:
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
         return mTunedThreadGroup;
     };
-private:
-    void* mContext = nullptr;
-    std::shared_ptr<BufferAllocator> mStatic;
-    bool mIsCreateError = false;
-    MetalTuneLevel mTuneLevel = Wide;
-    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
-
-private:
-    std::vector<uint8_t> mBuffer;
-    const void* mCacheOutside = nullptr;
-    size_t mCacheOutsideSize = 0;
-};
-
-
-class MetalRuntimeWrapper : public Runtime {
-public:
-    MetalRuntimeWrapper(const Backend::Info info);
-    virtual ~MetalRuntimeWrapper();
     virtual Backend *onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
-    bool isCreateError() const {
-        return mIsCreateError;
-    }
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
@@ -80,12 +56,25 @@ public:
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
 
-    
+    static MetalRuntime* create(const Backend::Info& info, id<MTLDevice> device);
+    virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                               const MNN::Op* op) override;
+    virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                        const MNN::Op* op, Runtime::OpInfo& dstInfo) const override;
 private:
-    std::shared_ptr<BufferAllocator> mBufferPool;
-    std::shared_ptr<MetalRuntime> mMetalRuntime;
-    bool mIsCreateError{false};
+    MetalRuntime(void* context);
+    void* mContext = nullptr;
+    std::shared_ptr<BufferAllocator> mStatic;
+    MetalTuneLevel mTuneLevel = Wide;
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
+
+private:
+    std::vector<uint8_t> mBuffer;
+    const void* mCacheOutside = nullptr;
+    size_t mCacheOutsideSize = 0;
+    TunedInfo* mTunedInfo;
 };
+
 
 class MetalRuntimeAllocator : public BufferAllocator::Allocator {
 public:
@@ -102,7 +91,7 @@ public:
         id<MTLBuffer> mBuffer = nil;
     };
     
-    MetalRuntimeAllocator(MetalRuntime *rt): mMetalRuntime(rt) {
+    MetalRuntimeAllocator(id<MTLDevice> device): mDevice(device) {
         // Do nothing
     }
     virtual ~ MetalRuntimeAllocator() = default;
@@ -110,8 +99,7 @@ public:
     virtual void onRelease(std::pair<void*, int> ptr) override;
     
 private:
-    MetalRuntime *mMetalRuntime;
-    id<MTLBuffer> mBuffer = nil;
+    id<MTLDevice> mDevice;
 };
 
 /** Metal backend */
@@ -156,8 +144,7 @@ public:
     virtual void onResizeEnd() override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
-    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                            const MNN::Op* op) override;
+    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
 
 public:
     /**

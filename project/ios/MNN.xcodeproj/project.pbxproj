@@ -294,6 +294,11 @@
 		4AF4FB2A269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S in Sources */ = {isa = PBXBuildFile; fileRef = 4AF4FB28269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */; };
 		4AF4FB2D269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx1.S in Sources */ = {isa = PBXBuildFile; fileRef = 4AF4FB2B269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */; };
 		4AF4FB2E269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx4.S in Sources */ = {isa = PBXBuildFile; fileRef = 4AF4FB2C269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */; };
+		4D4CF4672760946500A36D9F /* miscellaneous.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4622760946500A36D9F /* miscellaneous.cpp */; };
+		4D4CF4682760946500A36D9F /* geometric.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4632760946500A36D9F /* geometric.cpp */; };
+		4D4CF4692760946500A36D9F /* filter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4642760946500A36D9F /* filter.cpp */; };
+		4D4CF46A2760946500A36D9F /* color.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4652760946500A36D9F /* color.cpp */; };
+		4D4CF46B2760946500A36D9F /* draw.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4662760946500A36D9F /* draw.cpp */; };
 		4D4DAE68263905390060D37E /* CoreMLDefine.h in Headers */ = {isa = PBXBuildFile; fileRef = 4D4DAE67263905390060D37E /* CoreMLDefine.h */; };
 		4D6D7FC9265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S in Sources */ = {isa = PBXBuildFile; fileRef = 4D6D7FC8265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S */; };
 		4D6D7FCB265688F600F80814 /* MNNPackedSparseMatMulEpx4.S in Sources */ = {isa = PBXBuildFile; fileRef = 4D6D7FCA265688F600F80814 /* MNNPackedSparseMatMulEpx4.S */; };
@@ -350,6 +355,7 @@
 		4DD1793C2694078000B0098F /* MNNSoftmax.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DD1793B2694078000B0098F /* MNNSoftmax.S */; };
 		4DDE2019263809920085AC8F /* CoreMLExecutorWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DDE2017263809920085AC8F /* CoreMLExecutorWrapper.mm */; };
 		4DDE201A263809920085AC8F /* CoreMLExecutorWrapper.h in Headers */ = {isa = PBXBuildFile; fileRef = 4DDE2018263809920085AC8F /* CoreMLExecutorWrapper.h */; };
+		4DE4E82C275E307B0016A916 /* cv in Headers */ = {isa = PBXBuildFile; fileRef = 4DE4E82B275E307B0016A916 /* cv */; settings = {ATTRIBUTES = (Public, ); }; };
 		4DF63F2D2660D9CB00590730 /* CoreMLInterp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */; };
 		4DF63F2F2660D9D100590730 /* CoreMLInterp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */; };
 		6A131E3F25823349002EC3D6 /* PluginShapeInference.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */; };
@@ -722,12 +728,12 @@
 		C43C8227251894F400A0FF84 /* Vec.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C43C8224251894F400A0FF84 /* Vec.hpp */; };
 		C43C822D2518951800A0FF84 /* SkNx_neon.h in Headers */ = {isa = PBXBuildFile; fileRef = C43C82282518951800A0FF84 /* SkNx_neon.h */; };
 		C43C822F2518951800A0FF84 /* SkNx.h in Headers */ = {isa = PBXBuildFile; fileRef = C43C822A2518951800A0FF84 /* SkNx.h */; };
-		C4DBB34D27041F7E00ADB16E /* WinogradOptFunctionInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4DBB34B27041F7E00ADB16E /* WinogradOptFunctionInt8.cpp */; };
-		C4DBB34E27041F7E00ADB16E /* WinogradOptFunctionInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4DBB34C27041F7E00ADB16E /* WinogradOptFunctionInt8.hpp */; };
-		C4EF5FB42657A9E70094235C /* ConvInt8Winograd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4EF5FB02657A9E70094235C /* ConvInt8Winograd.cpp */; };
-		C4EF5FB52657A9E70094235C /* ConvInt8Winograd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4EF5FB12657A9E70094235C /* ConvInt8Winograd.hpp */; };
 		C4EF5FB62657A9E70094235C /* ConvInt8TiledExecutor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4EF5FB22657A9E70094235C /* ConvInt8TiledExecutor.cpp */; };
 		C4EF5FB72657A9E70094235C /* ConvInt8TiledExecutor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4EF5FB32657A9E70094235C /* ConvInt8TiledExecutor.hpp */; };
+		C4F906B0276886040026B847 /* GeometryTopK.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4F906AF276886040026B847 /* GeometryTopK.cpp */; };
+		C4F906B327688C3A0026B847 /* NMSModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4F906B127688C3A0026B847 /* NMSModule.hpp */; };
+		C4F906B427688C3A0026B847 /* NMSModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4F906B227688C3A0026B847 /* NMSModule.cpp */; };
+		C4FB6CB22769DF0800963B07 /* GeometryCumSum.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */; };
 		EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
 		EB45C776244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
 		EB8D2ABE246A4975009948D1 /* Arm82OpRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */; };
@@ -742,10 +748,35 @@
 		EBECA39B24643D320062C7A3 /* Arm82Backend.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBECA38924643D310062C7A3 /* Arm82Backend.cpp */; };
 		EBECA3A124643D4E0062C7A3 /* MNNAsmGlobal.h in Headers */ = {isa = PBXBuildFile; fileRef = EBECA3A024643D4E0062C7A3 /* MNNAsmGlobal.h */; };
 		EBECA3A724643D5D0062C7A3 /* MNNQuantizeFP16_UNIT4.S in Sources */ = {isa = PBXBuildFile; fileRef = EBECA3A324643D5D0062C7A3 /* MNNQuantizeFP16_UNIT4.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
-		F4DC88D4271E927B006296D9 /* ModelAuth.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F4DC88D3271E927B006296D9 /* ModelAuth.hpp */; };
-		F4DC88DE271E9472006296D9 /* MNNAESCipher.h in Headers */ = {isa = PBXBuildFile; fileRef = F4DC88D8271E9472006296D9 /* MNNAESCipher.h */; };
-		F4DC88E0271E9472006296D9 /* ModelAuth.mm in Sources */ = {isa = PBXBuildFile; fileRef = F4DC88DA271E9472006296D9 /* ModelAuth.mm */; };
-		F4DC88E2271E9472006296D9 /* MNNAESCipher.m in Sources */ = {isa = PBXBuildFile; fileRef = F4DC88DC271E9472006296D9 /* MNNAESCipher.m */; };
+		F4FB5AD7274E6CC100EAF0C1 /* MNNAESCipher.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AAF274E6CC100EAF0C1 /* MNNAESCipher.h */; };
+		F4FB5AD8274E6CC100EAF0C1 /* ModelAuth.mm in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AB0274E6CC100EAF0C1 /* ModelAuth.mm */; };
+		F4FB5AD9274E6CC100EAF0C1 /* MNNAESCipher.m in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AB1274E6CC100EAF0C1 /* MNNAESCipher.m */; };
+		F4FB5ADB274E6CC100EAF0C1 /* ModelAuth.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AB4274E6CC100EAF0C1 /* ModelAuth.hpp */; };
+		F4FB5ADC274E6CC100EAF0C1 /* Log.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AB6274E6CC100EAF0C1 /* Log.cpp */; };
+		F4FB5ADE274E6CC100EAF0C1 /* LogHelper.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AB8274E6CC100EAF0C1 /* LogHelper.hpp */; };
+		F4FB5ADF274E6CC100EAF0C1 /* WorkerThread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AB9274E6CC100EAF0C1 /* WorkerThread.cpp */; };
+		F4FB5AE0274E6CC100EAF0C1 /* LogHelper.mm in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5ABB274E6CC100EAF0C1 /* LogHelper.mm */; };
+		F4FB5AE1274E6CC100EAF0C1 /* WorkerThread.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ABC274E6CC100EAF0C1 /* WorkerThread.hpp */; };
+		F4FB5AE4274E6CC100EAF0C1 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = F4FB5AC1274E6CC100EAF0C1 /* README.md */; };
+		F4FB5AE5274E6CC100EAF0C1 /* log_util_imp.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AC3274E6CC100EAF0C1 /* log_util_imp.c */; };
+		F4FB5AE6274E6CC100EAF0C1 /* sds.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AC4274E6CC100EAF0C1 /* sds.c */; };
+		F4FB5AE7274E6CC100EAF0C1 /* log_api.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AC5274E6CC100EAF0C1 /* log_api.c */; };
+		F4FB5AE8274E6CC100EAF0C1 /* hmac-sha.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AC6274E6CC100EAF0C1 /* hmac-sha.h */; };
+		F4FB5AE9274E6CC100EAF0C1 /* log_builder.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AC7274E6CC100EAF0C1 /* log_builder.c */; };
+		F4FB5AEA274E6CC100EAF0C1 /* md5.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AC8274E6CC100EAF0C1 /* md5.h */; };
+		F4FB5AEB274E6CC100EAF0C1 /* lz4.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AC9274E6CC100EAF0C1 /* lz4.h */; };
+		F4FB5AEC274E6CC100EAF0C1 /* sha1.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5ACA274E6CC100EAF0C1 /* sha1.c */; };
+		F4FB5AED274E6CC100EAF0C1 /* log_util.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ACB274E6CC100EAF0C1 /* log_util.h */; };
+		F4FB5AEE274E6CC100EAF0C1 /* log_util_imp.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ACC274E6CC100EAF0C1 /* log_util_imp.h */; };
+		F4FB5AEF274E6CC100EAF0C1 /* sds.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ACD274E6CC100EAF0C1 /* sds.h */; };
+		F4FB5AF0274E6CC200EAF0C1 /* log_api.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ACE274E6CC100EAF0C1 /* log_api.h */; };
+		F4FB5AF1274E6CC200EAF0C1 /* sha1.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5ACF274E6CC100EAF0C1 /* sha1.h */; };
+		F4FB5AF2274E6CC200EAF0C1 /* md5.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AD0274E6CC100EAF0C1 /* md5.c */; };
+		F4FB5AF3274E6CC200EAF0C1 /* lz4.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AD1274E6CC100EAF0C1 /* lz4.c */; };
+		F4FB5AF4274E6CC200EAF0C1 /* log_builder.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AD2274E6CC100EAF0C1 /* log_builder.h */; };
+		F4FB5AF5274E6CC200EAF0C1 /* hmac-sha.c in Sources */ = {isa = PBXBuildFile; fileRef = F4FB5AD3274E6CC100EAF0C1 /* hmac-sha.c */; };
+		F4FB5AF6274E6CC200EAF0C1 /* log_define.h in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AD4274E6CC100EAF0C1 /* log_define.h */; };
+		F4FB5AF7274E6CC200EAF0C1 /* Log.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F4FB5AD5274E6CC100EAF0C1 /* Log.hpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1047,6 +1078,11 @@
 		4AF4FB28269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseQuantMatMulEpx4.S; sourceTree = "<group>"; };
 		4AF4FB2B269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseQuantMatMulEpx1.S; sourceTree = "<group>"; };
 		4AF4FB2C269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseQuantMatMulEpx4.S; sourceTree = "<group>"; };
+		4D4CF4622760946500A36D9F /* miscellaneous.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = miscellaneous.cpp; sourceTree = "<group>"; };
+		4D4CF4632760946500A36D9F /* geometric.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = geometric.cpp; sourceTree = "<group>"; };
+		4D4CF4642760946500A36D9F /* filter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = filter.cpp; sourceTree = "<group>"; };
+		4D4CF4652760946500A36D9F /* color.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = color.cpp; sourceTree = "<group>"; };
+		4D4CF4662760946500A36D9F /* draw.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = draw.cpp; sourceTree = "<group>"; };
 		4D4DAE67263905390060D37E /* CoreMLDefine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreMLDefine.h; sourceTree = "<group>"; };
 		4D6D7FC8265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseMatMulEpx1.S; sourceTree = "<group>"; };
 		4D6D7FCA265688F600F80814 /* MNNPackedSparseMatMulEpx4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseMatMulEpx4.S; sourceTree = "<group>"; };
@@ -1105,6 +1141,7 @@
 		4DD1793B2694078000B0098F /* MNNSoftmax.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNSoftmax.S; sourceTree = "<group>"; };
 		4DDE2017263809920085AC8F /* CoreMLExecutorWrapper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = CoreMLExecutorWrapper.mm; sourceTree = "<group>"; };
 		4DDE2018263809920085AC8F /* CoreMLExecutorWrapper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreMLExecutorWrapper.h; sourceTree = "<group>"; };
+		4DE4E82B275E307B0016A916 /* cv */ = {isa = PBXFileReference; lastKnownFileType = folder; name = cv; path = ../tools/cv/include/cv; sourceTree = "<group>"; };
 		4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLInterp.cpp; sourceTree = "<group>"; };
 		4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CoreMLInterp.hpp; sourceTree = "<group>"; };
 		6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PluginShapeInference.cpp; sourceTree = "<group>"; };
@@ -1484,13 +1521,13 @@
 		C43C8224251894F400A0FF84 /* Vec.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Vec.hpp; sourceTree = "<group>"; };
 		C43C82282518951800A0FF84 /* SkNx_neon.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SkNx_neon.h; sourceTree = "<group>"; };
 		C43C822A2518951800A0FF84 /* SkNx.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SkNx.h; sourceTree = "<group>"; };
-		C4DBB34B27041F7E00ADB16E /* WinogradOptFunctionInt8.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WinogradOptFunctionInt8.cpp; sourceTree = "<group>"; };
-		C4DBB34C27041F7E00ADB16E /* WinogradOptFunctionInt8.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = WinogradOptFunctionInt8.hpp; sourceTree = "<group>"; };
 		C4DBB34F27041F9C00ADB16E /* WinogradInt8Helper.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = WinogradInt8Helper.hpp; sourceTree = "<group>"; };
-		C4EF5FB02657A9E70094235C /* ConvInt8Winograd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt8Winograd.cpp; sourceTree = "<group>"; };
-		C4EF5FB12657A9E70094235C /* ConvInt8Winograd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvInt8Winograd.hpp; sourceTree = "<group>"; };
 		C4EF5FB22657A9E70094235C /* ConvInt8TiledExecutor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt8TiledExecutor.cpp; sourceTree = "<group>"; };
 		C4EF5FB32657A9E70094235C /* ConvInt8TiledExecutor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvInt8TiledExecutor.hpp; sourceTree = "<group>"; };
+		C4F906AF276886040026B847 /* GeometryTopK.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryTopK.cpp; sourceTree = "<group>"; };
+		C4F906B127688C3A0026B847 /* NMSModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = NMSModule.hpp; sourceTree = "<group>"; };
+		C4F906B227688C3A0026B847 /* NMSModule.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NMSModule.cpp; sourceTree = "<group>"; };
+		C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryCumSum.cpp; sourceTree = "<group>"; };
 		EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
 		EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
 		EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82OpRegister.cpp; path = ../arm82/Arm82OpRegister.cpp; sourceTree = "<group>"; };
@@ -1505,10 +1542,35 @@
 		EBECA38924643D310062C7A3 /* Arm82Backend.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82Backend.cpp; path = ../arm82/Arm82Backend.cpp; sourceTree = "<group>"; };
 		EBECA3A024643D4E0062C7A3 /* MNNAsmGlobal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MNNAsmGlobal.h; path = ../arm82/asm/MNNAsmGlobal.h; sourceTree = "<group>"; };
 		EBECA3A324643D5D0062C7A3 /* MNNQuantizeFP16_UNIT4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = MNNQuantizeFP16_UNIT4.S; path = ../arm82/asm/arm64/MNNQuantizeFP16_UNIT4.S; sourceTree = "<group>"; };
-		F4DC88D3271E927B006296D9 /* ModelAuth.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ModelAuth.hpp; sourceTree = "<group>"; };
-		F4DC88D8271E9472006296D9 /* MNNAESCipher.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MNNAESCipher.h; path = ios/MNNAESCipher.h; sourceTree = "<group>"; };
-		F4DC88DA271E9472006296D9 /* ModelAuth.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ModelAuth.mm; path = ios/ModelAuth.mm; sourceTree = "<group>"; };
-		F4DC88DC271E9472006296D9 /* MNNAESCipher.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = MNNAESCipher.m; path = ios/MNNAESCipher.m; sourceTree = "<group>"; };
+		F4FB5AAF274E6CC100EAF0C1 /* MNNAESCipher.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MNNAESCipher.h; sourceTree = "<group>"; };
+		F4FB5AB0274E6CC100EAF0C1 /* ModelAuth.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = ModelAuth.mm; sourceTree = "<group>"; };
+		F4FB5AB1274E6CC100EAF0C1 /* MNNAESCipher.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MNNAESCipher.m; sourceTree = "<group>"; };
+		F4FB5AB4274E6CC100EAF0C1 /* ModelAuth.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ModelAuth.hpp; sourceTree = "<group>"; };
+		F4FB5AB6274E6CC100EAF0C1 /* Log.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Log.cpp; sourceTree = "<group>"; };
+		F4FB5AB8274E6CC100EAF0C1 /* LogHelper.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = LogHelper.hpp; sourceTree = "<group>"; };
+		F4FB5AB9274E6CC100EAF0C1 /* WorkerThread.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerThread.cpp; sourceTree = "<group>"; };
+		F4FB5ABB274E6CC100EAF0C1 /* LogHelper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LogHelper.mm; sourceTree = "<group>"; };
+		F4FB5ABC274E6CC100EAF0C1 /* WorkerThread.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = WorkerThread.hpp; sourceTree = "<group>"; };
+		F4FB5AC1274E6CC100EAF0C1 /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		F4FB5AC3274E6CC100EAF0C1 /* log_util_imp.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = log_util_imp.c; sourceTree = "<group>"; };
+		F4FB5AC4274E6CC100EAF0C1 /* sds.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sds.c; sourceTree = "<group>"; };
+		F4FB5AC5274E6CC100EAF0C1 /* log_api.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = log_api.c; sourceTree = "<group>"; };
+		F4FB5AC6274E6CC100EAF0C1 /* hmac-sha.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "hmac-sha.h"; sourceTree = "<group>"; };
+		F4FB5AC7274E6CC100EAF0C1 /* log_builder.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = log_builder.c; sourceTree = "<group>"; };
+		F4FB5AC8274E6CC100EAF0C1 /* md5.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = md5.h; sourceTree = "<group>"; };
+		F4FB5AC9274E6CC100EAF0C1 /* lz4.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = lz4.h; sourceTree = "<group>"; };
+		F4FB5ACA274E6CC100EAF0C1 /* sha1.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sha1.c; sourceTree = "<group>"; };
+		F4FB5ACB274E6CC100EAF0C1 /* log_util.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log_util.h; sourceTree = "<group>"; };
+		F4FB5ACC274E6CC100EAF0C1 /* log_util_imp.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log_util_imp.h; sourceTree = "<group>"; };
+		F4FB5ACD274E6CC100EAF0C1 /* sds.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sds.h; sourceTree = "<group>"; };
+		F4FB5ACE274E6CC100EAF0C1 /* log_api.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log_api.h; sourceTree = "<group>"; };
+		F4FB5ACF274E6CC100EAF0C1 /* sha1.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sha1.h; sourceTree = "<group>"; };
+		F4FB5AD0274E6CC100EAF0C1 /* md5.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = md5.c; sourceTree = "<group>"; };
+		F4FB5AD1274E6CC100EAF0C1 /* lz4.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = lz4.c; sourceTree = "<group>"; };
+		F4FB5AD2274E6CC100EAF0C1 /* log_builder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log_builder.h; sourceTree = "<group>"; };
+		F4FB5AD3274E6CC100EAF0C1 /* hmac-sha.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = "hmac-sha.c"; sourceTree = "<group>"; };
+		F4FB5AD4274E6CC100EAF0C1 /* log_define.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log_define.h; sourceTree = "<group>"; };
+		F4FB5AD5274E6CC100EAF0C1 /* Log.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Log.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1577,6 +1639,7 @@
 		48027FAA210571FB001E5982 /* include */ = {
 			isa = PBXGroup;
 			children = (
+				4DE4E82B275E307B0016A916 /* cv */,
 				1F501F742397BA5A004E8721 /* AutoTime.hpp */,
 				1F501F782397BA5A004E8721 /* ErrorCode.hpp */,
 				1F501F762397BA5A004E8721 /* expr */,
@@ -1643,9 +1706,11 @@
 				48608B50250632EC00CB1D71 /* GeometryComputer.hpp */,
 				48608B4E250632EC00CB1D71 /* GeometryComputerUtils.cpp */,
 				48608B4F250632EC00CB1D71 /* GeometryComputerUtils.hpp */,
+				C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */,
 				48F5880F24DEA3F000C484A2 /* GeometryConv3D.cpp */,
 				48F5881024DEA3F000C484A2 /* GeometryDilation2D.cpp */,
 				48F5880D24DEA3F000C484A2 /* GeometryPooling3D.cpp */,
+				C4F906AF276886040026B847 /* GeometryTopK.cpp */,
 				48417FED24D13BF50056D9A7 /* GeometryELU.cpp */,
 				48417FEE24D13BF50056D9A7 /* GeometrySelect.cpp */,
 				48417FEC24D13BF50056D9A7 /* GeometryThreshold.cpp */,
@@ -1684,7 +1749,8 @@
 		488873A8215B639D0079B12E /* source */ = {
 			isa = PBXGroup;
 			children = (
-				F4DC88D2271E9227006296D9 /* auth */,
+				4D4CF4612760946500A36D9F /* imgproc */,
+				F4FB5AAB274E6CC100EAF0C1 /* internal */,
 				4A5BEC6226AAB3D70032F6BD /* common */,
 				4D9A931B26255BDA00F9B43C /* coreml */,
 				6A131E3C2582331C002EC3D6 /* plugin */,
@@ -2017,6 +2083,8 @@
 				48C84B71250F711600EE7666 /* PipelineModule.cpp */,
 				48C84B72250F711600EE7666 /* Module.cpp */,
 				48C84B73250F711600EE7666 /* WhileModule.hpp */,
+				C4F906B227688C3A0026B847 /* NMSModule.cpp */,
+				C4F906B127688C3A0026B847 /* NMSModule.hpp */,
 				48C84B74250F711600EE7666 /* IfModule.hpp */,
 				48C84B75250F711600EE7666 /* StaticModule.cpp */,
 				48C84B76250F711600EE7666 /* WhileModule.cpp */,
@@ -2055,6 +2123,19 @@
 				4A5BEC5E26AAB3B20032F6BD /* CommonCompute.hpp */,
 			);
 			path = common;
+			sourceTree = "<group>";
+		};
+		4D4CF4612760946500A36D9F /* imgproc */ = {
+			isa = PBXGroup;
+			children = (
+				4D4CF4622760946500A36D9F /* miscellaneous.cpp */,
+				4D4CF4632760946500A36D9F /* geometric.cpp */,
+				4D4CF4642760946500A36D9F /* filter.cpp */,
+				4D4CF4652760946500A36D9F /* color.cpp */,
+				4D4CF4662760946500A36D9F /* draw.cpp */,
+			);
+			name = imgproc;
+			path = ../tools/cv/source/imgproc;
 			sourceTree = "<group>";
 		};
 		4D9A931B26255BDA00F9B43C /* coreml */ = {
@@ -2467,14 +2548,10 @@
 			children = (
 				48F34732273A7C8400C45394 /* ImageProcessFunction.cpp */,
 				48F34731273A7C8400C45394 /* ImageProcessFunction.hpp */,
-				C4DBB34B27041F7E00ADB16E /* WinogradOptFunctionInt8.cpp */,
-				C4DBB34C27041F7E00ADB16E /* WinogradOptFunctionInt8.hpp */,
 				4AF4FB20269ED234005BA97B /* SparseConvInt8TiledExecutor.cpp */,
 				4AF4FB22269ED234005BA97B /* SparseConvInt8TiledExecutor.hpp */,
 				C4EF5FB22657A9E70094235C /* ConvInt8TiledExecutor.cpp */,
 				C4EF5FB32657A9E70094235C /* ConvInt8TiledExecutor.hpp */,
-				C4EF5FB02657A9E70094235C /* ConvInt8Winograd.cpp */,
-				C4EF5FB12657A9E70094235C /* ConvInt8Winograd.hpp */,
 				4D6D7FD82656897200F80814 /* SparseConvolutionTiledExecutor.hpp */,
 				4D6D7FD62656896D00F80814 /* SparseConvolutionTiledExecutor.cpp */,
 				4D6D7FD42656896600F80814 /* DenseConvolutionTiledExecutor.hpp */,
@@ -2595,23 +2672,88 @@
 			path = shape;
 			sourceTree = "<group>";
 		};
-		F4DC88D2271E9227006296D9 /* auth */ = {
+		F4FB5AAB274E6CC100EAF0C1 /* internal */ = {
 			isa = PBXGroup;
 			children = (
-				F4DC88D7271E9461006296D9 /* ios */,
-				F4DC88D3271E927B006296D9 /* ModelAuth.hpp */,
+				F4FB5AAC274E6CC100EAF0C1 /* auth */,
+				F4FB5AB5274E6CC100EAF0C1 /* logging */,
+			);
+			path = internal;
+			sourceTree = "<group>";
+		};
+		F4FB5AAC274E6CC100EAF0C1 /* auth */ = {
+			isa = PBXGroup;
+			children = (
+				F4FB5AAE274E6CC100EAF0C1 /* ios */,
+				F4FB5AB4274E6CC100EAF0C1 /* ModelAuth.hpp */,
 			);
 			path = auth;
 			sourceTree = "<group>";
 		};
-		F4DC88D7271E9461006296D9 /* ios */ = {
+		F4FB5AAE274E6CC100EAF0C1 /* ios */ = {
 			isa = PBXGroup;
 			children = (
-				F4DC88D8271E9472006296D9 /* MNNAESCipher.h */,
-				F4DC88DC271E9472006296D9 /* MNNAESCipher.m */,
-				F4DC88DA271E9472006296D9 /* ModelAuth.mm */,
+				F4FB5AAF274E6CC100EAF0C1 /* MNNAESCipher.h */,
+				F4FB5AB0274E6CC100EAF0C1 /* ModelAuth.mm */,
+				F4FB5AB1274E6CC100EAF0C1 /* MNNAESCipher.m */,
 			);
-			name = ios;
+			path = ios;
+			sourceTree = "<group>";
+		};
+		F4FB5AB5274E6CC100EAF0C1 /* logging */ = {
+			isa = PBXGroup;
+			children = (
+				F4FB5AB6274E6CC100EAF0C1 /* Log.cpp */,
+				F4FB5AB8274E6CC100EAF0C1 /* LogHelper.hpp */,
+				F4FB5AB9274E6CC100EAF0C1 /* WorkerThread.cpp */,
+				F4FB5ABA274E6CC100EAF0C1 /* ios */,
+				F4FB5ABC274E6CC100EAF0C1 /* WorkerThread.hpp */,
+				F4FB5ABF274E6CC100EAF0C1 /* aliyun-log-c-sdk */,
+				F4FB5AD5274E6CC100EAF0C1 /* Log.hpp */,
+			);
+			path = logging;
+			sourceTree = "<group>";
+		};
+		F4FB5ABA274E6CC100EAF0C1 /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				F4FB5ABB274E6CC100EAF0C1 /* LogHelper.mm */,
+			);
+			path = ios;
+			sourceTree = "<group>";
+		};
+		F4FB5ABF274E6CC100EAF0C1 /* aliyun-log-c-sdk */ = {
+			isa = PBXGroup;
+			children = (
+				F4FB5AC1274E6CC100EAF0C1 /* README.md */,
+				F4FB5AC2274E6CC100EAF0C1 /* src */,
+			);
+			path = "aliyun-log-c-sdk";
+			sourceTree = "<group>";
+		};
+		F4FB5AC2274E6CC100EAF0C1 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				F4FB5AC3274E6CC100EAF0C1 /* log_util_imp.c */,
+				F4FB5AC4274E6CC100EAF0C1 /* sds.c */,
+				F4FB5AC5274E6CC100EAF0C1 /* log_api.c */,
+				F4FB5AC6274E6CC100EAF0C1 /* hmac-sha.h */,
+				F4FB5AC7274E6CC100EAF0C1 /* log_builder.c */,
+				F4FB5AC8274E6CC100EAF0C1 /* md5.h */,
+				F4FB5AC9274E6CC100EAF0C1 /* lz4.h */,
+				F4FB5ACA274E6CC100EAF0C1 /* sha1.c */,
+				F4FB5ACB274E6CC100EAF0C1 /* log_util.h */,
+				F4FB5ACC274E6CC100EAF0C1 /* log_util_imp.h */,
+				F4FB5ACD274E6CC100EAF0C1 /* sds.h */,
+				F4FB5ACE274E6CC100EAF0C1 /* log_api.h */,
+				F4FB5ACF274E6CC100EAF0C1 /* sha1.h */,
+				F4FB5AD0274E6CC100EAF0C1 /* md5.c */,
+				F4FB5AD1274E6CC100EAF0C1 /* lz4.c */,
+				F4FB5AD2274E6CC100EAF0C1 /* log_builder.h */,
+				F4FB5AD3274E6CC100EAF0C1 /* hmac-sha.c */,
+				F4FB5AD4274E6CC100EAF0C1 /* log_define.h */,
+			);
+			path = src;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -2626,14 +2768,17 @@
 				92FF04A523AA0BFB00AC97F6 /* AutoStorage.h in Headers */,
 				EBECA3A124643D4E0062C7A3 /* MNNAsmGlobal.h in Headers */,
 				4D9A936526255BDA00F9B43C /* CoreMLBackend.hpp in Headers */,
+				F4FB5ADE274E6CC100EAF0C1 /* LogHelper.hpp in Headers */,
 				1F501F852397BA5B004E8721 /* ErrorCode.hpp in Headers */,
 				92FF02B423AA0B5A00AC97F6 /* CPUMoments.hpp in Headers */,
 				C43C822D2518951800A0FF84 /* SkNx_neon.h in Headers */,
 				489D7AA82550FDC900AD896A /* MetalCast.hpp in Headers */,
 				C43C822F2518951800A0FF84 /* SkNx.h in Headers */,
 				48123006269EA84800EB7ABA /* CPUUnique.hpp in Headers */,
+				4DE4E82C275E307B0016A916 /* cv in Headers */,
 				1F501F842397BA5B004E8721 /* ImageProcess.hpp in Headers */,
 				1F501F822397BA5B004E8721 /* Interpreter.hpp in Headers */,
+				C4F906B327688C3A0026B847 /* NMSModule.hpp in Headers */,
 				1F501F882397BA5B004E8721 /* Tensor.hpp in Headers */,
 				1F501F872397BA5B004E8721 /* Matrix.h in Headers */,
 				48C84B85250F711700EE7666 /* IfModule.hpp in Headers */,
@@ -2644,21 +2789,25 @@
 				4894C6EC27016F7200D8BE79 /* CPUResizeCache.hpp in Headers */,
 				92FF04A623AA0BFB00AC97F6 /* FileLoader.hpp in Headers */,
 				48F34733273A7C8400C45394 /* ImageProcessFunction.hpp in Headers */,
+				F4FB5AEE274E6CC100EAF0C1 /* log_util_imp.h in Headers */,
 				C43C8226251894F400A0FF84 /* Matrix.hpp in Headers */,
-				C4DBB34E27041F7E00ADB16E /* WinogradOptFunctionInt8.hpp in Headers */,
 				92FF026E23AA0B5A00AC97F6 /* CPUQuantizationUtils.hpp in Headers */,
 				92FF03AA23AA0B5A00AC97F6 /* ConvolutionFloatFactory.h in Headers */,
 				4896D36A25FE2A3D00717702 /* Arm82Unary.hpp in Headers */,
+				F4FB5ADB274E6CC100EAF0C1 /* ModelAuth.hpp in Headers */,
 				1F501F862397BA5B004E8721 /* Rect.h in Headers */,
 				1F501F8B2397BA5B004E8721 /* MNNSharedContext.h in Headers */,
 				48925F352744AC0700919B37 /* CPUROIAlign.hpp in Headers */,
 				92FF029623AA0B5A00AC97F6 /* CPUCast.hpp in Headers */,
 				4D9A937826255BDA00F9B43C /* CoreMLBinary.hpp in Headers */,
 				489D7AB02550FDC900AD896A /* MetalDefine.h in Headers */,
+				F4FB5AD7274E6CC100EAF0C1 /* MNNAESCipher.h in Headers */,
 				4D6D7FD52656896600F80814 /* DenseConvolutionTiledExecutor.hpp in Headers */,
 				4D9A936626255BDA00F9B43C /* CoreMLExecutor.h in Headers */,
 				92FF027A23AA0B5A00AC97F6 /* CPUPool.hpp in Headers */,
+				F4FB5AF0274E6CC200EAF0C1 /* log_api.h in Headers */,
 				1F501F892397BA5B004E8721 /* MNNForwardType.h in Headers */,
+				F4FB5AED274E6CC100EAF0C1 /* log_util.h in Headers */,
 				92FF027323AA0B5A00AC97F6 /* CPUPoolInt8.hpp in Headers */,
 				1F501F802397BA5B004E8721 /* MNNDefine.h in Headers */,
 				489D7A682550FDC800AD896A /* MetalReduction.hpp in Headers */,
@@ -2674,8 +2823,10 @@
 				489D7A962550FDC900AD896A /* MetalConvolution1x1.hpp in Headers */,
 				92FF029723AA0B5A00AC97F6 /* CPUEltwiseInt8.hpp in Headers */,
 				92FF027B23AA0B5A00AC97F6 /* CPUQuanConvolutionDepthwise.hpp in Headers */,
+				F4FB5AEB274E6CC100EAF0C1 /* lz4.h in Headers */,
 				92FF028E23AA0B5A00AC97F6 /* CPULinSpace.hpp in Headers */,
 				92FF038823AA0B5A00AC97F6 /* CPUQuantizedLogistic.hpp in Headers */,
+				F4FB5AF7274E6CC200EAF0C1 /* Log.hpp in Headers */,
 				4D9A936926255BDA00F9B43C /* CoreMLScale.hpp in Headers */,
 				4D9A937126255BDA00F9B43C /* CoreMLArgMax.hpp in Headers */,
 				48925F312744AA4100919B37 /* MetalCache_generated.h in Headers */,
@@ -2702,17 +2853,20 @@
 				92FF029323AA0B5A00AC97F6 /* CPURange.hpp in Headers */,
 				4D9A937526255BDA00F9B43C /* CoreMLCommonExecution.hpp in Headers */,
 				48747D4B245D9D24000B9709 /* RuntimeFactory.hpp in Headers */,
+				F4FB5AF4274E6CC200EAF0C1 /* log_builder.h in Headers */,
 				92FF03B323AA0B5A00AC97F6 /* ConvolutionDepthwise3x3.hpp in Headers */,
 				4D9A937226255BDA00F9B43C /* CoreMLConvolution.hpp in Headers */,
 				92FF038B23AA0B5A00AC97F6 /* CPUUnravelIndex.hpp in Headers */,
 				4AF4FB26269ED235005BA97B /* SparseConvInt8TiledExecutor.hpp in Headers */,
 				92FF03BC23AA0B5A00AC97F6 /* OptimizedComputer.hpp in Headers */,
 				48C84BA0250F725600EE7666 /* InitNet.hpp in Headers */,
+				F4FB5AF6274E6CC200EAF0C1 /* log_define.h in Headers */,
 				92FF03C623AA0B5A00AC97F6 /* CPUNonMaxSuppressionV2.hpp in Headers */,
 				92FF028C23AA0B5A00AC97F6 /* CPUReduction.hpp in Headers */,
 				92FF03B923AA0B5A00AC97F6 /* ConvOpt.h in Headers */,
 				92FF04AB23AA0BFB00AC97F6 /* Pipeline.hpp in Headers */,
 				489D7A6E2550FDC800AD896A /* MetalROIPooling.hpp in Headers */,
+				F4FB5AE1274E6CC100EAF0C1 /* WorkerThread.hpp in Headers */,
 				4882C8B9241A22B800DAC168 /* ConvolutionCommon.hpp in Headers */,
 				92FF03AE23AA0B5A00AC97F6 /* ConvolutionIntFactory.hpp in Headers */,
 				C4EF5FB72657A9E70094235C /* ConvInt8TiledExecutor.hpp in Headers */,
@@ -2733,7 +2887,6 @@
 				92FF04AD23AA0BFB00AC97F6 /* Execution.hpp in Headers */,
 				92FF025D23AA0B5A00AC97F6 /* CPUInterp.hpp in Headers */,
 				489D7A8B2550FDC900AD896A /* MetalConvolutionWinograd.hpp in Headers */,
-				F4DC88D4271E927B006296D9 /* ModelAuth.hpp in Headers */,
 				92FF039A23AA0B5A00AC97F6 /* Convolution1x1Strassen.hpp in Headers */,
 				92FF029B23AA0B5A00AC97F6 /* CPUScale.hpp in Headers */,
 				489D7A7B2550FDC800AD896A /* MetalUnary.hpp in Headers */,
@@ -2745,6 +2898,7 @@
 				92FF04B523AA0BFB00AC97F6 /* TensorUtils.hpp in Headers */,
 				92FF04BB23AA0BFB00AC97F6 /* BufferAllocator.hpp in Headers */,
 				489D7A802550FDC900AD896A /* MetalEltwise.hpp in Headers */,
+				F4FB5AE8274E6CC100EAF0C1 /* hmac-sha.h in Headers */,
 				92FF035823AA0B5A00AC97F6 /* CPUTFQuantizedConv2D.hpp in Headers */,
 				92FF027223AA0B5A00AC97F6 /* CPUScatterNd.hpp in Headers */,
 				4DDE201A263809920085AC8F /* CoreMLExecutorWrapper.h in Headers */,
@@ -2752,7 +2906,6 @@
 				92FF03A923AA0B5A00AC97F6 /* ConvolutionGroup.hpp in Headers */,
 				4837147325A599EC004DBDED /* Arm82Binary.hpp in Headers */,
 				92FF03BD23AA0B5A00AC97F6 /* Int8FunctionsOpt.h in Headers */,
-				C4EF5FB52657A9E70094235C /* ConvInt8Winograd.hpp in Headers */,
 				92FF036623AA0B5A00AC97F6 /* CPUDetectionOutput.hpp in Headers */,
 				92FF04BC23AA0BFB00AC97F6 /* NonCopyable.hpp in Headers */,
 				48FA474B23AA127B00172C3B /* Utils.hpp in Headers */,
@@ -2778,6 +2931,7 @@
 				92FF036723AA0B5A00AC97F6 /* CPURuntime.hpp in Headers */,
 				92FF026623AA0B5A00AC97F6 /* CPUProposal.hpp in Headers */,
 				4894C6EB27016F7200D8BE79 /* BinaryUtils.hpp in Headers */,
+				F4FB5AF1274E6CC200EAF0C1 /* sha1.h in Headers */,
 				48C84B9C250F722B00EE7666 /* Command.hpp in Headers */,
 				92FF026023AA0B5A00AC97F6 /* CPURNNSequenceGRU.hpp in Headers */,
 				48747D4F245D9E13000B9709 /* CPURaster.hpp in Headers */,
@@ -2787,7 +2941,9 @@
 				4D6D7FDB2656898300F80814 /* MemoryFormater.h in Headers */,
 				4D6D7FD92656897200F80814 /* SparseConvolutionTiledExecutor.hpp in Headers */,
 				92FF037923AA0B5A00AC97F6 /* CPUInstanceNorm.hpp in Headers */,
+				F4FB5AEF274E6CC100EAF0C1 /* sds.h in Headers */,
 				92FF026223AA0B5A00AC97F6 /* CPUSelect.hpp in Headers */,
+				F4FB5AEA274E6CC100EAF0C1 /* md5.h in Headers */,
 				92FF02B723AA0B5A00AC97F6 /* CPUQuantizedAdd.hpp in Headers */,
 				92FF03B623AA0B5A00AC97F6 /* StrassenMatmulComputor.hpp in Headers */,
 				92FF03A623AA0B5A00AC97F6 /* ConvolutionTiledExecutor.hpp in Headers */,
@@ -2807,7 +2963,6 @@
 				489D7A702550FDC800AD896A /* MetalRaster.hpp in Headers */,
 				92FF034523AA0B5A00AC97F6 /* CPUQuantizedAvgPool.hpp in Headers */,
 				489D7AA72550FDC900AD896A /* MetalScale.hpp in Headers */,
-				F4DC88DE271E9472006296D9 /* MNNAESCipher.h in Headers */,
 				48C84B6C250F709E00EE7666 /* SizeComputer.hpp in Headers */,
 				92FF035023AA0B5A00AC97F6 /* CPUOneHot.hpp in Headers */,
 				92FF039123AA0B5A00AC97F6 /* CPUBackend.hpp in Headers */,
@@ -2873,7 +3028,7 @@
 				TargetAttributes = {
 					0F1465B61FA18D1000F9860A = {
 						CreatedOnToolsVersion = 9.0.1;
-						ProvisioningStyle = Manual;
+						ProvisioningStyle = Automatic;
 					};
 					9273AB4A1FE7BE4D00477B22 = {
 						CreatedOnToolsVersion = 9.2;
@@ -2905,6 +3060,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F4FB5AE4274E6CC100EAF0C1 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2942,6 +3098,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F4FB5AF2274E6CC200EAF0C1 /* md5.c in Sources */,
 				92FF04BD23AA0BFB00AC97F6 /* Execution.cpp in Sources */,
 				92FF030A23AA0B5A00AC97F6 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S in Sources */,
 				92FF03B023AA0B5A00AC97F6 /* ConvolutionGroup.cpp in Sources */,
@@ -2951,7 +3108,6 @@
 				92FF038623AA0B5A00AC97F6 /* CPULinSpace.cpp in Sources */,
 				4819FB2D24C1396A0050BD09 /* GeometryConv2D.cpp in Sources */,
 				48747D63245D9E33000B9709 /* GeometryPermute.cpp in Sources */,
-				C4EF5FB42657A9E70094235C /* ConvInt8Winograd.cpp in Sources */,
 				92FF032C23AA0B5A00AC97F6 /* MNNWinogradMatrixProductRight.S in Sources */,
 				48BB6EF625220AA80056E195 /* MNNTranspose32Bit4x4.S in Sources */,
 				48BB6EF025220A930056E195 /* MNNTranspose32Bit4x4.S in Sources */,
@@ -2984,6 +3140,7 @@
 				4819FB1F24C138DF0050BD09 /* GeometryConvUtils.cpp in Sources */,
 				4881C57C27047C7000340F3F /* MNNWinogradOptFunctionInt8.S in Sources */,
 				92FF028F23AA0B5A00AC97F6 /* CPUDetectionOutput.cpp in Sources */,
+				F4FB5AF3274E6CC200EAF0C1 /* lz4.c in Sources */,
 				4819FB3324C1396A0050BD09 /* GeometryBinary.cpp in Sources */,
 				48747D65245D9E33000B9709 /* GeometryReshape.cpp in Sources */,
 				489D7AAE2550FDC900AD896A /* MetalPReLU.metal in Sources */,
@@ -2991,6 +3148,7 @@
 				92FF02C523AA0B5A00AC97F6 /* MNNStrassenMergeCFunction.S in Sources */,
 				4882C8BB241A22B800DAC168 /* ConvolutionCommon.cpp in Sources */,
 				4D6D7FC9265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S in Sources */,
+				4D4CF46A2760946500A36D9F /* color.cpp in Sources */,
 				4D9A935E26255BDA00F9B43C /* Parameters.pb-c.c in Sources */,
 				92FF02B823AA0B5A00AC97F6 /* CPUWhere.cpp in Sources */,
 				4D9A936126255BDA00F9B43C /* protobuf-c.c in Sources */,
@@ -3001,17 +3159,20 @@
 				92FF042D23AA0B7100AC97F6 /* ShapePadding.cpp in Sources */,
 				48747D6A245D9E33000B9709 /* GeometryStridedSlice.cpp in Sources */,
 				92FF04BE23AA0BFB00AC97F6 /* FileLoader.cpp in Sources */,
+				F4FB5ADF274E6CC100EAF0C1 /* WorkerThread.cpp in Sources */,
 				92FF02F623AA0B5A00AC97F6 /* MNNConvRunForUnitDepthWise.S in Sources */,
 				92FF042323AA0B7100AC97F6 /* ShapeScatterNd.cpp in Sources */,
 				92FF045A23AA0B7100AC97F6 /* ShapeBinaryOp.cpp in Sources */,
 				92FF02E523AA0B5A00AC97F6 /* MNNConvDwF23SourceTransUnit.S in Sources */,
 				EBECA37B24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S in Sources */,
 				489D7A862550FDC900AD896A /* MetalMatMul.metal in Sources */,
+				F4FB5AEC274E6CC100EAF0C1 /* sha1.c in Sources */,
 				481C2DF525FE2CD6001ED6DF /* Arm82OptFunc.cpp in Sources */,
 				489D7A672550FDC800AD896A /* MetalReLU6.metal in Sources */,
 				92FF033623AA0B5A00AC97F6 /* MNNConvRunForUnitDepthWise.S in Sources */,
 				92FF043523AA0B7100AC97F6 /* ShapeConvolution3D.cpp in Sources */,
 				92FF043923AA0B7100AC97F6 /* ShapeDequantize.cpp in Sources */,
+				4D4CF4672760946500A36D9F /* miscellaneous.cpp in Sources */,
 				48747D50245D9E13000B9709 /* CPURaster.cpp in Sources */,
 				489D7A782550FDC800AD896A /* MetalEltwise.mm in Sources */,
 				92FF02FD23AA0B5A00AC97F6 /* MNNScaleAddInt8.S in Sources */,
@@ -3034,6 +3195,7 @@
 				92FF04C423AA0BFB00AC97F6 /* Session.cpp in Sources */,
 				4D9A936826255BDA00F9B43C /* CoreMLCommonExecution.cpp in Sources */,
 				92FF02D123AA0B5A00AC97F6 /* MNNMaxFloat.S in Sources */,
+				C4FB6CB22769DF0800963B07 /* GeometryCumSum.cpp in Sources */,
 				92FF03B123AA0B5A00AC97F6 /* ConvolutionFloatFactory.cpp in Sources */,
 				92FF032123AA0B5A00AC97F6 /* MNNPowC8.S in Sources */,
 				92FF03C323AA0B5A00AC97F6 /* CPUEltwise.cpp in Sources */,
@@ -3053,6 +3215,7 @@
 				4838EA842611C00B0027232C /* MetalGridSample.metal in Sources */,
 				4D6D7FCF2656890C00F80814 /* MNNPackedSparseMatMulEpx1.S in Sources */,
 				481C2DEC25FE2CD6001ED6DF /* Arm82WinogradOptFunc.cpp in Sources */,
+				4D4CF4692760946500A36D9F /* filter.cpp in Sources */,
 				92FF039223AA0B5A00AC97F6 /* CPUDeconvolution.cpp in Sources */,
 				92FF042923AA0B7100AC97F6 /* ShapeLinSpace.cpp in Sources */,
 				92FF03A723AA0B5A00AC97F6 /* ConvolutionIntFactory.cpp in Sources */,
@@ -3092,6 +3255,7 @@
 				4896D36925FE2A3D00717702 /* Arm82Unary.cpp in Sources */,
 				92FF043423AA0B7100AC97F6 /* ShapeStridedSlice.cpp in Sources */,
 				4896D37825FE2A6B00717702 /* MNNExpFP16.S in Sources */,
+				4D4CF46B2760946500A36D9F /* draw.cpp in Sources */,
 				48FA474A23AA127B00172C3B /* Utils.cpp in Sources */,
 				92FF043F23AA0B7100AC97F6 /* ShapeTensorConvert.cpp in Sources */,
 				92FF044B23AA0B7100AC97F6 /* ShapeTile.cpp in Sources */,
@@ -3112,10 +3276,12 @@
 				489D7A9E2550FDC900AD896A /* MetalROIPooling.metal in Sources */,
 				92FF034223AA0B5A00AC97F6 /* CPUReduction.cpp in Sources */,
 				92FF02CF23AA0B5A00AC97F6 /* MNNMinFloat.S in Sources */,
+				C4F906B0276886040026B847 /* GeometryTopK.cpp in Sources */,
 				48CA2F572681844C003A1796 /* MNNUnpackC8FP16.S in Sources */,
 				92FF030E23AA0B5A00AC97F6 /* MNNNV21ToRGBUnit.S in Sources */,
 				48FA474D23AA136300172C3B /* MergeOptimizer.cpp in Sources */,
 				4837147225A599EC004DBDED /* Arm82Binary.cpp in Sources */,
+				F4FB5AE7274E6CC100EAF0C1 /* log_api.c in Sources */,
 				92FF03CE23AA0B5A00AC97F6 /* CPUOPRegister.cpp in Sources */,
 				92FF02B323AA0B5A00AC97F6 /* CPUInstanceNorm.cpp in Sources */,
 				4819FB2C24C1396A0050BD09 /* GeometryPoolGrad.cpp in Sources */,
@@ -3134,7 +3300,6 @@
 				4D9A936726255BDA00F9B43C /* CoreMLReduction.cpp in Sources */,
 				48F5881324DEA3F000C484A2 /* GeometryConv3D.cpp in Sources */,
 				4882C8BA241A22B800DAC168 /* OpCommonUtils.cpp in Sources */,
-				C4DBB34D27041F7E00ADB16E /* WinogradOptFunctionInt8.cpp in Sources */,
 				92FF02B523AA0B5A00AC97F6 /* CPUTopKV2.cpp in Sources */,
 				489D7A742550FDC800AD896A /* MetalConvolutionActivation.metal in Sources */,
 				92FF02BD23AA0B5A00AC97F6 /* MNNMatrixProd.S in Sources */,
@@ -3153,10 +3318,12 @@
 				92FF043D23AA0B7100AC97F6 /* ShapeGatherV2.cpp in Sources */,
 				489D7AA32550FDC900AD896A /* MetalRaster.mm in Sources */,
 				4D9A936A26255BDA00F9B43C /* CoreMLBinary.cpp in Sources */,
+				F4FB5AD8274E6CC100EAF0C1 /* ModelAuth.mm in Sources */,
 				92FF02C123AA0B5A00AC97F6 /* MNNQuanToDestUint8.S in Sources */,
 				489D7A7C2550FDC900AD896A /* MetalBackend.metal in Sources */,
 				92FF039323AA0B5A00AC97F6 /* CPUQuantizedAdd.cpp in Sources */,
 				92FF02F723AA0B5A00AC97F6 /* MNNConvDwF23MulTransUnit.S in Sources */,
+				F4FB5AF5274E6CC200EAF0C1 /* hmac-sha.c in Sources */,
 				EBECA39824643D320062C7A3 /* Arm82Relu.cpp in Sources */,
 				92FF043823AA0B7100AC97F6 /* ShapeUnravelIndex.cpp in Sources */,
 				92FF035723AA0B5A00AC97F6 /* CPUOneHot.cpp in Sources */,
@@ -3178,6 +3345,7 @@
 				EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */,
 				4896D37B25FE2A6B00717702 /* MNNConvDwF23MulTransUnitFP16.S in Sources */,
 				92FF02DE23AA0B5A00AC97F6 /* MNNSamplerC4BilinearOpt.S in Sources */,
+				F4FB5AE6274E6CC100EAF0C1 /* sds.c in Sources */,
 				48FD12BF2466A88D009E9102 /* GeometryConv2DBackPropFilter.cpp in Sources */,
 				92FF02F923AA0B5A00AC97F6 /* MNNGemmint8to32_8x4_Unit.S in Sources */,
 				92FF02E623AA0B5A00AC97F6 /* MNNWinogradMatrixProductLeft.S in Sources */,
@@ -3193,6 +3361,7 @@
 				11A01A07258785EA00745FA7 /* MNNVectorTop1Float.S in Sources */,
 				92FF035323AA0B5A00AC97F6 /* CPUScatterNd.cpp in Sources */,
 				48747D6E245D9E33000B9709 /* GeometrySlice.cpp in Sources */,
+				F4FB5AE0274E6CC100EAF0C1 /* LogHelper.mm in Sources */,
 				92FF041923AA0B7100AC97F6 /* ShapeQuantizedMaxPool.cpp in Sources */,
 				92FF038A23AA0B5A00AC97F6 /* CPURange.cpp in Sources */,
 				92FF03A123AA0B5A00AC97F6 /* Int8FunctionsOpt.cpp in Sources */,
@@ -3204,11 +3373,14 @@
 				92FF02CD23AA0B5A00AC97F6 /* MNNNV21ToRGBUnit.S in Sources */,
 				92FF029A23AA0B5A00AC97F6 /* CPUQuantizedMaxPool.cpp in Sources */,
 				48F5881124DEA3F000C484A2 /* GeometryPooling3D.cpp in Sources */,
+				F4FB5AD9274E6CC100EAF0C1 /* MNNAESCipher.m in Sources */,
 				92FF042423AA0B7100AC97F6 /* ShapeROIPooling.cpp in Sources */,
 				92FF033723AA0B5A00AC97F6 /* MNNConvDwF23MulTransUnit.S in Sources */,
 				4896D37A25FE2A6B00717702 /* MNNPackedMatMulRemainFP16.S in Sources */,
+				F4FB5ADC274E6CC100EAF0C1 /* Log.cpp in Sources */,
 				92FF043023AA0B7100AC97F6 /* ShapeQuantizedAvgPool.cpp in Sources */,
 				92FF030623AA0B5A00AC97F6 /* MNNStrassenMergeCFunction.S in Sources */,
+				F4FB5AE9274E6CC100EAF0C1 /* log_builder.c in Sources */,
 				92FF033223AA0B5A00AC97F6 /* MNNBlitC3ToFloatRGBA.S in Sources */,
 				92FF03BE23AA0B5A00AC97F6 /* DeconvolutionWithStride.cpp in Sources */,
 				92FF044923AA0B7100AC97F6 /* ShapeGatherND.cpp in Sources */,
@@ -3251,6 +3423,7 @@
 				92FF044123AA0B7100AC97F6 /* ShapeMoments.cpp in Sources */,
 				4D9A936026255BDA00F9B43C /* Model.pb-c.c in Sources */,
 				92FF03AB23AA0B5A00AC97F6 /* ConvolutionInt8Executor.cpp in Sources */,
+				C4F906B427688C3A0026B847 /* NMSModule.cpp in Sources */,
 				48FA474523AA127B00172C3B /* Executor.cpp in Sources */,
 				EBECA39724643D320062C7A3 /* Arm82Eltwise.cpp in Sources */,
 				92FF02EA23AA0B5A00AC97F6 /* MNNGemmInt8AddBiasScale_16x4_Unit.S in Sources */,
@@ -3277,13 +3450,13 @@
 				EBECA3A724643D5D0062C7A3 /* MNNQuantizeFP16_UNIT4.S in Sources */,
 				92FF04A423AA0BFB00AC97F6 /* Interpreter.cpp in Sources */,
 				92FF045623AA0B7100AC97F6 /* ShapeReshape.cpp in Sources */,
+				F4FB5AE5274E6CC100EAF0C1 /* log_util_imp.c in Sources */,
 				92FF032523AA0B5A00AC97F6 /* MNNConvDwF23SourceTransUnit.S in Sources */,
 				92FF044423AA0B7100AC97F6 /* ShapeLSTM.cpp in Sources */,
 				92FF043E23AA0B7100AC97F6 /* ShapeBatchToSpaceND.cpp in Sources */,
 				48C84B88250F711700EE7666 /* IfModule.cpp in Sources */,
 				481FA84F259C27B30047F01F /* GeometryTensorArray.cpp in Sources */,
 				48C84B86250F711700EE7666 /* StaticModule.cpp in Sources */,
-				F4DC88E0271E9472006296D9 /* ModelAuth.mm in Sources */,
 				92FF043223AA0B7100AC97F6 /* ShapeWhere.cpp in Sources */,
 				92FF045523AA0B7100AC97F6 /* ShapePriorbox.cpp in Sources */,
 				4DD1793C2694078000B0098F /* MNNSoftmax.S in Sources */,
@@ -3302,6 +3475,7 @@
 				48F9E54C2493511200E46522 /* MNNPackedMatMul.S in Sources */,
 				92FF026F23AA0B5A00AC97F6 /* CPUInt8ToFloat.cpp in Sources */,
 				92FF037E23AA0B5A00AC97F6 /* CPUDetectionPostProcess.cpp in Sources */,
+				4D4CF4682760946500A36D9F /* geometric.cpp in Sources */,
 				92FF045023AA0B7100AC97F6 /* ShapeCropAndResize.cpp in Sources */,
 				92FF03D023AA0B5A00AC97F6 /* CPUTensorConvert.cpp in Sources */,
 				92FF02C023AA0B5A00AC97F6 /* MNNAddC4WithStride.S in Sources */,
@@ -3379,7 +3553,6 @@
 				48C84BA1250F725600EE7666 /* InitNet.cpp in Sources */,
 				4894C6E927016F7200D8BE79 /* CPUResizeCache.cpp in Sources */,
 				4DD1791B2684815A00B0098F /* ShapeSetDiff1D.cpp in Sources */,
-				F4DC88E2271E9472006296D9 /* MNNAESCipher.m in Sources */,
 				92FF02AC23AA0B5A00AC97F6 /* CPUQuantizedSoftmax.cpp in Sources */,
 				92FF042523AA0B7100AC97F6 /* ShapeSize.cpp in Sources */,
 				92FF043123AA0B7100AC97F6 /* ShapeSpaceToBatchND.cpp in Sources */,
@@ -3632,10 +3805,10 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				DEFINES_MODULE = YES;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6T3QR3X696;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -3655,7 +3828,8 @@
 					"ENABLE_ARMV82=1",
 					"MNN_WITH_PLUGIN=1",
 					"MNN_COREML_ENABLED=1",
-					"MNN_MODEL_AUTH=1",
+					"MNN_INTERNAL_ENABLED=1",
+					"USE_LZ4_FLAG=1",
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = YES;
 				GCC_WARN_SHADOW = NO;
@@ -3666,6 +3840,7 @@
 					"${SRCROOT}/../../include/",
 					"${SRCROOT}/../../source/",
 					"${SRCROOT}/../../source/backend/coreml/mlmodel/include",
+					"${SRCROOT}/../../tools/cv/include",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/MNN/Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -3679,7 +3854,7 @@
 				METAL_LIBRARY_FILE_BASE = mnn;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.alibaba.MNN.yyavdsavds;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zhaodewang.MNN.yyavdsavds;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -3696,7 +3871,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = 6G7464HHUS;
@@ -3718,7 +3894,8 @@
 					"ENABLE_ARMV82=1",
 					"MNN_WITH_PLUGIN=1",
 					"MNN_COREML_ENABLED=1",
-					"MNN_MODEL_AUTH=1",
+					"MNN_INTERNAL_ENABLED=1",
+					"USE_LZ4_FLAG=1",
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = YES;
 				GCC_WARN_SHADOW = YES;
@@ -3729,6 +3906,7 @@
 					"${SRCROOT}/../../include/",
 					"${SRCROOT}/../../source/",
 					"${SRCROOT}/../../source/backend/coreml/mlmodel/include",
+					"${SRCROOT}/../../tools/cv/include",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/MNN/Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -3741,7 +3919,7 @@
 				MACH_O_TYPE = staticlib;
 				METAL_LIBRARY_FILE_BASE = mnn;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.alibaba.MNN.yyavdsavds;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zhaodewang.MNN.yyavdsavds;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -3773,7 +3951,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.tianbu.MNN.playgroundvvs33v34t;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.ios.mnn.wbdemo.vvs33v34t1111;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -3798,7 +3976,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.tianbu.MNN.playground3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.ios.mnn.wbdemo.311111;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

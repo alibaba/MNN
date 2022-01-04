@@ -237,7 +237,7 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
                 runRNNStep(inputPtr + inputOffset, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, bwGateWeight, bwGateBias,
                            bwCandidateWeight, bwCandidateBias, bwRecurrentBias, mInputAndState, mGate, mResetHt);
                 if (mKeepAllOutputs) {
-                    ::memcpy(outputBwPtr + (inputSequenceLength - 1 - i) * outputBw->stride(0) + (batchSize + b) * mNumUnits,
+                    ::memcpy(outputBwPtr + i * outputBw->stride(0) + (batchSize + b) * mNumUnits,
                              hiddenStatePtr, hiddenStateDataSize);
                 }
             }

@@ -14,5 +14,6 @@
 #include "draw.hpp"
 #include "miscellaneous.hpp"
 #include "color.hpp"
+#include "structural.hpp"
 
 #endif // IMGPROC_HPP

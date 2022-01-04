@@ -192,7 +192,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [dump] [forwardType] [runLoops] [numberThread] [precision] [cacheFile]\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision] [cacheFile]\n");
         return 0;
     }
     std::string modelName = argv[1];
@@ -204,10 +204,10 @@ int main(int argc, char *argv[]) {
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
     bool checkOutput = false;
-    int dump = 0;
+    int runMask = 0;
     if (argc > 3) {
-        dump = atoi(argv[3]);
-        if (dump > 0) {
+        runMask = atoi(argv[3]);
+        if (runMask & 1) {
             _initDebug();
         }
     }
@@ -274,10 +274,11 @@ int main(int argc, char *argv[]) {
     if (argc > 7) {
         precision = atoi(argv[7]);
     }
-    const char* cacheFileName = nullptr;
+    const char* cacheFileName = ".tempcache";
     if (argc > 8) {
         cacheFileName = argv[8];
     }
+    FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;
     config.type      = type;
@@ -295,8 +296,16 @@ int main(int argc, char *argv[]) {
     MNN::Express::Module::Config mConfig;
     mConfig.shapeMutable = shapeMutable;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
-    if (nullptr != cacheFileName) {
-        rtmgr->setCache(cacheFileName);
+    rtmgr->setCache(cacheFileName);
+    if (runMask & 1) {
+        rtmgr->setMode(Interpreter::Session_Debug);
+    }
+    if (runMask & 8) {
+        rtmgr->setMode(Interpreter::Session_Input_Inside);
+    }
+    if (runMask & 16) {
+        rtmgr->setMode(Interpreter::Session_Backend_Auto);
+        rtmgr->setHint(Interpreter::MAX_TUNING_NUMBER, 50);
     }
     std::shared_ptr<Module> net(Module::load(inputNames, outputNames, modelName.c_str(), rtmgr, &mConfig));
     if (net == nullptr) {
@@ -354,6 +363,10 @@ int main(int argc, char *argv[]) {
     bool modelError = false;
     // Module Branch
     auto outputs = net->onForward(inputs);
+    if (outputs.empty()) {
+        MNN_ERROR("Error in forward\n");
+        return 0;
+    }
     for (int i=0; i<outputNames.size(); ++i) {
         auto name = outputNames[i];
         auto v = outputs[i];
@@ -395,13 +408,18 @@ int main(int argc, char *argv[]) {
             _output << ptr[v] << "\n";
         }
     }
+    // Print module's memory
+    float memoryInMB = 0.0f;
+    rtmgr->getInfo(Interpreter::MEMORY, &memoryInMB);
+    FUNC_PRINT_ALL(memoryInMB, f);
+    
     // benchmark. for CPU, op time means calc duration; for others, op time means schedule duration.
     int runTime = 0;
     if (argc > 5) {
         runTime = ::atoi(argv[5]);
     }
 
-    if (runTime > 0 && dump == 0) {
+    if (runTime > 0) {
         int t = runTime;
         std::vector<float> times(t, 0.0f);
         for (int i = 0; i < t; ++i) {
@@ -417,6 +435,7 @@ int main(int argc, char *argv[]) {
         }
         MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, *minTime, *maxTime);
     }
+    rtmgr->updateCache();
     return 0;
 }
 

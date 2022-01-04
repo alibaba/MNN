@@ -115,7 +115,7 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API', '-DPYMNN_IMGCODECS']
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
     engine_compile_args = ['-DBUILD_OPTYPE', '-DPYMNN_TRAIN_API']
     engine_libraries = []

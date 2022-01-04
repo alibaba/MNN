@@ -26,7 +26,11 @@ public:
         int srcOffset = 0;
         for (int i = input->buffer().dimensions - 1; i >= 0; --i) {
             outputStrides[i] = stride;
-            srcOffset += beginPtr[i] * stride;
+            auto begin = beginPtr[i];
+            if (begin < 0) {
+                begin += input->length(i);
+            }
+            srcOffset += begin * stride;
             stride *= input->length(i);
         }
         for (int i = 0; i < output->buffer().dimensions; ++i) {

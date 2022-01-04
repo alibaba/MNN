@@ -217,6 +217,14 @@ struct Vec16 {
         VecType dst = { _mm512_mul_ps(value, _mm512_set1_ps(lr)) };
         return dst;
     }
+    VecType operator+=(const VecType& lr) {
+        value = _mm512_add_ps(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = _mm512_sub_ps(value, lr.value);
+        return *this;
+    }
 
     VecType& operator=(const VecType& lr) {
         value = lr.value;
@@ -266,6 +274,15 @@ struct Vec16 {
         VecType dst = { _mm512_min_ps(v1.value, v2.value) };
         return dst;
     }
+    static VecType fma(const VecType& v0, const VecType& v1, const VecType& v2) {
+        VecType dst = { _mm512_fmadd_ps(v1.value, v2.value, v0.value) };
+        return dst;
+    }
+    static VecType fms(const VecType& v0, const VecType& v1, const VecType& v2) {
+        VecType dst = { _mm512_fnmadd_ps(v1.value, v2.value, v0.value) };
+        return dst;
+    }
+
     static void inline transpose16(VecType& r0, VecType& r1, VecType& r2, VecType& r3, VecType& r4, VecType& r5,
                                       VecType& r6, VecType& r7, VecType& r8, VecType& r9, VecType& ra, VecType& rb,
                                       VecType& rc, VecType& rd, VecType& re, VecType& rf) {

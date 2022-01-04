@@ -105,6 +105,11 @@ static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Te
     if (dstArea != srcArea) {
         return 0;
     }
+    // just support : [N,C,A] => [N,A,C] or [N,A,C] => [N,C,A]
+    // not support :  [N, X, Y, A] => [N, A, Y, X]
+    if (region.src.stride[1] != 1 && region.size[0] > 1 && region.size[1] > 1 && region.size[2] > 1) {
+        return 0;
+    }
     auto totalSize = dstBatch * dstChannel * dstArea;
     int srcSize = 1;
     int dstSize = 1;
@@ -263,13 +268,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
         if (origin->batch() == 1 && origin->channel() % core->pack == 0) {
             int channel = origin->channel();
             int area = 1;
-            if (origin->dimensions() <= 4) {
-                area = origin->width() * origin->height();
-            } else {
-                // conv3d/pool3d will has 5 dims, area = depth * width * height
-                for (int d = 1; d < origin->dimensions(); d++) {
-                    area *= origin->length(d);
-                }
+            // conv3d/pool3d will has 5 dims, area = depth * width * height, otherwise area = width * height
+            for (int d = 2; d < origin->dimensions(); d++) {
+                area *= origin->length(d);
             }
             Tensor::InsideDescribe::Region regionTmp;
             regionTmp.src.offset = 0;

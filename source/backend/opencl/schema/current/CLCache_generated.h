@@ -8,6 +8,12 @@
 
 namespace CLCache {
 
+struct TensorInfo;
+struct TensorInfoT;
+
+struct OpInfo;
+struct OpInfoT;
+
 struct Shader;
 struct ShaderT;
 
@@ -17,11 +23,158 @@ struct AutotuningT;
 struct Cache;
 struct CacheT;
 
+inline const flatbuffers::TypeTable *TensorInfoTypeTable();
+
+inline const flatbuffers::TypeTable *OpInfoTypeTable();
+
 inline const flatbuffers::TypeTable *ShaderTypeTable();
 
 inline const flatbuffers::TypeTable *AutotuningTypeTable();
 
 inline const flatbuffers::TypeTable *CacheTypeTable();
+
+struct TensorInfoT : public flatbuffers::NativeTable {
+  typedef TensorInfo TableType;
+  std::vector<int32_t> shape;
+  TensorInfoT() {
+  }
+};
+
+struct TensorInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef TensorInfoT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TensorInfoTypeTable();
+  }
+  const flatbuffers::Vector<int32_t> *shape() const {
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(shape()) &&
+           verifier.EndTable();
+  }
+  TensorInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<TensorInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct TensorInfoBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_shape(flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape) {
+    fbb_.AddOffset(4, shape);
+  }
+  explicit TensorInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  TensorInfoBuilder &operator=(const TensorInfoBuilder &);
+  flatbuffers::Offset<TensorInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<TensorInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<TensorInfo> CreateTensorInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape = 0) {
+  TensorInfoBuilder builder_(_fbb);
+  builder_.add_shape(shape);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<TensorInfo> CreateTensorInfo(flatbuffers::FlatBufferBuilder &_fbb, const TensorInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct OpInfoT : public flatbuffers::NativeTable {
+  typedef OpInfo TableType;
+  std::string name;
+  int32_t type;
+  std::vector<std::unique_ptr<TensorInfoT>> inputs;
+  std::vector<std::unique_ptr<TensorInfoT>> outputs;
+  OpInfoT()
+      : type(0) {
+  }
+};
+
+struct OpInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef OpInfoT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return OpInfoTypeTable();
+  }
+  const flatbuffers::String *name() const {
+    return GetPointer<const flatbuffers::String *>(4);
+  }
+  int32_t type() const {
+    return GetField<int32_t>(6, 0);
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<TensorInfo>> *inputs() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorInfo>> *>(8);
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<TensorInfo>> *outputs() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorInfo>> *>(10);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyString(name()) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(inputs()) &&
+           verifier.VerifyVectorOfTables(inputs()) &&
+           VerifyOffset(verifier, 10) &&
+           verifier.VerifyVector(outputs()) &&
+           verifier.VerifyVectorOfTables(outputs()) &&
+           verifier.EndTable();
+  }
+  OpInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(OpInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<OpInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const OpInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct OpInfoBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_name(flatbuffers::Offset<flatbuffers::String> name) {
+    fbb_.AddOffset(4, name);
+  }
+  void add_type(int32_t type) {
+    fbb_.AddElement<int32_t>(6, type, 0);
+  }
+  void add_inputs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorInfo>>> inputs) {
+    fbb_.AddOffset(8, inputs);
+  }
+  void add_outputs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorInfo>>> outputs) {
+    fbb_.AddOffset(10, outputs);
+  }
+  explicit OpInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  OpInfoBuilder &operator=(const OpInfoBuilder &);
+  flatbuffers::Offset<OpInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<OpInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<OpInfo> CreateOpInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::String> name = 0,
+    int32_t type = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorInfo>>> inputs = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorInfo>>> outputs = 0) {
+  OpInfoBuilder builder_(_fbb);
+  builder_.add_outputs(outputs);
+  builder_.add_inputs(inputs);
+  builder_.add_type(type);
+  builder_.add_name(name);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<OpInfo> CreateOpInfo(flatbuffers::FlatBufferBuilder &_fbb, const OpInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ShaderT : public flatbuffers::NativeTable {
   typedef Shader TableType;
@@ -38,33 +191,27 @@ struct Shader FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ShaderTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BUFFER = 4,
-    VT_PROGRAM = 6,
-    VT_KERNEL = 8,
-    VT_BUILDINFO = 10
-  };
   const flatbuffers::Vector<int8_t> *buffer() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_BUFFER);
+    return GetPointer<const flatbuffers::Vector<int8_t> *>(4);
   }
   const flatbuffers::String *program() const {
-    return GetPointer<const flatbuffers::String *>(VT_PROGRAM);
+    return GetPointer<const flatbuffers::String *>(6);
   }
   const flatbuffers::String *kernel() const {
-    return GetPointer<const flatbuffers::String *>(VT_KERNEL);
+    return GetPointer<const flatbuffers::String *>(8);
   }
   const flatbuffers::String *buildInfo() const {
-    return GetPointer<const flatbuffers::String *>(VT_BUILDINFO);
+    return GetPointer<const flatbuffers::String *>(10);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_BUFFER) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(buffer()) &&
-           VerifyOffset(verifier, VT_PROGRAM) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyString(program()) &&
-           VerifyOffset(verifier, VT_KERNEL) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyString(kernel()) &&
-           VerifyOffset(verifier, VT_BUILDINFO) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyString(buildInfo()) &&
            verifier.EndTable();
   }
@@ -77,16 +224,16 @@ struct ShaderBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_buffer(flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer) {
-    fbb_.AddOffset(Shader::VT_BUFFER, buffer);
+    fbb_.AddOffset(4, buffer);
   }
   void add_program(flatbuffers::Offset<flatbuffers::String> program) {
-    fbb_.AddOffset(Shader::VT_PROGRAM, program);
+    fbb_.AddOffset(6, program);
   }
   void add_kernel(flatbuffers::Offset<flatbuffers::String> kernel) {
-    fbb_.AddOffset(Shader::VT_KERNEL, kernel);
+    fbb_.AddOffset(8, kernel);
   }
   void add_buildInfo(flatbuffers::Offset<flatbuffers::String> buildInfo) {
-    fbb_.AddOffset(Shader::VT_BUILDINFO, buildInfo);
+    fbb_.AddOffset(10, buildInfo);
   }
   explicit ShaderBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -114,24 +261,6 @@ inline flatbuffers::Offset<Shader> CreateShader(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Shader> CreateShaderDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int8_t> *buffer = nullptr,
-    const char *program = nullptr,
-    const char *kernel = nullptr,
-    const char *buildInfo = nullptr) {
-  auto buffer__ = buffer ? _fbb.CreateVector<int8_t>(*buffer) : 0;
-  auto program__ = program ? _fbb.CreateString(program) : 0;
-  auto kernel__ = kernel ? _fbb.CreateString(kernel) : 0;
-  auto buildInfo__ = buildInfo ? _fbb.CreateString(buildInfo) : 0;
-  return CLCache::CreateShader(
-      _fbb,
-      buffer__,
-      program__,
-      kernel__,
-      buildInfo__);
-}
-
 flatbuffers::Offset<Shader> CreateShader(flatbuffers::FlatBufferBuilder &_fbb, const ShaderT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct AutotuningT : public flatbuffers::NativeTable {
@@ -150,33 +279,27 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return AutotuningTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_KEY = 4,
-    VT_GLOABLSIZE = 6,
-    VT_LOCALSIZE = 8,
-    VT_TIMECOST = 10
-  };
   const flatbuffers::String *key() const {
-    return GetPointer<const flatbuffers::String *>(VT_KEY);
+    return GetPointer<const flatbuffers::String *>(4);
   }
   const flatbuffers::Vector<uint32_t> *gloablSize() const {
-    return GetPointer<const flatbuffers::Vector<uint32_t> *>(VT_GLOABLSIZE);
+    return GetPointer<const flatbuffers::Vector<uint32_t> *>(6);
   }
   const flatbuffers::Vector<uint32_t> *localSize() const {
-    return GetPointer<const flatbuffers::Vector<uint32_t> *>(VT_LOCALSIZE);
+    return GetPointer<const flatbuffers::Vector<uint32_t> *>(8);
   }
   uint32_t timeCost() const {
-    return GetField<uint32_t>(VT_TIMECOST, 0);
+    return GetField<uint32_t>(10, 0);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_KEY) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyString(key()) &&
-           VerifyOffset(verifier, VT_GLOABLSIZE) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(gloablSize()) &&
-           VerifyOffset(verifier, VT_LOCALSIZE) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(localSize()) &&
-           VerifyField<uint32_t>(verifier, VT_TIMECOST) &&
+           VerifyField<uint32_t>(verifier, 10) &&
            verifier.EndTable();
   }
   AutotuningT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -188,16 +311,16 @@ struct AutotuningBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_key(flatbuffers::Offset<flatbuffers::String> key) {
-    fbb_.AddOffset(Autotuning::VT_KEY, key);
+    fbb_.AddOffset(4, key);
   }
   void add_gloablSize(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> gloablSize) {
-    fbb_.AddOffset(Autotuning::VT_GLOABLSIZE, gloablSize);
+    fbb_.AddOffset(6, gloablSize);
   }
   void add_localSize(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> localSize) {
-    fbb_.AddOffset(Autotuning::VT_LOCALSIZE, localSize);
+    fbb_.AddOffset(8, localSize);
   }
   void add_timeCost(uint32_t timeCost) {
-    fbb_.AddElement<uint32_t>(Autotuning::VT_TIMECOST, timeCost, 0);
+    fbb_.AddElement<uint32_t>(10, timeCost, 0);
   }
   explicit AutotuningBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -225,29 +348,13 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuning(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Autotuning> CreateAutotuningDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const char *key = nullptr,
-    const std::vector<uint32_t> *gloablSize = nullptr,
-    const std::vector<uint32_t> *localSize = nullptr,
-    uint32_t timeCost = 0) {
-  auto key__ = key ? _fbb.CreateString(key) : 0;
-  auto gloablSize__ = gloablSize ? _fbb.CreateVector<uint32_t>(*gloablSize) : 0;
-  auto localSize__ = localSize ? _fbb.CreateVector<uint32_t>(*localSize) : 0;
-  return CLCache::CreateAutotuning(
-      _fbb,
-      key__,
-      gloablSize__,
-      localSize__,
-      timeCost);
-}
-
 flatbuffers::Offset<Autotuning> CreateAutotuning(flatbuffers::FlatBufferBuilder &_fbb, const AutotuningT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct CacheT : public flatbuffers::NativeTable {
   typedef Cache TableType;
   std::vector<std::unique_ptr<ShaderT>> programs;
   std::vector<std::unique_ptr<AutotuningT>> tunings;
+  std::vector<std::unique_ptr<OpInfoT>> tuned;
   CacheT() {
   }
 };
@@ -257,24 +364,26 @@ struct Cache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return CacheTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_PROGRAMS = 4,
-    VT_TUNINGS = 6
-  };
   const flatbuffers::Vector<flatbuffers::Offset<Shader>> *programs() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Shader>> *>(VT_PROGRAMS);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Shader>> *>(4);
   }
   const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *tunings() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *>(VT_TUNINGS);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *>(6);
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<OpInfo>> *tuned() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<OpInfo>> *>(8);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_PROGRAMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(programs()) &&
            verifier.VerifyVectorOfTables(programs()) &&
-           VerifyOffset(verifier, VT_TUNINGS) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(tunings()) &&
            verifier.VerifyVectorOfTables(tunings()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(tuned()) &&
+           verifier.VerifyVectorOfTables(tuned()) &&
            verifier.EndTable();
   }
   CacheT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -286,10 +395,13 @@ struct CacheBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_programs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Shader>>> programs) {
-    fbb_.AddOffset(Cache::VT_PROGRAMS, programs);
+    fbb_.AddOffset(4, programs);
   }
   void add_tunings(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings) {
-    fbb_.AddOffset(Cache::VT_TUNINGS, tunings);
+    fbb_.AddOffset(6, tunings);
+  }
+  void add_tuned(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<OpInfo>>> tuned) {
+    fbb_.AddOffset(8, tuned);
   }
   explicit CacheBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -306,26 +418,77 @@ struct CacheBuilder {
 inline flatbuffers::Offset<Cache> CreateCache(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Shader>>> programs = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<OpInfo>>> tuned = 0) {
   CacheBuilder builder_(_fbb);
+  builder_.add_tuned(tuned);
   builder_.add_tunings(tunings);
   builder_.add_programs(programs);
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Cache> CreateCacheDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<flatbuffers::Offset<Shader>> *programs = nullptr,
-    const std::vector<flatbuffers::Offset<Autotuning>> *tunings = nullptr) {
-  auto programs__ = programs ? _fbb.CreateVector<flatbuffers::Offset<Shader>>(*programs) : 0;
-  auto tunings__ = tunings ? _fbb.CreateVector<flatbuffers::Offset<Autotuning>>(*tunings) : 0;
-  return CLCache::CreateCache(
-      _fbb,
-      programs__,
-      tunings__);
+flatbuffers::Offset<Cache> CreateCache(flatbuffers::FlatBufferBuilder &_fbb, const CacheT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+inline TensorInfoT *TensorInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new TensorInfoT();
+  UnPackTo(_o, _resolver);
+  return _o;
 }
 
-flatbuffers::Offset<Cache> CreateCache(flatbuffers::FlatBufferBuilder &_fbb, const CacheT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+inline void TensorInfo::UnPackTo(TensorInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<TensorInfo> TensorInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<TensorInfo> CreateTensorInfo(flatbuffers::FlatBufferBuilder &_fbb, const TensorInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const TensorInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _shape = _o->shape.size() ? _fbb.CreateVector(_o->shape) : 0;
+  return CLCache::CreateTensorInfo(
+      _fbb,
+      _shape);
+}
+
+inline OpInfoT *OpInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new OpInfoT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void OpInfo::UnPackTo(OpInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = name(); if (_e) _o->name = _e->str(); };
+  { auto _e = type(); _o->type = _e; };
+  { auto _e = inputs(); if (_e) { _o->inputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->inputs[_i] = std::unique_ptr<TensorInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputs[_i] = std::unique_ptr<TensorInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+}
+
+inline flatbuffers::Offset<OpInfo> OpInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OpInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateOpInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<OpInfo> CreateOpInfo(flatbuffers::FlatBufferBuilder &_fbb, const OpInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const OpInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _type = _o->type;
+  auto _inputs = _o->inputs.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorInfo>> (_o->inputs.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorInfo(*__va->__fbb, __va->__o->inputs[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _outputs = _o->outputs.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorInfo>> (_o->outputs.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorInfo(*__va->__fbb, __va->__o->outputs[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return CLCache::CreateOpInfo(
+      _fbb,
+      _name,
+      _type,
+      _inputs,
+      _outputs);
+}
 
 inline ShaderT *Shader::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new ShaderT();
@@ -408,6 +571,7 @@ inline void Cache::UnPackTo(CacheT *_o, const flatbuffers::resolver_function_t *
   (void)_resolver;
   { auto _e = programs(); if (_e) { _o->programs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->programs[_i] = std::unique_ptr<ShaderT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = tunings(); if (_e) { _o->tunings.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tunings[_i] = std::unique_ptr<AutotuningT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = tuned(); if (_e) { _o->tuned.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tuned[_i] = std::unique_ptr<OpInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<Cache> Cache::Pack(flatbuffers::FlatBufferBuilder &_fbb, const CacheT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -420,10 +584,47 @@ inline flatbuffers::Offset<Cache> CreateCache(flatbuffers::FlatBufferBuilder &_f
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const CacheT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _programs = _o->programs.size() ? _fbb.CreateVector<flatbuffers::Offset<Shader>> (_o->programs.size(), [](size_t i, _VectorArgs *__va) { return CreateShader(*__va->__fbb, __va->__o->programs[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _tunings = _o->tunings.size() ? _fbb.CreateVector<flatbuffers::Offset<Autotuning>> (_o->tunings.size(), [](size_t i, _VectorArgs *__va) { return CreateAutotuning(*__va->__fbb, __va->__o->tunings[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _tuned = _o->tuned.size() ? _fbb.CreateVector<flatbuffers::Offset<OpInfo>> (_o->tuned.size(), [](size_t i, _VectorArgs *__va) { return CreateOpInfo(*__va->__fbb, __va->__o->tuned[i].get(), __va->__rehasher); }, &_va ) : 0;
   return CLCache::CreateCache(
       _fbb,
       _programs,
-      _tunings);
+      _tunings,
+      _tuned);
+}
+
+inline const flatbuffers::TypeTable *TensorInfoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 1, -1 }
+  };
+  static const char * const names[] = {
+    "shape"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *OpInfoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_SEQUENCE, 1, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    TensorInfoTypeTable
+  };
+  static const char * const names[] = {
+    "name",
+    "type",
+    "inputs",
+    "outputs"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
 }
 
 inline const flatbuffers::TypeTable *ShaderTypeTable() {
@@ -467,18 +668,21 @@ inline const flatbuffers::TypeTable *AutotuningTypeTable() {
 inline const flatbuffers::TypeTable *CacheTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_SEQUENCE, 1, 0 },
-    { flatbuffers::ET_SEQUENCE, 1, 1 }
+    { flatbuffers::ET_SEQUENCE, 1, 1 },
+    { flatbuffers::ET_SEQUENCE, 1, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     ShaderTypeTable,
-    AutotuningTypeTable
+    AutotuningTypeTable,
+    OpInfoTypeTable
   };
   static const char * const names[] = {
     "programs",
-    "tunings"
+    "tunings",
+    "tuned"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

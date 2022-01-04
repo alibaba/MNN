@@ -13,10 +13,8 @@
 namespace MNN {
 extern void registerCPURuntimeCreator();
 
-#ifdef MNN_CODEGEN_REGISTER
 #if MNN_METAL_ENABLED
 extern void registerMetalRuntimeCreator();
-#endif
 #endif
 #if MNN_COREML_ENABLED
 extern void registerCoreMLRuntimeCreator();
@@ -33,10 +31,8 @@ void registerBackend() {
 #if MNN_COREML_ENABLED
         registerCoreMLRuntimeCreator();
 #endif
-#ifdef MNN_CODEGEN_REGISTER
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
-#endif
 #endif
     });
 }

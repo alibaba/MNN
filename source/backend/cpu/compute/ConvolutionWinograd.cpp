@@ -19,9 +19,8 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#define CONVOLUTION_WINOGRAD_MAX_UNIT 8
-#define CONVOLUTION_WINOGRAD_MIN_UNIT 2
-constexpr int FULSE_THRESHHOLD_NUMERATOR = 8;
+
+constexpr int FULSE_THRESHHOLD_NUMERATOR = 10;
 constexpr int FULSE_THRESHHOLD_DENOMINATOR = 10;
 
 using namespace MNN::Math;
@@ -37,6 +36,10 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     int pack = core->pack, bytes = core->bytes;
     mResource.reset(new Resource);
     mResource->backend = b;
+
+    mDestUnrollTransform.reset(new CoreFunctions::WinoUnrollTransFunc[CONVOLUTION_WINOGRAD_MAX_UNIT + 1],
+        std::default_delete<CoreFunctions::WinoUnrollTransFunc[]>());
+
     if (!mResource->copyBiasAlign(bias, biasSize)) {
         MNN_ERROR("Not Enough Memory\n");
         mValid = false;
@@ -54,9 +57,10 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
 
     int alpha        = unit + kernelSize - 1;
     int alpha2       = alpha * alpha;
-    mSourceTransform = core->chooseWinoSourceTransform(alpha, alpha);
-    mDestTransform   = core->chooseWinoDestTransform(alpha, unit);
     mSourceTransformPack = core->chooseWinoSourceTransformPack(alpha, alpha, ePack, lPack, pack);
+    mSourceUnrollTransform =  core->chooseWinoSourceUnrollTransform(alpha, alpha);
+    core->chooseWinoDestUnrollTransform(mDestUnrollTransform.get(), CONVOLUTION_WINOGRAD_MAX_UNIT + 1, alpha, unit);
+
     int srcCount                       = input->channel();
     int outputCount                    = output->channel();
     auto ic4 = UP_DIV(srcCount, pack);
@@ -112,9 +116,9 @@ bool ConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
     dstExe->mTempBuffer.reset(Tensor::createDevice<uint8_t>(mTempBuffer->shape()));
     dstExe->mTransformMidBuffer.reset(Tensor::createDevice<uint8_t>(mTransformMidBuffer->shape()));
     dstExe->mGemmMidBuffer.reset(Tensor::createDevice<uint8_t>(mGemmMidBuffer->shape()));
-    dstExe->mSourceTransform = mSourceTransform;
-    dstExe->mDestTransform = mDestTransform;
     dstExe->mSourceTransformPack = mSourceTransformPack;
+    dstExe->mSourceUnrollTransform = mSourceUnrollTransform;
+    dstExe->mDestUnrollTransform = mDestUnrollTransform;
     dstExe->mPostParameters = mPostParameters;
     *dst = dstExe;
     return true;
@@ -178,14 +182,9 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     allow_x86_bf16_winograd = bytes != 2; // only bf16 has length of 2 byte on x86. fp16 dosnot exist.
 #endif
 
-    // using ElementType = int16_t;
-    // MNN_PRINT("winograd: this:%p, n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, totalCount:%d, srcUnit:%d, dstUnit:%d, ePack:%d, pack:%d, bytes:%d\n",
-    //     this, batch, ih, iw, input->channel(), oh, ow, output->channel(), mCommon->kernelX(), mCommon->kernelY(), totalCount, srcUnit, dstUnit, ePack, pack, bytes);
-    // MNN_PRINT("origin data matrix:\n");
-    // formatMatrix((const ElementType*)srcOrigin, {ic_4, batch*ih, iw, pack});
-
     auto weight    = mResource->mWeight->host<uint8_t>();
     auto bias      = mResource->mBias->host<uint8_t>();
+
     auto tFunction = [&](int tId) {
         auto _srcOrigin = mTempBuffer->host<uint8_t>() + tId * mTempBuffer->stride(0);
         auto gemmBuffer = (mGemmMidBuffer->host<uint8_t>() + tId * mGemmMidBuffer->stride(0));
@@ -195,17 +194,8 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
             int xIndex  = (int)tIndex * ePack;
             int xReamin = totalCount - xIndex;
             int xC      = xReamin > ePack ? ePack : xReamin;
+
             const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR > FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack;
-            // const bool fuseTransformPack = false;
-
-            // Timer timer;
-            // uint64_t durationSourceTrans1 = 0;
-            // uint64_t durationSourceTrans2 = 0;
-            // uint64_t durationMul = 0;
-            // uint64_t packATime = 0;
-            // uint64_t durationDestTrans1 = 0;
-            // uint64_t durationDestTrans2 = 0;
-
             /*Source Transform Begin*/
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
             {
@@ -231,26 +221,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                             int count = pack * (ex - sx);
 
                             auto srcStart = srcOrigin + (srcX + srcY * iw + bIndex * iw * ih) * pack * bytes;
-                            // MNN_PRINT("\nxIndex:%d, xC:%d, alphaXStride:%d, srcUnit:%d, destUnit:%d, hUnit:%d, wUnit:%d, srcY:%d, hStart:%d ,hEnd:%d, wStart:%d, wEnd:%d, i_oh:%d, i_ow:%d, srcOffset:%ld, destSOffset:%d\n",
-                            //     xIndex, xC, alphaXStride, srcUnit, dstUnit, hUnit, wUnit, srcY, sy, ey, sx, ey, hIndex - oyBegin, si, (srcStart - srcOrigin)/bytes, (destSOffset)/bytes);
-                            // timer.reset();
                             auto midBuffer1Offset = midBuffer1 + destSOffset;
 
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
                                 for (int z = 0; z < ic_4; ++z) {
                                     auto srcZ = srcStart + z * sourceZStep * bytes;
                                     // Transform
-                                    // MNN_PRINT("z:%d, srcOffset:%ld, destSOffset:%ld, \n", z, ((unsigned const char*)srcZ - srcOrigin)/bytes, ((unsigned const char*)midBuffer1Offset - midBuffer1)/bytes);
-                                    // MNN_PRINT("winograd source sub matrix:\n");
-                                    // formatMatrix((const float*)srcZ, {srcUnit, 4});
-                                    for (int i = 0; i < srcUnit; ++i) { // i_Nh
-                                        auto srcFloatPtr = (const float*)(srcZ + i * iw * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1Offset + i * ePack * pack * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, alphaXStride); // tranform srcUnit*4 elements in one time
-                                        // MNN_PRINT("z:%d, 1 stage i_Nh:%d th srcOffset:%ld, destOffset:%ld, \n", z, i, ((unsigned const char*)srcFloatPtr - srcOrigin)/bytes, ((unsigned const char*)dstFloatPtr - midBuffer1)/bytes);
-                                        // MNN_PRINT("winograd source sub matrix:\n");
-                                        // formatMatrix(srcFloatPtr, {srcUnit, 4});
-                                    }
+                                    mSourceUnrollTransform((const float*)srcZ, (float*)midBuffer1Offset, iw * pack, ePack * pack, pack, alphaXStride);
                                     midBuffer1Offset += IC4alpha2Stride * bytes;
                                 }
                             } else {
@@ -265,17 +242,11 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                             ::memcpy(dst_yy, src_yy, count * bytes);
                                         }
                                     }
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer0 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1Offset + i * ePack * pack * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, alphaXStride);
-                                    }
+
+                                    mSourceUnrollTransform((const float*)midBuffer0, (float*)midBuffer1Offset, srcUnit * pack, ePack * pack, pack, alphaXStride);
                                     midBuffer1Offset += IC4alpha2Stride * bytes;
                                 }
                             }
-                            // durationSourceTrans1 += timer.durationInUs();
-
                             destSOffset += pack * bytes;
                         }
                         oxBegin = 0;
@@ -299,31 +270,15 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                             int count = pack * (ex - sx);
 
                             auto srcStart = srcOrigin + (srcX + srcY * iw + bIndex * iw * ih) * pack * bytes;
-                            // MNN_PRINT("\nxIndex:%d, xC:%d, alphaXStride:%d, srcUnit:%d, destUnit:%d, hUnit:%d, wUnit:%d, srcY:%d, hStart:%d ,hEnd:%d, wStart:%d, wEnd:%d, i_oh:%d, i_ow:%d, srcOffset:%ld, destSOffset:%d\n",
-                            //     xIndex, xC, alphaXStride, srcUnit, dstUnit, hUnit, wUnit, srcY, sy, ey, sx, ey, hIndex - oyBegin, si, (srcStart - srcOrigin)/bytes, (destSOffset)/bytes);
-                            // timer.reset();
                             auto dst_x = _srcOrigin + destSOffset;
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
                                 for (int z = 0; z < ic_4; ++z) {
                                     auto srcZ = srcStart + z * sourceZStep * bytes;
                                     // Transform
 
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(srcZ + i * iw * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
-                                        // MNN_PRINT("z:%d, 1 stage i_Nh:%d th srcOffset:%ld, destOffset:%ld, \n", z, i, ((unsigned const char*)srcFloatPtr - srcOrigin)/bytes, ((unsigned const char*)dstFloatPtr - midBuffer1)/bytes);
-                                        // MNN_PRINT("winograd source sub matrix:\n");
-                                        // formatMatrix(srcFloatPtr, {srcUnit, pack});
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
-
-                                    }
                                     auto dstZ = dst_x + z * dstZStep * bytes;
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack,
-                                                         unitStep * srcUnit);
-                                    }
+                                    mSourceUnrollTransform((const float*)srcZ, (float*)midBuffer1, iw * pack, pack, pack, pack * srcUnit);
+                                    mSourceUnrollTransform((const float*)midBuffer1, (float*)dstZ, srcUnit * pack, unitStep, pack, unitStep * srcUnit);
                                 }
                             } else {
                                 for (int z = 0; z < ic_4; ++z) {
@@ -338,21 +293,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                         }
                                     }
 
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer0 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
-                                    }
                                     auto dstZ = dst_x + z * dstZStep * bytes;
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, unitStep * srcUnit);
-                                    }
+
+                                    mSourceUnrollTransform((const float*)midBuffer0, (float*)midBuffer1, srcUnit * pack, pack, pack, pack * srcUnit);
+                                    mSourceUnrollTransform((const float*)midBuffer1, (float*)dstZ, srcUnit * pack, unitStep, pack, unitStep * srcUnit);
+
                                 }
                             }
-                            // durationSourceTrans1 += timer.durationInUs();
                             destSOffset += pack * bytes;
                         }
                         oxBegin = 0;
@@ -372,10 +319,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         midTransformPtr += ePack * pack * bytes;
                     }
                 }
-                // MNN_PRINT("winograd source matrix transform 1 D*B:\n");
-                // formatMatrix((const ElementType*)midBuffer1, {ic_4, srcUnit, srcUnit, ePack, pack});
                 for (int iNw = 0; iNw < srcUnit; ++iNw) { // i_Nw
-                    // timer.reset();
                     auto midTransformPtr = midBuffer1 + iNw * alphaXStride * bytes;
                     auto unitsGemmbuffer = gemmBuffer;
                     for (int z = 0; z < ic_4; ++z) { // ic_4
@@ -383,26 +327,15 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         unitsGemmbuffer += ePack * pack * bytes;
                         midTransformPtr += IC4alpha2Stride * bytes;
                     }
-
-                    // durationSourceTrans2 += timer.durationInUs();
-                    // timer.reset();
-                    // MNN_PRINT("winograd source matrix transform 2 BT*D*B, iNw:%d\n", iNw);
-                    // formatMatrix((const ElementType*)gemmBuffer, {srcUnit, ic_4 * pack, ePack});
-
                     // Previous tranform requires xC aligned with EPack, xC should be Epack;
                     for (int iNh = 0; iNh < srcUnit; ++iNh) { // i_Nh, gemm
                         auto unitsGemmbuffer = gemmBuffer + iNh * ic_4 * pack * ePack * bytes;
                         auto _dstFloatPtr = (float*)(_dstOrigin + (iNh * srcUnit + iNw) * dc_4 * pack * ePack * bytes);
                         auto _weightFloatPtr = (const float*)(weight + (iNh * srcUnit + iNw) * mResource->mWeight->stride(0));
                         core->MNNPackedMatMul(_dstFloatPtr, (float*)unitsGemmbuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
-                        // MNN_PRINT("winograd MatMul result, iNh%d, iNw:%d\n", iNh, iNw);
-                        // formatMatrix((const ElementType*)_dstFloatPtr, { dc_4, ePack, pack});
                     }
-                    // durationMul += timer.durationInUs();
                 }
             } else {
-                // MNN_PRINT("winograd source matrix after b*d*b:\n");
-                // formatMatrix((const ElementType*)_srcOrigin, {srcUnit, srcUnit, ic_4, hUnit, wUnit, pack});
                 /*Source Transform End*/
                 // // Multi
                 _dstOrigin += xC * srcUnit2 * ic_4 * pack * bytes;
@@ -419,43 +352,20 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                 el[3] = 0;
                 if (xC == ePack) {
                     for (int i = 0; i < srcUnit2; ++i) {
-                        // timer.reset();
-
                         auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
                         auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
-                        // MNN_PRINT("winograd i_n:%d, xC:%d, ePack:%d, before packA:\n", i, xC, ePack);
-                        // formatMatrix((const ElementType*)srcTemp, {ic_4, xC, pack});
-
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
 
-                        // packATime += timer.durationInUs();
-                        // timer.reset();
-                        // MNN_PRINT("winograd i_n:%d, after packA:\n", i);
-                        // formatMatrix((const ElementType*)gemmBuffer, {1, ic_4 * pack, xC});
                         core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
-                        // MNN_PRINT("winograd MatMul result, iNh:%d, iNw:%d\n", i/srcUnit, i % srcUnit);
-                        // formatMatrix((const ElementType*)_dstFloatPtr, { dc_4, xC, pack});
-                        // durationMul += timer.durationInUs();
                     }
                 } else {
                     for (int i = 0; i < srcUnit2; ++i) {
-                        // timer.reset();
                         auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
                         auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
-                        // MNN_PRINT("winograd i_n:%d, xC:%d, ePack:%d, before packA:\n", i, xC, ePack);
-                        // formatMatrix((const ElementType*)srcTemp, {ic_4, xC, pack});
-
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
-                        // packATime += timer.durationInUs();
-                        // timer.reset();
-                        // MNN_PRINT("winograd i_n:%d, after packA:\n", i);
-                        // formatMatrix((const ElementType*)gemmBuffer, {1, ic_4 * pack, xC});
                         core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
-                        // MNN_PRINT("winograd MatMul result, iNh:%d, iNw:%d\n", i/srcUnit, i % srcUnit);
-                        // formatMatrix((const ElementType*)_dstFloatPtr, { dc_4, xC, pack});
-                        // durationMul += timer.durationInUs();
                     }
                 }
             }
@@ -463,6 +373,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
             /* Dest Transform And Post Treat Begin */
             {
+                auto DestUnrollTransform = mDestUnrollTransform.get();
 
                 int srcZStep = (fuseTransformPack ? ePack : xC) * pack;
                 int unitStep = (fuseTransformPack ? ePack : xC) * dc_4 * pack;
@@ -490,33 +401,18 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                             for (int z = 0; z < dc_4; ++z) {
                                 auto dstZAddr = dstStart + z * dstZStep * bytes;
                                 auto srcZ     = srcXi + z * srcZStep * bytes;
-                                // Transform
-                                for (int i = 0; i < srcUnit; ++i) {
-                                    auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
-                                    auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
-                                    mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
-                                }
-                                for (int i = 0; i < ey; ++i) {
-                                    auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
-                                    auto dstFloatPtr = (float*)(dstZAddr + i * pack * ow * bytes);
-                                    mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
-                                }
+
+                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
+                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)dstZAddr, pack, pack * ow, pack * dstUnit, pack);
                             }
                         } else {
                             for (int z = 0; z < dc_4; ++z) {
                                 auto dstZAddr = dstStart + z * dstZStep * bytes;
                                 auto srcZ     = srcXi + z * srcZStep * bytes;
-                                // Transform
-                                for (int i = 0; i < srcUnit; ++i) {
-                                    auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
-                                    auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
-                                    mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
-                                }
-                                for (int i = 0; i < ey; ++i) {
-                                    auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
-                                    auto dstFloatPtr = (float*)(midBuffer1 + i * dstUnit * pack * bytes);
-                                    mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
-                                }
+
+                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
+                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)midBuffer1, pack, pack * dstUnit, pack * dstUnit, pack);
+
                                 for (int yy = 0; yy < ey; ++yy) {
                                     auto dstYAddr = dstZAddr + yy * pack * ow * bytes;
                                     auto srcYAddr = midBuffer1 + yy * pack * dstUnit * bytes;
@@ -532,15 +428,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
             }
 #endif
             /*Dest Transform And Post Treat End*/
-            // if (fuseTransformPack) {
-            //     MNN_PRINT(
-            //         "\n relayout fused:\n\tdurationSourceTrans1: %lu us \n\tdurationSourceTrans2: %lu us \n\tdurationMul: %lu us\n\ttotal: %lu us\n",
-            //         durationSourceTrans1, durationSourceTrans2, durationMul, durationSourceTrans1 + durationSourceTrans2 + durationMul);
-            // } else {
-            //     MNN_PRINT(
-            //         "\n origin:\n\tdurationSourceTrans1+2: %lu us \n\t packA:%lu us \n\t durationMul:%lu us\n\ttotal: %lu us\n",
-            //         durationSourceTrans1, packATime, durationMul, durationSourceTrans1 + durationSourceTrans2 + durationMul + packATime);
-            // }
         }
     };
 
@@ -548,7 +435,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         tFunction((int)tId);
     }
     MNN_CONCURRENCY_END();
-
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
             auto dataFloatPtr = (float*)(dstOrigin + ow * oh * batch * dy * pack * bytes);
@@ -557,7 +443,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         }
     }
     MNN_CONCURRENCY_END();
-
     return NO_ERROR;
 }
 
@@ -578,23 +463,33 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
     auto kernelSize  = common->kernelY();
     int unit         = 0;
     float maxRate    = 0.0f;
-    float originCost = (float)ow * oh * (float)ic * oc * kernelSize * kernelSize;
+    float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
     std::set<int> supportSu{4, 6, 8};
+    CoreFunctions::WinoUnrollTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
     for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
         auto sui = u + kernelSize - 1;
         auto su = (float)sui;
         if (supportSu.find(sui) == supportSu.end()) {
             continue;
         }
-        if (nullptr == core->chooseWinoDestTransform((int)su, u)) {
+        core->chooseWinoDestUnrollTransform(destTransform, CONVOLUTION_WINOGRAD_MAX_UNIT + 1, sui, u);
+        if (nullptr == destTransform[sui]) {
             continue;
         }
-        /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
-        float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
+        // /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
+
+        // float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
+        // float winogradCost =
+        //     (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * 2 * (UP_DIV(ow, u) * UP_DIV(oh, u));
+        // float reduceRate = originCost / winogradCost - penalty;
+
+        // new metrics for winograd, only need to calculate absolute compute complexity.
+        // add instructions are about (n - 2), multiply operations are (n - 4). as a result operations are (2n - 6).
         float winogradCost =
-            (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
-        float reduceRate = originCost / winogradCost - penalty;
-        // MNN_PRINT("ow=%d, oh=%d, %f, %f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
+            ( (2 * su - 6) * su * su * ic + 2 * su * su * ic * oc + ((su + u) * u * (2 * su - 6) * oc)) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+        float reduceRate = originCost / winogradCost;
+
+        // MNN_PRINT("ow=%d, oh=%d, winogradCost:%f, reduceRate:%f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
         if (reduceRate > maxRate) {
             maxRate = reduceRate;
             unit    = u;
@@ -631,6 +526,7 @@ ErrorCode ConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs, con
     if (!success) {
         return OUT_OF_MEMORY;
     }
+
     return NO_ERROR;
 }
 } // namespace MNN

@@ -7,6 +7,7 @@
 //
 
 #import "ViewController.h"
+#import <Metal/Metal.h>
 
 #import <AVFoundation/AVFoundation.h>
 #import <MNN/HalideRuntime.h>
@@ -15,7 +16,10 @@
 #import <MNN/ImageProcess.hpp>
 #import <MNN/Interpreter.hpp>
 #import <MNN/Tensor.hpp>
+#define MNN_METAL
+#import <MNN/MNNSharedContext.h>
 
+#include <thread>
 typedef struct {
     float value;
     int index;
@@ -31,25 +35,78 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     }
 }
 
+struct PretreatInfo {
+    int outputSize[4];
+    float mean[4];
+    float normal[4];
+    float inputSize[4];
+    float matrix[16];
+};
+struct GpuCache {
+    CVMetalTextureCacheRef _textureCache;
+    id<MTLDevice> _device;
+    id<MTLComputePipelineState> _pretreat;
+    id<MTLFunction> _function;
+    id<MTLBuffer> _constant;
+    id<MTLCommandQueue> _queue;
+    GpuCache() {
+        _device = MTLCreateSystemDefaultDevice();
+        CVReturn res = CVMetalTextureCacheCreate(nil, nil, _device, nil, &_textureCache);
+        FUNC_PRINT(res);
+        id<MTLLibrary> library = [_device newDefaultLibrary];
+        _function = [library newFunctionWithName:@"pretreat"];
+        NSError* error = nil;
+        _pretreat = [_device newComputePipelineStateWithFunction:_function error:&error];
+        _constant = [_device newBufferWithLength:sizeof(PretreatInfo) options:MTLCPUCacheModeDefaultCache];
+        _queue = [_device newCommandQueue];
+    }
+    ~ GpuCache() {
+        
+    }
+};
 @interface Model : NSObject {
     std::shared_ptr<MNN::Interpreter> _net;
     MNN::Session *_session;
+    std::mutex _mutex;
+    MNNForwardType _type;
+    MNN::Tensor* _input;
+    MNN::Tensor* _output;
+    std::shared_ptr<GpuCache> _cache;
 }
 @property (strong, nonatomic) UIImage *defaultImage;
 @property (strong, nonatomic) NSArray<NSString *> *labels;
+
 @end
 
 @implementation Model
 - (void)setType:(MNNForwardType)type threads:(NSUInteger)threads {
-    MNN::ScheduleConfig config;
-    config.type      = type;
-    config.numThread = (int)threads;
+    std::unique_lock<std::mutex> _l(_mutex);
     if (_session) {
         _net->releaseSession(_session);
     }
-    _session = _net->createSession(config);
+    if (nullptr == _cache) {
+        _cache.reset(new GpuCache);
+    }
+    MNN::ScheduleConfig config;
+    config.type      = type;
+    config.numThread = (int)threads;
+    if (type == MNN_FORWARD_METAL) {
+        MNN::BackendConfig bnConfig;
+        MNNMetalSharedContext context;
+        context.device = _cache->_device;
+        context.queue = _cache->_queue;
+        bnConfig.sharedContext = &context;
+        config.backendConfig = &bnConfig;
+        _session = _net->createSession(config);
+    } else {
+        _session = _net->createSession(config);
+    }
+    _input = _net->getSessionInput(_session, nullptr);
+    _output = _net->getSessionOutput(_session, nullptr);
+    _type = type;
 }
-- (NSString *)infer:(NSInteger)cycles {
+- (NSString *)benchmark:(NSInteger)cycles {
+    std::unique_lock<std::mutex> _l(_mutex);
     if (!_net || !_session) {
         return nil;
     }
@@ -68,6 +125,24 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
         output->copyToHostTensor(&copy);
     }
     NSTimeInterval cost = NSDate.timeIntervalSinceReferenceDate - begin;
+    NSString *string = @"";
+    return [string stringByAppendingFormat:@"time elapse: %.3f ms", cost * 1000.f / cycles];
+}
+
+
+- (NSString *)inferNoLock:(NSInteger)cycles {
+    if (!_net || !_session) {
+        return nil;
+    }
+    // run
+    NSTimeInterval begin = NSDate.timeIntervalSinceReferenceDate;
+    // you should set input data for each inference
+    _net->runSession(_session);
+
+    MNN::Tensor *output = _net->getSessionOutput(_session, nullptr);
+    MNN::Tensor copy(output);
+    output->copyToHostTensor(&copy);
+    NSTimeInterval cost = NSDate.timeIntervalSinceReferenceDate - begin;
 
     // result
     float *data = copy.host<float>();
@@ -83,7 +158,12 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     for (int i = 0; i < 3; i++) {
         string = [string stringByAppendingFormat:@"%@: %f\n", _labels[objects[i].index], objects[i].value];
     }
-    return [string stringByAppendingFormat:@"time elapse: %.3f ms", cost * 1000.f / cycles];
+    return [string stringByAppendingFormat:@"time elapse: %.3f ms", cost * 1000.f / 1.0f];
+}
+
+- (NSString *)infer:(NSInteger)cycles {
+    std::unique_lock<std::mutex> _l(_mutex);
+    return [self inferNoLock:cycles];
 }
 
 - (NSString *)inferImage:(UIImage *)image cycles:(NSInteger)cycles {
@@ -115,6 +195,7 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
 }
 
 - (NSString *)inferImage:(UIImage *)image cycles:(NSInteger)cycles {
+    std::unique_lock<std::mutex> _l(_mutex);
     int w               = image.size.width;
     int h               = image.size.height;
     unsigned char *rgba = (unsigned char *)calloc(w * h * 4, sizeof(unsigned char));
@@ -138,14 +219,56 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     pretreat->convert(rgba, w, h, 0, input);
     free(rgba);
 
-    return [super inferImage:image cycles:cycles];
+    return [super inferNoLock:0];
 }
 
 - (NSString *)inferBuffer:(CMSampleBufferRef)sampleBuffer {
     CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    std::unique_lock<std::mutex> _l(_mutex);
+
+    // GPU
+    if (_type == MNN_FORWARD_METAL) {
+        size_t width = CVPixelBufferGetWidth(pixelBuffer);
+        size_t height = CVPixelBufferGetHeight(pixelBuffer);
+        MTLPixelFormat pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+        CVMetalTextureRef texture = NULL;
+        CVReturn status = CVMetalTextureCacheCreateTextureFromImage(NULL, _cache->_textureCache, pixelBuffer, NULL, pixelFormat, width, height, 0, &texture);
+        id<MTLTexture> inputTexture = CVMetalTextureGetTexture(texture);
+        CVBufferRelease(texture);
+        PretreatInfo pretreat;
+        // TODO: Only copy it once
+        pretreat.outputSize[0] = 224;
+        pretreat.outputSize[1] = 224;
+        pretreat.mean[0] = 103.94f;
+        pretreat.mean[1] = 116.78f;
+        pretreat.mean[2] = 123.68f;
+        pretreat.mean[3] = 0.0f;
+        pretreat.normal[0] = 0.017f;
+        pretreat.normal[1] = 0.017f;
+        pretreat.normal[2] = 0.017f;
+        pretreat.normal[3] = 0.0f;
+        ::memcpy([_cache->_constant contents], &pretreat, sizeof(PretreatInfo));
+        auto cmd = [_cache->_queue commandBuffer];
+        auto enc = [cmd computeCommandEncoder];
+        [enc setComputePipelineState:_cache->_pretreat];
+        [enc setTexture:inputTexture atIndex:0];
+        [enc setBuffer:_cache->_constant offset:0 atIndex:1];
+        MNNMetalTensorContent sharedContent;
+        MNNMetalGetTensorContent(&sharedContent, _input);
+        // For Metal Context to write, don't need finish, just use flush
+        _input->wait(MNN::Tensor::MAP_TENSOR_WRITE, false);
+        [enc setBuffer:sharedContent.buffer offset:sharedContent.offset atIndex:0];
+        [enc dispatchThreadgroups:MTLSizeMake(28, 28, 1) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
+        [enc endEncoding];
+        [cmd commit];
+        [cmd waitUntilCompleted];        
+        return [super inferNoLock:0];
+    }
+
+    // CPU
     int w                        = (int)CVPixelBufferGetWidth(pixelBuffer);
     int h                        = (int)CVPixelBufferGetHeight(pixelBuffer);
-
     CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     unsigned char *bgra = (unsigned char *)CVPixelBufferGetBaseAddress(pixelBuffer);
 
@@ -161,7 +284,7 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     pretreat->convert(bgra, w, h, 0, input);
 
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    return [super inferBuffer:sampleBuffer];
+    return [super inferNoLock:0];
 }
 
 @end
@@ -187,6 +310,7 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
 }
 
 - (NSString *)inferImage:(UIImage *)image cycles:(NSInteger)cycles {
+    std::unique_lock<std::mutex> _l(_mutex);
     int w               = image.size.width;
     int h               = image.size.height;
     unsigned char *rgba = (unsigned char *)calloc(w * h * 4, sizeof(unsigned char));
@@ -213,10 +337,11 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     pretreat->convert(rgba, w, h, 0, input);
     free(rgba);
 
-    return [super inferImage:image cycles:cycles];
+    return [super inferNoLock:0];
 }
 
 - (NSString *)inferBuffer:(CMSampleBufferRef)sampleBuffer {
+    std::unique_lock<std::mutex> _l(_mutex);
     CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     int w                        = (int)CVPixelBufferGetWidth(pixelBuffer);
     int h                        = (int)CVPixelBufferGetHeight(pixelBuffer);
@@ -239,7 +364,7 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     pretreat->convert(bgra, w, h, 0, input);
 
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    return [super inferBuffer:sampleBuffer];
+    return [super inferNoLock:0];
 }
 @end
 
@@ -417,9 +542,8 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
         self.modelItem.enabled     = NO;
         self.forwardItem.enabled   = NO;
         self.threadItem.enabled    = NO;
-        UIImage *image             = self->_imageView.image;
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSString *str = [self->_currentModel inferImage:image cycles:100];
+            NSString *str = [self->_currentModel benchmark:100];
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.resultLabel.text      = str;
                 self.cameraItem.enabled    = YES;

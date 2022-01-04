@@ -14,6 +14,7 @@
 #include <map>
 #include "Command.hpp"
 #include "NonCopyable.hpp"
+#include <future>
 
 namespace MNN {
 
@@ -85,17 +86,6 @@ public:
     virtual ~Backend() = default;
 
 public:
-    /**
-     * @brief measure the cost for op with input and output tensors.
-     * @param inputs    input tensors.
-     * @param outputs   output tensors.
-     * @param op        given op.
-     * @return std::make_pair(timeDelayInMs, support);
-     */
-    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                             const MNN::Op* op) {
-        return std::make_pair(0.0f, false);
-    }
 
     /**
      * @brief create execution for op with input and output tensors.
@@ -193,6 +183,9 @@ public:
         return false;
     }
 
+    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+        return 0;
+    }
 
 private:
     const MNNForwardType mType;
@@ -248,7 +241,35 @@ public:
     virtual int onGetRuntimeStatus(RuntimeStatus statusEnum) const {
         return 0;
     }
-
+    struct OpInfo {
+        bool initCostLong;
+        float exeutionCost; // In ms
+        float initCost; // In ms
+    };
+    /**
+     * @brief measure the cost for op with input and output tensors.
+     * @param inputs    input tensors.
+     * @param outputs   output tensors.
+     * @param op        given op.
+     * @param dstInfo   the Info for write.
+     * @return support the op or not;
+     */
+    virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                             const MNN::Op* op, OpInfo& dstInfo) const {
+        return true;
+    }
+    
+    // FIXME: Temply use to mask cache valid, in future will delete
+    virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                               const MNN::Op* op) {
+        // Do nothing
+    }
+    // FIXME: Temply used, in future will refract
+    bool hasAsyncWork() const;
+    void setAsyncWork(std::future<int>&& future);
+    MNN_PUBLIC void waitAsyncWork();
+private:
+    std::future<int> mFuture;
 };
 
 /** abstract Runtime register */
@@ -269,7 +290,6 @@ public:
         info.mode = Backend::Info::DIRECT;
         return true;
     }
-
 protected:
     /**
      @brief deinitializer.

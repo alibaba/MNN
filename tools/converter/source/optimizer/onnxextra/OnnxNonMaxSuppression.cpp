@@ -27,11 +27,19 @@ public:
         // onnx scores is 3D [num_batches, num_classes, boxes_num] with num_batches = 1,
         // while tf scores is 1D [boxes_num].
         auto inputs = expr->inputs();
-        MNN_ASSERT(inputs.size() >= 2);
+        // 3th input is max_output_boxes_per_class(default is 0), making output shape is (0, 3) which MNN isn't support
+        MNN_ASSERT(inputs.size() >= 3);
         auto input0Info = inputs[0]->getInfo();
         auto input1Info = inputs[1]->getInfo();
         if (nullptr == input0Info || nullptr == input1Info) {
-            return nullptr;
+            MNN_ERROR("Shape of NonMaxSupression's input is unknown. Please confirm version of MNN engine is new enough and use V3 Module API to run it correctly\n");
+            std::unique_ptr<OpT> nms(new OpT);
+            nms->type                = OpType_NonMaxSuppressionV2;
+            nms->main.type           = OpParameter_NonMaxSuppressionV2;
+            nms->main.value          = new NonMaxSuppressionV2T;
+            auto result = Expr::create(nms.get(), inputs);
+            Variable::create(result)->setName(expr->outputName(0));
+            return result;
         }
         MNN_ASSERT(inputs[0]->getInfo()->dim.size() == 3);
         MNN_ASSERT(inputs[1]->getInfo()->dim.size() == 3);
@@ -61,14 +69,10 @@ public:
                 // Tensorflow's output is [num_selected_boxes], while onnx requires
                 // [num_selected_boxes, 3], and the meaning of last dim is
                 // [batch_index, class_index, box_index].
-                VARP output = _Unsqueeze(Variable::create(nonMaxSupp), {0}); // [1, num_selected_boxes]
-                output      = _Transpose(output, {1, 0});                    // [num_selected_boxes, 1]
-                std::vector<int> paddings{0, 0, 1, 0};
-                auto data_type = halide_type_of<int32_t>();
-                VARP pad       = _Const(paddings.data(), {2, 2}, NCHW, data_type);
+                VARP output = _Unsqueeze(Variable::create(nonMaxSupp), {1}); // [num_selected_boxes, 1]
 
-                // TODO(houjiang): Support padding with non-zero constant value.
-                output = _Pad(_Pad(output, pad /*, cls*/), pad /*, batch*/); // [num_selected_boxes, 3]
+                auto shape = _Shape(output, true);
+                output = _Concat({_Fill(shape, _Scalar<int>(batch)), _Fill(shape, _Scalar<int>(cls)), output}, 1);
                 if (result.get() != nullptr) {
                     result = _Concat({result, output}, 0);
                 } else {
@@ -76,7 +80,7 @@ public:
                 }
             }
         }
-
+        result->setName(expr->outputName(0));
         return result->expr().first;
     }
 };

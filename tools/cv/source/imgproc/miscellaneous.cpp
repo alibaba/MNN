@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "cv/imgproc/miscellaneous.hpp"
 #include <MNN/ImageProcess.hpp>
-#include "imgproc/miscellaneous.hpp"
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 
 namespace MNN {

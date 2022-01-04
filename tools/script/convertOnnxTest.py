@@ -18,7 +18,7 @@ root_dir = os.path.join(model_root_dir, 'TestOnnx')
 print('root: ' + root_dir + '\n')
 
 for name in os.listdir(root_dir):
-    if name == '.DS_Store':
+    if name == '.DS_Store' or name == 'ops':
         continue
     print(name)
     message = run_cmd(['./TestConvertResult', 'Onnx', root_dir + '/' + name])

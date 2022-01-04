@@ -106,9 +106,9 @@ public:
     virtual Module* clone(CloneContext* ctx) const {
         return nullptr;
     }
+    void registerModel(const std::vector<std::shared_ptr<Module>>& children);
 
 protected:
-    void registerModel(const std::vector<std::shared_ptr<Module>>& children);
     virtual void onClearCache() {
     }
 

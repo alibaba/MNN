@@ -7,9 +7,9 @@
 //
 
 #include <set>
-#include "types.hpp"
-#include "imgcodecs.hpp"
-#include "imgproc/color.hpp"
+#include "cv/types.hpp"
+#include "cv/imgcodecs.hpp"
+#include "cv/imgproc/color.hpp"
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #define STB_IMAGE_IMPLEMENTATION
@@ -27,7 +27,7 @@ namespace CV {
 
 // helper functions
 static VARP buildImgVARP(uint8_t* img, int height, int width, int channel, int flags) {
-    auto rgb = _Const(img, {1, height, width, channel}, NHWC, halide_type_of<uint8_t>());
+    auto rgb = _Const(img, {height, width, channel}, NHWC, halide_type_of<uint8_t>());
     free(img);
     VARP res;
     switch (flags) {
