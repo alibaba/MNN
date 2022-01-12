@@ -51,6 +51,14 @@
 #include <vector>
 #include "backend/cpu/CPURuntime.hpp"
 
+#if defined (__linux__) && defined (__aarch64__)
+#include <sys/auxv.h>
+
+#define CPUINFO_ARM_LINUX_FEATURE_FPHP       UINT32_C(0x00000200)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP    UINT32_C(0x00000400)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP  UINT32_C(0x00100000)
+#endif /* __linux__ && __aarch64__ */
+
 #ifdef __ANDROID__
 
 /* As per include/sys/system_properties.h in Android NDK */
@@ -1512,6 +1520,24 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
     cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
     cpuinfo_isa->dot = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
 #endif
+
+#if defined (__linux__) && defined (__aarch64__)
+
+    uint32_t isa_features = 0;
+    isa_features = (uint32_t)getauxval(AT_HWCAP);
+
+
+        if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
+                cpuinfo_isa->dot = true;
+        }
+
+        const uint32_t fp16arith_mask = CPUINFO_ARM_LINUX_FEATURE_FPHP | CPUINFO_ARM_LINUX_FEATURE_ASIMDHP;
+        if ((isa_features & fp16arith_mask) == fp16arith_mask) {
+            cpuinfo_isa->fp16arith = true;
+        }
+
+#endif /* __linux__ && __aarch64__ */
+
     MNN_PRINT("The device support dot:%d, support fp16:%d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith);
 }
 
