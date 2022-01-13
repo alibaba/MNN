@@ -44,13 +44,6 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
         (*prelu)
             .set_input_x(*xOp.get()).set_input_weight(mConst_w);
         mNpuBackend->setOutputOps(mOp, {prelu}, outputs);
-    }else{
-        shared_ptr<ge::op::Activation> relu(new ge::op::Activation(opName + "_relu"));
-        (*relu)
-            .set_input_x(*xOp.get())
-            .set_attr_coef(.000000) 
-            .set_attr_mode(mType);
-        mNpuBackend->setOutputOps(mOp, {relu}, outputs);
     }
 
 
@@ -62,9 +55,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
 
-        if (op->type() == OpType_ReLU) {
-            return new NPUActivation(backend, op, inputs, outputs, 1);
-        }else if (op->type() == OpType_ReLU6) {
+        if (op->type() == OpType_ReLU6) {
             return new NPUActivation(backend, op, inputs, outputs, 14);
         }else if (op->type() == OpType_Sigmoid) {
             return new NPUActivation(backend, op, inputs, outputs, 0);
@@ -79,7 +70,6 @@ public:
     }
 };
 
-NPUCreatorRegister<ActivationCreator> __relu_op(OpType_ReLU);
 NPUCreatorRegister<ActivationCreator> __relu6_op(OpType_ReLU6);
 NPUCreatorRegister<ActivationCreator> __sigmoid_op(OpType_Sigmoid);
 NPUCreatorRegister<ActivationCreator> __prelu_op(OpType_PReLU);
