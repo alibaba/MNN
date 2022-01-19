@@ -56,19 +56,7 @@ Converter由Frontends和Graph Optimize构成。前者负责支持不同的训练
 Interpreter由Engine和Backends构成。前者负责模型的加载、计算图的调度；后者包含各计算设备下的内存分配、Op实现。在Engine和Backends中，MNN应用了多种优化方案，包括在卷积和反卷积中应用Winograd算法、在矩阵乘法中应用Strassen算法、低精度计算、Neon优化、手写汇编、多线程优化、内存复用、异构计算等。
 
 ##  社区交流与反馈
-扫描二维码加入钉钉讨论群。
-
-一群（已满）：
-
-<img src="doc/DingTalkQR1.png" height="256"/>
-
-二群（已满）：
-
-<img src="doc/DingTalkQR2.png" height="256"/>
-
-三群：
-
-<img src="doc/DingTalkQR3.png" height="256"/>
+扫描二维码加入钉钉讨论群，见：https://www.yuque.com/mnn/cn/feedback
 
 ## License
 Apache 2.0
