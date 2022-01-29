@@ -487,6 +487,8 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
         case OpType_ReLU6:
         case OpType_PReLU:
         case OpType_GridSample:
+        case OpType_ROIPooling:
+        case OpType_ROIAlign:
             return true;
         default:
             break;

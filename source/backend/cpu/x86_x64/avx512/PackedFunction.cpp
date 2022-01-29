@@ -317,6 +317,69 @@ void _AVX512_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const 
     }
 }
 
+void _AVX512_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
+    Vec16 max = Vec16(-FLT_MAX);
+    for (int h = 0; h < hLen; h++, src += iw * PACK_UNIT) {
+        for (int w = 0; w < wLen; w++) {
+            Vec16 in = Vec16::load(src + w * PACK_UNIT);
+            max = Vec16::max(max, in);
+        }
+    }
+    Vec16::save(dst, max);
+}
+
+void _AVX512_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec16 res = Vec16(-FLT_MAX);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec16 val0 = Vec16::load(src + pos[0] * PACK_UNIT);
+                Vec16 val1 = Vec16::load(src + pos[1] * PACK_UNIT);
+                Vec16 val2 = Vec16::load(src + pos[2] * PACK_UNIT);
+                Vec16 val3 = Vec16::load(src + pos[3] * PACK_UNIT);
+                Vec16 mla  = val0 * area[0];
+                mla       = Vec16::fma(mla, val1, area[1]);
+                mla       = Vec16::fma(mla, val2, area[2]);
+                mla       = Vec16::fma(mla, val3, area[3]);
+                res       = Vec16::max(res, mla);
+                preCalcIdx++;
+            }
+            Vec16::save(dst + w * PACK_UNIT, res);
+        }
+    }
+}
+
+void _AVX512_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    float invSamplingCnt = 1.f / samplingRatioArea;
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec16 res = Vec16(0.f);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec16 val0 = Vec16::load(src + pos[0] * PACK_UNIT);
+                Vec16 val1 = Vec16::load(src + pos[1] * PACK_UNIT);
+                Vec16 val2 = Vec16::load(src + pos[2] * PACK_UNIT);
+                Vec16 val3 = Vec16::load(src + pos[3] * PACK_UNIT);
+                Vec16 mla  = val0 * area[0];
+                mla       = Vec16::fma(mla, val1, area[1]);
+                mla       = Vec16::fma(mla, val2, area[2]);
+                mla       = Vec16::fma(mla, val3, area[3]);
+                res       += mla;
+                preCalcIdx++;
+            }
+            res = res * invSamplingCnt;
+            Vec16::save(dst + w * PACK_UNIT, res);
+        }
+    }
+}
+
 void _AVX512_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
@@ -646,6 +709,9 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX512_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX512_MNNGridSampleComputeCord;
     coreFunction->MNNGridSampleInterp = _AVX512_MNNGridSampleInterp;
+    coreFunction->MNNRoiPoolingMax = _AVX512_MNNRoiPoolingMax;
+    coreFunction->MNNRoiAlignMax = _AVX512_MNNRoiAlignMax;
+    coreFunction->MNNRoiAlignAvg = _AVX512_MNNRoiAlignAvg;
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;

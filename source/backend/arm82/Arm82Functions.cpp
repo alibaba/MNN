@@ -1,5 +1,6 @@
 #if defined(__ANDROID__) || defined(__aarch64__)
 #include <math.h>
+#include <float.h>
 #include "Arm82Functions.hpp"
 #include "Arm82OptFunc.hpp"
 #include "Arm82WinogradOptFunc.hpp"
@@ -206,6 +207,69 @@ static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr,
                 interp = i0 * h0 + i1 * h1;
                 Vec::save(outputPtr + k * outOffset + 8 * ow, interp);
             }
+        }
+    }
+}
+
+static void MNNRoiPoolingMaxFP16(FLOAT16* dst, const FLOAT16* src, int hLen, int wLen, int iw) {
+    Vec max = Vec(-__FLT16_MAX__);
+    for (int h = 0; h < hLen; h++, src += iw * 8) {
+        for (int w = 0; w < wLen; w++) {
+            Vec in = Vec::load(src + w * 8);
+            max = Vec::max(max, in);
+        }
+    }
+    Vec::save(dst, max);
+}
+
+static void MNNRoiAlignMaxFP16(FLOAT16* dst, const FLOAT16* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * 8) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec res = Vec(-__FLT16_MAX__);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec val0 = Vec::load(src + pos[0] * 8);
+                Vec val1 = Vec::load(src + pos[1] * 8);
+                Vec val2 = Vec::load(src + pos[2] * 8);
+                Vec val3 = Vec::load(src + pos[3] * 8);
+                Vec mla  = val0 * area[0];
+                mla       = Vec::fma(mla, val1, area[1]);
+                mla       = Vec::fma(mla, val2, area[2]);
+                mla       = Vec::fma(mla, val3, area[3]);
+                res       = Vec::max(res, mla);
+                preCalcIdx++;
+            }
+            Vec::save(dst + w * 8, res);
+        }
+    }
+}
+
+static void MNNRoiAlignAvgFP16(FLOAT16* dst, const FLOAT16* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    float invSamplingCnt = 1.f / samplingRatioArea;
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * 8) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec res = Vec(0.f);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec val0 = Vec::load(src + pos[0] * 8);
+                Vec val1 = Vec::load(src + pos[1] * 8);
+                Vec val2 = Vec::load(src + pos[2] * 8);
+                Vec val3 = Vec::load(src + pos[3] * 8);
+                Vec mla  = val0 * area[0];
+                mla       = Vec::fma(mla, val1, area[1]);
+                mla       = Vec::fma(mla, val2, area[2]);
+                mla       = Vec::fma(mla, val3, area[3]);
+                res       += mla;
+                preCalcIdx++;
+            }
+            res = res * invSamplingCnt;
+            Vec::save(dst + w * 8, res);
         }
     }
 }
@@ -628,6 +692,9 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterp, MNNGridSampleInterpFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNRoiPoolingMax, MNNRoiPoolingMaxFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNRoiAlignMax, MNNRoiAlignMaxFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNRoiAlignAvg, MNNRoiAlignAvgFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNCopyC4WithStride, MNNCopyC8WithStrideFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNAddC4WithStride, MNNAddC8WithStrideFP16);
 

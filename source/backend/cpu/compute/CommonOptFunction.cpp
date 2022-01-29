@@ -1632,6 +1632,70 @@ void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* c
     }
 }
 
+void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
+    Vec4 max = Vec4(-FLT_MAX);
+    for (int h = 0; h < hLen; h++, src += iw * UNIT) {
+        for (int w = 0; w < wLen; w++) {
+            Vec4 in = Vec4::load(src + w * UNIT);
+            max = Vec4::max(max, in);
+        }
+    }
+    Vec4::save(dst, max);
+ }
+
+void MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec4 res = Vec4(-FLT_MAX);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec4 val0 = Vec4::load(src + pos[0] * UNIT);
+                Vec4 val1 = Vec4::load(src + pos[1] * UNIT);
+                Vec4 val2 = Vec4::load(src + pos[2] * UNIT);
+                Vec4 val3 = Vec4::load(src + pos[3] * UNIT);
+                Vec4 mla  = val0 * area[0];
+                mla       = Vec4::fma(mla, val1, area[1]);
+                mla       = Vec4::fma(mla, val2, area[2]);
+                mla       = Vec4::fma(mla, val3, area[3]);
+                res       = Vec4::max(res, mla);
+                preCalcIdx++;
+            }
+            Vec4::save(dst + w * UNIT, res);
+        }
+    }
+}
+
+void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    float invSamplingCnt = 1.f / samplingRatioArea;
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec4 res = Vec4(0.f);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec4 val0 = Vec4::load(src + pos[0] * UNIT);
+                Vec4 val1 = Vec4::load(src + pos[1] * UNIT);
+                Vec4 val2 = Vec4::load(src + pos[2] * UNIT);
+                Vec4 val3 = Vec4::load(src + pos[3] * UNIT);
+                Vec4 mla  = val0 * area[0];
+                mla       = Vec4::fma(mla, val1, area[1]);
+                mla       = Vec4::fma(mla, val2, area[2]);
+                mla       = Vec4::fma(mla, val3, area[3]);
+                res       += mla;
+                preCalcIdx++;
+            }
+            res = res * invSamplingCnt;
+            Vec4::save(dst + w * UNIT, res);
+        }
+    }
+}
+
+
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
     MNNPackC4Common(dst, src, area, depth, areaOffset);
 }
@@ -2694,6 +2758,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias;
     gCoreFunction->MNNGridSampleComputeCord = MNNGridSampleComputeCord;
     gCoreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    gCoreFunction->MNNRoiPoolingMax = MNNRoiPoolingMax;
+    gCoreFunction->MNNRoiAlignMax = MNNRoiAlignMax;
+    gCoreFunction->MNNRoiAlignAvg = MNNRoiAlignAvg;
     gCoreFunction->MNNAddC4WithStride = MNNAddC4WithStride;
     gCoreFunction->MNNCopyC4WithStride = MNNCopyC4WithStride;
 

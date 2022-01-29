@@ -56,40 +56,29 @@ ErrorCode CPUROIAlign::onResize(const std::vector<Tensor*>& inputs, const std::v
 ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& input  = inputs[0];
     auto& output = outputs[0];
+    auto core    = static_cast<CPUBackend*>(backend())->functions();
 
-    // get roi
-    MNN_DATA_FORMAT roiDimensionFormat = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
-    switch (roiDimensionFormat) {
-        case MNN::MNN_DATA_FORMAT_NCHW:
-            ::memcpy(mROI.host<void>(), inputs[1]->host<void>(), inputs[1]->elementSize() * sizeof(float));
-            break;
-        case MNN::MNN_DATA_FORMAT_NC4HW4:
-            CPUTensorConverter::convert(inputs[1]->host<void>(), mROI.host<void>(), MNN_DATA_FORMAT_NC4HW4,
-                                        MNN_DATA_FORMAT_NCHW, inputs[1]->batch(),
-                                        inputs[1]->width() * inputs[1]->height(), inputs[1]->channel(),
-                                        inputs[1]->getType().bytes(), static_cast<CPUBackend*>(backend())->functions());
-            break;
-        default:
-            MNN_ERROR("rois dimension format: %d not supported now!", roiDimensionFormat);
-            return NOT_SUPPORT;
-            break;
+    CPUTensorConverter::convert(inputs[1], &mROI, core);
+
+    // dataType of ROI must be float32.
+    Tensor *roiTensor = &mROI;
+    if (core->bytes != 4) {
+        std::shared_ptr<Tensor> tempRoiTensor(Tensor::create<float>(mROI.shape(), nullptr, TensorUtils::getDimType(&mROI)));
+        core->MNNLowpToFp32(mROI.host<int16_t>(), tempRoiTensor->host<float>(), inputs[1]->elementSize());
+        roiTensor = tempRoiTensor.get();
     }
 
     // get params
-    auto iw = input->width(), ih = input->height(), is = iw * ih * 4;   // C4
-    auto ow = output->width(), oh = output->height(), os = ow * oh * 4; // C4
-    auto rs           = mROI.stride(0);
-    auto numROI       = mROI.batch();
-    auto numSlice     = UP_DIV(input->channel(), 4);
+    auto iw = input->width(), ih = input->height(), is = iw * ih * core->pack;   // C4
+    auto ow = output->width(), oh = output->height(), os = ow * oh * core->pack; // C4
+    auto rs           = roiTensor->stride(0);
+    auto numROI       = roiTensor->batch();
+    auto numSlice     = UP_DIV(input->channel(), core->pack);
     float alignOffset = mAligned ? -0.5f : 0.f;
 
-#ifndef MNN_USE_NEON
-    memset(output->host<void>(), 0, output->elementSize() * sizeof(float));
-#endif
-
     for (int n = 0; n < numROI; ++n) {
-        auto batchOutput = output->host<float>() + os * n;
-        auto roiPtr      = mROI.host<float>() + rs * n;
+        auto batchOutput = output->host<uint8_t>() + os * n * core->bytes;
+        auto roiPtr      = roiTensor->host<float>() + rs * n;
         int batchIdx     = (int)roiPtr[0], idxRoi = 1;
         if (inputs.size() == 3) {
             batchIdx = inputs[2]->host<int>()[n];
@@ -115,154 +104,23 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         int samplingRatioH = mSamplingRatio > 0 ? mSamplingRatio : static_cast<int>(ceilf(roiH / mPooledHeight));
         MNN_ASSERT(samplingRatioH > 0 && samplingRatioW > 0);
 
-        float invSamplingCnt = 1.f / (samplingRatioH * samplingRatioW);
-
         std::vector<std::vector<int>> vecPos;
         std::vector<std::vector<float>> vecArea;
         preCalcBilinearInterpolate(ih, iw, mPooledHeight, mPooledWidth, y1, x1, binSizeH, binSizeW, samplingRatioH,
                                    samplingRatioW, vecPos, vecArea);
 
-        auto batchInput = input->host<float>() + is * batchIdx;
+        auto batchInput = input->host<uint8_t>() + is * batchIdx * core->bytes;
         if (mPoolType == PoolType_AVEPOOL) {
             for (int s = 0; s < numSlice; ++s) {
-                auto sliceInput = batchInput + is * input->batch() * s;
-                auto rowOutput  = batchOutput + os * output->batch() * s;
-                int preCalcIdx  = 0;
-                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledWidth * 4) {
-                    for (int w = 0; w < mPooledWidth; ++w) {
-#ifdef MNN_USE_NEON
-                        float32x4_t res = vmovq_n_f32(0.f);
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-
-                                float32x4_t val0 = vld1q_f32(sliceInput + pos[0]);
-                                float32x4_t val1 = vld1q_f32(sliceInput + pos[1]);
-                                float32x4_t val2 = vld1q_f32(sliceInput + pos[2]);
-                                float32x4_t val3 = vld1q_f32(sliceInput + pos[3]);
-                                float32x4_t mla  = vmulq_n_f32(val0, area[0]);
-                                mla              = vmlaq_n_f32(mla, val1, area[1]);
-                                mla              = vmlaq_n_f32(mla, val2, area[2]);
-                                mla              = vmlaq_n_f32(mla, val3, area[3]);
-                                res              = vaddq_f32(res, mla);
-                                preCalcIdx++;
-                            }
-                        }
-                        res = vmulq_n_f32(res, invSamplingCnt);
-                        vst1q_f32(rowOutput + w * 4, res);
-#elif defined(MNN_USE_SSE)
-                        auto res = _mm_set_ps1(0.f);
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-
-                                auto val0 = _mm_loadu_ps(sliceInput + pos[0]);
-                                auto val1 = _mm_loadu_ps(sliceInput + pos[1]);
-                                auto val2 = _mm_loadu_ps(sliceInput + pos[2]);
-                                auto val3 = _mm_loadu_ps(sliceInput + pos[3]);
-                                auto mla  = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
-                                mla       = _mm_add_ps(_mm_mul_ps(val1, _mm_set_ps1(area[1])), mla);
-                                mla       = _mm_add_ps(_mm_mul_ps(val2, _mm_set_ps1(area[2])), mla);
-                                mla       = _mm_add_ps(_mm_mul_ps(val3, _mm_set_ps1(area[3])), mla);
-                                res       = _mm_add_ps(res, mla);
-                                preCalcIdx++;
-                            }
-                        }
-                        res      = _mm_mul_ps(res, _mm_set_ps1(invSamplingCnt));
-                        _mm_storeu_ps(rowOutput + w * 4, res);
-#else
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-                                for (int k = 0; k < 4; ++k) {
-                                    float val0 = *(sliceInput + pos[0] + k);
-                                    float val1 = *(sliceInput + pos[1] + k);
-                                    float val2 = *(sliceInput + pos[2] + k);
-                                    float val3 = *(sliceInput + pos[3] + k);
-                                    rowOutput[w * 4 + k] +=
-                                        (val0 * area[0] + val1 * area[1] + val2 * area[2] + val3 * area[3]) *
-                                        invSamplingCnt;
-                                }
-                                preCalcIdx++;
-                            }
-                        }
-#endif
-                    }
-                }
+                auto sliceInput = batchInput + is * input->batch() * s * core->bytes;
+                auto rowOutput  = batchOutput + os * output->batch() * s * core->bytes;
+                core->MNNRoiAlignAvg((float *)rowOutput, (float *)sliceInput, vecPos, vecArea, samplingRatioH * samplingRatioW, mPooledHeight, mPooledWidth);
             }
         } else if (mPoolType == PoolType_MAXPOOL) {
             for (int s = 0; s < numSlice; ++s) {
-                auto sliceInput = batchInput + is * input->batch() * s;
-                auto rowOutput  = batchOutput + os * output->batch() * s;
-                int preCalcIdx  = 0;
-                for (int h = 0; h < mPooledHeight; ++h, rowOutput += mPooledWidth * 4) {
-                    for (int w = 0; w < mPooledWidth; ++w) {
-#ifdef MNN_USE_NEON
-                        float32x4_t res = vmovq_n_f32(-FLT_MAX);
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-
-                                float32x4_t val0 = vld1q_f32(sliceInput + pos[0]);
-                                float32x4_t val1 = vld1q_f32(sliceInput + pos[1]);
-                                float32x4_t val2 = vld1q_f32(sliceInput + pos[2]);
-                                float32x4_t val3 = vld1q_f32(sliceInput + pos[3]);
-                                float32x4_t mla  = vmulq_n_f32(val0, area[0]);
-                                mla              = vmlaq_n_f32(mla, val1, area[1]);
-                                mla              = vmlaq_n_f32(mla, val2, area[2]);
-                                mla              = vmlaq_n_f32(mla, val3, area[3]);
-                                res              = vmaxq_f32(res, mla);
-                                preCalcIdx++;
-                            }
-                        }
-                        vst1q_f32(rowOutput + w * 4, res);
-#elif defined(MNN_USE_SSE)
-                        auto res = _mm_set_ps1(-FLT_MAX);
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-
-                                auto val0  = _mm_loadu_ps(sliceInput + pos[0]);
-                                auto val1  = _mm_loadu_ps(sliceInput + pos[1]);
-                                auto val2  = _mm_loadu_ps(sliceInput + pos[2]);
-                                auto val3  = _mm_loadu_ps(sliceInput + pos[3]);
-                                auto mla   = _mm_mul_ps(val0, _mm_set_ps1(area[0]));
-                                mla       = _mm_add_ps(_mm_mul_ps(val1, _mm_set_ps1(area[1])), mla);
-                                mla       = _mm_add_ps(_mm_mul_ps(val2, _mm_set_ps1(area[2])), mla);
-                                mla       = _mm_add_ps(_mm_mul_ps(val3, _mm_set_ps1(area[3])), mla);
-                                res        = _mm_max_ps(res, mla);
-                                preCalcIdx++;
-                            }
-                        }
-                        _mm_storeu_ps(rowOutput + w * 4, res);
-#else
-                        std::vector<float> vecVal[4];
-                        for (int i = 0; i < samplingRatioH; ++i) {
-                            for (int j = 0; j < samplingRatioW; ++j) {
-                                std::vector<int>& pos    = vecPos[preCalcIdx];
-                                std::vector<float>& area = vecArea[preCalcIdx];
-                                for (int k = 0; k < 4; ++k) {
-                                    float val0 = *(sliceInput + pos[0] + k);
-                                    float val1 = *(sliceInput + pos[1] + k);
-                                    float val2 = *(sliceInput + pos[2] + k);
-                                    float val3 = *(sliceInput + pos[3] + k);
-                                    vecVal[k].emplace_back(val0 * area[0] + val1 * area[1] + val2 * area[2] +
-                                                           val3 * area[3]);
-                                }
-                                preCalcIdx++;
-                            }
-                        }
-                        for (int k = 0; k < 4; ++k) {
-                            rowOutput[w * 4 + k] = *std::max_element(vecVal[k].begin(), vecVal[k].end());
-                        }
-#endif
-                    }
-                }
+                auto sliceInput = batchInput + is * input->batch() * s * core->bytes;
+                auto rowOutput  = batchOutput + os * output->batch() * s * core->bytes;
+                core->MNNRoiAlignMax((float *)rowOutput, (float *)sliceInput, vecPos, vecArea, samplingRatioH * samplingRatioW, mPooledHeight, mPooledWidth);
             }
         } else {
             MNN_ERROR("pooling mode: %d not supported now!", mPoolType);
@@ -316,8 +174,8 @@ ErrorCode CPUROIAlign::preCalcBilinearInterpolate(int height, int width, int poo
                     float dy0 = py - py0, dx0 = px - px0;
                     float dy1 = 1.f - dy0, dx1 = 1.f - dx0;
                     float area0 = dx0 * dy0, area1 = dx1 * dy0, area2 = dx0 * dy1, area3 = dx1 * dy1;
-                    int pos0 = (py0 * width + px0) * 4, pos1 = (py0 * width + px1) * 4, pos2 = (py1 * width + px0) * 4,
-                        pos3 = (py1 * width + px1) * 4;
+                    int pos0 = py0 * width + px0, pos1 = py0 * width + px1, pos2 = py1 * width + px0,
+                        pos3 = py1 * width + px1;
                     std::vector<int> pos({pos0, pos1, pos2, pos3});
                     std::vector<float> area({area3, area2, area1, area0});
                     vecPos.emplace_back(std::move(pos));
@@ -334,6 +192,11 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         auto roiAlign = op->main_as_RoiParameters();
+        auto core = static_cast<CPUBackend*>(backend)->functions();
+        if (core->MNNRoiAlignMax == nullptr || core->MNNRoiAlignAvg == nullptr) {
+            MNN_ERROR("Don't have function for CPUROIAlign\n");
+            return nullptr;
+        }
         return new CPUROIAlign(backend, roiAlign->pooledWidth(), roiAlign->pooledHeight(), roiAlign->samplingRatio(),
                                roiAlign->spatialScale(), roiAlign->aligned(), roiAlign->poolType());
     }

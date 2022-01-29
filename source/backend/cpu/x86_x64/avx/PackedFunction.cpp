@@ -28,6 +28,9 @@ void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float
 void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
 void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, 
                                     size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
+void _AVX_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw);
+void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
+void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
 void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride, size_t eSub, size_t hSub);
 void _AVX_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                      size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
@@ -372,6 +375,69 @@ void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const flo
     }
 }
 
+void _AVX_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
+    Vec8 max = Vec8(-FLT_MAX);
+    for (int h = 0; h < hLen; h++, src += iw * PACK_UNIT) {
+        for (int w = 0; w < wLen; w++) {
+            Vec8 in = Vec8::load(src + w * PACK_UNIT);
+            max = Vec8::max(max, in);
+        }
+    }
+    Vec8::save(dst, max);
+}
+
+void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec8 res = Vec8(-FLT_MAX);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec8 val0 = Vec8::load(src + pos[0] * PACK_UNIT);
+                Vec8 val1 = Vec8::load(src + pos[1] * PACK_UNIT);
+                Vec8 val2 = Vec8::load(src + pos[2] * PACK_UNIT);
+                Vec8 val3 = Vec8::load(src + pos[3] * PACK_UNIT);
+                Vec8 mla  = val0 * area[0];
+                mla       = Vec8::fma(mla, val1, area[1]);
+                mla       = Vec8::fma(mla, val2, area[2]);
+                mla       = Vec8::fma(mla, val3, area[3]);
+                res       = Vec8::max(res, mla);
+                preCalcIdx++;
+            }
+            Vec8::save(dst + w * PACK_UNIT, res);
+        }
+    }
+}
+
+void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
+    float invSamplingCnt = 1.f / samplingRatioArea;
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+        int preCalcIdx = h * pooledWidth * samplingRatioArea;
+        for (int w = 0; w < pooledWidth; ++w) {
+            Vec8 res = Vec8(0.f);
+            for (int i = 0; i < samplingRatioArea; ++i) {
+                const std::vector<int>& pos    = vecPos[preCalcIdx];
+                const std::vector<float>& area = vecArea[preCalcIdx];
+
+                Vec8 val0 = Vec8::load(src + pos[0] * PACK_UNIT);
+                Vec8 val1 = Vec8::load(src + pos[1] * PACK_UNIT);
+                Vec8 val2 = Vec8::load(src + pos[2] * PACK_UNIT);
+                Vec8 val3 = Vec8::load(src + pos[3] * PACK_UNIT);
+                Vec8 mla  = val0 * area[0];
+                mla       = Vec8::fma(mla, val1, area[1]);
+                mla       = Vec8::fma(mla, val2, area[2]);
+                mla       = Vec8::fma(mla, val3, area[3]);
+                res       += mla;
+                preCalcIdx++;
+            }
+            res = res * invSamplingCnt;
+            Vec8::save(dst + w * PACK_UNIT, res);
+        }
+    }
+}
+
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
@@ -661,6 +727,9 @@ void _AVX_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX_MNNGridSampleComputeCord;
     coreFunction->MNNGridSampleInterp = _AVX_MNNGridSampleInterp;
+    coreFunction->MNNRoiPoolingMax = _AVX_MNNRoiPoolingMax;
+    coreFunction->MNNRoiAlignMax = _AVX_MNNRoiAlignMax;
+    coreFunction->MNNRoiAlignAvg = _AVX_MNNRoiAlignAvg;
 
     // sparse conv funcs
     coreFunction->MNNGetSparseMatMulPackMode = _AVX_MNNGetSparseMatMulPackMode;
