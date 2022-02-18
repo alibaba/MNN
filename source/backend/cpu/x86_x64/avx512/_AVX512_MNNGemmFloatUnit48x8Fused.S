@@ -14,9 +14,22 @@ asm_function _AVX512_MNNGemmFloatUnit48x8Fused
 //void _AVX512_MNNGemmFloatUnit48x8Fused(float* C, const float* A, const float* B, const size_t* parameter, const float* p, const float* bias)
 
 // SystemV Auto: rdi: C, rsi:A, rdx:B, rcx:parameter, r8: postParameters, r9:bias
+
+// Microsoft x64 Auto: rcx:C, rdx:A, r8:B, r9:parameter
+// stack: postParameters, bias
 pushq   %rbp
 movq    %rsp, %rbp
 
+#ifdef WIN32
+pushq   %rdi
+pushq   %rsi
+movq    %rcx, %rdi
+movq    %rdx, %rsi
+movq    %r8, %rdx
+movq    %r9, %rcx
+#define push_registers_bytes ((3 + 1) * 8 + 32) // pushq + callq + shadow_space
+movq (push_registers_bytes)(%rsp), %r8 // postParameters
+movq (push_registers_bytes + 8)(%rsp), %r9 // bias
 pushq   %rbx
 pushq   %r12
 pushq   %r13
@@ -24,6 +37,26 @@ pushq   %r14
 pushq   %r15
 movq %r8, %r14
 movq %r9, %r15
+leaq (-1280)(%rsp), %rsp
+vmovdqu %xmm6,  (128*0)(%rsp)
+vmovdqu %xmm7,  (128*1)(%rsp)
+vmovdqu %xmm8,  (128*2)(%rsp)
+vmovdqu %xmm9,  (128*3)(%rsp)
+vmovdqu %xmm10, (128*4)(%rsp)
+vmovdqu %xmm11, (128*5)(%rsp)
+vmovdqu %xmm12, (128*6)(%rsp)
+vmovdqu %xmm13, (128*7)(%rsp)
+vmovdqu %xmm14, (128*8)(%rsp)
+vmovdqu %xmm15, (128*9)(%rsp)
+#else
+pushq   %rbx
+pushq   %r12
+pushq   %r13
+pushq   %r14
+pushq   %r15
+movq %r8, %r14
+movq %r9, %r15
+#endif
 
 movq 40(%rcx), %r10 // bExtraStride
 movq 24(%rcx), %r8 // cStride
@@ -402,12 +435,33 @@ LoopDz:
 
 End:
 
+#ifdef WIN32
+vmovdqu (128*0)(%rsp), %xmm6
+vmovdqu (128*1)(%rsp), %xmm7
+vmovdqu (128*2)(%rsp), %xmm8
+vmovdqu (128*3)(%rsp), %xmm9
+vmovdqu (128*4)(%rsp), %xmm10
+vmovdqu (128*5)(%rsp), %xmm11
+vmovdqu (128*6)(%rsp), %xmm12
+vmovdqu (128*7)(%rsp), %xmm13
+vmovdqu (128*8)(%rsp), %xmm14
+vmovdqu (128*9)(%rsp), %xmm15
+leaq (1280)(%rsp), %rsp
 popq    %r15
 popq    %r14
 popq    %r13
 popq    %r12
 popq    %rbx
-popq    %rbp
+popq    %rsi
+popq    %rdi
+#else
+popq    %r15
+popq    %r14
+popq    %r13
+popq    %r12
+popq    %rbx
+#endif
 
+popq    %rbp
 retq
 

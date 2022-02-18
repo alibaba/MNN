@@ -19,9 +19,9 @@ public:
     virtual bool run(int precision) {
         auto input = _Input({1, 0, 4, 1}, NHWC);
         input->setName("input");
-        auto output    = _Reshape(input, {0, 0, -1});
+        auto output    = _Reshape(input, {1, 0, -1});
         auto info      = output->getInfo();
-        auto rightDims = std::vector<int>{1, 0, 4};
+        auto rightDims = std::vector<int>{1, 0, 0};
         if (info->dim[0] != rightDims[0] || info->dim[1] != rightDims[1] || info->dim[2] != rightDims[2]) {
             return false;
         }

@@ -174,7 +174,7 @@ static auto gRegister = []() {
             }
             auto inputs = expr->inputs();
             for (auto input : inputs) {
-                if (input->expr().first->get() == nullptr) {
+                if (input.get() == nullptr || input->expr().first->get() == nullptr) {
                     continue;
                 }
                 auto subOp = input->expr().first->get();

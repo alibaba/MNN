@@ -56,11 +56,12 @@ MNN_PUBLIC Matrix getRotationMatrix2D(Point center, double angle, double scale);
 MNN_PUBLIC Matrix invertAffineTransform(Matrix M);
 
 MNN_PUBLIC VARP resize(VARP src, Size dsize, double fx = 0, double fy = 0,
-                       int interpolation = INTER_LINEAR);
+                       int interpolation = INTER_LINEAR, int code = -1,
+                       std::vector<float> mean = {}, std::vector<float> norm = {});
 
 MNN_PUBLIC VARP warpAffine(VARP src, Matrix M, Size dsize,
-                           int flags = INTER_LINEAR, int borderMode = BORDER_CONSTANT,
-                           int borderValue = 0);
+                           int flags = INTER_LINEAR, int borderMode = BORDER_CONSTANT, int borderValue = 0,
+                           int code = -1, std::vector<float> mean = {}, std::vector<float> norm = {});
 
 MNN_PUBLIC VARP warpPerspective(VARP src, Matrix M, Size dsize,
                                 int flags = INTER_LINEAR, int borderMode = BORDER_CONSTANT,

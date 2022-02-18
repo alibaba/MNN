@@ -39,8 +39,14 @@ class ResizeComputer : public SizeComputer {
 class ImageProcessComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
-        MNN_ASSERT(1 == inputs.size());
+        MNN_ASSERT(1 == inputs.size() || inputs.size() == 3);
         MNN_ASSERT(1 == outputs.size());
+        if (inputs.size() == 3) {
+            auto &output = outputs[0]->buffer();
+            output.dimensions = 1;
+            output.dim[0].extent = 1;
+            return true;
+        }
 
         // copy dims
         auto &input  = inputs[0]->buffer();

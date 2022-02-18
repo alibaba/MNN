@@ -13,7 +13,7 @@
 namespace MNN {
 namespace CV {
 
-static std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code) {
+std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code) {
     switch (code) {
 #define CONVERT_SUFFIX(src, dst, suffix) \
         case COLOR_##src##2##dst##_##suffix: \
@@ -75,7 +75,8 @@ static std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code) {
     }
     return {CV::RGB, CV::RGB};
 }
-static int format2Channel(CV::ImageFormat format) {
+
+int format2Channel(CV::ImageFormat format) {
     switch (format) {
         case CV::RGB:
         case CV::BGR:

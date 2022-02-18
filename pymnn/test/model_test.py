@@ -1,3 +1,4 @@
+# -*- coding: UTF-8 -*-
 import os
 import sys
 import MNN
@@ -10,7 +11,11 @@ def parseConfig(root_dir):
     configName = os.path.join(root_dir, 'config.txt')
     if not os.path.exists(configName):
         return False
-    config = open(configName, 'rt')
+    try:
+        config = open(configName, 'rt', encoding='utf-8')
+    except:
+        import io
+        config = io.open(configName, 'rt', encoding='utf-8')
     res = {}
     res['model_name'] = os.path.join(root_dir, 'temp.bin')
     for line in config.readlines():

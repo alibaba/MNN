@@ -48,12 +48,12 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {
-            MNNTestSuite::runAll(precisionInTestUtil, flag);
+            return MNNTestSuite::runAll(precisionInTestUtil, flag);
         } else {
-            MNNTestSuite::run(name, precisionInTestUtil, flag);
+            return MNNTestSuite::run(name, precisionInTestUtil, flag);
         }
     } else {
-        MNNTestSuite::runAll(precisionInTestUtil, flag);
+        return MNNTestSuite::runAll(precisionInTestUtil, flag);
     }
     return 0;
 }

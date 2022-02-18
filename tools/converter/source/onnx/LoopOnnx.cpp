@@ -20,6 +20,10 @@ MNN::OpParameter LoopOnnx::type() {
 
 void LoopOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                    OnnxScope* scope) {
+    if(onnxNode->input(0) == "" || onnxNode->input(1) == "") {
+        MNN_ERROR("Failed: Loop don't support optional M and cond input\n");
+        return;
+    }
     auto param = new MNN::WhileParamT;
     dstOp->name += "/Loop";
     param->body_graph = dstOp->name +  "/body";

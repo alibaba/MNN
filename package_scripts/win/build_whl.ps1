@@ -6,25 +6,28 @@ Param(
     [Switch]$x86
 )
 
-# build process may failed because of lnk1181, but be success when run again
-# Run expr, return if success, otherwise try again until try_times
-function Retry([String]$expr, [Int]$try_times) {
-  $cnt = 0
-  do {
-   $cnt++
-   try {
-     Invoke-Expression $expr
-     return
-   } catch { }
- } while($cnt -lt $try_times)
- throw "Failed: $expr"
+# build it according to cmake_cmd, exit 1 when any error occur
+function Build([String]$cmake_cmd, [String]$ninja_cmd = "ninja") {
+    Invoke-Expression $cmake_cmd
+    # build process may failed because of lnk1181, but be success when run again
+    $try_times = 2
+    if ($LastExitCode -eq 0) {
+        For ($cnt = 0; $cnt -lt $try_times; $cnt++) {
+            try {
+                Invoke-Expression $ninja_cmd
+                if ($LastExitCode -eq 0) {
+                    return
+                }
+            } catch {}
+        }
+    }
+    exit 1
 }
 
 $erroractionpreference = "stop"
 $python_versions = $pyenvs.Split(",")
 
-Remove-Item $path -Recurse -ErrorAction Ignore
-mkdir -p $path
+New-Item -Path $path -ItemType Directory -ErrorAction Ignore
 $PACKAGE_PATH = $(Resolve-Path $path).Path
 $ARGS = "--version $version"
 if ($x86) {
@@ -37,7 +40,7 @@ powershell ./schema/generate.ps1
 Remove-Item pymnn_build -Recurse -ErrorAction Ignore
 mkdir pymnn_build
 pushd pymnn_build
-$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON "
+$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AVX512=ON"
 if ($backends -ne $null) {
     Foreach($backend in $backends.Split(",")) {
         if ($backend -eq "opencl") {
@@ -47,8 +50,7 @@ if ($backends -ne $null) {
         }
     }
 }
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS .."
-Retry "ninja MNN MNNTrain MNNConvert" 2
+Build "cmake -G Ninja $CMAKE_ARGS .." "ninja MNN MNNTrain MNNConvert MNNOpenCV"
 popd
 
 pushd pymnn/pip_package
@@ -59,12 +61,15 @@ mkdir dist
 mkdir build
 
 if ($pyenvs -eq $null) {
-    Retry "python build_wheel.py $ARGS" 2
+    Invoke-Expression "python build_wheel.py $ARGS"
 } else {
     Foreach ($env in $pyenvs.Split(",")) {
         Invoke-Expression "conda activate $env"
-        Retry "python build_wheel.py $ARGS" 2
-        Invoke-Expression "conda deactivate"
+        Invoke-Expression "python build_wheel.py $ARGS"
+        conda deactivate
+        if ($LastExitCode -ne 0) {
+            exit 1
+        }
     }
 }
 

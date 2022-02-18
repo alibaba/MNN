@@ -154,7 +154,7 @@ public:
      * @param keySize        depercerate, for future use.
      */
     void setCacheFile(const char* cacheFile, size_t keySize = 128);
-    
+
     /**
      * @brief The API shoud be called after last resize session.
      * If resize session generate new cache info, try to rewrite cache file.
@@ -356,6 +356,12 @@ public:
      * @return business code.
      */
     const char* bizCode() const;
+
+    /**
+     * @brief get model UUID
+     * @return Model UUID.
+     */
+    const char* uuid() const;
 
 private:
     static Interpreter* createFromBufferInternal(Content* net);

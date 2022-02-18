@@ -426,6 +426,9 @@ public:
             auto currentName         = op->name;
             for (int i = 0; i < op->inputIndexes.size(); ++i) {
                 auto inputIndex = op->inputIndexes[i];
+                if (inputIndex < 0) {
+                    continue; // optional input, ignore it
+                }
                 auto type = tensorFormats[inputIndex];
                 auto requireType = _getRequireFormat(formatType, i, tensorFormats[op->outputIndexes[0]], originTensorType);
                 if (type == requireType) {

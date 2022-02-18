@@ -60,9 +60,17 @@ void IfOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         MNN_ERROR("Op(If) and its subgraphs (then_branch, else_branch) must have same output number\n");
         return;
     }
+    for (int i = 0; i < onnxNode->output_size(); ++i) {
+        std::unique_ptr<MNN::StringVecT> pair(new MNN::StringVecT);
+        pair->data.assign({thenOutputs[i], elseOutputs[i]});
+        param->aliases_outputs.emplace_back(std::move(pair));
+    }
     auto mergeInputs = thenInputs;
-    std::copy_if(elseInputs.begin(), elseInputs.end(), mergeInputs.end(),
-        [&](std::string& n) { return std::find(thenInputs.begin(), thenInputs.end(), n) == thenInputs.end(); });
+    for (const auto& name : elseInputs) {
+        if (std::find(thenInputs.begin(), thenInputs.end(), name) == thenInputs.end()) {
+            mergeInputs.push_back(name);
+        }
+    }
     { // cond input
         std::unique_ptr<MNN::StringVecT> pair(new MNN::StringVecT);
         param->aliases_inputs.emplace_back(std::move(pair));

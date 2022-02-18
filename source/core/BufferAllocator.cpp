@@ -20,10 +20,10 @@ public:
     virtual ~ DefaultAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, int> onAlloc(int size, int align) {
+    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) {
         return std::make_pair(MNNMemoryAllocAlign(size, MNN_MEMORY_ALIGN_DEFAULT), 0);
     }
-    virtual void onRelease(std::pair<void*, int> ptr) {
+    virtual void onRelease(std::pair<void*, size_t> ptr) {
         MNN_ASSERT(ptr.second == 0);
         MNNMemoryFreeAlign(ptr.first);
     }
@@ -36,10 +36,10 @@ public:
     virtual ~ RecurseAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, int> onAlloc(int size, int align) override {
+    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override {
         return mParent->alloc(size, false, align);
     }
-    virtual void onRelease(std::pair<void*, int> ptr) override {
+    virtual void onRelease(std::pair<void*, size_t> ptr) override {
         mParent->free(ptr);
     }
 private:
@@ -62,7 +62,7 @@ BufferAllocator::Node::~Node() {
         outside->onRelease(pointer);
     }
 }
-std::pair<void*, int> BufferAllocator::alloc(int size, bool seperate, int align) {
+std::pair<void*, size_t> BufferAllocator::alloc(size_t size, bool seperate, size_t align) {
 #ifdef DUMP_USAGE
     auto memoryUsed = size / 1024.0f / 1024.0f;
     MNN_PRINT("Alloc: %f\n", memoryUsed);
@@ -70,7 +70,7 @@ std::pair<void*, int> BufferAllocator::alloc(int size, bool seperate, int align)
     if (0 == align) {
         align = mAlign;
     }
-    std::pair<void*, int> pointer;
+    std::pair<void*, size_t> pointer;
     // reuse if possible
     if (!seperate) {
         if (nullptr != mCurrentFreeList) {
@@ -138,7 +138,7 @@ void BufferAllocator::returnMemory(FREELIST* listP, SharedPtr<Node> node, bool p
     }
 }
 
-bool BufferAllocator::free(std::pair<void*, int> pointer) {
+bool BufferAllocator::free(std::pair<void*, size_t> pointer) {
     // get node
     auto x = mUsedList.find(pointer);
     if (x == mUsedList.end()) {
@@ -202,11 +202,11 @@ void BufferAllocator::endGroup() {
     mCurrentFreeList = nullptr;
 }
 
-std::pair<void*, int> BufferAllocator::getFromFreeList(FREELIST* list, int size, bool permiteSplit, int align) {
+std::pair<void*, size_t> BufferAllocator::getFromFreeList(FREELIST* list, size_t size, bool permiteSplit, size_t align) {
 #ifdef MNN_DEBUG_MEMORY
     return std::make_pair(nullptr, 0);
 #endif
-    int realSize = size;
+    size_t realSize = size;
     bool needExtraSize = mAlign % align != 0;
     if (needExtraSize) {
         realSize = size + align - 1;
@@ -220,7 +220,7 @@ std::pair<void*, int> BufferAllocator::getFromFreeList(FREELIST* list, int size,
     auto pointer = x->second->pointer;
     // Align offset
     if (needExtraSize) {
-        int originOffset = pointer.second;
+        size_t originOffset = pointer.second;
         pointer.second = UP_DIV(originOffset, align) * align;
         realSize = size + pointer.second - originOffset;
     }

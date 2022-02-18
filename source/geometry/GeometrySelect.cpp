@@ -26,7 +26,7 @@ public:
         if (outputSize != inputL0) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(output, newTensor.get(), true);
-            newTensor->buffer().type = output->buffer().type;
+            newTensor->buffer().type = input0->buffer().type;
             ConvertUtils::broadcastto(input0, newTensor.get());
             input0 = newTensor.get();
             res.extras.emplace_back(newTensor);

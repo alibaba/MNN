@@ -26,23 +26,29 @@ constexpr int AVX512F32 = 16;
         _mm_store_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit * 3, m128_3); \
     }
 
-#define STORE_VECTOR_AS_COLUMN(dest, ablock, packCUnit, vacc)         \
-    dest[AVX512F32 * packCUnit * ablock + 0]              = vacc[0];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit]      = vacc[1];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 2]  = vacc[2];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 3]  = vacc[3];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 4]  = vacc[4];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 5]  = vacc[5];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 6]  = vacc[6];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 7]  = vacc[7];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 8]  = vacc[8];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 9]  = vacc[9];  \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 10] = vacc[10]; \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 11] = vacc[11]; \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 12] = vacc[12]; \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 13] = vacc[13]; \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 14] = vacc[14]; \
-    dest[AVX512F32 * packCUnit * ablock + packCUnit * 15] = vacc[15];
+inline void STORE_VECTOR_AS_COLUMN(float* dest, size_t ablock, size_t packCUnit, __m512 vacc) {
+    union {
+        __m512 v;
+        float f[16];
+    } vacc_u;
+    vacc_u.v = vacc;
+    dest[AVX512F32 * packCUnit * ablock + 0]              = vacc_u.f[0];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit]      = vacc_u.f[1];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 2]  = vacc_u.f[2];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 3]  = vacc_u.f[3];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 4]  = vacc_u.f[4];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 5]  = vacc_u.f[5];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 6]  = vacc_u.f[6];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 7]  = vacc_u.f[7];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 8]  = vacc_u.f[8];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 9]  = vacc_u.f[9];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 10] = vacc_u.f[10];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 11] = vacc_u.f[11];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 12] = vacc_u.f[12];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 13] = vacc_u.f[13];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 14] = vacc_u.f[14];
+    dest[AVX512F32 * packCUnit * ablock + packCUnit * 15] = vacc_u.f[15];
+}
 
 #define TRANSPOSE4x8_STORE(dest, ablock, aSegment, packCUnit, v0, v3, v6, v9, v12, v15, v18, v21) {        \
     auto m0 = _mm512_extractf32x4_ps(v0, aSegment);                                                         \
@@ -125,14 +131,20 @@ constexpr int AVX512F32 = 16;
         _mm256_storeu_ps(dest + packCUnit * 7, t7);                                             \
     }
 
-#define STORE_M256_VECTOR_AS_COLUMN(dest, packCUnit, vacc) \
-    dest[0]             = vacc[0];                         \
-    dest[packCUnit]     = vacc[1];                         \
-    dest[packCUnit * 2] = vacc[2];                         \
-    dest[packCUnit * 3] = vacc[3];                         \
-    dest[packCUnit * 4] = vacc[4];                         \
-    dest[packCUnit * 5] = vacc[5];                         \
-    dest[packCUnit * 6] = vacc[6];                         \
-    dest[packCUnit * 7] = vacc[7];
+inline void STORE_M256_VECTOR_AS_COLUMN(float* dest, size_t packCUnit, __m256 vacc) {
+    union {
+        __m256 v;
+        float f[8];
+    } vacc_u;
+    vacc_u.v = vacc;
+    dest[0]             = vacc_u.f[0];
+    dest[packCUnit]     = vacc_u.f[1];
+    dest[packCUnit * 2] = vacc_u.f[2];
+    dest[packCUnit * 3] = vacc_u.f[3];
+    dest[packCUnit * 4] = vacc_u.f[4];
+    dest[packCUnit * 5] = vacc_u.f[5];
+    dest[packCUnit * 6] = vacc_u.f[6];
+    dest[packCUnit * 7] = vacc_u.f[7];
+}
 
 #endif

@@ -56,15 +56,15 @@ message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!!")
 
 if(WIN32)
     cuda_add_library(MNN_CUDA STATIC Register.cpp ${MNN_CUDA_SRC})
-    string(REPLACE "cublas.lib" "cudnn.lib" CUDNN_LIBRARIES ${CUDA_CUBLAS_LIBRARIES})
-    set(MNN_CUDA_LIBS MNN_CUDA ${CUDNN_LIBRARIES} ${CUDA_CUBLAS_LIBRARIES} ${CUDA_LIBRARIES} PARENT_SCOPE)
+    set(MNN_CUDA_LIBS MNN_CUDA ${CUDA_LIBRARIES} PARENT_SCOPE)
 else()
     cuda_add_library(MNN_Cuda_Main SHARED ${MNN_CUDA_SRC})
-    set(MNN_CUDA_LIBS MNN_Cuda_Main cudnn cublas PARENT_SCOPE)
+    set(MNN_CUDA_LIBS MNN_Cuda_Main PARENT_SCOPE)
     add_library(MNN_CUDA OBJECT Register.cpp)
 endif()
 
 include_directories(
+    ${CMAKE_CURRENT_LIST_DIR}/
     ${CUDA_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include/
 )

@@ -1,99 +1,19 @@
 #include "ReductionExecution.hpp"
-
 namespace MNN {
 namespace CUDA {
 
 ReductionExecution::ReductionExecution(ReductionType opType, int axis, Backend *backend) : Execution(backend) {
     mType = opType;
     mAxis = axis;
+    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+    mParam = staticPool->alloc(sizeof(ReduceParam));
 }
 ReductionExecution::~ ReductionExecution() {
-    // Do nothing
+    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+    staticPool->free(mParam);
 }
 
-template <typename T>
-__global__ void SUM(const T *input, T *output, int inside, int axis, int outside) {
-    int count = inside * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int y = i / inside;
-        int x = i % inside;
-        T sumValue = (T)0;
-        const T* basicInput = input + y * axis * inside + x;
-        for (int v=0; v<axis; ++v) {
-            sumValue += basicInput[v * inside];
-        }
-        output[y * inside + x] = sumValue;
-    }
-    return;
-}
-
-template <typename T>
-__global__ void MEAN(const T *input, T *output, int inside, int axis, int outside) {
-    int count = inside * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int y = i / inside;
-        int x = i % inside;
-        T sumValue = (T)0;
-        const T* basicInput = input + y * axis * inside + x;
-        for (int v=0; v<axis; ++v) {
-            sumValue += basicInput[v * inside];
-        }
-        output[y * inside + x] = sumValue / (T)axis;
-    }
-    return;
-}
-
-template <typename T>
-__global__ void MINIMUM(const T *input, T *output, int inside, int axis, int outside) {
-    int count = inside * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int y = i / inside;
-        int x = i % inside;
-        const T* basicInput = input + y * axis * inside + x;
-        T res = basicInput[0];
-        for (int v=1; v<axis; ++v) {
-            res = min(basicInput[v * inside], res);
-        }
-        output[y * inside + x] = res;
-    }
-    return;
-}
-
-template <typename T>
-__global__ void MAXIMUM(const T *input, T *output, int inside, int axis, int outside) {
-    int count = inside * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int y = i / inside;
-        int x = i % inside;
-        const T* basicInput = input + y * axis * inside + x;
-        T res = basicInput[0];
-        for (int v=1; v<axis; ++v) {
-            res = max(basicInput[v * inside], res);
-        }
-        output[y * inside + x] = res;
-    }
-    return;
-}
-
-template <typename T>
-__global__ void PROD(const T *input, T *output, int inside, int axis, int outside) {
-    int count = inside * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int y = i / inside;
-        int x = i % inside;
-        const T* basicInput = input + y * axis * inside + x;
-        T res = basicInput[0];
-        for (int v=1; v<axis; ++v) {
-            res *= basicInput[v * inside];
-        }
-        output[y * inside + x] = res;
-    }
-    return;
-}
-
-ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input = (void*)inputs[0]->deviceId();
-    auto output = (void*)outputs[0]->deviceId();
+ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int inside = 1;
     int outside = 1;
@@ -104,52 +24,88 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     for (int i=mAxis+1; i<inputs[0]->dimensions(); ++i) {
         inside *= inputs[0]->length(i);
     }
+    mCpuParam.inside = inside;
+    mCpuParam.outside = outside;
+    mCpuParam.axis = axis;
+    cuda_check(cudaMemcpy((uint8_t*)mParam.first + mParam.second, &mCpuParam, sizeof(ReduceParam), cudaMemcpyHostToDevice));
+
+    return NO_ERROR;
+}
+
+ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto input = (void*)inputs[0]->deviceId();
+    auto output = (void*)outputs[0]->deviceId();
+    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    int inside = mCpuParam.inside;;
+    int outside = mCpuParam.outside;
     int count = inside * outside;
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+    auto param = (ReduceParam*)((uint8_t*)mParam.first + mParam.second);
     if (inputs[0]->getType() == halide_type_of<float>()) {
-        switch (mType) {
-            case ReductionType_MEAN:
-                MEAN<<<block_num, threads_num>>>((const float*)input, (float*)output, inside, axis, outside);
-                return NO_ERROR;
-            case ReductionType_SUM:
-                SUM<<<block_num, threads_num>>>((const float*)input, (float*)output, inside, axis, outside);
-                return NO_ERROR;
-            case ReductionType_MINIMUM:
-                MINIMUM<<<block_num, threads_num>>>((const float*)input, (float*)output, inside, axis, outside);
-                return NO_ERROR;
-            case ReductionType_MAXIMUM:
-                MAXIMUM<<<block_num, threads_num>>>((const float*)input, (float*)output, inside, axis, outside);
-                return NO_ERROR;
-            case ReductionType_PROD:
-                PROD<<<block_num, threads_num>>>((const float*)input, (float*)output, inside, axis, outside);
-                return NO_ERROR;
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            switch (mType) {
+                case ReductionType_MEAN:
+                    MEAN<<<block_num, threads_num>>>((const half*)input, (half*)output, param);
+                    return NO_ERROR;
+                case ReductionType_SUM:
+                    SUM<<<block_num, threads_num>>>((const half*)input, (half*)output, param);
+                    return NO_ERROR;
+                case ReductionType_MINIMUM:
+                    MINIMUM<<<block_num, threads_num>>>((const half*)input, (half*)output, param);
+                    return NO_ERROR;
+                case ReductionType_MAXIMUM:
+                    MAXIMUM<<<block_num, threads_num>>>((const half*)input, (half*)output, param);
+                    return NO_ERROR;
+                case ReductionType_PROD:
+                    PROD<<<block_num, threads_num>>>((const half*)input, (half*)output, param);
+                    return NO_ERROR;
+            }
+        } else {
+            switch (mType) {
+                case ReductionType_MEAN:
+                    MEAN<<<block_num, threads_num>>>((const float*)input, (float*)output, param);
+                    return NO_ERROR;
+                case ReductionType_SUM:
+                    SUM<<<block_num, threads_num>>>((const float*)input, (float*)output, param);
+                    return NO_ERROR;
+                case ReductionType_MINIMUM:
+                    MINIMUM<<<block_num, threads_num>>>((const float*)input, (float*)output, param);
+                    return NO_ERROR;
+                case ReductionType_MAXIMUM:
+                    MAXIMUM<<<block_num, threads_num>>>((const float*)input, (float*)output, param);
+                    return NO_ERROR;
+                case ReductionType_PROD:
+                    PROD<<<block_num, threads_num>>>((const float*)input, (float*)output, param);
+                    return NO_ERROR;
+            }
         }
         MNN_ASSERT(false);
         return NOT_SUPPORT;
     }
+    
     MNN_ASSERT(inputs[0]->getType() == halide_type_of<int32_t>());
     switch (mType) {
         case ReductionType_MEAN:
-            MEAN<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            MEAN<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_SUM:
-            SUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            SUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_MINIMUM:
-            MINIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            MINIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_MAXIMUM:
-            MAXIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            MAXIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_PROD:
-            PROD<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            PROD<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_ANY:
-            MAXIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            MAXIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
         case ReductionType_ALL:
-            MINIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, inside, axis, outside);
+            MINIMUM<<<block_num, threads_num>>>((const int32_t*)input, (int32_t*)output, param);
             return NO_ERROR;
     }
     MNN_ASSERT(false);

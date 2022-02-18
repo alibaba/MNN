@@ -841,12 +841,12 @@ bool MetalRuntime::onSetCache(const void* buffer, size_t size) {//set Cache
     return setCache(std::make_pair(buffer, size));
 }
 
-std::pair<void*, int> MetalRuntimeAllocator::onAlloc(int size, int align) {
+std::pair<void*, size_t> MetalRuntimeAllocator::onAlloc(size_t size, size_t align) {
     auto buffer = [mDevice newBufferWithLength:size options:MTLCPUCacheModeDefaultCache];
     auto mMetalBufferAlloc = new MetalBufferAlloc(buffer);
     return std::make_pair((void *)mMetalBufferAlloc, 0);
 }
-void MetalRuntimeAllocator::onRelease(std::pair<void*, int> ptr) {
+void MetalRuntimeAllocator::onRelease(std::pair<void*, size_t> ptr) {
     delete (MetalBufferAlloc *)ptr.first;
 }
 

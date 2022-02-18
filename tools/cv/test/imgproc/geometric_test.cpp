@@ -10,7 +10,6 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
 
-#define MNN_GEOMETRIC_TEST
 #ifdef MNN_GEOMETRIC_TEST
 
 static Env<uint8_t> testEnv(img_name, false);

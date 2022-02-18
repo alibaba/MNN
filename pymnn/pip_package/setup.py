@@ -10,6 +10,10 @@ parser.add_argument('--x86', dest='x86', action='store_true', default=False,
                     help='build wheel for 32bit arch, only usable on windows')
 parser.add_argument('--version', dest='version', type=str, required=True,
                     help='MNN dist version')
+parser.add_argument('--serving', dest='serving', action='store_true', default=False,
+                    help='build for internal serving, default False')
+parser.add_argument('--env', dest='env', type=str, required=False,
+                    help='build environment, e.g. :daily/pre/production')
 args, unknown = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + unknown
 
@@ -27,7 +31,7 @@ IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
 BUILD_DIR = 'pymnn_build'
-BUILD_TYPE = 'RELEASE'
+BUILD_TYPE = 'REL_WITH_DEB_INFO'
 BUILD_ARCH = 'x64'
 if args.x86:
     BUILD_ARCH = ''
@@ -42,10 +46,12 @@ def report(*args):
 
 package_name = 'MNN'
 USE_TRT=check_env_flag('USE_TRT')
+IS_INTERNAL_BUILD = False
 
 print ("USE_TRT ", USE_TRT)
 
 if os.path.isdir('../../schema/private'):
+    IS_INTERNAL_BUILD = True
     if USE_TRT:
         print("Build Internal NNN with TRT")
         package_name = 'MNN_Internal_TRT'
@@ -81,16 +87,19 @@ def configure_extension_build():
         # extra_link_args = ['/NODEFAULTLIB:LIBCMT.LIB']
         # /MD links against DLL runtime
         # and matches the flags set for protobuf and ONNX
-        # /Z7 turns on symbolic debugging information in .obj files
+        # /Zi turns on symbolic debugging information in separate .pdb (which is same as MNN.pdb)
         # /EHa is about native C++ catch support for asynchronous
         # structured exception handling (SEH)
         # /DNOMINMAX removes builtin min/max functions
         # /wdXXXX disables warning no. XXXX
-        extra_compile_args = ['/MT', '/Z7',
+        # Some macro (related with __VA_ARGS__) defined in pymnn/src/util.h can not be process correctly 
+        # becase of MSVC bug, enable /experimental:preprocessor fix it (And Windows SDK >= 10.0.18362.1)
+        extra_compile_args = ['/MT', '/Zi',
                               '/EHa', '/DNOMINMAX',
                               '/wd4267', '/wd4251', '/wd4522', '/wd4522', '/wd4838',
                               '/wd4305', '/wd4244', '/wd4190', '/wd4101', '/wd4996',
-                              '/wd4275']
+                              '/wd4275', '/experimental:preprocessor']
+        extra_link_args = []
     else:
         extra_link_args = []
         extra_compile_args = [
@@ -115,7 +124,11 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API', '-DPYMNN_IMGCODECS']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API',  '-DPYMNN_IMGCODECS']
+    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+        extra_compile_args += ['-DPYMNN_INTERNAL_SERVING']
+        if args.env == 'daily':
+            extra_compile_args += ['-DPYMNN_INTERNAL_SERVING_DAILY']
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
     engine_compile_args = ['-DBUILD_OPTYPE', '-DPYMNN_TRAIN_API']
     engine_libraries = []
@@ -123,13 +136,21 @@ def configure_extension_build():
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "cv")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
-    print(engine_library_dirs)
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         engine_library_dirs += ['/usr/local/cuda/lib64/']
 
+    # Logging is enabled on Linux. Add the dependencies.
+    if IS_LINUX and IS_INTERNAL_BUILD:
+        engine_library_dirs += ['/usr/include/curl/']
+
+    print(engine_library_dirs)
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
+    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+        engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "monitor_service.cc")]
+        engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "verify_service.cc")]
+        engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "http_util.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
     engine_include_dirs += [os.path.join(root_dir, "express")]
     engine_include_dirs += [os.path.join(root_dir, "express", "module")]
@@ -146,13 +167,19 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
+    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+        engine_include_dirs += [os.path.join(root_dir, "3rd_party", "rapidjson")]
     # cv include
     engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
     engine_include_dirs += [np.get_include()]
 
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
     engine_depend = ['-lMNN']
-    engine_depend = ['-lMNN', '-lMNNOpenCV']
+
+    # enable logging & model authentication on linux.
+    if IS_LINUX and IS_INTERNAL_BUILD:
+        engine_depend += ['-lcurl', '-lssl', '-lcrypto']
+
     if USE_TRT:
         engine_depend += trt_depend
 
@@ -166,6 +193,9 @@ def configure_extension_build():
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         tools_library_dirs += ['/usr/local/cuda/lib64/']
+
+    if IS_LINUX and IS_INTERNAL_BUILD:
+        tools_library_dirs += ['/usr/include/curl/']
 
     tools_link_args = []
     tools_sources = [os.path.join(root_dir, "pymnn", "src", "MNNTools.cc")]
@@ -195,61 +225,67 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source")]
     tools_include_dirs += [np.get_include()]
 
+
     tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lprotobuf']
+    # enable logging and model authentication on linux.
+    if IS_LINUX and IS_INTERNAL_BUILD:
+        tools_depend += ['-lcurl', '-lssl', '-lcrypto']
 
     if USE_TRT:
         tools_depend += trt_depend
 
-    engine_extra_link_args = []
-    tools_extra_link_args = []
     if IS_DARWIN:
-        engine_extra_link_args += ['-Wl,-all_load']
-        engine_extra_link_args += engine_depend
-        engine_extra_link_args += ['-Wl,-noall_load']
+        engine_link_args += ['-Wl,-all_load']
+        engine_link_args += engine_depend
+        engine_link_args += ['-Wl,-noall_load']
     if IS_LINUX:
-        engine_extra_link_args += ['-Wl,--whole-archive']
-        engine_extra_link_args += engine_depend
-        engine_extra_link_args += ['-fopenmp']
-        engine_extra_link_args += ['-Wl,--no-whole-archive']
+        engine_link_args += ['-Wl,--whole-archive']
+        engine_link_args += engine_depend
+        engine_link_args += ['-fopenmp']
+        engine_link_args += ['-Wl,--no-whole-archive']
     if IS_WINDOWS:
-        engine_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
+        engine_link_args += ['/WHOLEARCHIVE:MNN.lib']
     if IS_DARWIN:
-        tools_extra_link_args += ['-Wl,-all_load']
-        tools_extra_link_args += tools_depend
-        tools_extra_link_args += ['-Wl,-noall_load']
+        tools_link_args += ['-Wl,-all_load']
+        tools_link_args += tools_depend
+        tools_link_args += ['-Wl,-noall_load']
     if IS_LINUX:
-        tools_extra_link_args += ['-Wl,--whole-archive']
-        tools_extra_link_args += tools_depend
-        tools_extra_link_args += ['-fopenmp']
-        tools_extra_link_args += ['-Wl,--no-whole-archive']
-        tools_extra_link_args += ['-lz']
+        tools_link_args += ['-Wl,--whole-archive']
+        tools_link_args += tools_depend
+        tools_link_args += ['-fopenmp']
+        tools_link_args += ['-Wl,--no-whole-archive']
+        tools_link_args += ['-lz']
     if IS_WINDOWS:
-        tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:MNNConvertDeps.lib']
+        tools_link_args += ['/WHOLEARCHIVE:MNN.lib']
+        tools_link_args += ['/WHOLEARCHIVE:MNNConvertDeps.lib']
+        tools_link_args += ['libprotobuf.lib'] # use wholearchive will cause lnk1241 (version.rc specified)
 
     if BUILD_TYPE == 'DEBUG':
+        # Need pythonxx_d.lib, which seem not exist in miniconda ?
         if IS_WINDOWS:
-            extra_link_args.append('/DEBUG:FULL')
+            extra_compile_args += ['/DEBUG', '/UNDEBUG', '/DDEBUG', '/Od', '/Ob0', '/MTd']
+            extra_link_args += ['/DEBUG', '/UNDEBUG', '/DDEBUG', '/Od', '/Ob0', '/MTd']
         else:
             extra_compile_args += ['-O0', '-g']
             extra_link_args += ['-O0', '-g']
 
     if BUILD_TYPE == 'REL_WITH_DEB_INFO':
         if IS_WINDOWS:
-            extra_link_args.append('/DEBUG:FULL')
+            extra_compile_args += ['/DEBUG']
+            extra_link_args += ['/DEBUG', '/OPT:REF', '/OPT:ICF']
         else:
             extra_compile_args += ['-g']
             extra_link_args += ['-g']
 
-
+# compat with py39
     def make_relative_rpath(path):
         """ make rpath """
         if IS_DARWIN:
-            return '-Wl,-rpath,@loader_path/' + path
+            return ['-Wl,-rpath,@loader_path/' + path]
         elif IS_WINDOWS:
-            return ''
+            return []
         else:
-            return '-Wl,-rpath,$ORIGIN/' + path
+            return ['-Wl,-rpath,$ORIGIN/' + path]
 
     ################################################################################
     # Declare extensions and package
@@ -263,8 +299,8 @@ def configure_extension_build():
                     extra_compile_args=engine_compile_args + extra_compile_args,\
                     include_dirs=engine_include_dirs,\
                     library_dirs=engine_library_dirs,\
-                    extra_link_args=engine_extra_link_args + engine_link_args\
-                        + [make_relative_rpath('lib')])
+                    extra_link_args=engine_link_args + extra_link_args\
+                        + make_relative_rpath('lib'))
     extensions.append(engine)
     tools = Extension("_tools",\
                     libraries=tools_libraries,\
@@ -273,8 +309,8 @@ def configure_extension_build():
                     extra_compile_args=tools_compile_args + extra_compile_args,\
                     include_dirs=tools_include_dirs,\
                     library_dirs=tools_library_dirs,\
-                    extra_link_args=tools_extra_link_args +tools_link_args\
-                        + [make_relative_rpath('lib')])
+                    extra_link_args=tools_link_args + extra_link_args\
+                        + make_relative_rpath('lib'))
     extensions.append(tools)
     # These extensions are built by cmake and copied manually in build_extensions()
     # inside the build_ext implementaiton

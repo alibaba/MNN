@@ -10,7 +10,6 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
 
-#define MNN_MISCELLANEOUS_TEST
 #ifdef MNN_MISCELLANEOUS_TEST
 
 static Env<float> testEnv("img_name", true);

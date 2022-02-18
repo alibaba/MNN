@@ -30,7 +30,7 @@ static auto gRegister = []() {
         if (inputExpr->get()->type() == OpType_Reshape) {
             inputExpr = inputExpr->inputs()[0]->expr().first;
         }
-        if (inputExpr->get()->main_type() != OpParameter_Convolution2D || inputExpr->outputs().size() != 1) {
+        if (!inputExpr->get() || inputExpr->get()->main_type() != OpParameter_Convolution2D || inputExpr->outputs().size() != 1) {
             return false;
         }
         if (inputExpr->inputs().size() > 1) {

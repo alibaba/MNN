@@ -25,8 +25,8 @@ public:
     public:
         Allocator() = default;
         virtual ~ Allocator() = default;
-        virtual std::pair<void*, int> onAlloc(int size, int align) = 0;
-        virtual void onRelease(std::pair<void*, int> ptr) = 0;
+        virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) = 0;
+        virtual void onRelease(std::pair<void*, size_t> ptr) = 0;
         static std::shared_ptr<Allocator> createDefault();
         static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
     };
@@ -34,7 +34,7 @@ public:
      * @brief init buffer allocator with pointer alignment.
      * @param align given pointer alignment.
      */
-    BufferAllocator(std::shared_ptr<Allocator> parent, int align = MNN_MEMORY_ALIGN_DEFAULT) : mAllocator(parent), mAlign(align) {
+    BufferAllocator(std::shared_ptr<Allocator> parent, size_t align = MNN_MEMORY_ALIGN_DEFAULT) : mAllocator(parent), mAlign(align) {
         // nothing to do
     }
     /**
@@ -53,7 +53,7 @@ public:
      * @sa free
      * @sa release
      */
-    std::pair<void*, int> alloc(int size, bool seperate = false, int align = 0);
+    std::pair<void*, size_t> alloc(size_t size, bool seperate = false, size_t align = 0);
 
     /**
      * @brief mark CHUNK pointer as reusable.
@@ -61,7 +61,7 @@ public:
      * @return true if pointer is a CHUNK pointer, false otherwise.
      * @sa release
      */
-    bool free(std::pair<void*, int> pointer);
+    bool free(std::pair<void*, size_t> pointer);
 
     /**
      * @brief free all allocated memories.
@@ -96,26 +96,26 @@ private:
     class Node : public RefCount {
     public:
         ~Node();
-        std::pair<void*, int> pointer;
+        std::pair<void*, size_t> pointer;
         SharedPtr<Node> parent = nullptr;
-        int32_t size;
-        int16_t useCount = 0;
+        size_t size;
+        size_t useCount = 0;
         Allocator* outside = nullptr;
     };
 
     typedef std::multimap<size_t, SharedPtr<Node>> FREELIST;
 
     static void returnMemory(FREELIST* list, SharedPtr<Node> node, bool permitMerge = true);
-    std::pair<void*, int> getFromFreeList(FREELIST* list, int size, bool permiteSplit, int align);
+    std::pair<void*, size_t> getFromFreeList(FREELIST* list, size_t size, bool permiteSplit, size_t align);
 
-    std::map<std::pair<void*, int>, SharedPtr<Node>> mUsedList;
+    std::map<std::pair<void*, size_t>, SharedPtr<Node>> mUsedList;
     FREELIST mFreeList;
     size_t mTotalSize   = 0;
 
     FREELIST* mCurrentFreeList = nullptr;
     std::vector<std::shared_ptr<FREELIST>> mGroups;
     std::shared_ptr<Allocator> mAllocator;
-    int mAlign;
+    size_t mAlign;
 };
 } // namespace MNN
 #endif

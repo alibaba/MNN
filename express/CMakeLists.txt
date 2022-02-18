@@ -18,6 +18,10 @@ IF(MNN_SEP_BUILD)
         add_library(MNN_Express SHARED ${MNN_EXPR_SRCS})
     endif()
     target_link_libraries(MNN_Express MNN)
+    install(TARGETS MNN_Express
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        )
 ELSE()
     add_library(MNN_Express OBJECT ${MNN_EXPR_SRCS})
 ENDIF()

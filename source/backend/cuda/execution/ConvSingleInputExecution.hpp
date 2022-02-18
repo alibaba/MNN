@@ -11,7 +11,9 @@
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-#include "TensorCoreGemm.cuh"
+#include "TensorCoreGemmPacked.cuh"
+#include "ImageColumn.cuh"
+
 namespace MNN {
 namespace CUDA {
 
@@ -40,6 +42,7 @@ public:
         std::shared_ptr<Tensor> biasTensor;
         KernelInfo mKernelInfo;
         Backend* mBackend = nullptr;
+        bool mUsePack = false;
     };
     ConvSingleInputExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
     virtual ~ConvSingleInputExecution();
@@ -58,6 +61,7 @@ private:
     std::pair<void*, int> mGpuIm2ColParam;
 
     __half* mIm2ColBuffer;
+    std::pair<void*, int> mGpuKernelParam;
 };
 
 } // namespace CUDA

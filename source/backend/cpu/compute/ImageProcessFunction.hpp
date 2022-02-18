@@ -132,4 +132,8 @@ void MNNSamplerNV12Copy(const unsigned char* source, unsigned char* dest, MNN::C
                         size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
 void MNNSamplerNV12Nearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
                            size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+// draw blit
+void MNNC1blitH(const unsigned char* source, unsigned char* dest, size_t count);
+void MNNC3blitH(const unsigned char* source, unsigned char* dest, size_t count);
+void MNNC4blitH(const unsigned char* source, unsigned char* dest, size_t count);
 #endif /* ImageProcessFunction_hpp */

@@ -70,7 +70,7 @@ public:
         return mDebug.get();
     }
     struct Cache;
-    class RuntimeManager {
+    class MNN_PUBLIC RuntimeManager {
     public:
         ~RuntimeManager();
         /**

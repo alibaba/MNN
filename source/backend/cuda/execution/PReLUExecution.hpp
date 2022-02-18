@@ -29,11 +29,9 @@ private:
     CUDARuntime *mRuntime;
     void *mDeviceSlope = nullptr;
     int mCount;
-    int mBatch;
     int mChannel;
     int mArea;
-
-    std::shared_ptr<Tensor> preluTensor;
+    std::pair<void*, int> mPreluStorage;
     bool mIsChannelShared = false;
 };
 

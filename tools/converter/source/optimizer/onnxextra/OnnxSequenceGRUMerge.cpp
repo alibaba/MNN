@@ -23,7 +23,10 @@ class OnnxSequenceGRUTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        MNN_ASSERT(inputs.size() >= 4); // X W R B
+        if (inputs.size() < 4 || inputs[3].get() == nullptr) { // X W R B
+            MNN_ERROR("Don't support optional 4th input (B)\n");
+            return nullptr;
+        }
         auto rnnGRUParam = new MNN::RNNParamT;
         std::unique_ptr<OpT> gru(new OpT);
         gru->name       = expr->name();
@@ -108,8 +111,12 @@ public:
         }
 
         // auto sequence_lens = inputs[4]; sequence_lens is ommitted at onnxConverter.cpp
-        if (inputs.size() > 4) { // initial_h exist, shape is [num_directions, batch_size, hidden_size]
-            gruInput.push_back(inputs[4]);
+        if (inputs.size() > 4 && inputs[4].get() != nullptr) {
+            MNN_ERROR("Don't support sequence_lens input, all batch have seq_length\n");
+            return nullptr;
+        }
+        if (inputs.size() > 5) { // initial_h exist, shape is [num_directions, batch_size, hidden_size]
+            gruInput.push_back(inputs[5]);
         }
 
         auto gruExpr = Expr::create(gru.get(), gruInput, expr->outputSize());

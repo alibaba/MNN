@@ -44,13 +44,13 @@ public:
 };
 typedef std::vector<Point> POINTS;
 
-MNN_PUBLIC std::vector<POINTS> findContours(VARP image, int mode, int method, Point offset = {0, 0});
-MNN_PUBLIC double contourArea(POINTS _contour, bool oriented = false);
-MNN_PUBLIC std::vector<int> convexHull(POINTS _points, bool clockwise = false, bool returnPoints = true);
-MNN_PUBLIC RotatedRect minAreaRect(POINTS _points);
-MNN_PUBLIC Rect2i boundingRect(POINTS points);
+MNN_PUBLIC std::vector<VARP> findContours(VARP image, int mode, int method, Point offset = {0, 0});
+MNN_PUBLIC double contourArea(VARP _contour, bool oriented = false);
+MNN_PUBLIC std::vector<int> convexHull(VARP _points, bool clockwise = false, bool returnPoints = true);
+MNN_PUBLIC RotatedRect minAreaRect(VARP _points);
+MNN_PUBLIC Rect2i boundingRect(VARP points);
 MNN_PUBLIC int connectedComponentsWithStats(VARP image, VARP& labels, VARP& statsv, VARP& centroids, int connectivity = 8);
-MNN_PUBLIC POINTS boxPoints(RotatedRect box);
+MNN_PUBLIC VARP boxPoints(RotatedRect box);
 } // CV
 } // MNN
 #endif // STRUCTURAL_HPP

@@ -7,54 +7,51 @@
 //
 
 #include "ConvSingleInputExecution.hpp"
+#include "Raster.cuh"
+#include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
 
+// 16 / sizeof(int4)
 namespace MNN {
 namespace CUDA {
 
-__global__ void Im2Col(const ConvolutionCommon::Im2ColParameter* param,
-        const MatMulParam* matmulParam,
-        const float* A,
-        __half* AP) {
-    int eAlign = matmulParam->elhPack[0] * MATMULPACK;
-    int lAlign = matmulParam->elhPack[1] * MATMULPACK;
-    int maxCount = eAlign * lAlign;
-    int kernelCount = param->kernelX * param->kernelY;
-    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        int eIndex = index % eAlign;
-        int lIndex = index / eAlign;
-        // Compute for dest
-        int eU = eIndex / MATMULPACK;
-        int eR = eIndex % MATMULPACK;
-        int lU = lIndex / MATMULPACK;
-        int lR = lIndex % MATMULPACK;
-        auto dstOffset = eU * matmulParam->elhPack[1] * (MATMULPACK * MATMULPACK) + lU * (MATMULPACK * MATMULPACK) + eR * MATMULPACK + lR;
-        if (eIndex >= matmulParam->elh[0] || lIndex >= matmulParam->elh[1]) {
-            AP[dstOffset] = 0.0;
+__global__ void KernelReorder(const float* B, half* BP, int kw, int kh, int ic, int oc, int ocPack) {
+    int icC4 = UP_DIV(ic, PACK_NUMBER);
+    int kernelCount = kw * kh;
+    int l = icC4 * kernelCount * PACK_NUMBER;
+    int h = oc;
+    int lDiv = UP_DIV(l, MATMULPACK);
+    int lAlign = lDiv * MATMULPACK;
+    int hAlign = UP_DIV(h, ocPack) * ocPack;
+    int maxCount = hAlign * lAlign;
+
+    for (size_t indexO = blockIdx.x * blockDim.x + threadIdx.x; indexO < maxCount; indexO += blockDim.x * gridDim.x) {
+        int lR = indexO % MATMULPACK;
+        int tmp = indexO / MATMULPACK;
+        int hR = tmp % ocPack;
+        int tmp2 = tmp / ocPack;
+        int lC = tmp2 % lDiv;
+        int hC = tmp2 / lDiv;
+        half* dst = BP + indexO;
+        int sH = hC * ocPack + hR;
+        int sL = lC * MATMULPACK + lR;
+        if (sH >= oc) {
+            *dst = 0.0;
             continue;
         }
-        // Compute for source
-        int ox = eIndex % param->ow;
-        int oy = eIndex / param->ow;
-        int ob = oy / param->oh;
-        oy = oy % param->oh;
-        int sz = lIndex / kernelCount;
-        int kI = lIndex % kernelCount;
-        int ksx = kI % param->kernelX;
-        int ksy = kI / param->kernelX;
-
-        int sx = ox * param->strideX + ksx * param->dilateX - param->padX;
-        int sy = oy * param->strideY + ksy * param->dilateY - param->padY;
-        if (sx >= 0 && sx < param->iw) {
-            if (sy >=0 && sy < param->ih) {
-                __half value = A[sz * param->ih * param->iw + ob * param->iw * param->ih * param->icDiv4 + sy * param->iw + sx];
-                AP[dstOffset] = value;
-                continue;
-            }
+        int sLR = sL % PACK_NUMBER;
+        int sLC = sL / PACK_NUMBER;
+        int iLC = sLC / (kernelCount);
+        int ik = sLC % kernelCount;
+        int iz = iLC * PACK_NUMBER + sLR;
+        if (iz >= ic) {
+            *dst = 0.0;
+            continue;
         }
-        AP[dstOffset] = 0.0;
+        const float* src = B + sH * kernelCount * ic + ik + iz * kernelCount;
+        *dst = *src;
     }
 }
-
 
 ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mBackend = bn;
@@ -78,40 +75,91 @@ ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &weightSize);
     mKernelInfo.kernelN = common->outputCount();
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
+    int icDiv = UP_DIV(mKernelInfo.kernelC, PACK_NUMBER);
 
     MatMulParam param;
     int e = 0;
-    int l = mKernelInfo.kernelX * mKernelInfo.kernelY * mKernelInfo.kernelC;
+    int l = mKernelInfo.kernelX * mKernelInfo.kernelY * icDiv * MATMULPACK;
     int h = mKernelInfo.kernelN;
     param.elh[0] = e;
     param.elh[1] = l;
     param.elh[2] = h;
-    param.elhPack[0] = UP_DIV(e, 16);
-    param.elhPack[1] = UP_DIV(l, 16);
-    param.elhPack[2] = UP_DIV(h, 16);
+    param.elhPack[0] = UP_DIV(e, MATMULPACK);
+    param.elhPack[1] = UP_DIV(l, MATMULPACK);
+    param.elhPack[2] = UP_DIV(h, MATMULPACK);
     param.bStride[0] = 0;
     param.bStride[1] = 1;
     param.bStride[2] = l;
 
-    auto gpuParam = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(MatMulParam));
-    auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
-    float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
-    runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
-    runtime->memcpy((uint8_t*)gpuParam.first + gpuParam.second, &param, sizeof(MatMulParam), MNNMemcpyHostToDevice);
+    FuseRegion reg;
+    int maxOffsetNumber = 8;
+    std::vector<int> offset(maxOffsetNumber);
+    auto regionStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(FuseRegion));
+    auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(int) * maxOffsetNumber);
+    auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
+
     // Reorder weight
-    weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPack[1] * param.elhPack[2] * (MATMULPACK * MATMULPACK)}));
-    bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
-    mFilter = (void *)weightTensor.get()->buffer().device;
-    GemmPrepareRerange(runtime, &param, (const MatMulParam*)((uint8_t*)gpuParam.first + gpuParam.second), nullptr, nullptr, cacheWeight, (__half*)mFilter);
-    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
-    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(gpuParam);
+    {
+        auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
+        float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
+        runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
+        weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPack[1] * param.elhPack[2] * (MATMULPACK * MATMULPACK)}));
+        bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
+        mFilter = (void *)weightTensor.get()->buffer().device;
+        auto& prop = runtime->prop();
+        int cores = prop.multiProcessorCount;
+        int threadNumbers = prop.maxThreadsPerBlock;
+        if (param.elhPack[2] % 2 == 0) {
+            KernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+                    mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, 32);
+            mUsePack = true;
+        } else {
+            KernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+                    mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, MATMULPACK);
+        }
+        static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
+    }
 
     // Copy Bias
     int biasSize = conv->bias()->size();
     biasTensor.reset(Tensor::createDevice<float>({biasSize}));
     bn->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
+
+    auto tempBiasStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(conv->bias()->size()*sizeof(float));
+    auto biasTemp = (float*)((uint8_t*)tempBiasStorage.first + tempBiasStorage.second);
+    cuda_check(cudaMemcpy(biasTemp, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
+
+    // FP32 -> FP16
     mBias = (void *)biasTensor.get()->buffer().device;
-    cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
+    int alignSize = UP_DIV(conv->bias()->size(), PACK_NUMBER) * PACK_NUMBER;
+    reg.size[0] = 1;
+    reg.size[1] = 1;
+    reg.size[2] = alignSize;
+    reg.srcStride[0] = 0;
+    reg.srcStride[1] = 0;
+    reg.srcStride[2] = 1;
+    reg.dstStride[0] = 0;
+    reg.dstStride[1] = 0;
+    reg.dstStride[2] = 1;
+    offset[0] = 1;
+    offset[1] = 1;
+    offset[2] = conv->bias()->size();
+    offset[3] = 0;
+    offset[4] = 1;
+    offset[5] = 1;
+    offset[6] = reg.size[2];
+    offset[7] = 0;
+    reg.fuseNumber = 1;
+    runtime->memcpy((uint8_t*)regionStorage.first + regionStorage.second, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
+    runtime->memcpy(offsetGpu, offset.data(), 8 * sizeof(int), MNNMemcpyHostToDevice, true);
+    if (static_cast<CUDABackend*>(bn)->useFp16()) {
+        FuseRasterBlitFloatToHalf((uint8_t*)mBias, (uint8_t*)biasTemp, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime);
+    } else {
+        FuseRasterBlitCommon((uint8_t*)mBias, (uint8_t*)biasTemp, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime, 4);
+    }
+    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(regionStorage);
+    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(offsetGpuStorage);
+    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempBiasStorage);
 }
 
 ConvSingleInputExecution::Resource::~Resource() {
@@ -146,14 +194,16 @@ bool ConvSingleInputExecution::onClone(Backend* bn, const Op* op, Execution** ds
 ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     auto input = inputs[0], output = outputs[0];
-    const int UNIT = 1;
+    const int UNIT = PACK_NUMBER;
     auto convCommon = mOp->main_as_Convolution2D()->common();
     auto pads = ConvolutionCommon::convolutionPadFull(input, output, mOp->main_as_Convolution2D()->common());
+    int ic = input->channel();
+    int icDiv = UP_DIV(ic, PACK_NUMBER);
     mIm2ColParamter.dilateX         = convCommon->dilateX();
     mIm2ColParamter.dilateY         = convCommon->dilateY();
     mIm2ColParamter.strideX         = convCommon->strideX();
     mIm2ColParamter.strideY         = convCommon->strideY();
-    mIm2ColParamter.icDiv4          = input->channel();
+    mIm2ColParamter.icDiv4          = icDiv;
     mIm2ColParamter.kernelX         = convCommon->kernelX();
     mIm2ColParamter.kernelY         = convCommon->kernelY();
     mIm2ColParamter.padX = std::get<0>(pads);
@@ -169,21 +219,21 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
 
     runtime->memcpy((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second, &mIm2ColParamter, sizeof(ConvolutionCommon::Im2ColParameter), MNNMemcpyHostToDevice);
 
+    //MNN_PRINT("conv size:%d-%d-%d, %d-%d-%d\n", input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
     int e = output->height() * output->width() * output->batch();
-    int l = input->channel() * mIm2ColParamter.kernelX * mIm2ColParamter.kernelY;
+    int l = icDiv * mIm2ColParamter.kernelX * mIm2ColParamter.kernelY * MATMULPACK;
     int h = output->channel();
     mMatMulParam.elh[0] = e;
     mMatMulParam.elh[1] = l;
     mMatMulParam.elh[2] = h;
-    mMatMulParam.elhPack[0] = UP_DIV(e, 16);
-    mMatMulParam.elhPack[1] = UP_DIV(l, 16);
-    mMatMulParam.elhPack[2] = UP_DIV(h, 16);
+    mMatMulParam.elhPack[0] = UP_DIV(e, MATMULPACK);
+    mMatMulParam.elhPack[1] = UP_DIV(l, MATMULPACK);
+    mMatMulParam.elhPack[2] = UP_DIV(h, MATMULPACK);
     mMatMulParam.cStride[0] = mIm2ColParamter.ow * mIm2ColParamter.oh * h;
     mMatMulParam.cStride[1] = 1;
     mMatMulParam.cStride[2] = mIm2ColParamter.ow * mIm2ColParamter.oh;
-    mMatMulParam.split[0] = 1;
-    mMatMulParam.split[1] = 1;
-    mMatMulParam.split[2] = mIm2ColParamter.ow * mIm2ColParamter.oh;
+    mMatMulParam.minValue = -FLT_MAX;
+    mMatMulParam.maxValue = FLT_MAX;
     if (convCommon->relu()) {
         mMatMulParam.minValue = 0.0f;
     }
@@ -191,12 +241,14 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
         mMatMulParam.minValue = 0.0f;
         mMatMulParam.maxValue = 6.0f;
     }
+    //MNN_PRINT("Im2Col temp size:%d!!!\n\n", mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK);
     runtime->memcpy((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second, &mMatMulParam, sizeof(MatMulParam), MNNMemcpyHostToDevice);
 
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto buffer = pool->alloc(sizeof(__half) * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK);
+    auto buffer = pool->alloc((size_t)sizeof(__half) * (size_t)mMatMulParam.elhPack[0] * (size_t)mMatMulParam.elhPack[1] * (size_t)MATMULPACK * (size_t)MATMULPACK);
     mIm2ColBuffer = (__half*)((uint8_t*)buffer.first + buffer.second);
     pool->free(buffer);
+
     return NO_ERROR;
 }
 
@@ -204,21 +256,28 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
     //MNN_PRINT("cuda convSingleInput onExecute in, inputsize:%d %d\n", (int)inputs.size(), workspace_size_);
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
+    auto input = inputs[0];
+    auto output = outputs[0];
 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(input);
     const void *input_addr = (const void*)inputs[0]->deviceId();
     const void *filter_addr = mResource->mFilter;
     const void *bias_addr = mResource->mBias;
-
+    auto bn = backend();
     void *output_addr = (void*)outputs[0]->deviceId();
-    auto& prop = runtime->prop();
-    int threads_num = prop.maxThreadsPerBlock;
-    int cores = prop.multiProcessorCount;
+
     auto gpuIm2Col = (const ConvolutionCommon::Im2ColParameter*)((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second);
     auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
-    //runtime->memset(mIm2ColBuffer, 0, mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * sizeof(__half) * (MATMULPACK * MATMULPACK));
-    Im2Col<<<cores, threads_num>>>(gpuIm2Col, gpuMatMul, (const float*)input_addr, mIm2ColBuffer);
-    GemmPackedMain(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const float*)bias_addr);
+    // Im2Col func
+    Im2ColMain(runtime, &mMatMulParam, gpuMatMul, &mIm2ColParamter, gpuIm2Col, (const float*)input_addr, mIm2ColBuffer, bytes);
+
+    if (mResource->mUsePack) {
+        GemmPacked16x32(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes);
+    } else {
+        //printf("NotPack:%d-%d-%d-%d-%d, %d-%d-%d\n", mIm2ColParamter.icDiv4, mIm2ColParamter.ih, mIm2ColParamter.iw, mIm2ColParamter.oh, mIm2ColParamter.ow, mMatMulParam.elhPack[0], mMatMulParam.elhPack[1], mMatMulParam.elhPack[2]);
+        GemmPackedFullMain(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes);
+    }
 
     return NO_ERROR;
 }

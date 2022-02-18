@@ -31,6 +31,15 @@ static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
     reshape->main.AsReshape()->dimType = format;
     return (Variable::create(Expr::create(reshape.get(), {x, shape})));
 }
+static VARP _ConvertF(VARP input, MNN::MNN_DATA_FORMAT format) {
+    std::unique_ptr<OpT> convert(new OpT);
+    convert->type                               = OpType_ConvertTensor;
+    convert->main.type                          = OpParameter_TensorConvertInfo;
+    convert->main.value                         = new TensorConvertInfoT;
+    convert->main.AsTensorConvertInfo()->source = MNN_DATA_FORMAT_NC4HW4;
+    convert->main.AsTensorConvertInfo()->dest   = format;
+    return (Variable::create(Expr::create(convert.get(), {input})));
+}
 static bool checkInputInfo(const std::string& exprName, const Variable::Info* info, const modelConfig* config) {
     if (nullptr == info) {
         if (config->optimizeLevel < 1) {
@@ -200,7 +209,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             dense->common->outputCount = num_output;
 
             std::unique_ptr<OpT> dense_op(new OpT);
-            dense_op->name       = expr->name();
             dense_op->type       = OpType_Convolution;
             dense_op->main.type  = OpParameter_Convolution2D;
             dense_op->main.value = dense.release();
@@ -227,7 +235,10 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             EXPRP dense_expr = Expr::create(dense_op.get(), {input}, 1);
             VARP output = Variable::create(dense_expr);
+            //MNN_PRINT("%d\n", output->getInfo()->order);
+            output = _ConvertF(output, format);
             VARP reshapeVar = _ReshapeF(output, _Concat({inputRemain, inputE, outputH}, 0), format);
+            reshapeVar->setName(expr->outputName(0));
             Expr::replace(expr, reshapeVar->expr().first);
 
             return true /*modified*/;

@@ -16,7 +16,18 @@ class OnnxLSTMTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        MNN_ASSERT(inputs.size() >= 4);
+        if (inputs.size() == 8) {
+            MNN_ERROR("MNN LSTM not support 8th input (peepholes)\n");
+            return nullptr;
+        }
+        if (inputs.size() >= 5 && inputs[4].get() != nullptr) {
+            MNN_ERROR("MNN LSTM not support sequence_lens, all batch must be seq_length\n");
+            return nullptr;
+        }
+        if (inputs.size() < 4 || inputs[3].get() == nullptr) {
+            MNN_ERROR("MNN LSTM not support optional 4th input (must provide B)\n");
+            return nullptr;
+        }
         std::unique_ptr<OpT> lstm(new OpT);
         lstm->name       = expr->name();
         if (expr->get()->main_as_Extra()->type()->str() == "RNN") {
@@ -41,6 +52,9 @@ public:
         // onnx docs guarantee bias shape is [num_direction, 8 * hidden_size], we split it to 2x [num_dicection, 4 * hidden_size] (W/R), then add together
         auto biasWR = _Split(inputs[3], {2}, 1);
         inputs[3] = _Add(biasWR[0], biasWR[1]);
+        if (inputs.size() >= 5) {
+            inputs.erase(inputs.begin() + 4); // ignore sequence_lens
+        }
         // Y, Y_h, Y_c
         auto originLSTM = Expr::create(lstm.get(), inputs, (lstm->type == OpType_RNN ? 2 : 3));
         originLSTM->setName(expr->name());

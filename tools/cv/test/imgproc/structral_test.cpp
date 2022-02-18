@@ -10,7 +10,6 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
 
-#define MNN_STRUCTRAL_TEST
 #ifdef MNN_STRUCTRAL_TEST
 
 static Env<uint8_t> testEnv(img_name, false);
@@ -28,13 +27,14 @@ static std::vector<uint8_t> img = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0
 };
-static void cmpContours(std::vector<std::vector<Point>> x, std::vector<std::vector<cv::Point>> y) {
+static void cmpContours(std::vector<VARP> x, std::vector<std::vector<cv::Point>> y) {
     ASSERT_EQ(x.size(), y.size());
     for (int i = 0; i < x.size(); i++) {
-        ASSERT_EQ(x[i].size(), y[i].size());
-        for (int j = 0; j < x[i].size(); j++) {
-            ASSERT_EQ(x[i][j].fX, (float)y[i][j].x);
-            ASSERT_EQ(x[i][j].fY, (float)y[i][j].y);
+        ASSERT_EQ(x[i]->getInfo()->size / 2, y[i].size());
+        auto ptr = x[i]->readMap<int>();
+        for (int j = 0; j < y[i].size(); j++) {
+            ASSERT_EQ(ptr[j * 2 + 0], y[i][j].x);
+            ASSERT_EQ(ptr[j * 2 + 1], y[i][j].y);
         }
     }
 }
@@ -81,16 +81,8 @@ TEST(findContours, list_simple) {
 }
 
 TEST(contourArea, basic) {
-    std::vector<cv::Point> cv_contour;
-    cv_contour.push_back(cv::Point2i(0, 0));
-    cv_contour.push_back(cv::Point2i(10, 0));
-    cv_contour.push_back(cv::Point2i(10, 10));
-    cv_contour.push_back(cv::Point2i(5, 4));
-    std::vector<Point> mnn_contour;
-    mnn_contour.push_back({0, 0});
-    mnn_contour.push_back({10, 0});
-    mnn_contour.push_back({10, 10});
-    mnn_contour.push_back({5, 4});
+    std::vector<cv::Point2i> cv_contour = { {0, 0}, {10, 0}, {10, 10}, {5, 4}};
+    VARP mnn_contour = _Const(cv_contour.data(), {4, 2}, NHWC, halide_type_of<int>());
     double x = contourArea(mnn_contour);
     double y = cv::contourArea(cv_contour);
     ASSERT_EQ(x, y);
@@ -99,7 +91,7 @@ TEST(contourArea, basic) {
 #define TEST_POINTS { {0, 3}, {1, 1}, {2, 2}, {4, 4}, {0, 0}, {1, 2}, {3, 1}, {3, 3} }
 TEST(convexHull, indices) {
     std::vector<cv::Point> cv_contour = TEST_POINTS;
-    std::vector<Point> mnn_contour = TEST_POINTS;
+    VARP mnn_contour = _Const(cv_contour.data(), {8, 2}, NHWC, halide_type_of<int>());
     auto x = convexHull(mnn_contour, false, false);
     std::vector<int> y;
     cv::convexHull(cv_contour, y, false, false);
@@ -107,7 +99,7 @@ TEST(convexHull, indices) {
 }
 TEST(convexHull, pointers) {
     std::vector<cv::Point> cv_contour = TEST_POINTS;
-    std::vector<Point> mnn_contour = TEST_POINTS;
+    VARP mnn_contour = _Const(cv_contour.data(), {8, 2}, NHWC, halide_type_of<int>());
     auto x = convexHull(mnn_contour, false, true);
     cv::Mat y = cv::Mat(1, 4, CV_32S);
     cv::convexHull(cv_contour, y, false, true);
@@ -117,7 +109,7 @@ TEST(convexHull, pointers) {
 }
 TEST(minAreaRect, basic) {
     std::vector<cv::Point> cv_contour = TEST_POINTS;
-    std::vector<Point> mnn_contour = TEST_POINTS;
+    VARP mnn_contour = _Const(cv_contour.data(), {8, 2}, NHWC, halide_type_of<int>());
     auto x = minAreaRect(mnn_contour);
     auto y = cv::minAreaRect(cv_contour);
     ASSERT_NEAR(x.center.x, y.center.x, 1e-4);
@@ -132,7 +124,7 @@ TEST(minAreaRect, basic) {
 }
 TEST(boundingRect, basic) {
     std::vector<cv::Point> cv_contour = TEST_POINTS;
-    std::vector<Point> mnn_contour = TEST_POINTS;
+    VARP mnn_contour = _Const(cv_contour.data(), {8, 2}, NHWC, halide_type_of<int>());
     auto x = boundingRect(mnn_contour);
     auto y = cv::boundingRect(cv_contour);
     ASSERT_EQ(x.x, y.x);
@@ -155,17 +147,20 @@ TEST(connectedComponentsWithStats, basic) {
 }
 TEST(boxPoints, basic) {
     std::vector<cv::Point> cv_contour = TEST_POINTS;
-    std::vector<Point> mnn_contour = TEST_POINTS;
+    VARP mnn_contour = _Const(cv_contour.data(), {8, 2}, NHWC, halide_type_of<int>());
     auto x = minAreaRect(mnn_contour);
     auto y = cv::minAreaRect(cv_contour);
-    auto mnn_points = boxPoints(x);
+    auto _mnn_points = boxPoints(x);
     cv::Mat _cv_points;
     cv::boxPoints(y, _cv_points);
-    auto ptr = reinterpret_cast<float*>(_cv_points.data);
-    std::vector<Point> cv_points(4);
+    auto cvptr = reinterpret_cast<float*>(_cv_points.data);
+    auto mnnptr = _mnn_points->readMap<float>();
+    std::vector<Point> cv_points(4), mnn_points(4);
     for (int i = 0; i < 4; i++) {
-        cv_points[i].fX = ptr[2 * i + 0];
-        cv_points[i].fY = ptr[2 * i + 1];
+        cv_points[i].fX = cvptr[2 * i + 0];
+        cv_points[i].fY = cvptr[2 * i + 1];
+        mnn_points[i].fX = mnnptr[2 * i + 0];
+        mnn_points[i].fY = mnnptr[2 * i + 1];
     }
     auto comp = [](Point p1, Point p2) { return p1.fX < p2.fX; };
     std::sort(mnn_points.begin(), mnn_points.end(), comp);

@@ -11,263 +11,302 @@
 namespace MNN {
 namespace CUDA {
 
-template <typename T>
-__global__ void cutPad(const size_t size, const T* input, const int old_height,
-                    const int old_width, const int height, const int width, const int pad_top,
-                    const int pad_left, T* output) {
-    for (size_t pos = blockIdx.x * blockDim.x + threadIdx.x; pos < (size); pos += blockDim.x * gridDim.x) {
-        int block_num = pos / (width*height);
-        int left = pos % (width*height);
-        const int out_w = left % width;
-        const int out_h = left / width % height;
+__global__ void DeconvInputRerange(const int count,
+        const InputReorderParameter* param,
+        const float* Inp,
+        __half* InpRe
+        ) {
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
+        int l = param->l_size;
+        int h = param->h_size;
+        int lIndex = i % l;
+        int hIndex = i / l;
+        int lU = lIndex / 16;
+        int lR = lIndex % 16;
+        int hU = hIndex / 16;
+        int hR = hIndex % 16;
 
-        output[pos] = input[(block_num * old_height + out_h + pad_top) * old_width + out_w + pad_left];
+        int bIndex = hIndex / param->hw_size;
+        int hwIndex = hIndex % param->hw_size;
+
+        float value = Inp[bIndex * param->ib_stride + lIndex * param->ic_stride + hwIndex];
+        //inpRe[lIndex * param->oc_stride + bIndex * param->ob_stride + hwIndex] = value;
+
+        //__half* dst = InpRe + lU * param->hpack_size * 16 * 16 + hU * 16 * 16 + hR + lR * 16;
+        __half* dst = InpRe + hU * param->lpack_size * 16 * 16 + lU * 16 * 16 + lR + hR * 16;
+        dst[0] = value;
     }
-    return;
 }
 
-DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const MNN::Op* op) : Execution(backend), mOp(op) {
-    //MNN_PRINT("cuda DeconvSingleInput onInit in\n");
+template <typename Dtype>
+__global__ void Col2Im(const int n, const Dtype* data_col,
+    const int batch, const int height, const int width, const int channels,
+    const int kernel_h, const int kernel_w,
+    const int pad_h, const int pad_w,
+    const int stride_h, const int stride_w,
+    const int dilation_h, const int dilation_w,
+    const int height_col, const int width_col,
+    const Dtype* bias, Dtype* data_im) {
+    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < (n); index += blockDim.x * gridDim.x) {
+        Dtype val = 0;
+        const int b_im = index / (channels * width * height);
+        const int chw  = index % (channels * width * height);
+        const int w_im = chw % width + pad_w;
+        const int h_im = (chw / width) % height + pad_h;
+        const int c_im = chw / (width * height);
+        int kernel_extent_w = (kernel_w - 1) * dilation_w + 1;
+        int kernel_extent_h = (kernel_h - 1) * dilation_h + 1;
+        // compute the start and end of the output
+        const int w_col_start =
+            (w_im < kernel_extent_w) ? 0 : (w_im - kernel_extent_w) / stride_w + 1;
+        const int w_col_end = min(w_im / stride_w + 1, width_col);
+        const int h_col_start =
+            (h_im < kernel_extent_h) ? 0 : (h_im - kernel_extent_h) / stride_h + 1;
+        const int h_col_end = min(h_im / stride_h + 1, height_col);
+        // TODO: use LCM of stride and dilation to avoid unnecessary loops
+        for (int h_col = h_col_start; h_col < h_col_end; h_col += 1) {
+            for (int w_col = w_col_start; w_col < w_col_end; w_col += 1) {
+                int h_k = (h_im - h_col * stride_h);
+                int w_k = (w_im - w_col * stride_w);
+                if (h_k % dilation_h == 0 && w_k % dilation_w == 0) {
+                    h_k /= dilation_h;
+                    w_k /= dilation_w;
+                    int data_col_index = ((((c_im * kernel_h + h_k) * kernel_w + w_k) * batch + b_im) *
+                                            height_col + h_col) * width_col + w_col;
+                    val += data_col[data_col_index];
+                }
+            }
+        }
+
+        if(nullptr != bias) {
+            val += bias[c_im];
+        }
+        data_im[index] = val;
+    }
+}
+
+
+DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
+    mBackend = bn;
+    auto runtime = static_cast<CUDABackend*>(bn)->getCUDARuntime();
+    
     auto conv       = op->main_as_Convolution2D();
     auto common     = conv->common();
-
-    mKernelInfo.groups         = common->group();
     mKernelInfo.kernelX        = common->kernelX();
     mKernelInfo.kernelY        = common->kernelY();
-    mKernelInfo.padMode        = common->padMode();
-    mKernelInfo.padX           = common->padX();
-    mKernelInfo.padY           = common->padY();
-
-    if (nullptr != common->pads()) {
-        mKernelInfo.padX = common->pads()->data()[1];
-        mKernelInfo.padY = common->pads()->data()[0];
-    }
-    pad_left_  = mKernelInfo.padX;
-    pad_right_ = mKernelInfo.padX;
-    pad_top_ = mKernelInfo.padY;
-    pad_bottom_ = mKernelInfo.padY;
-
+    mKernelInfo.groups         = common->group();
     mKernelInfo.strideX        = common->strideX();
     mKernelInfo.strideY        = common->strideY();
     mKernelInfo.dilateX        = common->dilateX();
     mKernelInfo.dilateY        = common->dilateY();
     mKernelInfo.activationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
 
-    use_relu_ = (mKernelInfo.activationType == 1);
-    use_relu6_ = (mKernelInfo.activationType == 2);
-
-    cudnn_handle_ = nullptr;
-    input_desc_ = nullptr;
-    output_desc_ = nullptr;
-    filter_desc_ = nullptr;
-    conv_desc_ = nullptr;
-    padded_desc_ = nullptr;
-    cudnn_data_type_ = CUDNN_DATA_FLOAT;
-    cudnn_data_type_len_ = 0;
-
-    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
-    cudnn_handle_ = runtime->cudnn_handle();
-    cudnn_check(cudnnCreateTensorDescriptor(&input_desc_));
-    cudnn_check(cudnnCreateTensorDescriptor(&output_desc_));
-    cudnn_check(cudnnCreateTensorDescriptor(&padded_desc_));
-    cudnn_check(cudnnCreateTensorDescriptor(&bias_desc_));
-    cudnn_check(cudnnCreateFilterDescriptor(&filter_desc_));
-    cudnn_check(cudnnCreateConvolutionDescriptor(&conv_desc_));
-    cudnn_check(cudnnCreateActivationDescriptor(&act_desc_));
-
-
     //weight host->device
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &weightSize);
-    weightTensor.reset(Tensor::createDevice<float>({weightSize}));
-    backend->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
+    mKernelInfo.kernelN = common->outputCount();
+    mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
+
+    MatMulParam param;
+    int e = mKernelInfo.kernelN * mKernelInfo.kernelX * mKernelInfo.kernelY;
+    int l = mKernelInfo.kernelC;
+    int h = 0;
+    param.elh[0] = e;
+    param.elh[1] = l;
+    param.elh[2] = h;
+    param.elhPack[0] = UP_DIV(e, 16);
+    param.elhPack[1] = UP_DIV(l, 16);
+    param.elhPack[2] = UP_DIV(h, 16);
+
+    param.aStride[0] = 1;
+    param.aStride[1] = e;
+    param.aStride[2] = 0;
+
+    auto gpuParam = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(MatMulParam));
+    auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
+    float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
+    runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
+    runtime->memcpy((uint8_t*)gpuParam.first + gpuParam.second, &param, sizeof(MatMulParam), MNNMemcpyHostToDevice);
+    
+    // Reorder weight
+    weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPack[0] * param.elhPack[1] * (MATMULPACK * MATMULPACK)}));
+    bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
     mFilter = (void *)weightTensor.get()->buffer().device;
-    cuda_check(cudaMemcpy(mFilter, filterDataPtr, weightSize*sizeof(float), cudaMemcpyHostToDevice));
+    GemmPrepareRerange(runtime, &param, (const MatMulParam*)((uint8_t*)gpuParam.first + gpuParam.second), cacheWeight, (__half*)mFilter, nullptr, nullptr, 4);
+    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
+    static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(gpuParam);
 
+    // Copy Bias
+    int biasSize = conv->bias()->size();
+    biasTensor.reset(Tensor::createDevice<float>({biasSize}));
+    bn->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
+    mBias = (void *)biasTensor.get()->buffer().device;
+    cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
+    
+}
 
-    if(conv->bias()->size() != 0) {
-        int biasSize = conv->bias()->size();
-        biasTensor.reset(Tensor::createDevice<float>({biasSize}));
-        backend->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
-        mBias = (void *)biasTensor.get()->buffer().device;
-
-        cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
-        
-        int bias_size = conv->bias()->size();
-        int dim_bias[] = {1, bias_size, 1, 1};
-        int stride_bias[] = {bias_size, 1, 1, 1};
-        if(cudnn_data_type_ == CUDNN_DATA_FLOAT) {
-            cudnn_check(cudnnSetTensorNdDescriptor(bias_desc_, CUDNN_DATA_FLOAT, 4, dim_bias, stride_bias));
-        }
-        else if(cudnn_data_type_ == CUDNN_DATA_HALF) {
-            cudnn_check(cudnnSetTensorNdDescriptor(bias_desc_, CUDNN_DATA_HALF, 4, dim_bias, stride_bias));
-        } else {
-            MNN_PRINT("only supports fp32/fp16 data type!!!\n");
-        }
-        use_bias_ = true;
-    }
+DeconvSingleInputExecution::Resource::~Resource() {
+    // Do nothing
+}
+DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : Execution(backend), mOp(op) {
+    mResource = res;
+    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
+    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+    mGpuMatMulParam = staticPool->alloc(sizeof(MatMulParam));
+    mGpuCol2ImParam = staticPool->alloc(sizeof(Col2ImParameter));
+    mGpuInpReorderParam = staticPool->alloc(sizeof(InputReorderParameter));
 }
 
 DeconvSingleInputExecution::~DeconvSingleInputExecution() {
-    cudnn_check(cudnnDestroyConvolutionDescriptor(conv_desc_));
-    cudnn_check(cudnnDestroyFilterDescriptor(filter_desc_));
-    cudnn_check(cudnnDestroyTensorDescriptor(padded_desc_));
-    cudnn_check(cudnnDestroyTensorDescriptor(output_desc_));
-    cudnn_check(cudnnDestroyTensorDescriptor(input_desc_));
-    cudnn_check(cudnnDestroyTensorDescriptor(bias_desc_));
-    cudnn_check(cudnnDestroyActivationDescriptor(act_desc_));
+    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+    staticPool->free(mGpuMatMulParam);
+    staticPool->free(mGpuCol2ImParam);
+    staticPool->free(mGpuInpReorderParam);
+}
+bool DeconvSingleInputExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    auto dstExe = new DeconvSingleInputExecution(bn, op, mResource);
+    *dst = dstExe;
+    return true;
 }
 
+
 ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
-    // prepare
-    //MNN_PRINT("cuda DeconvSingleInput onResize in, pad:%d\n", mKernelInfo.padX);
+    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     auto input = inputs[0], output = outputs[0];
+    const int UNIT = 1;
+    auto convCommon = mOp->main_as_Convolution2D()->common();
 
-    mIOInfo.iw = input->width();
-    mIOInfo.ih = input->height();
-    mIOInfo.ic = input->channel();
-    mIOInfo.ib = input->batch();
+    // Input Rerange Param
+    mInpReorderParameter.hw_size = input->height() * input->width();
+    mInpReorderParameter.ic_stride = mInpReorderParameter.hw_size;
+    mInpReorderParameter.ib_stride = mInpReorderParameter.hw_size * input->channel();
+    mInpReorderParameter.oc_stride = mInpReorderParameter.ib_stride;
+    mInpReorderParameter.ob_stride = mInpReorderParameter.hw_size;
+    mInpReorderParameter.l_size    = input->channel();
+    mInpReorderParameter.h_size    = input->batch() * mInpReorderParameter.hw_size;
+    mInpReorderParameter.lpack_size = UP_DIV(mInpReorderParameter.l_size, 16);
+    mInpReorderParameter.hpack_size = UP_DIV(mInpReorderParameter.h_size, 16);
+
+    runtime->memcpy((uint8_t*)mGpuInpReorderParam.first + mGpuInpReorderParam.second, &mInpReorderParameter, sizeof(InputReorderParameter), MNNMemcpyHostToDevice);
+
+    // Col2Im Param
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mOp->main_as_Convolution2D()->common());
+    mCol2ImParamter.dilateX         = convCommon->dilateX();
+    mCol2ImParamter.dilateY         = convCommon->dilateY();
+    mCol2ImParamter.strideX         = convCommon->strideX();
+    mCol2ImParamter.strideY         = convCommon->strideY();
+    mCol2ImParamter.ic              = input->channel();
+    mCol2ImParamter.oc              = output->channel();
+    mCol2ImParamter.kernelX         = convCommon->kernelX();
+    mCol2ImParamter.kernelY         = convCommon->kernelY();
+    mCol2ImParamter.padX = pad.first;
+    mCol2ImParamter.padY = pad.second;
+
+    mCol2ImParamter.ih = input->height();
+    mCol2ImParamter.iw = input->width();
+    mCol2ImParamter.oh = output->height();
+    mCol2ImParamter.ow = output->width();
+    mCol2ImParamter.ob = output->batch();
+
+    runtime->memcpy((uint8_t*)mGpuCol2ImParam.first + mGpuCol2ImParam.second, &mCol2ImParamter, sizeof(Col2ImParameter), MNNMemcpyHostToDevice);
+
+    // Matmul Param
+    int e = output->channel() * mCol2ImParamter.kernelX * mCol2ImParamter.kernelY;
+    int l = input->channel();
+    int h = input->height() * input->width() * output->batch();
+
+    mMatMulParam.elh[0] = e;
+    mMatMulParam.elh[1] = l;
+    mMatMulParam.elh[2] = h;
+    mMatMulParam.elhPack[0] = UP_DIV(e, 16);
+    mMatMulParam.elhPack[1] = UP_DIV(l, 16);
+    mMatMulParam.elhPack[2] = UP_DIV(h, 16);
+
+    mMatMulParam.bStride[0] = 0;
+    mMatMulParam.bStride[1] = input->height() * input->width();
+    mMatMulParam.bStride[2] = 1;
+
+    mMatMulParam.cStride[0] = h;
+    mMatMulParam.cStride[1] = 1;
+    mMatMulParam.cStride[2] = 1;
+    if (convCommon->relu()) {
+        mMatMulParam.minValue = 0.0f;
+    }
+    if (convCommon->relu6()) {
+        mMatMulParam.minValue = 0.0f;
+        mMatMulParam.maxValue = 6.0f;
+    }
+    runtime->memcpy((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second, &mMatMulParam, sizeof(MatMulParam), MNNMemcpyHostToDevice);
+
     
-    mIOInfo.ow = output->width();
-    mIOInfo.oh = output->height();
-    mIOInfo.oc = output->channel();
-    mIOInfo.ob = output->batch();
+    // Alloc temp cuda memory
+    auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
+    auto buffer1 = pool->alloc(sizeof(float) * mMatMulParam.elh[0] * mMatMulParam.elh[2]);
+    auto buffer2 = pool->alloc(sizeof(__half) * mMatMulParam.elhPack[1] * mMatMulParam.elhPack[2] * MATMULPACK * MATMULPACK);
 
-    mKernelInfo.kernelN = output->channel();
-    mKernelInfo.kernelC = input->channel() / mKernelInfo.groups;
+    mIm2ColBuffer = (float*)((uint8_t*)buffer1.first + buffer1.second);
+    mInputBuffer = (__half*)((uint8_t*)buffer2.first + buffer2.second);
 
-    std::vector<int> in_shape = {mIOInfo.ib, mIOInfo.ic, mIOInfo.ih, mIOInfo.iw};
-    std::vector<int> output_shape = {mIOInfo.ob, mIOInfo.oc, mIOInfo.oh, mIOInfo.ow};
-    std::vector<int> filter_shape = {mKernelInfo.kernelC, mKernelInfo.kernelN, mKernelInfo.kernelY, mKernelInfo.kernelX};//deconv (ic oc kh kw)
-    
-    // printf("filter:%d %d %d %d\n", filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3]);
-    // printf("input:%d %d %d %d\n", in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
-    // printf("output:%d %d %d %d\n", output_shape[0], output_shape[1], output_shape[2], output_shape[3]);
-    cudnn_check(cudnnSetTensor4dDescriptor(input_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, in_shape[0],
-                                in_shape[1], in_shape[2], in_shape[3]));
- 
-    cudnn_check(cudnnSetFilter4dDescriptor(filter_desc_, cudnn_data_type_, CUDNN_TENSOR_NCHW, filter_shape[0],
-                                filter_shape[1], filter_shape[2], filter_shape[3]));
-    cudnn_check(cudnnSetTensor4dDescriptor(output_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, output_shape[0],
-                                output_shape[1], output_shape[2], output_shape[3]));
+    pool->free(buffer2);
+    pool->free(buffer1);
 
-    
-
-    cudnnTensorDescriptor_t input_descriptor_real = nullptr;
-
-    if (mKernelInfo.padMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelInfo.kernelX - 1) * mKernelInfo.dilateX + 1;
-        int kernelHeightSize = (mKernelInfo.kernelY - 1) * mKernelInfo.dilateY + 1;
-        int pw = (mIOInfo.iw - 1) * mKernelInfo.strideX + kernelWidthSize - mIOInfo.ow;
-        int ph = (mIOInfo.ih - 1) * mKernelInfo.strideY + kernelHeightSize - mIOInfo.oh;
-        pad_left_  = pw/2;
-        pad_right_ = pw - pad_left_;
-        pad_top_ = ph/2;
-        pad_bottom_ = ph - pad_top_;
-    }
-
-    use_pad_ = (pad_left_!=0 || pad_right_!=0 || pad_top_!=0 || pad_bottom_!=0 ) ? true : false;
-
-    if(use_pad_) {
-        int totalSize = output_shape[0]*output_shape[1]*(output_shape[2]+pad_top_+pad_bottom_)*(output_shape[3]+pad_left_+pad_right_);
-        padTensor.reset(Tensor::createDevice<float>({totalSize}));
-        backend()->onAcquireBuffer(padTensor.get(), Backend::DYNAMIC);
-        mPadPtr = (void *)padTensor.get()->buffer().device;
-
-        //dynamic memory release
-        backend()->onReleaseBuffer(padTensor.get(), Backend::DYNAMIC);
-
-        cudnn_check(cudnnSetTensor4dDescriptor(padded_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, output_shape[0], output_shape[1],
-            output_shape[2] + +pad_top_+pad_bottom_, output_shape[3] + pad_left_+pad_right_));
-    }
-    input_descriptor_real = use_pad_ ? padded_desc_ : input_desc_;
-
-    cudnn_check(cudnnSetConvolution2dDescriptor(conv_desc_, 0, 0, mKernelInfo.strideY, mKernelInfo.strideX, 
-                                mKernelInfo.dilateY, mKernelInfo.dilateX, CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
-    if (cudnn_data_type_ == CUDNN_DATA_HALF) {
-        cudnn_check(cudnnSetConvolutionMathType(conv_desc_, CUDNN_TENSOR_OP_MATH));
-    }
-    //set group num
-    cudnn_check(cudnnSetConvolutionGroupCount(conv_desc_, mKernelInfo.groups));
-    
-    // algorithm
-    constexpr int requested_algo_count = 1;
-    int returned_algo_count;
-    cudnnConvolutionBwdDataAlgoPerf_t perf_results;
-    cudnn_check(cudnnGetConvolutionBackwardDataAlgorithm_v7(cudnn_handle_, filter_desc_, input_descriptor_real, conv_desc_,
-        output_desc_,  requested_algo_count, &returned_algo_count, &perf_results));
-    conv_bwd_algo_ = perf_results.algo;
-
-    // workspace
-    cudnn_check(cudnnGetConvolutionBackwardDataWorkspaceSize(cudnn_handle_, filter_desc_, input_descriptor_real, conv_desc_, output_desc_,
-        conv_bwd_algo_, &workspace_size_));
-
-    if (workspace_size_ != 0) {
-        int workspaceSize = workspace_size_;
-        workspaceTensor.reset(Tensor::createDevice<float>({workspaceSize}));
-        //cudnn not support workspace memory reuse
-        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-        mWorkSpace = (void *)workspaceTensor.get()->buffer().device;
-    }
-
-    if(use_relu_) {
-        cudnn_check(cudnnSetActivationDescriptor(act_desc_, CUDNN_ACTIVATION_RELU, CUDNN_NOT_PROPAGATE_NAN, 0.0));
-    } else if(use_relu6_) {
-        cudnn_check(cudnnSetActivationDescriptor(act_desc_, CUDNN_ACTIVATION_CLIPPED_RELU, CUDNN_NOT_PROPAGATE_NAN, 6.0));
-    } else {
-        //do nothing
-    }
-    //MNN_PRINT("cuda DeconvSingleInput onResize out\n");
     return NO_ERROR;
 }
 
 ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
-    //MNN_PRINT("cuda DeconvSingleInput onExecute in, inputsize:%d %d\n", (int)inputs.size(), workspace_size_);
-
+    //MNN_PRINT("cuda convSingleInput onExecute in, inputsize:%d %d\n", (int)inputs.size(), workspace_size_);
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     const void *input_addr = (const void*)inputs[0]->deviceId();
-    const void *filter_addr = mFilter;
-    const void *bias_addr = mBias;
-
+    const void *filter_addr = mResource->mFilter;
+    const void *bias_addr = mResource->mBias;
     void *output_addr = (void*)outputs[0]->deviceId();
-    void *workspace_addr = nullptr;
-    if (workspace_size_ != 0) {
-        workspace_addr = mWorkSpace;
-    }
 
-    const float alpha = 1;
-    const float beta = 0;
+    auto gpuInpReorder = (const InputReorderParameter*)((uint8_t*)mGpuInpReorderParam.first + mGpuInpReorderParam.second);
+    auto gpuCol2Im = (const Col2ImParameter*)((uint8_t*)mGpuCol2ImParam.first + mGpuCol2ImParam.second);
+    auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
 
+    const int rerangeCount = mInpReorderParameter.ib_stride * inputs[0]->batch();
+    int inp_block_num = runtime->blocks_num(rerangeCount);
+    int inp_thread_num = runtime->threads_num();
 
-    if(use_pad_) {
-        cudnn_check(cudnnConvolutionBackwardData(cudnn_handle_, &alpha, filter_desc_, filter_addr, input_desc_, input_addr, conv_desc_,
-            conv_bwd_algo_, workspace_addr, workspace_size_, &beta, padded_desc_, mPadPtr));
+    // Do input Rerange
+    runtime->memset(mInputBuffer, 0, mMatMulParam.elhPack[2] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK * sizeof(__half));
+    DeconvInputRerange<<<inp_block_num, inp_thread_num>>>(rerangeCount, gpuInpReorder, (const float*)input_addr, mInputBuffer);
 
-        std::vector<int> out_shape = {mIOInfo.ob, mIOInfo.oc, mIOInfo.oh, mIOInfo.ow};
+    // Do Gemm operation 
+    GemmPackedMain(runtime, &mMatMulParam, gpuMatMul, (float*)mIm2ColBuffer, (const half*)filter_addr, (const half*)mInputBuffer, nullptr, bytes, false, false);
 
-        int size = out_shape[0] * out_shape[1] * out_shape[2] * out_shape[3];
-        int block_num = runtime->blocks_num(size);
-        int threads_num = runtime->threads_num();
+    // Do Col2Im trans
+    int height_col = mCol2ImParamter.ih;
+    int width_col = mCol2ImParamter.iw;
+    int num_kernels = mCol2ImParamter.ob * mCol2ImParamter.oc * mCol2ImParamter.oh * mCol2ImParamter.ow;
 
-        cutPad<<<block_num, threads_num>>>(size, (float*)mPadPtr, out_shape[2]+pad_top_+pad_bottom_, out_shape[3]+pad_left_+pad_right_,
-            out_shape[2], out_shape[3], pad_top_, pad_left_, (float*)output_addr);
-    }
-    else {
-        cudnn_check(cudnnConvolutionBackwardData(cudnn_handle_, &alpha, filter_desc_, filter_addr, input_desc_, input_addr, conv_desc_,
-            conv_bwd_algo_, workspace_addr, workspace_size_, &beta, output_desc_, output_addr));
-    }
+    int col2im_block_num = runtime->blocks_num(num_kernels);
+    int col2im_thread_num = runtime->threads_num();
 
-    if(use_bias_) {
-        cudnn_check(cudnnAddTensor(cudnn_handle_, &alpha, bias_desc_, bias_addr, &alpha, output_desc_, output_addr));
-    }
-    if(use_relu_ || use_relu6_) {
-        cudnn_check(cudnnActivationForward(cudnn_handle_, act_desc_, &alpha, output_desc_, output_addr, &beta, output_desc_, output_addr));
-    }
+    // printf("col2im:%d, %d-%d-%d-%d-%d-%d\n %d-%d-%d-%d-%d-%d\n %d-%d\n", mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, \
+    //     mCol2ImParamter.ih, mCol2ImParamter.iw, mCol2ImParamter.ic, \
+    //     mCol2ImParamter.padX, mCol2ImParamter.padY, mCol2ImParamter.kernelX, mCol2ImParamter.kernelY, mCol2ImParamter.strideX, mCol2ImParamter.strideY, \
+    //     col2im_block_num, col2im_thread_num);
+    
+    Col2Im<float><<<col2im_block_num, col2im_thread_num>>>(
+        num_kernels, (const float*)mIm2ColBuffer, mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, 
+        mCol2ImParamter.kernelY, mCol2ImParamter.kernelX, mCol2ImParamter.padY, mCol2ImParamter.padX, 
+        mCol2ImParamter.strideY, mCol2ImParamter.strideX, mCol2ImParamter.dilateY, mCol2ImParamter.dilateX,
+        height_col, width_col, (const float*)bias_addr, (float *)output_addr);
+
     return NO_ERROR;
 }
 
@@ -287,7 +326,8 @@ public:
             MNN_PRINT("Deconv inputs size:3 not support\n");
             return nullptr;
         } else if(inputs.size() == 1) {
-            return new DeconvSingleInputExecution(backend, op);
+            std::shared_ptr<DeconvSingleInputExecution::Resource> resource(new DeconvSingleInputExecution::Resource(backend, op));
+            return new DeconvSingleInputExecution(backend, op, resource);
         } else {
             MNN_PRINT("Deconv inputs size:%d not support", (int)inputs.size());
             return nullptr;
@@ -295,7 +335,7 @@ public:
     }
 };
 
-CUDACreatorRegister<CUDADeconvolutionCreator> __DeConvExecution(OpType_Deconvolution);
+//CUDACreatorRegister<CUDADeconvolutionCreator> __DeConvExecution(OpType_Deconvolution);
 
 }// namespace CUDA
 }// namespace MNN

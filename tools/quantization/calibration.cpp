@@ -959,7 +959,7 @@ void Calibration::_quantizeModelEMA() {
     model->setIsTraining(false);
     exe->gc(Executor::PART);
     VARP forwardInput = nullptr;
-    if (originInfo != nullptr) {
+    if (originInfo != nullptr && originDims.size() > 0) {
         forwardInput = _Input(originDims, originFormat, originType);
     } else {
         if (_inputType == Helper::InputType::IMAGE) {

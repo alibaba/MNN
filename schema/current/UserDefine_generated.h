@@ -376,13 +376,15 @@ struct ImageProcessParamT : public flatbuffers::NativeTable {
   int8_t paddingValue;
   std::vector<int32_t> shape;
   DataType outputType;
+  bool draw;
   ImageProcessParamT()
       : filterType(FilterType_NEAREST),
         sourceFormat(ImageFormatType_RGBA),
         destFormat(ImageFormatType_RGBA),
         wrap(WrapType_CLAMP_TO_EDGE),
         paddingValue(0),
-        outputType(DataType_DT_INVALID) {
+        outputType(DataType_DT_INVALID),
+        draw(false) {
   }
 };
 
@@ -421,6 +423,9 @@ struct ImageProcessParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   DataType outputType() const {
     return static_cast<DataType>(GetField<int32_t>(22, 0));
   }
+  bool draw() const {
+    return GetField<uint8_t>(24, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
@@ -437,6 +442,7 @@ struct ImageProcessParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 20) &&
            verifier.VerifyVector(shape()) &&
            VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<uint8_t>(verifier, 24) &&
            verifier.EndTable();
   }
   ImageProcessParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -477,6 +483,9 @@ struct ImageProcessParamBuilder {
   void add_outputType(DataType outputType) {
     fbb_.AddElement<int32_t>(22, static_cast<int32_t>(outputType), 0);
   }
+  void add_draw(bool draw) {
+    fbb_.AddElement<uint8_t>(24, static_cast<uint8_t>(draw), 0);
+  }
   explicit ImageProcessParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -500,7 +509,8 @@ inline flatbuffers::Offset<ImageProcessParam> CreateImageProcessParam(
     flatbuffers::Offset<flatbuffers::Vector<float>> transform = 0,
     int8_t paddingValue = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape = 0,
-    DataType outputType = DataType_DT_INVALID) {
+    DataType outputType = DataType_DT_INVALID,
+    bool draw = false) {
   ImageProcessParamBuilder builder_(_fbb);
   builder_.add_outputType(outputType);
   builder_.add_shape(shape);
@@ -509,6 +519,7 @@ inline flatbuffers::Offset<ImageProcessParam> CreateImageProcessParam(
   builder_.add_mean(mean);
   builder_.add_destFormat(destFormat);
   builder_.add_sourceFormat(sourceFormat);
+  builder_.add_draw(draw);
   builder_.add_paddingValue(paddingValue);
   builder_.add_wrap(wrap);
   builder_.add_filterType(filterType);
@@ -597,6 +608,7 @@ inline void ImageProcessParam::UnPackTo(ImageProcessParamT *_o, const flatbuffer
   { auto _e = paddingValue(); _o->paddingValue = _e; };
   { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = _e->Get(_i); } } };
   { auto _e = outputType(); _o->outputType = _e; };
+  { auto _e = draw(); _o->draw = _e; };
 }
 
 inline flatbuffers::Offset<ImageProcessParam> ImageProcessParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ImageProcessParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -617,6 +629,7 @@ inline flatbuffers::Offset<ImageProcessParam> CreateImageProcessParam(flatbuffer
   auto _paddingValue = _o->paddingValue;
   auto _shape = _o->shape.size() ? _fbb.CreateVector(_o->shape) : 0;
   auto _outputType = _o->outputType;
+  auto _draw = _o->draw;
   return MNN::CreateImageProcessParam(
       _fbb,
       _filterType,
@@ -628,7 +641,8 @@ inline flatbuffers::Offset<ImageProcessParam> CreateImageProcessParam(flatbuffer
       _transform,
       _paddingValue,
       _shape,
-      _outputType);
+      _outputType,
+      _draw);
 }
 
 inline const flatbuffers::TypeTable *SampleModeTypeTable() {
@@ -803,7 +817,8 @@ inline const flatbuffers::TypeTable *ImageProcessParamTypeTable() {
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
-    { flatbuffers::ET_INT, 0, 3 }
+    { flatbuffers::ET_INT, 0, 3 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     FilterTypeTypeTable,
@@ -821,10 +836,11 @@ inline const flatbuffers::TypeTable *ImageProcessParamTypeTable() {
     "transform",
     "paddingValue",
     "shape",
-    "outputType"
+    "outputType",
+    "draw"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 10, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

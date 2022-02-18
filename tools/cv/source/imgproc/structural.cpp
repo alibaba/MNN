@@ -111,7 +111,7 @@ static CvContourScanner cvStartFindContours( VARP _img, CvPoint offset, int mode
     return scanner;
 }
 
-static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int method, POINTS& points)
+static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int method, std::vector<CvPoint>& points)
 {
     const char     nbd = 2;
     int             deltas[16];
@@ -119,7 +119,7 @@ static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int 
     /* initialize local state */
     CV_INIT_3X3_DELTAS( deltas, step, 1);
     ::memcpy( deltas + 8, deltas, 8 * sizeof( deltas[0] ));
-    char           *i0 = (ptr), *i1, *i3, *i4 = 0;
+    schar  *i0 = (ptr), *i1, *i3, *i4 = 0;
     s_end = s = is_hole ? 0 : 4;
 
     do
@@ -136,9 +136,7 @@ static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int 
         *i0 = (schar) (nbd | -128);
         if( method >= 0 )
         {
-            Point _p;
-            _p.set(pt.x, pt.y);
-            points.push_back(_p);
+            points.push_back(pt);
         }
     }
     else
@@ -172,9 +170,7 @@ static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int 
             {
                 if( s != prev_s || method == 1 )
                 {
-                    Point _p;
-                    _p.set(pt.x, pt.y);
-                    points.push_back(_p);
+                    points.push_back(pt);
                     prev_s = s;
                 }
 
@@ -192,7 +188,7 @@ static void icvFetchContour(schar* ptr, int step, CvPoint pt, bool is_hole, int 
     }
 }
 
-static bool cvFindNextContour(CvContourScanner scanner, POINTS& points)
+static bool cvFindNextContour(CvContourScanner scanner, std::vector<CvPoint>& points)
 {
     /* initialize local state */
     schar* img0 = scanner->img0;
@@ -368,7 +364,11 @@ static int Sklansky_( Point_<_Tp>** array, int start, int end, int* stack, int n
 enum { CALIPERS_MAXHEIGHT=0, CALIPERS_MINAREARECT=1, CALIPERS_MAXDIST=2 };
 static void rotatingCalipers( const Point2f* points, int n, int mode, float* out )
 {
+#ifdef _MSC_VER
+    float minarea = FLT_MAX;
+#else
     float minarea = __FLT_MAX__;
+#endif
     float max_dist = 0;
     char buffer[32] = {};
     int i, k;
@@ -2058,40 +2058,61 @@ LabelT LabelingGrana(VARP img, VARP& imgLabels, int connectivity, CCStatsOp& sop
 }
 /*Copy From OpenCV End*/
 
-std::vector<POINTS> findContours(VARP image, int mode, int method, Point offset) {
+std::vector<VARP> findContours(VARP image, int mode, int method, Point offset) {
     if (method > CHAIN_APPROX_SIMPLE) {
         MNN_ERROR("findContours: just support method = [CHAIN_APPROX_NONE, CHAIN_APPROX_SIMPLE].");
     }
     auto img = _Clone(image, true);
     CvPoint off((int)offset.fX, (int)offset.fY);
     auto info = cvStartFindContours(img, off, mode, method);
-    POINTS points;
-    std::vector<POINTS> contours;
+    std::vector<CvPoint> points;
+    std::vector<VARP> contours;
     while (cvFindNextContour(info, points)) {
-        contours.emplace_back(std::move(points));
+        auto ptr = reinterpret_cast<int*>(points.data());
+        contours.push_back(_Const(ptr, {static_cast<int>(points.size()), 1, 2}, NHWC, halide_type_of<int>()));
+        points.clear();
     }
     // same to opencv
     std::reverse(contours.begin(), contours.end());
     delete info;
     return contours;
 }
-double contourArea(std::vector<Point> _contour, bool oriented) {
-    int npoints = _contour.size();
+double contourArea(VARP _contour, bool oriented) {
+    auto info = _contour->getInfo();
+    int npoints = info->size / 2;
     if (!npoints) return 0;
+    bool is_float = info->type == halide_type_of<float>();
+    bool is_int   = info->type == halide_type_of<int>();
+    MNN_ASSERT(is_float || is_int);
     double a00 = 0;
-    auto prev = _contour.back();
-    for(int i = 0; i < npoints; i++) {
-        auto p = _contour[i];
-        a00 += (double)prev.fX * p.fY - (double)prev.fY * p.fX;
-        prev = p;
+    float prevx, prevy;
+    if (is_float) {
+        auto ptr = _contour->readMap<float>();
+        prevx = ptr[npoints * 2 - 2], prevy = ptr[npoints * 2 - 1];
+        for(int i = 0; i < npoints; i++) {
+            auto x = ptr[i * 2], y = ptr[i * 2 + 1];
+            a00 += (double)prevx * y - (double)prevy * x;
+            prevx = x, prevy = y;
+        }
+    } else {
+        auto ptr = _contour->readMap<int>();
+        prevx = ptr[npoints * 2 - 2], prevy = ptr[npoints * 2 - 1];
+        for(int i = 0; i < npoints; i++) {
+            float x = ptr[i * 2], y = ptr[i * 2 + 1];
+            a00 += (double)prevx * y - (double)prevy * x;
+            prevx = x, prevy = y;
+        }
     }
+
     a00 *= 0.5;
     if(!oriented) a00 = fabs(a00);
     return a00;
 }
 
-std::vector<int> convexHull(std::vector<Point> points, bool clockwise, bool returnPoints) {
-    int i, total = points.size(), nout = 0;
+std::vector<int> convexHull(VARP points, bool clockwise, bool returnPoints) {
+    auto info = points->getInfo();
+    auto pointPtr = points->readMap<int>();
+    int i, total = info->size / 2, nout = 0;
     int miny_ind = 0, maxy_ind = 0;
     std::vector<int> _hull;
     if( total == 0 )
@@ -2105,8 +2126,8 @@ std::vector<int> convexHull(std::vector<Point> points, bool clockwise, bool retu
     int* stack = _stack.data();
     int* hullbuf = _hullbuf.data();
     for( i = 0; i < total; i++ ) {
-        _points[i].x = (int)points[i].fX;
-        _points[i].y = (int)points[i].fY;
+        _points[i].x = pointPtr[i * 2 + 0];
+        _points[i].y = pointPtr[i * 2 + 1];
         pointer[i] = reinterpret_cast<Point2i*>(&_points[i]);
     }
     Point2i* data0 = pointer[0];
@@ -2228,8 +2249,8 @@ std::vector<int> convexHull(std::vector<Point> points, bool clockwise, bool retu
     if( returnPoints ) {
         _hull.resize(nout * 2);
         for (int i = 0; i < nout; i++) {
-            _hull[2 * i] = (int)points[_hullbuf[i]].fX;
-            _hull[2 * i + 1] = (int)points[_hullbuf[i]].fY;
+            _hull[2 * i] = pointPtr[_hullbuf[i] * 2];
+            _hull[2 * i + 1] = pointPtr[_hullbuf[i] * 2 + 1];
         }
     } else {
         _hull.resize(nout);
@@ -2239,7 +2260,7 @@ std::vector<int> convexHull(std::vector<Point> points, bool clockwise, bool retu
     }
     return _hull;
 }
-RotatedRect minAreaRect(std::vector<Point> _points) {
+RotatedRect minAreaRect(VARP _points) {
     auto hull = convexHull(_points);
     int n = hull.size() / 2;
     Point2f out[3];
@@ -2271,30 +2292,34 @@ RotatedRect minAreaRect(std::vector<Point> _points) {
     box.angle = (float)(box.angle*180/MNN_PI);
     return box;
 }
-Rect2i boundingRect(POINTS points) {
-    int npoints = points.size();
-    int xmin = 0, ymin = 0, xmax = -1, ymax = -1;
+Rect2i boundingRect(VARP points) {
+    auto info = points->getInfo();
+    int npoints = info->size / 2;
     if( npoints == 0 )
         return Rect2i();
-    Point pt = points[0];
-    xmin = xmax = pt.fX;
-    ymin = ymax = pt.fY;
+    bool is_float = info->type == halide_type_of<float>();
+    bool is_int   = info->type == halide_type_of<int>();
+    MNN_ASSERT(is_float || is_int);
+    int xmin = 0, ymin = 0, xmax = -1, ymax = -1;
+    auto iptr = points->readMap<int>();
+    auto fptr = points->readMap<float>();
+    xmin = xmax = is_float ? fptr[0] : iptr[0];
+    ymin = ymax = is_float ? fptr[1] : iptr[1];
+    for(int i = 1; i < npoints; i++) {
+        int x = is_float ? fptr[2 * i] : iptr[2 * i];
+        int y = is_float ? fptr[2 * i + 1] : iptr[2 * i + 1];
 
-    for( int i = 1; i < npoints; i++ )
-    {
-        pt = points[i];
+        if( xmin > x )
+            xmin = x;
 
-        if( xmin > pt.fX )
-            xmin = pt.fX;
+        if( xmax < x )
+            xmax = x;
 
-        if( xmax < pt.fX )
-            xmax = pt.fX;
+        if( ymin > y )
+            ymin = y;
 
-        if( ymin > pt.fY )
-            ymin = pt.fY;
-
-        if( ymax < pt.fY )
-            ymax = pt.fY;
+        if( ymax < y )
+            ymax = y;
     }
     return Rect2i(xmin, ymin, xmax - xmin + 1, ymax - ymin + 1);
 }
@@ -2304,7 +2329,7 @@ int connectedComponentsWithStats(VARP image, VARP& labels, VARP& statsv, VARP& c
     return LabelingGrana<int, uchar>(image, labels, connectivity, sop);
 }
 
-POINTS boxPoints(RotatedRect box) {
+VARP boxPoints(RotatedRect box) {
     std::vector<Point> pt(4);
     double _angle = box.angle*MNN_PI/180.;
     float b = (float)cos(_angle)*0.5f;
@@ -2317,7 +2342,7 @@ POINTS boxPoints(RotatedRect box) {
     pt[2].fY = 2*box.center.y - pt[0].fY;
     pt[3].fX = 2*box.center.x - pt[1].fX;
     pt[3].fY = 2*box.center.y - pt[1].fY;
-    return pt;
+    return _Const(pt.data(), {4, 2});
 }
 
 } // CV

@@ -13,7 +13,7 @@ def inference():
     config['precision'] = 'low'
     session = interpreter.createSession()
     input_tensor = interpreter.getSessionInput(session)
-    image = cv2.imread('ILSVRC2012_val_00049999.JPEG')
+    image = cv2.imread('0000.jpg')
     #cv2 read as bgr format
     image = image[..., ::-1]
     #change to rgb format

@@ -65,16 +65,6 @@ ImageProcess::ImageProcess(const Config& config) {
 
 ImageProcess* ImageProcess::create(const Config& config, const Tensor* dstTensor) {
     // TODO Get dstTensor' backend
-    #ifdef _MSC_VER
-        auto cpuFlags = libyuv::InitCpuFlags();
-        bool support = true;
-        support = support && (cpuFlags & libyuv::kCpuHasSSSE3); // _mm_shuffle_epi8
-        support = support && (cpuFlags & libyuv::kCpuHasSSE41); // _mm_cvtepu8_epi32
-        if (!support) {
-            MNN_ERROR("CPU must support SSSE3 and SSE4.1 for using ImageProcess\n");
-            return nullptr;
-        }
-    #endif
     return new ImageProcess(config);
 }
 
@@ -192,12 +182,23 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     if (0 == oc) {
         oc = _getBpp(mInside->config.destFormat);
     }
-    auto ins = { createImageTensor(halide_type_of<uint8_t>(), iw, ih, ic, (void*)source) };
-    auto outs = { createImageTensor(type, ow, oh, oc, dest) };
+    std::unique_ptr<Tensor> input(createImageTensor(halide_type_of<uint8_t>(), iw, ih, ic, (void*)source)),
+                            output(createImageTensor(type, ow, oh, oc, dest));
+    auto ins = { input.get() };
+    auto outs = { output.get() };
     mInside->execution->setPadVal(this->mPaddingValue);
     mInside->execution->onResize(ins, outs);
     mInside->execution->onExecute(ins, outs);
     return NO_ERROR;
+}
+
+void ImageProcess::draw(uint8_t* img, int w, int h, int c, const int* regions, int num, const uint8_t* color) {
+    std::unique_ptr<Tensor> imgTensor(createImageTensor(halide_type_of<uint8_t>(), w, h, c, (void*)img)),
+                            regionTensor(Tensor::create(std::vector<int>{num, 3}, halide_type_of<int>(), (void*)regions)),
+                            colorTensor(Tensor::create(std::vector<int>{c}, halide_type_of<uint8_t>(), (void*)color));
+    auto ins = { imgTensor.get(), regionTensor.get(), colorTensor.get() };
+    mInside->execution->onResize(ins, {});
+    mInside->execution->onExecute(ins, {});
 }
 } // namespace CV
 } // namespace MNN

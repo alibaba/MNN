@@ -10,7 +10,6 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
 
-#define MNN_TEST_FILTER
 #ifdef MNN_TEST_FILTER
 static Env<float> testEnv(img_name, true);
 

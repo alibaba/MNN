@@ -61,7 +61,7 @@ class AbsTest : public UnaryTestCommon {
 public:
     virtual ~AbsTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Abs, "AbsTest", 0.01,
+        return test<float, float>(MNN::Express::_Abs, "AbsTest", 0.01,
                     {-1.0, -2.0, 3.0, 4.0, -1.0, -2.0, 3.0, 4.0}, {1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0},
                     {8}, {8});
     }

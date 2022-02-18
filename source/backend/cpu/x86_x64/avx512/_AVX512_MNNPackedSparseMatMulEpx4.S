@@ -12,8 +12,6 @@
 
 #define AVX512F32 16
 
-#define push_registers_bytes ((9 + 1) * 8) // pushq + callq
-
 // caution: asm version is a sub-loop of _AVX512_MNNPackedSparseMatMulEpx4()
 // void _AVX512_MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
 //                                     const float* postParameters, const float* bias, unsigned int* NNZMap,
@@ -22,8 +20,29 @@ asm_function _AVX512_MNNPackedSparseMatMulEpx4_ASM
 // SystemV Auto: rdi: C, rsi: A, rdx:B,  rcx: eSize, r8: parameter, r9: postparameter,
 // stack: bias, unsigned int* NNZMap, int* dataOffsetMap
 
+// Microsoft x64 Auto: rcx:C, rdx:A, r8:B, r9:eSize
+// stack: parameter, postParameters, bias, unsigned int* NNZMap, int* dataOffsetMap
+
 pushq   %rbp
 movq    %rsp, %rbp
+
+#ifdef WIN32
+pushq   %rdi
+pushq   %rsi
+movq    %rcx, %rdi
+movq    %rdx, %rsi
+movq    %r8, %rdx
+movq    %r9, %rcx
+pushq   %rbx
+pushq   %r12
+pushq   %r13
+pushq   %r14
+pushq   %r15
+#define push_registers_bytes_ ((8 + 1) * 8 + 32) // pushq + callq + shadow_space
+movq (push_registers_bytes_)(%rsp), %r8 // parameter
+movq (push_registers_bytes_ + 8)(%rsp), %r9 // postparameter
+#define push_registers_bytes (push_registers_bytes_ + 2 * 8) // pushq + callq + shadow_space + extra
+#else
 pushq   %rax
 pushq   %rbx
 pushq   %r8
@@ -32,7 +51,8 @@ pushq   %r12
 pushq   %r13
 pushq   %r14
 pushq   %r15
-
+#define push_registers_bytes ((9 + 1) * 8) // pushq + callq
+#endif
 
 movq (%r8), %r10 // eP * sizeof
 shrq  $(sizeof_value_lg2), %r10
@@ -65,8 +85,8 @@ vbroadcastss 8(%r9), %zmm10
 vbroadcastss 12(%r9), %zmm11
 
 movq %r10, %r14
-shrq $sparse_blockoc_log, %r14
-shlq $sparse_blockoc_log, %r14 // h even divid sparse_blockoc
+shrq $(sparse_blockoc_log), %r14
+shlq $(sparse_blockoc_log), %r14 // h even divid sparse_blockoc
 
 movq (push_registers_bytes)(%rsp), %rdx // bias
 movq (push_registers_bytes + 8)(%rsp), %rdi // unsigned int* NNZMap,
@@ -79,6 +99,20 @@ movq (push_registers_bytes + 16)(%rsp), %rsi // int* dataOffsetMap
 // movq %r8, %rdi
 // movq %r9, %rsi
 
+#ifdef WIN32
+leaq (-1280)(%rsp), %rsp
+vmovdqu %xmm6,  (128*0)(%rsp)
+vmovdqu %xmm7,  (128*1)(%rsp)
+vmovdqu %xmm8,  (128*2)(%rsp)
+vmovdqu %xmm9,  (128*3)(%rsp)
+vmovdqu %xmm10, (128*4)(%rsp)
+vmovdqu %xmm11, (128*5)(%rsp)
+vmovdqu %xmm12, (128*6)(%rsp)
+vmovdqu %xmm13, (128*7)(%rsp)
+vmovdqu %xmm14, (128*8)(%rsp)
+vmovdqu %xmm15, (128*9)(%rsp)
+#endif
+
 movslq (%rsi), %r15
 leaq (%rax, %r15, 4), %rax // a = a + diff;
 addq $4, %rsi // dataOffsetMap++
@@ -90,7 +124,7 @@ je loop_e48h4_end
 loop_e48h4:
     movq %r8, %r9
     movq %r8, %r12
-    shrq $packC_unit_log, %r9
+    shrq $(packC_unit_log), %r9
     andq $15, %r12 // ih % packC_unit
     leaq (%rcx, %r12, sizeof_value), %r12
     imulq %r11, %r9 // (ih >> packC_unit_log) * cStride
@@ -246,7 +280,7 @@ loop_e48h4:
 
     subq $4, %rsi // dataOffsetMap--
     movslq (%rsi), %r15
-    addq $sparse_blockoc, %r8
+    addq $(sparse_blockoc), %r8
     addq $4, %rdi
     negq %r15
     leaq (%rax, %r15, sizeof_value), %rax // a = a - diff;
@@ -284,7 +318,7 @@ je loop_end
 loop_e48h1:
     movq %r8, %r9
     movq %r8, %r12
-    shrq $packC_unit_log, %r9
+    shrq $(packC_unit_log), %r9
     andq $15, %r12 // ih % packC_unit
     leaq (%rcx, %r12, sizeof_value), %r12
     imulq %r11, %r9 // (ih >> packC_unit_log) * cStride
@@ -433,15 +467,37 @@ loop_e48h1_end:
 
 loop_end:
 
-popq %r15
-popq %r14
-popq %r13
-popq %r12
-popq %r9
-popq %r8
-popq %rbx
-popq %rax
-popq %rbp
+#ifdef WIN32
+vmovdqu (128*0)(%rsp), %xmm6
+vmovdqu (128*1)(%rsp), %xmm7
+vmovdqu (128*2)(%rsp), %xmm8
+vmovdqu (128*3)(%rsp), %xmm9
+vmovdqu (128*4)(%rsp), %xmm10
+vmovdqu (128*5)(%rsp), %xmm11
+vmovdqu (128*6)(%rsp), %xmm12
+vmovdqu (128*7)(%rsp), %xmm13
+vmovdqu (128*8)(%rsp), %xmm14
+vmovdqu (128*9)(%rsp), %xmm15
+leaq (1280)(%rsp), %rsp
+popq    %r15
+popq    %r14
+popq    %r13
+popq    %r12
+popq    %rbx
+popq    %rsi
+popq    %rdi
+#else
+popq    %r15
+popq    %r14
+popq    %r13
+popq    %r12
+popq    %r9
+popq    %r8
+popq    %rbx
+popq    %rax
+#endif
+
+popq    %rbp
 
 retq
 

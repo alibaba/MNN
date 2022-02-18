@@ -50,11 +50,16 @@ ErrorCode BinaryExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int stride0[3] = {0, 0, s0};
     int stride1[3] = {0, 0, s1};
     int stride2[3] = {0, 0, 1};
+    auto type = outputs[0]->getType();
+    if (type.code == halide_type_float) {
+        // Use Half or float
+        type.bits = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]) * 8;
+    }
     auto computeFunction = [&](Tensor* input0T, Tensor* input1T, Tensor* outputT) {
         auto input0 = (uint8_t*)input0T->deviceId();
         auto input1 = (uint8_t*)input1T->deviceId();
         auto output = (uint8_t*)outputT->deviceId();
-        BinaryBlit(output, input0, input1, size, stride0, stride1, stride2, outputT->getType(), runtime, mType);
+        BinaryBlit(output, input0, input1, size, stride0, stride1, stride2, type, runtime, mType);
     };
     computeFunction(inputs[0], inputs[1], outputs[0]);
     for (int i=2; i<inputs.size(); ++i) {

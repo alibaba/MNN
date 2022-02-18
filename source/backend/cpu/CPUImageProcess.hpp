@@ -23,6 +23,10 @@ typedef void (*SAMPLER)(const unsigned char* source, unsigned char* dest, CV::Po
 class CPUImageProcess : public Execution {
 public:
     CPUImageProcess(CV::ImageProcess::Config config, const CoreFunctions* coreFunctions) : Execution(nullptr), coreFunctions(coreFunctions) {
+        if (config.draw) {
+            draw = true;
+            return;
+        }
         filterType = (FilterType)config.filterType;
         wrap = (WrapType)config.wrap;
         sourceFormat = (ImageFormatType)config.sourceFormat;
@@ -40,6 +44,11 @@ public:
         paddingValue = val;
     }
     CPUImageProcess(Backend *bn, const ImageProcessParam* process) : Execution(bn) {
+        coreFunctions = static_cast<CPUBackend*>(backend())->functions();
+        draw = process->draw();
+        if (draw) {
+            return;
+        }
         filterType = process->filterType();
         wrap = process->wrap();
         sourceFormat = process->sourceFormat();
@@ -53,12 +62,12 @@ public:
             transform.set(i, process->transform()->Get(i));
         }
         transform.invert(&transformInvert);
-        coreFunctions = static_cast<CPUBackend*>(backend())->functions();
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     BLITTER choose(ImageFormatType source, ImageFormatType dest);
+    BLITTER choose(int channelByteSize);
     BLIT_FLOAT choose(ImageFormatType format, int dstBpp = 0);
     SAMPLER choose(ImageFormatType format, FilterType type, bool identity);
 private:
@@ -78,6 +87,7 @@ private:
     std::unique_ptr<uint8_t[]> samplerBuffer, blitBuffer;
     uint8_t* samplerDest = nullptr, *blitDest = nullptr;
     const CoreFunctions* coreFunctions = nullptr;
+    bool draw = false;
 };
 }; // namespace MNN
 

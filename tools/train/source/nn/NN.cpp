@@ -11,6 +11,7 @@
 #include "module/PipelineModule.hpp"
 #include "module/WhileModule.hpp"
 #include "module/IfModule.hpp"
+#include "module/NMSModule.hpp"
 #include "Initializer.hpp"
 #include "MNN_generated.h"
 #include "RandomGenerator.hpp"
@@ -527,6 +528,9 @@ Module* NN::Utils::ExtractNotRunableOp(Express::EXPRP expr, const std::map<std::
     }
     if (expr->get()->type() == OpType_If) {
         return IfModule::create(expr->get(), subgraphs);
+    }
+    if (expr->get()->type() == OpType_NonMaxSuppressionV2) {
+        return NMSModule::create(expr->get());
     }
     return nullptr;
 }

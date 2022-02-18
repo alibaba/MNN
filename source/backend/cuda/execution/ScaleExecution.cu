@@ -1,4 +1,5 @@
 #include "ScaleExecution.hpp"
+#include "MNNCUDADefine.hpp"
 namespace MNN {
 namespace CUDA {
 
@@ -6,61 +7,50 @@ namespace CUDA {
 
 template<typename T>
 __global__ void SCALE(const int n, const int channels, const int dim, const T* in, T* out,
-                        const T* scaleData, const T* biasData) {
-    CUDA_KERNEL_LOOP(index, n) {
-        int c      = (index / dim) % channels;
-        out[index] = in[index] * scaleData[c] + biasData[c];
+                        const float* scaleData, const float* biasData) {
+    CUDA_KERNEL_LOOP(count, n) {
+        int index  = count / PACK_NUMBER;
+        int r      = count % PACK_NUMBER;
+        int c      = (index / dim) * PACK_NUMBER + r;
+        out[count] = (T)((float)in[count] * scaleData[c] + biasData[c]);
     }
 }
 
 ScaleExecution::ScaleExecution(const Scale* scale, Backend *backend) : Execution(backend) {
-    mChannel   = scale->scaleData()->size();
-
-    scaleTensor.reset(Tensor::createDevice<float>({mChannel}));
-    backend->onAcquireBuffer(scaleTensor.get(), Backend::STATIC);
-    mDeviceScale = (void *)scaleTensor.get()->buffer().device;
-
-    biasTensor.reset(Tensor::createDevice<float>({mChannel}));
-    backend->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
-    mDeviceBias = (void *)biasTensor.get()->buffer().device;
-    
-    MNN_ASSERT(nullptr != mDeviceScale);
-    MNN_ASSERT(nullptr != mDeviceBias);
+    int channel   = scale->scaleData()->size();
+    mChannel = UP_DIV(channel, PACK_NUMBER);
+    auto scaleBiasStorageSize = 2 * mChannel * PACK_NUMBER * sizeof(float);
+    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+    mScaleBiasStorage = staticPool->alloc(scaleBiasStorageSize);
+    mDeviceScale = (uint8_t*)mScaleBiasStorage.first + mScaleBiasStorage.second;
+    mDeviceBias = (uint8_t*)mDeviceScale + scaleBiasStorageSize / 2;
+    cudaMemset(mDeviceScale, 0, scaleBiasStorageSize);
     {
         auto alphaData = scale->scaleData()->data();
-        cudaMemcpy(mDeviceScale, alphaData, mChannel * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(mDeviceScale, alphaData, channel * sizeof(float), cudaMemcpyHostToDevice);
     }
     {
         auto biasData = scale->biasData()->data();
         if (nullptr != biasData) {
-            MNN_ASSERT(mChannel == scale->biasData()->size());
-            cudaMemcpy(mDeviceBias, biasData, mChannel * sizeof(float), cudaMemcpyHostToDevice);
-        } else {
-            cudaMemset(mDeviceBias, 0, mChannel * sizeof(float));
+            cudaMemcpy(mDeviceBias, biasData, channel * sizeof(float), cudaMemcpyHostToDevice);
         }
     }
 }
 ScaleExecution::~ScaleExecution() {
-    if (nullptr != scaleTensor) {
-        backend()->onReleaseBuffer(scaleTensor.get(), Backend::STATIC);
-    }
-    if (nullptr != biasTensor) {
-        backend()->onReleaseBuffer(biasTensor.get(), Backend::STATIC);
-    }
+    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+    staticPool->free(mScaleBiasStorage);
 }
 
 ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
     auto input = inputs[0];
-    mBatch     = input->length(0);
-    MNN_ASSERT(mChannel == input->length(1));
     MNN_ASSERT(input->dimensions() >= 2);
-    mArea      = 1;
+    mArea      = input->length(0);
     for (int i = 2; i < input->dimensions(); ++i) {
         mArea *= input->length(i);
     }
-    mCount = mBatch*mChannel*mArea;
+    mCount = mChannel*mArea*PACK_NUMBER;
     //printf("mBatch:%d- mChannel:%d- mArea:%d- mCount:%d\n", mBatch,mChannel,mArea, mCount);
     return NO_ERROR;
 }
@@ -72,9 +62,13 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     int threads_num = runtime->threads_num();
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
-
+    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        SCALE<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const half *)input_addr, (half *)output_addr,
+            (const float *)mDeviceScale, (const float *)mDeviceBias);
+        return NO_ERROR;
+    }
     SCALE<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const float *)input_addr, (float *)output_addr,
-    (const float *)mDeviceScale, (const float *)mDeviceBias);
+        (const float *)mDeviceScale, (const float *)mDeviceBias);
     return NO_ERROR;
 }
 

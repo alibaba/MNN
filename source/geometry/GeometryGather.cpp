@@ -146,10 +146,10 @@ public:
         auto size = (int*)rgcmd->size()->data();
         size[0] = outside;
         size[2] = inside;
-        auto view0Stride = (int*)rgcmd->view()->GetAs<View>(0)->stride();
+        auto view0Stride = (int*)rgcmd->view()->GetAs<View>(0)->stride()->data();
         view0Stride[0] = inside * N;
         view0Stride[1] = inside;
-        auto view1Stride = (int*)rgcmd->view()->GetAs<View>(1)->stride();
+        auto view1Stride = (int*)rgcmd->view()->GetAs<View>(1)->stride()->data();
         view1Stride[0] = inside * params->length(axis);
         view1Stride[1] = inside;
         return true;

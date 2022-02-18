@@ -63,8 +63,11 @@ MNN_PUBLIC VARP _Softsign(VARP features);
 MNN_PUBLIC std::vector<VARP> _Split(VARP value, INTS size_splits, int axis = 0);
 MNN_PUBLIC VARP _Slice(VARP x, VARP starts, VARP sizes);
 MNN_PUBLIC VARP _StridedSlice(VARP input, VARP begin, VARP end, VARP strided,
-                                      int32_t beginMask, int32_t endMask, int32_t ellipsisMask,
-                                      int32_t newAxisMask, int32_t shrinkAxisMask);
+                              int32_t beginMask, int32_t endMask, int32_t ellipsisMask,
+                              int32_t newAxisMask, int32_t shrinkAxisMask);
+MNN_PUBLIC VARP _StridedSliceWrite(VARP input, VARP begin, VARP end, VARP strided, VARP write,
+                                   int32_t beginMask, int32_t endMask, int32_t ellipsisMask,
+                                   int32_t newAxisMask, int32_t shrinkAxisMask);
 MNN_PUBLIC VARP _Concat(VARPS values, int axis);
 MNN_PUBLIC VARP _Convert(VARP input, Dimensionformat format);
 MNN_PUBLIC VARP _Transpose(VARP x, INTS perm);
@@ -155,6 +158,9 @@ MNN_PUBLIC VARP _Select(VARP select, VARP input0, VARP input1);
 MNN_PUBLIC std::vector<VARP> _TopKV2(VARP input0, VARP input1);
 MNN_PUBLIC VARP _ImageProcess(VARP input, CV::ImageProcess::Config config, CV::Matrix matrix, int oh, int ow, int oc, int dtype, uint8_t padVal = 0);
 MNN_PUBLIC VARP _Where(VARP x);
+MNN_PUBLIC VARP _Sort(VARP x, int axis = -1, bool arg = false, bool descend = false);
+MNN_PUBLIC VARP _Raster(const std::vector<VARP>& vars, const std::vector<int>& regions, const std::vector<int>& shape);
+MNN_PUBLIC VARP _Nms(VARP boxes, VARP scores, int maxDetections, float iouThreshold = -1, float scoreThreshold = -1);
 
 } // namespace Express
 } // namespace MNN

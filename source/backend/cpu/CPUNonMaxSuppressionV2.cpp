@@ -117,6 +117,9 @@ ErrorCode CPUNonMaxSuppressionV2::onExecute(const std::vector<Tensor*>& inputs, 
     const auto scores          = inputs[1]->host<float>();
     NonMaxSuppressionSingleClasssImpl(inputs[0], scores, maxDetections, iouThreshold, scoreThreshold, &selected);
     std::copy_n(selected.begin(), selected.size(), outputs[0]->host<int32_t>());
+    for (int i = selected.size(); i < outputs[0]->elementSize(); i++) {
+        outputs[0]->host<int32_t>()[i] = -1;
+    }
 
     return NO_ERROR;
 }

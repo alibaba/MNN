@@ -26,7 +26,8 @@ enum LineTypes {
 
 MNN_PUBLIC void arrowedLine(VARP& img, Point pt1, Point pt2, const Scalar& color,
                             int thickness=1, int line_type=8, int shift=0, double tipLength=0.1);
-MNN_PUBLIC void circle();
+MNN_PUBLIC void circle(VARP& img, Point center, int radius, const Scalar& color,
+                       int thickness=1, int line_type=8, int shift=0);
 
 MNN_PUBLIC void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
                      int thickness = 1, int lineType = LINE_8, int shift = 0);
@@ -34,6 +35,11 @@ MNN_PUBLIC void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
 MNN_PUBLIC void rectangle(VARP& img, Point pt1, Point pt2, const Scalar& color,
                           int thickness = 1, int lineType = LINE_8, int shift = 0);
 
+MNN_PUBLIC void drawContours(VARP& img, std::vector<std::vector<Point>> _contours, int contourIdx, const Scalar& color,
+                             int thickness = 1, int lineType = LINE_8);
+
+MNN_PUBLIC void fillPoly(VARP& img, std::vector<std::vector<Point>> pts, const Scalar& color,
+                         int line_type = LINE_8, int shift = 0, Point offset = {0, 0});
 } // CV
 } // MNN
 #endif // DRAW_HPP

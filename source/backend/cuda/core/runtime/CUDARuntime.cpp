@@ -15,17 +15,11 @@
 #include <utility>
 #include <vector>
 #include "core/Macro.h"
+// #define MNN_CUDA_USE_BLAS
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
-// #define LOG_VERBOSE
-#define CUDNN_VERSION_STR STR(CUDNN_MAJOR) "." STR(CUDNN_MINOR) "." STR(CUDNN_PATCHLEVEL)
-
-#pragma message "compile with cuda " STR(CUDART_VERSION) " "
-#pragma message "compile with cuDNN " CUDNN_VERSION_STR " "
-
-static_assert(!(CUDNN_MAJOR == 5 && CUDNN_MINOR == 1), "cuDNN 5.1.x series has bugs. Use 5.0.x instead.");
 
 #undef STR
 #undef STR_HELPER
@@ -36,7 +30,7 @@ bool CUDARuntime::isCreateError() const {
     return mIsCreateError;
 }
 
-CUDARuntime::CUDARuntime(bool permitFloat16, int device_id) {
+CUDARuntime::CUDARuntime(int device_id) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start CUDARuntime !\n");
 #endif
@@ -49,42 +43,39 @@ CUDARuntime::CUDARuntime(bool permitFloat16, int device_id) {
     mDeviceId = id;
     cuda_check(cudaGetDeviceProperties(&mProp, id));
     MNN_ASSERT(mProp.maxThreadsPerBlock > 0);
-
+#ifdef MNN_CUDA_USE_BLAS
     cublas_check(cublasCreate(&mCublasHandle));
-
-    // Set stream for cuDNN and cublas handles.
-
-    // Note that all cublas scalars (alpha, beta) and scalar results such as dot
-    // output resides at device side.
     cublas_check(cublasSetPointerMode(mCublasHandle, CUBLAS_POINTER_MODE_HOST));
-    cudnn_check(cudnnCreate(&mCudnnHandle));
+#endif
 }
 
 CUDARuntime::~CUDARuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~CUDARuntime !\n");
 #endif
+#ifdef MNN_CUDA_USE_BLAS
     cublas_check(cublasDestroy(mCublasHandle));
-    cudnn_check(cudnnDestroy(mCudnnHandle));
-
+#endif
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~CUDARuntime !\n");
 #endif
 }
 
-int CUDARuntime::blocks_num(const int total_threads) {
-    int maxNum = mProp.maxThreadsPerBlock;
-    if(total_threads / 32 > maxNum) {
-        mThreadPerBlock = maxNum;
-    } else if(total_threads / 16 > maxNum) {
-        mThreadPerBlock = maxNum / 2;
-    } else if(total_threads / 8 > maxNum) {
-        mThreadPerBlock = maxNum / 4;
-    } else if(total_threads / 4 > maxNum) {
-        mThreadPerBlock = maxNum / 8;
-    } else {
-        mThreadPerBlock = 128;
-    }
+size_t CUDARuntime::blocks_num(const size_t total_threads) {
+    // size_t maxNum = mProp.maxThreadsPerBlock;
+    // if(total_threads / 32 > maxNum) {
+    //     mThreadPerBlock = maxNum;
+    // } else if(total_threads / 16 > maxNum) {
+    //     mThreadPerBlock = maxNum / 2;
+    // } else if(total_threads / 8 > maxNum) {
+    //     mThreadPerBlock = maxNum / 4;
+    // } else if(total_threads / 4 > maxNum) {
+    //     mThreadPerBlock = maxNum / 8;
+    // } else {
+    //     mThreadPerBlock = 128;
+    // }
+    
+    mThreadPerBlock = 128;
     return (total_threads + mThreadPerBlock - 1) / mThreadPerBlock;
 }
 
@@ -148,13 +139,4 @@ void CUDARuntime::memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMe
 void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     cuda_check(cudaMemset(dst, value, size_in_bytes));
 }
-
-cublasHandle_t CUDARuntime::cublas_handle() {
-    return mCublasHandle;
-}
-
-cudnnHandle_t CUDARuntime::cudnn_handle() {
-    return mCudnnHandle;
-}
-
 } // namespace MNN

@@ -9,6 +9,7 @@
 #include <random>
 
 #include <MNN/expr/Expr.hpp>
+#include <cmath>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
@@ -45,7 +46,7 @@ void RandInit(VARP value, T lower, T upper) {
 void RandInitBool(VARP value) {
     int* pValue = value->writeMap<int>();
     for (int i = 0; i < Size(value); ++i) {
-        pValue[i] = (uniform_dist(rng) > 0.f);
+        pValue[i] = (uniform_dist(rng) > 0.5f);
     }
 }
 
@@ -68,11 +69,13 @@ bool RunSelectAndCheckResult(VARP select, VARP input0, VARP input1) {
             condition = select->readMap<int>()[i];
         }
         if (condition) {
-            if (input0Ptr[i * iter0] != outputPtr[i]) {
+            if (fabsf(input0Ptr[i * iter0] - outputPtr[i]) >= 0.1f) {
+                MNN_PRINT("%d, %d - %f - %f - %f\n", i, condition, input0Ptr[i * iter0], input1Ptr[i * iter1], outputPtr[i]);
                 return false;
             }
         } else {
-            if (input1Ptr[i * iter1] != outputPtr[i]) {
+            if (fabsf(input1Ptr[i * iter1] - outputPtr[i]) >= 0.1f) {
+                MNN_PRINT("%d, %d - %f - %f - %f\n", i, condition, input0Ptr[i * iter0], input1Ptr[i * iter1], outputPtr[i]);
                 return false;
             }
         }
@@ -84,11 +87,11 @@ bool SelectTester1D(int N) {
     auto input0 = _Input({N}, NCHW);
     auto input1 = _Input({N}, NCHW);
     {
-        auto select = _Input({N}, NCHW);
+        auto select = _Input({N}, NCHW, halide_type_of<int>());
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }
     {
-        auto select = _Input({1}, NCHW);
+        auto select = _Input({1}, NCHW, halide_type_of<int>());
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }
     return true;
@@ -98,15 +101,15 @@ bool SelectTester4D(int N, int C, int H, int W) {
     auto input0 = _Input({N, C, H, W}, NCHW);
     auto input1 = _Input({N, C, H, W}, NCHW);
     {
-        auto select = _Input({N, C, H, W}, NCHW);
+        auto select = _Input({N, C, H, W}, NCHW, halide_type_of<int>());
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }
     {
-        auto select = _Input({1}, NCHW);
+        auto select = _Input({1}, NCHW, halide_type_of<int>());
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }
     {
-        auto select = _Input({N, C, H, W}, NCHW);
+        auto select = _Input({N, C, H, W}, NCHW, halide_type_of<int>());
         auto input0 = _Input({1}, NCHW);
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }

@@ -1065,3 +1065,21 @@ void MNNSamplerNV12Nearest(const unsigned char* source, unsigned char* dest, MNN
     auto countC2 = ((count + 1) / 2);
     _swapUV(destUV, destUV, countC2);
 }
+
+void MNNC3blitH(const unsigned char* source, unsigned char* dest, size_t count) {
+    for (int i = 0; i < count; i++) {
+        memcpy(dest + 3 * i, source, 3);
+    }
+}
+
+void MNNC4blitH(const unsigned char* source, unsigned char* dest, size_t count) {
+    for (int i = 0; i < count; i++) {
+        memcpy(dest + 4 * i, source, 4);
+    }
+}
+
+void MNNC1blitH(const unsigned char* source, unsigned char* dest, size_t count) {
+    for (int i = 0; i < count; i++) {
+        memcpy(dest + i, source, 1);
+    }
+}

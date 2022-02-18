@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #include <map>
-#include "BatchMatMulExecution.hpp"
 #include "MatMulExecution.hpp"
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "Raster.cuh"
@@ -34,18 +33,21 @@ public:
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
             auto op = cmd->op();
             if (OpType_MatMul == op->type() && mLoop->parallel() && mLoop->loopNumber() > 1) {
-                auto& unit = mExecutions[0];
-                unit.exe.reset(new BatchMatMulExecution(op->main_as_MatMul()->transposeA(),  op->main_as_MatMul()->transposeB(), backend()));
-                if (nullptr == unit.exe) {
-                    return OUT_OF_MEMORY;
-                } 
-                unit.inputs = inputs;
-                unit.outputs = outputs;
-                auto code = unit.exe->onResize(unit.inputs, unit.outputs);
-                if (NO_ERROR != code) {
-                    return code;
+                if (inputs.size() <= 3) {
+                    auto& unit = mExecutions[0];
+                    unit.exe.reset(new MatMulExecution(op->main_as_MatMul()->transposeA(),  op->main_as_MatMul()->transposeB(), backend()));
+                    if (nullptr == unit.exe) {
+                        return OUT_OF_MEMORY;
+                    }
+                    unit.inputs = inputs;
+                    unit.outputs = outputs;
+                    auto code = unit.exe->onResize(unit.inputs, unit.outputs);
+                    if (NO_ERROR != code) {
+                        return code;
+                    }
+                    mSingleMatMul = true;
+                    return NO_ERROR;
                 }
-                return NO_ERROR;
             }
         }
 
@@ -134,21 +136,22 @@ public:
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &originInputs, const std::vector<Tensor *> &originOutputs) override {
         auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+        if (mSingleMatMul) {
+            auto& unit = mExecutions[0];
+            unit.inputs = originInputs;
+            unit.outputs = originOutputs;
+
+            auto code = unit.exe->onExecute(unit.inputs, unit.outputs);
+            if (NO_ERROR != code) {
+                return code;
+            }
+            return NO_ERROR;
+        }
         if (1 == mLoop->commands()->size()) {
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
             auto op = cmd->op();
 
-            if (OpType_MatMul == op->type() && mLoop->parallel() && mLoop->loopNumber() > 1) {
-                auto& unit = mExecutions[0];
-                unit.inputs = originInputs;
-                unit.outputs = originOutputs;
 
-                auto code = unit.exe->onExecute(unit.inputs, unit.outputs);
-                if (NO_ERROR != code) {
-                    return code;
-                }
-                return NO_ERROR;
-            }
 
             if (OpType_UnaryOp == op->type() && nullptr == op->main()) {
                 Tensor::InsideDescribe::Region reg;
@@ -160,7 +163,7 @@ public:
                 auto input = mStack[cmd->indexes()->data()[1]];
                 auto inputSize = input->elementSize();
                 auto output = mStack[cmd->indexes()->data()[0]];
-                auto bytes = input->getType().bytes();
+                auto bytes = static_cast<CUDABackend*>(backend())->getBytes(input);
                 auto step0 = cmd->steps()->data()[0];
                 auto step1 = cmd->steps()->data()[1];
                 auto loopNumber = mLoop->loopNumber();
@@ -189,7 +192,7 @@ public:
         for (auto& iter : mIndiceCopy) {
             backend()->onCopyBuffer(iter.first, iter.second);
         }
-        auto bytes = sizeof(float);//TODO: Support Half
+        auto bytes = static_cast<CUDABackend*>(backend())->getBytes(originOutputs[0]);
         for (int iter=0; iter < mLoop->loopNumber(); ++iter) {
             for (int index=0; index<mLoop->commands()->size(); ++index) {
                 auto cmd = mLoop->commands()->GetAs<RegionCommand>(index);
@@ -205,7 +208,7 @@ public:
                     }
                     auto view = cmd->view()->GetAs<View>(v);
                     offset = offset * cmd->steps()->data()[v] + view->offset();
-                    mStackPtr[tensorIndex] = tensor->deviceId() + offset * bytes;
+                    mStackPtr[tensorIndex] = tensor->deviceId() + offset * static_cast<CUDABackend*>(backend())->getBytes(tensor);
                 }
                 if (OpType_UnaryOp == op->type()) {
                     auto src = (float*)mStackPtr[cmd->indexes()->data()[1]];
@@ -233,6 +236,10 @@ public:
                     continue;
                 }
                 if (OpType_BinaryOp == op->type()) {
+                    auto type = halide_type_of<float>();
+                    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+                        type.bits = 16;
+                    }
                     auto src0 = mStackPtr[cmd->indexes()->data()[1]];
                     auto src1 = mStackPtr[cmd->indexes()->data()[2]];
                     auto dst = mStackPtr[cmd->indexes()->data()[0]];
@@ -242,7 +249,7 @@ public:
                     auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
 
                     BinaryBlit((uint8_t*)dst, (const uint8_t*)src0, (const uint8_t*)src1,
-                        cmd->size()->data(), srcStride0, srcStride1, dstStride, halide_type_of<float>(), runtime, opType);
+                        cmd->size()->data(), srcStride0, srcStride1, dstStride, type, runtime, opType);
 
                 }
             }
@@ -256,6 +263,7 @@ private:
     std::vector<Unit> mExecutions;
     std::vector<uint64_t> mStackPtr;
     std::map<Tensor*, Tensor*> mIndiceCopy;
+    bool mSingleMatMul = false;
 };
 
 class LoopCreator : public CUDABackend::Creator {

@@ -13,7 +13,7 @@
 #include "core/Macro.h"
 
 namespace MNN {
-class MNN_PUBLIC WinogradInt8Helper {
+class WinogradInt8Helper {
 public:
     static void transformWeight(const std::vector<float>& weight, std::vector<float>& transWeight,
                                 std::vector<int>& attrs, int oc, int ic, int kernelY, int kernelX) {

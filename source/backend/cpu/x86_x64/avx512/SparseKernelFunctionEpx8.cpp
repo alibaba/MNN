@@ -789,10 +789,15 @@ void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B,
             vacc0 = _mm_min_ps(vacc0, vmax);
             vacc0 = _mm_max_ps(vacc0, vmin);
 
-            c[0] = vacc0[0];
-            c[packCUnit] = vacc0[1];
-            c[packCUnit * 2] = vacc0[2];
-            c[packCUnit * 3] = vacc0[3];
+            union {
+                __m128 v;
+                float f[4];
+            } vacc0_u;
+            vacc0_u.v = vacc0;
+            c[0] = vacc0_u.f[0];
+            c[packCUnit] = vacc0_u.f[1];
+            c[packCUnit * 2] = vacc0_u.f[2];
+            c[packCUnit * 3] = vacc0_u.f[3];
         }
         ie += 4;
         a += 4;
@@ -877,8 +882,13 @@ void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B,
             vacc0 = _mm_min_ps(vacc0, vmax);
             vacc0 = _mm_max_ps(vacc0, vmin);
 
-            c[0] = vacc0[0];
-            c[packCUnit] = vacc0[1];
+            union {
+                __m128 v;
+                float f[4];
+            } vacc0_u;
+            vacc0_u.v = vacc0;
+            c[0] = vacc0_u.f[0];
+            c[packCUnit] = vacc0_u.f[1];
         }
         ie += 2;
         a += 2;

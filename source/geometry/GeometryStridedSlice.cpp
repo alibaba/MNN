@@ -9,6 +9,7 @@
 #include "geometry/GeometryComputer.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/Macro.h"
+#include "ConvertUtils.hpp"
 namespace MNN {
 class GeometryStridedSlice : public GeometryComputer {
 public:
@@ -246,6 +247,31 @@ public:
             reg.dst.stride[0] = reg.size[1] * reg.size[2];
             reg.dst.stride[1] = reg.size[2];
             reg.dst.stride[2] = 1;
+        }
+        if (inputs.size() == 5) {
+            auto write = inputs[4];
+            std::vector<int> shape(outputShape, outputShape + shapeNum);
+            if (write->shape() != shape) {
+                std::shared_ptr<Tensor> newTensor(new Tensor);
+                newTensor->buffer().type = write->buffer().type;
+                newTensor->buffer().dimensions = shapeNum;
+                for (int i = 0; i < shapeNum; i++) {
+                    newTensor->setLength(i, outputShape[i]);
+                }
+                ConvertUtils::broadcastto(write, newTensor.get());
+                write = newTensor.get();
+                res.extras.emplace_back(newTensor);
+            }
+            for (auto& reg : outputDes->regions) {
+                auto tmp = reg.dst;
+                reg.dst = reg.src;
+                reg.src = tmp;
+                reg.origin = write;
+            }
+            Tensor::InsideDescribe::Region region;
+            region.size[2] = input->elementSize();
+            region.origin = input;
+            outputDes->regions.insert(outputDes->regions.begin(), region);
         }
         return true;
     }

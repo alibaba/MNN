@@ -1119,6 +1119,14 @@ VARP _ScatterNd(VARP indices, VARP updates, VARP shape) {
     return (Variable::create(Expr::create(std::move(op), {indices, updates, shape})));
 }
 
+VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->main.type  = OpParameter_NONE;
+    op->type       = OpType_ScatterNd;
+    op->main.value = nullptr;
+    return (Variable::create(Expr::create(std::move(op), {indices, updates, shape, input})));
+}
+
 VARP _OneHot(VARP indices, VARP depth, VARP onValue, VARP offValue, int axis) {
     std::unique_ptr<OpT> op(new OpT);
     op->type                       = OpType_OneHot;

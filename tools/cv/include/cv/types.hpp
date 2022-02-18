@@ -18,7 +18,7 @@ using namespace Express;
 
 #define MNN_PI 3.1415926535897932384626433832795
 
-typedef char schar;
+typedef signed char schar;
 typedef unsigned char uchar;
 
 // Size Start
@@ -194,6 +194,7 @@ public:
 
     Point_& operator = (const Point_& pt);
     Point_& operator = (Point_&& pt);
+    template<typename _Tp2> operator Point_<_Tp2>() const;
 
     _Tp x; //!< x coordinate of the point
     _Tp y; //!< y coordinate of the point
@@ -236,6 +237,32 @@ Point_<_Tp>& Point_<_Tp>::operator = (Point_&& pt)
 {
     x = std::move(pt.x); y = std::move(pt.y);
     return *this;
+}
+
+template<typename _Tp> template<typename _Tp2> inline
+Point_<_Tp>::operator Point_<_Tp2>() const
+{
+    return Point_<_Tp2>(static_cast<_Tp2>(x), static_cast<_Tp2>(y));
+}
+
+template<typename _Tp> static inline
+Point_<_Tp>& operator += (Point_<_Tp>& a, const Point_<_Tp>& b)
+{
+    a.x += b.x;
+    a.y += b.y;
+    return a;
+}
+
+template<typename _Tp> static inline
+Point_<_Tp> operator - (const Point_<_Tp>& a, const Point_<_Tp>& b)
+{
+    return Point_<_Tp>( static_cast<_Tp>(a.x - b.x), static_cast<_Tp>(a.y - b.y) );
+}
+
+template<typename _Tp> static inline
+bool operator != (const Point_<_Tp>& a, const Point_<_Tp>& b)
+{
+    return a.x != b.x || a.y != b.y;
 }
 // Point End
 // Rect Start
@@ -361,11 +388,21 @@ template<typename _Tp> class Scalar_ {
 public:
     //! default constructor
     Scalar_();
-    Scalar_(_Tp _r, _Tp _g, _Tp _b) : r(_r), g(_g), b(_b), a(255) {};
-    Scalar_(_Tp _r, _Tp _g, _Tp _b, _Tp _a) : r(_r), g(_g), b(_b), a(_a) {};
-    _Tp r, g, b, a;
+    Scalar_(_Tp _r, _Tp _g, _Tp _b) {
+        val[0] = _r;
+        val[1] = _g;
+        val[2] = _b;
+        val[3] = 255;
+    };
+    Scalar_(_Tp _r, _Tp _g, _Tp _b, _Tp _a) {
+        val[0] = _r;
+        val[1] = _g;
+        val[2] = _b;
+        val[3] = _a;
+    };
+    _Tp val[4];
 };
-typedef Scalar_<uint8_t> Scalar;
+typedef Scalar_<double> Scalar;
 // Scalar End
 
 static void getVARPSize(VARP var, int* height, int* width, int* channel) {
@@ -405,6 +442,9 @@ static int getVARPChannel(VARP var) {
     int h, w, c;
     getVARPSize(var, &h, &w, &c);
     return c;
+}
+static int getVARPByte(VARP var) {
+    return var->getInfo()->type.bytes();
 }
 } // CV
 } // MNN

@@ -95,8 +95,8 @@ public:
         // Do nothing
     }
     virtual ~ MetalRuntimeAllocator() = default;
-    virtual std::pair<void*, int> onAlloc(int size, int align) override;
-    virtual void onRelease(std::pair<void*, int> ptr) override;
+    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override;
+    virtual void onRelease(std::pair<void*, size_t> ptr) override;
     
 private:
     id<MTLDevice> mDevice;

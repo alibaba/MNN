@@ -116,7 +116,13 @@ bool compareVar(VARP var, std::string name) {
     auto diffAbsMax = _ReduceMax(diff);
     auto absMaxV = absMax->readMap<T>()[0];
     auto diffAbsMaxV = diffAbsMax->readMap<T>()[0];
-    if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
+    // The implemention of isnan in VS2017 isn't accept integer type, so cast all type to double
+#ifdef _MSC_VER
+#define ALI_ISNAN(x) std::isnan(static_cast<long double>(x))
+#else
+#define ALI_ISNAN(x) std::isnan(x)
+#endif
+    if (absMaxV * 0.01f < diffAbsMaxV || ALI_ISNAN(absMaxV)) {
         std::cout << "TESTERROR " << name << " value error : absMaxV:" << absMaxV << " - DiffMax:" << diffAbsMaxV << std::endl;
         return false;
     }

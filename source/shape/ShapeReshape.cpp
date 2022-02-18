@@ -100,9 +100,7 @@ public:
         int totalSizeInput  = 1;
         for (int i = 0; i < input->buffer().dimensions; ++i) {
             auto l = input->length(i);
-            if (l != 0) {
-                totalSizeInput *= l;
-            }
+            totalSizeInput *= l;
         }
 
         int determinAxis = -1;

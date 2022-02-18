@@ -221,6 +221,47 @@ public:
     }
 };
 
+class GeometryRaster : public GeometryComputer {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        auto extra  = op->main_as_Extra();
+        if (!extra) {
+            return true;
+        }
+        auto output     = outputs[0];
+        auto outputDes  = TensorUtils::getDescribe(output);
+        outputDes->regions.resize(inputs.size());
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        for (int i = 0; i < extra->attr()->size(); i++) {
+            auto attr = extra->attr()->Get(i);
+            if (attr->key()->str() == "region") {
+                int len = attr->list()->i()->size();
+                MNN_ASSERT(inputs.size() * 11 == len);
+
+                for (int j = 0; j < inputs.size(); j++) {
+                    auto& region = outputDes->regions[j];
+#define _GET(x) attr->list()->i()->Get(j * 11 + x)
+                    region.src.offset = _GET(0);
+                    region.src.stride[0] = _GET(1);
+                    region.src.stride[1] = _GET(2);
+                    region.src.stride[2] = _GET(3);
+                    region.dst.offset = _GET(4);
+                    region.dst.stride[0] = _GET(5);
+                    region.dst.stride[1] = _GET(6);
+                    region.dst.stride[2] = _GET(7);
+                    region.size[0] = _GET(8);
+                    region.size[1] = _GET(9);
+                    region.size[2] = _GET(10);
+                    region.origin = inputs[j];
+#undef _GET
+                }
+            }
+        }
+        return true;
+    }
+};
+
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryShape);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Shape});
@@ -230,6 +271,8 @@ static void _create() {
     GeometryComputer::registerGeometryComputer(comp2, {OpType_PriorBox});
     std::shared_ptr<GeometryComputer> comp3(new GeometrySize);
     GeometryComputer::registerGeometryComputer(comp3, {OpType_Size});
+    std::shared_ptr<GeometryComputer> comp4(new GeometryRaster);
+    GeometryComputer::registerGeometryComputer(comp4, {OpType_Raster});
 }
 
 REGISTER_GEOMETRY(GeometryShape, _create);

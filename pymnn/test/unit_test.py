@@ -465,6 +465,14 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.range(start, limit, delta), np.arange(0.0, 2.0, 0.3))
     def test_depth_to_space(self):
         self.assertEqualVar(expr.depth_to_space(self.x, 2), torch.pixel_shuffle(self._x, 2))
+    def test_sort(self):
+        x = mp.array([5, -1, 2, 0])
+        x_ = np.array([5, -1, 2, 0])
+        self.assertEqualVar(expr.sort(x), np.sort(x_))
+    def test_raster(self):
+        x = mp.array([[1, 2], [3, 4]])
+        x_ = np.array([[1, 2], [3, 4]])
+        self.assertEqualVar(expr.raster([x], [0, 1, 1, 2, 0, 1, 2, 1, 1, 2, 2], [2, 2]), x_.transpose())
     def test_detection_post_process(self):
         pass
     # test cv
@@ -643,6 +651,40 @@ class UnitTest(unittest.TestCase):
         x = cv.threshold(self.imgf, 50, 20, cv.THRESH_BINARY)
         y = cv2.threshold(self.imgf_, 50, 20, cv2.THRESH_BINARY)[1]
         self.assertEqualImg(x, y)
+    # draw
+    def test_Draw(self):
+        x = self.img.copy()
+        y = self.img_.copy()
+        # 1. arrowedLine
+        cv.arrowedLine(x, [10, 10], [40, 40], [255, 0, 0])
+        cv2.arrowedLine(y, [10, 10], [40, 40], [255, 0, 0])
+        # 2. line
+        cv.line(x, [20, 30], [50, 60], [0, 0, 255])
+        cv2.line(y, [20, 30], [50, 60], [0, 0, 255])
+        # 3. circle
+        cv.circle(x, [70, 70], 30, [0, 255, 0])
+        cv2.circle(y, [70, 70], 30, [0, 255, 0])
+        # 4. rectangle
+        cv.rectangle(x, [80, 80], [120, 120], [0, 0, 255])
+        cv2.rectangle(y, [80, 80], [120, 120], [0, 0, 255])
+        # get contours
+        y_ = cv2.cvtColor(y, cv2.COLOR_BGR2GRAY)
+        y_ = cv2.threshold(y_, 127, 255, cv2.THRESH_BINARY)[1]
+        c_, _ = cv2.findContours(y_, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        c = []
+        for a in c_:
+            ps = []
+            for b in a:
+                ps.append(int(b[0,0]))
+                ps.append(int(b[0,1]))
+            c.append(ps)
+        # 5. fillPoly
+        cv.fillPoly(x, c, [255, 0, 0])
+        cv2.fillPoly(y, c_, [255, 0, 0])
+        # 6. drawContours
+        cv.drawContours(x, c, -1, [0, 0, 255])
+        cv2.drawContours(y, c_, -1, [0, 0, 255])
+        self.assertEqualImg(x, y)
     # structural
     def test_Structural(self):
         x  = mp.array([[0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -661,17 +703,20 @@ class UnitTest(unittest.TestCase):
         contours_, _ = cv2.findContours(x_, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contour = contours[0]
         contour_ = contours_[0]
-        self.assertEqualPoints(contour, contour_)
+        self.assertEqualVar(contour, contour_)
         self.assertEqual(cv.contourArea(contour), cv2.contourArea(contour_))
         hull = cv.convexHull(contour)
         hull_ = cv2.convexHull(contour_)
-        self.assertEqualPoints(hull, hull_)
+        if version_info.major < 3: hull_ = np.concatenate([hull_[-1::, :], hull_[:-1,:]])
+        self.assertEqualVar(hull, hull_)
         rect = cv.minAreaRect(contour)
         rect_ = cv2.minAreaRect(contour_)
-        self.assertEqual(rect, rect_)
-        points = cv.boxPoints(rect),
+        if version_info.major >= 3:
+            self.assertEqual(rect, rect_)
+        points = cv.boxPoints(rect)
         points_ = cv2.boxPoints(rect_)
-        self.assertEqualPoints(points, points_)
+        if version_info.major >= 3:
+            self.assertEqualVar(points, points_)
         self.assertEqual(tuple(cv.boundingRect(contour)), cv2.boundingRect(contour_))
         ret, labels, statsv, centroids = cv.connectedComponentsWithStats(x)
         ret_, labels_, statsv_, centroids_ = cv2.connectedComponentsWithStats(x_)
@@ -688,6 +733,16 @@ class UnitTest(unittest.TestCase):
     def test_hconcat(self):
         x = cv.hconcat([self.img, self.img])
         y = cv2.hconcat([self.img_, self.img_])
+        self.assertEqualImg(x, y)
+    def test_rotate(self):
+        x = cv.rotate(self.img, cv.ROTATE_90_CLOCKWISE)
+        y = cv2.rotate(self.img_, cv2.ROTATE_90_CLOCKWISE)
+        self.assertEqualImg(x, y)
+        x = cv.rotate(self.img, cv.ROTATE_180)
+        y = cv2.rotate(self.img_, cv2.ROTATE_180)
+        self.assertEqualImg(x, y)
+        x = cv.rotate(self.img, cv.ROTATE_90_COUNTERCLOCKWISE)
+        y = cv2.rotate(self.img_, cv2.ROTATE_90_COUNTERCLOCKWISE)
         self.assertEqualImg(x, y)
     # numpy
     def test_from_shape_or_value(self):
@@ -724,6 +779,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.linspace(2.0, 3.0, num=5, endpoint=False), np.linspace(2.0, 3.0, num=5, endpoint=False))
         self.assertEqualVar(mp.logspace(2.0, 3.0, num=4, endpoint=False), np.logspace(2.0, 3.0, num=4, endpoint=False))
         self.assertEqualVar(mp.geomspace(1, 1000, num=4, endpoint=False), np.geomspace(1, 1000, num=4, endpoint=False))
+        x = mp.arange(-5, 5., 0.1)
+        y = np.arange(-5, 5., 0.1)
+        self.assertEqualVars(mp.meshgrid(x, x), np.meshgrid(y, y))
     def test_changing_array_shape(self):
         x = mp.zeros((3, 2))
         x_ = np.zeros((3, 2))
@@ -916,6 +974,11 @@ class UnitTest(unittest.TestCase):
         self.assertEqualShape(mp.random.randn(2,3).shape, np.random.randn(2,3).shape)
         self.assertEqualShape(mp.random.rand(3,2).shape, np.random.rand(3,2).shape)
         self.assertEqualShape(mp.random.randint(0, 2, [2,3]).shape, np.random.randint(0, 2, [2,3]).shape)
+    def test_sorting(self):
+        x = mp.array([[1,0,3], [0,6,5]])
+        x_ = np.array([[1,0,3], [0,6,5]])
+        self.assertEqualVar(mp.sort(x), np.sort(x_))
+        self.assertEqualVar(mp.argsort(x), np.argsort(x_))
     def test_searching_counting(self):
         x = mp.array([[1,0,3], [0,6,5]])
         x_ = np.array([[1,0,3], [0,6,5]])
@@ -980,10 +1043,12 @@ class UnitTest(unittest.TestCase):
         self.assertAlmostEqual(x.var(), x_.var())
         self.assertEqualVar(x.var(0), x_.var(0))
         self.assertEqual(len(x), len(x_))
-        self.assertEqual(x[0,1].read_as_tuple()[0], x_[0,1])
+        self.assertEqual(x[0,1], x_[0,1])
         self.assertEqualVar(x[0], x_[0])
         self.assertEqualVar(x[:], x_[:])
         self.assertEqualVar(x[:1], x_[:1])
         self.assertEqualVar(x[::-1], x_[::-1])
+        self.assertEqualVar(x[x > 2], x_[x_ > 2])
+        self.assertEqualVar(x[mp.array([1])], x_[np.array([1])])
 if __name__ == '__main__':
     unittest.main()
