@@ -7,6 +7,7 @@
 #include "backend/cuda/core/runtime/CUDARuntime.hpp"
 #include <float.h>
 #define MATMULPACK 16
+#define MATMULPACK2 (MATMULPACK * MATMULPACK)
 namespace MNN {
 namespace CUDA {
 
@@ -16,12 +17,20 @@ struct MatMulParam {
     int aStride[3];
     int bStride[3];
     int cStride[3];
-    int split[3];// a, b, c can split e / h in l
+
+    // Outside E, Outside L, Inside
+    int aPStride[3];
+
+    // Outside H, Outside L, Inside
+    int bPStride[3];
+
+    int batch = 1;
     float minValue = -FLT_MAX;
     float maxValue = FLT_MAX;
 };
-void GemmPrepareRerange(CUDARuntime* runtime, const MatMulParam* cpuParam, const MatMulParam* param, const float* A, __half* AP, const float* B, __half* BP);
-void GemmPackedMain(CUDARuntime* runtime, const MatMulParam* cpuParam, const MatMulParam* param, float *c, const half *a, const half *b, const float* biasPtr);
+void GemmPrepareRerange(CUDARuntime* runtime, const MatMulParam* cpuParam, const MatMulParam* param, const void* A, __half* AP, const void* B, __half* BP, int bytes);
+void GemmPackedMain(CUDARuntime* runtime, const MatMulParam* cpuParam, const MatMulParam* param, void *c, const half *a, const half *b, const void* biasPtr, int bytes, bool transposeA, bool transposeB);
+
 }
 }
 #endif

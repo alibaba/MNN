@@ -28,6 +28,7 @@ private:
     std::pair<void*, int> mTempB;
     std::pair<void*, int> mParameters; // In GPU
     MatMulParam mParam; // In CPU
+    bool mUseBlas = false;
 };
 } // namespace CUDA
 } // namespace MNN

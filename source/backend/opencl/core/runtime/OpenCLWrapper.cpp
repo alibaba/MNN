@@ -579,21 +579,21 @@ cl_int CL_API_CALL clEnqueueCopyImage(cl_command_queue queue,
 //}
 
 // clSVMAlloc wrapper, use OpenCLWrapper function.
-void *clSVMAlloc(cl_context context, cl_mem_flags flags, size_t size, cl_uint align) {
+void* CL_API_CALL clSVMAlloc(cl_context context, cl_mem_flags flags, size_t size, cl_uint align) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSVMAlloc;
     MNN_CHECK_NOTNULL(func);
     return func(context, flags, size, align);
 }
 
 // clSVMFree wrapper, use OpenCLWrapper function.
-void clSVMFree(cl_context context, void *buffer) {
+void CL_API_CALL clSVMFree(cl_context context, void *buffer) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSVMFree;
     MNN_CHECK_NOTNULL(func);
     func(context, buffer);
 }
 
 // clEnqueueSVMMap wrapper, use OpenCLWrapper function.
-cl_int clEnqueueSVMMap(cl_command_queue command_queue, cl_bool blocking, cl_map_flags flags, void *host_ptr,
+cl_int CL_API_CALL clEnqueueSVMMap(cl_command_queue command_queue, cl_bool blocking, cl_map_flags flags, void *host_ptr,
                        size_t size, cl_uint num_events_in_wait_list, const cl_event *event_wait_list, cl_event *event) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueSVMMap;
     MNN_CHECK_NOTNULL(func);
@@ -601,7 +601,7 @@ cl_int clEnqueueSVMMap(cl_command_queue command_queue, cl_bool blocking, cl_map_
 }
 
 // clEnqueueSVMUnmap wrapper, use OpenCLWrapper function.
-cl_int clEnqueueSVMUnmap(cl_command_queue command_queue, void *host_ptr, cl_uint num_events_in_wait_list,
+cl_int CL_API_CALL clEnqueueSVMUnmap(cl_command_queue command_queue, void *host_ptr, cl_uint num_events_in_wait_list,
                          const cl_event *event_wait_list, cl_event *event) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueSVMUnmap;
     MNN_CHECK_NOTNULL(func);
@@ -609,7 +609,7 @@ cl_int clEnqueueSVMUnmap(cl_command_queue command_queue, void *host_ptr, cl_uint
 }
 
 // clSetKernelArgSVMPointer wrapper, use OpenCLWrapper function.
-cl_int clSetKernelArgSVMPointer(cl_kernel kernel, cl_uint index, const void *host_ptr) {
+cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel, cl_uint index, const void *host_ptr) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSetKernelArgSVMPointer;
     MNN_CHECK_NOTNULL(func);
     return func(kernel, index, host_ptr);

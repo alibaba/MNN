@@ -11,7 +11,6 @@
 #include <opencv2/imgcodecs.hpp>
 #include "test_env.hpp"
 
-#define MNN_TEST_COLOR
 #ifdef MNN_TEST_COLOR
 
 static Env<unsigned char> testEnv(img_name, false);

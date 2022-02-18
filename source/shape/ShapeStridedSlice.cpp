@@ -16,7 +16,14 @@ class StridedSliceComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
-        MNN_ASSERT(4 == inputs.size());
+        // write to input
+        if (inputs.size() == 5) {
+            TensorUtils::copyShape(inputs[0], outputs[0], true);
+            outputs[0]->buffer().type = inputs[0]->buffer().type;
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            return true;
+        }
+        MNN_ASSERT(4 <= inputs.size());
         MNN_ASSERT(1 == outputs.size());
         
         Tensor *input            = inputs[0];

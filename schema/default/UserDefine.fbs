@@ -62,4 +62,5 @@ table ImageProcessParam {
     paddingValue:byte = 0;
     shape:[int]; // shape: [N, C, H, W]
     outputType:DataType;
+    draw:bool = false;
 }

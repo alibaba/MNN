@@ -116,6 +116,9 @@ Variable::Info* Expr::outputInfo(int index) const {
 void Expr::_addLinkForInputs(EXPRP expr) {
     auto inputs = expr->inputs();
     for (int i=0; i<inputs.size(); ++i) {
+        if (inputs[i].get() == nullptr) {
+            continue;
+        }
         bool findEmpty = false;
         auto inputExpr = inputs[i]->mFrom;
         for (int j=0; j<inputExpr->mTo.size(); ++j) {
@@ -290,6 +293,10 @@ bool Expr::requireInfo() {
     }
     for (int i = 0; i < mInputs.size(); ++i) {
         auto& v  = mInputs[i];
+        if (v->getInfo()->size == 0) {
+            // zero shape
+            continue;
+        }
         if (mInside->mReq.shapeNeedContent[i]) {
             // For shape need content, the content must not be nullptr
             auto ptr = v->readInternal(true);
@@ -338,6 +345,9 @@ void Expr::replace(EXPRP old, EXPRP from) {
         return;
     }
     for (auto input : old->inputs()) {
+        if (input.get() == nullptr) {
+            continue;
+        }
         for (int j=0; j<input->mFrom->mTo.size(); ++j) {
             auto ref = input->mFrom->mTo[j].lock();
             if (ref.get() == old.get()) {
@@ -346,6 +356,9 @@ void Expr::replace(EXPRP old, EXPRP from) {
         }
     }
     for (auto input : from->inputs()) {
+        if (input.get() == nullptr) {
+            continue;
+        }
         bool hasSet = false;
         for (int j=0; j<input->mFrom->mTo.size(); ++j) {
             auto ref = input->mFrom->mTo[j].lock();
@@ -567,6 +580,9 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
         return;
     }
     for (int i = 0; i < expr->inputs().size(); ++i) {
+        if (expr->inputs()[i].get() == nullptr) {
+            continue;
+        }
         visit(expr->inputs()[i]->mFrom, before, after);
     }
     after(expr);
@@ -721,6 +737,9 @@ void Expr::visitOutputs(const std::function<bool(EXPRP, int)>& visit) {
         bool recurse = false;
         auto inputs = expr->inputs();
         for (int i=0; i<inputs.size(); ++i) {
+            if (inputs[i].get() == nullptr) {
+                continue;
+            }
             if (inputs[i]->mFrom.get() == this) {
                 recurse = recurse || visit(expr, i);
             }
@@ -924,6 +943,10 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         op->name = expr->name();
         op->inputIndexes.resize(expr->inputs().size());
         for (int i = 0; i < op->inputIndexes.size(); ++i) {
+            if (expr->inputs()[i] == nullptr) {
+                op->inputIndexes[i] = -1;
+                continue;
+            }
             auto inputExpr = expr->inputs()[i]->expr();
             op->inputIndexes[i] = varIndexInfo[inputExpr.first] + inputExpr.second;
         }

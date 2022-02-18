@@ -40,7 +40,7 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
                 expected += AY[k] * BX[k * e];
             }
             auto diff = fabsf(expected - computed);
-            if (diff > 0.1f) {
+            if (diff > 0.003f * fabsf(expected)) {
                 MNN_PRINT("%f -> %f\n", expected, computed);
                 res = false;
             }

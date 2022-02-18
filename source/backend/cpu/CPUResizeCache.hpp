@@ -6,11 +6,11 @@
 #include "MNN_generated.h"
 
 namespace MNN {
-class CPUBackend;
-class CPUResizeCache {
+// FIXME: Move outside
+class MNN_PUBLIC CPUResizeCache {
 public:
-    CPUResizeCache(const CPUBackend* backend) {
-        mBackend = backend;
+    CPUResizeCache() {
+        // Do nothing
     }
     ~ CPUResizeCache() {
         // Do nothing
@@ -21,7 +21,6 @@ public:
     void reset();
 private:
     std::map<std::pair<const Tensor*, MNN_DATA_FORMAT>, std::shared_ptr<Tensor>> mFormatCache;
-    const CPUBackend* mBackend;
 };
 }
 

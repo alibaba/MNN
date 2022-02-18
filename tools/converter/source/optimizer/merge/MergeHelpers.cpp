@@ -116,6 +116,9 @@ std::vector<VARP> OutputVars(EXPRP expr) {
             continue;
         }
         for (VARP output : child->inputs()) {
+            if (output.get() == nullptr) {
+                continue;
+            }
             int output_index = 0;
             EXPRP parent;
             std::tie(parent, output_index) = output->expr();

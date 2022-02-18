@@ -13,7 +13,7 @@ ignore_files = [
     "CPUFixedPoint.hpp", "OptimizedComputer.hpp", "OptimizedComputer.cpp",
     "AllShader.h", "AllShader.cpp", "VulkanShaderMap.cpp"
     ]
-all_exts = [".c", ".cpp", ".h", ".hpp", ".m", ".mm", ".s", ".metal"]
+all_exts = [".c", ".cpp", ".h", ".hpp", ".m", ".mm", ".s", ".metal", ".cuh", '.cu']
 
 header_template = \
 "//\n"                                                  + \

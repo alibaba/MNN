@@ -18,7 +18,7 @@ if len(sys.argv) > 5:
     runStatic = True
 gWrong = []
 
-convert = './MNNConvert -f MNN --bizCode MNN --saveStaticModel --modelFile '
+convert = ('MNNConvert.exe' if os.name == 'nt' else './MNNConvert') + ' -f MNN --bizCode MNN --saveStaticModel --modelFile '
 tmpModel = '__tmpModel__.mnn'
 dynamic_size = 0
 static_size = 0

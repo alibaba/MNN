@@ -397,6 +397,8 @@ static int test_main(int argc, const char* argv[]) {
         auto outputFile = pwd + "output.txt";
         if (outputTensor->size() > 0) {
             dumpTensor2File(&expectTensor, outputFile.c_str(), orderFileOs);
+        } else {
+            MNN_ERROR("output size is 0, can't save\n");
         }
     }
     auto allOutputs = net->getSessionOutputAll(session);

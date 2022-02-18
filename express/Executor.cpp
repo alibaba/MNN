@@ -536,6 +536,7 @@ ErrorCode Executor::ComputeCache::compute() {
     if (mShapeDirty) {
         auto code = resize();
         if (NO_ERROR != code) {
+            mShapeDirty = true;
             return code;
         }
     }

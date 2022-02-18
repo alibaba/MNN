@@ -45,7 +45,7 @@ void ScatterNdImpl(const Tensor* indices, const Tensor* updates, const Tensor* s
         }
         if (valid) {
             for (int k = 0; k < accNumber; ++k) {
-                outputPtr[pos + k] += updatesPtr[i * accNumber + k];
+                outputPtr[pos + k] = updatesPtr[i * accNumber + k];
             }
         }
     }
@@ -59,7 +59,12 @@ ErrorCode CPUScatterNd::onExecute(const std::vector<Tensor*>& inputs, const std:
     const int outputSize = output->size();
 
     auto outputRawPtr = output->host<int8_t>();
-    memset(outputRawPtr, 0, outputSize);
+    if (inputs.size() < 4) {
+        memset(outputRawPtr, 0, outputSize);
+    } else {
+        auto inputRawPtr = inputs[3]->host<int8_t>();
+        memcpy(outputRawPtr, inputRawPtr, outputSize);
+    }
 
     auto updatesDataType = updates->getType();
     if (updatesDataType == halide_type_of<int32_t>()) {

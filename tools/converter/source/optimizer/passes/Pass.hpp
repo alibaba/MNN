@@ -61,6 +61,7 @@ public:
     PassManager() = delete;
     PassManager(PassContext *context) : context_(context) {}
     PassManager(const PassManager& other);
+    PassManager& operator=(const PassManager&) = delete;
 
     virtual ~PassManager() = default;
 

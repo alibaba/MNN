@@ -39,8 +39,10 @@ class WhereSizeComputer : public SizeComputer {
             // support old version
             return true;
         }
-        // For compability
+        // For zeroshape input
         if (nullptr == inputs[0]->host<void>()) {
+            ob.dimensions = 1;
+            ob.dim[0].extent = 0;
             return true;
         }
         int count = 0;
@@ -56,6 +58,9 @@ class WhereSizeComputer : public SizeComputer {
 
         if (count > 0) {
             ob.dim[0].extent = count;
+        } else {
+            ob.dimensions = 1;
+            ob.dim[0].extent = 0;
         }
         return true;
     }

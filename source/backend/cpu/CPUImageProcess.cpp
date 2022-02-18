@@ -87,6 +87,19 @@ BLITTER CPUImageProcess::choose(ImageFormatType source, ImageFormatType dest) {
     return nullptr;
 }
 
+BLITTER CPUImageProcess::choose(int channelByteSize) {
+    switch (channelByteSize) {
+        case 4:
+            return MNNC4blitH;
+        case 3:
+            return MNNC3blitH;
+        case 1:
+            return MNNC1blitH;
+        default:
+            return nullptr;
+    }
+}
+
 SAMPLER CPUImageProcess::choose(ImageFormatType format, FilterType type, bool identity) {
     if (identity) {
         switch (format) {
@@ -271,10 +284,21 @@ static std::pair<int, int> _computeClip(CV::Point* points, int iw, int ih, const
 }
 
 ErrorCode CPUImageProcess::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input = inputs[0], output = outputs[0];
-    ih = input->height();
-    iw = input->width();
-    ic = input->channel();
+    auto input = inputs[0];
+    if (input->dimensions() == 3) {
+        ih = input->length(0);
+        iw = input->length(1);
+        ic = input->length(2);
+    } else {
+        ih = input->height();
+        iw = input->width();
+        ic = input->channel();
+    }
+    if (draw) {
+        blitter = choose(ic * inputs[0]->getType().bytes());
+        return NO_ERROR;
+    }
+    auto output = outputs[0];
     oh = output->height();
     ow = output->width();
     oc = output->channel();
@@ -321,15 +345,37 @@ ErrorCode CPUImageProcess::onResize(const std::vector<Tensor *> &inputs, const s
 
 ErrorCode CPUImageProcess::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto source = inputs[0]->host<uint8_t>();
-    auto dest = outputs[0]->host<void>();
+    void* dest = nullptr;
     CV::Point points[2];
-    int tileCount = UP_DIV(ow, CACHE_SIZE);
     auto destBytes = dtype.bytes();
-    for (int dy = 0; dy < oh; ++dy) {
+    int tileCount = UP_DIV(ow, CACHE_SIZE);
+    const int* regions = nullptr;
+    if (draw) {
+        // change input to output
+        dest = source;
+        oh = inputs[1]->length(0);
+        ow = iw;
+        oc = ic;
+        destBytes = inputs[0]->getType().bytes();
+        // draw one
+        tileCount = 1;
+        // src is color
+        samplerDest = inputs[2]->host<uint8_t>();
+        // get region info ptr
+        regions = inputs[1]->host<int>();
+    } else {
+        dest = outputs[0]->host<void>();
+    }
+    for (int i = 0; i < oh; ++i) {
+        int dy = draw ? regions[3 * i] : i;
         auto dstY = (uint8_t*)dest + dy * destBytes * ow * oc;
         for (int tIndex = 0; tIndex < tileCount; ++tIndex) {
             int xStart    = tIndex * CACHE_SIZE;
             int count     = std::min(CACHE_SIZE, ow - xStart);
+            if (draw) {
+                xStart = regions[3 * i + 1];
+                count = regions[3 * i + 2] - xStart + 1;
+            }
             auto dstStart = dstY + destBytes * oc * xStart;
           
             if (!blitFloat) {
@@ -340,7 +386,7 @@ ErrorCode CPUImageProcess::onExecute(const std::vector<Tensor *> &inputs, const 
             }
 
             // Sample
-            {
+            if (!draw) {
                 // Compute position
                 points[0].fX = xStart;
                 points[0].fY = dy;

@@ -17,6 +17,7 @@
 #include "core/Macro.h"
 #include "core/ConvolutionCommon.hpp"
 #include "core/BufferAllocator.hpp"
+#include "backend/cpu/CPUResizeCache.hpp"
 namespace MNN {
 namespace CUDA {
 class MNN_PUBLIC CUDARuntimeWrapper : public Runtime {
@@ -37,11 +38,12 @@ private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime; 
     bool mIsCreateError{false};
+    BackendConfig::PrecisionMode mDefaultPrecision;
 };
 
 class CUDABackend : public Backend {
 public:
-    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt);
+    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, bool useFp16AsFp32);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
@@ -74,11 +76,15 @@ public:
         return mStaticBufferPool.get();
     }
     static size_t realSize(const Tensor *tensor);
-
+    int getBytes(const Tensor* tensor) const;
+    CPUResizeCache* getCache();
+    bool useFp16() const;
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mStaticBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
+    CPUResizeCache mCache;
+    bool mUseFp16AsFp32 = false;
 };
 
 template <class T>

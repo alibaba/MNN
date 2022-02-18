@@ -24,12 +24,13 @@ asm_function _AVX_MNNGemmInt8AddBiasScale_16x4_UnitMain
 
 
 // SystemV Auto: rdi: dst, rsi:src, rdx:weight, rcx:strides, r8: post
-// Microsoft x64 Auto: rcx:C, rdx:A, r8:B, r9:parameter
+// Microsoft x64 Auto: rcx:dst, rdx:src, r8:weight, r9:strides
 pushq   %rbp
 movq    %rsp, %rbp
 
 #ifdef WIN32
-movq 48(%rsp), %r10
+#define push_registers_bytes ((1 + 1) * 8 + 32) // pushq + callq + shadow_space
+movq (push_registers_bytes)(%rsp), %r10
 pushq %rdi
 pushq %rsi
 pushq %r12
@@ -41,6 +42,17 @@ movq %r9, %rcx
 movq %r10, %r9
 pushq   %r14
 pushq   %r15
+leaq (-1280)(%rsp), %rsp
+vmovdqu %xmm6,  (128*0)(%rsp)
+vmovdqu %xmm7,  (128*1)(%rsp)
+vmovdqu %xmm8,  (128*2)(%rsp)
+vmovdqu %xmm9,  (128*3)(%rsp)
+vmovdqu %xmm10, (128*4)(%rsp)
+vmovdqu %xmm11, (128*5)(%rsp)
+vmovdqu %xmm12, (128*6)(%rsp)
+vmovdqu %xmm13, (128*7)(%rsp)
+vmovdqu %xmm14, (128*8)(%rsp)
+vmovdqu %xmm15, (128*9)(%rsp)
 #else
 pushq   %r12
 pushq   %r13
@@ -304,6 +316,17 @@ addq $64, %rsp
 End:
 
 #ifdef WIN32
+vmovdqu (128*0)(%rsp), %xmm6
+vmovdqu (128*1)(%rsp), %xmm7
+vmovdqu (128*2)(%rsp), %xmm8
+vmovdqu (128*3)(%rsp), %xmm9
+vmovdqu (128*4)(%rsp), %xmm10
+vmovdqu (128*5)(%rsp), %xmm11
+vmovdqu (128*6)(%rsp), %xmm12
+vmovdqu (128*7)(%rsp), %xmm13
+vmovdqu (128*8)(%rsp), %xmm14
+vmovdqu (128*9)(%rsp), %xmm15
+leaq (1280)(%rsp), %rsp
 popq    %r15
 popq    %r14
 popq    %r13

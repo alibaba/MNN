@@ -1,44 +1,120 @@
 #include "SoftmaxExecution.hpp"
-
+#include "core/TensorUtils.hpp"
 namespace MNN {
 namespace CUDA {
 
+template <typename T>
+__global__ void SOFTMAX(const T *input, T *output, const ReduceParam* param) {
+    int inside = param->inside;
+    int axis = param->axis;
+    int outside = param->outside;
+    int count = inside * outside;
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+        int y = i / inside;
+        int x = i % inside;
+        const T* src = input + y * axis * inside + x;
+        T* dst = output + y * axis * inside + x;
+        float maxValue = (float)src[0];
+        for (int z=1; z<axis; ++z) {
+            maxValue = max(maxValue, src[z * inside]);
+        }
+        float sumValue = 0.0;
+        for (int z=0; z<axis; ++z) {
+            sumValue = sumValue + exp((float)src[z * inside] - maxValue);
+        }
+        sumValue = 1.0 / sumValue;
+        for (int z=0; z<axis; ++z) {
+            dst[z*inside] = (T)(exp((float)src[z * inside] - maxValue) * sumValue);
+        }
+    }
+}
+
+template <typename T>
+__global__ void EXPSUB(const T *input, const T* maxV, T *output, const ReduceParam* param) {
+    int inside = param->inside;
+    int axis = param->axis;
+    int outside = param->outside;
+    int count = inside * axis * outside;
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+        int tmp = i / inside;
+        int x = i % inside;
+        int y = tmp / axis;
+        int c = tmp % axis;
+        float sumValue = 0.0;
+        const float basicInput = input[i];
+        const float maxValue = maxV[x + y * inside];
+        output[i] = (T)(exp(basicInput - maxValue));
+    }
+    return;
+}
+
+template <typename T>
+__global__ void DIVSUM(const T *input, const T* maxV, T *output, const ReduceParam* param) {
+    int inside = param->inside;
+    int axis = param->axis;
+    int outside = param->outside;
+    int count = inside * axis * outside;
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+        int tmp = i / inside;
+        int x = i % inside;
+        int y = tmp / axis;
+        int c = tmp % axis;
+        float sumValue = 0.0;
+        const float basicInput = input[i];
+        const float value = maxV[x + y * inside];
+        output[i] = (T)(basicInput / value);
+    }
+    return;
+}
 SoftmaxExecution::SoftmaxExecution(int axis, Backend *backend) : Execution(backend) {
-    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
-    cudnn_handle_ = runtime->cudnn_handle();
-
-    cudnn_check(cudnnCreateTensorDescriptor(&input_desc_));
-    cudnn_check(cudnnCreateTensorDescriptor(&output_desc_));
-
-    cudnn_data_type_ = CUDNN_DATA_FLOAT;
     mAxis = axis;
+    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+    mParam = staticPool->alloc(sizeof(ReduceParam));
 }
 
 SoftmaxExecution::~SoftmaxExecution() {
-    cudnnDestroyTensorDescriptor(input_desc_);
-    cudnnDestroyTensorDescriptor(output_desc_);
+    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+    staticPool->free(mParam);
 }
 
 ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    inside = 1;
-    outside = 1;
-    if(mAxis < 0) {
-        mAxis += inputs[0]->dimensions();
-    }
-    axis = inputs[0]->length(mAxis);
-    for (int i=0; i<mAxis; ++i) {
-        outside *= inputs[0]->length(i);
-    }
-    for (int i=mAxis+1; i<inputs[0]->dimensions(); ++i) {
-        inside *= inputs[0]->length(i);
+    auto input           = inputs[0];
+    const int dimensions = input->buffer().dimensions;
+    int axis = mAxis;
+    if (axis < 0) {
+        axis += dimensions;
     }
 
-    std::vector<int> tensor_shape = {outside, axis, inside, 1};
-    cudnn_check(cudnnSetTensor4dDescriptor(input_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, tensor_shape[0],
-                                tensor_shape[1], tensor_shape[2], tensor_shape[3]));
+    const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
+    mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
+    if (mNeedUnpackC4) {
+        for (int i=0; i < dimensions; ++i) {
+            mStorage.buffer().dim[i].extent = input->length(i);            
+        }
+        TensorUtils::getDescribe(&mStorage)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        mStorage.buffer().dimensions    = dimensions;
+        mStorage.buffer().type          = input->getType();
+        backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
+    }
 
-    cudnn_check(cudnnSetTensor4dDescriptor(output_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, tensor_shape[0],
-                                tensor_shape[1], tensor_shape[2], tensor_shape[3]));
+    int inside = 1;
+    int outside = 1;
+    int dims   = input->buffer().dimensions;
+    for (int i = 0; i < axis; ++i) {
+        outside *= input->length(i);
+    }
+    for (int i = axis + 1; i < dims; ++i) {
+        inside *= input->length(i);
+    }
+
+    if (mNeedUnpackC4) {
+        backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
+    }
+
+    mCpuParam.inside = inside;
+    mCpuParam.outside = outside;
+    mCpuParam.axis = input->length(axis);
+    cuda_check(cudaMemcpy((uint8_t*)mParam.first + mParam.second, &mCpuParam, sizeof(ReduceParam), cudaMemcpyHostToDevice));
 
     return NO_ERROR;
 }
@@ -46,15 +122,28 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = (void*)inputs[0]->deviceId();
     auto output = (void*)outputs[0]->deviceId();
-
-    const float alpha = 1;
-    const float beta = 0;
-    cudnn_check(cudnnSoftmaxForward(cudnn_handle_, CUDNN_SOFTMAX_ACCURATE,
-                CUDNN_SOFTMAX_MODE_CHANNEL,
-                &alpha,
-                input_desc_, input,
-                &beta,
-                output_desc_, output));
+    auto dst = output;
+    auto param = (ReduceParam*)((uint8_t*)mParam.first + mParam.second);
+    if (mNeedUnpackC4) {
+        backend()->onCopyBuffer(inputs[0], &mStorage);
+        input = (void*)mStorage.deviceId();
+        dst = (void*)mStorage.deviceId();
+    }
+    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    int inside = mCpuParam.inside;
+    int outside = mCpuParam.outside;
+    int axis = mCpuParam.axis;
+    int count = inside * outside;
+    int block_num = runtime->blocks_num(count);
+    int threads_num = runtime->threads_num();
+    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        SOFTMAX<<<block_num, threads_num>>>((const half*)input, (half*)dst, param);
+    } else {
+        SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, param);
+    }
+    if (mNeedUnpackC4) {
+        backend()->onCopyBuffer(&mStorage, outputs[0]);
+    }
 
     return NO_ERROR;
 }

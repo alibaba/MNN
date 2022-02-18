@@ -41,8 +41,11 @@ ErrorCode SelectExecution::onExecute(const std::vector<Tensor*>& inputs, const s
     auto count = CUDABackend::realSize(inputs[0]);
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
-    SELECT<<<block_num, threads_num>>>(count, (const int*)(inputs[0]->deviceId()), (const int*)(inputs[1]->deviceId()), (const int*)(inputs[2]->deviceId()), (int*)outputs[0]->deviceId());
-
+    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        SELECT<<<block_num, threads_num>>>(count, (const int*)(inputs[0]->deviceId()), (const half*)(inputs[1]->deviceId()), (const half*)(inputs[2]->deviceId()), (half*)outputs[0]->deviceId());
+    } else {
+        SELECT<<<block_num, threads_num>>>(count, (const int*)(inputs[0]->deviceId()), (const float*)(inputs[1]->deviceId()), (const float*)(inputs[2]->deviceId()), (float*)outputs[0]->deviceId());
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end SelectExecution onExecute...");
 #endif

@@ -170,7 +170,7 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();
-    mCache = new CPUResizeCache(this);
+    mCache = new CPUResizeCache;
 }
 
 CPUBackend::~CPUBackend() {

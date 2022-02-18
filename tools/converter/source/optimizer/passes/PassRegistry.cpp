@@ -8,7 +8,6 @@
 
 #include <string>
 #include <unordered_map>
-#include <mutex>
 
 #include "MNN/MNNDefine.h"
 #include "converter/source/optimizer/passes/PassRegistry.hpp"
@@ -29,10 +28,7 @@ static std::vector<std::unique_ptr<PassManager>>* AllRegisteredPassManagers() {
     return &g_registered_pass_managers;
 }
 
-static std::mutex g_mutex;
-
 /*static*/ PassManager* PassManagerRegistry::GetPassManager(int index) {
-    std::lock_guard<std::mutex> lock(g_mutex);
     auto* g_registered_pass_managers = AllRegisteredPassManagers();
     MNN_CHECK(index < g_registered_pass_managers->size(),
               "The pass manager index is out of bounds.");
@@ -40,7 +36,6 @@ static std::mutex g_mutex;
 }
 
 /*static*/ std::vector<PassManager*> PassManagerRegistry::GetAllPassManagers() {
-    std::lock_guard<std::mutex> lock(g_mutex);
     std::vector<PassManager*> pass_managers;
     for (auto& pm : *(AllRegisteredPassManagers())) {
         pass_managers.push_back(pm.get());
@@ -49,19 +44,16 @@ static std::mutex g_mutex;
 }
 
 /*static*/ void PassManagerRegistry::AddPassManager(const PassManager& pm) {
-    std::lock_guard<std::mutex> lock(g_mutex);
     auto* g_registered_pass_managers = AllRegisteredPassManagers();
     g_registered_pass_managers->emplace_back(new PassManager(pm));
 }
 
 /*static*/ void PassRegistry::AddPass(std::unique_ptr<Pass>&& pass) {
-    std::lock_guard<std::mutex> lock(g_mutex);
     auto* g_registered_passes = AllRegisteredPasses();
     g_registered_passes->emplace(pass->name(), std::move(pass));
 }
 
 /*static*/ Pass* PassRegistry::GetPass(const std::string& pass_name) {
-    std::lock_guard<std::mutex> lock(g_mutex);
     auto* g_registered_passes = AllRegisteredPasses();
     const auto& it = g_registered_passes->find(pass_name);
     if (it != g_registered_passes->end()) {

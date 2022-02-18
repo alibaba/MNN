@@ -61,6 +61,7 @@ public:
 
         /** edge wrapper */
         Wrap wrap = CLAMP_TO_EDGE;
+        bool draw = false;
     };
 
 public:
@@ -148,6 +149,18 @@ public:
     void setPadding(uint8_t value) {
         mPaddingValue = value;
     }
+    /**
+     * @brief draw color to regions of img.
+     * @param img  the image to draw.
+     * @param w  the image's width.
+     * @param h  the image's height.
+     * @param c  the image's channel.
+     * @param regions  the regions to draw, size is [num * 3] contain num x { y, xl, xr }
+     * @param num  regions num
+     * @param color  the color to draw.
+     * @return void.
+     */
+    void draw(uint8_t* img, int w, int h, int c, const int* regions, int num, const uint8_t* color);
 private:
     ImageProcess(const Config& config);
     Matrix mTransform;

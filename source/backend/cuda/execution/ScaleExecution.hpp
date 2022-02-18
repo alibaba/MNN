@@ -30,13 +30,9 @@ private:
     void *mDeviceBias = nullptr;
     void *mDeviceScale = nullptr;
     int mCount;
-    int mBatch;
     int mChannel;
     int mArea;
-
-    std::shared_ptr<Tensor> scaleTensor;
-    std::shared_ptr<Tensor> biasTensor;
-
+    std::pair<void*, int> mScaleBiasStorage;
 };
 
 } // namespace CUDA

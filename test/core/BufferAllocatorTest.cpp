@@ -11,7 +11,7 @@
 #include "core/MNNMemoryUtils.h"
 
 using namespace MNN;
-
+#ifndef _MSC_VER
 class BufferAllocatorTest : public MNNTestCase {
 public:
     virtual ~BufferAllocatorTest() = default;
@@ -56,3 +56,4 @@ public:
     }
 };
 MNNTestSuiteRegister(BufferAllocatorTest, "core/buffer_allocator");
+#endif

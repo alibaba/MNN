@@ -9,23 +9,26 @@ import _mnncengine._expr as _F
 _numpy_supported = False
 try:
     import numpy as np
-    _numpy_supported = True
+    _numpy_supported = (type(np.arange(10)) == np.ndarray)
 except Exception:
     print ("Numpy not found. Using MNN without numpy.")
+
 def scalar(value, dtype=None):
-    if dtype == _F.int:
-        value = _Int(value)
-    elif dtype == _F.float:
-        value = _Float(value)
+    if dtype is not None:
+        if dtype == _F.int or dtype == _F.uint8:
+            value = _Int(value)
+        elif dtype == _F.float:
+            value = _Float(value)
+        return _F.const([value], [], _F.NCHW, dtype)
     if type(value) == type(1):
-        res = _F.const([value], [], _F.NCHW, _F.int)
-        return res
+        return _F.const([value], [], _F.NCHW, _F.int)
     elif type(value) == type(1.):
-        res = _F.const([value], [], _F.NCHW, _F.float)
-        return res
+        return _F.const([value], [], _F.NCHW, _F.float)
     else:
         raise NotImplementedError("not supported data type for creating scalar variable")
 def _list_shape_type(object, shape=()):
+    if isinstance(object, _Sequence) and len(object) == 0:
+        return [0], _F.float
     if not isinstance(object, _Sequence):
         if type(object) in (type(1), type(1<<64)):
             dst_type = _F.int
@@ -54,6 +57,7 @@ def _can_broadcast(src_shape, dst_shape):
     return True
 def _match_dtype(x, y, dtype=None):
     def type_val(x):
+        if x is None: return -1
         if x == _F.double: return 4
         if x == _F.float: return 3
         if x == _F.int64: return 2
@@ -76,15 +80,18 @@ def _to_var(x, dtype=None):
         return scalar(x, dtype)
     # 2. numpy
     if _numpy_supported:
-        if isinstance(x, np.ndarray): # convert numpy ndarray to MNN var
-            if x.dtype.kind == 'i':
-                x = x.astype(np.int32)
-                x = _F.const(x, x.shape, dtype=_F.int)
-            elif x.dtype.kine == 'f':
-                x = x.astype(np.float32)
-                x = _F.const(x, x.shape, dtype=_F.float)
-            else:
-                raise ValueError('Just support i/f dtype numpy.')
+        try:
+            if isinstance(x, np.ndarray): # convert numpy ndarray to MNN var
+                if x.dtype.kind == 'i':
+                    x = x.astype(np.int32)
+                    x = _F.const(x, x.shape, dtype=_F.int)
+                elif x.dtype.kind == 'f':
+                    x = x.astype(np.float32)
+                    x = _F.const(x, x.shape, dtype=_F.float)
+                else:
+                    raise ValueError('Just support i/f dtype numpy.')
+        except:
+            pass
     # 3. Sequence
     if isinstance(x, _Sequence) and x:
         dst_shape, item_type = _list_shape_type(x)
@@ -202,7 +209,7 @@ def floor(x):
     >>> expr.floor([-5.1, 4.5])
     var([-6.,  4.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.floor(x)
 def round(x):
     '''
@@ -223,7 +230,7 @@ def round(x):
     >>> expr.round([-5.1, 4.5])
     var([-5.,  5.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.round(x)
 def ceil(x):
     '''
@@ -243,7 +250,7 @@ def ceil(x):
     >>> expr.ceil([-4.9, 4.5])
     var([-4.,  5.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.ceil(x)
 def square(x):
     '''
@@ -283,7 +290,7 @@ def sqrt(x):
     >>> expr.sqrt([9., 4.5])
     var([3., 2.1213202])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.sqrt(x)
 def rsqrt(x):
     '''
@@ -303,7 +310,7 @@ def rsqrt(x):
     >>> expr.rsqrt([9., 4.5])
     var([0.33333334, 0.47140455])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.rsqrt(x)
 def exp(x):
     '''
@@ -323,7 +330,7 @@ def exp(x):
     >>> expr.exp([9., 4.5])
     var([8102.449, 90.01698])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.exp(x)
 def log(x):
     '''
@@ -343,7 +350,7 @@ def log(x):
     >>> expr.log([9., 4.5])
     var([2.1972246, 1.5040774])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.log(x)
 def sin(x):
     '''
@@ -363,7 +370,7 @@ def sin(x):
     >>> expr.sin([9., 4.5])
     var([0.4121185, -0.9775301])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.sin(x)
 def sinh(x):
     '''
@@ -384,7 +391,7 @@ def sinh(x):
     >>> expr.sinh([9., 4.5])
     var([4051.542, 45.00301])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.sinh(x)
 def cos(x):
     '''
@@ -404,7 +411,7 @@ def cos(x):
     >>> expr.cos([9., 4.5])
     var([-0.91113025, -0.2107958])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.cos(x)
 def cosh(x):
     '''
@@ -425,7 +432,7 @@ def cosh(x):
     >>> expr.cosh([9., 4.5])
     var([4051.542, 45.014122])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.cosh(x)
 def tan(x):
     '''
@@ -445,7 +452,7 @@ def tan(x):
     >>> expr.tan([9., 4.5])
     var([-0.45231566, 4.637332])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.tan(x)
 def tanh(x):
     '''
@@ -466,7 +473,7 @@ def tanh(x):
     >>> expr.tanh([9., 4.5])
     var([1., 0.9997533])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.tanh(x)
 def asin(x):
     '''
@@ -487,7 +494,7 @@ def asin(x):
     >>> expr.asin([9., 0.5])
     var([nan, 0.5235988])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.asin(x)
 def asinh(x):
     '''
@@ -508,7 +515,7 @@ def asinh(x):
     >>> expr.asinh([9., 0.5])
     var([2.893444, 0.4812118])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.asinh(x)
 def acos(x):
     '''
@@ -529,7 +536,7 @@ def acos(x):
     >>> expr.asin([9., 0.5])
     var([nan, 1.0471975])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.acos(x)
 def acosh(x):
     '''
@@ -550,7 +557,7 @@ def acosh(x):
     >>> expr.acosh([9., 0.5])
     var([2.887271, nan])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.acosh(x)
 def atan(x):
     '''
@@ -571,7 +578,7 @@ def atan(x):
     >>> expr.atan([9., 0.5])
     var([1.4601392, 0.4636476])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.atan(x)
 def atanh(x):
     '''
@@ -592,7 +599,7 @@ def atanh(x):
     >>> expr.atanh([9., 0.5])
     var([1.4601392, 0.4636476])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.atanh(x)
 def reciprocal(x):
     '''
@@ -612,7 +619,7 @@ def reciprocal(x):
     >>> expr.reciprocal([9., 0.5])
     var([0.11111111, 2.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.reciprocal(x)
 def log1p(x):
     '''
@@ -632,7 +639,7 @@ def log1p(x):
     >>> expr.log1p([9., 0.5])
     var([2.3025851, 0.4054651])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.log1p(x)
 def gelu(x):
     '''
@@ -652,7 +659,7 @@ def gelu(x):
     >>> expr.gelu([9., 0.5])
     var([9., 0.345714])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.gelu(x)
 def sigmoid(x):
     '''
@@ -672,16 +679,16 @@ def sigmoid(x):
     >>> expr.sigmoid([9., 0.5])
     var([0.9998766, 0.62246716])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.sigmoid(x)
 def erf(x):
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.erf(x)
 def erfc(x):
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.erfc(x)
 def erfinv(x):
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.erfinv(x)
 def expm1(x):
     '''
@@ -701,7 +708,7 @@ def expm1(x):
     >>> expr.expm1([9., 0.5])
     var([8.1014492e+03, 6.4869785e-01])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.expm1(x)
 def add(x, y):
     '''
@@ -1479,8 +1486,8 @@ def matmul(a, b, transposeA=False, transposeB=False):
     var([[0., 1.],
          [0., 3.]], dtype=float32)
     '''
-    a = _to_var(a, True)
-    b = _to_var(b, True)
+    a = _to_var(a, _F.float)
+    b = _to_var(b, _F.float)
     return _F.matmul(a, b, transposeA, transposeB)
 def normalize(x, acrossSpatial, channelShared, eps, scale):
     '''
@@ -3055,7 +3062,7 @@ def zeros_like(x):
     Example:
     -------
     >>> expr.zeros_like([[1, 2], [3, 4]])
-    array([[0, 0],
+    var([[0, 0],
            [0, 0]], dtype=int32)
     '''
     x = _to_var(x)
@@ -3078,14 +3085,72 @@ def range(start, limit, delta):
     Example:
     -------
     >>> expr.range(1.0, 7.0, 2.0)
-    array([1., 3., 5.], dtype=float32)
+    var([1., 3., 5.], dtype=float32)
     '''
     start = _to_var(start)
     limit = _to_var(limit)
     delta = _to_var(delta)
     if limit.dtype != start.dtype or delta.dtype != start.dtype:
-        print(start, limit, delta)
         raise RuntimeError("parameter start/limit/delta must use same data type, either all int or all float")
     return _F.range(start, limit, delta)
+def sort(x, axis=-1, arg=False, descend=False):
+    '''
+    sort(x, axis=-1, arg=False, descend=False)
+    Return the sorted array of ``x``.
+
+    Parameters
+    ----------
+    x : var_like, input value.
+    axis : int, sort by axis.
+    arg : is ArgSort or not, default is False.
+    descend : is descend or not, default is False.
+
+    Returns
+    -------
+    sorted_res : Var.
+
+    Example:
+    -------
+    >>> expr.sort([[5, 0], [1, 3]])
+    var([[1, 0],
+         [5, 3]], dtype=int32)
+    '''
+    x = _to_var(x)
+    # sort will change the x
+    x = clone(x, True)
+    return _F.sort(x, axis, arg, descend)
+def nms(boxes, scores, max_detections, iou_threshold=-1.0, score_threshold=-1.0):
+    '''
+    nms(boxes, scores, max_detections, iou_threshold=-1.0, score_threshold=-1.0)
+    Return the nms array of ``boxes``.
+
+    Parameters
+    ----------
+    boxes : var_like, input value, shape must be [num, 4].
+    scores : var_like, input value, shape must be [num].
+    max_detections : int.
+    iou_threshold : float, default is 0.
+    score_threshold : float, default is float_min.
+
+    Returns
+    -------
+    nms_res : Var.
+
+    Example:
+    -------
+    >>> expr.nms([[1, 1, 4, 4], [0, 0, 3, 3], [5, 5, 7, 7]], [0.9, 0.5, 0.1], 3, 0.1)
+    var([0, 2], dtype=int32)
+    '''
+    boxes = _to_var(boxes, _F.float)
+    scores = _to_var(scores, _F.float)
+    max_detections = _to_int(max_detections)
+    iou_threshold = _to_float(iou_threshold)
+    score_threshold = _to_float(score_threshold)
+    res = _F.nms(boxes, scores, max_detections, iou_threshold, score_threshold)
+    idx = res >= 0
+    idx.fix_as_const()
+    if _F.reduce_any(idx).read_as_tuple()[0] == 0:
+        return _F.const([], [0], NCHW, _F.int)
+    return res[idx]
 # TODO: detection_post_process
 # wrapper for builtin functions end

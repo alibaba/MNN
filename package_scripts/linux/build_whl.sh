@@ -21,13 +21,13 @@ done
 rm -rf $path && mkdir -p $path
 PACKAGE_PATH=$(realpath $path)
 
-CMAKE_ARGS="-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_SEP_BUILD=OFF -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON"
+CMAKE_ARGS="-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_SEP_BUILD=OFF -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON"
 if [ ! -z $opencl ]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENCL=ON"
 fi
 rm -rf pymnn_build && mkdir pymnn_build
 pushd pymnn_build
-cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j24
+cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert MNNOpenCV -j24
 popd
 
 pushd pymnn/pip_package

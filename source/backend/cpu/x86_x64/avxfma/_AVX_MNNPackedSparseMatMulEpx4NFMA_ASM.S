@@ -25,15 +25,39 @@ asm_function _AVX_MNNPackedSparseMatMulEpx4NFMA_ASM
 
 
 // SystemV Auto: rdi: packedParas, rsi: bias, rdx: parameter, rcx: postParameters
+// Microsoft x64 Auto: rcx:packedParas, rdx:bias, r8:parameter, r9:postParameters
 
 // all callee save regs:
 // %rbx, %rbp, %r12~%r15
 // unused para regs: %r8, %r9
 // can use regs: %r8~%r15, %rdi, %rsi, %rdx, %rcx, %rbx, %rax
-
-
 pushq   %rbp
 movq    %rsp, %rbp
+
+#ifdef WIN32
+pushq   %rdi
+pushq   %rsi
+movq    %rcx, %rdi
+movq    %rdx, %rsi
+movq    %r8, %rdx
+movq    %r9, %rcx
+pushq   %rbx
+pushq   %r12
+pushq   %r13
+pushq   %r14
+pushq   %r15
+leaq (-1280)(%rsp), %rsp
+vmovdqu %xmm6,  (128*0)(%rsp)
+vmovdqu %xmm7,  (128*1)(%rsp)
+vmovdqu %xmm8,  (128*2)(%rsp)
+vmovdqu %xmm9,  (128*3)(%rsp)
+vmovdqu %xmm10, (128*4)(%rsp)
+vmovdqu %xmm11, (128*5)(%rsp)
+vmovdqu %xmm12, (128*6)(%rsp)
+vmovdqu %xmm13, (128*7)(%rsp)
+vmovdqu %xmm14, (128*8)(%rsp)
+vmovdqu %xmm15, (128*9)(%rsp)
+#else
 pushq   %rax
 pushq   %rbx
 pushq   %r8
@@ -42,6 +66,7 @@ pushq   %r12
 pushq   %r13
 pushq   %r14
 pushq   %r15
+#endif
 
 movq (%rdi),    %rax        // %rax C
 movq 8(%rdi),   %rbx        // %rbx A
@@ -195,6 +220,26 @@ LoopE24H4:
             jmp LoopE24H4
     
 End:
+#ifdef WIN32
+vmovdqu (128*0)(%rsp), %xmm6
+vmovdqu (128*1)(%rsp), %xmm7
+vmovdqu (128*2)(%rsp), %xmm8
+vmovdqu (128*3)(%rsp), %xmm9
+vmovdqu (128*4)(%rsp), %xmm10
+vmovdqu (128*5)(%rsp), %xmm11
+vmovdqu (128*6)(%rsp), %xmm12
+vmovdqu (128*7)(%rsp), %xmm13
+vmovdqu (128*8)(%rsp), %xmm14
+vmovdqu (128*9)(%rsp), %xmm15
+leaq (1280)(%rsp), %rsp
+popq    %r15
+popq    %r14
+popq    %r13
+popq    %r12
+popq    %rbx
+popq    %rsi
+popq    %rdi
+#else
 popq    %r15
 popq    %r14
 popq    %r13
@@ -203,6 +248,8 @@ popq    %r9
 popq    %r8
 popq    %rbx
 popq    %rax
+#endif
+
 popq    %rbp
 retq
 

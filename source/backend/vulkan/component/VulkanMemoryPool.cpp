@@ -25,7 +25,7 @@ public:
     virtual ~ VulkanAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, int> onAlloc(int size, int align) override {
+    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override {
         VkMemoryAllocateInfo info;
         info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         info.pNext = nullptr;
@@ -34,7 +34,7 @@ public:
         auto mem = new VulkanMemory(mDevice, info);
         return std::make_pair(mem, 0);
     }
-    virtual void onRelease(std::pair<void*, int> ptr) override {
+    virtual void onRelease(std::pair<void*, size_t> ptr) override {
         auto p = (VulkanMemory*)ptr.first;
         delete p;
     }

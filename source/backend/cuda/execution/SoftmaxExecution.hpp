@@ -9,11 +9,9 @@
 #ifndef SoftmaxExecution_hpp
 #define SoftmaxExecution_hpp
 
-#include "core/Execution.hpp"
-
 #include <vector>
+#include "ReductionTemplate.cuh"
 #include "backend/cuda/core/CUDABackend.hpp"
-
 namespace MNN {
 namespace CUDA {
 
@@ -26,15 +24,11 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    cudnnHandle_t cudnn_handle_;
-    cudnnTensorDescriptor_t input_desc_;
-    cudnnTensorDescriptor_t output_desc_;
-    cudnnDataType_t cudnn_data_type_;
-    
     int mAxis;
-    int axis;
-    int inside;
-    int outside;
+    Tensor mStorage;
+    bool mNeedUnpackC4;
+    ReduceParam mCpuParam;
+    std::pair<void*, int> mParam;
 };
 
 } // namespace CUDA

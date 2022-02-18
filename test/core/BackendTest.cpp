@@ -148,7 +148,7 @@ bool nhwc_2_nhwc_uint8(std::shared_ptr<Backend> bn) {
     auto backendCopyData = checkHostTensor->host<uint8_t>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
             return false;
         }
@@ -183,7 +183,7 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
     auto backendCopyData = checkHostTensor->host<T>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for NCHW Mid bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
             return false;
         }
@@ -195,7 +195,7 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
     bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
     bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for NHWC Mid bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
             return false;
         }
@@ -216,7 +216,7 @@ bool NCHW_NC4HW4_NCHW(std::shared_ptr<Backend> bn, int batch, int width, int hei
                          + c * height * width
                          + y * width
                          + x
-                         ] = b * 100.f + c * 10.f + y * 0.1f + x * 0.001f;
+                         ] = b / (float)batch * 100.f + c / (float)channel * 10.f + y / (float)height * 0.1f + x / (float)width * 0.001f;
                 }
             }
         }
@@ -231,8 +231,8 @@ bool NCHW_NC4HW4_NCHW(std::shared_ptr<Backend> bn, int batch, int width, int hei
     auto backendCopyData = dstTensor->host<float>();
     auto hostData = srcTensor->host<float>();
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
-            MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
+        if (abs(backendCopyData[i] - hostData[i]) >= 0.1f) {
+            MNN_PRINT("Error for bn:%d, %f -> %f, %f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
             return false;
         }
     }
@@ -242,8 +242,8 @@ bool NCHW_NC4HW4_NCHW(std::shared_ptr<Backend> bn, int batch, int width, int hei
 
 bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
 //    MNN_PRINT("\n ========= check NC4HW4_2_NC4HW4_float result ! ========= \n");
-    std::vector<int> nhwc_shape = {1, 224, 224, 8};
-    std::vector<int> nchw_shape = {1, 224, 8, 224};
+    std::vector<int> nhwc_shape = {1, 32, 12, 13};
+    std::vector<int> nchw_shape = {1, 12, 13, 32};
     std::shared_ptr<Tensor> hostTensor(
         Tensor::create<float>(nhwc_shape, nullptr, Tensor::CAFFE_C4));
     auto elementSize = hostTensor->elementSize();
@@ -288,7 +288,7 @@ bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
     bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for NHWC Mid bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
             return false;
         }
@@ -319,7 +319,7 @@ void NC4HW4_2_NC4HW4_uint8(std::shared_ptr<Backend> bn) {
     auto backendCopyData = checkHostTensor->host<uint8_t>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], (int32_t)backendCopyData[i]);
             break;
         }
@@ -433,7 +433,7 @@ void nchw_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
 
     //            MNN_PRINT("NC4HW4 -> nhwc !\n");
     for (int i = 0; i < elementSize; ++i) {
-        if (abs(backendCopyData[i] - hostData[i]) >= 0.001) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -464,7 +464,7 @@ void nchw_2_NC4HW4_2_nchw_float(std::shared_ptr<Backend> bn) {
         auto backendCopyData = checkHostTensor->host<float>();
 
         for (int i = 0; i < elementSize; ++i) {
-            if (backendCopyData[i] != hostData[i]) {
+            if (abs(backendCopyData[i] != hostData[i]) >= F32_BF16_MAX_LOSS) {
                 MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
                 break;
             }
@@ -510,7 +510,7 @@ bool nhwc_2_NC4HW4_2_nhwc_inttype(std::shared_ptr<Backend> bn) {
     auto backendCopyData = NC4HW4_HostTensor->host<T>();
 
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
             return false;
         }
@@ -524,9 +524,9 @@ bool nhwc_2_NC4HW4_2_nhwc_inttype(std::shared_ptr<Backend> bn) {
     NHWC2NCHW(temp, backendCopyData, batch, height, width, channel);
     bn->onCopyBuffer(deviceTensor.get(), hostTensor.get());
 
-    //            MNN_PRINT("NC4HW4 -> nhwc !\n");
+    // MNN_PRINT("NC4HW4 -> nhwc !\n");
     for (int i = 0; i < elementSize; ++i) {
-        if (backendCopyData[i] != hostData[i]) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
             MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
         }
     }
@@ -534,14 +534,53 @@ bool nhwc_2_NC4HW4_2_nhwc_inttype(std::shared_ptr<Backend> bn) {
     free(temp);
     return true;
 }
+bool nchwTonhwc(std::shared_ptr<Backend> bn) {
+    // Test NHWC -> NC4HW4 -> NHWC
+    MNN_PRINT("\n ========= check nchwTonhwc result ! ========= \n");
+    int batch   = 2;
+    int channel = 12;
+    int width   = 21;
+    int height  = 5;
+    std::shared_ptr<Tensor> hostTensor(
+        Tensor::create<float>(std::vector<int>{batch, channel, height, width}, nullptr, Tensor::CAFFE));
+    auto elementSize = hostTensor->elementSize();
+    auto hostData    = hostTensor->host<float>();
+    for (int i = 0; i < elementSize; ++i) {
+        int flagRandom    = (rand() % 2 == 0);
+        float valueRandom = rand() % 255 / 255.f;
+        hostData[i]       = ((flagRandom == 1) ? 1.0 : -1.0) * valueRandom;
+    }
+    std::vector<float> tempStorage(hostTensor->elementSize());
+    float* temp = tempStorage.data();
+    memset(temp, 0.0f, hostTensor->size());
+    NCHW2NHWC(hostData, temp, batch, height, width, channel);
+    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
+    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
+    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
+    std::shared_ptr<Tensor> hostTensorNHWC(
+        Tensor::create<float>(std::vector<int>{batch, height, width, channel}, nullptr, Tensor::TENSORFLOW));
+    bn->onCopyBuffer(deviceTensor.get(), hostTensorNHWC.get());
+    auto backendCopyData = hostTensorNHWC->host<float>();
+    for (int i = 0; i < elementSize; ++i) {
+        if (abs(backendCopyData[i] - temp[i]) >= F32_BF16_MAX_LOSS) { //Error of converting from float32 to bf16 is more than 0.001
+            MNN_PRINT("Error for bn:%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+            return false;
+        }
+    }
+    return true;
+}
+
 
 bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     // Test NHWC -> NC4HW4 -> NHWC
     MNN_PRINT("\n ========= check nhwc_2_NC4HW4_2_nhwc_float result ! ========= \n");
     int batch   = 1;
     int channel = 12;
-    int width   = 20;
-    int height  = 20;
+    int width   = 3;
+    int height  = 2;
     std::shared_ptr<Tensor> hostTensor(
         Tensor::create<float>(std::vector<int>{batch, channel, height, width}, nullptr, Tensor::CAFFE));
     auto elementSize = hostTensor->elementSize();
@@ -556,15 +595,12 @@ bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     memset(temp, 0.0f, hostTensor->size());
     NCHW2NHWC(hostData, temp, batch, height, width, channel);
 
-    std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
-    bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
     std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>(std::vector<int>{batch, height, width, channel}));
     bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
-    bn->onCopyBuffer(hostTensor.get(), deviceTensor_pre.get());
-    bn->onCopyBuffer(deviceTensor_pre.get(), deviceTensor.get());
+    bn->onCopyBuffer(hostTensor.get(), deviceTensor.get());
 
-    //            // nhwc -> NC4HW4
-    //            MNN_PRINT("nhwc -> NC4HW4 !\n");
+    // // nhwc -> NC4HW4
+    // MNN_PRINT("nhwc -> NC4HW4 !\n");
 
     MNNTensorConvertNHWCToNC4HW4(hostData, temp, height * width, channel);
     std::shared_ptr<Tensor> NC4HW4_HostTensor(
@@ -573,11 +609,19 @@ bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     bn->onCopyBuffer(deviceTensor.get(), NC4HW4_HostTensor.get());
     auto backendCopyData = NC4HW4_HostTensor->host<float>();
 
+    bool res = true;
     for (int i = 0; i < elementSize; ++i) {
         if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) { //Error of converting from float32 to bf16 is more than 0.001
             MNN_PRINT("Error for bn:%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
-            return false;
+            res = false;
+            break;
         }
+    }
+    if (!res) {
+        for (int i = 0; i < elementSize; ++i) {
+            MNN_PRINT("%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+        }
+        return false;
     }
 
     // NC4HW4 -> nhwc
@@ -588,10 +632,11 @@ bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
     NHWC2NCHW(temp, backendCopyData, batch, height, width, channel);
     bn->onCopyBuffer(deviceTensor.get(), hostTensor.get());
 
-    //            MNN_PRINT("NC4HW4 -> nhwc !\n");
+    MNN_PRINT("NC4HW4 -> nhwc !\n");
     for (int i = 0; i < elementSize; ++i) {
         if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
-            MNN_PRINT("Error for bn:%d, %f -> %f.  F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+            MNN_PRINT("NC4HW4 -> nhwc Error for bn:%d, %f -> %f.  F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+            return false;
         }
     }
 
@@ -618,12 +663,20 @@ public:
                 MNN_PRINT("Test %d Backend for %d \n", type, user.precision);
                 std::shared_ptr<Backend> bn(runtime->onCreate(&user));
                 auto res = NC4HW4_2_NC4HW4_float(bn);
+                FUNC_PRINT(res);
+                res = res && nchwTonhwc(bn);
+                FUNC_PRINT(res);
                 res = res && nhwc_2_NC4HW4_2_nhwc_float(bn);
+                FUNC_PRINT(res);
                 res = res && NCHW_NC4HW4_NCHW(bn, 3, 16, 17, 19);
+                FUNC_PRINT(res);
                 res = res && NCHW_NC4HW4_NCHW(bn, 12, 16, 38, 16);
+                FUNC_PRINT(res);
                 res = res && NCHW_NC4HW4_NCHW(bn, 5, 128, 8, 6);
+                FUNC_PRINT(res);
                 if (!res) {
                     MNN_ERROR("Error for %d bn\n", i);
+                    return false;
                 }
             }
         }

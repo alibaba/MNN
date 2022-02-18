@@ -136,7 +136,7 @@ VARP dilate(VARP src, VARP kernel, int iterations, int borderType) {
     int kheight, kwidth, kchannel;
     getVARPSize(kernel, &kheight, &kwidth, &kchannel);
     auto padSrc = PadForConv(src, kheight, kwidth, borderType);
-    return _Squeeze(_MaxPool(padSrc, {3, 3}), {0});
+    return _Squeeze(_MaxPool(padSrc, {kheight, kwidth}), {0});
 }
 
 VARP filter2D(VARP src, int ddepth, VARP kernel, double delta, int borderType) {

@@ -34,9 +34,9 @@ static void printTestResult(int wrong, int right, const char* flag) {
     printf("{\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n", wrong, right);
 }
 
-void MNNTestSuite::run(const char* key, int precision, const char* flag) {
+int MNNTestSuite::run(const char* key, int precision, const char* flag) {
     if (key == NULL || strlen(key) == 0)
-        return;
+        return 0;
 
     auto suite         = MNNTestSuite::get();
     std::string prefix = key;
@@ -60,9 +60,10 @@ void MNNTestSuite::run(const char* key, int precision, const char* flag) {
         printf("Error: %s\n", wrong.c_str());
     }
     printTestResult(wrongs.size(), runUnit - wrongs.size(), flag);
+    return wrongs.size();
 }
 
-void MNNTestSuite::runAll(int precision, const char* flag) {
+int MNNTestSuite::runAll(int precision, const char* flag) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
@@ -88,4 +89,5 @@ void MNNTestSuite::runAll(int precision, const char* flag) {
         printf("Error: %s\n", wrong.c_str());
     }
     printTestResult(wrongs.size(), suite->mTests.size() - wrongs.size(), flag);
+    return wrongs.size();
 }

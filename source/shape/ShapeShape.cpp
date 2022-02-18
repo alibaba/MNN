@@ -35,4 +35,32 @@ class ShapeSizeComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE(ShapeSizeComputer, OpType_Shape);
+
+class ShapeRasterComputer : public SizeComputer {
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(1 <= inputs.size());
+        MNN_ASSERT(1 == outputs.size());
+        outputs[0]->buffer().type = inputs[0]->buffer().type;
+        auto extra  = op->main_as_Extra();
+        if (!extra) {
+            // copy dims
+            TensorUtils::copyShape(inputs[0], outputs[0], true);
+        } else {
+            for (int i = 0; i < extra->attr()->size(); i++) {
+                auto attr = extra->attr()->Get(i);
+                if (attr->key()->str() == "shape") {
+                    int len = attr->list()->i()->size();
+                    outputs[0]->buffer().dimensions = len;
+                    for (int j = 0; j < len; j++) {
+                        outputs[0]->setLength(j, attr->list()->i()->Get(j));
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+
+REGISTER_SHAPE(ShapeRasterComputer, OpType_Raster);
 } // namespace MNN

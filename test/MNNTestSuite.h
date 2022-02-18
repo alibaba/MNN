@@ -21,6 +21,7 @@
 #include <Windows.h>
 #undef min
 #undef max
+#undef NO_ERROR
 #else
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -92,13 +93,13 @@ public:
      * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
      * fp16 precision should use FP32Converter[3].
      */
-    static void runAll(int precision, const char* flag = "");
+    static int runAll(int precision, const char* flag = "");
     /**
      * @brief run test case with runtime precision, see FP32Converter in TestUtil.h.
      * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
      * fp16 precision should use FP32Converter[3].
      */
-    static void run(const char* name, int precision, const char* flag = "");
+    static int run(const char* name, int precision, const char* flag = "");
 
 private:
     /** get shared instance */

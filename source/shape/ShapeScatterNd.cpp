@@ -15,7 +15,7 @@ namespace MNN {
 class ShapeScatterNd : public SizeComputer {
     bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                        const std::vector<Tensor *> &outputs) const override {
-        MNN_ASSERT(3 == inputs.size());
+        MNN_ASSERT(3 <= inputs.size());
         auto indices = inputs[0];
         auto updates = inputs[1];
         auto shape   = inputs[2];

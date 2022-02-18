@@ -16,7 +16,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    static NMSModule* create(const Op* op);
+    MNN_PUBLIC static NMSModule* create(const Op* op);
 
 private:
     NMSModule(){}

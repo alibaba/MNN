@@ -228,9 +228,14 @@ void _AVX512_MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B,
             vacc0 = _mm256_min_ps(vacc0, _mm512_extractf32x8_ps(vmax, 0));
             vacc0 = _mm256_max_ps(vacc0, _mm512_extractf32x8_ps(vmin, 0));
 
+            union {
+                __m256 v;
+                float f[8];
+            } vacc0_u;
+            vacc0_u.v = vacc0;
             // how to store faster: st4 / transpose
             for (auto iStore = 0; iStore < (taileSize & 0x07); iStore++) {
-                 c[packCUnit * iStore] = vacc0[iStore];
+                 c[packCUnit * iStore] = vacc0_u.f[iStore];
             }
         }
         // ie += taileSize;

@@ -21,7 +21,7 @@ void callUnary(void *input, void *output, size_t count, MNN::CUDARuntime* runtim
 {
     Tensor::InsideDescribe::Region reg;
     reg.size[2] = count;
-    UnaryBlit((uint8_t*)output, (const uint8_t*)input, reg.size, reg.src.stride, reg.dst.stride, 4, runtime, op_type);
+    UnaryBlit((uint8_t*)output, (const uint8_t*)input, reg.size, reg.src.stride, reg.dst.stride, data_type.bytes(), runtime, op_type);
     return;
 }
 
@@ -41,6 +41,9 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     MNN_PRINT("start UnaryExecution onExecute...");
 #endif
     auto type = inputs[0]->getType();
+    if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        type.bits = 16;
+    }
     callUnary((void*)inputs[0]->deviceId(), (void*)outputs[0]->deviceId(), mCount, mRuntime, type, mOpType);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end UnaryExecution onExecute...");
@@ -58,6 +61,15 @@ __global__ void RELU(const float *input, float *output, size_t count, float slop
   return;
 }
 
+__global__ void RELU_Half(const half *input, half *output, size_t count, float slope) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+    float x = input[i];
+    float y = x > 0 ? x : x * slope;
+    output[i] = (half)y;
+  }
+  return;
+}
+
 class ReluExecution : public Execution {
 public:
     ReluExecution(Backend* bn, float slope) : Execution(bn) {
@@ -71,7 +83,11 @@ public:
         int threads_num = runtime->threads_num();
         auto input = inputs[0]->deviceId();
         auto output = outputs[0]->deviceId();
-        RELU<<<block_num, threads_num>>>((float*)input, (float*)output, count, mSlope);
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            RELU_Half<<<block_num, threads_num>>>((half*)input, (half*)output, count, mSlope);
+        } else {
+            RELU<<<block_num, threads_num>>>((float*)input, (float*)output, count, mSlope);
+        }
         return NO_ERROR;
     }
 private:
@@ -79,7 +95,8 @@ private:
 };
 
 
-__global__ void CLAMP(const float *input, float *output, size_t count, float minV, float maxV) {
+template<typename T>
+__global__ void CLAMP(const T *input, T *output, size_t count, float minV, float maxV) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
     float x = input[i];
     float y = min(max(x, minV), maxV);
@@ -101,7 +118,11 @@ public:
         int threads_num = runtime->threads_num();
         auto input = inputs[0]->deviceId();
         auto output = outputs[0]->deviceId();
-        CLAMP<<<block_num, threads_num>>>((float*)input, (float*)output, count, mMinV, mMaxV);
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            CLAMP<<<block_num, threads_num>>>((half*)input, (half*)output, count, mMinV, mMaxV);
+        } else {
+            CLAMP<<<block_num, threads_num>>>((float*)input, (float*)output, count, mMinV, mMaxV);
+        }
         return NO_ERROR;
     }
 private:
@@ -113,6 +134,14 @@ template <typename T1, typename T2>
 __global__ void CAST(T1 *input, T2 *output, size_t count) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
     output[i] = (T2)(input[i]);
+  }
+  return;
+}
+
+template <typename T1, typename T2>
+__global__ void CASTMIDFLOAT(T1 *input, T2 *output, size_t count) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+    output[i] = (T2)((float)input[i]);
   }
   return;
 }
@@ -152,29 +181,52 @@ public:
         auto dstT = _mapDataType(mDst);
 
         const auto &inputDataType = inputs[0]->getType();
-
+        if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
+            runtime->memcpy((void*)output, (void*)input, count * static_cast<CUDABackend*>(backend())->getBytes(inputs[0]), MNNMemcpyDeviceToDevice, true);
+            return NO_ERROR;
+        }
         if (inputDataType.bytes() == 4 && mDst == MNN::DataType_DT_BOOL) {
             CASTBOOL<<<block_num, threads_num>>>((int32_t*)input, (int32_t*)output, count);
-        } else if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
-            runtime->memcpy((void*)output, (void*)input, count * inputDataType.bytes(), MNNMemcpyDeviceToDevice, true);
-        } else if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((float*)input, (int*)output, count);
-        } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((int*)input, (float*)output, count);
-        } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((uint8_t*)input, (float*)output, count);
-        } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((int8_t*)input, (float*)output, count);
-        } else if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((float*)input, (int8_t*)output, count);
-        } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((float*)input, (uint8_t*)output, count);
+            return NO_ERROR;
+        }
+        if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {
+            CAST<<<block_num, threads_num>>>((int8_t*)input, (int32_t*)output, count);
+            return NO_ERROR;
         } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<int32_t>() == inputDataType) {
             CAST<<<block_num, threads_num>>>((int32_t*)input, (uint8_t*)output, count);
+            return NO_ERROR;
         } else if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
             CAST<<<block_num, threads_num>>>((uint8_t*)input, (int32_t*)output, count);
-        } else if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((int8_t*)input, (int32_t*)output, count);
+            return NO_ERROR;
+        }
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (int*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((int*)input, (half*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((uint8_t*)input, (half*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((int8_t*)input, (half*)output, count);
+            } else if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (int8_t*)output, count);
+            } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (uint8_t*)output, count);
+            }
+        } else {
+            if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (int*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((int*)input, (float*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((uint8_t*)input, (float*)output, count);
+            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((int8_t*)input, (float*)output, count);
+            } else if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (int8_t*)output, count);
+            } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
+                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (uint8_t*)output, count);
+            }
         }
         return NO_ERROR;
     }

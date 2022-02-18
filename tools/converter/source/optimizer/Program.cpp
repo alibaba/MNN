@@ -34,6 +34,10 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
     }
     invalidSet.insert(op);
     for (auto input : op->inputIndexes) {
+        if (input < 0) { // optional input
+            inputVars.emplace_back(nullptr);
+            continue;
+        }
         if (varMap.find(input) == varMap.end()) {
             for (int j = 0; j < oplists.size(); ++j) {
                 for (auto outputIndex : oplists[j]->outputIndexes) {

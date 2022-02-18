@@ -1,49 +1,47 @@
 # MNN
-#  |-- Debug
-#  |     |--- MD
-#  |     |--- MT
-#  |     |--- Static
-#  |
-#  |-- Release
-#        |--- MD
-#        |--- MT
-#        |--- Static
+#  |-- include
+#  |-- lib
+#       |-- Debug
+#       |     |--- Dynamic
+#       |     |      |--- MD
+#       |     |      |--- MT
+#       |     |
+#       |     |--- Static
+#       |            |--- MD
+#       |            |--- MT
+#       |
+#       |-- Release
+#             |--- Dynamic
+#             |      |--- MD
+#             |      |--- MT
+#             |
+#             |--- Static
+#                    |--- MD
+#                    |--- MT
+#
 Param(
     [Parameter(Mandatory=$true)][String]$path,
-    [String]$backends
+    [String]$backends,
+    [Switch]$x86
 )
 
-# build process may failed because of lnk1181, but be success when run again
-# Run expr, return if success, otherwise try again until try_times
-function Retry([String]$expr, [Int]$try_times) {
-  $cnt = 0
-  do {
-   $cnt++
-   try {
-     Invoke-Expression $expr
-     return
-   } catch { }
- } while($cnt -lt $try_times)
- throw "Failed: $expr"
-}
-
 $erroractionpreference = "stop"
-Remove-Item $path -Recurse -ErrorAction Ignore
-mkdir -p $path
+New-Item -Path $path -ItemType Directory -ErrorAction Ignore
 $PACKAGE_PATH = $(Resolve-Path $path).Path
+$PACKAGE_LIB_PATH = "$PACKAGE_PATH/lib/$(If ($x86) {"x86"} Else {"x64"})"
+Remove-Item -Path $PACKAGE_LIB_PATH -Recurse -ErrorAction Ignore
+mkdir -p $PACKAGE_LIB_PATH
 
 #clear and create package directory
 powershell ./schema/generate.ps1
-pushd $PACKAGE_PATH
-mkdir -p Debug\MD
-mkdir -p Debug\MT
-mkdir -p Debug\Static
-mkdir -p Release\MD
-mkdir -p Release\MT
-mkdir -p Release\Static
+Remove-Item -Path $PACKAGE_PATH/include -Recurse -ErrorAction Ignore
+cp -r include $PACKAGE_PATH
+cp -r tools/cv/include/cv $PACKAGE_PATH/include
+pushd $PACKAGE_LIB_PATH
+mkdir -p Debug\Dynamic\MD, Debug\Dynamic\MT, Debug\Static\MD, Debug\Static\MT, Release\Dynamic\MD, Release\Dynamic\MT, Release\Static\MD, Release\Static\MT
 popd
 
-$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON"
+$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AVX512=ON"
 if ($backends -ne $null) {
     Foreach ($backend in $backends.Split(",")) {
         if ($backend -eq "opencl") {
@@ -58,53 +56,83 @@ Remove-Item build -Recurse -ErrorAction Ignore
 mkdir build
 pushd build
 
-##### Debug/MT ####
+function log([String]$msg) {
+    echo "================================"
+    echo "Build MNN (CPU $backends) $msg"
+    echo "================================"
+}
+
+# build it according to cmake_cmd, exit 1 when any error occur
+function Build([String]$cmake_cmd, [String]$ninja_cmd = "ninja MNN") {
+    Invoke-Expression $cmake_cmd
+    # build process may failed because of lnk1181, but be success when run again
+    $try_times = 2
+    if ($LastExitCode -eq 0) {
+        For ($cnt = 0; $cnt -lt $try_times; $cnt++) {
+            try {
+                Invoke-Expression $ninja_cmd
+                if ($LastExitCode -eq 0) {
+                    return
+                }
+            } catch {}
+        }
+    }
+    popd
+    exit 1
+}
+
+##### Debug/Dynamic/MT ####
+log "Debug/Dynamic/MT"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=ON .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Debug\MT
-cp MNN.dll $PACKAGE_PATH\Debug\MT
-cp MNN.pdb $PACKAGE_PATH\Debug\MT
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=ON .."
+cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Debug\Dynamic\MT
 rm MNN.*
 
-##### Debug/MD ####
+##### Debug/Dynamic/MD ####
+log "Debug/Dynamic/MD"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Debug\MD
-cp MNN.dll $PACKAGE_PATH\Debug\MD
-cp MNN.pdb $PACKAGE_PATH\Debug\MD
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF .."
+cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Debug\Dynamic\MD
 rm MNN.*
 
-##### Debug/Static ####
+##### Debug/Static/MT ####
+log "Debug/Static/MT"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Debug\Static
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MT
 rm MNN.*
 
-##### Release/MT ####
+##### Debug/Static/MD ####
+log "Debug/Static/MD"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Release\MT
-cp MNN.dll $PACKAGE_PATH\Release\MT
-cp MNN.pdb $PACKAGE_PATH\Release\MT
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
+cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MD
 rm MNN.*
 
-##### Release/MD ####
+##### Release/Dynamic/MT ####
+log "Release/Dynamic/MT"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Release\MD
-cp MNN.dll $PACKAGE_PATH\Release\MD
-cp MNN.pdb $PACKAGE_PATH\Release\MD
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON .."
+cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MT
 rm MNN.*
 
-##### Release/Static ####
+##### Release/Dynamic/MD ####
+log "Release/Dynamic/MD"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
-Invoke-Expression "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
-Retry "ninja" 2
-cp MNN.lib $PACKAGE_PATH\Release\Static
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
+cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
+rm MNN.*
+
+##### Release/Static/MT ####
+log "Release/Static/MT"
+Remove-Item CMakeCache.txt -ErrorAction Ignore
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
+
+##### Release/Static/MD ####
+log "Release/Static/MD"
+Remove-Item CMakeCache.txt -ErrorAction Ignore
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
+cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MD
 
 popd

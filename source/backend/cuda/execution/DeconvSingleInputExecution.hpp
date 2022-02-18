@@ -11,7 +11,7 @@
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-#include "half.hpp"
+#include "TensorCoreGemm.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -26,9 +26,6 @@ struct KernelInfo {
     int kernelC        = 0;
     int kernelX        = 0;
     int kernelY        = 0;
-    PadMode padMode    = PadMode_CAFFE;
-    int padX           = 0;
-    int padY           = 0;
     int strideX        = 0;
     int strideY        = 0;
     int dilateX        = 0;
@@ -36,59 +33,71 @@ struct KernelInfo {
     int activationType = 0;
 };//
 
+struct Col2ImParameter {
+    int padX;
+    int padY;
+    int dilateX;
+    int dilateY;
+    int strideX;
+    int strideY;
+    int kernelX;
+    int kernelY;
+    int oc;
+    int ic;
+    int iw;
+    int ih;
+    int ow;
+    int oh;
+    int ob;
+};
+
+struct InputReorderParameter {
+    int ic_stride;
+    int ib_stride;
+    int oc_stride;
+    int ob_stride;
+    int hw_size;
+    int l_size;
+    int h_size;
+    int lpack_size;
+    int hpack_size;
+}; 
+
+
 extern "C"
 class DeconvSingleInputExecution : public Execution {
 public:
-    DeconvSingleInputExecution(Backend* backend, const MNN::Op* op);
+    struct Resource {
+        Resource(Backend* bn, const MNN::Op* op);
+        ~ Resource();
+        void* mFilter;
+        void* mBias;
+        std::shared_ptr<Tensor> weightTensor;
+        std::shared_ptr<Tensor> biasTensor;
+        KernelInfo mKernelInfo;
+        Backend* mBackend = nullptr;
+    };
+    DeconvSingleInputExecution(Backend* backend, const MNN::Op* op,  std::shared_ptr<Resource> res);
     virtual ~DeconvSingleInputExecution();
     virtual ErrorCode onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    cudnnHandle_t cudnn_handle_;
-    cudnnTensorDescriptor_t input_desc_;
-    cudnnTensorDescriptor_t output_desc_;
-    cudnnFilterDescriptor_t filter_desc_;
-    cudnnConvolutionBwdDataAlgo_t conv_bwd_algo_;
-    cudnnConvolutionDescriptor_t conv_desc_;
-    cudnnTensorDescriptor_t bias_desc_;
-    cudnnTensorDescriptor_t padded_desc_;
-    cudnnActivationDescriptor_t act_desc_;
+    std::shared_ptr<Resource> mResource;
 
-    cudnnDataType_t cudnn_data_type_;
-    int cudnn_data_type_len_;
-    bool use_pad_ = false;
-    int pad_top_ = 0;
-    int pad_bottom_ = 0;
-    int pad_left_ = 0;
-    int pad_right_ = 0;
+    const Op* mOp = nullptr;
+    MatMulParam mMatMulParam;
+    std::pair<void*, int> mGpuMatMulParam;
 
-    bool use_bias_ = false;
-    bool use_relu_ = false;
-    bool use_relu6_ = false;
+    Col2ImParameter mCol2ImParamter;
+    std::pair<void*, int> mGpuCol2ImParam;
 
-    void* mPadPtr;
-    void* mFilter;
-    void* mBias;
-    void* mWorkSpace;
-    std::shared_ptr<Tensor> weightTensor;
-    std::shared_ptr<Tensor> biasTensor;
-    std::shared_ptr<Tensor> padTensor;
-    std::shared_ptr<Tensor> workspaceTensor;
+    InputReorderParameter mInpReorderParameter;
+    std::pair<void*, int> mGpuInpReorderParam;
 
-    std::shared_ptr<Tensor> mPad;
-    std::shared_ptr<Tensor> mWorkspaceForward;
-
-    size_t input_size_;
-    size_t filter_size_;
-    size_t output_size_;
-    size_t padded_size_;
-    size_t workspace_size_;
-
-    const MNN::Op* mOp;
-    KernelInfo mKernelInfo;
-    IOInfo mIOInfo;
-    std::shared_ptr<Tensor> mTempInput;
+    float* mIm2ColBuffer;
+    __half* mInputBuffer;
 };
 
 } // namespace CUDA

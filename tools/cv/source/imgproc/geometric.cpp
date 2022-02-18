@@ -56,8 +56,12 @@ Matrix getRotationMatrix2D(Point center, double angle, double scale) {
     return M;
 }
 
-VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation) {
+extern std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code);
+extern int format2Channel(CV::ImageFormat format);
+
+VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation, int code, std::vector<float> mean, std::vector<float> norm) {
     int ih, iw, ic;
+    auto type = src->getInfo()->type;
     getVARPSize(src, &ih, &iw, &ic);
     int oh = dsize.height, ow = dsize.width;
     if (!oh && !ow) {
@@ -66,30 +70,55 @@ VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation) {
     }
     fx = static_cast<float>(iw) / ow;
     fy = static_cast<float>(ih) / oh;
-    auto dest = Tensor::create({1, oh, ow, ic}, halide_type_of<uint8_t>());
     ImageProcess::Config config;
+    // cvtColor
+    int oc = ic;
+    if (code >= 0) {
+        auto format = getSrcDstFormat(code);
+        config.sourceFormat = format.first;
+        config.destFormat = format.second;
+        oc = format2Channel(format.second);
+    } else {
+        ImageFormat format = RGB;
+        if (ic == 1) {
+            format = GRAY;
+        } else if (ic == 4) {
+            format = RGBA;
+        }
+        config.sourceFormat = format;
+        config.destFormat = format;
+    }
+    // toFloat
+    auto dstType = type;
+    if (!mean.empty() || !norm.empty()) {
+        for (int i = 0; i < mean.size() && i < 4; i++) {
+            config.mean[i] = mean[i];
+        }
+        for (int i = 0; i < norm.size() && i < 4; i++) {
+            config.normal[i] = norm[i];
+        }
+        dstType = halide_type_of<float>();
+    }
     config.filterType = static_cast<Filter>(interpolation);
-    config.sourceFormat = RGB;
-    config.destFormat = RGB;
     std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
+    auto dest = Tensor::create({1, oh, ow, oc}, dstType);
     Matrix tr;
     tr.postScale(fx, fy);
     tr.postTranslate(0.5 * (fx - 1), 0.5 * (fy - 1));
     process->setMatrix(tr);
-    process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, ic, 0, halide_type_of<uint8_t>());
+    process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, oc, 0, dstType);
     auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
     return _Squeeze(res, {0});
 }
 
-VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int borderValue) {
+VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int borderValue, int code, std::vector<float> mean, std::vector<float> norm) {
     int ih, iw, ic;
+    auto type = src->getInfo()->type;
     getVARPSize(src, &ih, &iw, &ic);
     int oh = dsize.height, ow = dsize.width;
-    auto dest = Tensor::create({1, oh, ow, ic}, halide_type_of<uint8_t>());
+    // auto dest = Tensor::create({1, oh, ow, ic}, type);
     ImageProcess::Config config;
     config.filterType = flags < 3 ? static_cast<Filter>(flags) : BILINEAR;
-    config.sourceFormat = RGB;
-    config.destFormat = RGB;
     switch (borderMode) {
         case BORDER_CONSTANT:
             config.wrap = ZERO;
@@ -104,6 +133,35 @@ VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int b
             MNN_ERROR("Don't support borderMode!");
             break;
     }
+    // cvtColor
+    int oc = ic;
+    if (code >= 0) {
+        auto format = getSrcDstFormat(code);
+        config.sourceFormat = format.first;
+        config.destFormat = format.second;
+        oc = format2Channel(format.second);
+    } else {
+        ImageFormat format = RGB;
+        if (ic == 1) {
+            format = GRAY;
+        } else if (ic == 4) {
+            format = RGBA;
+        }
+        config.sourceFormat = format;
+        config.destFormat = format;
+    }
+    // toFloat
+    auto dstType = type;
+    if (!mean.empty() || !norm.empty()) {
+        for (int i = 0; i < mean.size() && i < 4; i++) {
+            config.mean[i] = mean[i];
+        }
+        for (int i = 0; i < norm.size() && i < 4; i++) {
+            config.normal[i] = norm[i];
+        }
+        dstType = halide_type_of<float>();
+    }
+    auto dest = Tensor::create({1, oh, ow, oc}, dstType);
     std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
     if (flags != WARP_INVERSE_MAP) {
         bool invert = M.invert(&M);
@@ -111,7 +169,7 @@ VARP warpAffine(VARP src, Matrix M, Size dsize, int flags, int borderMode, int b
     }
     process->setMatrix(M);
     process->setPadding(borderValue);
-    process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, ic, 0, halide_type_of<uint8_t>());
+    process->convert(src->readMap<uint8_t>(), iw, ih, 0, dest->host<uint8_t>(), ow, oh, oc, 0, dstType);
     auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
     return _Squeeze(res, {0});
 }

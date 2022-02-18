@@ -9,6 +9,16 @@
 #ifndef TEST_ENV_HPP
 #define TEST_ENV_HPP
 
+// macro flags for module test
+#define MNN_CODECS_TEST
+#define MNN_TEST_COLOR
+#define MNN_DRAW_TEST
+#define MNN_TEST_FILTER
+#define MNN_GEOMETRIC_TEST
+#define MNN_MISCELLANEOUS_TEST
+#define MNN_STRUCTRAL_TEST
+#define MNN_DRAW_TEST
+
 #include <iostream>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs.hpp>

@@ -17,6 +17,8 @@
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_PNG
 #define STBI_ONLY_BMP
+#define STB_IMAGE_STATIC
+
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -117,9 +119,12 @@ VARP imread(const std::string& filename, int flags) {
 }
 
 bool imwrite(const std::string& filename, VARP img, const std::vector<int>& params) {
-    VARP rgb = cvtColor(img, COLOR_BGR2RGB);
     int height, width, channel;
-    getVARPSize(rgb, &height, &width, &channel);
+    getVARPSize(img, &height, &width, &channel);
+    if (channel == 3) {
+        img = cvtColor(img, COLOR_BGR2RGB);
+    }
+
     auto ext = getExt(filename);
     if (ext == "jpg" || ext == "jpeg") {
         int quality = 95;
@@ -129,13 +134,13 @@ bool imwrite(const std::string& filename, VARP img, const std::vector<int>& para
                 break;
             }
         }
-        return stbi_write_jpg(filename.c_str(), width, height, channel, rgb->readMap<uint8_t>(), quality);
+        return stbi_write_jpg(filename.c_str(), width, height, channel, img->readMap<uint8_t>(), quality);
     }
     if (ext == ".png") {
-        return stbi_write_png(filename.c_str(), width, height, channel, rgb->readMap<uint8_t>(), 0);
+        return stbi_write_png(filename.c_str(), width, height, channel, img->readMap<uint8_t>(), 0);
     }
     if (ext == ".bmp") {
-        return stbi_write_bmp(filename.c_str(), width, height, channel, rgb->readMap<uint8_t>());
+        return stbi_write_bmp(filename.c_str(), width, height, channel, img->readMap<uint8_t>());
     }
     return false;
 }

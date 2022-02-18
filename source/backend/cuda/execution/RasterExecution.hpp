@@ -2,37 +2,43 @@
 //  RasterExecution.hpp
 //  MNN
 //
-//  Created by MNN on 2020/07/30.
+//  Created by MNN on b'2020/04/02'.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
 #ifndef RasterExecution_hpp
 #define RasterExecution_hpp
-#include <map>
-#include <memory>
-#include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
-#include "core/Execution.hpp"
+#include <map>
+#include <set>
 #include "core/TensorUtils.hpp"
-
 namespace MNN {
 namespace CUDA {
 class RasterExecution : public Execution {
 public:
-    RasterExecution(Backend *backend);
-    virtual ~RasterExecution();
+    RasterExecution(Backend* bn) : Execution(bn) {
+        // Do nothing
+    }
+    virtual ~ RasterExecution() {
+        // Do nothing
+    }
+    
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
 private:
-    std::vector<std::pair<void *, Tensor::InsideDescribe::Region *>> mTempInputCopy;
+    std::map<Tensor*, Tensor*> mTempInput;
+    std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
+    std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region>> mFastBlit;
+    std::shared_ptr<Tensor> mTempOutput;
+    Tensor* mOutputPtr;
     bool mNeedZero = false;
+    bool mFast = false;
+    int mSingleConvert = 0;
+    int32_t mZeroPoint = 0;
     std::pair<bool, int> mFuseRaster;
-
     void *mOffset;
     std::shared_ptr<Tensor> offsetTensor;
 };
-} // namespace CUDA
-} // namespace MNN
-
+}
+}
 #endif

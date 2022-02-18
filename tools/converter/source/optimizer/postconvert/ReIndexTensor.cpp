@@ -21,6 +21,9 @@ public:
         std::vector<bool> tensorValid(mNet->tensorName.size(), false);
         for (auto& op : mNet->oplists) {
             for (auto index : op->inputIndexes) {
+                if (index < 0) {
+                    continue; // optional input, ignore it
+                }
                 tensorValid[index] = true;
             }
             for (auto index : op->outputIndexes) {
@@ -38,6 +41,9 @@ public:
         // Re index
         for (auto& op : mNet->oplists) {
             for (int i = 0; i < op->inputIndexes.size(); ++i) {
+                if (op->inputIndexes[i] < 0) {
+                    continue;
+                }
                 auto iter = usefulTensorIndexMap.find(op->inputIndexes[i]);
                 DCHECK(iter != usefulTensorIndexMap.end()) << "ERROR";
                 op->inputIndexes[i] = iter->second;
