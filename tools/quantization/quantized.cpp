@@ -25,7 +25,8 @@ int main(int argc, const char* argv[]) {
     DLOG(INFO) << ">>> dstFile: " << dstFile;
     std::unique_ptr<MNN::NetT> netT;
     {
-        std::ifstream input(modelFile);
+        //std::ifstream input(modelFile);
+        std::ifstream input(modelFile, std::ifstream::in | std::ifstream::binary);
         std::ostringstream outputOs;
         outputOs << input.rdbuf();
         netT = MNN::UnPackNet(outputOs.str().c_str());

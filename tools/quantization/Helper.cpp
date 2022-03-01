@@ -47,27 +47,35 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
 #if defined(_MSC_VER)
     WIN32_FIND_DATA ffd;
     HANDLE hFind = INVALID_HANDLE_VALUE;
-    hFind = FindFirstFile(filePath.c_str(), &ffd);
+    hFind = FindFirstFile((filePath + "\\*").c_str(), &ffd);
     if (INVALID_HANDLE_VALUE == hFind) {
         std::cout << "open " << filePath << " failed: " << strerror(errno) << std::endl;
         return;
     }
-    do {
+    
+    while (FindNextFile(hFind, &ffd))
+    {
+        if (ffd.cFileName[0] == '.') {
+            continue;
+        }
         const std::string fileName = filePath + "\\" + ffd.cFileName;
-        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+        if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
             if (*usedImageNum == 0) {
                 // use all images in the folder
                 images.push_back(fileName);
                 count++;
-            } else if (count < *usedImageNum) {
+            }
+            else if (count < *usedImageNum) {
                 // use usedImageNum images
                 images.push_back(fileName);
                 count++;
-            } else {
+            }
+            else {
                 break;
             }
         }
-    } while (FindNextFile(hFind, &ffd) != 0);
+    }
+
     FindClose(hFind);
 #else
     DIR* root = opendir(filePath.c_str());
