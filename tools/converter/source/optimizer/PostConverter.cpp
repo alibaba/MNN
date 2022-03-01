@@ -219,10 +219,13 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
     };
     if (ctx->is_training) {
-        std::vector<std::string>::iterator iter;
-        for (iter = postConvertPass.begin(); iter != postConvertPass.end(); iter++) {
+        std::vector<std::string>::iterator iter = postConvertPass.begin();
+        while (iter != postConvertPass.end()) {
             if (*iter == "RemoveDropout") {
-                postConvertPass.erase(iter);
+                iter = postConvertPass.erase(iter);
+            } 
+            else {
+                iter++;
             }
         }
     }
@@ -261,10 +264,13 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
     };
     if (ctx->is_training) {
-        std::vector<std::string>::iterator iter;
-        for (iter = afterProgramConvert.begin(); iter != afterProgramConvert.end(); iter++) {
+        std::vector<std::string>::iterator iter = afterProgramConvert.begin();
+        while (iter != afterProgramConvert.end()) {
             if (*iter == "TransformBatchNormal" || *iter == "MergeBNToConvolution") {
-                afterProgramConvert.erase(iter);
+                iter = afterProgramConvert.erase(iter);
+            }
+            else {
+                iter++;
             }
         }
     }
