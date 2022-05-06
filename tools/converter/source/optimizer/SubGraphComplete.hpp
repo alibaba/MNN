@@ -22,6 +22,7 @@ struct OptimizeContext {
     std::vector<SubGraphProtoT*> subgraphs;
     bool is_training;
     bool verbose;
+    bool first_run = true;
     NetSource source;
 
     std::vector<SubGraphProtoT*> completed_subgraphs;

@@ -17,6 +17,8 @@
 #include <MNN/MNNForwardType.h>
 
 namespace MNN {
+class PythonAuthByPass;
+
 namespace Express {
 struct SubGraph;
 class MNN_PUBLIC Module {
@@ -116,11 +118,14 @@ protected:
 
 private:
     void _collectParameters(std::vector<Express::VARP>& result) const;
+    static Module* loadWithoutAuth(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config);
     std::vector<std::shared_ptr<Module>> mChildren;
     std::vector<Express::VARP> mParameters;
     bool mIsTraining = true;
     std::string mName;
     std::string mType;
+
+    friend class MNN::PythonAuthByPass;
 };
 
 struct SubGraph {

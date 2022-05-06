@@ -57,7 +57,7 @@ protected:
             }
         }
 
-        if (!checkVector<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
+        if (!checkVectorByRelativeError<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
             MNN_ERROR("%s test failed!\n", name.c_str());
             return false;
         }
@@ -106,7 +106,8 @@ class PowTest : public BinaryTestCommon {
 public:
     virtual ~PowTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Pow, "PowTest", 0.01,
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
+        return test<float, float>(_Pow, "PowTest", 0.01 * errorScale,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
                     {4}, {4}, {4});
     }
@@ -197,7 +198,7 @@ public:
         std::vector<float> z(x.size());
         for (int i=0; i<2; ++i) {
             for (int j=0; j<4; ++j) {
-                z[i + j * 2] = fmodf(x[i+j*2], y[i]);
+                z[i + j * 2] = FP32Converter[precision](fmodf(FP32Converter[precision](x[i+j*2]), FP32Converter[precision](y[i])));
             }
         }
         return test<float, float>(_Mod, "ModTest", 0,
@@ -333,15 +334,16 @@ public:
     virtual bool run(int precision) {
         vector<float> data_x(560), data_y(20 * 560), data_out(20 * 560);
         vector<int> shape_x = {560}, shape_y = {1, 20, 560}, shape_out = {1, 20, 560};
+        auto func = FP32Converter[precision];
         for (int i = 0; i < 560; ++i) {
-            data_x[i]  = i / 1000.0f;
+            data_x[i]  = func(i / 1000.0f);
         }
         for (int i = 0; i < 560 * 20; ++i) {
-            data_y[i]  = i / 1000.0f;
+            data_y[i]  = func(i / 1000.0f);
         }
         for (int i = 0; i < 20; ++i) {
             for (int j = 0; j < 560; ++j) {
-                data_out[j + i * 560] = data_x[j] - data_y[j + i * 560];
+                data_out[j + i * 560] = func(data_x[j] - data_y[j + i * 560]);
             }
         }
         return test<float, float>(_Subtract, "SubtractBroastTest", 0.01,

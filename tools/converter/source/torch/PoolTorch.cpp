@@ -27,17 +27,22 @@ void PoolTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* s
     const auto& inputs = node->inputs();
     if (opType.find("adaptive") == std::string::npos) {
         const auto kernel_size = getValue<std::vector<int64_t>>(inputs[1]);
-        param->kernelX = kernel_size[0];
-        param->kernelY = kernel_size[1];
+        param->kernelY = kernel_size[0];
+        param->kernelX = kernel_size[1];
         if (inputs.size() > 2) {
             const auto stride = getValue<std::vector<int64_t>>(inputs[2]);
-            param->strideX = stride[0];
-            param->strideY = stride[1];
+            if (stride.size() == 2) {
+                param->strideY = stride[0];
+                param->strideX = stride[1];
+            } else {
+                param->strideX = 2;
+                param->strideY = 2;
+            }
         }
         if (inputs.size() > 3) {
             const auto padding = getValue<std::vector<int64_t>>(inputs[3]);
-            param->padX = padding[0];
-            param->padY = padding[1];
+            param->padY = padding[0];
+            param->padX = padding[1];
         }
         if (inputs.size() > 5) {
             // const auto dialation = getValue<std::vector<int64_t>>(inputs[4]);

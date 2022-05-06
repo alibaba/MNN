@@ -279,7 +279,14 @@ public:
                             // right part: dst: start + inputDim -> src: inputDim - 1 - extra
                             dstOffset += (seperateOffsets[si] + seperateInputDims[si]) * seperateOutputStrides[si];
                             srcOffset += (seperateInputDims[si] - 1 - extraSub) * seperateInputStrides[si];
-                            region.size[di]       = rightPads[si];
+#define SET_SIZE(dst, size) \
+if (mode == PadValueMode_REFLECT || mode == PadValueMode_SYMMETRIC) { \
+if (size > seperateInputDims[si] - extraSub)  { \
+MNN_ERROR("padding size is too large, result is undefined!\n(padding <= dim - 1) on REFLECT mode, (padding <= dim) on SYMMETRIC mode\n");  \
+} \
+dst = ALIMIN(size, seperateInputDims[si] - extraSub);\
+} else { dst = size; }
+                            SET_SIZE(region.size[di], rightPads[si])
                             region.src.stride[di] = -seperateInputStrides[si];
                             region.dst.stride[di] = seperateOutputStrides[si];
                             break;
@@ -292,14 +299,14 @@ public:
                                     srcPos = 0;
                                 }
                                 srcOffset += srcPos * seperateInputStrides[si];
-                                region.size[di]       = seperateOffsets[si];
+                                SET_SIZE(region.size[di], seperateOffsets[si])
                                 region.src.stride[di] = -seperateInputStrides[si];
                                 region.dst.stride[di] = seperateOutputStrides[si];
                             } else {
                                 // right part: dst: start + inputDim -> src: inputDim - 1 - extra
                                 dstOffset += (seperateOffsets[si] + seperateInputDims[si]) * seperateOutputStrides[si];
                                 srcOffset += (seperateInputDims[si] - 1 - extraSub) * seperateInputStrides[si];
-                                region.size[di]       = rightPads[si];
+                                SET_SIZE(region.size[di], rightPads[si])
                                 region.src.stride[di] = -seperateInputStrides[si];
                                 region.dst.stride[di] = seperateOutputStrides[si];
                             }

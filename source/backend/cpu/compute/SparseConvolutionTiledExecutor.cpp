@@ -106,6 +106,7 @@ SparseConvolutionTiledExecutor::SparseConvolutionTiledExecutor(std::shared_ptr<C
 }
 SparseConvolutionTiledExecutor::~SparseConvolutionTiledExecutor() {
 
+
 }
 bool SparseConvolutionTiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (!mValid) {
@@ -204,6 +205,7 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
     auto threadNumberFirst = std::min(threadNumber, tileCount);
     auto postParameters    = getPostParameters();
     mFunction.first        = threadNumberFirst;
+
     // MNN_PRINT("sparse convoluton: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, tileCount:%d, ePack:%d, pack:%d, mSparseBlockOC:%d, bytes:%d\n",
     //     batch, src_height, src_width, ic, height, width, outputChannel, mCommon->kernelX(), mCommon->kernelY(), plane, tileCount, eP, unit, mSparseBlockOC, bytes);
 

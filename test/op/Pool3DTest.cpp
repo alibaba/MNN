@@ -39,7 +39,7 @@ public:
 
 protected:
     static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& test_op_name,
-                              PoolType poolType) {
+                              PoolType poolType, int precision) {
         // 1, 2, 3, 4, 4 -> 1, 2, 3, 3, 3
         const int h = 4, w = 4, depth = 3;
         const int poolSize = 2, poolDepth = 3;
@@ -109,8 +109,9 @@ protected:
                               poolType, PoolPadType_CAFFE, {padDepth, pad, pad});
         output      = _Convert(output, NCHW);
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
-        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.001)) {
-            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), deviceName.c_str());
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.001 * errorScale)) {
+            MNN_ERROR("%s(%s) test failed!: errorScale:%f\n", test_op_name.c_str(), deviceName.c_str(), errorScale);
             return false;
         }
 
@@ -122,7 +123,7 @@ class MaxPool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~MaxPool3DTestOnCPU() = default;
     virtual bool run(int precision) {
-        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL);
+        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL, precision);
     }
 };
 
@@ -130,7 +131,7 @@ class AvePool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~AvePool3DTestOnCPU() = default;
     virtual bool run(int precision) {
-        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL);
+        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL, precision);
     }
 };
 

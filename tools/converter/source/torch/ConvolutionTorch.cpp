@@ -58,12 +58,12 @@ void ConvolutionTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchS
         common->kernelY = weightShape[2];
         common->kernelX = 1;
     } else {
-        common->strideX = stride[0];
-        common->strideY = stride[1];
-        common->padX = padding[0];
-        common->padY = padding[1];
-        common->dilateX = dialation[0];
-        common->dilateY = dialation[1];
+        common->strideY = stride[0];
+        common->strideX = stride[1];
+        common->padY = padding[0];
+        common->padX = padding[1];
+        common->dilateY = dialation[0];
+        common->dilateX = dialation[1];
         // weight format : NCHW
         common->outputCount = weightShape[0];
         common->inputCount = weightShape[1] * common->group;

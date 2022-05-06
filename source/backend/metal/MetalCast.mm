@@ -33,6 +33,8 @@ ErrorCode MetalCast::onExecute(const std::vector<Tensor *> &inputs, const std::v
         kernel = @"cast_uint8_to_float";
     } else if (mSrcType == DataType_DT_UINT8 && mDstType == DataType_DT_INT32) {
         kernel = @"cast_uint8_to_int";
+    } else if (mSrcType == DataType_DT_FLOAT && mDstType == DataType_DT_UINT8) {
+        kernel = @"cast_float_to_uint8";
     } else {
         return NOT_SUPPORT;
     }

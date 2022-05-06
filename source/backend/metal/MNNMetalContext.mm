@@ -59,7 +59,7 @@ static id<MTLLibrary> createLibrary(id<MTLDevice> device) {
             MNN_ERROR("Warning: Can't load mnn.metallib\n");
         }
     } else {
-        id<MTLFunction> func = [library newFunctionWithName:@"version_func_001"];
+        id<MTLFunction> func = [library newFunctionWithName:@"version_func_002"];
         if(nil == func) {
             library = nil;
             MNN_ERROR("Warning: Metallib version not match.\n");

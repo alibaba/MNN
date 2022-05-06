@@ -23,8 +23,32 @@ std::vector<int> UnSqueezeTorch::inputTensorIdx() {
 
 void UnSqueezeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::SqueezeParamT;
-    param->squeezeDims.push_back(getValue<int64_t>(node->input(1)));
+    if (node->inputs().size() > 1) {
+        param->squeezeDims.push_back(getValue<int64_t>(node->input(1)));
+    }
     dstOp->main.value = param;
 }
 
 REGISTER_CONVERTER(UnSqueezeTorch, unsqueeze);
+
+DECLARE_OP_CONVERTER(SqueezeTorch);
+
+MNN::OpType SqueezeTorch::opType() {
+    return MNN::OpType_Squeeze;
+}
+MNN::OpParameter SqueezeTorch::type() {
+    return MNN::OpParameter_SqueezeParam;
+}
+std::vector<int> SqueezeTorch::inputTensorIdx() {
+    return {0};
+}
+
+void SqueezeTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto param = new MNN::SqueezeParamT;
+    if (node->inputs().size() > 1) {
+        param->squeezeDims.push_back(getValue<int64_t>(node->input(1)));
+    }
+    dstOp->main.value = param;
+}
+
+REGISTER_CONVERTER(SqueezeTorch, squeeze);

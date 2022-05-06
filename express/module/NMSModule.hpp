@@ -8,6 +8,7 @@
 #ifndef NMSModule_hpp
 #define NMSModule_hpp
 #include <MNN/expr/Module.hpp>
+#include "core/Schedule.hpp"
 namespace MNN {
 namespace Express {
 class NMSModule : public Module {
@@ -16,12 +17,14 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    MNN_PUBLIC static NMSModule* create(const Op* op);
+    MNN_PUBLIC static NMSModule* create(const Op* op, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
 
 private:
     NMSModule(){}
 
     Module* clone(CloneContext* ctx) const override;
+    
+    std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
 };
 }
 }

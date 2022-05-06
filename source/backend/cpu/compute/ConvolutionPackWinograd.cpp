@@ -1,12 +1,12 @@
 //
-//  ConvolutionWinograd.cpp
+//  ConvolutionPackWinograd.cpp
 //  MNN
 //
 //  Created by MNN on 2018/08/20.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/compute/ConvolutionWinograd.hpp"
+#include "backend/cpu/compute/ConvolutionPackWinograd.hpp"
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
@@ -28,17 +28,18 @@ using namespace MNN::Math;
 //#define MNN_WINOGRAD_PRINT_REDUCE_RATE
 //#define MNN_WINO_TRANFORM_TEST_CLOSE
 namespace MNN {
-ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, const Tensor *input, const Tensor *output,
+ConvolutionPackWinograd::ConvolutionPackWinograd(const Convolution2DCommon *convOp, const Tensor *input, const Tensor *output,
                                          Backend *b, const float *originWeight, size_t originWeightSize,
-                                         const float *bias, size_t biasSize, int unit)
-    : MNN::CPUConvolution(convOp, b) {
+                                         const float *bias, size_t biasSize, WinogradConfig config)
+    : ConvolutionWinogradImpl(convOp, b) {
+    int unit = config.unit;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     int pack = core->pack, bytes = core->bytes;
     mResource.reset(new Resource);
     mResource->backend = b;
 
-    mDestUnrollTransform.reset(new CoreFunctions::WinoUnrollTransFunc[CONVOLUTION_WINOGRAD_MAX_UNIT + 1],
-        std::default_delete<CoreFunctions::WinoUnrollTransFunc[]>());
+    mDestUnrollTransform.reset(new CoreFunctions::WinoUnrollDestTransFunc[CONVOLUTION_WINOGRAD_MAX_UNIT + 1],
+        std::default_delete<CoreFunctions::WinoUnrollDestTransFunc[]>());
 
     if (!mResource->copyBiasAlign(bias, biasSize)) {
         MNN_ERROR("Not Enough Memory\n");
@@ -100,17 +101,17 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
 
     mPostParameters = getPostParameters();
 }
-ConvolutionWinograd::~ConvolutionWinograd() {
+ConvolutionPackWinograd::~ConvolutionPackWinograd() {
     // Do nothing
 }
-bool ConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
+bool ConvolutionPackWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (!mValid) {
         return false;
     }
     if (nullptr == dst) {
         return true;
     }
-    auto dstExe = new ConvolutionWinograd(mResource, op->main_as_Convolution2D()->common(), bn);
+    auto dstExe = new ConvolutionPackWinograd(mResource, op->main_as_Convolution2D()->common(), bn);
     dstExe->mA = mA;
     dstExe->mB = mB;
     dstExe->mTempBuffer.reset(Tensor::createDevice<uint8_t>(mTempBuffer->shape()));
@@ -124,7 +125,7 @@ bool ConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
     return true;
 }
 
-ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto core = static_cast<CPUBackend*>(backend())->functions();
     int pack = core->pack, bytes = core->bytes;
 
@@ -402,16 +403,16 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                 auto dstZAddr = dstStart + z * dstZStep * bytes;
                                 auto srcZ     = srcXi + z * srcZStep * bytes;
 
-                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
-                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)dstZAddr, pack, pack * ow, pack * dstUnit, pack);
+                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, nullptr, nullptr, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
+                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)dstZAddr,  nullptr, nullptr, pack, pack * ow, pack * dstUnit, pack);
                             }
                         } else {
                             for (int z = 0; z < dc_4; ++z) {
                                 auto dstZAddr = dstStart + z * dstZStep * bytes;
                                 auto srcZ     = srcXi + z * srcZStep * bytes;
 
-                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
-                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)midBuffer1, pack, pack * dstUnit, pack * dstUnit, pack);
+                                DestUnrollTransform[srcUnit]((const float*)srcZ, (float*)midBuffer0, nullptr, nullptr, unitStep, dstUnit * pack, srcUnit * unitStep, pack);
+                                DestUnrollTransform[ey]((const float*)midBuffer0, (float*)midBuffer1,  nullptr, nullptr, pack, pack * dstUnit, pack * dstUnit, pack);
 
                                 for (int yy = 0; yy < ey; ++yy) {
                                     auto dstYAddr = dstZAddr + yy * pack * ow * bytes;
@@ -446,8 +447,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     return NO_ERROR;
 }
 
-int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, const Tensor *inputTensor,
-                                          const Tensor *outputTensor, int threadNumber, Backend* b) {
+WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DCommon *common, const Tensor *inputTensor,
+                                          const Tensor *outputTensor, int threadNumber, Backend* b, const PerfConfig& denseConfig) {
+
+    // compare cost value
+    WinogradConfig wconfig;
+
+
     auto core = static_cast<CPUBackend*>(b)->functions();
     int ow      = outputTensor->width();
     int oh      = outputTensor->height();
@@ -465,7 +471,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
     float maxRate    = 0.0f;
     float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
     std::set<int> supportSu{4, 6, 8};
-    CoreFunctions::WinoUnrollTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
+    CoreFunctions::WinoUnrollDestTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
     for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
         auto sui = u + kernelSize - 1;
         auto su = (float)sui;
@@ -473,7 +479,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
             continue;
         }
         core->chooseWinoDestUnrollTransform(destTransform, CONVOLUTION_WINOGRAD_MAX_UNIT + 1, sui, u);
-        if (nullptr == destTransform[sui]) {
+            if (nullptr == destTransform[sui]) {
             continue;
         }
         // /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
@@ -496,25 +502,14 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
         }
     }
     if (maxRate < 1.0f) {
-        return 0;
+        wconfig.unit = 0;
+        return wconfig;
     }
-    return unit;
+    wconfig.unit = unit;
+    return wconfig;
 }
 
-bool ConvolutionWinograd::canUseWinograd(const Convolution2DCommon *common) {
-    if (common->kernelY() != common->kernelX() || common->kernelY() <= 1) {
-        return false;
-    }
-    if (common->dilateX() != 1 || common->dilateY() != 1) {
-        return false;
-    }
-    if (common->strideX() != 1 || common->strideY() != 1) {
-        return false;
-    }
-    return true;
-}
-
-ErrorCode ConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     CPUConvolution::onResize(inputs, outputs);
     // FUNC_PRINT(mA->length(1));
     bool success = backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);

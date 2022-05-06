@@ -85,7 +85,7 @@ class SliceComputer : public SizeComputer {
                     slicePoints.assign(slice->slicePoints()->begin(), slice->slicePoints()->end());
                 }
                 int totalLen = std::accumulate(slicePoints.begin(), slicePoints.end(), 0);
-                if (totalLen != inputs[0]->length(axis)) {
+                if (totalLen > inputs[0]->length(axis)) {
                     MNN_ASSERT(false);
                     return false;
                 }

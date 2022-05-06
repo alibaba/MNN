@@ -36,7 +36,7 @@ public:
                    std::shared_ptr<Parameters> parameters = nullptr) override {
         return onExecute(outputs, PASS_PRIORITY_HIGH);
     }
-    bool onExecute(const std::vector<VARP>& outputs, PassPriority priority);
+    bool onExecute(const std::vector<VARP>& outputs, PassPriority priority, const std::vector<VARP>& boundary = {});
 
     static TemplateMerge& getInstance(const std::string& pass);
 

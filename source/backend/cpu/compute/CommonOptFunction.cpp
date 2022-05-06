@@ -2078,51 +2078,6 @@ void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float al
         dst[i] = src[i] * alpha + bias;
     }
 }
-void MNNAxByClamp(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height, const float* parameters) {
-    int widthC4 = (int)width / 4;
-    if (widthC4 > 0) {
-        auto minF = Vec4(parameters[2]);
-        auto maxF = Vec4(parameters[3]);
-        auto alpha = Vec4(parameters[0]);
-        auto beta = Vec4(parameters[1]);
-        for (int y = 0; y < height; ++y) {
-            auto a = A + aStride * y;
-            auto b = B + bStride * y;
-            auto c = C + cStride * y;
-            for (int x = 0; x < width; ++x) {
-                auto av = Vec4::load(a + 4 * x);
-                auto bv = Vec4::load(b + 4 * x);
-                auto cv = av * alpha + bv * beta;
-                cv = Vec4::min(cv, maxF);
-                cv = Vec4::max(cv, minF);
-                Vec4::save(c + 4 * x, cv);
-            }
-        }
-        width = width - 4*widthC4;
-        C = C + widthC4 * 4;
-        A = A + widthC4 * 4;
-        B = B + widthC4 * 4;
-    }
-    if (width > 0) {
-        auto minF = parameters[2];
-        auto maxF = parameters[3];
-        auto alpha = parameters[0];
-        auto beta = parameters[1];
-        for (int y = 0; y < height; ++y) {
-            auto a = A + aStride * y;
-            auto b = B + bStride * y;
-            auto c = C + cStride * y;
-            for (int x = 0; x < width; ++x) {
-                auto av = a[x];
-                auto bv = b[x];
-                auto cv = av * alpha + bv * beta;
-                cv = std::min(cv, maxF);
-                cv = std::max(cv, minF);
-                c[x] = cv;
-            }
-        }
-    }
-}
 #ifndef MNN_USE_NEON
 void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters) {
     auto minF = Vec4(parameters[2]);

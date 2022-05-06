@@ -45,8 +45,8 @@ static PoolPadType _convertPoollingPadMode(PaddingMode mode) {
 /*create a input variable.
 Args:
 shape: A vector, the shape of the variable.
-data_format: A enum, NCHW/NHWC/NC4HW4 is allowed. 
-dtype: The type of the elements of the resulting variable. 
+data_format: A enum, NCHW/NHWC/NC4HW4 is allowed.
+dtype: The type of the elements of the resulting variable.
 Returns:
 output: A variable.
 */
@@ -66,9 +66,9 @@ VARP _Scalar(const void* ptr, halide_type_t type) {
 }
 /*create a constant variable.
 Args:
-ptr: A pointer. Indicates the values. 
+ptr: A pointer. Indicates the values.
 shape: A vector, the shape of the variable.
-format: A enum, NCHW/NHWC/NC4HW4 is allowed. 
+format: A enum, NCHW/NHWC/NC4HW4 is allowed.
 type: The type of the elements of the resulting variable. 
 Returns:
 output: A constant variable.
@@ -1896,6 +1896,44 @@ VARP _Nms(VARP boxes, VARP scores, int maxDetections, float iouThreshold, float 
         vars.push_back(_Scalar(scoreThreshold));
     }
     return (Variable::create(Expr::create(std::move(op), vars)));
+}
+
+VARP _Im2Col(VARP x, INTS kernelSize, INTS dilate, INTS pads, INTS stride) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_Im2Col;
+    op->main.type  = OpParameter_Convolution2D;
+    auto param = new MNN::Convolution2DT;
+    auto common    = new Convolution2DCommonT;
+    param->common.reset(common);
+    op->main.value = param;
+    common->padX        = pads[0];
+    common->padY        = pads[1];
+    common->strideX     = stride[0];
+    common->strideY     = stride[1];
+    common->dilateX     = dilate[0];
+    common->dilateY     = dilate[1];
+    common->kernelX     = kernelSize[0];
+    common->kernelY     = kernelSize[1];
+    return (Variable::create(Expr::create(op.get(), {x})));
+}
+
+VARP _Col2Im(VARP x, VARP outputShape, INTS kernelSize, INTS dilate, INTS pads, INTS stride) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_Col2Im;
+    op->main.type  = OpParameter_Convolution2D;
+    auto param = new MNN::Convolution2DT;
+    auto common    = new Convolution2DCommonT;
+    param->common.reset(common);
+    op->main.value = param;
+    common->padX        = pads[0];
+    common->padY        = pads[1];
+    common->strideX     = stride[0];
+    common->strideY     = stride[1];
+    common->dilateX     = dilate[0];
+    common->dilateY     = dilate[1];
+    common->kernelX     = kernelSize[0];
+    common->kernelY     = kernelSize[1];
+    return (Variable::create(Expr::create(op.get(), {x, outputShape})));
 }
 
 } // namespace Express

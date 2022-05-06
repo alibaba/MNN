@@ -36,9 +36,14 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
     mTunedInfo = new TuneInfo;
+    
+    mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
+    mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
 }
 
 CLRuntime::~CLRuntime() {
+    mImagePool = nullptr;
+    mBufferPool = nullptr;
     mOpenCLRuntime = nullptr;
     delete mTunedInfo;
 }
@@ -170,7 +175,7 @@ std::pair<const void*, size_t> CLRuntime::onGetCache() {
 
 Backend* CLRuntime::onCreate(const BackendConfig* config) const {
     // FIXME: Use config info
-    return new OpenCLBackend(this);
+    return new OpenCLBackend(mImagePool, mBufferPool, this);
 }
 
 void CLRuntime::onGabageCollect(int level) {
@@ -188,20 +193,19 @@ std::map<std::pair<OpType, GpuMemObject>, OpenCLBackend::Creator*>* gCreator() {
     return creators;
 };
 
-OpenCLBackend::OpenCLBackend(const CLRuntime *runtime)
+OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
     : Backend(MNN_FORWARD_OPENCL) {
 
     mCLRuntime = runtime;
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
     mPrecision = mCLRuntime->mPrecision;
-
+    mStaticImagePool = imgPool;
+    mStaticBufferPool = bufPool;
     if(mOpenCLRuntime.get()){
         if(mOpenCLRuntime->isCreateError() == true) {
             mIsCreateError = true;
         }
 
-        mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
-        mStaticBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
     }
@@ -214,8 +218,6 @@ OpenCLBackend::~OpenCLBackend() {
 #endif
     mImagePool = nullptr;
     mBufferPool = nullptr;
-    mStaticImagePool = nullptr;
-    mStaticBufferPool = nullptr;
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
         if(mUseSvm)

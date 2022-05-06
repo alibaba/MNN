@@ -24,7 +24,7 @@ public:
     virtual ~Conv2DBackPropFilterTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
         const int inputHeight = 5, inputWidth = 5, inputChannel = 2, outputChannel = 3;
         const int kernelSize = 3, stride = 2, pad = 1, batch = 1;
         const int height                   = (inputHeight + 2 * pad - kernelSize) / stride + 1; // height = 3
@@ -73,7 +73,8 @@ protected:
         ::memcpy(grad->writeMap<float>(), gradData.data(), gradData.size() * sizeof(float));
         auto size      = output->getInfo()->size;
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.005)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.005 * errorScale)) {
             MNN_ERROR("Conv2DBackPropFilter(%s) test failed!\n", deviceName.c_str());
             for (int i = 0; i < size; ++i) {
                 MNN_PRINT("%f - %f\n", outputPtr[i], outputData[i]);
@@ -88,7 +89,7 @@ class Conv2DBackPropFilterTestOnCPU : public Conv2DBackPropFilterTest {
 public:
     virtual ~Conv2DBackPropFilterTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 
@@ -96,7 +97,7 @@ class Conv2DBackPropFilterTestOnOpencl : public Conv2DBackPropFilterTest {
 public:
     virtual ~Conv2DBackPropFilterTestOnOpencl() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
+        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL", precision);
     }
 };
 
@@ -147,7 +148,8 @@ public:
                                                        3.1270, 4.6943, 4.4001, 4.5972, 5.5294, 5.3832, 5.3553,
                                                        6.4770, 5.1627, 4.4070, 6.0394, 5.0311, 4.9077};
         auto weightGradPtr                          = weightGrad->readMap<float>();
-        if (!checkVector<float>(weightGradPtr, expectedWeightGrad.data(), 27, 0.01)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
+        if (!checkVectorByRelativeError<float>(weightGradPtr, expectedWeightGrad.data(), 27, 0.01 * errorScale)) {
             MNN_ERROR("Conv2DBackPropFilter test failed!\n");
             return false;
         }

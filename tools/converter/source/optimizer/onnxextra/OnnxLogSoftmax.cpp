@@ -26,8 +26,10 @@ public:
         int axis = it->i();
 
         VARP x           = expr->inputs()[0];
-        VARP softmax     = _Softmax(x, axis);
-        auto log_softmax = _Log(softmax)->expr().first;
+        VARP max         = _ReduceMax(x, {axis}, true);
+        VARP sum         = _ReduceSum(_Exp(x - max), {axis}, true);
+        VARP log         = x - max - _Log(sum);
+        auto log_softmax = log->expr().first;
         log_softmax->setName(expr->name());
         return log_softmax;
     }

@@ -84,3 +84,34 @@ void AddmmTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* 
 }
 
 REGISTER_CONVERTER(AddmmTorch, addmm);
+
+DECLARE_OP_CONVERTER(EinsumTorch);
+
+MNN::OpType EinsumTorch::opType() {
+    return MNN::OpType_Extra;
+}
+MNN::OpParameter EinsumTorch::type() {
+    return MNN::OpParameter_Extra;
+}
+std::vector<int> EinsumTorch::inputTensorIdx() {
+    return {1};
+}
+
+void EinsumTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto extra        = new MNN::ExtraT;
+    dstOp->main.value = extra;
+    extra->engine     = "Torch";
+    extra->type       = getRealOpType(node);
+    const auto inputs = node->inputs();
+    const auto beta   = inputs[3];
+    const auto alpha  = inputs[4];
+    extra->attr.resize(2);
+    extra->attr[0].reset(new MNN::AttributeT);
+    extra->attr[0]->key = "beta";
+    extra->attr[0]->i = getValue<int64_t>(beta);
+    extra->attr[1].reset(new MNN::AttributeT);
+    extra->attr[1]->key = "alpha";
+    extra->attr[1]->i = getValue<int64_t>(alpha);
+}
+
+REGISTER_CONVERTER(EinsumTorch, einsum);

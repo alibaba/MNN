@@ -35,13 +35,13 @@ static VARP _ROIAlign(VARP intput, VARP rois, int pooledWidth, int pooledHeight,
 class ROIAlignTest : public MNNTestCase {
 public:
     virtual ~ROIAlignTest() = default;
-    virtual bool run(int precision) override { return testOnBackend(MNN_FORWARD_CPU, "CPU", "ROIAlign"); }
+    virtual bool run(int precision) override { return testOnBackend(MNN_FORWARD_CPU, "CPU", "ROIAlign", precision); }
 
 protected:
     static bool test(MNNForwardType type, const std::string& deviceName, const std::vector<float>& inputData,
                      const std::vector<float>& roiData, const std::vector<float>& outputData,
                      int numRoi, int batch, int channel, int height, int width, int outputHeight, int outputWidth,
-                     PoolType poolType, float samplingRatio, float spatialScale, bool aligned) {
+                     PoolType poolType, float samplingRatio, float spatialScale, bool aligned, int precision) {
         auto input  = _Input({batch, channel, height, width}, NCHW, halide_type_of<float>());
         auto rois   = _Input({numRoi, 5}, NCHW, halide_type_of<float>());
         auto output = _ROIAlign(_Convert(input, NC4HW4), rois, outputWidth, outputHeight, samplingRatio,
@@ -49,14 +49,15 @@ protected:
         output      = _Convert(output, NCHW);
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 200;
         if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
-                                               0.001)) {
-            MNN_ERROR("ROIAlign(%s) on %s test failed!\n", EnumNamePoolType(poolType), deviceName.c_str());
+                                               0.001 * errorScale)) {
+            MNN_ERROR("ROIAlign(%s) on %s test failed!, errorScale:%f\n", EnumNamePoolType(poolType), deviceName.c_str(), errorScale);
             return false;
         }
         return true;
     }
-    static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& testOpName) {
+    static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& testOpName, int precision) {
         const int n = 2, c = 3, h = 4, w = 4, roi = 2;
         const int pooledHeight = 3, pooledWidth = 3;
         const int samplingRatio  = 2;
@@ -102,7 +103,7 @@ protected:
                 -2.673161, -2.196904, -2.030554, -4.041203, 1.785344, 4.181765, -5.024705, 4.648232, 8.647879,
             };
             bool pass = test(type, deviceName, inputData, roiData, outputData,
-                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_AVEPOOL, samplingRatio, spatialScale, false);
+                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_AVEPOOL, samplingRatio, spatialScale, false, precision);
             if (!pass) {
                 return false;
             }
@@ -124,7 +125,7 @@ protected:
                 -0.446526, -2.719200, -8.317140, -1.187400, -2.457090, -6.072510, -3.299430, -2.503520, -1.565150
             };
             bool pass = test(type, deviceName, inputData, roiData, outputData,
-                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_AVEPOOL, samplingRatio, spatialScale, true);
+                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_AVEPOOL, samplingRatio, spatialScale, true, precision);
             if (!pass) {
                 return false;
             }
@@ -146,7 +147,7 @@ protected:
                 -2.273750, -0.705452, -0.477473, -2.989470, 4.804520, 5.734850, -3.571700, 7.388210, 8.647880,
             };
             bool pass = test(type, deviceName, inputData, roiData, outputData,
-                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_MAXPOOL, samplingRatio, spatialScale, false);
+                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_MAXPOOL, samplingRatio, spatialScale, false, precision);
             if (!pass) {
                 return false;
             }
@@ -168,7 +169,7 @@ protected:
                 0.134304, -0.750994, -7.091430, -0.587566, -1.106860, -4.561140, -2.648540, -1.930330, -0.115905,
             };
             bool pass = test(type, deviceName, inputData, roiData, outputData,
-                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_MAXPOOL, samplingRatio, spatialScale, true);
+                 roi, n, c, h, w, pooledHeight, pooledWidth, PoolType_MAXPOOL, samplingRatio, spatialScale, true, precision);
             if (!pass) {
                 return false;
             }

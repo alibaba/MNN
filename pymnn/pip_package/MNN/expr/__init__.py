@@ -55,6 +55,10 @@ def _can_broadcast(src_shape, dst_shape):
         if dst_shape[i] % src_shape[i] != 0:
             return False
     return True
+def _valid_dtype(x):
+    if x.dtype == _F.uint8:
+        return _F.int
+    return x.dtype
 def _match_dtype(x, y, dtype=None):
     def type_val(x):
         if x is None: return -1
@@ -270,7 +274,7 @@ def square(x):
     >>> expr.square([-5., 4.5])
     var([25., 20.25])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _F.float)
     return _F.square(x)
 def sqrt(x):
     '''
@@ -1284,7 +1288,7 @@ def reduce_sum(x, axis=[], keepdims=False):
     >>> expr.reduce_sum([[1.,2.],[3.,4.]], 0)
     var([4., 6.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _valid_dtype(x))
     axis = _to_axis(axis)
     return _F.reduce_sum(x, axis, keepdims)
 def reduce_mean(x, axis=[], keepdims=False):
@@ -1309,7 +1313,7 @@ def reduce_mean(x, axis=[], keepdims=False):
     >>> expr.reduce_mean([[1.,2.],[3.,4.]], 0)
     var([2., 3.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _valid_dtype(x))
     axis = _to_axis(axis)
     return _F.reduce_mean(x, axis, keepdims)
 def reduce_max(x, axis=[], keepdims=False):
@@ -1334,7 +1338,7 @@ def reduce_max(x, axis=[], keepdims=False):
     >>> expr.reduce_max([[1.,2.],[3.,4.]], 0)
     var([3., 4.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _valid_dtype(x))
     axis = _to_axis(axis)
     return _F.reduce_max(x, axis, keepdims)
 def reduce_min(x, axis=[], keepdims=False):
@@ -1359,7 +1363,7 @@ def reduce_min(x, axis=[], keepdims=False):
     >>> expr.reduce_min([[1.,2.],[3.,4.]], 0)
     var([1., 2.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _valid_dtype(x))
     axis = _to_axis(axis)
     return _F.reduce_min(x, axis, keepdims)
 def reduce_prod(x, axis=[], keepdims=False):
@@ -1384,7 +1388,7 @@ def reduce_prod(x, axis=[], keepdims=False):
     >>> expr.reduce_prod([[1.,2.],[3.,4.]], 0)
     var([3., 8.])
     '''
-    x = _to_var(x)
+    x = _to_var(x, _valid_dtype(x))
     axis = _to_axis(axis)
     return _F.reduce_prod(x, axis, keepdims)
 def reduce_any(x, axis=[], keepdims=False):

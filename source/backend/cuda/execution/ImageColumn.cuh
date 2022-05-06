@@ -16,7 +16,7 @@
 namespace MNN {
 namespace CUDA {
 
-void Im2ColMain(CUDARuntime* runtime, const MatMulParam* cpuMatlMul, const MatMulParam* gpuMatMul, const ConvolutionCommon::Im2ColParameter* cpuIm2Col, const ConvolutionCommon::Im2ColParameter* gpuIm2Col, const void* input_addr, __half* mIm2ColBuffer, int bytes);
+void Im2ColMain(CUDARuntime* runtime, const MatMulParam* cpuMatlMul, const MatMulParam* gpuMatMul, const ConvolutionCommon::Im2ColParameter* cpuIm2Col, const ConvolutionCommon::Im2ColParameter* gpuIm2Col, const Tensor* input, __half* mIm2ColBuffer, int ePack, int eShift, int bytes, int iBlock);
 
 } // namespace CUDA
 } // namespace MNN

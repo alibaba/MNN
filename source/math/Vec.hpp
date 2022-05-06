@@ -109,6 +109,15 @@ struct Vec {
         }
         return v;
     }
+    template<typename U>
+    static VecType broadcast(const U* addr) {
+        VecType v;
+        v.value[0] = static_cast<T>(addr[0]);
+        for (int i = 1; i < N; ++i) {
+            v.value[i] = v.value[0];
+        }
+        return v;
+    }
     static void save(T* addr, const VecType& v) {
         for (int i = 0; i < N; ++i) {
             addr[i] = v.value[i];
@@ -170,6 +179,10 @@ struct Vec<float, 4> {
     static VecType load(const float* addr) {
         VecType v = { vld1q_f32(addr) };
         return v;
+    }
+    static VecType broadcast(const float* addr) {
+        VecType dst = { vld1q_dup_f32(addr) };
+        return dst;
     }
     static VecType load(const int32_t* addr) {
         VecType v = { vcvtq_f32_s32(vld1q_s32(addr)) };
@@ -333,6 +346,10 @@ struct Vec<float, 4> {
     static VecType load(const float* addr) {
         VecType v = { _mm_loadu_ps(addr) };
         return v;
+    }
+    static VecType broadcast(const float* addr) {
+        VecType dst = { _mm_load_ss(addr) };
+        return dst;
     }
     static VecType load(const int32_t* addr) {
         VecType v = { _mm_cvtepi32_ps(_mm_loadu_si128((__m128i const*)(addr))) };

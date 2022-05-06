@@ -3,6 +3,7 @@
 namespace MNN {
 extern void ___GeometryShape___create__();
 extern void ___GeometryPermute___create__();
+extern void ___GeometryDet___create__();
 extern void ___GeometryTile___create__();
 extern void ___GeometryReshape___create__();
 extern void ___GeometryReduce___create__();
@@ -42,6 +43,7 @@ extern void ___GeometryBinary___create__();
 void registerGeometryOps() {
 ___GeometryShape___create__();
 ___GeometryPermute___create__();
+___GeometryDet___create__();
 ___GeometryTile___create__();
 ___GeometryReshape___create__();
 ___GeometryReduce___create__();

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef Tensor_hpp
-#define Tensor_hpp
+#ifndef MNN_Tensor_hpp
+#define MNN_Tensor_hpp
 
 #include <vector>
 #include <MNN/HalideRuntime.h>

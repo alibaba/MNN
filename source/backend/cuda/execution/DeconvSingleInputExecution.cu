@@ -2,14 +2,53 @@
 //  DeconvSingleInputExecution.cpp
 //  MNN
 //
-//  Created by MNN on 2020/08/22.
+//  Created by MNN on 2022/03/04.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include "DeconvSingleInputExecution.hpp"
-
+#include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
 namespace MNN {
 namespace CUDA {
+__global__ void DeconvKernelReorder(const float* B, half* BP, int kw, int kh, int ic, int oc, int icPack) {
+    int kernelCount = kw * kh;
+    int e = oc * kernelCount;
+    int l = ic;
+    int eDiv = UP_DIV(e, MATMULPACK);
+    int eAlign = eDiv * MATMULPACK;
+    int lDiv = UP_DIV(l, icPack);
+    int lAlign = lDiv * icPack;
+
+    int maxCount = eAlign * lAlign;
+
+    for (size_t indexO = blockIdx.x * blockDim.x + threadIdx.x; indexO < maxCount; indexO += blockDim.x * gridDim.x) {
+
+        int lR = indexO % icPack;
+        int tmp = indexO / icPack;
+        int eR = tmp % MATMULPACK;
+        int tmp2 = tmp / MATMULPACK;
+        int lC = tmp2 % lDiv;
+        int eC = tmp2 / lDiv;
+
+        half* dst = BP + indexO;
+        int sL = lC * icPack + lR;//ic_idx
+        int sE = eC * MATMULPACK + eR;
+        if (sL >= ic) {
+            *dst = 0.0;
+            continue;
+        }
+
+        int oEC = sE / (kernelCount);//oc_idx
+        int oEk = sE % kernelCount;//khw_idx
+        if (sE >= e) {
+            *dst = 0.0;
+            continue;
+        }
+        const float* src = B + sL * kernelCount * oc + oEk + oEC * kernelCount;
+        *dst = *src;
+    }
+}
 
 __global__ void DeconvInputRerange(const int count,
         const InputReorderParameter* param,
@@ -17,8 +56,8 @@ __global__ void DeconvInputRerange(const int count,
         __half* InpRe
         ) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
-        int l = param->l_size;
-        int h = param->h_size;
+        int l = 16 * param->lpack_size;
+        int h = 16 *  param->hpack_size;
         int lIndex = i % l;
         int hIndex = i / l;
         int lU = lIndex / 16;
@@ -26,14 +65,13 @@ __global__ void DeconvInputRerange(const int count,
         int hU = hIndex / 16;
         int hR = hIndex % 16;
 
-        int bIndex = hIndex / param->hw_size;
-        int hwIndex = hIndex % param->hw_size;
-
-        float value = Inp[bIndex * param->ib_stride + lIndex * param->ic_stride + hwIndex];
-        //inpRe[lIndex * param->oc_stride + bIndex * param->ob_stride + hwIndex] = value;
-
-        //__half* dst = InpRe + lU * param->hpack_size * 16 * 16 + hU * 16 * 16 + hR + lR * 16;
         __half* dst = InpRe + hU * param->lpack_size * 16 * 16 + lU * 16 * 16 + lR + hR * 16;
+
+        if(hIndex >= param->h_size) {
+            dst[0] = (__half)0.0;
+            break;
+        }
+        float value = Inp[(lU*param->h_size + hIndex) * 16 + lR];
         dst[0] = value;
     }
 }
@@ -46,14 +84,28 @@ __global__ void Col2Im(const int n, const Dtype* data_col,
     const int stride_h, const int stride_w,
     const int dilation_h, const int dilation_w,
     const int height_col, const int width_col,
-    const Dtype* bias, Dtype* data_im) {
+    const Dtype* bias, Dtype* data_im
+) {
+    const int channel_pack = ((channels+15) / 16);
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < (n); index += blockDim.x * gridDim.x) {
-        Dtype val = 0;
-        const int b_im = index / (channels * width * height);
-        const int chw  = index % (channels * width * height);
-        const int w_im = chw % width + pad_w;
-        const int h_im = (chw / width) % height + pad_h;
-        const int c_im = chw / (width * height);
+        Dtype val = 0;        
+        const int c_p = index / (batch * width * height * 16);
+        const int idx_tmp = index % (batch * width * height * 16);
+        const int b_im = idx_tmp / (width * height * 16);
+        const int hw_16  = idx_tmp % (width * height * 16);
+        const int c_l = hw_16 % 16;
+        const int c_im = c_p * 16 + c_l;
+        const int hw  = hw_16 / 16;
+        const int w_im = hw % width + pad_w;
+        const int h_im = hw / width + pad_h;
+
+        if(c_im >= channels) {
+            data_im[index] = val;
+            break;
+        }
+        if(nullptr != bias) {
+            val += bias[c_im];
+        }
         int kernel_extent_w = (kernel_w - 1) * dilation_w + 1;
         int kernel_extent_h = (kernel_h - 1) * dilation_h + 1;
         // compute the start and end of the output
@@ -71,16 +123,15 @@ __global__ void Col2Im(const int n, const Dtype* data_col,
                 if (h_k % dilation_h == 0 && w_k % dilation_w == 0) {
                     h_k /= dilation_h;
                     w_k /= dilation_w;
-                    int data_col_index = ((((c_im * kernel_h + h_k) * kernel_w + w_k) * batch + b_im) *
+
+                    const int data_col_index = ((((c_im * kernel_h + h_k) * kernel_w + w_k) * batch + b_im) *
                                             height_col + h_col) * width_col + w_col;
                     val += data_col[data_col_index];
                 }
             }
         }
 
-        if(nullptr != bias) {
-            val += bias[c_im];
-        }
+
         data_im[index] = val;
     }
 }
@@ -123,6 +174,9 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     param.aStride[0] = 1;
     param.aStride[1] = e;
     param.aStride[2] = 0;
+    param.bStride[0] = 0;
+    param.bStride[1] = h;
+    param.bStride[2] = 1;
 
     auto gpuParam = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(MatMulParam));
     auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
@@ -133,8 +187,14 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     // Reorder weight
     weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPack[0] * param.elhPack[1] * (MATMULPACK * MATMULPACK)}));
     bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
-    mFilter = (void *)weightTensor.get()->buffer().device;
-    GemmPrepareRerange(runtime, &param, (const MatMulParam*)((uint8_t*)gpuParam.first + gpuParam.second), cacheWeight, (__half*)mFilter, nullptr, nullptr, 4);
+    mFilter = (void *)weightTensor.get()->buffer().device;    
+    
+    auto& prop = runtime->prop();
+    int cores = prop.multiProcessorCount;
+    int threadNumbers = prop.maxThreadsPerBlock;
+    DeconvKernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+        mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, MATMULPACK);
+    
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(gpuParam);
 
@@ -235,8 +295,15 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     mMatMulParam.bStride[2] = 1;
 
     mMatMulParam.cStride[0] = h;
-    mMatMulParam.cStride[1] = 1;
+    mMatMulParam.cStride[1] = 0;
     mMatMulParam.cStride[2] = 1;
+    mMatMulParam.aPStride[0] = 256 * mMatMulParam.elhPack[1];
+    mMatMulParam.aPStride[1] = 256;
+    mMatMulParam.aPStride[2] = 16;
+    mMatMulParam.bPStride[0] = 256 * mMatMulParam.elhPack[1];
+    mMatMulParam.bPStride[1] = 256;
+    mMatMulParam.bPStride[2] = 16;
+
     if (convCommon->relu()) {
         mMatMulParam.minValue = 0.0f;
     }
@@ -246,10 +313,9 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     }
     runtime->memcpy((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second, &mMatMulParam, sizeof(MatMulParam), MNNMemcpyHostToDevice);
 
-    
     // Alloc temp cuda memory
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto buffer1 = pool->alloc(sizeof(float) * mMatMulParam.elh[0] * mMatMulParam.elh[2]);
+    auto buffer1 = pool->alloc(sizeof(float) * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[2]* MATMULPACK * MATMULPACK);
     auto buffer2 = pool->alloc(sizeof(__half) * mMatMulParam.elhPack[1] * mMatMulParam.elhPack[2] * MATMULPACK * MATMULPACK);
 
     mIm2ColBuffer = (float*)((uint8_t*)buffer1.first + buffer1.second);
@@ -277,12 +343,12 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
     auto gpuCol2Im = (const Col2ImParameter*)((uint8_t*)mGpuCol2ImParam.first + mGpuCol2ImParam.second);
     auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
 
-    const int rerangeCount = mInpReorderParameter.ib_stride * inputs[0]->batch();
+    const int rerangeCount = mInpReorderParameter.lpack_size * mInpReorderParameter.hpack_size * 16 * 16;
     int inp_block_num = runtime->blocks_num(rerangeCount);
     int inp_thread_num = runtime->threads_num();
 
     // Do input Rerange
-    runtime->memset(mInputBuffer, 0, mMatMulParam.elhPack[2] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK * sizeof(__half));
+    //runtime->memset(mInputBuffer, 0, mMatMulParam.elhPack[2] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK * sizeof(__half));
     DeconvInputRerange<<<inp_block_num, inp_thread_num>>>(rerangeCount, gpuInpReorder, (const float*)input_addr, mInputBuffer);
 
     // Do Gemm operation 
@@ -291,7 +357,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
     // Do Col2Im trans
     int height_col = mCol2ImParamter.ih;
     int width_col = mCol2ImParamter.iw;
-    int num_kernels = mCol2ImParamter.ob * mCol2ImParamter.oc * mCol2ImParamter.oh * mCol2ImParamter.ow;
+    int num_kernels = mCol2ImParamter.ob * UP_DIV(mCol2ImParamter.oc, 16) * mCol2ImParamter.oh * mCol2ImParamter.ow * 16;
 
     int col2im_block_num = runtime->blocks_num(num_kernels);
     int col2im_thread_num = runtime->threads_num();
@@ -335,7 +401,7 @@ public:
     }
 };
 
-//CUDACreatorRegister<CUDADeconvolutionCreator> __DeConvExecution(OpType_Deconvolution);
+CUDACreatorRegister<CUDADeconvolutionCreator> __DeConvExecution(OpType_Deconvolution);
 
 }// namespace CUDA
 }// namespace MNN

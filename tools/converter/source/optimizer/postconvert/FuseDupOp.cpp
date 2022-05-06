@@ -121,19 +121,22 @@ public:
             }
         }
 
+        auto findFinalIndex = [&](int index) -> int {
+            while (true) {
+                auto iter = replaceIndexes.find(index);
+                if (iter == replaceIndexes.end()) {
+                    return index;
+                }
+                index = iter->second;
+            }
+        };
         // Replace index
         for (auto& op : net->oplists) {
             for (int i=0; i<op->inputIndexes.size(); ++i) {
-                auto iter = replaceIndexes.find(op->inputIndexes[i]);
-                if (iter!=replaceIndexes.end()) {
-                    op->inputIndexes[i] = iter->second;
-                }
+                op->inputIndexes[i] = findFinalIndex(op->inputIndexes[i]);
             }
             for (int i=0; i<op->outputIndexes.size(); ++i) {
-                auto iter = replaceIndexes.find(op->outputIndexes[i]);
-                if (iter!=replaceIndexes.end()) {
-                    op->outputIndexes[i] = iter->second;
-                }
+                op->outputIndexes[i] = findFinalIndex(op->outputIndexes[i]);
             }
         }
         return true;

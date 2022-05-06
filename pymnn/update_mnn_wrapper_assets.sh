@@ -4,22 +4,31 @@ set -e
 usage() {
     echo "Usage: $0 -p python_version -v mnn_version [-t]"
     echo -e "\t-p python versions in pyenv [only support 2.x]"
-    echo -e "\t-v MNN version to set"
-    echo -e "\t-t include train API wrapper"
+    echo -v "\t-v MNN version to set"
+    echo -t "\t-t include train API wrapper"
+    echo -c "\t-c check pyc need update"
     exit 1
 }
 
-while getopts "p:v:t" opt; do
+while getopts "p:v:t:c" opt; do
   case "$opt" in
     p ) py_version=$OPTARG ;;
     v ) mnn_version=$OPTARG ;;
     t ) train_api=true ;;
+    c ) check=true;;
     * ) usage ;;
   esac
 done
 
+cmdExist() {
+    which $1 > /dev/null 2>&1
+    return $?
+}
+
 rm -rf /tmp/mnn_py && mkdir -p /tmp/mnn_py
 cp -r pip_package/MNN /tmp/mnn_py
+# remove comments
+python3 rm_comments.py /tmp/mnn_py/MNN
 pushd /tmp/mnn_py/MNN
 
 rm -rf tools
@@ -34,7 +43,9 @@ if [ -z $train_api ]; then
 fi
 
 find . -name __pycache__ | xargs rm -rf
-pyenv global $py_version
+if cmdExist pyenv; then
+    pyenv global $py_version
+fi
 python -c "import compileall; compileall.compile_dir('/tmp/mnn_py/MNN', force=True)"
 find . -name "*.py" | xargs rm -rf
 cd ..
@@ -57,14 +68,29 @@ should_update () {
             return 0
         fi
         pyc_file=${pyc_files_1[i]}
-        sum_old=`tail -c +8 $2/$pyc_file | md5sum | awk '{print $1}'`
-        sum_new=`tail -c +8 $1/$pyc_file | md5sum | awk '{print $1}'`
+        if cmdExist md5sum; then
+            sum_old=`tail -c +8 $2/$pyc_file | md5sum | awk '{print $1}'`
+            sum_new=`tail -c +8 $1/$pyc_file | md5sum | awk '{print $1}'`
+        else
+            sum_old=`tail -c +8 $2/$pyc_file | md5 | awk '{print $1}'`
+            sum_new=`tail -c +8 $1/$pyc_file | md5 | awk '{print $1}'`
+        fi
         if [ $sum_old != $sum_new ]; then
             return 0
         fi
     done
     return 1
 }
+
+if [ $check ]; then
+    if should_update /tmp/mnn_py iOS/MNNPyBridge/lib; then
+        echo 'need update'
+        exit 1
+    else
+        echo 'need not update'
+        exit 0
+    fi
+fi
 
 if should_update /tmp/mnn_py iOS/MNNPyBridge/lib; then
     rm -f android/src/main/assets/MNN.zip

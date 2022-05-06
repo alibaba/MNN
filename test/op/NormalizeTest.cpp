@@ -26,7 +26,8 @@ public:
         output = _Convert(output, NCHW);
         const std::vector<float> expectedOutput = {-0.223607, -0.447214, 0.300000, 0.400000};
         auto gotOutput                        = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 1e-5)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 1000;
+        if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 4, 1e-5 * errorScale)) {
             MNN_ERROR("NormalizeTest test failed!\n");
             return false;
         }

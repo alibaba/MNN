@@ -104,7 +104,8 @@ int format2Channel(CV::ImageFormat format) {
 static VARP cvtImpl(VARP src, int code, int h, int w) {
     auto format = getSrcDstFormat(code);
     int oc = format2Channel(format.second);
-    auto dest = Tensor::create({1, h, w, oc}, halide_type_of<uint8_t>());
+    auto type = halide_type_of<uint8_t>();
+    auto dest = Tensor::create({1, h, w, oc}, type);
     std::unique_ptr<CV::ImageProcess> process(CV::ImageProcess::create(format.first, format.second));
     process->convert(src->readMap<uint8_t>(), w, h, 0, dest);
     auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);

@@ -42,7 +42,7 @@ public:
         std::shared_ptr<Tensor> biasTensor;
         KernelInfo mKernelInfo;
         Backend* mBackend = nullptr;
-        bool mUsePack = false;
+        bool mUseHPack = false;
     };
     ConvSingleInputExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
     virtual ~ConvSingleInputExecution();
@@ -62,6 +62,9 @@ private:
 
     __half* mIm2ColBuffer;
     std::pair<void*, int> mGpuKernelParam;
+    bool mIsBlock = false;
+    int mBlockNum = 1;
+    bool mUseEPack = false;
 };
 
 } // namespace CUDA

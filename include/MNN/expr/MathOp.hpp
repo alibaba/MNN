@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MathOp_HPP
-#define MathOp_HPP
+#ifndef MNN_MathOp_HPP
+#define MNN_MathOp_HPP
 
 namespace MNN {
 namespace Express {

@@ -23,7 +23,7 @@ public:
     virtual ~MultiDeconvolutionTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
         // MultiInput Deconv
         {
             const int inputHeight = 3, inputWidth = 3, inputChannel = 3, outputChannel = 2;
@@ -94,7 +94,8 @@ protected:
             ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
             ::memcpy(bias->writeMap<float>(), biasData.data(), biasData.size() * sizeof(float));
             auto outputPtr = output->readMap<float>();
-            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.005)) {
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.005 * errorScale)) {
                 MNN_ERROR("MultiDeconvolution(%s) test failed!\n", deviceName.c_str());
                 for (int v = 0; v < outputData.size(); ++v) {
                     MNN_ERROR("Correct:%f, Error:%f\n", outputData[v], outputPtr[v]);
@@ -181,8 +182,9 @@ protected:
             ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
             ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
             ::memcpy(bias->writeMap<float>(), biasData.data(), biasData.size() * sizeof(float));
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
             if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
-                                                   0.005)) {
+                                                   0.005 * errorScale)) {
                 MNN_ERROR("Depthwise MultiDeconvolution(%s) test failed!\n", deviceName.c_str());
                 return false;
             }
@@ -195,7 +197,7 @@ class MultiDeconvolutionTestOnCPU : public MultiDeconvolutionTest {
 public:
     virtual ~MultiDeconvolutionTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 
@@ -203,7 +205,7 @@ class MultiDeconvolutionTestOnOpencl : public MultiDeconvolutionTest {
 public:
     virtual ~MultiDeconvolutionTestOnOpencl() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
+        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL", precision);
     }
 };
 

@@ -121,8 +121,8 @@ void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::Net
 
 std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs) {
-    auto program = MNN::Express::Program::create(originNet.get(), true);
-    program->input(inputs);
+    auto program = MNN::Express::Program::create(originNet.get(), true, true);
+    program->input(inputs, true);
 
     std::string pass = "TFExtra";
     switch (originNet->sourceType) {
@@ -150,31 +150,29 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
     originNet->tensorName.clear();
 
     std::unique_ptr<MNN::NetT> newNet(new MNN::NetT);
-    auto outputs       = program->outputs();
     newNet->sourceType = originNet->sourceType;
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
-    Variable::save(outputs, newNet.get());
+    program->save(newNet.get());
     return std::move(newNet);
 }
 
 std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs, PassPriority priority) {
-    auto program = MNN::Express::Program::create(originNet.get(), true);
-    program->input(inputs);
+    auto program = MNN::Express::Program::create(originNet.get(), true, true);
+    auto boundary = program->input(inputs, true);
 
     std::string pass = "Merge";
     auto& merge      = MNN::Express::TemplateMerge::getInstance(pass);
-    merge.onExecute(program->outputs(), priority);
+    merge.onExecute(program->outputs(), priority, boundary);
     originNet->oplists.clear();
     originNet->tensorName.clear();
 
     std::unique_ptr<MNN::NetT> newNet(new MNN::NetT);
-    auto outputs       = program->outputs();
     newNet->sourceType = originNet->sourceType;
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
-    Variable::save(outputs, newNet.get());
+    program->save(newNet.get());
 
     RunNetPass({"RemoveUnusefulOp"}, newNet);
     return std::move(newNet);
@@ -295,6 +293,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
     RunNetPass({"ReIndexTensor"}, newNet);
+    RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 
     return std::move(newNet);
 }
@@ -549,21 +548,45 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     ctx.RunOptimize = optimizeNetImpl;
 
     Global<OptimizeContext>::Reset(&ctx);
-
-    if (!originNet->subgraphs.empty()) {
-        std::unordered_map<std::string, VARP> inputs;
-        auto program = Program::create(originNet.get(), true, true);
+    
+    std::unordered_map<std::string, VARP> inputs, empty;
+    // subgraph may depend on vars of outter subgraph or root net, getting vars of them need Program::create.
+    // But program (create from unoptimize net) may have OpType_Extra op, causing vars can't do getInfo/readMap correctly,
+    // then subgraph depend on it may convert failed (nullptr) or wrong (error shape)
+    // RunOptimize won't use subgraph, so we can do it before other subgraph optimize safely
+    std::unique_ptr<MNN::NetT> net = ctx.RunOptimize(originNet, empty);
+    auto program = Program::create(net.get(), true, true);
+    auto addVars = [&](std::shared_ptr<Program> program, const std::vector<std::string>& tensorName) {
         for (const auto& iter : program->vars()) {
-            if (iter.first < originNet->tensorName.size() && iter.first >= 0) {
-                inputs[originNet->tensorName[iter.first]] = iter.second;
+            if (iter.first < tensorName.size() && iter.first >= 0) {
+                auto name = tensorName[iter.first];
+                if (inputs.find(name) == inputs.end()) {
+                    inputs[name] = iter.second;
+                }
             }
         }
-        for (auto& subGraph : originNet->subgraphs) {
-            CompleteSubGraph(inputs, subGraph.get());
-        }
+    };
+    addVars(program, net->tensorName);
+    // Reversing subgraph so we iterate them by topo order (like tree traversal), so every var used by subgraph be prepared
+    std::reverse(ctx.subgraphs.begin(), ctx.subgraphs.end());
+    for (int idx = 0; idx < ctx.subgraphs.size(); ++idx) {
+        // complete it first so OpType_Extra be removed
+        CompleteSubGraph(inputs, ctx.subgraphs[idx]);
+        auto new_graph = ctx.completed_subgraphs[idx];
+        auto subProgram = Program::create(new_graph, true, true);
+        subProgram->input(inputs, true);
+        // add vars of subgraph, so inner subgraph can use them
+        addVars(subProgram, new_graph->tensors);
     }
-    std::unordered_map<std::string, VARP> empty;
-    std::unique_ptr<MNN::NetT> net = ctx.RunOptimize(originNet, empty);
+    ctx.first_run = false;
+    ctx.subgraphs = std::move(ctx.completed_subgraphs);
+    // from inner to upper, make some optimize for subgraph is visable to outer graph and root
+    std::reverse(ctx.subgraphs.begin(), ctx.subgraphs.end());
+    for (auto subgraph : ctx.subgraphs) {
+        CompleteSubGraph(inputs, subgraph);
+    }
+    net = ctx.RunOptimize(net, empty);
+    
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);

@@ -8,6 +8,7 @@
 
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 
 using namespace MNN::Express;
 
@@ -21,6 +22,7 @@ public:
             std::vector<float> targetOutputs(10 * 8 * 37 * 37, 0.f);
             float maxValue = 1.0f;
             {
+                auto func = FP32Converter[precision];
                 auto ptr = input->writeMap<float>();
                 ::memset(ptr, 0, input->getInfo()->size * sizeof(float));
                 float index = 0.0f;
@@ -36,8 +38,8 @@ public:
                             for (int x = 0; x < 37; ++x) {
                                 auto ptrX    = ptrY + x;
                                 auto targetX = targetY + x * 8 * 37;
-                                *ptrX        = index;
-                                *targetX     = index;
+                                *ptrX        = func(index);
+                                *targetX     = func(index);
                                 index += 0.01f;
                             }
                         }
@@ -45,7 +47,9 @@ public:
                 }
                 maxValue = index;
             }
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 50;
             {
+
                 auto ptr  = output->readMap<float>();
                 auto size = output->getInfo()->size;
                 for (int i = 0; i < size; ++i) {
@@ -53,7 +57,7 @@ public:
                     if (v < 0) {
                         v = -v;
                     }
-                    if (v / maxValue > 0.001f) {
+                    if (v / maxValue > 0.001f * errorScale) {
                         MNN_ERROR("%d, NCHW %f - %f error \n", i, ptr[i], targetOutputs[i]);
                         return false;
                     }
@@ -69,7 +73,7 @@ public:
                 if (v < 0) {
                     v = -v;
                 }
-                if (v / maxValue > 0.001f) {
+                if (v / maxValue > 0.001f * errorScale) {
                     MNN_ERROR("%d, NC4HW4 %f - %f error \n", i, ptr[i], targetOutputs[i]);
                     return false;
                 }

@@ -60,7 +60,7 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
     int count  = size / 4;
     int remain = count * 4;
     // step 1: get maxValue
-    float maxValue = 0.f;
+    float maxValue = source[0];
     if (count > 0) {
         auto maxVal = _mm_loadu_ps(source);
         for (int i = 1; i < count; i++) {

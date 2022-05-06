@@ -86,6 +86,7 @@ public:
         auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0, 1});
         auto outputIndexesOffset = builder.CreateVector(std::vector<int>{2});
         LoopParamBuilder loopBuilder(builder);
+        loopBuilder.add_parallel(false); // cumsum(i) = cumsum(i-1) + x(i), so can't do outside parallel
         loopBuilder.add_commands(rcmdAllOffset);
         loopBuilder.add_loopNumber(shape[axis] - 1);
         loopBuilder.add_tensorNumber(3);

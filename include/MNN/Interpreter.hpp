@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef Interpreter_hpp
-#define Interpreter_hpp
+#ifndef MNN_Interpreter_hpp
+#define MNN_Interpreter_hpp
 
 #include <functional>
 #include <map>
@@ -364,7 +364,10 @@ public:
     const char* uuid() const;
 
 private:
-    static Interpreter* createFromBufferInternal(Content* net);
+    static Interpreter* createFromBufferInternal(Content* net, bool enforceAuth);
+
+    // Private method for internal use to bypass Model Auth.
+    static Interpreter* createFromFileWithoutAuth(const char* file);
 
     Content* mNet = nullptr;
     Interpreter(Content* net);
@@ -373,6 +376,8 @@ private:
     Interpreter(const Interpreter&&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&&) = delete;
+
+    friend class PythonAuthByPass;
 };
 } // namespace MNN
 

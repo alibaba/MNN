@@ -18,6 +18,7 @@
 void converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);
 void removeParams(std::unique_ptr<MNN::NetT>& netT);
 void castParamsToHalf(std::unique_ptr<MNN::NetT>& netT);
+void AlignDenormalizedValue(std::unique_ptr<MNN::NetT>& netT);
 void addSparseInfo(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 void fullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 void weightQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config);

@@ -52,8 +52,8 @@ void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operator
     }
     auto scaleDataPtr        = reinterpret_cast<const int *>(tfliteModelBuffer[scaleTensor->buffer]->data.data());
 
-    resizeParam->outputHeight = scaleDataPtr[1];
-    resizeParam->outputWidth  = scaleDataPtr[0];
+    resizeParam->outputHeight = scaleDataPtr[0];
+    resizeParam->outputWidth  = scaleDataPtr[1];
 
     resizeParam->widthScale  = 1.0;
     resizeParam->heightScale = 1.0;

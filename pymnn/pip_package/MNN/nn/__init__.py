@@ -5,6 +5,7 @@ import _mnncengine._expr as _F
 import _mnncengine._nn as _nn
 
 def load_module_from_file(file_name, input_names, output_names, **kwargs):
+    runtime_manager = kwargs.get('runtime_manager', None)
     dynamic = kwargs.get('dynamic', False)
     shape_mutable = kwargs.get('shape_mutable', False)
     rearrange = kwargs.get('rearrange', False)
@@ -12,14 +13,13 @@ def load_module_from_file(file_name, input_names, output_names, **kwargs):
     memory_mode = kwargs.get('memory_mode', _F.MemoryMode.Normal)
     power_mode = kwargs.get('power_mode', _F.PowerMode.Normal)
     precision_mode = kwargs.get('precision_mode', _F.PrecisionMode.Normal)
-    thread_num = kwargs.get('thread_num', 1)
+    thread_num = kwargs.get('thread_num', 4)
 
-    module = _nn.load_module_from_file(input_names, output_names, file_name, dynamic, shape_mutable, rearrange,
+    module = _nn.load_module_from_file(runtime_manager, input_names, output_names, file_name, dynamic, shape_mutable, rearrange,
                                        backend, memory_mode, power_mode, precision_mode, thread_num)
     
     return module
-
-
+    
 class Module(_nn._Module):
     def __init__(self):
         super(Module, self).__init__()

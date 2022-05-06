@@ -50,7 +50,7 @@ static void writeCacheFile(const Content *net, std::pair<const void*, size_t> bu
     }
 }
 
-Interpreter* Interpreter::createFromFile(const char* file) {
+static Content* loadModelFile(const char* file) {
     if (nullptr == file) {
         MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
@@ -75,7 +75,25 @@ Interpreter* Interpreter::createFromFile(const char* file) {
         return nullptr;
     }
     loader.reset();
-    return createFromBufferInternal(net);
+    return net;
+}
+
+Interpreter* Interpreter::createFromFileWithoutAuth(const char* file) {
+    Content* net = loadModelFile(file);
+    if (nullptr == net) {
+        return nullptr;
+    }
+
+    return createFromBufferInternal(net, false);
+}
+
+Interpreter* Interpreter::createFromFile(const char* file) {
+    Content* net = loadModelFile(file);
+    if (nullptr == net) {
+        return nullptr;
+    }
+
+    return createFromBufferInternal(net, true);
 }
 Interpreter* Interpreter::createFromBuffer(const void* buffer, size_t size) {
     if (nullptr == buffer || 0 == size) {
@@ -90,10 +108,10 @@ Interpreter* Interpreter::createFromBuffer(const void* buffer, size_t size) {
     }
     ::memcpy(net->buffer.get(), buffer, size);
 
-    return createFromBufferInternal(net);
+    return createFromBufferInternal(net, true);
 }
 
-Interpreter* Interpreter::createFromBufferInternal(Content* net) {
+Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAuth) {
     if (nullptr == net) {
         MNN_PRINT("Buffer is null for create interpreter\n");
         return nullptr;
@@ -123,16 +141,17 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
     }
 
 #ifdef MNN_INTERNAL_ENABLED
-    std::string bizCode = std::string(net->net->bizCode() ? net->net->bizCode()->c_str() : "");
     std::string uuid = std::string(net->net->mnn_uuid() ? net->net->mnn_uuid()->c_str() : "");
+    if (!enforceAuth) {
+        MNN_PRINT("MNN: Bypass model auth for model uuid %s\n", uuid.c_str());
+    }
 
-    if (!authenticateModel(net->net)) {
-        MNN_ERROR("Model authentication failed.\n");
+    if (enforceAuth && !authenticateModel(net->net)) {
+        MNN_ERROR("MNN: Model authentication failed.\n");
         delete net;
 
         std::map<std::string, std::string> metrics;
         metrics.emplace("Model_UUID", uuid);
-        metrics.emplace("Model_BizCode", bizCode);
         metrics.emplace("Event", "AUTH_FAILURE");
         metrics.emplace("API", "Interpreter::createFromBufferInternal");
 
@@ -144,7 +163,6 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
     }
     std::map<std::string, std::string> metrics;
     metrics.emplace("Model_UUID", uuid);
-    metrics.emplace("Model_BizCode", bizCode);
     metrics.emplace("Event", "AUTH_SUCCESS");
     metrics.emplace("API", "Interpreter::createFromBufferInternal");
 
@@ -304,7 +322,6 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> metrics;
     metrics.emplace("Model_UUID", mNet->uuid);
-    metrics.emplace("Model_BizCode", mNet->bizCode);
     metrics.emplace("Event", "CREATE_SESSION");
     metrics.emplace("Backend", std::to_string(configs[0].type));
     metrics.emplace("Precision", configs[0].backendConfig ? std::to_string(configs[0].backendConfig->precision) : "");
@@ -358,7 +375,6 @@ ErrorCode Interpreter::runSession(Session* session) const {
         float costTime = (float)timer.durationInUs() / (float)1000;
         std::map<std::string, std::string> metrics;
         metrics.emplace("Model_UUID", mNet->uuid);
-        metrics.emplace("Model_BizCode", mNet->bizCode);
         metrics.emplace("Event", "RUN_SESSION");
         metrics.emplace("Backend", std::to_string(MNN_FORWARD_CPU)); // "Precision" is not logged here. Don't need it.
         metrics.emplace("InferTimeMs", std::to_string(costTime));
@@ -447,7 +463,6 @@ ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const 
         float costTime = (float)timer.durationInUs() / (float)1000;
         std::map<std::string, std::string> metrics;
         metrics.emplace("Model_UUID", mNet->uuid);
-        metrics.emplace("Model_BizCode", mNet->bizCode);
         metrics.emplace("Event", "RUN_SESSION");
         metrics.emplace("Backend", std::to_string(MNN_FORWARD_CPU)); // "Precision" is not logged here. Don't need it.
         metrics.emplace("InferTimeMs", std::to_string(costTime));

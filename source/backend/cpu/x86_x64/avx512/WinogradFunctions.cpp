@@ -75,6 +75,35 @@ using VecType = Vec16;
     VecType::save(dstPtr + (i)*dstStep + 1 * packCUnit, ep1); \
     VecType::save(dstPtr + (i)*dstStep + 2 * packCUnit, ep2);
 
+#define FUSE_BIAS_ACTIVATE(count, vecBias, minValue, maxValue)            \
+    /* count is constantexpr, if would be optimized out*/                 \
+    if (count > 0) m0 = m0 + vecBias;                                     \
+    if (count > 1) m1 = m1 + vecBias;                                     \
+    if (count > 2) m2 = m2 + vecBias;                                     \
+    if (count > 3) m3 = m3 + vecBias;                                     \
+    if (count > 4) m4 = m4 + vecBias;                                     \
+    if (count > 5) m5 = m5 + vecBias;                                     \
+    if (count > 6) m6 = m6 + vecBias;                                     \
+                                                                          \
+    if (count > 0) m0 = VecType::max(m0, minValue);                       \
+    if (count > 1) m1 = VecType::max(m1, minValue);                       \
+    if (count > 2) m2 = VecType::max(m2, minValue);                       \
+    if (count > 3) m3 = VecType::max(m3, minValue);                       \
+    if (count > 4) m4 = VecType::max(m4, minValue);                       \
+    if (count > 5) m5 = VecType::max(m5, minValue);                       \
+    if (count > 6) m6 = VecType::max(m6, minValue);                       \
+                                                                          \
+    if (count > 0) m0 = VecType::min(m0, maxValue);                       \
+    if (count > 1) m1 = VecType::min(m1, maxValue);                       \
+    if (count > 2) m2 = VecType::min(m2, maxValue);                       \
+    if (count > 3) m3 = VecType::min(m3, maxValue);                       \
+    if (count > 4) m4 = VecType::min(m4, maxValue);                       \
+    if (count > 5) m5 = VecType::min(m5, maxValue);                       \
+    if (count > 6) m6 = VecType::min(m6, maxValue);                       \
+                                                                          \
+    if (count > 7) MNN_ASSERT(false);
+
+
 namespace MNN {
 
 static void _sourceTransformUnit4x4Pack48(float* srcBlock, float* dstStart, size_t dstStep) {
@@ -360,9 +389,11 @@ static void _sourceFuseTransformUnit6x6(const float* srcBlock, float* midBuffer,
 
 
 // unroll interleave
-static void _sourceUnrollTransformUnit4x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _sourceUnrollTransformUnit4x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep1, size_t dstStep) {
 
     constexpr size_t srcUnit = 4; // srcUnit
+    constexpr int srcStep = PACK_UNIT;
+    // constexpr size_t dstStep = PACK_UNIT * srcUnit;
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
     Vec16 s2 = Vec16::load(srcBlock + 2 * srcStep);
@@ -399,11 +430,13 @@ static void _sourceUnrollTransformUnit4x4(const float* srcBlock, float* dstStart
 }
 
 // unroll, interleave load.
-static void _sourceUnrollTransformUnit6x6(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _sourceUnrollTransformUnit6x6(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep1, size_t dstStep) {
     Vec16 two(2.f);
     Vec16 four(4.f);
     Vec16 five(5.f);
     constexpr size_t srcUnit = 6; // srcUnit
+    constexpr int srcStep = PACK_UNIT;
+    // constexpr size_t dstStep = PACK_UNIT * srcUnit;
 
     Vec16 buf0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 buf1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -461,15 +494,15 @@ static void _sourceUnrollTransformUnit6x6(const float* srcBlock, float* dstStart
     Vec16::save(dstFloatPtr + 3 * dstStep, m3);
     Vec16::save(dstFloatPtr + 4 * dstStep, m4);
     Vec16::save(dstFloatPtr + 5 * dstStep, m5);
-
 }
 
 
 // interleave load, reuse fma
-static void _sourceUnrollTransformUnit8x8(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _sourceUnrollTransformUnit8x8(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep1, size_t dstStep) {
 
     constexpr size_t srcUnit = 8; // srcUnit
-
+    constexpr int srcStep = PACK_UNIT;
+    // constexpr int dstStep = PACK_UNIT * srcUnit;
     Vec16 buf0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 buf1 = Vec16::load(srcBlock + 1 * srcStep);
     Vec16 buf2 = Vec16::load(srcBlock + 2 * srcStep);
@@ -554,16 +587,23 @@ static void _sourceUnrollTransformUnit8x8(const float* srcBlock, float* dstStart
     Vec16::save(dstFloatPtr + 5 * dstStep, m5);
     Vec16::save(dstFloatPtr + 6 * dstStep, m6);
     Vec16::save(dstFloatPtr + 7 * dstStep, m7);
-
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
     Vec16 s2 = Vec16::load(srcBlock + 2 * srcStep);
     Vec16 s3 = Vec16::load(srcBlock + 3 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -572,6 +612,12 @@ static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, 
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m1 = (s1 - s2) + s3;
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m2, m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(2, vecBias, minValue, maxValue);
+        }
+
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
         Vec16::save(dstFloatPtr + 1 * dstStep, m1);
@@ -580,17 +626,30 @@ static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, 
     auto dstFloatPtr = (float*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto m0 = s0 + s1 + s2;
     auto m1 = (s1 - s2) + s3;
+
+    if (nullptr != bias) {
+        VecType m2, m3, m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(2, vecBias, minValue, maxValue);
+    }
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
 
 }
 template<size_t IterLoop>
-static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
     Vec16 s2 = Vec16::load(srcBlock + 2 * srcStep);
     Vec16 s3 = Vec16::load(srcBlock + 3 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -600,6 +659,10 @@ static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, 
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m2 = (s1 + s2) + s3;
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+        if (nullptr != bias) {
+            VecType m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+        }
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
         Vec16::save(dstFloatPtr + 1 * dstStep, m1);
@@ -611,6 +674,11 @@ static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, 
     auto m1 = (s1 - s2);
     auto m2 = (s1 + s2) + s3;
 
+    if (nullptr != bias) {
+        VecType m3, m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -618,7 +686,7 @@ static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, 
 
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -626,6 +694,14 @@ static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, 
     Vec16 s3 = Vec16::load(srcBlock + 3 * srcStep);
     Vec16 s4 = Vec16::load(srcBlock + 4 * srcStep);
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -637,6 +713,11 @@ static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, 
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m4 = (s1 + s2) + (s3 + s4) * 16.f + s5;
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m5, m6;
+            FUSE_BIAS_ACTIVATE(5, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
@@ -655,6 +736,11 @@ static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, 
     auto m3 = (s1 - s2) + (s3 - s4) * 8.f;
     auto m4 = (s1 + s2) + (s3 + s4) * 16.f + s5;
 
+    if (nullptr != bias) {
+        VecType m5, m6;
+        FUSE_BIAS_ACTIVATE(5, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -664,7 +750,7 @@ static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -672,6 +758,14 @@ static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, 
     Vec16 s3 = Vec16::load(srcBlock + 3 * srcStep);
     Vec16 s4 = Vec16::load(srcBlock + 4 * srcStep);
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -687,6 +781,11 @@ static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, 
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
         auto m3 = v3 + v1 * 8.f + s5;
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(4, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s3 = Vec16::load(srcFloatPtr + 3 * srcStep);
@@ -708,6 +807,11 @@ static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, 
     auto m2 = v2 + v0 * 4.f;
     auto m3 = v3 + v1 * 8.f + s5;
 
+    if (nullptr != bias) {
+        VecType m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(4, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -716,7 +820,7 @@ static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -724,6 +828,14 @@ static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, 
     Vec16 s3 = Vec16::load(srcBlock + 3 * srcStep);
     Vec16 s4 = Vec16::load(srcBlock + 4 * srcStep);
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -732,7 +844,11 @@ static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, 
         auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m2 = (s1 + s2) + (s3 + s4) * 4.f + s5;
-        s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
@@ -749,6 +865,11 @@ static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, 
     auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
     auto m2 = (s1 + s2) + (s3 + s4) * 4.f + s5;
 
+    if (nullptr != bias) {
+        VecType m3, m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -756,7 +877,7 @@ static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, 
 
 }
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
         Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
         Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -765,6 +886,12 @@ static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, 
         Vec16 s4 = Vec16::load(srcBlock + 4 * srcStep);
         Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
 
+        VecType vecBias, minValue, maxValue;
+        if (nullptr != bias) {
+            vecBias = VecType::load(bias);
+            minValue = VecType::broadcast(postParameters + 2);
+            maxValue = VecType::broadcast(postParameters + 3);
+        }
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
         auto dstFloatPtr = (float*)(dstStart + i * dstRowStep);
@@ -772,6 +899,11 @@ static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, 
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m1 = (s1 - s2) + (s3 - s4) * 2.f + s5;
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m2, m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(2, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
@@ -783,14 +915,26 @@ static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, 
     auto dstFloatPtr = (float*)(dstStart + (IterLoop - 1) * dstRowStep);
     auto m0 = s0 + s1 + s2 + s3 + s4;
     auto m1 = (s1 - s2) + (s3 - s4) * 2.f + s5;
+
+    if (nullptr != bias) {
+        VecType m2, m3, m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(2, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
 }
 
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
 // #pragma unroll(IterLoop)
     for (int i = 0; i < IterLoop; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + i * srcRowStep);
@@ -806,13 +950,18 @@ static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, 
         auto m0 = s0 + s1 + s2 + s3 + s4 + s5 + s6;
         auto m1 = (s1 - s2) + (s3 - s4) * 2.f + (s5 - s6) * 3.f + s7;
 
+        if (nullptr != bias) {
+            VecType m2, m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(2, vecBias, minValue, maxValue);
+        }
+
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     }
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -822,6 +971,13 @@ static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, 
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
     Vec16 s6 = Vec16::load(srcBlock + 6 * srcStep);
     Vec16 s7 = Vec16::load(srcBlock + 7 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
 
 // #pragma unroll(IterLoop - 1)
     for (int i = 0; i < IterLoop - 1; ++i) {
@@ -837,6 +993,12 @@ static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, 
         m1 += (s5 - s6) * 3.f;
         s3 = Vec16::load(srcFloatPtr + 3 * srcStep);
         s4 = Vec16::load(srcFloatPtr + 4 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m3, m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+        }
+
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s5 = Vec16::load(srcFloatPtr + 5 * srcStep);
         Vec16::save(dstFloatPtr + 1 * dstStep, m1);
@@ -850,13 +1012,18 @@ static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, 
     auto m1 = (s1 - s2) + (s3 - s4) * 2.f + (s5 - s6) * 3.f;
     auto m2 = (s1 + s2) + (s3 + s4) * 4.f + (s5 + s6) * 9.f + s7;
 
+    if (nullptr != bias) {
+        VecType m3, m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(3, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -866,6 +1033,14 @@ static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, 
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
     Vec16 s6 = Vec16::load(srcBlock + 6 * srcStep);
     Vec16 s7 = Vec16::load(srcBlock + 7 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
 // #pragma unroll(IterLoop - 1)
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
@@ -886,6 +1061,11 @@ static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, 
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
         auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f + s7;
         s3 = Vec16::load(srcFloatPtr + 3 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m4, m5, m6;
+            FUSE_BIAS_ACTIVATE(4, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s4 = Vec16::load(srcFloatPtr + 4 * srcStep);
@@ -909,7 +1089,10 @@ static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, 
     auto m1 = mid1 + mid3 * 2.f + mid5 * 3.f;
     auto m2 = mid0 + mid2 * 4.f + mid4 * 9.f;
     auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f + s7;
-
+    if (nullptr != bias) {
+        VecType m4, m5, m6;
+        FUSE_BIAS_ACTIVATE(4, vecBias, minValue, maxValue);
+    }
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -918,7 +1101,7 @@ static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -928,6 +1111,14 @@ static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, 
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
     Vec16 s6 = Vec16::load(srcBlock + 6 * srcStep);
     Vec16 s7 = Vec16::load(srcBlock + 7 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
+
 // #pragma unroll(IterLoop - 1)
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
@@ -949,6 +1140,11 @@ static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, 
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
         auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f + s7;
         s3 = Vec16::load(srcFloatPtr + 3 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m5, m6;
+            FUSE_BIAS_ACTIVATE(5, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s4 = Vec16::load(srcFloatPtr + 4 * srcStep);
@@ -975,6 +1171,11 @@ static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, 
     auto m3 = mid1 + mid3 * 8.f + mid5 * 27.f;
     auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f + s7;
 
+    if (nullptr != bias) {
+        VecType m5, m6;
+        FUSE_BIAS_ACTIVATE(5, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -983,7 +1184,7 @@ static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
     Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -993,6 +1194,13 @@ static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, 
     Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
     Vec16 s6 = Vec16::load(srcBlock + 6 * srcStep);
     Vec16 s7 = Vec16::load(srcBlock + 7 * srcStep);
+
+    VecType vecBias, minValue, maxValue;
+    if (nullptr != bias) {
+        vecBias = VecType::load(bias);
+        minValue = VecType::broadcast(postParameters + 2);
+        maxValue = VecType::broadcast(postParameters + 3);
+    }
 // #pragma unroll(IterLoop - 1)
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
@@ -1014,6 +1222,11 @@ static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, 
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
         auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f + s7;
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
+
+        if (nullptr != bias) {
+            VecType m6;
+            FUSE_BIAS_ACTIVATE(6, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s3 = Vec16::load(srcFloatPtr + 3 * srcStep);
@@ -1047,6 +1260,11 @@ static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, 
     auto m4 = mid0 + mid2 * 16.f + mid4 * 81.f;
     auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f + s7;
 
+    if (nullptr != bias) {
+        VecType m6;
+        FUSE_BIAS_ACTIVATE(6, vecBias, minValue, maxValue);
+    }
+
     Vec16::save(dstFloatPtr + 0 * dstStep, m0);
     Vec16::save(dstFloatPtr + 1 * dstStep, m1);
     Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -1056,7 +1274,7 @@ static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
         Vec16 s0 = Vec16::load(srcBlock + 0 * srcStep);
         Vec16 s1 = Vec16::load(srcBlock + 1 * srcStep);
@@ -1066,6 +1284,13 @@ static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, 
         Vec16 s5 = Vec16::load(srcBlock + 5 * srcStep);
         Vec16 s6 = Vec16::load(srcBlock + 6 * srcStep);
         Vec16 s7 = Vec16::load(srcBlock + 7 * srcStep);
+
+        VecType vecBias, minValue, maxValue;
+        if (nullptr != bias) {
+            vecBias = VecType::load(bias);
+            minValue = VecType::broadcast(postParameters + 2);
+            maxValue = VecType::broadcast(postParameters + 3);
+        }
 // #pragma unroll(IterLoop - 1)
     for (int i = 0; i < IterLoop - 1; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + (i + 1) * srcRowStep);
@@ -1087,6 +1312,10 @@ static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, 
         s0 = Vec16::load(srcFloatPtr + 0 * srcStep);
         auto m6 = mid0 + mid2 * 64.f + mid4 * 729.f + s7;
         s1 = Vec16::load(srcFloatPtr + 1 * srcStep);
+
+        if (nullptr != bias) {
+            FUSE_BIAS_ACTIVATE(7, vecBias, minValue, maxValue);
+        }
 
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         s2 = Vec16::load(srcFloatPtr + 2 * srcStep);
@@ -1120,6 +1349,9 @@ static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, 
         auto m5 = mid1 + mid3 * 32.f + mid5 * 243.f;
         auto m6 = mid0 + mid2 * 64.f + mid4 * 729.f + s7;
 
+        if (nullptr != bias) {
+            FUSE_BIAS_ACTIVATE(7, vecBias, minValue, maxValue);
+        }
         Vec16::save(dstFloatPtr + 0 * dstStep, m0);
         Vec16::save(dstFloatPtr + 1 * dstStep, m1);
         Vec16::save(dstFloatPtr + 2 * dstStep, m2);
@@ -1164,9 +1396,9 @@ static CoreFunctions::WinoUnrollTransFunc AVX512_chooseSourceUnrollTransform(int
 }
 
 
-static void AVX512_chooseWinoDestUnrollTransform(CoreFunctions::WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h) {
+static void AVX512_chooseWinoDestUnrollTransform(CoreFunctions::WinoUnrollDestTransFunc *destFunctions, size_t maxUnit, int k, int h) {
 
-    static CoreFunctions::WinoUnrollTransFunc gDestTransUnit4[][5] = {
+    static CoreFunctions::WinoUnrollDestTransFunc gDestTransUnit4[][5] = {
         {
             nullptr,
             nullptr,
@@ -1197,7 +1429,7 @@ static void AVX512_chooseWinoDestUnrollTransform(CoreFunctions::WinoUnrollTransF
         }
     };
 
-    static CoreFunctions::WinoUnrollTransFunc gDestTransUnit6[][7] = {
+    static CoreFunctions::WinoUnrollDestTransFunc gDestTransUnit6[][7] = {
         {
             nullptr,
             nullptr,
@@ -1254,7 +1486,7 @@ static void AVX512_chooseWinoDestUnrollTransform(CoreFunctions::WinoUnrollTransF
         }
     };
 
-    static CoreFunctions::WinoUnrollTransFunc gDestTransUnit8[][9] = {
+    static CoreFunctions::WinoUnrollDestTransFunc gDestTransUnit8[][9] = {
         {
             nullptr,
             nullptr,
@@ -1346,24 +1578,24 @@ static void AVX512_chooseWinoDestUnrollTransform(CoreFunctions::WinoUnrollTransF
         }
     };
 
-    ::memset((void*)destFunctions, 0, maxUnit * sizeof(CoreFunctions::WinoUnrollTransFunc));
+    ::memset((void*)destFunctions, 0, maxUnit * sizeof(CoreFunctions::WinoUnrollDestTransFunc));
     if (8 == k && h > 1 && h < 8) {
-        memcpy((void*)destFunctions, gDestTransUnit8[h], (8 + 1) * sizeof(CoreFunctions::WinoUnrollTransFunc));
+        memcpy((void*)destFunctions, gDestTransUnit8[h], (8 + 1) * sizeof(CoreFunctions::WinoUnrollDestTransFunc));
         return;
     }
     if (6 == k && h > 1 && h < 6) {
-        ::memcpy((void*)destFunctions, gDestTransUnit6[h], (6 + 1) * sizeof(CoreFunctions::WinoUnrollTransFunc));
+        ::memcpy((void*)destFunctions, gDestTransUnit6[h], (6 + 1) * sizeof(CoreFunctions::WinoUnrollDestTransFunc));
         return;
     }
     if (4 == k && h > 1 && h < 4) {
-        memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(CoreFunctions::WinoUnrollTransFunc));
+        memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(CoreFunctions::WinoUnrollDestTransFunc));
         return;
     }
     MNN_ASSERT(false);
     MNN_ERROR("Can not find function for AVX512_chooseWinoDestUnrollTransform:k %d, h:%d\n", k, h);
     return;
 }
-
+#undef FUSE_BIAS_ACTIVATE
 #undef LOAD_16Ix16
 #undef SAVE_3Ix16
 #undef TRANSPOSE_48X16_SAVE

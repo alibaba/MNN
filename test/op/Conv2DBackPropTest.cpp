@@ -88,7 +88,7 @@ public:
     virtual ~ConvBiasGradTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
         const int height = 32, width = 32, channel = 32, batch = 16;
         std::vector<float> gradData(height * width * channel * batch, 0);
         for (unsigned int i = 0; i < gradData.size(); ++i) {
@@ -110,7 +110,8 @@ protected:
 
         ::memcpy(grad->writeMap<float>(), gradData.data(), gradData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
-        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.005)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.005 * errorScale)) {
             MNN_ERROR("ConvBiasGradTest(%s) test failed!\n", deviceName.c_str());
             return false;
         }
@@ -121,14 +122,14 @@ protected:
 class ConvBiasGradTestOnCPU : public ConvBiasGradTest {
     virtual ~ConvBiasGradTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 
 class ConvBiasGradTestOnOpencl : public ConvBiasGradTest {
     virtual ~ConvBiasGradTestOnOpencl() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
+        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL", precision);
     }
 };
 

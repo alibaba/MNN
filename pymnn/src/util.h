@@ -368,6 +368,7 @@ static inline bool isVals(PyObject* obj) {
 #ifdef PYMNN_NUMPY_USABLE
     PyArray_Check(obj) ||
 #endif
+    PyCapsule_CheckExact(obj) ||
     PySequence_Check(obj);
 }
 template <bool (*Func)(PyObject*)>
@@ -386,7 +387,7 @@ static bool isVec(PyObject* obj) {
             return Func(PyList_GetItem(obj, 0));
         } else return true;
     }
-    return Func(obj);
+    return false;
 }
 static inline bool isInts(PyObject* obj) {
     return isInt(obj) || isVec<isInt>(obj);
@@ -833,11 +834,11 @@ static PyObject* toPyObj(TYPE value) { \
 
 #define def_enum_register(NAME, ...) \
 static void def_##NAME(PyObject *scope) { \
-    if (PyType_Ready(PyType_FindTLSType(&PyEnum_##NAME)) < 0) { \
+    if (PyType_Ready(&PyEnum_##NAME) < 0) { \
         PyErr_SetString(PyExc_Exception, "init " #NAME ": PyType_Ready failed"); \
     } \
     PyObject* self = (PyObject *)PyType_FindTLSType(&PyEnum_##NAME); \
-    PyObject* dict = PyEnum_##NAME.tp_dict; \
+    PyObject* dict = ((PyTypeObject *)self)->tp_dict; \
     PyModule_AddObject(scope, #NAME, self); \
     expand_items(register_item, NAME, __VA_ARGS__) \
 }
@@ -930,6 +931,7 @@ static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
 }
 #define declare_reduce(SCOPE, NAME, FUNC) \
 static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
+    INTS default_shape = {}; \
     PyObject *x, *axis = toPyObj(default_shape); \
     int keep_dims = 0; \
     if (PyArg_ParseTuple(args, "O|Oi", &x, &axis, &keep_dims) \
@@ -958,6 +960,7 @@ static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
 }
 #define declare_axiss_op(SCOPE, NAME, FUNC) \
 static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
+    INTS default_axis = {}; \
     PyObject *x, *axis = toPyObj(default_axis); \
     if (PyArg_ParseTuple(args, "O|O", &x, &axis) \
         && isVar(x) && isInts(axis)) { \
@@ -999,7 +1002,7 @@ static PyObject* PyMNN##SCOPE##_##NAME(PyObject *self, PyObject *args) { \
 
 #define def_class_register(NAME) \
 static void def_##NAME(PyObject *scope) { \
-    if (PyType_Ready(PyType_FindTLSType(&PyMNN##NAME##Type)) < 0) { \
+    if (PyType_Ready(&PyMNN##NAME##Type) < 0) { \
         PyErr_SetString(PyExc_Exception, "init" #NAME ": PyType_Ready PyMNN" #NAME "Type failed"); \
     } \
     PyObject* self = (PyObject *)PyType_FindTLSType(&PyMNN##NAME##Type); \
@@ -1098,6 +1101,72 @@ static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject 
 }
 // ------------------------ class start ------------------------
 // ------------------------ capsule start ------------------------
+
+
+#define def_class_smart_start(NAME, TYPE) \
+typedef struct { \
+    PyObject_HEAD \
+    std::shared_ptr<TYPE>* ptr; \
+} PyMNN##NAME;
+#define def_class_smart_end(NAME, TYPE) \
+static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject *kwds); \
+static void PyMNN##NAME##_dealloc(PyMNN##NAME *self) { \
+    Py_TYPE(self)->tp_free((PyObject *) self); \
+} \
+static PyTypeObject PyMNN##NAME##Type = { \
+    PyVarObject_HEAD_INIT(NULL, 0) \
+    #NAME,                                    /*tp_name*/\
+    sizeof(PyMNN##NAME),                      /*tp_basicsize*/\
+    0,                                        /*tp_itemsize*/\
+    (destructor)PyMNN##NAME##_dealloc,        /*tp_dealloc*/\
+    0,                                        /*tp_print*/\
+    0,                                        /*tp_getattr*/\
+    0,                                        /*tp_setattr*/\
+    0,                                        /*tp_compare*/\
+    0,                                        /*tp_repr*/\
+    0,                                        /*tp_as_number*/\
+    0,                                        /*tp_as_sequence*/\
+    0,                                        /*tp_as_mapping*/\
+    0,                                        /*tp_hash*/\
+    0,                                        /*tp_call*/\
+    0,                                        /*tp_str*/\
+    0,                                        /*tp_getattro*/\
+    0,                                        /*tp_setattro*/\
+    0,                                        /*tp_as_buffer*/\
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/\
+    "MNN " #NAME " objects",                  /*tp_doc*/\
+    0,                                        /*tp_traverse*/\
+    0,                                        /*tp_clear*/\
+    0,                                        /*tp_richcompare*/\
+    0,                                        /*tp_weaklistoffset*/\
+    0,                                        /*tp_iter*/\
+    0,                                        /*tp_iternext*/\
+    PyMNN##NAME##_methods,                    /*tp_methods*/\
+    0,                                        /*tp_members*/\
+    PyMNN##NAME##_getsetters,                 /*tp_getset*/\
+    0,                                        /*tp_base*/\
+    0,                                        /*tp_dict*/\
+    0,                                        /*tp_descr_get*/\
+    0,                                        /*tp_descr_set*/\
+    0,                                        /*tp_dictoffset*/\
+    0,                                        /*tp_init*/\
+    0,                                        /*tp_alloc*/\
+    PyMNN##NAME##_new                         /*tp_new*/\
+};\
+def_class_register(NAME) \
+static PyMNN##NAME* get##NAME() { \
+    return (PyMNN##NAME *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNN##NAME##Type), PyTuple_New(0), NULL); \
+} \
+static PyObject* toPyObj(TYPE* x) { \
+    auto ret = get##NAME(); \
+    (*(ret->ptr)).reset(x); \
+    return (PyObject*)ret; \
+} \
+static std::shared_ptr<TYPE>* to##NAME(PyObject* m) { \
+    return ((PyMNN##NAME*)m)->ptr; \
+}
+
+
 #define def_capsule(TYPE) \
 static void del_##TYPE(PyObject *obj) { \
     free(PyCapsule_GetPointer(obj, #TYPE)); \

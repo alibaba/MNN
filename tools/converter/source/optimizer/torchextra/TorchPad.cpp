@@ -58,9 +58,13 @@ public:
         // [N, C, H, W] -> [pad_W, W_pad, pad_H, H_pad]
         // [pad_W, W_pad, pad_H, H_pad] -> [pad_H, H_pad, pad_W, W_pad]
         // auto padsVar = _Reshape(_Transpose(_Reshape(inputs[1], {-1, 2}), {1, 0}), {-1});
+        auto size = _Size(inputs[1]);
+        auto dim = size / _Scalar(2);
+        auto dims = _Stack({dim, dim});
+        auto padsVar = _Reshape(_ReverseSequence(_Reshape(inputs[1], {-1, 2}), dims, 1, 0), {-1});
         // [pad_H, H_pad, pad_W, W_pad] -> [pad_N, N_pad, pad_C, C_pad, pad_H, H_pad, pad_W, W_pad]
-        auto padPads = _Stack({_Rank(inputs[0]) * _Scalar(2) - _Size(inputs[1]), _Scalar(0)});
-        auto padsVar = _Pad(_Reshape(inputs[1], {-1}), padPads);
+        auto padPads = _Stack({_Rank(inputs[0]) * _Scalar(2) - size, _Scalar(0)});
+        padsVar = _Pad(padsVar, padPads);
         std::vector<VARP> newInputs{inputs[0], padsVar};
         if (inputs.size() > 2) {
             newInputs.emplace_back(inputs[2]);

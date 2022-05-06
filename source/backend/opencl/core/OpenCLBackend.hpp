@@ -49,7 +49,8 @@ public:
 private:
     Backend::Info mInfo;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
-
+    std::shared_ptr<ImagePool> mImagePool;
+    std::shared_ptr<BufferPool> mBufferPool;
     BackendConfig::PrecisionMode mPrecision;
     bool mCLRuntimeError = false;
 
@@ -60,7 +61,7 @@ private:
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(const CLRuntime *runtime);
+    OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -126,10 +127,10 @@ private:
     const CLRuntime* mCLRuntime;
 
     std::shared_ptr<ImagePool> mImagePool;
-    std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
+    std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mStaticBufferPool;
-
+    
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;

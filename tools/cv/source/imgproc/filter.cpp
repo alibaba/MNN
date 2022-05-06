@@ -20,6 +20,41 @@ static VARP PadForConv(VARP& src, int kh, int kw, int padMode) {
     return _Pad(src, _Const(padVals.data(), {static_cast<int>(padVals.size())}), static_cast<Express::PadValueMode>(padMode));
 }
 
+static halide_type_t formatInput(VARP& src, bool fp = true) {
+    auto info = src->getInfo();
+    auto dim = info->dim;
+    int height, width, channel;
+    getVARPSize(src, &height, &width, &channel);
+    if (dim.size() != 4) {
+        if (src->getInfo()->order == NHWC) {
+            src = _Reshape(src, {1, height, width, channel});
+        } else {
+            src = _Convert(_Reshape(src, {1, channel, height, width}), NHWC);
+        }
+    }
+    if (fp) {
+        src = _Cast(src, halide_type_of<float>());
+    }
+    return info->type;
+}
+
+static VARP formatOutput(VARP src, halide_type_t type) {
+    auto dim = src->getInfo()->dim;
+    int height, width, channel;
+    getVARPSize(src, &height, &width, &channel);
+    std::vector<int> squeeze_dims {0};
+    if (channel == 1) {
+        squeeze_dims.push_back(-1);
+    }
+    if (!squeeze_dims.empty()) {
+        src = _Squeeze(src, squeeze_dims);
+    }
+    if (type == halide_type_of<uint8_t>()) {
+        src = _Maximum(src, _Scalar<float>(0));
+    }
+    return _Cast(src, type);
+}
+
 template <typename T>
 static std::vector<T> VARP2Vec(const VARP& var, int ddepth) {
     const int size = var->getInfo()->size;
@@ -101,7 +136,9 @@ static VARP pyr(VARP src, int borderType) {
         0.0234375 , 0.09375   , 0.140625  , 0.09375   , 0.0234375 ,
         0.015625  , 0.0625    , 0.09375   , 0.0625    , 0.015625  ,
         0.00390625, 0.015625  , 0.0234375 , 0.015625  , 0.00390625 };
-    return _Unsqueeze(filter2D(src, -1, _Const(kVec.data(), {5, 5}), 0, borderType), {0});
+    auto res = filter2D(src, -1, _Const(kVec.data(), {5, 5}), 0, borderType);
+    formatInput(res, false);
+    return res;
 }
 
 // Helper Function //////////////////////////////////////////////////////////////
@@ -123,41 +160,25 @@ VARP boxFilter(VARP src, int ddepth, Size ksize, bool normalize, int borderType)
 }
 
 VARP dilate(VARP src, VARP kernel, int iterations, int borderType) {
-    auto dim = src->getInfo()->dim;
-    int height, width, channel;
-    if (dim.size() == 3) {
-        height = dim[0];
-        width = dim[1];
-        channel = dim[2];
-        src = _Unsqueeze(src, {0});
-    } else {
-        getVARPSize(src, &height, &width, &channel);
-    }
+    auto type = formatInput(src);
     int kheight, kwidth, kchannel;
     getVARPSize(kernel, &kheight, &kwidth, &kchannel);
     auto padSrc = PadForConv(src, kheight, kwidth, borderType);
     return _Squeeze(_MaxPool(padSrc, {kheight, kwidth}), {0});
+    return formatOutput(_MaxPool(padSrc, {kheight, kwidth}), type);
 }
 
 VARP filter2D(VARP src, int ddepth, VARP kernel, double delta, int borderType) {
-    auto dim = src->getInfo()->dim;
-    int height, width, channel;
-    if (dim.size() == 3) {
-        height = dim[0];
-        width = dim[1];
-        channel = dim[2];
-        src = _Unsqueeze(src, {0});
-    } else {
-        getVARPSize(src, &height, &width, &channel);
-    }
+    auto type = formatInput(src);
+    int channel = getVARPChannel(src);
     const auto ksize = kernel->getInfo()->dim;
     int kheight, kwidth, kchannel;
     getVARPSize(kernel, &kheight, &kwidth, &kchannel);
     auto padSrc = PadForConv(src, kheight, kwidth, borderType);
     ddepth = ddepth < 0 ? channel : ddepth;
     std::vector<float> bias(ddepth, delta);
-    return _Squeeze(_Conv(std::move(VARP2Vec<float>(kernel, ddepth)), std::move(bias), padSrc, {channel, ddepth},
-                          {kwidth, kheight}, VALID, {1, 1}, {1, 1}, channel), {0});
+    return formatOutput(_Conv(std::move(VARP2Vec<float>(kernel, ddepth)), std::move(bias), padSrc, {channel, ddepth},
+                              {kwidth, kheight}, VALID, {1, 1}, {1, 1}, channel), type);
 }
 
 std::pair<VARP, VARP> getDerivKernels(int dx, int dy, int ksize, bool normalize) {

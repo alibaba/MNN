@@ -553,6 +553,107 @@ static void _MNNScaleAndAddBias(float* dstF, const float* srcF, const float* bia
     }
 }
 
+void _MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+
+    int16_t* dstPtr = (int16_t*)dst;
+    const int16_t* srcPtr = (const int16_t*)src;
+
+    BFVec4 zero(0.f);
+    BFVec4 one(1.f);
+    BFVec4 half(0.5f);
+    float a = alignCorners ? 1.0f : 0.0f;
+    float b = alignCorners ? 0.0f : 1.0f;
+
+    BFVec4 vb = alignCorners ? zero : one;
+    BFVec4 in_sub_a = BFVec4(float(inW) - a, float(inH) - a, float(inW) - a, float(inH) - a);
+
+    for (auto h = 0; h < outH; ++h) {
+        auto gridPtr = srcPtr + h * stride;
+        auto cordPtr = dstPtr + h * outW * 2;
+        auto w = 0;
+        for (; w + 1 < outW; w += 2) {
+            auto cordH = BFVec4::load(gridPtr);
+            cordH = half * ((one + cordH) * in_sub_a - vb);
+            BFVec4::save(cordPtr, cordH);
+            gridPtr += 4;
+            cordPtr += 4;
+        }
+        for (; w < outW; w += 1) { // tail
+            auto x = MNNLowpToFp32(gridPtr[0]);
+            auto y = MNNLowpToFp32(gridPtr[1]);
+            cordPtr[0] = MNNFP32ToBF16(((1 + x) * (inW - a) - b) * 0.5f);
+            cordPtr[1] = MNNFP32ToBF16(((1 + y) * (inH - a) - b) * 0.5f);
+        }
+    }
+}
+
+size_t _MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width) {
+            return -1;
+        }
+    } else {
+        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
+        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
+        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
+        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
+        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
+    }
+    return h * width * 4 + w * 4;
+}
+
+void _MNNGridSampleInterp(float* output, const float* input, const float* cord, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
+    int16_t* outputPtr = (int16_t*)output;
+    const int16_t* inputPtr = (const int16_t*)input;
+    const int16_t* cordPtr = (const int16_t*)cord;
+
+    for (auto ow = 0; ow < outW; ++ow) {
+        auto w = MNNLowpToFp32(cordPtr[2 * ow + 0]);
+        auto h = MNNLowpToFp32(cordPtr[2 * ow + 1]);
+        BFVec4 interp;
+
+        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
+            int nh = ::floor(h + 0.5f);
+            int nw = ::floor(w + 0.5f);
+            size_t ns = _MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? BFVec4(0.f) : BFVec4::load(inputPtr + k * inOffset + ns);
+                BFVec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
+        } else { //sampleMode == GridSampleMode_BILINEAR
+            int w0_h = ::floor(h);
+            int w0_w = ::floor(w);
+            int w1_h = ::ceil(h);
+            int w1_w = ::ceil(w);
+            auto oneV = BFVec4(1.0f);
+
+            auto f0 = BFVec4((float)w1_w - w);
+            auto f1 = oneV - f0;
+            auto h0 = BFVec4((float)w1_h - h);
+            auto h1 = oneV - h0;
+
+            size_t s00 = _MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
+            size_t s01 = _MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
+            size_t s10 = _MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
+            size_t s11 = _MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
+
+            for (int k = 0; k < channelCUnit; ++k) {
+                BFVec4 i00 = s00 == -1 ? BFVec4(0.f) : BFVec4::load(inputPtr + k * inOffset + s00);
+                BFVec4 i01 = s01 == -1 ? BFVec4(0.f) : BFVec4::load(inputPtr + k * inOffset + s01);
+                BFVec4 i10 = s10 == -1 ? BFVec4(0.f) : BFVec4::load(inputPtr + k * inOffset + s10);
+                BFVec4 i11 = s11 == -1 ? BFVec4(0.f) : BFVec4::load(inputPtr + k * inOffset + s11);
+
+                BFVec4 i0 = i00 * f0 + i01 * f1;
+                BFVec4 i1 = i10 * f0 + i11 * f1;
+
+                interp = i0 * h0 + i1 * h1;
+                BFVec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
+        }
+    }
+}
+
+
 static void _MNNAddC4WithStride(const float* sourceF, float* destF, size_t srcStride, size_t dstStride, size_t count) {
     auto source = (const int16_t*)sourceF;
     auto dest = (int16_t*)destF;
@@ -735,6 +836,8 @@ bool BF16Functions::init() {
     gInstance->MNNStrassenMergeCFunction = _MNNStrassenMergeCFunction;
     gInstance->penalty = 10.0f;
     gInstance->MNNScaleAndAddBias = _MNNScaleAndAddBias;
+    gInstance->MNNGridSampleComputeCord = _MNNGridSampleComputeCord;
+    gInstance->MNNGridSampleInterp = _MNNGridSampleInterp;
     gInstance->MNNCopyC4WithStride = MNNCopyC4Int16WithStride;
     gInstance->MNNAddC4WithStride = _MNNAddC4WithStride;
     gInstance->chooseWinoSourceTransformPack =  (decltype(gInstance->chooseWinoSourceTransformPack))(WinogradFunctionHalf::chooseWinoSourceTransformPack);

@@ -35,6 +35,8 @@ public:
         auto outputDes = TensorUtils::getDescribe(output);
         // Fill output by zero if one of inputs is empty.
         if (input0->elementSize() == 0 || input1->elementSize() == 0) {
+            cmd.command.clear();
+            cmd.extras.clear();
             outputDes->regions.clear();
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             return true;

@@ -36,11 +36,11 @@ void AddSparseInfo(std::unique_ptr<MNN::OpT>& op, Compression::Pipeline proto) {
                 return;
             }
 
-            int weightSize = param->weight.size();
-            int biasSize = param->bias.size();
+            size_t weightSize = param->weight.size();
+            size_t biasSize = param->bias.size();
             size_t weightNNZElement, weightBlockNumber = 0;
             CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), biasSize, weightSize / biasSize, sparseBlockOC);
-            float sparsity = 1. - float(weightNNZElement) / weightSize;
+            float sparsity = 1. - double(weightNNZElement) / weightSize;
             if (!SparseConvolutionTiledExecutor::shouldUseSparseConvolution(sparsity, sparseBlockOC)) {
                 return;
             }

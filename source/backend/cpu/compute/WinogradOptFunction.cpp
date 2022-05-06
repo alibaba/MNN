@@ -956,7 +956,7 @@ static void _sourceUnrollTransformUnit8x8(const float* srcBlock, float* dstStart
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -983,7 +983,7 @@ static void _destUnrollTransformUnit4x2(const float* srcBlock, float* dstStart, 
 
 }
 template<size_t IterLoop>
-static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1016,7 +1016,7 @@ static void _destUnrollTransformUnit4x3(const float* srcBlock, float* dstStart, 
 
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1063,7 +1063,7 @@ static void _destUnrollTransformUnit6x5(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
@@ -1116,7 +1116,7 @@ static void _destUnrollTransformUnit6x4(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1155,7 +1155,7 @@ static void _destUnrollTransformUnit6x3(const float* srcBlock, float* dstStart, 
 
 }
 template<size_t IterLoop>
-static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
         Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
         Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1189,7 +1189,7 @@ static void _destUnrollTransformUnit6x2(const float* srcBlock, float* dstStart, 
 
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     for (int i = 0; i < IterLoop; ++i) {
         auto srcFloatPtr = (const float*)(srcBlock + i * srcRowStep);
@@ -1211,7 +1211,7 @@ static void _destUnrollTransformUnit8x2(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1254,7 +1254,7 @@ static void _destUnrollTransformUnit8x3(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1316,7 +1316,7 @@ static void _destUnrollTransformUnit8x4(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
     Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1381,7 +1381,7 @@ static void _destUnrollTransformUnit8x5(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
 
     Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
@@ -1455,7 +1455,7 @@ static void _destUnrollTransformUnit8x6(const float* srcBlock, float* dstStart, 
 }
 
 template<size_t IterLoop>
-static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
+static void _destUnrollTransformUnit8x7(const float* srcBlock, float* dstStart, const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep) {
 
         Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
         Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
@@ -1601,9 +1601,9 @@ WinogradFunction::WinoUnrollTransFunc WinogradFunction::chooseSourceUnrollTransf
 }
 
 
-void WinogradFunction::chooseWinoDestUnrollTransform(WinogradFunction::WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h) {
+void WinogradFunction::chooseWinoDestUnrollTransform(WinogradFunction::WinoUnrollDestTransFunc *destFunctions, size_t maxUnit, int k, int h) {
 
-    static WinogradFunction::WinoUnrollTransFunc gDestTransUnit4[][5] = {
+    static WinogradFunction::WinoUnrollDestTransFunc gDestTransUnit4[][5] = {
         {
             nullptr,
             nullptr,
@@ -1634,7 +1634,7 @@ void WinogradFunction::chooseWinoDestUnrollTransform(WinogradFunction::WinoUnrol
         }
     };
 
-    static WinogradFunction::WinoUnrollTransFunc gDestTransUnit6[][7] = {
+    static WinogradFunction::WinoUnrollDestTransFunc gDestTransUnit6[][7] = {
         {
             nullptr,
             nullptr,
@@ -1691,7 +1691,7 @@ void WinogradFunction::chooseWinoDestUnrollTransform(WinogradFunction::WinoUnrol
         }
     };
 
-    static WinogradFunction::WinoUnrollTransFunc gDestTransUnit8[][9] = {
+    static WinogradFunction::WinoUnrollDestTransFunc gDestTransUnit8[][9] = {
         {
             nullptr,
             nullptr,
@@ -1782,17 +1782,17 @@ void WinogradFunction::chooseWinoDestUnrollTransform(WinogradFunction::WinoUnrol
         }
     };
 
-    ::memset((void*)destFunctions, 0, maxUnit * sizeof(WinogradFunction::WinoUnrollTransFunc));
+    ::memset((void*)destFunctions, 0, maxUnit * sizeof(WinogradFunction::WinoUnrollDestTransFunc));
     if (8 == k && h > 1 && h < 8) {
-        memcpy((void*)destFunctions, gDestTransUnit8[h], (8 + 1) * sizeof(WinogradFunction::WinoUnrollTransFunc));
+        memcpy((void*)destFunctions, gDestTransUnit8[h], (8 + 1) * sizeof(WinogradFunction::WinoUnrollDestTransFunc));
         return;
     }
     if (6 == k && h > 1 && h < 6) {
-        ::memcpy((void*)destFunctions, gDestTransUnit6[h], (6 + 1) * sizeof(WinogradFunction::WinoUnrollTransFunc));
+        ::memcpy((void*)destFunctions, gDestTransUnit6[h], (6 + 1) * sizeof(WinogradFunction::WinoUnrollDestTransFunc));
         return;
     }
     if (4 == k && h > 1 && h < 4) {
-        memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(WinogradFunction::WinoUnrollTransFunc));
+        memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(WinogradFunction::WinoUnrollDestTransFunc));
         return;
     }
     MNN_ASSERT(false);

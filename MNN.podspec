@@ -41,8 +41,6 @@ Pod::Spec.new do |s|
   'include/MNN/expr/*.{h,hpp}',\
   'schema/current/*.{h}',\
   '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
-  'source/auth/*.hpp',\
-  'source/auth/ios/*',\
   'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/common/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/utils/**/*.{h,c,m,mm,cc,hpp,cpp}',\

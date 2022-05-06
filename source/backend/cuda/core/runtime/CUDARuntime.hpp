@@ -52,6 +52,7 @@ typedef enum {
 #ifdef DEBUG
 #define checkKernelErrors\
   do {                                                      \
+    cudaDeviceSynchronize();\
     cudaError_t __err = cudaGetLastError();                 \
     if (__err != cudaSuccess) {                             \
       printf("File:%s Line %d: failed: %s\n", __FILE__, __LINE__,\
@@ -101,6 +102,8 @@ public:
     const cudaDeviceProp& prop() const {
         return mProp;
     }
+
+    int selectDeviceMaxFreeMemory();
 
 private:
     cudaDeviceProp mProp;

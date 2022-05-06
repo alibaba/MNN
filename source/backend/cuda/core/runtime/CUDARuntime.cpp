@@ -40,6 +40,9 @@ CUDARuntime::CUDARuntime(int device_id) {
     if (id < 0) {
         cuda_check(cudaGetDevice(&id));
     }
+    // id = selectDeviceMaxFreeMemory();
+    // cuda_check(cudaSetDevice(id));
+
     mDeviceId = id;
     cuda_check(cudaGetDeviceProperties(&mProp, id));
     MNN_ASSERT(mProp.maxThreadsPerBlock > 0);
@@ -59,6 +62,31 @@ CUDARuntime::~CUDARuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~CUDARuntime !\n");
 #endif
+}
+
+int CUDARuntime::selectDeviceMaxFreeMemory() {
+    cudaDeviceProp deviceProp;
+    int deviceCount;
+    cuda_check(cudaGetDeviceCount(&deviceCount));
+    
+    // Check id:0 card info
+    int id = 0;
+    cuda_check(cudaSetDevice(0));
+    size_t total_size, free_size_max;
+    cuda_check(cudaMemGetInfo(&free_size_max, &total_size));
+    //printf("card:0, free:%zu, total:%zu\n", free_size_max, total_size);       
+
+    for(int i = 1; i < deviceCount; i++) {
+        cuda_check(cudaSetDevice(i));
+        size_t free_size;
+        cuda_check(cudaMemGetInfo(&free_size, &total_size));  
+        if(free_size > free_size_max) {
+            free_size_max = free_size;
+            id = i;
+        }   
+        //printf("card:%d, free:%zu, total:%zu\n", i, free_size, total_size);       
+    }
+    return id;
 }
 
 size_t CUDARuntime::blocks_num(const size_t total_threads) {
@@ -110,6 +138,7 @@ void *CUDARuntime::alloc(size_t size_in_bytes) {
     void *ptr = nullptr;
     cuda_check(cudaMalloc(&ptr, size_in_bytes));
     MNN_ASSERT(nullptr != ptr);
+    checkKernelErrors;
     return ptr;
 }
 

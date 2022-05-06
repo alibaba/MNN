@@ -444,6 +444,12 @@ static int test_main(int argc, const char* argv[]) {
 
         if (t > 0) {
 
+            for (int i = 0; i < 3; ++i) { // warmup
+                inputTensor->copyFromHostTensor(&givenTensor);
+                net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
+                outputTensor->copyToHostTensor(&expectTensor);
+            }
+
             std::vector<float> times(t, 0.0f);
             for (int i = 0; i < t; ++i) {
                 auto begin = getTimeInUs();
@@ -469,12 +475,19 @@ static int test_main(int argc, const char* argv[]) {
             }
 
             std::sort(allOpsTimes.begin(), allOpsTimes.end());
+            float opSum = 0;
             for (auto& iter : allOpsTimes) {
-                MNN_PRINT("%*s \t[%s] run %d average cost %f ms, %.3f %%, FlopsRate: %.3f %%\n", 50, iter.second.first.c_str(), opTypes[iter.second.first].c_str(),
-                          runTime, iter.first / (float)runTime, iter.first / sum * 100.0f,
-                          iter.second.second / sumFlops * 100.0f);
+                opSum += iter.first;
+                MNN_PRINT("%*s \t[%s] run %d average cost %f ms, %.3f %%, FlopsRate: %.3f %%\n", 50,
+                    iter.second.first.c_str(),
+                    opTypes[iter.second.first].c_str(),
+                    runTime,
+                    iter.first / (float)runTime,
+                    iter.first / sum * 100.0f,
+                    iter.second.second / sumFlops * 100.0f);
             }
-            MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, *minTime, *maxTime);
+            opSum = opSum / runTime;
+            MNN_PRINT("Avg= %f ms, OpSum = %f ms min= %f ms, max= %f ms\n", sum / (float)t, opSum, *minTime, *maxTime);
         }
     }
     net->updateCacheFile(session);

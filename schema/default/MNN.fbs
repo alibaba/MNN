@@ -103,7 +103,7 @@ enum OpType : int {
     Softmax,
     SpaceToBatchND,
     SpatialProduct,
-    Split,
+    Col2Im,
     Segment,
     Squeeze,
     StridedSlice,
@@ -160,6 +160,7 @@ enum OpType : int {
     TensorArrayErase = 146,
     EyeLike = 147,
     CumSum = 148,
+    Det = 149,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
