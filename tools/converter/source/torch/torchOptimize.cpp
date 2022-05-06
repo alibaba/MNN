@@ -62,6 +62,9 @@ void removeUselessOps(Block* block) {
             it->kind() == prim::NumToTensor ||
             it->kind() == aten::ScalarImplicit ||
             it->kind() == aten::contiguous ||
+            it->kind() == aten::dropout ||
+            it->kind() == aten::dropout_ ||
+            it->kind() == aten::feature_dropout ||
             it->kind() == aten::clone) {
             it->output()->replaceAllUsesWith(it->input(0));
             for (int i = it->inputs().size()-1; i >= 0; i--) {
@@ -191,6 +194,38 @@ void FuseListUnpack(Block* block) {
                 it->eraseOutput(0);
                 listunpack->replaceAllUsesWith(*it);
                 listunpack->destroy();
+            }
+        }
+    }
+}
+/*
+   We rewrite something like:
+        x = ListConstruct(v1, v2, v3)
+        y = stack(y, axis)
+   to:
+        y = stack(v1, v2, v3, axis)
+*/
+void FuseListStack(Block* block) {
+    for (auto it = block->nodes().begin(); it != block->nodes().end();) {
+        auto* node = *it;
+        it++;
+
+        for (Block* sub_block : node->blocks()) {
+            FuseListUnpack(sub_block);
+        }
+        std::set<NodeKind> fusekind = {
+            aten::stack
+        };
+        if (it->kind() == aten::stack) {
+            auto input = it->input(0)->node();
+            if (input->kind() == prim::ListConstruct) {
+                auto axis = it->input(1);
+                it->removeAllInputs();
+                for (int i = 0; i < input->inputs().size(); i++) {
+                    it->addInput(input->input(i));
+                }
+                it->addInput(axis);
+                input->destroy();
             }
         }
     }
@@ -436,6 +471,7 @@ std::shared_ptr<Graph> torchOptPass(Module& module) {
     FuseAddMM(graph);
     // FoldConvBatchNorm(module);
     FuseListUnpack(graph->block());
+    FuseListStack(graph->block());
     // distinguish overload function
     overloadDistinguish(graph->block());
     // legal loop body's var name

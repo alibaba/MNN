@@ -25,4 +25,4 @@
 #define TypeInt8 6
 #define TypeInt64 9
 extern "C" PYMNN_PUBLIC void loadMNN();
-extern "C" PYMNN_PUBLIC void* memoryToVar(void* ptr, int h, int w, int c, int type);
+void* memoryToVar(void* ptr, int h, int w, int c, int type);

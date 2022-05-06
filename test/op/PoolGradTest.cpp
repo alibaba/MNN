@@ -20,7 +20,7 @@ public:
     virtual ~PoolGradTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string &deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string &deviceName, int precision) {
         const int h = 7, w = 7, size = h * w;
         const float originInputData[]   = {0.3100,  0.0156,  0.0765, 0.1872, 0.2949,  0.2949,  0.0052, 0.0455,  0.3000,
                                          0.1872,  -0.1304, 0.2939, 0.2949, 0.2437,  -0.0330, 0.0641, 0.2934,  0.0452,
@@ -73,11 +73,12 @@ protected:
         ::memcpy(poolInput->writeMap<float>(), (const float *)originInputData, size * sizeof(float));
         ::memcpy(poolInputGrad->writeMap<float>(), (const float *)poolInputGradData, poolSize * sizeof(float));
         auto compute = maxPoolOutputGrad->readMap<float>();
-        if (!checkVectorByRelativeError<float>(compute, maxExpectedGrad, size, 0.001)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 100;
+        if (!checkVectorByRelativeError<float>(compute, maxExpectedGrad, size, 0.001 * errorScale)) {
             MNN_ERROR("MaxpoolGrad(%s) test failed!\n", deviceName.c_str());
             return false;
         }
-        if (!checkVectorByRelativeError<float>(avePoolOutputGrad->readMap<float>(), aveExpectedGrad, size, 0.001)) {
+        if (!checkVectorByRelativeError<float>(avePoolOutputGrad->readMap<float>(), aveExpectedGrad, size, 0.001 * errorScale)) {
             MNN_ERROR("AvepoolGrad(%s) test failed!\n", deviceName.c_str());
             return false;
         }
@@ -90,7 +91,7 @@ class PoolGradTestOnCPU : public PoolGradTest {
 public:
     virtual ~PoolGradTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 

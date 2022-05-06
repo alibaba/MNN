@@ -29,9 +29,9 @@ public:
     void push(int32_t a) {
         std::function<bool(int32_t, int32_t)> comparator;
         if (mLargest) {
-            comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+            comparator = [this](int32_t a, int32_t b) { return compareDescend(a, b); };
         } else {
-            comparator = [this](int32_t a, int32_t b) { return !compareFunc(a, b); };
+            comparator = [this](int32_t a, int32_t b) { return compareAscend(a, b); };
         }
         if (mContainer.size() <= mK) {
             mContainer.push_back(a);
@@ -49,9 +49,9 @@ public:
     const std::vector<int32_t>& sortedResult() {
         std::function<bool(int32_t, int32_t)> comparator;
         if (mLargest) {
-            comparator = [this](int32_t a, int32_t b) { return compareFunc(a, b); };
+            comparator = [this](int32_t a, int32_t b) { return compareDescend(a, b); };
         } else {
-            comparator = [this](int32_t a, int32_t b) { return !compareFunc(a, b); };
+            comparator = [this](int32_t a, int32_t b) { return compareAscend(a, b); };
         }
         if (mContainer.size() <= mK) {
             std::sort(mContainer.begin(), mContainer.end(), comparator);
@@ -68,11 +68,20 @@ private:
     std::vector<int32_t> mContainer;
     const T* mValues = nullptr;
 
-    bool compareFunc(int32_t a, int32_t b) const {
+    bool compareDescend(int32_t a, int32_t b) const {
         if (mValues[b] < mValues[a]) {
             return true;
         } else if (mValues[b] > mValues[a]) {
             return false;
+        } else {
+            return a < b;
+        }
+    }
+    bool compareAscend(int32_t a, int32_t b) const {
+        if (mValues[b] < mValues[a]) {
+            return false;
+        } else if (mValues[b] > mValues[a]) {
+            return true;
         } else {
             return a < b;
         }

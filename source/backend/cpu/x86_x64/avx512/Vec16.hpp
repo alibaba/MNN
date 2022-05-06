@@ -263,6 +263,10 @@ struct Vec16 {
         VecType v = { _mm512_loadu_ps(addr) };
         return v;
     }
+    static VecType broadcast(const float* addr) {
+        VecType dst = { _mm512_set1_ps(*addr) }; // compiled into 'vbroadcastss'
+        return dst;
+    }
     static void save(float* addr, const VecType& v) {
         _mm512_storeu_ps(addr, v.value);
     }

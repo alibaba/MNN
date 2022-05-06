@@ -22,9 +22,10 @@ static int _findPos(const std::vector<std::string>& names, const std::string& ke
     }
     return -1;
 }
-WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
+WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
     auto module = new WhileModule;
     module->setType("WhileModule");
+    module->mSharedConst = sharedConst;
     std::shared_ptr<WhileModule::Info> info(new WhileModule::Info);
     module->mInfo = info;
     if (nullptr != op->name()) {
@@ -249,6 +250,7 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
 Module* WhileModule::clone(CloneContext* ctx) const {
     WhileModule* module(new WhileModule);
     module->mInfo = mInfo;
+    module->mSharedConst = mSharedConst;
     module->mCond.reset(mCond->clone(ctx));
     module->mBody.reset(mBody->clone(ctx));
     return this->cloneBaseTo(ctx, module);

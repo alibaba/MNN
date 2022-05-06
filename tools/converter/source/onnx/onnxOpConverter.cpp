@@ -151,6 +151,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         CASE_DATA_TYPE(onnx::TensorProto_DataType_INT32, int32);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT, float);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_UINT64, uint64);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_BOOL, int32);
         default:
             break;
     }
@@ -382,16 +383,25 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
         MNNOp->main.type = opConverter->type();
         for (int k = 0; k < onnxNode.input_size(); ++k) {
             const auto& inputName = onnxNode.input(k);
-            const auto it         = initializers.find(inputName);
-            if (it != initializers.end() && scope->lookupTensor(it->first) == -1) {
-                // Create const Op
-                MNN::OpT* constOp   = new MNN::OpT;
-                constOp->type       = MNN::OpType_Const;
-                constOp->main.type  = MNN::OpParameter_Blob;
-                constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
-                constOp->name    = it->first;
-                constOp->outputIndexes.push_back(scope->declareTensor(it->first));
-                subgraph->nodes.emplace_back(constOp);
+            if (scope->lookupTensor(inputName) >= 0) {
+                continue;
+            }
+            // onnx subgraph may use tensor from initializers in outter level graph, recurrsive find it
+            for (auto curScope = scope.get(); curScope != nullptr; ) {
+                const auto& curInits = curScope->mInitializers;
+                const auto it = curInits.find(inputName);
+                if (it != curInits.end()) {
+                    // Create const Op
+                    MNN::OpT* constOp   = new MNN::OpT;
+                    constOp->type       = MNN::OpType_Const;
+                    constOp->main.type  = MNN::OpParameter_Blob;
+                    constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
+                    constOp->name    = it->first;
+                    constOp->outputIndexes.push_back(scope->declareTensor(it->first));
+                    subgraph->nodes.emplace_back(constOp);
+                    break;
+                }
+                curScope = reinterpret_cast<decltype(curScope)>(curScope->mParent);
             }
         }
         // build input and output
@@ -422,7 +432,14 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
         for (int k = 0; k < onnxNode.output_size(); k++) {
             MNNOp->outputIndexes.push_back(scope->declareTensor(onnxNode.output(k)));
         }
+        auto originIdx = subgraph->inputs.size();
         opConverter->run(MNNOp, &onnxNode, scope.get());
+        // subgraph own by op may introduce extra input which is not exist on current graph, create it in op converter and detect it by subgraph->inputs
+        for (int inputIdx = originIdx; inputIdx < subgraph->inputs.size(); ++inputIdx) {
+            auto idx = subgraph->inputs[inputIdx];
+            outsideInputs.insert(std::make_pair(scope->lookupTensorByIdx(idx), idx));
+        }
+        subgraph->inputs.erase(subgraph->inputs.begin() + originIdx, subgraph->inputs.end());
         subgraph->nodes.emplace_back(MNNOp);
     }
     if (!forLoop) {

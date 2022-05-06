@@ -15,6 +15,7 @@ float64 = _F.double
 pi = math.pi
 # inf = math.inf
 inf = float('inf')
+newaxis = None
 
 # helper functions
 def __not_impl(*args):
@@ -82,13 +83,101 @@ def __override_operator(class_object, operator, func):
 # Array creation routines
 # 1. from shape or value
 def empty(shape, dtype=float32, order='C'):
+    '''
+    empty(shape, dtype=float32)
+    Return a new var of given shape and type, without initializing entries.
+
+    Parameters
+    ----------
+    shape : int or tuple of int
+        Shape of the empty var, e.g., (2, 3) or 2.
+    dtype : data-type, optional
+        Desired output data-type for the array, e.g, np.int8.
+        Default is np.float32.
+    order : {'C', 'F', 'A', or 'K'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        Var of uninitialized (arbitrary) data of the given shape,
+        dtype, and order. Object arrays will be initialized to None.
+
+    Example:
+    -------
+    >>> np.empty([2, 2])
+    '''
     __order_assert(order)
     return _F.placeholder(shape, _F.NCHW, dtype)
 def empty_like(prototype, dtype=None, order='K', subok=True, shape=None):
+    '''
+    empty_like(prototype, dtype=None, order='K', subok=True, shape=None)
+    Return a new var with the same shape and type as a given var.
+
+    Parameters
+    ----------
+    prototype : var_like
+        The shape and data-type of prototype define these same
+        attributes of the returned array.
+    dtype : data-type, optional
+        Overrides the data type of the result.
+    order : {'C', 'F', 'A', or 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional.
+        Compatible with numpy.
+    shape : int or sequence of ints, optional.
+        Overrides the shape of the result.
+
+    Returns
+    -------
+    out : var
+        Var of uninitialized (arbitrary) data with the same shape
+        and type as prototype.
+
+    Example:
+    -------
+    >>> a = ([1,2,3], [4,5,6])
+    >>> np.empty_like(a)
+    '''
     __order_assert(order)
     dst_dtype, dst_shape = __array_like_type(prototype, dtype, order, shape)
     return _F.placeholder(dst_shape, prototype.data_format, dst_dtype)
 def eye(N, M=None, k=0, dtype=float32, order='C'):
+    '''
+    eye(N, M=None, k=0, dtype=float32, order='C')
+    Return a 2-D var with ones on the diagonal and zeros elsewhere.
+
+    Parameters
+    ----------
+    N : int
+        Number of rows in the output.
+    M : int, optional
+        Number of columns in the output. If None, defaults to `N`.
+    k : int, optional
+        Index of the diagonal: 0 (the default) refers to the main diagonal,
+        a positive value refers to an upper diagonal, and a negative value
+        to a lower diagonal.
+    dtype : data-type, optional
+        Data-type of the returned array.
+    order : {'C', 'F'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    I : var of shape (N,M)
+      An var where all elements are equal to zero, except for the `k`-th
+      diagonal, whose values are equal to one.
+
+    Examples
+    --------
+    >>> np.eye(2, dtype=int)
+    var([[1, 0],
+         [0, 1]])
+    >>> np.eye(3, k=1)
+    var([[0.,  1.,  0.],
+         [0.,  0.,  1.],
+         [0.,  0.,  0.]])
+    '''
     __order_assert(order)
     M = N if M is None else M
     x = _F.one_hot(arange(0 + k, N + k, 1), M)
@@ -96,28 +185,330 @@ def eye(N, M=None, k=0, dtype=float32, order='C'):
         x = _F.cast(x, dtype)
     return x
 def identity(n, dtype=float32):
+    '''
+    identity(n, dtype=float32)
+    Return the identity var. The identity var is a
+    square array with ones on the main diagonal.
+
+    Parameters
+    ----------
+    n : int
+        Number of rows (and columns) in `n` x `n` output.
+    dtype : data-type, optional
+        Data-type of the output.  Defaults to ``float``.
+
+    Returns
+    -------
+    out : var
+        `n` x `n` array with its main diagonal set to one,
+        and all other elements 0.
+
+    Examples
+    --------
+    >>> np.identity(3)
+    var([[1.,  0.,  0.],
+         [0.,  1.,  0.],
+         [0.,  0.,  1.]])
+    '''
     return eye(n, dtype=dtype)
 def full(shape, fill_value, dtype=None, order='C'):
+    '''
+    full(shape, fill_value, dtype=None, order='C')
+    Return a new var of given shape and type, filled with `fill_value`.
+
+    Parameters
+    ----------
+    shape : int or sequence of ints
+        Shape of the new var, e.g., ``(2, 3)`` or ``2``.
+    fill_value : scalar or var_like
+        Fill value.
+    dtype : data-type, optional
+        The desired data-type for the var  The default, None, means
+         ``np.array(fill_value).dtype``.
+    order : {'C', 'F'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        Var of `fill_value` with the given shape, dtype, and order.
+
+    Examples
+    --------
+    >>> np.full((2, 2), 10)
+    var([[10, 10],
+         [10, 10]])
+    '''
     __order_assert(order)
     shape = __get_shape(shape)
     return _F.fill(_F._to_var(shape), _F.scalar(fill_value, dtype))
 def full_like(a, fill_value, dtype=None, order='K', subok=True, shape=None):
+    '''
+    full_like(a, fill_value, dtype=None, order='K', subok=True, shape=None)
+    Return a full var with the same shape and type as a given var.
+
+    Parameters
+    ----------
+    a : var_like
+        The shape and data-type of `a` define these same attributes of
+        the returned var.
+    fill_value : scalar
+        Fill value.
+    dtype : data-type, optional
+        Overrides the data type of the result.
+    order : {'C', 'F', 'A', or 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional.
+        Compatible with numpy.
+    shape : int or sequence of ints, optional.
+        Overrides the shape of the result.
+
+    Returns
+    -------
+    out : var
+        Var of `fill_value` with the same shape and type as `a`.
+
+    Examples
+    --------
+    >>> x = np.arange(6, dtype=np.int32)
+    >>> np.full_like(x, 1)
+    var([1, 1, 1, 1, 1, 1])
+    >>> np.full_like(x, 0.1)
+    var([0, 0, 0, 0, 0, 0])
+    >>> np.full_like(x, 0.1, dtype=np.float32)
+    var([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+    >>> y = np.arange(6, dtype=np.float32)
+    >>> np.full_like(y, 0.1)
+    var([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+    '''
     dst_dtype, dst_shape = __array_like_type(a, dtype, order, shape)
     return full(dst_shape, fill_value, dst_dtype)
 def ones(shape, dtype=None, order='C'):
+    '''
+    ones(shape, dtype=None, order='C')
+    Return a new array of given shape and type, filled with ones.
+
+    Parameters
+    ----------
+    shape : int or sequence of ints
+        Shape of the new array, e.g., ``(2, 3)`` or ``2``.
+    dtype : data-type, optional
+        The desired data-type for the array, e.g., `np.int8`.  Default is
+        `np.float32`.
+    order : {'C', 'F'}, optional, default: C
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : Var
+        Var of ones with the given shape, dtype, and order.
+
+    Examples
+    --------
+    >>> np.ones(5)
+    var([1., 1., 1., 1., 1.])
+    >>> np.ones((5,), dtype=int)
+    var([1, 1, 1, 1, 1])
+    >>> np.ones((2, 1))
+    var([[1.],
+         [1.]])
+    >>> s = (2,2)
+    >>> np.ones(s)
+    var([[1.,  1.],
+         [1.,  1.]])
+    '''
     return full(shape, 1, dtype, order)
 def ones_like(a, dtype=None, order='K', subok=True, shape=None):
+    '''
+    ones_like(a, dtype=None, order='K', subok=True, shape=None)
+    Return an array of ones with the same shape and type as a given array.
+
+    Parameters
+    ----------
+    a : var_like
+        The shape and data-type of `a` define these same attributes of
+        the returned array.
+    dtype : data-type, optional
+        Overrides the data type of the result.
+    order : {'C', 'F', 'A', or 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional.
+        Compatible with numpy.
+    shape : int or sequence of ints, optional.
+        Overrides the shape of the result.
+
+    Returns
+    -------
+    out : Var
+        Var of ones with the same shape and type as `a`.
+
+    Examples
+    --------
+    >>> x = np.arange(6)
+    >>> x = x.reshape((2, 3))
+    >>> x
+    var([[0, 1, 2],
+         [3, 4, 5]])
+    >>> np.ones_like(x)
+    var([[1, 1, 1],
+         [1, 1, 1]])
+    >>> y = np.arange(3, dtype=float)
+    >>> y
+    var([0., 1., 2.])
+    >>> np.ones_like(y)
+    var([1.,  1.,  1.])
+    '''
     return full_like(a, 1, dtype, order, subok, shape)
 def zeros(shape, dtype=None, order='C'):
+    '''
+    zeros(shape, dtype=None, order='C')
+    Return a new array of given shape and type, filled with zeros.
+
+    Parameters
+    ----------
+    shape : int or sequence of ints
+        Shape of the new array, e.g., ``(2, 3)`` or ``2``.
+    dtype : data-type, optional
+        The desired data-type for the array, e.g., `np.int8`.  Default is
+        `np.float32`.
+    order : {'C', 'F'}, optional, default: C
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : Var
+        Var of zeros with the given shape, dtype, and order.
+
+    Examples
+    --------
+    >>> np.zeros(5)
+    var([ 0.,  0.,  0.,  0.,  0.])
+    >>> np.ones((5,), dtype=int)
+    var([0, 0, 0, 0, 0])
+    >>> np.ones((2, 1))
+    var([[ 0.],
+         [ 0.]])
+    >>> s = (2,2)
+    >>> np.ones(s)
+    var([[ 0.,  0.],
+         [ 0.,  0.]])
+    '''
     return full(shape, 0, dtype, order)
 def zeros_like(a, dtype=None, order='K', subok=True, shape=None):
+    '''
+    zeros_like(a, dtype=None, order='K', subok=True, shape=None)
+    Return an array of zeros with the same shape and type as a given array.
+
+    Parameters
+    ----------
+    a : var_like
+        The shape and data-type of `a` define these same attributes of
+        the returned array.
+    dtype : data-type, optional
+        Overrides the data type of the result.
+    order : {'C', 'F', 'A', or 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional.
+        Compatible with numpy.
+    shape : int or sequence of ints, optional.
+        Overrides the shape of the result.
+
+    Returns
+    -------
+    out : Var
+        Var of zeros with the same shape and type as `a`.
+
+    Examples
+    --------
+    >>> x = np.arange(6)
+    >>> x = x.reshape((2, 3))
+    >>> x
+    var([[0, 1, 2],
+         [3, 4, 5]])
+    >>> np.zeros_like(x)
+    var([[0, 0, 0],
+         [0, 0, 0]])
+    >>> y = np.arange(3, dtype=float)
+    >>> y
+    var([0., 1., 2.])
+    >>> np.zeros_like(y)
+    var([0.,  0.,  0.])
+    '''
     return full_like(a, 0, dtype, order, subok, shape)
 # 2. from existing data
 def copy(a, order='K', subok=False):
+    '''
+    copy(a, order='K', subok=False)
+    Return an array copy of the given object.
+
+    Parameters
+    ----------
+    a : var_like
+        Input data.
+    order : {'C', 'F', 'A', 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    arr : var
+        Var interpretation of `a`.
+
+    Examples
+    --------
+    >>> x = np.array([1, 2, 3])
+    >>> np.copy(x)
+    var([1, 2, 3])
+    '''
     __order_assert(order)
     return _F.clone(a, True)
 _Copy = copy
 def array(object, dtype=None, copy=True, order='K', subok=False, ndmin=0, like=None):
+    '''
+    array(object, dtype=None, copy=True, order='K', subok=False, ndmin=0, like=None)
+    Create an array.
+
+    Parameters
+    ----------
+    object : var_like
+        An var, any object exposing the var interface, an object
+        whose __array__ method returns an array, or any (nested)
+        sequence. If object is a scalar, a 0-dimensional array
+        containing object is returned.
+    dtype : data-type, optional
+        The desired data-type for the array. If not given, then the
+        type will be determined as the minimum type required to
+        hold the objects in the sequence.
+    copy : bool, optional
+        If true (default), then the object is copied. Otherwise, a copy
+        will only be made if __array__ returns a copy, if obj is a nested
+        sequence, or if a copy is needed to satisfy any of the other
+        requirements (dtype, order, etc.).
+    order : {'C', 'F', 'A', 'K'}, optional
+        Compatible with numpy.
+    subok : bool, optional
+        Compatible with numpy.
+    ndmin : int, optional
+        Specifies the minimum number of dimensions that the
+        resulting array should have. Ones will be pre-pended to the
+        shape as needed to meet this requirement.
+    like : var_like
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        An var object satisfying the specified requirements.
+
+    Examples
+    --------
+    >>> np.array([1, 2, 3])
+    var([1, 2, 3])
+    >>> np.array([[1, 2], [3, 4]])
+    var([[1, 2],
+         [3, 4]])
+    '''
     __order_assert(order)
     if isinstance(object, _F.Var):
         if copy:
@@ -141,12 +532,116 @@ def array(object, dtype=None, copy=True, order='K', subok=False, ndmin=0, like=N
             x = _F.unsqueeze(x, [i for i in range(ndmin - dim)])
     return x
 def asarray(a, dtype=None, order=None):
+    '''
+    asarray(a, dtype=None, order=None)
+    Convert the input to an array.
+
+    Parameters
+    ----------
+    a : var_like
+        Input data, in any form that can be converted to an array.
+        This includes lists, lists of tuples, tuples, tuples of tuples,
+        tuples of lists and ndarrays.
+    dtype : data-type, optional
+        By default, the data-type is inferred from the input data.
+    order : {'C', 'F', 'A', 'K'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        Array interpretation of a. No copy is performed if the input is
+        already an ndarray with matching dtype and order.
+
+    Examples
+    --------
+    >>> a = [1, 2]
+    >>> np.asarray(a)
+    var([1, 2])
+    '''
     return array(a, dtype, order=order)
 def asanyarray(a, dtype=None, order=None):
+    '''
+    asanyarray(a, dtype=None, order=None)
+    Convert the input to an array.
+
+    Parameters
+    ----------
+    a : var_like
+        Input data, in any form that can be converted to an array.
+        This includes lists, lists of tuples, tuples, tuples of tuples,
+        tuples of lists and ndarrays.
+    dtype : data-type, optional
+        By default, the data-type is inferred from the input data.
+    order : {'C', 'F', 'A', 'K'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        Array interpretation of a. No copy is performed if the input is
+        already an ndarray with matching dtype and order.
+
+    Examples
+    --------
+    >>> a = [1, 2]
+    >>> np.asanyarray(a)
+    var([1, 2])
+    '''
     return array(a, dtype, order=order)
 def ascontiguousarray(a, dtype=None, order=None):
+    '''
+    ascontiguousarray(a, dtype=None, order=None)
+    Return a contiguous array (ndim >= 1) in memory (C order).
+
+    Parameters
+    ----------
+    a : var_like
+        Input data, in any form that can be converted to an array.
+        This includes lists, lists of tuples, tuples, tuples of tuples,
+        tuples of lists and ndarrays.
+    dtype : data-type, optional
+        By default, the data-type is inferred from the input data.
+    order : {'C', 'F', 'A', 'K'}, optional
+        Compatible with numpy.
+
+    Returns
+    -------
+    out : var
+        Array interpretation of a. No copy is performed if the input is
+        already an ndarray with matching dtype and order.
+
+    Examples
+    --------
+    >>> a = [1, 2]
+    >>> np.ascontiguousarray(a)
+    var([1, 2])
+    '''
     return array(a, dtype, order=order)
 def asmatrix(data, dtype=None):
+    '''
+    asmatrix(a, dtype=None)
+    Interpret the input as a matrix.
+
+    Parameters
+    ----------
+    a : var_like
+        Input data.
+    dtype : data-type, optional
+        Data-type of the output matrix.
+
+    Returns
+    -------
+    out : var
+        data interpreted as a matrix.
+
+    Examples
+    --------
+    >>> a = [[1, 2], [3, 4]]
+    >>> np.asmatrix(a)
+    var([[1, 2],
+         [3, 4]])
+    '''
     return array(data, dtype, ndmin=2)
 def frombuffer(buffer, dtype=float32, count=-1, offset=0):
     # TODO: impl 
@@ -176,6 +671,40 @@ def __arange_3(start, stop, step=1, dtype=None):
 def __arange_1(stop, dtype=None):
     return __arange_3(0, stop, 1, dtype)
 def arange(*args, **kargs):
+    '''
+    arange([start, ]stop, [step, ]dtype=None)
+    Return evenly spaced values within a given interval.
+
+    Parameters
+    ----------
+    start : integer or real, optional
+        Start of interval. The interval includes this value. The default
+        start value is 0.
+    stop : integer or real
+        End of interval. The interval does not include this value,
+        except in some cases where step is not an integer and
+        floating point round-off affects the length of out.
+    step : integer or real, optional
+        Spacing between values. For any output out, this is the
+        distance between two adjacent values, ``out[i+1] - out[i]``.
+        The default step size is 1. If step is specified as a
+        position argument, start must also be given.
+    dtype : dtype
+        The type of the output array. If dtype is not given, infer the
+        data type from the other input arguments.
+
+    Returns
+    -------
+    arange : var
+        Var of evenly spaced values.
+
+    Examples
+    --------
+    >>> np.arange(0, 5, 1)
+    var([0, 1, 2, 3, 4])
+    >>> np.arange(5.)
+    var([0., 1., 2., 3., 4.])
+    '''
     dtype = __get_arg(kargs, 'dtype')
     step = __get_arg(kargs, 'step')
     stop = __get_arg(kargs, 'stop')
@@ -477,7 +1006,7 @@ def unravel_index(indices, shape, order='C'):
     indices = array(indices)
     shape = array(shape)
     x = _F.unravel_index(indices, shape)
-    return (squeeze(m_, 0) for m_ in split(x, shape.size))
+    return [squeeze(m_, 0) for m_ in split(x, shape.size)]
 def diag_indices(n, ndim=2):__not_impl()
 def diag_indices_from(arr):__not_impl()
 def mask_indices(n, mask_func, k=0):__not_impl()
@@ -722,7 +1251,7 @@ def pad(array, pad_width, mode='constant'):
     return _F.pad(array, pad_width, mode)
 # Sorting, searching, and counting
 # 1. Sorting
-def sort(a, axis=- 1, kind=None, order=None):
+def sort(a, axis=-1, kind=None, order=None):
     return _F.sort(a, axis)
 def lexsort(keys, axis=-1):
     return sort(keys, axis)
@@ -745,7 +1274,6 @@ def argwhere(a):
     return _F.where(mask)
 def nonzero(a):
     res = _F.where(a)
-    res = argwhere(a)
     if a.ndim == 1:
         return (ravel(res),)
     return tuple([ravel(m_) for m_ in split(transpose(res), 2)])
@@ -756,7 +1284,6 @@ def extract(condition, arr):__not_impl()
 # 3. Counting
 def count_nonzero(a, axis=None, keepdims=False):
     mask = not_equal(a, _F.scalar(0, a.dtype))
-    axis = _F._to_axis(axis)
     return sum(mask, axis, keepdims)
 # Statistics
 # 1. Order statistics

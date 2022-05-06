@@ -85,6 +85,7 @@ public:
         }
         // Use TF's stridedslice, turn onnx slice attribute to tf format
         auto rank = _Unsqueeze(_Rank(input), {0});
+        auto shape = _Shape(input, true), zero = _Scalar<int>(0);
         if (nullptr != axisVar) {
             auto axisPtr = axisVar->readMap<int>();
             if (nullptr != axisPtr) {
@@ -96,7 +97,6 @@ public:
             if (nullptr != axisPtr) {
                 axisVarScatter.fix(VARP::CONSTANT);
             }
-            auto shape      = _Shape(input, true);
             auto defaultVar = _Fill(_Shape(axisVar, true), _Scalar<int>(1));
             auto mask       = _Scalar<int>(1) - _ScatterNd(axisVarScatter, defaultVar, rank);
             startVar        = _ScatterNd(axisVarScatter, startVar, rank);
@@ -108,6 +108,13 @@ public:
         if (nullptr == strideVar) {
             strideVar = _Fill(rank, _Scalar<int32_t>(1));
         }
+        // according to onnx spec, negative index should be added dim before clamp(into [0, dim-1]).
+        // Adjustment of MNN runtime engine is not agree with spec, so do this here manually
+        auto adjustIndexIfNeg = [=](VARP index) {
+            return _Select(_Less(index, zero), index + shape, index);
+        };
+        startVar = _Maximum(_Minimum(adjustIndexIfNeg(startVar), shape - _Scalar<int>(1)), zero);
+        endVar = adjustIndexIfNeg(endVar);
 
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
         sliceOp->name = op->name()->str();

@@ -32,7 +32,7 @@ public:
             MNN_ERROR("NonMaxSuppression's max_output_boxes_per_class must be provided (can't optional)\n");
             return nullptr;
         }
-        auto zero = _Scalar<int>(0);
+        auto zero = _Scalar<float>(0);
         for (int i = 3; i < inputs.size(); ++i) {
             if (inputs[i].get() == nullptr) {
                 inputs[i] = zero;
@@ -41,8 +41,23 @@ public:
         
         auto input0Info = inputs[0]->getInfo();
         auto input1Info = inputs[1]->getInfo();
+        bool oldSupport = (input0Info != nullptr && input1Info != nullptr);
+        if (oldSupport) {
+            for (auto dim : input0Info->dim) {
+                if (dim <= 0) {
+                    oldSupport = false;
+                    break;
+                }
+            }
+            for (auto dim : input1Info->dim) {
+                if (dim <= 0) {
+                    oldSupport = false;
+                    break;
+                }
+            }
+        }
         
-        if (nullptr == input0Info || nullptr == input1Info) {
+        if (!oldSupport) {
             MNN_ERROR("Shape of NonMaxSupression's input is unknown. Please confirm version of MNN engine is new enough and use V3 Module API to run it correctly\n");
             std::unique_ptr<OpT> nms(new OpT);
             nms->type                = OpType_NonMaxSuppressionV2;

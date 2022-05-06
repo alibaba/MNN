@@ -14,4 +14,4 @@ def randint(low, high=None, size=None, dtype=_F.int):
         low = 0
     if size is None:
         size = [1]
-    return _F.randomuniform(size, dtype, low, high)
+    return _F.cast(_F.randomuniform(size, _F.float, low, high), dtype)

@@ -49,7 +49,7 @@ protected:
             }
         }
 
-        if (!checkVector<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
+        if (!checkVectorByRelativeError<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
             MNN_ERROR("%s test failed!\n", name.c_str());
             return false;
         }
@@ -143,7 +143,8 @@ class SinTest : public UnaryTestCommon {
 public:
     virtual ~SinTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Sin, "SinTest", 0.01,
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
+        return test<float, float>(_Sin, "SinTest", 0.01 * errorScale,
                     {0.0, 3.14 / 2.0, 3.14, 3.14 * 3.0 / 2.0}, {0.0, 1.0, 0.0, -1.0},
                     {4}, {4});
     }
@@ -152,7 +153,8 @@ class CosTest : public UnaryTestCommon {
 public:
     virtual ~CosTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Cos, "CosTest", 0.01,
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
+        return test<float, float>(_Cos, "CosTest", 0.01 * errorScale,
                     {0.0, 3.14 / 2.0, 3.14, 3.14 * 3.0 / 2.0}, {1.0, 0.0, -1.0, 0.0},
                     {4}, {4});
     }

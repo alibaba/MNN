@@ -9,3 +9,4 @@ from . import nn
 from . import optim
 from . import tools
 from . import numpy
+from . import cv

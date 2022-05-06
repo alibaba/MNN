@@ -121,7 +121,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 return false;
             }
             auto matmulInput = input->expr().first->inputs().at(0);
-            auto info = matmulInput->getInfo();
             auto newExpr = Expr::create(input->expr().first->extra(), {matmulInput, weight, bias});
             newExpr->setName(expr->name());
             Expr::replace(expr, newExpr);

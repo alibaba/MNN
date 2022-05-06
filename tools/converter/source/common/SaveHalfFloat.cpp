@@ -8,6 +8,7 @@
 
 #include "CommonUtils.hpp"
 #include "half.hpp"
+#include <math.h>
 
 void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
     const auto opType = op->type;
@@ -20,7 +21,11 @@ void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
             std::vector<half_float::half> quantizedFp16Weight;
             quantizedFp16Weight.resize(weightSize);
             std::transform(param->weight.begin(), param->weight.end(), quantizedFp16Weight.begin(),
-                            [](float w) { return half_float::half(w); });
+                            [](float w) {
+                w = fmaxf(w, -65504.0f);
+                w = fminf(w, 65504.0f);
+                return half_float::half(w);
+            });
             // std::vector<half_float::half> quantizedFp16Bias;
             // quantizedFp16Bias.resize(biasSize);
             // std::transform(param->bias.begin(), param->bias.end(), quantizedFp16Bias.begin(), [](float
@@ -42,7 +47,10 @@ void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
                 auto size = blob->float32s.size();
                 auto dst = (half_float::half*)blob->uint8s.data();
                 for (int i=0; i<size; ++i) {
-                    dst[i] = blob->float32s[i];
+                    float v = blob->float32s[i];
+                    v = fmaxf(v, -65504.0f);
+                    v = fminf(v, 65504.0f);
+                    dst[i] = v;
                 }
                 blob->float32s.clear();
             }

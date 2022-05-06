@@ -13,6 +13,31 @@
 #include "CPUBackend.hpp"
 #include "core/ConvolutionCommon.hpp"
 namespace MNN {
+    class PerfConfig {
+public:
+    PerfConfig() : isParallelInner{false}, eTile{1}, ePack{1}, hPack{1}, instructionCosts{.0f} {
+    }
+    PerfConfig(bool isParallelInner_, int eTile_, int ePack_, int hPack_, float instructionCosts_)
+        : isParallelInner{isParallelInner_},  eTile{eTile_}, ePack{ePack_}, hPack{hPack_}, instructionCosts{instructionCosts_} {
+    }
+    bool operator!=(const PerfConfig& other) {
+        return isParallelInner != other.isParallelInner || ePack != other.ePack || eTile != other.eTile || hPack != other.hPack;
+    }
+    PerfConfig& operator=(const PerfConfig& other) {
+        isParallelInner = other.isParallelInner;
+        ePack = other.ePack;
+        eTile = other.eTile;
+        hPack = other.hPack;
+        instructionCosts = other.instructionCosts;
+        return *this;
+    }
+
+    bool isParallelInner; // inner or outer parallel
+    int eTile; // L2 cache tiling
+    int ePack; // micro tile size along ow*oh dimension
+    int hPack;
+    float instructionCosts;
+};
 class CPUConvolution : public Execution {
 public:
     struct Resource {
@@ -73,12 +98,14 @@ public:
     template<typename T, typename U> static bool acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend*);
 
     std::vector<float> getPostParameters() const;
+public:
+    PerfConfig mConvPerfconfig;
 protected:
     const Convolution2DCommon *mCommon;
-
     // In execute, use pad from mPadX and mPadY, don't use mCommon's pad
     mutable int mPadX;
     mutable int mPadY;
+
 };
 
 } // namespace MNN

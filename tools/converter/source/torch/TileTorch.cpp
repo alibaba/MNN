@@ -25,4 +25,4 @@ void TileTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* s
     return;
 }
 
-// REGISTER_CONVERTER(TileTorch, expand);
+REGISTER_CONVERTER(TileTorch, repeat);

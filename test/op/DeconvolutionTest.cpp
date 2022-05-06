@@ -24,7 +24,7 @@ protected:
     static bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name,
                     vector<float>& inputData, vector<float>& weightData, vector<float>& biasData, vector<float>& rightOutData,
                     int batch, int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh,
-                    int kw, int stride, int dilation, int group) {
+                    int kw, int stride, int dilation, int group, int precision) {
         std::map<PadMode, Express::PaddingMode> padMap = {
             {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
         auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
@@ -34,7 +34,8 @@ protected:
 
         // difference below 0.5% relative error is considered correct.
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, rightOutData.data(), rightOutData.size(), 0.005)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        if (!checkVectorByRelativeError<float>(outputPtr, rightOutData.data(), rightOutData.size(), 0.005 * errorScale)) {
             MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
             return false;
         }
@@ -56,21 +57,23 @@ public:
                                          // channel 2
                                          1.2, 2.2, 4.2, 5.2};
 
-            std::vector<float> weight = {
+            std::vector<float> weight = {//IOHW
+                // input channel0
                 // output channel0
-                // input channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-                // input channel1
-                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-                // input channel2
-                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-
                 // output channel1
-                // input channel0
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel1
+                // output channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel2
+                // output channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
             };
             std::vector<float> bias   = {0.0, 0.0};
@@ -88,7 +91,7 @@ public:
 
             bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "DeconvolutionTest0", data_a, weight, bias, data_c,
                                                       batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
-                                                      stride, dilation, group);
+                                                      stride, dilation, group, precision);
             if (!succ) {
                 return false;
             }
@@ -103,21 +106,23 @@ public:
                                          // channel 2
                                          1.2, 2.2, 4.2, 5.2};
 
-            std::vector<float> weight = {
+            std::vector<float> weight = {//IOHW
+                // input channel0
                 // output channel0
-                // input channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-                // input channel1
-                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-                // input channel2
-                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-
                 // output channel1
-                // input channel0
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel1
+                // output channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel2
+                // output channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
             };
             std::vector<float> bias   = {1.0, 2.0};
@@ -134,7 +139,7 @@ public:
 
             bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "Deconv", data_a, weight, bias, data_c,
                                                       batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
-                                                      stride, dilation, group);
+                                                      stride, dilation, group, precision);
             if (!succ) {
                 return false;
             }
@@ -149,21 +154,23 @@ public:
                                          // channel 2
                                          1.2, 2.2, 4.2, 5.2};
 
-            std::vector<float> weight = {
+            std::vector<float> weight = {//IOHW
+                // input channel0
                 // output channel0
-                // input channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-                // input channel1
-                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-                // input channel2
-                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-
                 // output channel1
-                // input channel0
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel1
+                // output channel0
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
+                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+
                 // input channel2
+                // output channel0
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                // output channel1
                 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
             };
             std::vector<float> bias   = {0.0, 0.0};
@@ -180,7 +187,7 @@ public:
 
             bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "Deconv", data_a, weight, bias, data_c,
                                                       batch, ic, oc, ih, iw, PadMode_SAME, pad_h, pad_w, kh, kw,
-                                                      stride, dilation, group);
+                                                      stride, dilation, group, precision);
             if (!succ) {
                 return false;
             }

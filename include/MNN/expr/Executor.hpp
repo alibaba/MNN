@@ -5,8 +5,8 @@
 //  Created by MNN on 2019/07/25.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifndef Executor_hpp
-#define Executor_hpp
+#ifndef MNN_Executor_hpp
+#define MNN_Executor_hpp
 #include <MNN/ErrorCode.hpp>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/Tensor.hpp>

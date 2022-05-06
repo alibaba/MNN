@@ -394,16 +394,28 @@ std::vector<std::unique_ptr<OpT>> _makeWhile(std::shared_ptr<ClusterNode> cNode,
         auto childs = std::move(cNode->nodes);
         std::map<int, int> replaceTensor;
         std::set<int> updateToTensors;
+        std::set<int> inputTensors;
+        int copy_idx = 0;
+        char idx_buffer[128];
+        for (auto& op : childs) {
+            if (op->type == OpType_Extra && op->main.AsExtra()->type == "Merge") {
+                continue;
+            }
+            for (auto idx : op->inputIndexes) {
+                inputTensors.insert(idx);
+            }
+        }
         for (auto& op : childs) {
             if (op->type == OpType_Extra && op->main.AsExtra()->type == "Merge") {
                 int updateFromIdx = op->inputIndexes[1], updateToIdx = op->inputIndexes[0];
                 // if tensor_x is at outside of loop and used by two op, and these two op
-                // are all update data, so need copy tensor_x to tensor_x_copy.
-                if (updateToTensors.find(updateToIdx) != updateToTensors.end()) {
+                // has one update data, so need copy tensor_x to tensor_x_copy.
+                if (updateToTensors.find(updateToIdx) != updateToTensors.end() || inputTensors.find(updateToIdx) != inputTensors.end()) {
                     std::unique_ptr<OpT> copyOp(new OpT);
                     copyOp->type = OpType_Concat;
                     copyOp->inputIndexes.push_back(updateToIdx);
-                    auto opName = netT->tensorName[updateToIdx] + "_copy";
+                    sprintf(idx_buffer, "%d", copy_idx++);
+                    auto opName = netT->tensorName[updateToIdx] + "_copy_" + idx_buffer;
                     updateToIdx = netT->tensorName.size();
                     copyOp->outputIndexes.push_back(updateToIdx);
                     netT->tensorName.push_back(opName);

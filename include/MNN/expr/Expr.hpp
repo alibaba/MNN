@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef Expr_hpp
-#define Expr_hpp
+#ifndef MNN_Expr_hpp
+#define MNN_Expr_hpp
 
 #include <functional>
 #include <string>

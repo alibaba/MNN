@@ -36,15 +36,21 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     }
 
     addUUID(netT, proto);
-    netT->extraInfo.reset(new ExtraInfoT);
-    netT->extraInfo->name = config.authCode;
     
+    if (!config.authCode.empty()) {
+        netT->extraInfo.reset(new ExtraInfoT);
+        netT->extraInfo->name = config.authCode;
+    }
+
     if (config.benchmarkModel) {
         removeParams(netT);
     }
 
     if (config.saveHalfFloat) {
         castParamsToHalf(netT);
+    }
+    if (config.alignDenormalizedValue) {
+        AlignDenormalizedValue(netT);
     }
 
     addSparseInfo(netT, proto);
@@ -114,7 +120,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         }
         std::cout << "]" << std::endl;
     }
-    
+
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());

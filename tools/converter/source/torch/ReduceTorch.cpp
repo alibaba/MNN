@@ -63,3 +63,41 @@ REGISTER_CONVERTER(ReduceTorch, min_reduce);
 REGISTER_CONVERTER(ReduceTorch, prod);
 REGISTER_CONVERTER(ReduceTorch, all);
 REGISTER_CONVERTER(ReduceTorch, any);
+
+DECLARE_OP_CONVERTER(NormTorch);
+
+MNN::OpType NormTorch::opType() {
+    return MNN::OpType_Extra;
+}
+MNN::OpParameter NormTorch::type() {
+    return MNN::OpParameter_Extra;
+}
+std::vector<int> NormTorch::inputTensorIdx() {
+    return {0};
+}
+
+void NormTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+    auto extra = new MNN::ExtraT;
+    dstOp->main.value = extra;
+    extra->engine     = "Torch";
+    extra->type       = "norm";
+    extra->attr.resize(3);
+    extra->attr[0].reset(new MNN::AttributeT);
+    extra->attr[0]->key = "ord";
+    auto ord = node->input(1);
+    auto kind = ord->type()->kind();
+    if (kind == c10::TypeKind::FloatType) {
+        extra->attr[0]->i = getValue<double>(node->input(1));
+    } else {
+        extra->attr[0]->i = getValue<int64_t>(node->input(1));
+    }
+    extra->attr[1].reset(new MNN::AttributeT);
+    extra->attr[1]->key = "dim";
+    auto dims = getValue<std::vector<int64_t>>(node->input(2));
+    extra->attr[1]->i = dims[0];
+    extra->attr[2].reset(new MNN::AttributeT);
+    extra->attr[2]->key = "keepDim";
+    extra->attr[2]->i = getValue<bool>(node->input(3));
+}
+
+REGISTER_CONVERTER(NormTorch, norm);

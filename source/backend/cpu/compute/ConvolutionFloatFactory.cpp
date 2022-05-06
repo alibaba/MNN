@@ -13,7 +13,7 @@
 #include "backend/cpu/compute/ConvolutionGroup.hpp"
 #include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 
-#include "backend/cpu/compute/ConvolutionWinograd.hpp"
+#include "backend/cpu/compute/ConvolutionWinogradBridge.hpp"
 #include "backend/cpu/compute/DenseConvolutionTiledExecutor.hpp"
 #ifdef MNN_USE_SPARSE_COMPUTE
 #include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
@@ -55,19 +55,20 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     if (fastWay) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-    if (!ConvolutionWinograd::canUseWinograd(common)) {
+    if (!ConvolutionWinogradBridge::canUseWinograd(common)) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
     auto cpuBackend = (CPUBackend*)backend;
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-    auto unit = ConvolutionWinograd::bestWinogradUnit(common, input, output, cpuBackend->threadNumber(), backend);
-    if (unit <= 1) {
+    PerfConfig convPerfconfig = DenseConvolutionTiledExecutor::bestTileConvolutionConfig(common, input, output, cpuBackend->threadNumber(), backend);
+    auto winogradConfig = ConvolutionWinogradBridge::bestWinogradUnit(common, input, output, cpuBackend->threadNumber(), backend, convPerfconfig);
+    if (winogradConfig.unit <= 1) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-    return new ConvolutionWinograd(common, input, output, backend, originWeight, originWeightSize, bias, biasSize,
-                                   unit);
+    return ConvolutionWinogradBridge::createWinogradImpl(common, input, output, backend, originWeight, originWeightSize, bias, biasSize,
+                                   winogradConfig);
 }
 
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

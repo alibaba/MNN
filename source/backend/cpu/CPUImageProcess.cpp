@@ -45,8 +45,8 @@ BLITTER CPUImageProcess::choose(ImageFormatType source, ImageFormatType dest) {
 
     CHECKFORMAT_CORE(BGRA, RGBA, MNNRGBAToBGRA);
     CHECKFORMAT(BGRA, BGRA, MNNCopyC4);
-    CHECKFORMAT(BGRA, BGR, MNNRGBAToBGR);
-    CHECKFORMAT(BGRA, RGB, MNNBGRAToBGR);
+    CHECKFORMAT(BGRA, BGR, MNNBGRAToBGR);
+    CHECKFORMAT(BGRA, RGB, MNNRGBAToBGR);
     CHECKFORMAT(BGRA, GRAY, MNNBGRAToGRAY);
 
     CHECKFORMAT(RGB, RGB, MNNCopyC3);
@@ -344,6 +344,9 @@ ErrorCode CPUImageProcess::onResize(const std::vector<Tensor *> &inputs, const s
 }
 
 ErrorCode CPUImageProcess::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (0 == mStride) {
+        mStride = iw * ic;
+    }
     auto source = inputs[0]->host<uint8_t>();
     void* dest = nullptr;
     CV::Point points[2];
@@ -428,7 +431,7 @@ ErrorCode CPUImageProcess::onExecute(const std::vector<Tensor *> &inputs, const 
                 points[1].fX = (deltaX) / (float)(count);
                 points[1].fY = (deltaY) / (float)(count);
 
-                sampler(source, samplerDest, points, sta, end - sta, count, iw, ih, iw * ic);
+                sampler(source, samplerDest, points, sta, end - sta, count, iw, ih, mStride);
             }
             // Convert format
             if (blitter) {

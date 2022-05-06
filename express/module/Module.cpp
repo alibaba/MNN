@@ -22,6 +22,8 @@
 namespace MNN {
 namespace Express {
 
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config, bool enforceAuth);
+
 class EmptyModule : public Module {
 public:
     EmptyModule(const std::vector<Express::VARP>& parameters) {
@@ -133,6 +135,26 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return load(inputs, outputs, buffer, length, nullptr, config);
 }
 
+// Private function for friend class to load without Auth.
+Module* Module::loadWithoutAuth(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
+    AutoStorage<uint8_t> buffer;
+    {
+        FileLoader loader(fileName);
+        if (!loader.valid()) {
+            MNN_ERROR("Error for open %s\n", fileName);
+            return nullptr;
+        }
+        loader.read();
+        if (!loader.valid()) {
+            return nullptr;
+        }
+        loader.merge(buffer);
+        if (buffer.get() == nullptr) {
+            return nullptr;
+        }
+    }
+    return loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config, false);
+}
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
@@ -225,6 +247,10 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
 }
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+    return loadInternal(inputs, outputs, buffer, length, _rtMgr, config, true);
+}
+
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config, bool enforceAuth) {
     // Check if runtime is valid
     if (nullptr != _rtMgr && _rtMgr->getRuntimeInfo().first.empty()) {
         MNN_ERROR("Invalid runtime\n");
@@ -241,7 +267,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     std::string bizCode = std::string(net->bizCode() ? net->bizCode()->c_str() : "");
     std::string uuid = std::string(net->mnn_uuid() ? net->mnn_uuid()->c_str() : "");
 
-    if (!authenticateModel(net)) {
+    if (enforceAuth && !authenticateModel(net)) {
         MNN_ERROR("Model authentication failed.\n");
 
         std::map<std::string, std::string> metrics;
@@ -269,7 +295,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     logAsync(metrics);
 #endif // MNN_INTERNAL_ENABLED
 
-    std::shared_ptr<Info> info(new Info);
+    std::shared_ptr<Module::Info> info(new Module::Info);
     auto rtMgr = _rtMgr;
     Module::Config defaultConfig;
     if (nullptr == config) {

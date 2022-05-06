@@ -11,11 +11,20 @@ if len(sys.argv) > 2:
 thredhold = ' 0.001 '
 if len(sys.argv) > 3:
     thredhold = ' ' + sys.argv[3] + ' '
+precision = ' 1 '
 if len(sys.argv) > 4:
-    thredhold += (' ' + sys.argv[4] + ' ')
+    precision = ' ' + sys.argv[4] + ' '
+
 runStatic = False
 if len(sys.argv) > 5:
     runStatic = True
+
+input_dims = ''
+if len(sys.argv) > 6:
+    input_dims = ' ' + sys.argv[6] + ' '
+parameters = forwardType + thredhold + precision + input_dims
+print("all parameters: ", parameters)
+
 gWrong = []
 
 convert = ('MNNConvert.exe' if os.name == 'nt' else './MNNConvert') + ' -f MNN --bizCode MNN --saveStaticModel --modelFile '
@@ -54,9 +63,9 @@ for name in os.listdir(root_dir):
         print(message)
         dynamic_size += os.path.getsize(modelName)/1024.0
         static_size += os.path.getsize(tmpModel)/1024.0
-        message = run_cmd([command, tmpModel, inputName, outputName, forwardType, thredhold])
+        message = run_cmd([command, tmpModel, inputName, outputName, parameters])
     else:
-        message = run_cmd([command, modelName, inputName, outputName, forwardType, thredhold])
+        message = run_cmd([command, modelName, inputName, outputName, parameters])
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print(message)
@@ -82,10 +91,10 @@ for name in os.listdir(root_dir):
         print(message)
         dynamic_size += os.path.getsize(modelName)/1024.0
         static_size += os.path.getsize(tmpModel)/1024.0
-        message = run_cmd([command, tmpModel, inputName, outputName, forwardType, thredhold])
+        message = run_cmd([command, tmpModel, inputName, outputName, parameters])
         print(message)
     else:
-        message = run_cmd([command, modelName, inputName, outputName, forwardType, thredhold])
+        message = run_cmd([command, modelName, inputName, outputName, parameters])
         print(message)
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
@@ -113,9 +122,9 @@ for name in os.listdir(root_dir):
         print(message)
         dynamic_size += os.path.getsize(modelName)/1024.0
         static_size += os.path.getsize(tmpModel)/1024.0
-        message = run_cmd([command, tmpModel, config, forwardType, thredhold])
+        message = run_cmd([command, tmpModel, config, parameters])
     else:
-        message = run_cmd([command, modelName, config, forwardType, thredhold])
+        message = run_cmd([command, modelName, config, parameters])
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print(message)

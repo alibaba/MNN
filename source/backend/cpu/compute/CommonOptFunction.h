@@ -120,10 +120,6 @@ void MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t 
 
 int MNNGetC4DivNumber(int hP);
 
-// C = clamp(alpha * A + beta * B, min, max)
-// paramters: alpha, beta, min, max
-void MNNAxByClamp(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height, const float* parameters);
-
 void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 
 // dim: 4-element, sizeDW, sizeDH, strideSW, strideDH
@@ -158,6 +154,9 @@ typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const vo
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
 
+
+constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
+
 namespace MNN {
 struct CoreFunctions {
     // cpu feature
@@ -173,6 +172,13 @@ struct CoreFunctions {
     void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
     void(*MNNComputeMatMulForH_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
     void(*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+
+
+    typedef void(*MNNPackedMatMulKernel)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
+
+    MNNPackedMatMulKernel MNNPackedMatMulOC16Functions[InputTileMax] = {0};
+    MNNPackedMatMulKernel MNNPackedMatMulOC32Functions[InputTileMax] = {0};
+    MNNPackedMatMulKernel MNNPackedMatMulOC48Functions[InputTileMax] = {0};
 
     // For Atomic Op
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
@@ -238,8 +244,9 @@ struct CoreFunctions {
     WinoTransPackFunc(*chooseWinoSourceTransformPack)(int k, int w, int ePack, int lPack, int packCUnit);
 
     typedef void (*WinoUnrollTransFunc)(const float* srcBlock, float* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
+    typedef void (*WinoUnrollDestTransFunc)(const float* srcBlock, float* dstStart,  const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
     WinoUnrollTransFunc(*chooseWinoSourceUnrollTransform)(int k, int w);
-    void(*chooseWinoDestUnrollTransform)(WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h);
+    void(*chooseWinoDestUnrollTransform)(WinoUnrollDestTransFunc *destFunctions, size_t maxUnit, int k, int h);
 
     void(*MNNDeconvRunForUnitDepthWise)(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
                                       size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);

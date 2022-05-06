@@ -30,7 +30,8 @@ public:
         auto output                             = _Softplus(input);
         const std::vector<float> expectedOutput = {0.31326166, 0.12692805, 3.0485873, 4.01815};
         auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.0001)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 100;
+        if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 4, 0.0001 * errorScale)) {
             MNN_ERROR("SoftplusTest test failed!\n");
             return false;
         }

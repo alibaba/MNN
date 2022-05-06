@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef ErrorCode_h
-#define ErrorCode_h
+#ifndef MNN_ErrorCode_h
+#define MNN_ErrorCode_h
 
 namespace MNN {
 enum ErrorCode {

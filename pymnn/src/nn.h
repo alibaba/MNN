@@ -6,6 +6,10 @@
 #include "internal/verify_service.h"
 #endif
 
+#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
+#include "internal/PythonAuthByPass.hpp"
+#endif
+
 // NN Module Start
 def_class_start(_Module, Module)
 def_class_getset(
@@ -26,7 +30,18 @@ def_class_methods(_Module,
 )
 def_class_end(_Module, Module)
 
-static PyObject* load_module(PyObject *inputs, PyObject *outputs, PyObject *backend, PyObject *memory_mode,
+// NN RuntimeManager Start
+def_class_smart_start(RuntimeManager, Executor::RuntimeManager)
+def_class_methods(RuntimeManager,
+    set_cache, "set cache",
+    update_cache, "update cache",
+    set_mode, "set mode",
+    set_hint, "set hint"
+)
+def_class_without_getset(RuntimeManager)
+def_class_smart_end(RuntimeManager, Executor::RuntimeManager)
+
+static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObject *outputs, PyObject *backend, PyObject *memory_mode,
                              PyObject *power_mode, PyObject *precision_mode, const char* file_name, int dynamic,
                              int shape_mutable, int rearrange, int thread_num) {
 
@@ -46,7 +61,18 @@ static PyObject* load_module(PyObject *inputs, PyObject *outputs, PyObject *back
     config.backend = &backend_info;
 
     auto converted_file_name = convertBytesEncodeIfNeed(file_name);
-    auto m_ptr = Module::load(toStrings(inputs), toStrings(outputs), converted_file_name.data(), &config);
+    std::shared_ptr<Executor::RuntimeManager> rt_mgr(nullptr);
+    if(Py_TYPE(runtime_manager) == PyType_FindTLSType(&PyMNNRuntimeManagerType)) {
+        rt_mgr = *(toRuntimeManager(runtime_manager));
+    }
+
+
+#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
+    Module* m_ptr = PythonAuthByPass::loadModuleWithoutAuth(toStrings(inputs), toStrings(outputs), converted_file_name.data(), rt_mgr, &config);
+#else
+    Module* m_ptr = Module::load(toStrings(inputs), toStrings(outputs), converted_file_name.data(), rt_mgr, &config);
+#endif
+
     if (m_ptr == nullptr) {
         std::string mnn_errno = "load_module_from_file failed ";
         mnn_errno = mnn_errno + std::string(file_name);
@@ -61,6 +87,13 @@ static PyObject* PyMNN_Module_new(PyTypeObject *type, PyObject *args, PyObject *
     self->ptr = Module::createEmpty({});
     return (PyObject*)self;
 }
+
+static PyObject* PyMNNRuntimeManager_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    PyMNNRuntimeManager *self = (PyMNNRuntimeManager *)type->tp_alloc(type, 0);
+    self->ptr = new std::shared_ptr<Executor::RuntimeManager>(nullptr);
+    return (PyObject*)self;
+}
+
 // PyMNN_Module getter/setter impl
 static PyObject* PyMNN_Module_getname(PyMNN_Module *self, void *closure) {
     if (self->ptr) {
@@ -202,19 +235,174 @@ static PyObject* PyMNNNN_load_module_from_file(PyObject *self, PyObject *args) {
                         "PyMNNNN_load_module_from_file: unsupported interface, should use load_module_from_file_with_token.");
     return NULL;
 #endif
-    PyObject *inputs, *outputs, *backend, *memory_mode, *power_mode, *precision_mode;
+    PyObject *inputs, *outputs, *backend, *memory_mode, *power_mode, *precision_mode, *runtime_manager;
     const char* file_name;
     int dynamic, shape_mutable, rearrange;
     int thread_num;
-    if (!PyArg_ParseTuple(args, "OOsiiiOOOOi", &inputs, &outputs, &file_name, &dynamic,
+    if (!PyArg_ParseTuple(args, "OOOsiiiOOOOi", &runtime_manager, &inputs, &outputs, &file_name, &dynamic,
                           &shape_mutable, &rearrange, &backend, &memory_mode,
                           &power_mode, &precision_mode, &thread_num)) {
         printf("PyArg_ParseTuple Error\n");
         return NULL;
     }
 
-    return load_module(inputs, outputs, backend, memory_mode, power_mode, precision_mode, file_name, dynamic,
+    return load_module(runtime_manager, inputs, outputs, backend, memory_mode, power_mode, precision_mode, file_name, dynamic,
      shape_mutable,  rearrange,  thread_num);
+}
+
+
+static PyObject* PyMNNRuntimeManager_set_cache(PyMNNRuntimeManager *self, PyObject *args) {
+    char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNRuntimeManager_set_cache: Not string input");
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    std::string cachePath = path;
+    (*(self->ptr))->setCache(cachePath);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNRuntimeManager_update_cache(PyMNNRuntimeManager *self, PyObject *args) {
+    (*(self->ptr))->updateCache();
+    Py_RETURN_NONE;
+}
+
+static PyObject* PyMNNRuntimeManager_set_mode(PyMNNRuntimeManager *self, PyObject *args) {
+    int session_val;
+    if (!PyArg_ParseTuple(args, "i", &session_val)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNRuntimeManager_set_mode: Not interger input");
+        return NULL;
+    }
+
+    auto mode = (MNN::Interpreter::SessionMode)session_val;
+
+    (*(self->ptr))->setMode(mode);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNRuntimeManager_set_hint(PyMNNRuntimeManager *self, PyObject *args) {
+    int type_val = 0;
+    int num_val = 0;
+    if (!PyArg_ParseTuple(args, "ii", &type_val, &num_val)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNRuntimeManager_set_hint: Not interger input and interger input");
+        return NULL;
+    }
+
+    auto type = (MNN::Interpreter::HintMode)type_val;
+    (*(self->ptr))->setHint(type, num_val);
+    Py_RETURN_NONE;
+}
+
+static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> getScheduleConfig(PyObject* dict) {
+    std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> result;
+    result.first = false;
+    auto& config = result.second.first;
+    auto& backendConfig = result.second.second;
+    backendConfig.reset(new BackendConfig);
+    config.backendConfig = backendConfig.get();
+
+    if (dict) {
+        PyObject *backend = PyDict_GetItemString(dict, "backend");
+        config.type = MNN_FORWARD_CPU;
+        if (backend && checkString(backend)) {
+            auto backend_name = object2String(backend);
+            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
+            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
+            std::unordered_map<std::string, MNNForwardType> backend_map = {
+                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+                // which make MNN.whl setup.py easy
+                {"CPU", MNN_FORWARD_CPU},
+                {"OPENCL", MNN_FORWARD_OPENCL},
+                {"OPENGL", MNN_FORWARD_OPENGL},
+                {"VULKAN", MNN_FORWARD_VULKAN},
+                {"METAL", MNN_FORWARD_METAL},
+                {"TRT", MNN_FORWARD_USER_1},
+                {"CUDA", MNN_FORWARD_CUDA},
+                {"HIAI", MNN_FORWARD_USER_0},
+                {"AUTO", MNN_FORWARD_AUTO}
+            };
+            auto iter = backend_map.find(backend_name);
+            if (iter == backend_map.end()) {
+                // backend not support, issue on python level when development
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: backend not support");
+                return result;
+            }
+            config.type = iter->second;
+        } else if (backend && PyLong_Check(backend)) {
+            config.type = (MNNForwardType)PyLong_AsLong(backend); // {'backend': 1L} for example
+        }
+        PyObject *numThread = PyDict_GetItemString(dict, "numThread");
+        if (numThread) {
+            if (!PyLong_Check(numThread)) {
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: numThread must be a integer");
+                return result;
+            }
+            config.numThread = (int)PyLong_AsLong(numThread);
+        }
+
+        {
+            //precision
+            PyObject *obj = PyDict_GetItemString(dict, "precision");
+            if (obj) {
+                auto obj_name = object2String(obj);
+                if (!obj_name.compare("low")) {
+                    MNN_PRINT("MNN use low precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
+                }
+
+                if (!obj_name.compare("high")) {
+                    MNN_PRINT("MNN use high precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_High;
+                }
+            }
+        }
+    }
+    result.first = true;
+    return result;
+}
+
+static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) {
+    PyObject* dicts = NULL;
+    if (!PyArg_ParseTuple(args, "O", &dicts)) {
+        std::string mnn_errno = "create_runtime_manager failed 0";
+        PyErr_SetString(PyExc_Exception, mnn_errno.c_str());
+        return NULL;
+    }
+    if (!PySequence_Check(dicts)) {
+        std::string mnn_errno = "create_runtime_manager failed 1";
+        PyErr_SetString(PyExc_Exception, mnn_errno.c_str());
+        return Py_None;
+    }
+    // BackendConfig lifetime management
+    std::vector<ScheduleConfig> configs;
+    for (auto i = 0; i < PySequence_Size(dicts); ++i) {
+        auto config = getScheduleConfig(PySequence_GetItem(dicts, i));
+        if (!config.first) {
+            return Py_None;
+        }
+        configs.push_back(config.second.first);
+    }
+
+    Executor::RuntimeManager* m_ptr;
+    if(configs.size() == 1) {
+        m_ptr = Executor::RuntimeManager::createRuntimeManager(configs[0]);
+    } else {
+        m_ptr = Executor::RuntimeManager::createRuntimeManager(configs);
+    }
+
+    if (m_ptr == nullptr) {
+        printf("config size:%d\n", configs.size());
+        std::string mnn_errno = "create_runtime_manager failed ";
+        PyErr_SetString(PyExc_Exception, mnn_errno.c_str());
+    }
+
+    auto res = toPyObj(m_ptr);
+    return res;
 }
 
 #ifdef PYMNN_INTERNAL_SERVING
@@ -331,11 +519,12 @@ static PyMethodDef PyMNNNN_methods[] = {
 #else
     register_methods(NN,
         load_module, "load_module([Var], [Var], bool)",
-        load_module_from_file, "load_module_from_file([string], [string], filename, bool, ...)"
+        load_module_from_file, "load_module_from_file([string], [string], filename, bool, ...)",
+        create_runtime_manager, "create_runtime_manager(dict...)"
     )
 #endif
 #ifdef PYMNN_TRAIN_API
-    register_methods(NN,        
+    register_methods(NN,
         conv, "conv Module",
         linear, "linear Module",
         batch_norm, "batch_norm Module",

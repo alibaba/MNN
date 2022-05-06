@@ -4,7 +4,7 @@
 
 namespace MNN {
 namespace CUDA {
-#define CUDA_KERNEL_LOOP(i, n) for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
+#define CUDA_KERNEL_LOOP(i, n) for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
 template<typename T>
 __global__ void INTERP_NERAEST(const int n, const int ih, const int iw, const int oh, const int ow, 
@@ -79,8 +79,8 @@ __global__ void INTERP_BILINEAR_OPT(const int n, const int ih, const int iw, con
     const float scaleh, const float scalew, const float offseth, const float offsetw, const T* in, T* out,
     DivModFast d_ow, DivModFast d_oh) {
     CUDA_KERNEL_LOOP(total, n) {
-        int index = total >> 4;
-        int remain = total & 15;
+        size_t index = total >> 4;
+        size_t remain = total & 15;
 
         int tmp, x_idx, y, z;
         d_ow.divmod(index, tmp, x_idx);

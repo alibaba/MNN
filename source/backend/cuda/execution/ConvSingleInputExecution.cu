@@ -112,7 +112,7 @@ ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         if (param.elhPack[2] % 2 == 0) {
             KernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
                     mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, 32);
-            mUsePack = true;
+            mUseHPack = true;
         } else {
             KernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
                     mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, MATMULPACK);
@@ -226,9 +226,19 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     mMatMulParam.elh[0] = e;
     mMatMulParam.elh[1] = l;
     mMatMulParam.elh[2] = h;
-    mMatMulParam.elhPack[0] = UP_DIV(e, MATMULPACK);
+
+    int hPack = MATMULPACK;
+    if(mResource->mUseHPack) {
+        hPack = 32;
+    }
+    int ePack = MATMULPACK;
+    if(mResource->mUseHPack == false && UP_DIV(e, ePack) % 2 == 0) {
+        mUseEPack = true;
+        ePack = 32;
+    }
+    mMatMulParam.elhPack[0] = UP_DIV(e, ePack);
     mMatMulParam.elhPack[1] = UP_DIV(l, MATMULPACK);
-    mMatMulParam.elhPack[2] = UP_DIV(h, MATMULPACK);
+    mMatMulParam.elhPack[2] = UP_DIV(h, hPack);
     mMatMulParam.cStride[0] = mIm2ColParamter.ow * mIm2ColParamter.oh * h;
     mMatMulParam.cStride[1] = 1;
     mMatMulParam.cStride[2] = mIm2ColParamter.ow * mIm2ColParamter.oh;
@@ -241,14 +251,21 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
         mMatMulParam.minValue = 0.0f;
         mMatMulParam.maxValue = 6.0f;
     }
-    //MNN_PRINT("Im2Col temp size:%d!!!\n\n", mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK);
+    //MNN_PRINT("Im2Col：%d-%d-%d temp size:%zu!!!\n\n",output->width(), ic, mIm2ColParamter.kernelX, (size_t)sizeof(__half) * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK);
+    // When Im2Col memory size big than 2GB
+    if((size_t)mMatMulParam.elhPack[0] * (size_t)ePack * (size_t)mMatMulParam.elhPack[1] * (size_t)hPack > 1024*1024*1024 && mIm2ColParamter.kernelX > 1 && mIm2ColParamter.kernelY > 1) {
+        //printf("need im2col in block\n");
+        mIsBlock = true;
+        mBlockNum = 16;
+        mMatMulParam.elhPack[0] = UP_DIV(mMatMulParam.elhPack[0], mBlockNum);
+    }
     runtime->memcpy((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second, &mMatMulParam, sizeof(MatMulParam), MNNMemcpyHostToDevice);
 
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto buffer = pool->alloc((size_t)sizeof(__half) * (size_t)mMatMulParam.elhPack[0] * (size_t)mMatMulParam.elhPack[1] * (size_t)MATMULPACK * (size_t)MATMULPACK);
+    auto buffer = pool->alloc((size_t)sizeof(__half) * (size_t)mMatMulParam.elhPack[0] * (size_t)mMatMulParam.elhPack[1] * (size_t)ePack * (size_t)hPack);
     mIm2ColBuffer = (__half*)((uint8_t*)buffer.first + buffer.second);
     pool->free(buffer);
-
+    
     return NO_ERROR;
 }
 
@@ -269,16 +286,22 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
 
     auto gpuIm2Col = (const ConvolutionCommon::Im2ColParameter*)((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second);
     auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
-    // Im2Col func
-    Im2ColMain(runtime, &mMatMulParam, gpuMatMul, &mIm2ColParamter, gpuIm2Col, (const float*)input_addr, mIm2ColBuffer, bytes);
 
-    if (mResource->mUsePack) {
-        GemmPacked16x32(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes);
-    } else {
-        //printf("NotPack:%d-%d-%d-%d-%d, %d-%d-%d\n", mIm2ColParamter.icDiv4, mIm2ColParamter.ih, mIm2ColParamter.iw, mIm2ColParamter.oh, mIm2ColParamter.ow, mMatMulParam.elhPack[0], mMatMulParam.elhPack[1], mMatMulParam.elhPack[2]);
-        GemmPackedFullMain(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes);
+    // Im2col in Block
+    for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
+        if(mUseEPack) {
+            Im2ColMain(runtime, &mMatMulParam, gpuMatMul, &mIm2ColParamter, gpuIm2Col, (const Tensor*)(inputs[0]), mIm2ColBuffer, 32, 5, bytes, block_idx);
+            GemmPacked32x16(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes, block_idx);
+        } else {
+            Im2ColMain(runtime, &mMatMulParam, gpuMatMul, &mIm2ColParamter, gpuIm2Col, (const Tensor*)(inputs[0]), mIm2ColBuffer, 16, 4, bytes, block_idx);
+            if (mResource->mUseHPack) {
+                GemmPacked16x32(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes, block_idx);
+            } else {
+                //printf("NotPack:%d-%d-%d-%d-%d, %d-%d-%d\n", mIm2ColParamter.icDiv4, mIm2ColParamter.ih, mIm2ColParamter.iw, mIm2ColParamter.oh, mIm2ColParamter.ow, mMatMulParam.elhPack[0], mMatMulParam.elhPack[1], mMatMulParam.elhPack[2]);
+                GemmPackedFullMain(runtime, &mMatMulParam, gpuMatMul, (float*)output_addr, (const __half*)mIm2ColBuffer, (const __half*)filter_addr, (const half*)bias_addr, bytes, block_idx);
+            }
+        }
     }
-
     return NO_ERROR;
 }
 

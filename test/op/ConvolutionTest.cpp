@@ -442,8 +442,10 @@ public:
             formatMatrix(outputPtr, output->getInfo()->dim);
         }
         // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputDataSeparateBias.data(), outputData.size(), 5e-2)) {
-            MNN_PRINT("expect:\t expect2:\t real:\t\n");
+
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 100; // winograd error in 16-bits is relatively large
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputDataSeparateBias.data(), outputData.size(), 0.001 * errorScale)) {
+            MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
             for (int i = 0; i < outputData.size(); ++i)
             {
                 MNN_PRINT("%f\t, %f\t, %f\n", outputData[i],outputDataSeparateBias[i], outputPtr[i]);
@@ -617,22 +619,22 @@ protected:
             MNN_ERROR("Error for long conv\n");
             return false;
         }
-        // uncovered and easily wrong case.
+        // // uncovered and easily wrong case.
         succ =
-            ConvolutionType().test(type, device_name, "Conv2D", 1, 3, 16, 256, 256, PadMode_CAFFE, 1, 1, 3, 3, 1, 1, 1, 1, sparseAlgo, 1, false);
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 3, 16, 256, 256, PadMode_CAFFE, 1, 1, 3, 3, 1, 1, 1, precision, sparseAlgo, 4, false);
         if (!succ) {
             MNN_ERROR("Error in pick up case 1.\n");
             return false;
         }
         succ =
-            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 28, 28, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, 1, sparseAlgo, 1, false);
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 28, 28, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, precision, sparseAlgo, 1, false);
         if (!succ) {
             MNN_ERROR("Error in pick up case 2.\n");
             return false;
         }
 
         succ =
-            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 14, 14, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, 1, sparseAlgo, 1, false);
+            ConvolutionType().test(type, device_name, "Conv2D", 1, 1, 8, 14, 14, PadMode_CAFFE, 2, 2, 5, 5, 1, 1, 1, precision, sparseAlgo, 1, false);
         if (!succ) {
             MNN_ERROR("Error in pick up case 3.\n");
             return false;

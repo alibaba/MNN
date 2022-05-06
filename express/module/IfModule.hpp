@@ -10,6 +10,7 @@
 #define IfModule_hpp
 
 #include <MNN/expr/Module.hpp>
+#include "core/Schedule.hpp"
 namespace MNN {
 namespace Express {
 class IfModule : public Module {
@@ -18,7 +19,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    MNN_PUBLIC static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
+    MNN_PUBLIC static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
 
 private:
     IfModule(){}
@@ -36,6 +37,8 @@ private:
 
     std::shared_ptr<Module> mThen;
     std::shared_ptr<Module> mElse;
+    
+    std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
 };
 }
 }

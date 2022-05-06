@@ -19,11 +19,12 @@ public:
     typedef void (*Int8TransFunc)(const int8_t* srcBlock, int8_t* dstStart, size_t srcStep, size_t dstStep);
     typedef void (*TransformPackFunc)(FLOAT16* srcBlock, FLOAT16* dstStart, size_t dstStep);
     typedef void (*WinoUnrollTransFunc)(const FLOAT16* srcBlock, FLOAT16* dstStart, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
+    typedef void (*WinoUnrollDestTransFunc)(const FLOAT16* srcBlock, FLOAT16* dstStart,  const float* bias, const float* postParameters, size_t srcRowStep, size_t dstRowStep, size_t srcStep, size_t dstStep);
 
     /*Use the generator with interp 0.5*/
     static TransformPackFunc chooseWinoSourceTransformPack(int k, int h, int ePack, int lPack, int packCUnit);
     static WinoUnrollTransFunc chooseSourceUnrollTransform(int k, int w) ;
-    static void chooseWinoDestUnrollTransform(WinoUnrollTransFunc *destFunctions, size_t maxUnit, int k, int h);
+    static void chooseWinoDestUnrollTransform(WinoUnrollDestTransFunc *destFunctions, size_t maxUnit, int k, int h);
 
     static Int8TransFunc chooseInt8SourceTransform(int k, int w);
     static TransformFunc chooseInt8DestTransform(int k, int h);

@@ -40,7 +40,10 @@ public:
                 }
             }
         }
-        auto newVar = _Log(_Softmax(inputs[0], axis));
+        VARP x           = inputs[0];
+        VARP max         = _ReduceMax(x, {axis}, true);
+        VARP sum         = _ReduceSum(_Exp(x - max), {axis}, true);
+        VARP newVar      = x - max - _Log(sum);
         return newVar->expr().first;
     }
 };

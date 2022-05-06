@@ -5,9 +5,8 @@
 //  Created by MNN on 2019/01/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#if MNN_METAL_ENABLED
-
 #import "backend/metal/MetalBackend.hpp"
+#if MNN_METAL_ENABLED
 #import <mutex>
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
@@ -879,5 +878,9 @@ void registerMetalRuntimeCreator() {
     }
 }
 } // namespace MNN
-
+#else
+namespace MNN {
+void registerMetalRuntimeCreator() {
+}
+};
 #endif

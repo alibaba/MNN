@@ -50,6 +50,7 @@ public:
     int defaultBatchSize = 0;
     int optimizeLevel = 1;
     bool keepInputFormat = false;
+    bool alignDenormalizedValue = true;
     std::string customOpLibs = "";
     std::string authCode = "";
 };

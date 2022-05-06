@@ -187,9 +187,16 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     auto ins = { input.get() };
     auto outs = { output.get() };
     mInside->execution->setPadVal(this->mPaddingValue);
+    mInside->execution->setStride(stride);
     mInside->execution->onResize(ins, outs);
     mInside->execution->onExecute(ins, outs);
     return NO_ERROR;
+}
+
+void ImageProcess::setDraw() {
+    if (mInside && mInside->execution) {
+        mInside->execution->setDraw();
+    }
 }
 
 void ImageProcess::draw(uint8_t* img, int w, int h, int c, const int* regions, int num, const uint8_t* color) {

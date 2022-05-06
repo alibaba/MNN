@@ -6,17 +6,17 @@ namespace CUDA {
 
 template <typename T>
 __global__ void ARGMAX(const int count, const int outside, const int inside, const int dim,
-                         const T *input, T *output) {
+                         const T *input, int *output) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
         const int o = i / inside;
         const int n = i % inside;
 
-        T* outPtr = output + inside * o;
+        int* outPtr = output + inside * o;
         const T* inpPtr = input + inside * dim * o;
         int index = 0;
-        T maxValue = inpPtr[0];
+        T maxValue = inpPtr[n+0*inside];
         for(int j=1; j<dim; j++) {
-            T value = inpPtr[j*inside];
+            T value = inpPtr[n+j*inside];
             if(maxValue < value) {
                 index = j;
                 maxValue = value;
@@ -52,7 +52,6 @@ ErrorCode ArgMaxExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mInside *= input->length(i);
     }
     mDim = input->length(mAxis);
-
     return NO_ERROR;
 }
 
@@ -65,7 +64,7 @@ ErrorCode ArgMaxExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int count = mOutside * mInside;
     int block_num = runtime->blocks_num(count);
     int thread_num = runtime->threads_num();
-    ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(float *)output);
+    ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(int *)output);
     
     return NO_ERROR;
 }

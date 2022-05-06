@@ -12,17 +12,18 @@
 #
 # 1. arg = linux: [ all test on linux with coverage ]
 #       0. static check (if source change)
-#       1. build for linux;
-#       2. unit-test;
-#       3. model-test;
-#       4. onnx convert test
-#       5. tf convert test
-#       6. tflite convert test
-#       7. torch convert test
-#       8. ptq test
-#       9. pymnn test (if pymnn change)
-#      10. opencv test (if opencv change)
-#      11. convert-report;
+#       1. pyc check (if *.py change)
+#       2. build for linux;
+#       3. unit-test;
+#       4. model-test;
+#       5. onnx convert test
+#       6. tf convert test
+#       7. tflite convert test
+#       8. torch convert test
+#       9. ptq test
+#      10. pymnn test (if pymnn change)
+#      11. opencv test (if opencv change)
+#      12. convert-report;
 #
 # 2. arg = android: [ simple test on android ]
 #       1. build Android with static_stl
@@ -38,11 +39,28 @@ USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 # detect change
 SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | grep -v "aliyun-log-c-sdk")
 PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
+PY_CHANGE=$(git show --name-only | grep -E "^pymnn/pip_package/MNN/.*\.(py)$")
 OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
 
 failed() {
     printf "TEST_NAME_EXCEPTION: Exception\nTEST_CASE_AMOUNT_EXCEPTION: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
     exit 1
+}
+
+py_check() {
+    if [ -z "$PY_CHANGE" ]; then
+        return
+    fi
+    pushd pymnn
+    ./update_mnn_wrapper_assets.sh -c
+    pyc_check_wrong=$[$? > 0]
+    printf "TEST_NAME_PYC_CHECK: pyc资源文件校验\nTEST_CASE_AMOUNT_PYC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+           $pyc_check_wrong $[1 - $pyc_check_wrong]
+    if [ $pyc_check_wrong -ne 0 ]; then
+        echo '### pyc资源文件校验失败，测试终止！'
+        failed
+    fi
+    popd
 }
 
 static_check() {
@@ -194,12 +212,21 @@ model_test() {
 
 onnx_convert_test() {
     ../tools/script/convertOnnxTest.py ~/AliNNModel
-    if [ $? -eq 0 ] && [ -f ~/AliNNModel/TestOnnx/ops/run.py ]; then
-        ~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode
-    fi
     if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
         failed
+    fi
+    if [ -f ~/AliNNModel/TestOnnx/ops/run.py ]; then
+        ~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode
+        if [ $? -ne 0 ]; then
+            echo '### Onnx单线程单元测试失败，测试终止！'
+            failed
+        fi
+        #~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode --thread_num 2
+        #if [ $? -ne 0 ]; then
+        #    echo '### ONNX多线程单元测试失败，测试终止！'
+        #    failed
+        #fi
     fi
 }
 
@@ -392,6 +419,7 @@ case "$1" in
         ;;
     linux)
         static_check
+        py_check
         linux_build 1
         coverage_init
         unit_test

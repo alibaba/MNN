@@ -23,6 +23,8 @@ static inline __m512i _mm512_madd_i8_i32_(__m512i src, __m512i a0, __m512i a1, _
 }
 }  // namespace
 
+#define _MM256_SET_M128I(__H, __L) _mm256_insertf128_si256(_mm256_castsi128_si256(__L), __H, 1) // for compile compatiable
+
 #ifdef MNN_AVX512_VNNI
 extern void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 extern void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
@@ -121,31 +123,31 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
             auto d72 = _mm512_extracti32x4_epi32(D7, 2);
             auto d73 = _mm512_extracti32x4_epi32(D7, 3);
 
-            auto _d00 = _mm256_set_m128i(d10, d00);
-            auto _d01 = _mm256_set_m128i(d11, d01);
-            auto _d02 = _mm256_set_m128i(d12, d02);
-            auto _d03 = _mm256_set_m128i(d13, d03);
+            auto _d00 = _MM256_SET_M128I(d10, d00);
+            auto _d01 = _MM256_SET_M128I(d11, d01);
+            auto _d02 = _MM256_SET_M128I(d12, d02);
+            auto _d03 = _MM256_SET_M128I(d13, d03);
             auto _d0  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d00, _d01),
                                           _mm256_hadd_epi32(_d02, _d03));
 
-            auto _d10 = _mm256_set_m128i(d30, d20);
-            auto _d11 = _mm256_set_m128i(d31, d21);
-            auto _d12 = _mm256_set_m128i(d32, d22);
-            auto _d13 = _mm256_set_m128i(d33, d23);
+            auto _d10 = _MM256_SET_M128I(d30, d20);
+            auto _d11 = _MM256_SET_M128I(d31, d21);
+            auto _d12 = _MM256_SET_M128I(d32, d22);
+            auto _d13 = _MM256_SET_M128I(d33, d23);
             auto _d1  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d10, _d11),
                                           _mm256_hadd_epi32(_d12, _d13));
 
-            auto _d20 = _mm256_set_m128i(d50, d40);
-            auto _d21 = _mm256_set_m128i(d51, d41);
-            auto _d22 = _mm256_set_m128i(d52, d42);
-            auto _d23 = _mm256_set_m128i(d53, d43);
+            auto _d20 = _MM256_SET_M128I(d50, d40);
+            auto _d21 = _MM256_SET_M128I(d51, d41);
+            auto _d22 = _MM256_SET_M128I(d52, d42);
+            auto _d23 = _MM256_SET_M128I(d53, d43);
             auto _d2  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d20, _d21),
                                           _mm256_hadd_epi32(_d22, _d23));
 
-            auto _d30 = _mm256_set_m128i(d70, d60);
-            auto _d31 = _mm256_set_m128i(d71, d61);
-            auto _d32 = _mm256_set_m128i(d72, d62);
-            auto _d33 = _mm256_set_m128i(d73, d63);
+            auto _d30 = _MM256_SET_M128I(d70, d60);
+            auto _d31 = _MM256_SET_M128I(d71, d61);
+            auto _d32 = _MM256_SET_M128I(d72, d62);
+            auto _d33 = _MM256_SET_M128I(d73, d63);
             auto _d3  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d30, _d31),
                                           _mm256_hadd_epi32(_d32, _d33));
 
@@ -166,8 +168,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
                 f1 = _mm512_min_ps(f1, maxValue);
                 f0 = _mm512_max_ps(f0, minValue);
                 f1 = _mm512_max_ps(f1, minValue);
-                auto m0 = _mm512_cmplt_ps_mask(f0, zero512);
-                auto m1 = _mm512_cmplt_ps_mask(f1, zero512);
+                auto m0 = _mm512_cmp_ps_mask(f0, zero512, 1);
+                auto m1 = _mm512_cmp_ps_mask(f1, zero512, 1);
                 auto b0 = _mm512_mask_blend_ps(m0, plus, minus);
                 auto b1 = _mm512_mask_blend_ps(m1, plus, minus);
                 f0 = _mm512_add_ps(f0, b0);
@@ -254,17 +256,17 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
         auto d32 = _mm512_extracti32x4_epi32(D3, 2);
         auto d33 = _mm512_extracti32x4_epi32(D3, 3);
 
-        auto _d00 = _mm256_set_m128i(d10, d00);
-        auto _d01 = _mm256_set_m128i(d11, d01);
-        auto _d02 = _mm256_set_m128i(d12, d02);
-        auto _d03 = _mm256_set_m128i(d13, d03);
+        auto _d00 = _MM256_SET_M128I(d10, d00);
+        auto _d01 = _MM256_SET_M128I(d11, d01);
+        auto _d02 = _MM256_SET_M128I(d12, d02);
+        auto _d03 = _MM256_SET_M128I(d13, d03);
         auto _d0  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d00, _d01),
                                       _mm256_hadd_epi32(_d02, _d03));
 
-        auto _d10 = _mm256_set_m128i(d30, d20);
-        auto _d11 = _mm256_set_m128i(d31, d21);
-        auto _d12 = _mm256_set_m128i(d32, d22);
-        auto _d13 = _mm256_set_m128i(d33, d23);
+        auto _d10 = _MM256_SET_M128I(d30, d20);
+        auto _d11 = _MM256_SET_M128I(d31, d21);
+        auto _d12 = _MM256_SET_M128I(d32, d22);
+        auto _d13 = _MM256_SET_M128I(d33, d23);
         auto _d1  = _mm256_hadd_epi32(_mm256_hadd_epi32(_d10, _d11),
                                       _mm256_hadd_epi32(_d12, _d13));
 
@@ -278,7 +280,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, c
             f0 = _mm512_mul_ps(f0, scaleValue);
             f0 = _mm512_min_ps(f0, maxValue);
             f0 = _mm512_max_ps(f0, minValue);
-            auto m0 = _mm512_cmplt_ps_mask(f0, zero512);
+            auto m0 = _mm512_cmp_ps_mask(f0, zero512, 1);
             auto b0 = _mm512_mask_blend_ps(m0, plus, minus);
             f0 = _mm512_add_ps(f0, b0);
             // 3: _MM_FROUND_TO_ZERO
@@ -741,3 +743,5 @@ void _AVX512_MNNInt8FunctionInit(void* functions, bool supportVNNI) {
     gAVX2CoreInt8Functions->MNNFloat2Int8 = _AVX512_MNNFloat2Int8;
     gAVX2CoreInt8Functions->MNNInt8ScaleToFloat = _AVX512_MNNInt8ScaleToFloat;
 }
+
+#undef _MM256_SET_M128I

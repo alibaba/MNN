@@ -119,12 +119,16 @@ VARP imread(const std::string& filename, int flags) {
 }
 
 bool imwrite(const std::string& filename, VARP img, const std::vector<int>& params) {
+    if (img->getInfo()->type != halide_type_of<uint8_t>()) {
+        img = _Cast<uint8_t>(img);
+    }
     int height, width, channel;
     getVARPSize(img, &height, &width, &channel);
     if (channel == 3) {
         img = cvtColor(img, COLOR_BGR2RGB);
+    } else {
+        MNN_ERROR("MNN cv imwrite just support RGB/BGR format.");
     }
-
     auto ext = getExt(filename);
     if (ext == "jpg" || ext == "jpeg") {
         int quality = 95;

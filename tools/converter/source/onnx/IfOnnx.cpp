@@ -79,12 +79,8 @@ void IfOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         std::unique_ptr<MNN::StringVecT> pair(new MNN::StringVecT);
         pair->data.emplace_back(name);
         param->aliases_inputs.emplace_back(std::move(pair));
-        int idx = scope->lookupTensor(name);
-        if (idx < 0) {
-            MNN_ERROR("subgraph of Op(If) use undefined input\n");
-            return;
-        }
-        dstOp->inputIndexes.push_back(idx);
+        // subgraph own by IF may introduce extra input which is not exist on current graph, create corresponding input op here
+        scope->addInputForOp(dstOp, name, true);
     }
     dstOp->main.value = param;
 }

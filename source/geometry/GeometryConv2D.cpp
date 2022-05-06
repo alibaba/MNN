@@ -350,6 +350,116 @@ public:
         return true;
     }
 };
+
+class GeometryCol2Im : public GeometryConv2D {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        auto common = op->main_as_Convolution2D()->common();
+        auto input  = inputs[0];
+        auto output = outputs[0];
+        auto kw    = common->kernelX();
+        auto kh    = common->kernelY();
+        auto sw    = common->strideX();
+        auto sh    = common->strideY();
+        auto dw    = common->dilateX();
+        auto dh    = common->dilateY();
+        auto pw    = common->padX();
+        auto ph    = common->padY();
+        auto batch = output->batch();
+        auto ic    = output->channel();
+        auto iw    = output->width();
+        auto ih    = output->height();
+        auto pads  = std::make_pair(pw, ph);
+        auto ow    = (iw + pw * 2 - kw) / sw + 1;
+        auto oh    = (ih + ph * 2 - kh) / sh + 1;
+        auto shape = output->shape();
+        auto ishape = input->shape();
+        int n = ishape[0];
+        int ickhkw = ishape[1];
+        int ohow = ishape[2];
+        // set batch = 1, then loopNumber = batch
+        GeometryConvUtils::im2Col(output, input, ic, kh, kw, 1, oh, ow, ih, iw, sh, sw, dh, dw, pads);
+        auto des = TensorUtils::getDescribe(output);
+        // build cmd
+        flatbuffers::FlatBufferBuilder builder;
+        BinaryOpBuilder binaryParam(builder);
+        binaryParam.add_opType(BinaryOpOperation_ADD);
+        auto binaryParamOffset = binaryParam.Finish();
+        OpBuilder bianryOp(builder);
+        bianryOp.add_type(OpType_BinaryOp);
+        bianryOp.add_main(binaryParamOffset.Union());
+        bianryOp.add_main_type(OpParameter_BinaryOp);
+        auto bianryOpOffset = bianryOp.Finish();
+        auto iterIndexesOffset = builder.CreateVector(std::vector<int>{-1, -1});
+        auto stepOffset = builder.CreateVector(std::vector<int>{ic*iw*ih, ickhkw*ohow});
+        auto indexesOffset = builder.CreateVector(std::vector<int>{1, 0});
+        std::vector<flatbuffers::Offset<RegionCommand>> rcmdAllOffset;
+        for (auto& region : des->regions) {
+            auto tmp   = region.dst;
+            region.dst = region.src;
+            region.src = tmp;
+            //size
+            auto sizeOffset = builder.CreateVector(std::vector<int>{region.size[0], region.size[1], region.size[2]});
+            // View 0 - dst
+            auto view0Stride = builder.CreateVector(std::vector<int>{region.dst.stride[0], region.dst.stride[1], region.dst.stride[2]});
+            ViewBuilder view0Builder(builder);
+            view0Builder.add_offset(region.dst.offset);
+            view0Builder.add_stride(view0Stride);
+            auto view0Offset = view0Builder.Finish();
+            // View 1 - src
+            auto view1Stride = builder.CreateVector(std::vector<int>{region.src.stride[0], region.src.stride[1], region.src.stride[2]});
+            ViewBuilder view1Builder(builder);
+            view1Builder.add_offset(region.src.offset);
+            view1Builder.add_stride(view1Stride);
+            auto view1Offset = view1Builder.Finish();
+            auto viewAllOffset = builder.CreateVector<flatbuffers::Offset<View>>({view0Offset, view1Offset});
+            RegionCommandBuilder rcmdBuild(builder);
+            rcmdBuild.add_op(bianryOpOffset);
+            rcmdBuild.add_view(viewAllOffset);
+            rcmdBuild.add_indexes(indexesOffset);
+            rcmdBuild.add_iterIndexes(iterIndexesOffset);
+            rcmdBuild.add_steps(stepOffset);
+            rcmdBuild.add_size(sizeOffset);
+            rcmdBuild.add_fuse(0); // reduce add
+            rcmdAllOffset.push_back(rcmdBuild.Finish());
+        }
+        auto rcmdAllOffsets = builder.CreateVector<flatbuffers::Offset<RegionCommand>>(rcmdAllOffset);
+        auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0});
+        auto outputIndexesOffset = builder.CreateVector(std::vector<int>{1});
+        LoopParamBuilder loopBuilder(builder);
+        loopBuilder.add_commands(rcmdAllOffsets);
+        loopBuilder.add_loopNumber(batch);
+        loopBuilder.add_tensorNumber(2);
+        loopBuilder.add_parallel(true);
+        loopBuilder.add_inputIndexes(inputIndexesOffset);
+        loopBuilder.add_outputIndexes(outputIndexesOffset);
+        auto loopOffset = loopBuilder.Finish();
+        flatbuffers::Offset<flatbuffers::String> nameOffset;
+        if (nullptr != op->name()) {
+            nameOffset = builder.CreateString(op->name()->c_str());
+        }
+        OpBuilder finishBuilder(builder);
+        finishBuilder.add_main(loopOffset.Union());
+        finishBuilder.add_main_type(OpParameter_LoopParam);
+        finishBuilder.add_type(OpType_While);
+        if (nullptr != op->name()) {
+            finishBuilder.add_name(nameOffset);
+        }
+        builder.Finish(finishBuilder.Finish());
+        auto cmd = GeometryComputerUtils::makeCommand(builder, {inputs[0]}, outputs);
+        res.command.emplace_back(std::move(cmd));
+
+        des->regions.clear();
+        TensorUtils::getDescribe(output)->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+        output->buffer().dimensions = shape.size();
+        for (int i = 0; i < shape.size(); i++) {
+            output->setLength(i, shape[i]);
+        }
+        TensorUtils::setLinearLayout(output);
+        return true;
+    }
+};
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryConv2D);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Convolution});
@@ -359,6 +469,9 @@ static void _create() {
 
     std::shared_ptr<GeometryComputer> comp3(new GeometryIm2Col);
     GeometryComputer::registerGeometryComputer(comp3, {OpType_Im2Col});
+
+    std::shared_ptr<GeometryComputer> comp4(new GeometryCol2Im);
+    GeometryComputer::registerGeometryComputer(comp4, {OpType_Col2Im});
 }
 
 REGISTER_GEOMETRY(GeometryConv2D, _create);

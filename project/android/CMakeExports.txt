@@ -19,3 +19,9 @@ set_target_properties( MNN_Express
                 PROPERTIES IMPORTED_LOCATION
                 ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN_Express.so
                 )
+
+add_library( MNNOpenCV SHARED IMPORTED GLOBAL )
+set_target_properties( MNNOpenCV
+                PROPERTIES IMPORTED_LOCATION
+                ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNNOpenCV.so
+                )

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef ImageProcess_hpp
-#define ImageProcess_hpp
+#ifndef MNN_ImageProcess_hpp
+#define MNN_ImageProcess_hpp
 
 #include <MNN/ErrorCode.hpp>
 #include <MNN/Matrix.h>
@@ -61,7 +61,6 @@ public:
 
         /** edge wrapper */
         Wrap wrap = CLAMP_TO_EDGE;
-        bool draw = false;
     };
 
 public:
@@ -149,6 +148,14 @@ public:
     void setPadding(uint8_t value) {
         mPaddingValue = value;
     }
+
+    /**
+     * @brief set to draw mode.
+     * @param void
+     * @return void.
+     */
+    void setDraw();
+
     /**
      * @brief draw color to regions of img.
      * @param img  the image to draw.

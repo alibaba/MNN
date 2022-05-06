@@ -23,7 +23,7 @@ public:
     virtual ~MultiConvolutionTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
         // Multi input Conv
         {
             const int inputHeight = 5, inputWidth = 5, inputChannel = 2, outputChannel = 1;
@@ -62,7 +62,8 @@ protected:
             ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
             ::memcpy(bias->writeMap<float>(), biasData.data(), biasData.size() * sizeof(float));
             auto outputPtr = output->readMap<float>();
-            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.001)) {
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.001 * errorScale)) {
                 MNN_ERROR("MultiConvolution(%s) test failed!\n", deviceName.c_str());
                 return false;
             }
@@ -107,7 +108,8 @@ protected:
             ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
             ::memcpy(bias->writeMap<float>(), biasData.data(), biasData.size() * sizeof(float));
             auto outputPtr = output->readMap<float>();
-            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.001)) {
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+            if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.001 * errorScale)) {
                 MNN_ERROR("Depthwise MultiConvolution(%s) test failed!\n", deviceName.c_str());
                 return false;
             }
@@ -120,7 +122,7 @@ class MultiConvolutionTestOnCPU : public MultiConvolutionTest {
 public:
     virtual ~MultiConvolutionTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 
@@ -128,7 +130,7 @@ class MultiConvolutionTestOnOpencl : public MultiConvolutionTest {
 public:
     virtual ~MultiConvolutionTestOnOpencl() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
+        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL", precision);
     }
 };
 

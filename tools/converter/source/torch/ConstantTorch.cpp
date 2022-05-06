@@ -54,6 +54,7 @@ void ConstantTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
             param->dataType = MNN::DataType_DT_INT32;
             const auto int64s = getValue<std::vector<int64_t>>(output);
             param->int32s.resize(int64s.size());
+            param->dims.push_back(int64s.size());
             for (int i = 0; i < int64s.size(); i++) {
                 param->int32s[i] = int64s[i];
             }

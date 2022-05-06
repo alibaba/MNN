@@ -21,8 +21,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef SkMatrix_DEFINED
-#define SkMatrix_DEFINED
+#ifndef MNN_Matrix_DEFINED
+#define MNN_Matrix_DEFINED
 
 #include <string.h>
 #include <cstdint>

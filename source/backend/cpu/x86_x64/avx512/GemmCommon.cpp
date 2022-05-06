@@ -8,6 +8,9 @@
 
 #include "FunctionSummary.hpp"
 #include "Gemm48_8.hpp"
+#include "Gemm10_32.h"
+#include "Gemm31_16.h"
+#include "Gemm9_48.h"
 #include "core/Macro.h"
 #include <limits>
 #include <string.h>
@@ -229,7 +232,7 @@ _MM_TRANSPOSE4_PS(r20, r21, r22, r23);  _MM_TRANSPOSE4_PS(r24, r25, r26, r27);  
 _mm_storeu_ps(dstX + 48 * i + 0 * 16, r0##i);\
 _mm_storeu_ps(dstX + 48 * i + 1 * 16, r1##i);\
 _mm_storeu_ps(dstX + 48 * i + 2 * 16, r2##i);\
-                
+
                 auto dstX = lastLc4Dst;
                 auto srcX = lastLc4Src;
                 MAIN_COMPUTE;
@@ -520,7 +523,7 @@ static void _AVX2_MNNPackedMatMul_8(float* C, const float* A, const float* B, co
             srcUse += aStride;
         }
         auto dst    = C + (unit * y + 0) * cStride;
-        
+
         SAVE_UNIT(0, 0, 0);
         SAVE_UNIT(1, 0, 0);
         SAVE_UNIT(2, 0, 0);
@@ -1156,6 +1159,58 @@ void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, siz
     AVX512GemmPostTreat(C, eSize, parameter, postParameters, bias);
 }
 
+MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC16Functions[AVX512_INPUT_TILE_MAX] = { // oc is 16
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<1>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<2>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<3>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<4>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<5>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<6>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<7>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<8>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<9>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<10>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<11>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<12>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<13>,
+    _AVX512_MNNPackedMatMulO16FullLoadKernel<14>,
+    // _AVX512_MNNPackedMatMulO16FullLoadKernel<15>,
+    // _AVX512_MNNPackedMatMulO16FullLoadKernel<16>,
+    // _AVX512_MNNPackedMatMulO16FullLoadKernel<31>,  as much as 31
+};
+MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC32Functions[AVX512_INPUT_TILE_MAX] = { // oc is 32
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<1>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<2>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<3>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<4>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<5>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<6>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<7>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<8>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<9>,
+    _AVX512_MNNPackedMatMulO32FullLoadKernel<10>, // above kernel A and B matrix registers are fully loaded
+    _AVX512_MNNPackedMatMulO32Swaped6Kernel<11>,
+    _AVX512_MNNPackedMatMulO32Swaped6Kernel<12>,
+    _AVX512_MNNPackedMatMulO32SwapedKernel<13>,
+    _AVX512_MNNPackedMatMulO32SwapedKernel<14>, // registers are swaped and reused
+};
+MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC48Functions[AVX512_INPUT_TILE_MAX] = { // oc is 48
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<1>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<2>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<3>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<4>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<5>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<6>,
+    _AVX512_MNNPackedMatMulO48FullLoadKernel<7>, // above kernel A and B matrix registers are fully loaded
+    _AVX512_MNNPackedMatMulO48Swaped4Kernel<8>,
+    _AVX512_MNNPackedMatMulO48Swaped2Kernel<9>,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr
+};
+
 
 #ifdef AVX512_TEST
 class AVX512_AutoTest {
@@ -1185,9 +1240,9 @@ public:
         auto rd = _mm512_castps_si512(_mm512_loadu_ps(temp + 16 * 13));
         auto re = _mm512_castps_si512(_mm512_loadu_ps(temp + 16 * 14));
         auto rf = _mm512_castps_si512(_mm512_loadu_ps(temp + 16 * 15));
-        
+
         transpose16x16(r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, ra, rb, rc, rd, re, rf);
-        
+
         _mm512_storeu_ps(temp + 16 * 0, _mm512_castsi512_ps(r0));
         _mm512_storeu_ps(temp + 16 * 1, _mm512_castsi512_ps(r1));
         _mm512_storeu_ps(temp + 16 * 2, _mm512_castsi512_ps(r2));
@@ -1204,7 +1259,7 @@ public:
         _mm512_storeu_ps(temp + 16 * 13, _mm512_castsi512_ps(rd));
         _mm512_storeu_ps(temp + 16 * 14, _mm512_castsi512_ps(re));
         _mm512_storeu_ps(temp + 16 * 15, _mm512_castsi512_ps(rf));
-        
+
         MNN_PRINT("Transposed:\n");
         for (int x=0; x<16; ++x) {
             for (int y=0; y<16; ++y) {

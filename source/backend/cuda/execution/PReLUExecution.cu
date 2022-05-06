@@ -6,13 +6,14 @@ namespace CUDA {
 
 template<typename T>
 __global__ void PRELU(const int n, const int channels, const int dim, const T* in, T* out,
-                        const float* slopeData, int div_factor) {
+                        const float* slopeData, int share_factor) {
     CUDA_KERNEL_LOOP(t, n) {
         int index = t / PACK_NUMBER;
         int r = t % PACK_NUMBER;
-        int c      = (index / dim) % channels / div_factor;
+        int c      = (index / dim) % channels;
         float iv = (float)in[t];
-        float ov = iv > 0.0 ? iv : iv * slopeData[c * PACK_NUMBER + r];
+        const int c_idx = share_factor ? 0 : (c * PACK_NUMBER + r);
+        float ov = iv > 0.0 ? iv : iv * slopeData[c_idx];
         out[t] = (T)ov;
     }
 }
@@ -58,13 +59,13 @@ ErrorCode PReLUExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     int threads_num = runtime->threads_num();
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
-    int div_factor = mIsChannelShared ? mChannel : 1;
+    int share_factor = mIsChannelShared ? 1 : 0;
     if (2 == bytes) {
         PRELU<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const half *)input_addr, (half *)output_addr,
-            (const float *)mDeviceSlope, div_factor);
+            (const float *)mDeviceSlope, share_factor);
     } else {
         PRELU<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const float *)input_addr, (float *)output_addr,
-            (const float *)mDeviceSlope, div_factor);
+            (const float *)mDeviceSlope, share_factor);
     }
     return NO_ERROR;
 }

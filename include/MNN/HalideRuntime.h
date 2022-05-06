@@ -1,5 +1,5 @@
-#ifndef HALIDE_HALIDERUNTIME_H
-#define HALIDE_HALIDERUNTIME_H
+#ifndef MNN_HALIDE_HALIDERUNTIME_H
+#define MNN_HALIDE_HALIDERUNTIME_H
 
 #include <stddef.h>
 #include <stdint.h>

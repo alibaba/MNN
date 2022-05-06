@@ -35,15 +35,13 @@ void LoopOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     MNN_ASSERT(body->input_size() == N+2);
     MNN_ASSERT(body->output_size() == N+K+1);
     auto ousideInputs = scope->buildSubGraph(body, param->body_graph, true);
-    std::vector<int> outsideIndex(ousideInputs.size());
     std::vector<int> outsideIndexOutside(ousideInputs.size());
     for (int i=0; i<ousideInputs.size(); ++i) {
-        auto idx = scope->lookupTensor(ousideInputs[i]);
-        MNN_ASSERT(idx >= 0);
-        outsideIndex[i] = idx;
+        // subgraph own by LOOP may introduce extra input which is not exist on current graph, create corresponding input op here
+        
+        scope->addInputForOp(dstOp, ousideInputs[i], true);
         outsideIndexOutside[i] = scope->declareTensor(dstOp->name + "_extra_unused_" + ousideInputs[i]);
     }
-    dstOp->inputIndexes.insert(dstOp->inputIndexes.end(), outsideIndex.begin(), outsideIndex.end());
     dstOp->outputIndexes.insert(dstOp->outputIndexes.begin()+N, outsideIndexOutside.begin(), outsideIndexOutside.end());
     // update i
     dstOp->main.value = param;

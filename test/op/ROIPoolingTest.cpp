@@ -32,10 +32,10 @@ static VARP _ROIPooling(VARP input, VARP roi, int pooledHeight, int pooledWidth,
 class ROIPoolingTest : public MNNTestCase {
 public:
     virtual ~ROIPoolingTest() = default;
-    virtual bool run(int precision) override { return testOnBackend(MNN_FORWARD_CPU, "CPU", "ROIPooling"); }
+    virtual bool run(int precision) override { return testOnBackend(MNN_FORWARD_CPU, "CPU", "ROIPooling", precision); }
 
 protected:
-    static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& testOpName) {
+    static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& testOpName, int precision) {
         // case1
         {
             const int n = 1, c = 1, h = 16, w = 16;
@@ -115,8 +115,9 @@ protected:
             output = _Convert(output, NCHW);
             ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
             ::memcpy(roi->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
             if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
-                                                   0.001)) {
+                                                   0.001 * errorScale)) {
                 MNN_ERROR("%s(%s) test failed!\n", testOpName.c_str(), deviceName.c_str());
                 return false;
             }
@@ -225,8 +226,9 @@ protected:
             output      = _Convert(output, NCHW);
             ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
             ::memcpy(roi->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
             if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(),
-                                                   0.001)) {
+                                                   0.001 * errorScale)) {
                 MNN_ERROR("%s(%s) test failed!\n", testOpName.c_str(), deviceName.c_str());
                 return false;
             }

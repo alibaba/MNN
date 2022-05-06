@@ -24,10 +24,12 @@ class ConcatSizeComputer : public SizeComputer {
         }
         bool valid = false;
         int axis = basicAxis;
+        int maxDim = 0;
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
             auto inputDimensions = input->buffer().dimensions;
             if (input->size() <= 0) {
+                maxDim = inputDimensions > maxDim ? inputDimensions : maxDim;
                 continue;
             }
             ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
@@ -40,7 +42,10 @@ class ConcatSizeComputer : public SizeComputer {
             break;
         }
         if (!valid) {
-            return false;
+            ob.dimensions = maxDim;
+            ob.type       = inputs[0]->buffer().type;
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            return true;
         }
 
         int sum = 0;

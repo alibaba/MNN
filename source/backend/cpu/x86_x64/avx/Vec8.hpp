@@ -135,6 +135,10 @@ struct Vec8 {
         VecType v = { _mm256_loadu_ps(addr) };
         return v;
     }
+    static VecType broadcast(const float* addr) {
+        VecType dst = { _mm256_broadcast_ss(addr) }; // compiled into 'vbroadcastss'
+        return dst;
+    }
     static void save(float* addr, const VecType& v) {
         _mm256_storeu_ps(addr, v.value);
     }

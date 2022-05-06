@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "DynamicGemm.h"
 
 #ifndef _MM_TRANSPOSE4_PS
 #define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
@@ -34,6 +35,7 @@ do { \
 extern "C" {
 void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 void _AVX512_MNNPackC8ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
+
 void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 
@@ -54,6 +56,10 @@ void _AVX512_ExtraInit(void* functions);
 void _AVX512_WinogradInit(void* functions);
 void _AVX512_MNNInt8FunctionInit(void* functions, bool suppotVNNI);
 
-
+extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC16Functions[AVX512_INPUT_TILE_MAX];
+extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC32Functions[AVX512_INPUT_TILE_MAX];
+extern MNN::CoreFunctions::MNNPackedMatMulKernel _AVX512_MNNPackedMatMulOC48Functions[AVX512_INPUT_TILE_MAX];
 
 }
+
+

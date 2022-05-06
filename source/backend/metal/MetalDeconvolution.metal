@@ -8,6 +8,7 @@
 
 #include <metal_stdlib>
 #include "MetalDefine.metal"
+#include "MetalConvolutionActivation.metal"
 
 using namespace metal;
 
@@ -37,6 +38,7 @@ struct deconv_constants {
     int delta_ix;
     int has_bias;
     int batch;
+    conv_activation_type activation;
 };
 
 kernel void deconv(const device ftype4 *in          [[buffer(0)]],
@@ -78,7 +80,7 @@ kernel void deconv(const device ftype4 *in          [[buffer(0)]],
             }
         }
     }
-    out[(int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x] = ftype4(result);
+    out[(int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x] =     activate(ftype4(result), cst.activation);
 }
 
 kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
@@ -116,5 +118,5 @@ kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
             }
         }
     }
-    out[(int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x] = (ftype4)result;
+    out[(int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x] =     activate(ftype4(result), cst.activation);
 }

@@ -714,6 +714,13 @@ public:
             if (OpType_BinaryOp == op->type()) {
                 auto view0 = cmd->view()->GetAs<View>(0);
                 auto view1 = cmd->view()->GetAs<View>(1);
+                if (cmd->fuse() >= 0) {
+                    mNeedZero = true;
+                    if (view1->stride()->data()[2] != 1 || view0->stride()->data()[2] != 1) {
+                        mMaxCacheSize = std::max(mMaxCacheSize, cmd->size()->data()[2] * bytes);
+                    }
+                    continue;
+                }
                 auto view2 = cmd->view()->GetAs<View>(2);
                 MNN_ASSERT(view0->stride()->data()[2] == 1);
                 if (view1->stride()->data()[2] != 1 || view2->stride()->data()[2] != 1) {
@@ -852,6 +859,10 @@ public:
                 return NO_ERROR;
             }
         }
+        // fuse mean reduce, need zero dst
+        if (mNeedZero) {
+            memset(originOutputs[0]->host<void>(), 0, originOutputs[0]->size());
+        }
         auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
         auto func = [&](int iter, int tId) {
             auto blit = _selectUnitProc(bytes);
@@ -935,40 +946,80 @@ public:
                 }
                 if (OpType_BinaryOp == op->type()) {
                     auto src0 = mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
-                    auto src1 = mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
                     auto dst = mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
                     auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
                     auto lastS = cmd->size()->data()[2];
                     auto stride0 = cmd->view()->GetAs<View>(0)->stride()->data();
                     auto stride1 = cmd->view()->GetAs<View>(1)->stride()->data();
-                    auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
-                    MNN_ASSERT(stride0[2] == 1);
-                    if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride2[2] == 1)) {
-                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                            auto src0Z = src0 + z * stride1[0] * bytes;
-                            auto src1Z = src1 + z * stride2[0] * bytes;
-                            auto dstZ = dst + z * stride0[0] * bytes;
-                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                auto src0Y = src0Z + y * stride1[1] * bytes;
-                                auto src1Y = src1Z + y * stride2[1] * bytes;
-                                auto dstY = dstZ + y * stride0[1] * bytes;
-                                proc(dstY, src0Y, src1Y, cmd->size()->data()[2], -1);
+                    if (cmd->fuse() >= 0) {
+                        if (stride0[2] != 1) {
+                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                                auto src0Z = src0 + z * stride1[0] * bytes;
+                                auto dstZ = dst + z * stride0[0] * bytes;
+                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                    auto src0Y = src0Z + y * stride1[1] * bytes;
+                                    auto dstY = dstZ + y * stride0[1] * bytes;
+                                    for (int x=0; x<cmd->size()->data()[2]; ++x) {
+                                        auto src0X = src0Y + x * stride1[2] * bytes;
+                                        auto dstX = dstY + x * stride0[2] * bytes;
+                                        proc(dstX, dstX, src0X, 1, -1);
+                                    }
+                                }
+                            }
+                        } else if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride0[2] == 1)) {
+                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                                auto src0Z = src0 + z * stride1[0] * bytes;
+                                auto dstZ = dst + z * stride0[0] * bytes;
+                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                    auto src0Y = src0Z + y * stride1[1] * bytes;
+                                    auto dstY = dstZ + y * stride0[1] * bytes;
+                                    proc(dstY, dstY, src0Y, cmd->size()->data()[2], -1);
+                                }
+                            }
+                        } else {
+                            auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
+                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                                auto src0Z = src0 + z * stride1[0] * bytes;
+                                auto dstZ = dst + z * stride0[0] * bytes;
+                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                    auto src0Y = src0Z + y * stride1[1] * bytes;
+                                    auto dstY = dstZ + y * stride0[1] * bytes;
+                                    blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
+                                    proc(dstY, dstY, cache0, cmd->size()->data()[2], -1);
+                                }
                             }
                         }
                     } else {
-                        auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
-                        auto cache1 = cache0 + cmd->size()->data()[2] * bytes;
-                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                            auto src0Z = src0 + z * stride1[0] * bytes;
-                            auto src1Z = src1 + z * stride2[0] * bytes;
-                            auto dstZ = dst + z * stride0[0] * bytes;
-                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                auto src0Y = src0Z + y * stride1[1] * bytes;
-                                auto src1Y = src1Z + y * stride2[1] * bytes;
-                                auto dstY = dstZ + y * stride0[1] * bytes;
-                                blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
-                                blit(cache1, src1Y, cmd->size()->data()[2], stride2[2], 1);
-                                proc(dstY, cache0, cache1, cmd->size()->data()[2], -1);
+                        MNN_ASSERT(stride0[2] == 1);
+                        auto src1 = mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
+                        auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
+                        if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride2[2] == 1)) {
+                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                                auto src0Z = src0 + z * stride1[0] * bytes;
+                                auto src1Z = src1 + z * stride2[0] * bytes;
+                                auto dstZ = dst + z * stride0[0] * bytes;
+                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                    auto src0Y = src0Z + y * stride1[1] * bytes;
+                                    auto src1Y = src1Z + y * stride2[1] * bytes;
+                                    auto dstY = dstZ + y * stride0[1] * bytes;
+                                    proc(dstY, src0Y, src1Y, cmd->size()->data()[2], -1);
+                                }
+                            }
+                        } else {
+                            auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
+                            auto cache1 = cache0 + cmd->size()->data()[2] * bytes;
+                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                                auto src0Z = src0 + z * stride1[0] * bytes;
+                                auto src1Z = src1 + z * stride2[0] * bytes;
+                                auto dstZ = dst + z * stride0[0] * bytes;
+                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                    auto src0Y = src0Z + y * stride1[1] * bytes;
+                                    auto src1Y = src1Z + y * stride2[1] * bytes;
+                                    auto dstY = dstZ + y * stride0[1] * bytes;
+                                    blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
+                                    blit(cache1, src1Y, cmd->size()->data()[2], stride2[2], 1);
+                                    proc(dstY, cache0, cache1, cmd->size()->data()[2], -1);
+                                }
                             }
                         }
                     }
@@ -995,6 +1046,7 @@ private:
     std::vector<ThreadContainer> mContainer;
     uint8_t* mCacheBuffer = nullptr;
     int mMaxCacheSize = 0;
+    bool mNeedZero = false;
 };
 
 class CPURasterFactory : public CPUBackend::Creator {

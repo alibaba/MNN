@@ -46,7 +46,7 @@ public:
     virtual ~Dilation2DTest() = default;
 
 protected:
-    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
         const int batch = 2, hInput = 8, wInput = 8, depth = 2;
         const int kernel = 3, stride = 2, dilation = 2;
         const int hOutput = 4, wOutput = 4;
@@ -118,7 +118,8 @@ protected:
         }
 
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
-        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.005)) {
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.005 * errorScale)) {
             MNN_ERROR("Dilation2D(%s) test failed!\n", deviceName.c_str());
             return false;
         }
@@ -131,7 +132,7 @@ class Dilation2DTestOnCPU : public Dilation2DTest {
 public:
     virtual ~Dilation2DTestOnCPU() = default;
     virtual bool run(int precision) {
-        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+        return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 

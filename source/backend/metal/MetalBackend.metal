@@ -18,7 +18,7 @@ struct tensor_shape {
     int batch_slices;
 };
 
-kernel void version_func_001(const device uchar *in [[buffer(0)]],
+kernel void version_func_002(const device uchar *in [[buffer(0)]],
                                   device uchar *out     [[buffer(1)]],
                                   uint gid              [[thread_position_in_grid]]) {
     // do nothing, just for verifying match between mnn and metallib

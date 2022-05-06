@@ -16,6 +16,7 @@ class FillComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         auto input0 = inputs[0], output0 = outputs[0];
+        const int* ptr = input0->host<int32_t>();
         MNN_ASSERT(inputs.size() == 2);
         MNN_ASSERT(input0->buffer().dimensions == 1);
         output0->buffer().dimensions = input0->buffer().dim[0].extent;

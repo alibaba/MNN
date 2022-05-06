@@ -23,8 +23,8 @@
    to create an updated version of this file.
  */
 
-#ifndef SkRect_DEFINED
-#define SkRect_DEFINED
+#ifndef MNN_Rect_DEFINED
+#define MNN_Rect_DEFINED
 
 #include <math.h>
 #include <algorithm>

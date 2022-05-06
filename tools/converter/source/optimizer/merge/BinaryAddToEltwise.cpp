@@ -105,5 +105,42 @@ static auto gRegister = []() {
     return true;
 }();
 
+static auto gRegister2 = []() {
+    auto match = [](EXPRP expr) {
+        if (nullptr == expr->get()) {
+            return false;
+        }
+        if (expr->get()->type() != OpType_BinaryOp) {
+            return false;
+        }
+        auto binaryOp     = expr->get();
+        auto binaryParams = binaryOp->main_as_BinaryOp();
+        if (binaryParams->opType() != BinaryOpOperation_POW) {
+            return false;
+        }
+
+        auto rightInputVar  = expr->inputs()[1];
+        if (rightInputVar->getInfo() == nullptr) {
+            return false;
+        }
+        if (rightInputVar->getInfo()->type == halide_type_of<float>()) {
+            return false;
+        }
+        return true;
+    };
+
+    auto transform = [](EXPRP expr) {
+        auto leftInputVar  = expr->inputs()[0];
+        auto rightInputVar  = expr->inputs()[1];
+        auto cast = _Cast<float>(rightInputVar);
+        cast->setName(expr->name() + "_cast");
+        auto newPow = _Pow(leftInputVar, cast);
+        Expr::replace(expr, newPow->expr().first);
+        return true;
+    };
+
+    TemplateMerge::getInstance("Merge").insertTemplate("PowInputCast", match, transform, PASS_PRIORITY_MIDDLE);
+    return true;
+}();
 }
 } // namespace MNN

@@ -22,8 +22,12 @@ public:
     }
     ErrorCode onResize(const std::vector<Tensor*>& inputs,
                                          const std::vector<Tensor*>& outputs) override;
+    ErrorCode onExecute(const std::vector<Tensor*>& inputs,
+                                         const std::vector<Tensor*>& outputs) override;
     virtual ~DenseConvolutionTiledImpl() = default;
     void getPackParameter(int* eP, int* lP, int* hP, const CoreFunctions* core) override;
+    static PerfConfig bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
+                                          const Tensor *outputTensor, int threadNumber, Backend* b);
 protected:
 
 };
@@ -44,7 +48,10 @@ public:
     }
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void initWeight(float *dest, const float *source, float* cache, int depth, int outputCount, int kernelSize, const CoreFunctions* function);
-
+    static PerfConfig bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
+                                          const Tensor *outputTensor, int threadNumber, Backend* b) {
+        return DenseConvolutionTiledImpl::bestTileConvolutionConfig(common, inputTensor, outputTensor, threadNumber, b);
+    }
 protected:
     std::shared_ptr<DenseConvolutionTiledImpl> mProxy;
 };

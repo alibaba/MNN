@@ -52,11 +52,12 @@ public:
         input->unMap();
         auto output = _ReduceSum(input, {0, 2, 3});
         std::vector<float> expectedOutput(10);
+        auto func = FP32Converter[precision];
         for (int i = 0; i < 10; ++i) {
             float sumValue = 0.0f;
             for (int j = 0; j < 4; ++j) {
                 for (int k = 0; k < 4; ++k) {
-                    sumValue += inputData[i * 4 + k + j * 40];
+                    sumValue = func(func(inputData[i * 4 + k + j * 40]) + sumValue);
                 }
             }
             expectedOutput[i] = sumValue;

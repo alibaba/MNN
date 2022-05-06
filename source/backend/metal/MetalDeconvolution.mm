@@ -134,6 +134,8 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     mStrideY     = common->strideY();
     mDilateX     = common->dilateX();
     mDilateY     = common->dilateY();
+    mActivationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
+
     // forcy downgrade to float like what CPU does
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (deconv->quanParameter()) {
@@ -187,7 +189,8 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         deltaKy * mDilateY / mStrideY,
         deltaKx * mDilateX / mStrideX,
         mBias.length > 0,
-        ob
+        ob,
+        mActivationType
     };
     mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
     

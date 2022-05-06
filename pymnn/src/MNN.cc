@@ -66,6 +66,10 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 #endif
 #endif
 
+#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
+#include "internal/PythonAuthByPass.hpp"
+#endif
+
 #ifdef PYMNN_INTERNAL_SERVING
 #include <MNN/AutoTime.hpp>
 #include "internal/monitor_service.h"
@@ -81,6 +85,11 @@ struct MNN_TLSData {
     PyObject *PyMNNHalideTypeString = NULL;
     std::unordered_map<std::string, Interpreter *> *interpreterMap = NULL;
     std::unordered_map<std::string, Session *> *sessionCacheMap = NULL;
+#ifdef PYMNN_EXPR_API
+#if TARGET_OS_IPHONE
+    ExecutorScope* scope = NULL;
+#endif
+#endif
 };
 static MNN_TLSData* old_python_data = NULL;
 static MNN_TLSData * getTLSData() {
@@ -188,6 +197,8 @@ static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, Py
 static PyObject* PyMNNInterpreter_getSessionInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_setSessionMode(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, PyObject *args);
@@ -204,6 +215,8 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"createSession", (PyCFunction)PyMNNInterpreter_createSession, METH_VARARGS, "create session"},
     {"setCacheFile", (PyCFunction)PyMNNInterpreter_setCacheFile, METH_VARARGS, "set cache file for create session"},
     {"updateCacheFile", (PyCFunction)PyMNNInterpreter_updateCacheFile, METH_VARARGS, "update cache file after resize session"},
+    {"setSessionMode", (PyCFunction)PyMNNInterpreter_setSessionMode, METH_VARARGS, "set session mode before create session"},
+    {"setSessionHint", (PyCFunction)PyMNNInterpreter_setSessionHint, METH_VARARGS, "set session hint before create session"},
     {"resizeSession", (PyCFunction)PyMNNInterpreter_resizeSession, METH_VARARGS, "resize session"},
     {"runSession", (PyCFunction)PyMNNInterpreter_runSession, METH_VARARGS, "run session"},
     {"runSessionWithCallBack", (PyCFunction)PyMNNInterpreter_runSessionWithCallBack, METH_VARARGS, "run session with callback"},
@@ -495,10 +508,10 @@ static PyMethodDef PyMNNCVMatrix_methods[] = {
 
 static PyTypeObject PyMNNCVMatrixType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    "MNN.CVImageProcess",                   /*tp_name*/
-    sizeof(PyMNNCVMatrix),                      /*tp_basicsize*/
+    "MNN.CVMatrix",                           /*tp_name*/
+    sizeof(PyMNNCVMatrix),                    /*tp_basicsize*/
     0,                                        /*tp_itemsize*/
-    (destructor)PyMNNCVMatrix_dealloc,          /*tp_dealloc*/
+    (destructor)PyMNNCVMatrix_dealloc,        /*tp_dealloc*/
     0,                                        /*tp_print*/
     0,                                        /*tp_getattr*/
     0,                                        /*tp_setattr*/
@@ -643,6 +656,11 @@ static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>
                     MNN_PRINT("MNN use low precision\n");
                     backendConfig->precision = MNN::BackendConfig::Precision_Low;
                 }
+                
+                if (!obj_name.compare("high")) {
+                    MNN_PRINT("MNN use high precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_High;
+                }
             }
         }
 
@@ -666,7 +684,7 @@ static void _runtime_capsule_deleter(PyObject *obj) {
 static PyObject* PyMNNInterpreter_createRuntime(PyObject* self, PyObject* args) {
     PyMNNInterpreter* instance = (PyMNNInterpreter *)self;
     PyObject* dicts = NULL;
-    if (!PyArg_ParseTuple(args, "|O", &dicts)) {
+    if (!PyArg_ParseTuple(args, "O", &dicts)) {
         return NULL;
     }
     if (!PySequence_Check(dicts)) {
@@ -776,7 +794,7 @@ static PyObject* PyMNNInterpreter_createSessionWithToken(PyMNNInterpreter *self,
     bool ret = VerifyService::GetInstance().VerifyToken(std::string(token), std::string(scene), std::string(app_key));
     if (!ret) {
         PyErr_SetString(PyExc_Exception,
-                        "PyMNNNN_load_module_from_file_with_token: check token failed, return null session.");
+                        "PyMNNNN_createSessionWithToken: check token failed, return null session.");
         return NULL;
     }
 
@@ -858,6 +876,32 @@ static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObje
     ErrorCode r = NO_ERROR;
     r = self->interpreter->updateCacheFile(session->session, flag);
     return PyLong_FromLong(r);
+}
+static PyObject* PyMNNInterpreter_setSessionMode(PyMNNInterpreter *self, PyObject *args) {
+    int session_val;
+    if (!PyArg_ParseTuple(args, "i", &session_val)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setSessionMode: Not interger input");
+        return NULL;
+    }
+    
+    auto mode = (MNN::Interpreter::SessionMode)session_val;
+    
+    self->interpreter->setSessionMode(mode);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObject *args) {
+    int type_val = 0;
+    int num_val = 0;
+    if (!PyArg_ParseTuple(args, "ii", &type_val, &num_val)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setSessionHint: Not interger input and interger input");
+        return NULL;
+    }
+
+    auto type = (MNN::Interpreter::HintMode)type_val;
+    self->interpreter->setSessionHint(type, num_val);
+    Py_RETURN_NONE;
 }
 static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *args) {
     PyMNNSession* session = NULL;
@@ -1281,7 +1325,12 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
     if ((*interpreterMap())[*self->modelPath]) {
         self->interpreter = (*interpreterMap())[*self->modelPath];
     } else {
+        #if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
+        // Allows the interpreters created in the Python API.
+        self->interpreter = PythonAuthByPass::createInterpreterWithoutAuth(path);
+        #else
         self->interpreter = Interpreter::createFromFile(path);
+        #endif
     }
     if (!self->interpreter) {
         PyErr_SetString(PyExc_Exception,
@@ -1506,6 +1555,9 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
                 return -1;
             }
             inputData = 1;
+        } else if(PyCapsule_CheckExact(data)) {
+            PyErr_SetString(PyExc_Exception,
+                            "TODO: PyMNNTensor_init: support PyCapsule");
         }
 #ifdef PYMNN_NUMPY_USABLE
         else {
@@ -2085,11 +2137,11 @@ CV::Point toPoint(PyObject* obj) {
     CV::Point point;
     if (isFloats(obj)) {
         auto vals = toFloats(obj);
-        MNN_ASSERT(val.size() == 2);
+        MNN_ASSERT(vals.size() == 2);
         point.set(vals[0], vals[1]);
     } else if (isInts(obj)) {
         auto vals = toInts(obj);
-        MNN_ASSERT(val.size() == 2);
+        MNN_ASSERT(vals.size() == 2);
         point.set(vals[0], vals[1]);
     }
     return point;
@@ -2623,8 +2675,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     BackendConfig bnConfig;
     auto threadExecutor = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
 #if TARGET_OS_IPHONE
-    // iOS is not support thread local
-    static ExecutorScope scope(threadExecutor);
+    tlsData->scope = new ExecutorScope(threadExecutor);
 #else
     static thread_local ExecutorScope scope(threadExecutor);
 #endif
@@ -2654,6 +2705,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     // _nn module
     auto nn_module = def_submodule(m, "_nn");
     def__Module(nn_module);
+    def_RuntimeManager(nn_module);
     def_methods(nn_module, NN)
 #ifdef PYMNN_TRAIN_API
     // _optim module
@@ -2677,17 +2729,6 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 #ifdef PYMNN_OPENCV_API
     // cv submodule
     auto cv_module = def_submodule(m, "cv");
-    def_Format(cv_module);
-#ifdef PYMNN_IMGCODECS
-    def_ImreadModes(cv_module);
-#endif
-    def_ColorConversionCodes(cv_module);
-    def_InterpolationFlags(cv_module);
-    def_BorderTypes(cv_module);
-    def_ThresholdTypes(cv_module);
-    def_RetrievalModes(cv_module);
-    def_ContourApproximationModes(cv_module);
-    def_LineTypes(cv_module);
     // add methods of cv
     constexpr int cv_method_num = sizeof(PyMNNCV_methods) / sizeof(PyMethodDef);
     for (int i = 0; i < cv_method_num; i++) {
@@ -2712,12 +2753,15 @@ void loadMNN() {
         WeImport_AppendInittab(MOD_NAME, MOD_INIT_FUNC);
     });
 }
-void* memoryToVar(const void* ptr, int h, int w, int c, int type) {
-    auto var = Express::_Const(ptr, {h, w, c}, NHWC, dtype2htype(static_cast<DType>(type)));
-    return reinterpret_cast<void*>(toPyObj(var));
-}
 static auto registerMNN = []() {
     loadMNN();
     return true;
 }();
+#endif
+
+#if defined(PYMNN_USE_ALINNPYTHON)
+extern "C" __attribute__((visibility("default"))) void* memoryToVar(const void* ptr, int h, int w, int c, int type) {
+    auto var = Express::_Const(ptr, {h, w, c}, NHWC, dtype2htype(static_cast<DType>(type)));
+    return reinterpret_cast<void*>(toPyObj(var));
+}
 #endif

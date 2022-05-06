@@ -23,10 +23,6 @@ typedef void (*SAMPLER)(const unsigned char* source, unsigned char* dest, CV::Po
 class CPUImageProcess : public Execution {
 public:
     CPUImageProcess(CV::ImageProcess::Config config, const CoreFunctions* coreFunctions) : Execution(nullptr), coreFunctions(coreFunctions) {
-        if (config.draw) {
-            draw = true;
-            return;
-        }
         filterType = (FilterType)config.filterType;
         wrap = (WrapType)config.wrap;
         sourceFormat = (ImageFormatType)config.sourceFormat;
@@ -42,6 +38,12 @@ public:
     }
     void setPadVal(uint8_t val) {
         paddingValue = val;
+    }
+    void setDraw() {
+        draw = true;
+    }
+    void setStride(int stride) {
+        mStride = stride;
     }
     CPUImageProcess(Backend *bn, const ImageProcessParam* process) : Execution(bn) {
         coreFunctions = static_cast<CPUBackend*>(backend())->functions();
@@ -88,6 +90,7 @@ private:
     uint8_t* samplerDest = nullptr, *blitDest = nullptr;
     const CoreFunctions* coreFunctions = nullptr;
     bool draw = false;
+    int mStride = 0;
 };
 }; // namespace MNN
 

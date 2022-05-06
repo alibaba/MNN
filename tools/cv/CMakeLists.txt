@@ -1,4 +1,10 @@
 IF(MNN_BUILD_OPENCV)
+  option(MNN_IMGPROC_COLOR "Enable imgproc color" ON)
+  option(MNN_IMGPROC_GEOMETRIC "Enable imgproc geometric" ON)
+  option(MNN_IMGPROC_DRAW "Enable imgproc draw" ON)
+  option(MNN_IMGPROC_FILTER "Enable imgproc filter" ON)
+  option(MNN_IMGPROC_MISCELLANEOUS "Enable imgproc miscellaneous" ON)
+  option(MNN_IMGPROC_STRUCTRAL "Enable imgproc structral" ON)
   option(MNN_IMGCODECS "Enable imgcodecs" OFF)
   option(MNN_OPENCV_TEST "Enable opencv test" OFF)
 
@@ -11,7 +17,33 @@ IF(MNN_BUILD_OPENCV)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/test)
   endif()
 
-  file(GLOB_RECURSE IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/*.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/*.hpp)
+  # file(GLOB_RECURSE IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/*.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/*.hpp)
+  set(IMGPROC_SRC "")
+  # imgproc color functions
+  if(${MNN_IMGPROC_COLOR})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/color.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/color.hpp)
+  endif()
+  # imgproc geometric functions
+  if(${MNN_IMGPROC_GEOMETRIC})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/geometric.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/geometric.hpp)
+  endif()
+  # imgproc draw functions
+  if(${MNN_IMGPROC_DRAW})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/draw.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/draw.hpp)
+  endif()
+  # imgproc filter functions
+  if(${MNN_IMGPROC_FILTER})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/filter.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/filter.hpp)
+  endif()
+  # imgproc miscellaneous functions
+  if(${MNN_IMGPROC_MISCELLANEOUS})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/miscellaneous.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/miscellaneous.hpp)
+  endif()
+  # imgproc structural functions
+  if(${MNN_IMGPROC_STRUCTRAL})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/structural.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/structural.hpp)
+  endif()
+  # imgcodecs functions
   if(${MNN_IMGCODECS})
     file(GLOB_RECURSE IMGCODECS_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgcodecs/*.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgcodecs/*.hpp)
   endif()

@@ -123,12 +123,10 @@ public:
         }
         int totalSizeOutput = 1;
         for (int i = 0; i < dimSize; ++i) {
-            if (output->buffer().dim[i].extent != 0) {
-                totalSizeOutput *= output->buffer().dim[i].extent;
-            }
+            totalSizeOutput *= output->buffer().dim[i].extent;
         }
         if (determinAxis >= 0) {
-            output->buffer().dim[determinAxis].extent = totalSizeInput / totalSizeOutput;
+            output->buffer().dim[determinAxis].extent = totalSizeOutput ? totalSizeInput / totalSizeOutput : 0;
             totalSizeOutput *= output->buffer().dim[determinAxis].extent;
         }
         if (totalSizeInput != totalSizeOutput) {

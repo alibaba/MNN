@@ -226,6 +226,7 @@ class BinaryBroadcastTest : public MNNTestCase {
             auto len = MNN::Net::Pack(builderOutput, net.get());
             builderOutput.Finish(len);
         }
+        float error = (precision <= MNN::BackendConfig::Precision_High ? 1 : 100) * 0.0005f;
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
         std::shared_ptr<MNN::Express::Module> module(Module::load(std::vector<std::string>{"X"}, std::vector<std::string>{"z0", "z1", "z2", "z3"}, bufferOutput, sizeOutput));
@@ -247,19 +248,19 @@ class BinaryBroadcastTest : public MNNTestCase {
             std::vector<float> z2Target = {
                 1.1f, 2.2f, 3.3f, 4.4f
             };
-            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
@@ -286,19 +287,19 @@ class BinaryBroadcastTest : public MNNTestCase {
                 }
             }
             auto tsize = 2 * 5 * 2;
-            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
@@ -325,19 +326,19 @@ class BinaryBroadcastTest : public MNNTestCase {
                 }
             }
             auto tsize = 2 * 3 * 2;
-            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[0]->readMap<float>(), z0Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[1]->readMap<float>(), z1Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), tsize, 0.0005f)) {
+            if (!checkVector(z[2]->readMap<float>(), z2Target.data(), tsize, error)) {
                 FUNC_PRINT(1);
                 return false;
             }
-            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, 0.0005f)) {
+            if (!checkVector(z[3]->readMap<float>(), z2Target.data(), 4, error)) {
                 FUNC_PRINT(1);
                 return false;
             }

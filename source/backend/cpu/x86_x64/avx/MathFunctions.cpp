@@ -104,7 +104,7 @@ void _AVX_MNNSoftmax(float* dest, const float* source, size_t size) {
     int count  = size / 8;
     int remain = count * 8;
     // step 1: get maxValue
-    float maxValue = 0.f;
+    float maxValue = source[0];
     if (count > 0) {
         auto maxVal = _mm256_loadu_ps(source);
         for (int i = 1; i < count; i++) {

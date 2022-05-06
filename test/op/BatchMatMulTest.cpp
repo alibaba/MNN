@@ -11,18 +11,20 @@
 #include <random>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
+#include "TestUtils.h"
+
 using namespace MNN::Express;
 
-static void fillFloat(float* dst, int h, int w, float offset = 0.0f) {
+static void fillFloat(float* dst, int h, int w, ConvertFP32 functor, float offset = 0.0f) {
     for (int y = 0; y < h; ++y) {
         auto dstY = dst + w * y;
         for (int x = 0; x < w; ++x) {
-            dstY[x] = (float)x * 0.1f + (float)y + offset;
+            dstY[x] = functor((float)x * 0.1f + (float)y + offset);
         }
     }
 }
 
-static bool checkMatMul(const float* C, const float* A, const float* B, int e, int l, int h) {
+static bool checkMatMul(const float* C, const float* A, const float* B, int e, int l, int h, ConvertFP32 functor) {
     bool res = true;
     for (int y = 0; y < h; ++y) {
         auto AY = A + l * y;
@@ -32,8 +34,9 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
             float expected = 0.0f;
             auto computed  = CY[x];
             for (int k = 0; k < l; ++k) {
-                expected += AY[k] * BX[k * e];
+                expected += functor(AY[k]) * functor(BX[k * e]);
             }
+            expected = functor(expected);
             auto diff = fabsf(expected - computed);
             if (diff > 0.1f) {
                 MNN_PRINT("%f -> %f\n", expected, computed);
@@ -63,10 +66,10 @@ public:
             auto y  = Variable::create(Expr::create(op.get(), {x0, x1}));
             x0->resize({h, l});
             x1->resize({l, e});
-            fillFloat(x0->writeMap<float>(), h, l);
-            fillFloat(x1->writeMap<float>(), l, e);
+            fillFloat(x0->writeMap<float>(), h, l, FP32Converter[precision]);
+            fillFloat(x1->writeMap<float>(), l, e, FP32Converter[precision]);
 
-            auto res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+            auto res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h, FP32Converter[precision]);
             if (!res) {
                 FUNC_PRINT(1);
                 return false;
@@ -75,7 +78,7 @@ public:
             matmulParam->transposeA = true;
             matmulParam->transposeB = false;
             y                       = Variable::create(Expr::create(op.get(), {tranposeA, x1}));
-            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h, FP32Converter[precision]);
             if (!res) {
                 FUNC_PRINT(1);
                 return false;
@@ -84,7 +87,7 @@ public:
             matmulParam->transposeA = true;
             matmulParam->transposeB = true;
             y                       = Variable::create(Expr::create(op.get(), {tranposeA, tranposeB}));
-            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h, FP32Converter[precision]);
             if (!res) {
                 FUNC_PRINT(1);
                 return false;
@@ -92,7 +95,7 @@ public:
             matmulParam->transposeA = false;
             matmulParam->transposeB = true;
             y                       = Variable::create(Expr::create(op.get(), {x0, tranposeB}));
-            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+            res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h, FP32Converter[precision]);
             if (!res) {
                 FUNC_PRINT(1);
                 return false;
@@ -115,13 +118,13 @@ public:
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < batch; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
             }
             auto y    = Variable::create(Expr::create(op.get(), {x0, x1}));
             auto yPtr = y->readMap<float>();
             for (int b = 0; b < batch; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h);
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
                 if (!res) {
                     FUNC_PRINT(1);
                     return false;
@@ -146,15 +149,15 @@ public:
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < batch; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
             }
             auto tranposeA = _Transpose(x0, {0, 2, 1});
             auto y         = Variable::create(Expr::create(op.get(), {tranposeA, x1}));
 
             auto yPtr = y->readMap<float>();
             for (int b = 0; b < batch; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h);
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
                 if (!res) {
                     FUNC_PRINT(1);
                     return false;
@@ -179,15 +182,15 @@ public:
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < batch; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
             }
             auto tranposeB = _Transpose(x1, {0, 2, 1});
             auto y         = Variable::create(Expr::create(op.get(), {x0, tranposeB}));
 
             auto yPtr = y->readMap<float>();
             for (int b = 0; b < batch; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h);
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
                 if (!res) {
                     FUNC_PRINT(1);
                     return false;
@@ -212,8 +215,8 @@ public:
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < batch; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
             }
             auto tranposeA = _Transpose(x0, {0, 2, 1});
             auto tranposeB = _Transpose(x1, {0, 2, 1});
@@ -222,7 +225,7 @@ public:
 
             auto yPtr = y->readMap<float>();
             for (int b = 0; b < batch; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h);
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
                 if (!res) {
                     FUNC_PRINT(1);
                     return false;
@@ -248,10 +251,10 @@ public:
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < b0; ++b) {
-                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
+                fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
             }
             for (int b = 0; b < b1; ++b) {
-                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
             }
             auto tranposeA = _Transpose(x0, {0, 2, 1});
             auto tranposeB = _Transpose(x1, {0, 2, 1});
@@ -260,7 +263,7 @@ public:
 
             auto yPtr = y->readMap<float>();
             for (int b = 0; b < b0; ++b) {
-                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr, e, l, h);
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr, e, l, h, FP32Converter[precision]);
                 if (!res) {
                     FUNC_PRINT(1);
                     return false;

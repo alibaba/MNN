@@ -76,6 +76,7 @@ static PyObject* PyMNNVar_getdtype(PyMNNVar *self, void *closure);
 static PyObject* PyMNNVar_getsize(PyMNNVar *self, void *closure);
 static PyObject* PyMNNVar_getname(PyMNNVar *self, void *closure);
 static PyObject* PyMNNVar_getndim(PyMNNVar *self, void *closure);
+static PyObject* PyMNNVar_getptr(PyMNNVar *self, void *closure);
 static int PyMNNVar_setname(PyMNNVar *self, PyObject *value, void *closure);
 #ifdef BUILD_OPTYPE
 static PyObject* PyMNNVar_getop_type(PyMNNVar *self, void *closure);
@@ -109,6 +110,7 @@ static PyGetSetDef PyMNNVar_getsetters[] = {
 #endif
     {"inputs", (getter)PyMNNVar_getinputs, NULL, "inputs", NULL},
     {"ndim", (getter)PyMNNVar_getndim, NULL, "ndim", NULL},
+    {"ptr", (getter)PyMNNVar_getptr, NULL, "ptr", NULL},
     {NULL}  /* Sentinel */
 };
 static PyMethodDef PyMNNVar_methods[] = {
@@ -692,7 +694,7 @@ static PyObject* PyMNNVar_getname(PyMNNVar *self, void *closure) {
 }
 
 static PyObject* PyMNNVar_getndim(PyMNNVar *self, void *closure) {
-PyObject *ndim = NULL;
+    PyObject *ndim = NULL;
     if (self->var) {
         auto info = (*(self->var))->getInfo();
         if(nullptr == info) {
@@ -702,6 +704,16 @@ PyObject *ndim = NULL;
     }
     return ndim;
     Py_RETURN_NONE;
+}
+
+static PyObject* PyMNNVar_getptr(PyMNNVar *self, void *closure) {
+    if (self->var) {
+        const void* ptr = (*(self->var))->readMap<void>();
+        if(nullptr != ptr) {
+            return PyCapsule_New(const_cast<void*>(ptr), NULL, NULL);
+        }
+    }
+    PyMNN_ERROR("getptr: unable to get data ptr.");
 }
 
 static int PyMNNVar_setname(PyMNNVar *self, PyObject *value, void *closure) {
@@ -959,7 +971,7 @@ static PyObject* PyMNNExpr_gc(PyObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "i", &full)) {
         return NULL;
     }
-    auto exe = Executor::getGlobalExecutor();
+    auto exe = ExecutorScope::Current();
     if (full) {
         exe->gc(Executor::FULL);
     } else {
@@ -967,11 +979,7 @@ static PyObject* PyMNNExpr_gc(PyObject *self, PyObject *args) {
     }
     Py_RETURN_NONE;
 }
-INTS default_shape = {};
-INTS default_stride = {1, 1};
-INTS default_pads = {0, 0};
-INTS default_dialate = {1, 1};
-INTS default_axis = {};
+
 def_unary(Expr,
     sign, Express::_Sign,
     abs, Express::_Abs,
@@ -1133,6 +1141,7 @@ static PyObject* PyMNNExpr_broadcast_to(PyObject *self, PyObject *args) {
 }
 // NN ops
 static PyObject* PyMNNExpr_placeholder(PyObject *self, PyObject *args) {
+    INTS default_shape = {};
     PyObject *shape = toPyObj(default_shape),
              *format = toPyObj(NCHW),
              *type = toPyObj(DType_FLOAT);
@@ -1158,10 +1167,10 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
              *type = toPyObj(DType_FLOAT);
     static char *kwlist[] = { "value_list", "shape", "data_format", "dtype", NULL };
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OO", kwlist, &value, &shapes, &format, &type)) {
-        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes, [ints], |data_format, dtype)");
+        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
     }
     if (!isVals(value) || !isInts(shapes) || !isdata_format(format) || !isdtype(type)) {
-        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes, [ints], |data_format, dtype)");
+        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
     }
     auto data_format = toEnum<Dimensionformat>(format);
     auto dtype = toEnum<DType>(type);
@@ -1179,10 +1188,19 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
     }
     auto ret = getVar();
     if (total_length > 0) {
-        auto data = toPtr(value, dtype, total_length);
+        void* data = nullptr;
+        bool need_free = false;
+        if (PyCapsule_CheckExact(value)) {
+            data = PyCapsule_GetPointer(value, NULL);
+        } else {
+            data = toPtr(value, dtype, total_length);
+            need_free = true;
+        }
         if(data) {
             *(ret->var) = _Const((const void*)data, shape, data_format, dtype2htype(dtype));
-            free(data);
+            if (need_free) {
+                free(data);
+            }
         }
     } else {
         *(ret->var) = _Const(nullptr, shape, data_format, dtype2htype(dtype));
@@ -1190,10 +1208,12 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
     return (PyObject *)ret;
 }
 static PyObject* PyMNNExpr_conv2d(PyObject *self, PyObject *args) {
+    INTS default_stride = {1, 1};
+    INTS default_pads = {0, 0};
     PyObject *input, *weight, *bias,
              *stride = toPyObj(default_stride),
              *padding = toPyObj(default_pads),
-             *dilate = toPyObj(default_dialate),
+             *dilate = toPyObj(default_stride),
              *padding_mode = toPyObj(VALID);
     int group = 1;
     if (PyArg_ParseTuple(args, "OOO|OOOiO", &input, &weight, &bias,
@@ -1208,10 +1228,12 @@ static PyObject* PyMNNExpr_conv2d(PyObject *self, PyObject *args) {
     PyMNN_ERROR("conv2d require args: (Var, Var, Var, |Padding_Mode, [int], [int], int, [int])");
 }
 static PyObject* PyMNNExpr_conv2d_transpose(PyObject *self, PyObject *args) {
+    INTS default_stride = {1, 1};
+    INTS default_pads = {0, 0};
     PyObject *input, *weight, *bias,
              *stride = toPyObj(default_stride),
              *padding = toPyObj(default_pads),
-             *dilate = toPyObj(default_dialate),
+             *dilate = toPyObj(default_stride),
              *padding_mode = toPyObj(VALID);
     int group = 1;
     if (PyArg_ParseTuple(args, "OOO|OOOiO", &input, &weight, &bias,
@@ -1226,6 +1248,7 @@ static PyObject* PyMNNExpr_conv2d_transpose(PyObject *self, PyObject *args) {
     PyMNN_ERROR("conv2d_transpose require args: (Var, Var, Var, |Padding_Mode, [int], [int], int, [int])");
 }
 static PyObject* PyMNNExpr_max_pool(PyObject *self, PyObject *args) {
+    INTS default_pads = {0, 0};
     PyObject *x, *kernel, *stride,
              *padding_mode = toPyObj(VALID),
              *pads = toPyObj(default_pads);
@@ -1239,6 +1262,7 @@ static PyObject* PyMNNExpr_max_pool(PyObject *self, PyObject *args) {
     PyMNN_ERROR("max_pool require args: (Var, [int], [int], |Padding_Mode, [int])");
 }
 static PyObject* PyMNNExpr_avg_pool(PyObject *self, PyObject *args) {
+    INTS default_pads = {0, 0};
     PyObject *x, *kernel, *stride,
              *padding_mode = toPyObj(VALID),
              *pads = toPyObj(default_pads);

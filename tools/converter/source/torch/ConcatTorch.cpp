@@ -24,9 +24,15 @@ std::vector<int> ListTorch::inputTensorIdx() {
 void ListTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::PackParamT;
     param->axis = 0;
+    if (getRealOpType(node) == "stack") {
+        dstOp->inputIndexes.pop_back();
+        auto axis = node->inputs().back();
+        param->axis = getValue<int64_t>(axis);
+    }
     dstOp->main.value = param;
 }
 
+REGISTER_CONVERTER(ListTorch, stack);
 REGISTER_CONVERTER(ListTorch, ListConstruct);
 
 DECLARE_OP_CONVERTER(TupleTorch);

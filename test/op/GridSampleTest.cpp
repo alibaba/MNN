@@ -17,24 +17,24 @@
 
 using namespace MNN::Express;
 
-static float getPosition(float x, int range, bool alignCorners, GridSamplePaddingMode paddingMode) {
+static float getPosition(float x, int range, bool alignCorners, GridSamplePaddingMode paddingMode, ConvertFP32 functor) {
     if (paddingMode == GRID_SAMPLE_PADDING_REFLECTION) {
         // if x is on the left side of -1.0, move it to the right side of 1.0
         if (x < -1.0f) {
-            x = x + ::ceil(1 - x) * 4;
+            x = functor(x + ::ceil(1 - x) * 4);
         }
         // reflect
         if (x > 1.0f) {
-            float l = x - 1.0f;
+            float l = functor(x - 1.0f);
             int reflectionNum = ::floor(l / 2.0);
-            float offset = l - reflectionNum * 2.0f;
-            x = (reflectionNum % 2 == 0) ? (1 - offset) : (-1.0f + offset);
+            float offset = functor(l - reflectionNum * 2.0f);
+            x = (reflectionNum % 2 == 0) ? functor(1 - offset) : functor(-1.0f + offset);
         }
     }
 
     float a = alignCorners ? 1.0f : 0.0f;
     float b = alignCorners ? 0.0f : 1.0f;
-    return ((1 + x) * (range - a) - b) / 2.0f;
+    return functor(functor(functor(1 + x) * functor(range - a) - b) / 2.0f);
 }
 
 static int CLAMP(int v, int min, int max) {
@@ -62,7 +62,7 @@ static float sample(int h, int w, const float *buffer, int height, int width, Gr
 }
 
 static float interpolate(float h, float w, const float *buffer, int height, int width, InterpolationMethod mode,
-                         GridSamplePaddingMode paddingMode) {
+                         GridSamplePaddingMode paddingMode, ConvertFP32 functor) {
     if (mode == NEAREST) {
         int nh = ::floor(h+0.5f);
         int nw = ::floor(w+0.5f);
@@ -80,15 +80,16 @@ static float interpolate(float h, float w, const float *buffer, int height, int 
     float i10 = sample(w1_h, w0_w, buffer, height, width, paddingMode);
     float i11 = sample(w1_h, w1_w, buffer, height, width, paddingMode);
 
-    float i0 = i00 * (w1_w - w) + i01 * (w - w0_w);
-    float i1 = i10 * (w1_w - w) + i11 * (w - w0_w);
+    float i0 = functor(functor(i00) * (w1_w - w) + functor(i01) * (w - w0_w));
+    float i1 = functor(functor(i10) * (w1_w - w) + functor(i11) * (w - w0_w));
 
-    return i0 * (w1_h - h) + i1 * (h - w0_h);
+    return functor(functor(i0 * (w1_h - h)) + functor(i1 * (h - w0_h)));
 }
 
 static void reference_grid_sample(const float *inputPtr, const float *gridPtr, std::vector<float> &output,
                                   int batch, int inHeight, int inWidth, int outHeight, int outWidth, int depth,
-                                  InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners) {
+                                  InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners,
+                                  ConvertFP32 functor) {
     output.resize(batch * outHeight * outWidth * depth);
 
     float *outputPtr = output.data();
@@ -106,10 +107,10 @@ static void reference_grid_sample(const float *inputPtr, const float *gridPtr, s
                 auto ___outputPtr = __outputPtr + h * outWidth;
 
                 for (auto w = 0; w < outWidth; ++w) {
-                    auto x = getPosition(__gridPtr[2 * w + 0], inWidth, alignCorners, paddingMode);
-                    auto y = getPosition(__gridPtr[2 * w + 1], inHeight, alignCorners, paddingMode);
+                    auto x = getPosition(__gridPtr[2 * w + 0], inWidth, alignCorners, paddingMode, functor);
+                    auto y = getPosition(__gridPtr[2 * w + 1], inHeight, alignCorners, paddingMode, functor);
 
-                    ___outputPtr[w] = interpolate(y, x, __inputPtr, inHeight, inWidth, mode, paddingMode);
+                    ___outputPtr[w] = interpolate(y, x, __inputPtr, inHeight, inWidth, mode, paddingMode, functor);
                 }
             }
         }
@@ -132,7 +133,7 @@ bool checkVector(const T* result, const T* rightData, int size, T threshold, T r
     int count = 0;
     for(int i = 0; i < size; ++i){
         if(fabs(result[i] - rightData[i]) > threshold){
-            //std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
+            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             count ++;
         }
     }
@@ -179,17 +180,17 @@ public:
             std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
 
             for (int i = 0; i < batch * inHeight * inWidth * depth; i++) {
-                inputPtr[i] = inputDist(gen);
+                inputPtr[i] = FP32Converter[precision](inputDist(gen));
             }
             for (int b = 0; b < batch; b++) {
                 for (int h = 0; h < outHeight; h++) {
                     for (int w = 0; w < outWidth; w++) {
-                        float offsetH = gridDist(gen);
-                        float offsetW = gridDist(gen);
+                        float offsetH = FP32Converter[precision](gridDist(gen));
+                        float offsetW = FP32Converter[precision](gridDist(gen));
                         gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 0] =
-                        2.0f * w / (outWidth-1) - 1.0f + offsetW;
+                        FP32Converter[precision](2.0f * w / (outWidth-1) - 1.0f + offsetW);
                         gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 1] =
-                        2.0f * h / (outHeight-1) - 1.0f + offsetH;
+                        FP32Converter[precision](2.0f * h / (outHeight-1) - 1.0f + offsetH);
                     }
                 }
             }
@@ -212,7 +213,7 @@ public:
                     for (auto alignCorners : alignCornersVec) {
                         reference_grid_sample(inputPtr, gridPtr, expectedOutput,
                                               batch, inHeight, inWidth, outHeight, outWidth, depth,
-                                              mode, paddingMode, alignCorners);
+                                              mode, paddingMode, alignCorners, FP32Converter[precision]);
                         auto expectedOutPtr = expectedOutput.data();
 
                         grid->unMap();
@@ -235,7 +236,7 @@ public:
                                     return false;
                                 }
                             } else {
-                                if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01)) {
+                                if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01, 0.01)) {
                                     MNN_ERROR("GridSampleTest BILINEAR test failed!\n");
                                     return false;
                                 }
