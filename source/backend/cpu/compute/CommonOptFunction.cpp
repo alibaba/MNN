@@ -2372,6 +2372,7 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
         }
         out = vrecpeq_f32(vaddq_f32(value,out));
         vst1q_f32(dst, out);
+        dst += 4;
         dataSize = dataSize - 4 * dataC4;
     }
 #endif
