@@ -17,6 +17,7 @@
 #include "math/Vec.hpp"
 #include "core/BufferAllocator.hpp"
 #include "common/MemoryFormater.h"
+#define PARAMETERSIZE 6
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
@@ -378,8 +379,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         info[1] = src_width * src_height * batch;
         info[2] = eP;
         info[3] = strideX;
-        constexpr int ParameterSize = 6;
-        size_t shapeParameters[ParameterSize];
+        size_t shapeParameters[PARAMETERSIZE];
         size_t* parameters = shapeParameters;
         parameters[0]          = eP * bytes;
         parameters[1]          = L;
@@ -487,8 +487,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
             if (xC == eP) {
                 MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
-                    size_t paraParameters[ParameterSize];
-                    memcpy(paraParameters, parameters, ParameterSize * sizeof(size_t));
+                    size_t paraParameters[PARAMETERSIZE];
+                    memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
                         auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
                         int ocIndex = t_oc * unit;
@@ -500,8 +500,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 MNN_CONCURRENCY_END();
             } else {
                 MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
-                    size_t paraParameters[ParameterSize];
-                    memcpy(paraParameters, parameters, ParameterSize * sizeof(size_t));
+                    size_t paraParameters[PARAMETERSIZE];
+                    memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
                         auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
                         int ocIndex = t_oc * unit;
