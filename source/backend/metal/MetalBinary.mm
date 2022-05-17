@@ -87,6 +87,9 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
         auto binaryop = op->main_as_BinaryOp();
         auto type = _convert(binaryop->opType());
+        if (inputs[0]->getType().code != halide_type_float) {
+            return nullptr;
+        }
         if (type.empty()) {
             FUNC_PRINT(binaryop->opType());
             return nullptr;
