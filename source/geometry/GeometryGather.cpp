@@ -304,7 +304,7 @@ public:
         }
         auto paramSize = params->elementSize();
         std::array<std::shared_ptr<Tensor>, 5> midTensors;
-        std::shared_ptr<Tensor> constStride(Tensor::createDevice<int>({indiceNd, 1}));
+        std::shared_ptr<Tensor> constStride(Tensor::createDevice<float>({indiceNd, 1}));
         if (!context.allocTensor(constStride.get())) {
             return false;
         }

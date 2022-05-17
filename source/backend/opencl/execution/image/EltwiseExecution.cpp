@@ -176,15 +176,15 @@ public:
                 case BinaryOpOperation_MAXIMUM:
                     return new EltwiseExecution(inputs, "in0>in1?in0:in1", op, backend);
                 case BinaryOpOperation_GREATER:
-                    return new EltwiseExecution(inputs, "convert_float4(isgreater(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-isgreater(in0,in1))", op, backend);
                 case BinaryOpOperation_LESS:
-                    return new EltwiseExecution(inputs, "convert_float4(isless(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-isless(in0,in1))", op, backend);
                 case BinaryOpOperation_LESS_EQUAL:
-                    return new EltwiseExecution(inputs, "convert_float4(islessequal(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-islessequal(in0,in1))", op, backend);
                 case BinaryOpOperation_GREATER_EQUAL:
-                    return new EltwiseExecution(inputs, "convert_float4(isgreaterequal(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-isgreaterequal(in0,in1))", op, backend);
                 case BinaryOpOperation_EQUAL:
-                    return new EltwiseExecution(inputs, "convert_float4(isequal(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-isequal(in0,in1))", op, backend);
                 case BinaryOpOperation_FLOORDIV:
                     return new EltwiseExecution(inputs, "floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
                 case BinaryOpOperation_FLOORMOD:
@@ -196,7 +196,7 @@ public:
                 case BinaryOpOperation_ATAN2:
                     return new EltwiseExecution(inputs, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
                 case BinaryOpOperation_NOTEQUAL:
-                    return new EltwiseExecution(inputs, "convert_float4(isnotequal(in0,in1))", op, backend);
+                    return new EltwiseExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
                 case BinaryOpOperation_MOD:
                     return new EltwiseExecution(inputs, "in0-sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
                 default:
