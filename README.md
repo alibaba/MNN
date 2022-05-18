@@ -57,19 +57,15 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 
 ## How to Discuss and Get Help From MNN Community
 
-Scan the following QR codes to join Dingtalk discussion group. The group discussions are predominantly Chinese. But we welcome and will help English speakers.
+The group discussions are predominantly Chinese. But we welcome and will help English speakers.
 
-Group #1 (Full):
+Dingtalk discussion groups:
 
-<img src="doc/DingTalkQR1.png" height="256"/>
+Group #1 (Full): 23329087
 
-Group #2 (Full):
+Group #2 (Full): 23350225
 
-<img src="doc/DingTalkQR2.png" height="256"/>
-
-Group #3:
-
-<img src="doc/DingTalkQR3.png" height="256"/>
+Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding2c1d5c85a81030b9a483726330e8af54&574b2bb2-c53a-4=497bad6b-25a5-4&cbdbhh=qwertyuiop
 
 ## License
 Apache 2.0
