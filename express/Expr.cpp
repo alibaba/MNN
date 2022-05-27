@@ -601,7 +601,7 @@ void* Variable::readInternal(bool forShape) {
         auto des = TensorUtils::getDescribe(originTensor);
         if (WrapExecution::needWrap(originTensor, nullptr) || (des->quantAttr != nullptr && des->type == DataType_DT_INT8)) {
             // For StaticModule will other-device runtime, we may create Variable with other-device's memory
-            // The case won't occured for varibale = INPUT
+            // The case won't occurred for varibale = INPUT
             // Need Copy
             if (nullptr != inside->mHostTensor) {
                 // The Varp will not be created as input, so we just need copy once

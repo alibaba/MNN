@@ -127,9 +127,9 @@ public:
         /** The input tensor is alloced by user, set input data before session resize*/
         Session_Input_User = 3,
 
-        /** The output tensor depends on session, and can't be seperate used*/
+        /** The output tensor depends on session, and can't be separate used*/
         Session_Output_Inside = 4,
-        /** The output tensor can be seperated from session*/
+        /** The output tensor can be separated from session*/
         Session_Output_User = 5,
 
         /** Try Resize Session when create Session or not, default direct: */
@@ -176,7 +176,7 @@ public:
     void setSessionHint(HintMode mode, int value);
 public:
     /**
-     * @brief create runtimeInfo seperately with schedule config.
+     * @brief create runtimeInfo separately with schedule config.
      * @param configs session schedule configs.
      */
     static RuntimeInfo createRuntime(const std::vector<ScheduleConfig>& configs);
@@ -232,7 +232,7 @@ public:
 
     /**
      * @brief Get the model buffer for user to save
-     * @return std::make_pair(modleBuffer, modelSize).
+     * @return std::make_pair(modelBuffer, modelSize).
      * @example:
      * std::ofstream output("trainResult.alinn")
      * auto buffer = net->getModelBuffer();

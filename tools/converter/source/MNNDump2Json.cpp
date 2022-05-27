@@ -85,7 +85,7 @@ int main(int argc, const char** argv) {
             }
         }
         if (argc > 4) {
-            printf("Seperate dump subgraph\n");
+            printf("Separate dump subgraph\n");
             for (int i=0; i<netT->subgraphs.size(); ++i) {
                 auto& g = netT->subgraphs[i];
                 flatbuffers::FlatBufferBuilder newBuilder(1024);

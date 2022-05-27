@@ -147,7 +147,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         output.write((const char*)bufferOutput, sizeOutput);
     }
     if (!netT->subgraphs.empty()) {
-        MNN_PRINT("The modle has subgraphs, please use MNN::Module to run it\n");
+        MNN_PRINT("The model has subgraphs, please use MNN::Module to run it\n");
     }
 
 #ifdef MNN_DUMP_SUBGRAPH
