@@ -30,7 +30,7 @@ void android_main(android_app *app) {
 
   // ...Code to store on disk or send over a network goes here...
 
-  // Instead, we're going to access it immediately, as if we just recieved this.
+  // Instead, we're going to access it immediately, as if we just received this.
 
   auto animal = sample::GetAnimal(builder.GetBufferPointer());
 

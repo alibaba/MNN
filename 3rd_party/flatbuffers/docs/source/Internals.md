@@ -416,7 +416,7 @@ The keys vector is a typed vector of keys. Both the keys and corresponding
 values *have* to be stored in sorted order (as determined by `strcmp`), such
 that lookups can be made using binary search.
 
-The reason the key vector is a seperate structure from the value vector is
+The reason the key vector is a separate structure from the value vector is
 such that it can be shared between multiple value vectors, and also to
 allow it to be treated as its own individual vector in code.
 

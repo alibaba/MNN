@@ -4335,7 +4335,7 @@ Symbol DescriptorBuilder::FindSymbol(const std::string& name, bool build_it) {
     // Arg, this is overcomplicated.  The symbol is a package name.  It could
     // be that the package was defined in multiple files.  result.GetFile()
     // returns the first file we saw that used this package.  We've determined
-    // that that file is not a direct dependency of the file we are currently
+    // that file is not a direct dependency of the file we are currently
     // building, but it could be that some other file which *is* a direct
     // dependency also defines the same package.  We can't really rule out this
     // symbol unless none of the dependencies define it.

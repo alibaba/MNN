@@ -292,7 +292,7 @@ void MessageGenerator::GenerateExtensionRegistrationSource(
 }
 
 void MessageGenerator::GenerateMessageHeader(io::Printer* printer) {
-  // This a a map entry message, just recurse and do nothing directly.
+  // This is a map entry message, just recurse and do nothing directly.
   if (IsMapEntryMessage(descriptor_)) {
     for (const auto& generator : nested_message_generators_) {
       generator->GenerateMessageHeader(printer);

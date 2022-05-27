@@ -5941,7 +5941,7 @@ public:
      *       in the context associated with kernel support it.
      * 
      * \param svmEnabled True if fine-grained system SVM is requested. False otherwise.
-     * \return CL_SUCCESS if the function was executed succesfully. CL_INVALID_OPERATION
+     * \return CL_SUCCESS if the function was executed successfully. CL_INVALID_OPERATION
      *         if no devices in the context support fine-grained system SVM.
      *
      * \see clSetKernelExecInfo

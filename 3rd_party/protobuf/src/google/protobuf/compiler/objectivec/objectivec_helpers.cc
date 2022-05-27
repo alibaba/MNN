@@ -1332,7 +1332,7 @@ bool ValidateObjCClassPrefix(
     }
   } // !prefix.empty()
 
-  // Check: Warning - Make sure the prefix is is a reasonable value according
+  // Check: Warning - Make sure the prefix is a reasonable value according
   // to Apple's rules (the checks above implicitly whitelist anything that
   // doesn't meet these rules).
   if (!prefix.empty() && !ascii_isupper(prefix[0])) {

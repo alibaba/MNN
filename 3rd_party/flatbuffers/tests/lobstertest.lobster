@@ -131,4 +131,4 @@ assert not err2
 // Check the resulting binary again (full roundtrip test):
 check_read_buffer(fb3)
 
-print "Lobster test succesful!"
+print "Lobster test successful!"

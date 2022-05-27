@@ -35,7 +35,7 @@
 // Here we have a hand-written lexer.  At first you might ask yourself,
 // "Hand-written text processing?  Is Kenton crazy?!"  Well, first of all,
 // yes I am crazy, but that's beside the point.  There are actually reasons
-// why I ended up writing this this way.
+// why I ended up writing this way.
 //
 // The traditional approach to lexing is to use lex to generate a lexer for
 // you.  Unfortunately, lex's output is ridiculously ugly and difficult to

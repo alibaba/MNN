@@ -2316,7 +2316,7 @@ mistakenly tagged at the wrong commit.
   JavaNano:
     JavaNano is a special code generator and runtime library designed especially
     for resource-restricted systems, like Android. It is very resource-friendly
-    in both the amount of code and the runtime overhead. Here is an an overview
+    in both the amount of code and the runtime overhead. Here is an overview
     of JavaNano features compared with the official Java protobuf:
 
     - No descriptors or message builders.
