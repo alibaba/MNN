@@ -332,7 +332,7 @@ typedef enum _CoreML__Specification__Pooling3DLayerParams__PoolingType3D {
  * SAME padding adds enough padding to each dimension such that the output
  * has the same spatial dimensions as the input. Padding is added evenly to both
  * sides of each dimension unless the total padding to add is odd, in which case the extra padding
- * is added to the back/bottom/right side of the respective dimension.  For example, if the the
+ * is added to the back/bottom/right side of the respective dimension.  For example, if the
  * total horizontal padding is 3, then there will be 1 padding on the left, and 2 padding on the right.
  */
 typedef enum _CoreML__Specification__Pooling3DLayerParams__Pooling3DPaddingType {
@@ -2240,7 +2240,7 @@ struct  _CoreML__Specification__ConvolutionLayerParams
  *   A blob of rank 5.
  *   The output blob's shape is ``[batch, channelsOut, depthOut, heightOut, widthOut]``.
  * Type of padding can be ``custom``, ``valid``, or ``same``. Padded values are all zeros.
- * Output spatial dimensions depend on the the type of padding. For details, refer to the
+ * Output spatial dimensions depend on the type of padding. For details, refer to the
  * descriptions of the ``PaddingType`` field of this ``Convolution3DLayerParams`` message.
  * Example
  *   For example, given an input of size ``[1, 3, 3, 8, 8]``, a stride of 2 in each dimension,
@@ -5729,7 +5729,7 @@ struct  _CoreML__Specification__ConstantPaddingLayerParams
   /*
    **
    * Length of this repeated field must be twice the rank of the first input.
-   * 2*i-th and (2*i+1)-th values represent the amount of padding to be applied to the the i-th input
+   * 2*i-th and (2*i+1)-th values represent the amount of padding to be applied to the i-th input
    * dimension, "before" and "after" the input values, respectively.
    */
   size_t n_padamounts;

@@ -143,8 +143,8 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
         MTensor->buffer().device = (uint64_t)(newBuffer.get());
         return new VulkanMemRelease(newBuffer);
     }
-    bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
-    auto newBuffer = std::make_shared<VulkanTensor>(MTensor, getDynamicMemoryPool(), device().proty().limits, seperate);
+    bool separate  = storageType == Backend::DYNAMIC_SEPERATE;
+    auto newBuffer = std::make_shared<VulkanTensor>(MTensor, getDynamicMemoryPool(), device().proty().limits, separate);
     MTensor->buffer().device = (uint64_t)(newBuffer.get());
     mAllBuffers.insert(std::make_pair(MTensor->buffer().device, newBuffer));
     return new VulkanMemRelease(newBuffer);;

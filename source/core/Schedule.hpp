@@ -26,11 +26,11 @@ struct Net;
 class MNN_PUBLIC Schedule {
 public:
     enum Type {
-        // Size can be compute seperately
-        SEPERATE = 0,
+        // Size can be compute separately
+        SEPARATE = 0,
         // When size is fixed, the content is fixed
         CONSTANT = 1,
-        // Size can't be compute seperately
+        // Size can't be compute separately
         NOT_SEPERATE
     };
     /** pipeline info */
@@ -42,7 +42,7 @@ public:
         /** output tensors */
         std::vector<Tensor*> outputs;
         /** schedule type*/
-        Schedule::Type type = Schedule::Type::SEPERATE;
+        Schedule::Type type = Schedule::Type::SEPARATE;
 
         /**Command buffer for cache*/
         CommandBuffer cacheBuffer;

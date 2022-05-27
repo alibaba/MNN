@@ -28,10 +28,10 @@ private:
 
 class VulkanImage : public NonCopyable {
 public:
-    VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std::vector<int>& dims,
+    VulkanImage(const VulkanMemoryPool& pool, bool separate, const std::vector<int>& dims,
                 halide_type_t type = halide_type_of<float>());
-    VulkanImage(const VulkanMemoryPool& pool, bool seperate, int w, int h)
-        : VulkanImage(pool, seperate, std::vector<int>{w, h}) {
+    VulkanImage(const VulkanMemoryPool& pool, bool separate, int w, int h)
+        : VulkanImage(pool, separate, std::vector<int>{w, h}) {
     }
     virtual ~VulkanImage();
 

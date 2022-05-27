@@ -9,8 +9,8 @@
 #include "backend/opencl/core/ImagePool.hpp"
 namespace MNN {
 namespace OpenCL {
-cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool seperate) {
-    if (!seperate) {
+cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool separate) {
+    if (!separate) {
         int minWaste  = 0;
         auto findIter = mFreeList.end();
         for (auto iterP = mFreeList.begin(); iterP != mFreeList.end(); iterP++) {

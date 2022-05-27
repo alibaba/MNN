@@ -50,7 +50,7 @@ static VkFormat _getFormat(halide_type_t type) {
     return VK_FORMAT_R32G32B32A32_SFLOAT;
 }
 
-VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std::vector<int>& dims, halide_type_t type)
+VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool separate, const std::vector<int>& dims, halide_type_t type)
     : mDevice(pool.device()), mPool(pool) {
     MNN_ASSERT(dims.size() >= 1 && dims.size() <= 3);
     auto imageType = VK_IMAGE_TYPE_1D;
@@ -84,7 +84,7 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
     VkMemoryRequirements memRequirements;
     mDevice.getImageMemoryRequirements(mImage.first, memRequirements);
 
-    mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memRequirements, 0, seperate);
+    mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memRequirements, 0, separate);
     //        FUNC_PRINT(mMemory->type());
     auto realMem = (VulkanMemory*)mMemory.first;
     mDevice.bindImageMemory(mImage.first, realMem->get(), mMemory.second);

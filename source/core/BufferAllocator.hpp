@@ -48,12 +48,12 @@ public:
     /**
      * @brief alloc CHUNK pointer with given size. if any reusable pointer matches size, reuse it.
      * @param size  given size.
-     * @param seperate if true, the memory can't be alloc from free pool
+     * @param separate if true, the memory can't be alloc from free pool
      * @return allocated or used CHUNK pointer.
      * @sa free
      * @sa release
      */
-    std::pair<void*, size_t> alloc(size_t size, bool seperate = false, size_t align = 0);
+    std::pair<void*, size_t> alloc(size_t size, bool separate = false, size_t align = 0);
 
     /**
      * @brief mark CHUNK pointer as reusable.

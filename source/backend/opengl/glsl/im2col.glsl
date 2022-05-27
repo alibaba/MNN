@@ -15,7 +15,7 @@ layout (local_size_x = XLOCAL, local_size_y = YLOCAL, local_size_z = ZLOCAL) in;
 //index : ib*ic/4, oh, ow
 //input image ic/4, ih, iw * ic4
 //inputsize : ic/4, ih, iw
-//ouputsize : oc/4, oh, ow
+//outputsize : oc/4, oh, ow
 //output : temp image : (ib*oh*ow)/ 4, ic/4*ky*kx*(ib*oh*ow)%4*ic4
 void main()
 {

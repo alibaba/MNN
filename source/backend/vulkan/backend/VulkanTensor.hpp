@@ -18,7 +18,7 @@ class VulkanTensor : public NonCopyable {
 public:
     ~VulkanTensor() {
     }
-    VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, const VkPhysicalDeviceLimits& limits, bool seperate = false);
+    VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, const VkPhysicalDeviceLimits& limits, bool separate = false);
     void release();
 
     size_t imageSize() const {

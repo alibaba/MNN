@@ -346,11 +346,11 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         if (breakIndex >= 0 && (breakIndex + 1) < iter->second.size()) {
             // Split oplist
             std::vector<Schedule::PipelineInfo> fuse;
-            std::vector<Schedule::PipelineInfo> seperate;
+            std::vector<Schedule::PipelineInfo> separate;
             fuse.insert(fuse.begin(), iter->second.begin(), iter->second.begin() + breakIndex + 1);
-            seperate.insert(seperate.begin(), iter->second.begin() + breakIndex + 1, iter->second.end());
+            separate.insert(separate.begin(), iter->second.begin() + breakIndex + 1, iter->second.end());
             oplists.clear();
-            iter->second = std::move(seperate);
+            iter->second = std::move(separate);
             iter = scheduleInfo.pipelineInfo.insert(iter, std::make_pair(iter->first, fuse));
             iter++;
             iter++;

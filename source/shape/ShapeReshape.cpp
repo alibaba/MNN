@@ -74,7 +74,7 @@ public:
         } else {
             // shape which is getted at the runtime
             auto inputShape = inputs[1];
-            // For the modle convert from tensorflow, the format is NHWC, otherwise NCHW
+            // For the model convert from tensorflow, the format is NHWC, otherwise NCHW
             fromTf          = TensorUtils::getDescribe(inputShape)->dimensionFormat == MNN_DATA_FORMAT_NHWC;
             dimSize         = inputShape->elementSize();
             auto dim = inputShape->host<int32_t>();

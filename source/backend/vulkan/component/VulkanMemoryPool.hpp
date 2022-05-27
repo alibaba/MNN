@@ -48,7 +48,7 @@ public:
     virtual ~VulkanMemoryPool();
 
     // VulkanMemory* , offset
-    std::pair<void*, int> allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool seperate = false);
+    std::pair<void*, int> allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool separate = false);
     void returnMemory(std::pair<void*, int> memory);
 
     // Free Unuseful Memory

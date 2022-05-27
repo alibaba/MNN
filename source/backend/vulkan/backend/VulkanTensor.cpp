@@ -67,7 +67,7 @@ int VulkanTensor::getAlignSize(const Tensor* tensor) {
 }
 
 
-VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, const VkPhysicalDeviceLimits& limits, bool seperate) {
+VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, const VkPhysicalDeviceLimits& limits, bool separate) {
     auto nhwc = tensorShapeFormat(shape);
     auto width = UP_DIV(nhwc[3], 4) * nhwc[2];
     auto height = nhwc[0] * nhwc[1];
@@ -84,7 +84,7 @@ VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, co
             auto xSta = x * unit;
             auto xFin = std::min(width, xSta + unit);
             auto wReal = xFin - xSta;
-            mImage[y*mBlocks[0] + x] = std::make_shared<VulkanImage>(pool, seperate, std::vector<int>{wReal, hReal}, shape->getType());
+            mImage[y*mBlocks[0] + x] = std::make_shared<VulkanImage>(pool, separate, std::vector<int>{wReal, hReal}, shape->getType());
         }
     }
 }
