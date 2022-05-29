@@ -54,7 +54,7 @@ public:
             inputCount == layer->group() &&
             inputCount == input->channel();
         int commonChannelMatch =
-            inputCount == inputs[0]->channel() ||            // real relationship in in express
+            inputCount == inputs[0]->channel() ||            // real relationship in express
             (inputCount * layer->group() == input->channel()); // standard definition of group convolution
         bool valid = inputCount == 0 || depthwiseMatch || commonChannelMatch;
 

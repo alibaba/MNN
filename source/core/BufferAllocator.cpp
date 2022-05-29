@@ -62,7 +62,7 @@ BufferAllocator::Node::~Node() {
         outside->onRelease(pointer);
     }
 }
-std::pair<void*, size_t> BufferAllocator::alloc(size_t size, bool seperate, size_t align) {
+std::pair<void*, size_t> BufferAllocator::alloc(size_t size, bool separate, size_t align) {
 #ifdef DUMP_USAGE
     auto memoryUsed = size / 1024.0f / 1024.0f;
     MNN_PRINT("Alloc: %f\n", memoryUsed);
@@ -72,7 +72,7 @@ std::pair<void*, size_t> BufferAllocator::alloc(size_t size, bool seperate, size
     }
     std::pair<void*, size_t> pointer;
     // reuse if possible
-    if (!seperate) {
+    if (!separate) {
         if (nullptr != mCurrentFreeList) {
             pointer = getFromFreeList(mCurrentFreeList, size, false, align);
         }

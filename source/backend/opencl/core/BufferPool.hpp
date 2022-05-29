@@ -23,7 +23,7 @@ public:
         mFlag = flags;
     }
 
-    cl::Buffer* alloc(int size, bool seperate = false);
+    cl::Buffer* alloc(int size, bool separate = false);
     void recycle(cl::Buffer* buffer, bool release = false);
     void clear();
 

@@ -183,7 +183,7 @@ ErrorCode Session::resize(bool isStatic) {
         // Set needResize = true for easy for judge in runSession when error
         mNeedResize = true;
         // Turn Pipeline to Command Buffer and Malloc resource
-        // TODO: Seperate Schedule and Malloc
+        // TODO: Separate Schedule and Malloc
         for (auto& iter : mPipelines) {
             auto error = iter->allocMemory(firstMalloc);
             if (NO_ERROR != error) {

@@ -45,5 +45,5 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
     endif()
 
 else()
-# Building fat binary requires multiple seperate builds and lipo-by-hand under CMake's design
+# Building fat binary requires multiple separate builds and lipo-by-hand under CMake's design
 endif()

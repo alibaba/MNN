@@ -21,7 +21,7 @@ public:
     ImagePool(cl::Context& context) : mContext(context) {
     }
 
-    cl::Image* alloc(int w, int h, cl_channel_type type, bool seperate = false);
+    cl::Image* alloc(int w, int h, cl_channel_type type, bool separate = false);
     void recycle(cl::Image* image, bool release = false);
     void clear();
 

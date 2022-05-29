@@ -9,8 +9,8 @@
 #include "backend/opencl/core/BufferPool.hpp"
 namespace MNN {
 namespace OpenCL {
-cl::Buffer* BufferPool::alloc(int size, bool seperate) {
-    if (!seperate) {
+cl::Buffer* BufferPool::alloc(int size, bool separate) {
+    if (!separate) {
         auto iter = mFreeList.lower_bound(size);
         if (iter != mFreeList.end()) {
             auto buffer = iter->second->buffer.get();

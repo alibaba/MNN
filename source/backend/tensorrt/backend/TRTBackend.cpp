@@ -248,7 +248,7 @@ void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     bool isConst = (TensorUtils::getDescribe(srcTensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT ||
                     TensorUtils::getDescribe(dstTensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT);
     if (isConst) {
-        // Only occured in cpu const -> backend const
+        // Only occurred in cpu const -> backend const
         MNN_ASSERT(mTensorMaps.find(dstTensor) != mTensorMaps.end());
         Dims dims;
         auto shape  = srcTensor->shape();

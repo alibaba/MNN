@@ -983,7 +983,7 @@ const char* glsl_im2col_glsl =
 "//index : ib*ic/4, oh, ow\n"
 "//input image ic/4, ih, iw * ic4\n"
 "//inputsize : ic/4, ih, iw\n"
-"//ouputsize : oc/4, oh, ow\n"
+"//outputsize : oc/4, oh, ow\n"
 "//output : temp image : (ib*oh*ow)/ 4, ic/4*ky*kx*(ib*oh*ow)%4*ic4\n"
 "void main()\n"
 "{\n"

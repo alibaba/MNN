@@ -10,7 +10,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
     add_library(MNN_Arm82 OBJECT ${MNN_ARM82_SRCS} ${MNN_ARM82_SRCS_ASM})
     target_compile_options(MNN_Arm82 PRIVATE -march=armv8.2-a+fp16 -DENABLE_ARMV82)
 else()
-# Building fat binary requires multiple seperate builds and lipo-by-hand under CMake's design
+# Building fat binary requires multiple separate builds and lipo-by-hand under CMake's design
 endif()
 
 target_include_directories(MNN_Arm82 PRIVATE ${CMAKE_CURRENT_LIST_DIR})

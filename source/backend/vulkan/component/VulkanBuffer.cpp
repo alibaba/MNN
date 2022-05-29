@@ -10,7 +10,7 @@
 #include <string.h>
 namespace MNN {
 
-VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool seperate, size_t size, const void* hostData,
+VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool separate, size_t size, const void* hostData,
                            VkBufferUsageFlags usage, VkSharingMode shared, VkFlags requirements_mask)
     : mPool(pool) {
     MNN_ASSERT(size > 0);
@@ -21,7 +21,7 @@ VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool seperate, size_t s
 
     VkMemoryRequirements memReq;
     mPool.device().getBufferMemoryRequirements(mBuffer, memReq);
-    mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memReq, requirements_mask, seperate);
+    mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memReq, requirements_mask, separate);
     //        FUNC_PRINT(mMemory->type());
     auto realMem = (VulkanMemory*)mMemory.first;
 

@@ -945,7 +945,7 @@ uint8_t Matrix::computeTypeMask() const {
     unsigned mask = 0;
 
     if (fMat[kMPersp0] != 0 || fMat[kMPersp1] != 0 || fMat[kMPersp2] != 1) {
-        // Once it is determined that that this is a perspective transform,
+        // Once it is determined that this is a perspective transform,
         // all other flags are moot as far as optimizations are concerned.
         return (uint8_t)(kORableMasks);
     }

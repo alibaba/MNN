@@ -99,11 +99,11 @@ void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_
         }
 
         int32_t* indexesRow = outputIndexes + row * k;
-        T* ouputRow         = outputValues + row * k;
+        T* outputRow         = outputValues + row * k;
 
         const auto& topK = topc.sortedResult();
         std::copy(topK.begin(), topK.end(), indexesRow);
-        std::transform(topK.begin(), topK.end(), ouputRow, [valuesRow](const int32_t loc) { return valuesRow[loc]; });
+        std::transform(topK.begin(), topK.end(), outputRow, [valuesRow](const int32_t loc) { return valuesRow[loc]; });
     }
 }
 

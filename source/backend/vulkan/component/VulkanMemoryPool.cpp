@@ -75,7 +75,7 @@ void VulkanMemoryPool::returnBuffer(VkBuffer buffer, size_t size, VkBufferUsageF
 }
 
 std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
-                                                  bool seperate) {
+                                                  bool separate) {
     uint32_t index = 0;
     auto typeBits  = requirements.memoryTypeBits;
     for (uint32_t i = 0; i < mDevice.memProty().memoryTypeCount; i++) {
@@ -90,7 +90,7 @@ std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& 
     }
     MNN_ASSERT(index >= 0);
     MNN_ASSERT(index < mAllocators.size());
-    auto mem = mAllocators[index]->alloc(requirements.size, seperate, requirements.alignment);
+    auto mem = mAllocators[index]->alloc(requirements.size, separate, requirements.alignment);
     MNN_ASSERT(mem.second % requirements.alignment ==0);
     return mem;
 }

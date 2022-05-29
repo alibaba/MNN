@@ -12,7 +12,7 @@
 namespace MNN {
 class VulkanBuffer : public NonCopyable {
 public:
-    VulkanBuffer(const VulkanMemoryPool& pool, bool seperate, size_t size, const void* hostData = nullptr,
+    VulkanBuffer(const VulkanMemoryPool& pool, bool separate, size_t size, const void* hostData = nullptr,
                  VkBufferUsageFlags usage  = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                  VkSharingMode shared      = VK_SHARING_MODE_EXCLUSIVE,
                  VkFlags requirements_mask = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
