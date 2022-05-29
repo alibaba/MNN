@@ -385,7 +385,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(const MNN::Net* net, cons
     std::vector<SubModuleInfo> submodule;
     auto selectOps = _collectNeededOps(net, inputIndexes, outputIndexes);
 
-    // Seperate the graph to serveral submodule
+    // Separate the graph to serveral submodule
     SubModuleInfo current;
     for (int si=0; si<selectOps.size(); ++si) {
         auto i = selectOps[si];

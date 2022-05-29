@@ -145,7 +145,7 @@ public:
 
     /**
      * @brief Get the model buffer for user to save
-     * @return std::make_pair(modleBuffer, modelSize).
+     * @return std::make_pair(modelBuffer, modelSize).
      * @example:
      * std::ofstream output("trainResult.alinn")
      * auto buffer = net->getModelBuffer();

@@ -55,7 +55,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
     private String mSqueezeModelPath;
     private List<String> mSqueezeTaiWords;
 
-    private int mSelectedModelIndex;// current using modle
+    private int mSelectedModelIndex;// current using model
     private final MNNNetInstance.Config mConfig = new MNNNetInstance.Config();// session config
 
     private CameraView mCameraView;

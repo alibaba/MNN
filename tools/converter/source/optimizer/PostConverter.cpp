@@ -191,7 +191,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     }
     std::vector<std::string> postConvertPass;
     postConvertPass = {
-        // Seperate Tensor for inplace op
+        // Separate Tensor for inplace op
         "RemoveInplace",
 
         // Remove Unuseful Op such as NoOp, Identity, Seq2Out,
