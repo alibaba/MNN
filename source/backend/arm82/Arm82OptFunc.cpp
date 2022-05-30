@@ -17,28 +17,26 @@
 #endif
 
 extern "C" {
-void MNNExpFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT16* params, size_t blockCount);
+void MNNExpFP16(void* dst, const void* src, const FLOAT16* params, size_t blockCount);
 
 void MNNQuantizeFP16_UNIT4(int16_t* dst, const float* src, size_t size, const float* minMax);
 
 }
 
 void Arm82MNNExp(FLOAT16* dst, const FLOAT16* src, size_t dataSize) {
-    int blockCount = dataSize / 16;
+    int blockCount = (int)dataSize / 16;
+    static FLOAT16 params[] = {
+        (FLOAT16)log(2.0f), (FLOAT16)(1.0f / log(2.0f)), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
     if (blockCount > 0) {
-        static FLOAT16 params[] = {
-            (FLOAT16)log(2.0f), (FLOAT16)(1.0f / log(2.0f)), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
         MNNExpFP16(dst, src, params, blockCount);
     }
-    FLOAT16 xLimit = 11, expStep = log(2.0f), expStep_r = 1.0f / expStep;
-    for (int i = blockCount * 16; i < dataSize; ++i) {
-        auto x = -src[i];
-        x = ALIMAX(x, -xLimit);
-        x = ALIMIN(x, xLimit);
-        int div = x * expStep_r, expBasicRaw = (div + 15) << 10;
-        FLOAT16 t = x - div * expStep, expBasic = *(FLOAT16*)(&expBasicRaw);
-        FLOAT16 expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dst[i] = (FLOAT16)(expBasic * expRemain);
+    int remainSize = dataSize % 16;
+    if (remainSize > 0) {
+        int16_t srcTemp[16];
+        int16_t dstTemp[16];
+        ::memcpy(srcTemp, src + blockCount * 16, remainSize * sizeof(int16_t));
+        MNNExpFP16(dstTemp, srcTemp, params, blockCount);
+        ::memcpy(dst + blockCount * 16, dstTemp, remainSize * sizeof(int16_t));
     }
 }
 

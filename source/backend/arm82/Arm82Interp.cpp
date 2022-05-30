@@ -8,10 +8,10 @@
 #if defined(__ANDROID__) || defined(__aarch64__)
 
 #include "Arm82Interp.hpp"
+#include "Arm82OptFunc.hpp""
 #include <math.h>
 #include "core/Concurrency.h"
 #include "core/Macro.h"
-
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -108,47 +108,49 @@ ErrorCode Arm82Interp::onResize(const std::vector<Tensor*>& inputs, const std::v
     mWidthPosition.buffer().dim[0].extent = 2 * ow;
     mWidthPosition.buffer().dimensions    = 1;
     mWidthPosition.setType(DataType_DT_INT32);
-    backend()->onAcquireBuffer(&mWidthPosition, Backend::DYNAMIC_SEPERATE);
+    backend()->onAcquireBuffer(&mWidthPosition, Backend::STATIC);
 
     mWidthFactor.buffer().dim[0].extent = ow;
     mWidthFactor.buffer().dimensions    = 1;
-    mWidthFactor.setType(DataType_DT_INT16);
-    backend()->onAcquireBuffer(&mWidthFactor, Backend::DYNAMIC_SEPERATE);
+    mWidthFactor.setType(DataType_DT_FLOAT);
+    backend()->onAcquireBuffer(&mWidthFactor, Backend::STATIC);
 
     auto _wPositionPtr = mWidthPosition.host<int>();
-    auto _wFactorPtr   = mWidthFactor.host<FLOAT16>();
+    auto _wFactorPtr   = mWidthFactor.host<float>();
 
     for (int x = 0; x < ow; ++x) {
         float srcX = x * xScaling + mWidthOffset;
-        int x1                   = floor(srcX);
-        FLOAT16 x2Factor         = srcX - x1;
+        float x1                   = floor(srcX);
+        float x2Factor         = srcX - x1;
         _wFactorPtr[x]           = x2Factor;
         _wPositionPtr[2 * x + 0] = CLAMP(x1, 0, iw - 1);
         _wPositionPtr[2 * x + 1] = CLAMP(x1 + 1, 0, iw - 1);
     }
+    MNNQuantizeFP16(mWidthFactor.host<float>(), mWidthFactor.host<int16_t>(), ow);
 
     mHeightPosition.buffer().dim[0].extent = 2 * oh;
     mHeightPosition.buffer().dimensions    = 1;
     mHeightPosition.setType(DataType_DT_INT32);
-    backend()->onAcquireBuffer(&mHeightPosition, Backend::DYNAMIC_SEPERATE);
+    backend()->onAcquireBuffer(&mHeightPosition, Backend::STATIC);
 
     mHeightFactor.buffer().dim[0].extent = oh;
     mHeightFactor.buffer().dimensions    = 1;
-    mHeightFactor.setType(DataType_DT_INT16);
-    backend()->onAcquireBuffer(&mHeightFactor, Backend::DYNAMIC_SEPERATE);
+    mHeightFactor.setType(DataType_DT_FLOAT);
+    backend()->onAcquireBuffer(&mHeightFactor, Backend::STATIC);
 
     auto _hPositionPtr = mHeightPosition.host<int>();
-    auto _hFactorPtr   = mHeightFactor.host<FLOAT16>();
+    auto _hFactorPtr   = mHeightFactor.host<float>();
 
     for (int y = 0; y < oh; ++y) {
         float srcY = y * yScaling + mHeightOffset;
 
         int y1                   = floor(srcY);
-        FLOAT16 y2Factor         = srcY - y1;
+        float y2Factor         = srcY - y1;
         _hFactorPtr[y]           = y2Factor;
         _hPositionPtr[2 * y + 0] = CLAMP(y1, 0, ih - 1);
         _hPositionPtr[2 * y + 1] = CLAMP(y1 + 1, 0, ih - 1);
     }
+    MNNQuantizeFP16(mHeightFactor.host<float>(), mHeightFactor.host<int16_t>(), oh);
 
     mTheadNumbers = static_cast<Arm82Backend*>(backend())->numberThread();
 

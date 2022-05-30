@@ -4,9 +4,11 @@ import os
 import sys
 
 def run_cmd(args):
-    from subprocess import Popen, PIPE, STDOUT
-    stdout, _ = Popen(args, stdout=PIPE, stderr=STDOUT).communicate()
-    return stdout.decode('utf-8')
+    cmd = args[0]
+    for i in range(1, len(args)):
+        cmd += ' ' + args[i]
+    stdout = os.popen(cmd).read()
+    return stdout
 
 gWrong = []
 gRight = 0
@@ -29,7 +31,7 @@ def test(model_root_dir, parameters):
         run_cmd(['adb', serial, 'push', modelName, '/data/local/tmp/MNN/temp.bin'])
         run_cmd(['adb', serial, 'push', inputName, '/data/local/tmp/MNN/input_0.txt'])
         run_cmd(['adb', serial, 'push', outputName, '/data/local/tmp/MNN/output.txt'])
-        message = run_cmd(['adb', serial, 'shell', 'cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModel.out temp.bin input_0.txt output.txt %s' %(parameters)])
+        message = run_cmd(['adb', serial, 'shell', '\"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModel.out temp.bin input_0.txt output.txt %s\"' %(parameters)])
         print(str(message))
         if (message.find('Correct') < 0):
             gWrong.append(modelName)
@@ -47,7 +49,7 @@ def test(model_root_dir, parameters):
         run_cmd(['adb', serial, 'push', modelName, '/data/local/tmp/MNN/temp.bin'])
         run_cmd(['adb', serial, 'push', inputName, '/data/local/tmp/MNN/input_0.txt'])
         run_cmd(['adb', serial, 'push', outputName, '/data/local/tmp/MNN/output_0.txt'])
-        message = run_cmd(['adb', serial, 'shell', 'cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModel.out temp.bin input_0.txt output_0.txt %s' % (parameters)])
+        message = run_cmd(['adb', serial, 'shell', '\"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModel.out temp.bin input_0.txt output_0.txt %s\"' % (parameters)])
         print(message)
         if (message.find('Correct') == -1):
             gWrong.append(modelName)
@@ -66,7 +68,7 @@ def test(model_root_dir, parameters):
         print(run_cmd(['adb', serial, 'push', modelDir, '/data/local/tmp/MNN/']))
         print(modelDir)
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Running...")
-        message = run_cmd(['adb', serial, 'shell', 'cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModelWithDescrisbe.out %s/temp.bin %s/config.txt %s' %(name, name, parameters)])
+        message = run_cmd(['adb', serial, 'shell', '\"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModelWithDescrisbe.out %s/temp.bin %s/config.txt %s\"' %(name, name, parameters)])
         run_cmd(['adb', serial, 'shell', 'rm -rf /data/local/tmp/MNN/%s'%(name)])
         if (message.find('Correct') == -1):
             gWrong.append(modelDir)
