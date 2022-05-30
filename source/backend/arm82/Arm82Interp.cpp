@@ -8,7 +8,7 @@
 #if defined(__ANDROID__) || defined(__aarch64__)
 
 #include "Arm82Interp.hpp"
-#include "Arm82OptFunc.hpp""
+#include "Arm82OptFunc.hpp"
 #include <math.h>
 #include "core/Concurrency.h"
 #include "core/Macro.h"
