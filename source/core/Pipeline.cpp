@@ -302,9 +302,11 @@ void Pipeline::_pushTuningTask(std::vector<Schedule::PipelineInfo>&& initInfos) 
             iterP->outputs = iter.outputs;
             iterP->op = iter.op;
             iterP->buffer = iter.buffer;
+#ifndef MNN_BUILD_MINI
             if (iter.op->type() == OpType_Raster) {
                 iterP->buffer = mContext.mRasterOp;
             }
+#endif
             auto copyTensor = [&](std::vector<Tensor*>& tensors) {
                 for (int v=0; v<tensors.size(); ++v) {
                     auto t = tensors[v];

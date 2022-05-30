@@ -112,7 +112,6 @@ android_static_build() {
     fi
     popd
 
-:<<!
     mkdir android_build_32
     pushd android_build_32
     cmake .. \
@@ -139,7 +138,6 @@ android_static_build() {
         failed
     fi
     popd
-!
 }
 
 linux_build() {
