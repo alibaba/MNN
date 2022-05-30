@@ -247,6 +247,12 @@ message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
 if(CMAKE_SYSTEM_NAME MATCHES "^Android" OR CMAKE_SYSTEM_NAME MATCHES "^Linux")
     add_definitions(-fPIC)
 endif()
+
+# Raspberry Pi 32-bit fix
+if(CMAKE_SYSTEM_NAME MATCHES "^Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
+    add_definitions(-march=armv7-a -mfpu=neon-vfpv4)
+endif()
+
 if(CMAKE_SYSTEM_NAME MATCHES "^Android")
     add_definitions(-DMNN_BUILD_FOR_ANDROID)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm")
