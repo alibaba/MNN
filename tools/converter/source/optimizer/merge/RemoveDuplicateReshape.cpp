@@ -72,7 +72,7 @@ RemoveDuplicateReshape::RemoveDuplicateReshape() {
     TemplateMerge::getInstance("Merge").insertTemplate("RemoveDuplicateReshape", match, fold);
 }
 
-static RemoveDuplicateReshape g_remove_duplicate_reshape;
+//static RemoveDuplicateReshape g_remove_duplicate_reshape;
 
 } // namespace Express
 } // namespace MNN
