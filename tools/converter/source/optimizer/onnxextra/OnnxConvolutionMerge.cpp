@@ -190,6 +190,9 @@ public:
                 for (int k = 0; k < size; ++k) {
                     outputPadding.push_back(dataList->i()->data()[k]);
                 }
+                if (outputPadding.size() == 1) {
+                    outputPadding = {outputPadding[0], 0};
+                }
             } else if (key == "output_shape") {
                 auto dataList = attr->list();
                 outputShape.resize(dataList->i()->size());
