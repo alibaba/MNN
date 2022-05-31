@@ -40,11 +40,11 @@ void GridSampleOnnxClassic::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode
         }
         if (attributeName == "padding_mode") {
             gridSampleParam->paddingMode = MNN::BorderMode_ZEROS;
-            if (attributeProto.name() == "zeros") {
+            if (attributeProto.s() == "zeros") {
                 gridSampleParam->paddingMode = MNN::BorderMode_ZEROS;
-            } else if (attributeProto.name() == "border") {
+            } else if (attributeProto.s() == "border") {
                 gridSampleParam->paddingMode = MNN::BorderMode_CLAMP;
-            } else if (attributeProto.name() == "reflection") {
+            } else if (attributeProto.s() == "reflection") {
                 gridSampleParam->paddingMode = MNN::BorderMode_REFLECTION;
             } else {
                 LOG_INFO.stream() << "Don't support padding_mode " << attributeProto.s();
