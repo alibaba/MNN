@@ -24,10 +24,6 @@ public:
             MNN_ERROR("MNN LSTM not support sequence_lens, all batch must be seq_length\n");
             return nullptr;
         }
-        if (inputs.size() < 4 || inputs[3].get() == nullptr) {
-            MNN_ERROR("MNN LSTM not support optional 4th input (must provide B)\n");
-            return nullptr;
-        }
         std::unique_ptr<OpT> lstm(new OpT);
         lstm->name       = expr->name();
         if (expr->get()->main_as_Extra()->type()->str() == "RNN") {
@@ -49,9 +45,23 @@ public:
                 }
             }
         }
-        // onnx docs guarantee bias shape is [num_direction, 8 * hidden_size], we split it to 2x [num_dicection, 4 * hidden_size] (W/R), then add together
-        auto biasWR = _Split(inputs[3], {2}, 1);
-        inputs[3] = _Add(biasWR[0], biasWR[1]);
+        if (inputs.size() < 4 || inputs[3].get() == nullptr) {
+            // Bias is zero
+            auto shapeWeight = _Shape(inputs[1], NCHW);
+            auto shapeBias = _Split(shapeWeight, {2, 1})[0];
+            float v = 0.0f;
+            auto zeroScalar = _Const(&v, {}, NCHW, halide_type_of<float>());
+            auto biasWR = _Fill(shapeBias, zeroScalar);
+            if (inputs.size() < 4) {
+                inputs.emplace_back(biasWR);
+            } else {
+                inputs[3] = biasWR;
+            }
+        } else {
+            // onnx docs guarantee bias shape is [num_direction, 8 * hidden_size], we split it to 2x [num_dicection, 4 * hidden_size] (W/R), then add together
+            auto biasWR = _Split(inputs[3], {2}, 1);
+            inputs[3] = _Add(biasWR[0], biasWR[1]);
+        }
         if (inputs.size() >= 5) {
             inputs.erase(inputs.begin() + 4); // ignore sequence_lens
         }
