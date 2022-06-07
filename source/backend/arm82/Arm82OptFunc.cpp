@@ -35,7 +35,7 @@ void Arm82MNNExp(FLOAT16* dst, const FLOAT16* src, size_t dataSize) {
         int16_t srcTemp[16];
         int16_t dstTemp[16];
         ::memcpy(srcTemp, src + blockCount * 16, remainSize * sizeof(int16_t));
-        MNNExpFP16(dstTemp, srcTemp, params, blockCount);
+        MNNExpFP16(dstTemp, srcTemp, params, 1);
         ::memcpy(dst + blockCount * 16, dstTemp, remainSize * sizeof(int16_t));
     }
 }
