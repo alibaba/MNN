@@ -33,7 +33,7 @@ public:
             dim        = param->axis();
         }
 
-        if (dim == -1) {
+        if (dim < 0) {
             dim = input->dimensions() + 1 + dim;
         }
         output->buffer().type       = input->buffer().type;
