@@ -112,7 +112,7 @@ ErrorCode Arm82Interp::onResize(const std::vector<Tensor*>& inputs, const std::v
 
     mWidthFactor.buffer().dim[0].extent = ow;
     mWidthFactor.buffer().dimensions    = 1;
-    mWidthFactor.setType(DataType_DT_FLOAT);
+    mWidthFactor.setType(DataType_DT_INT32);
     backend()->onAcquireBuffer(&mWidthFactor, Backend::STATIC);
 
     auto _wPositionPtr = mWidthPosition.host<int>();
@@ -135,7 +135,7 @@ ErrorCode Arm82Interp::onResize(const std::vector<Tensor*>& inputs, const std::v
 
     mHeightFactor.buffer().dim[0].extent = oh;
     mHeightFactor.buffer().dimensions    = 1;
-    mHeightFactor.setType(DataType_DT_FLOAT);
+    mHeightFactor.setType(DataType_DT_INT32);
     backend()->onAcquireBuffer(&mHeightFactor, Backend::STATIC);
 
     auto _hPositionPtr = mHeightPosition.host<int>();
