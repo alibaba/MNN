@@ -13,7 +13,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
-#include "cv/types.hpp"
+#include "../types.hpp"
 
 namespace MNN {
 namespace CV {

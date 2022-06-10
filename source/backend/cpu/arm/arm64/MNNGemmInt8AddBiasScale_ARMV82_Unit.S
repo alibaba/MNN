@@ -81,11 +81,12 @@ ldr w13, [x6, #20]
 dup v7.16b, w12 // max
 dup v6.16b, w13 // min
 
-sub sp, sp, #160
-stp x19, x20, [sp], #16
-stp x21, x22, [sp], #16
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+stp d14, d15, [sp, #(-16 * 6)]!
+stp d12, d13, [sp, #(16 * 1)]
+stp d10, d11, [sp, #(16 * 2)]
+stp d8,  d9,  [sp, #(16 * 3)]
+stp x21, x22, [sp, #(16 * 4)]
+stp x19, x20, [sp, #(16 * 5)]
 
 mov x21, #4 // sizeof(int8_t) * UNIT
 cbnz x8, Start
@@ -567,11 +568,12 @@ Tile1End:
     b TILE_1
 
 End:
-sub sp, sp, #160
-ldp x19, x20, [sp], #16
-ldp x21, x22, [sp], #16
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+ldp x19, x20, [sp, #(16 * 5)]
+ldp x21, x22, [sp, #(16 * 4)]
+ldp d8,  d9,  [sp, #(16 * 3)]
+ldp d10, d11, [sp, #(16 * 2)]
+ldp d12, d13, [sp, #(16 * 1)]
+ldp d14, d15, [sp], #(16 * 6)
 ret
 
 #endif // MNN_USE_ARMV82

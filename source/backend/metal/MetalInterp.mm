@@ -91,7 +91,7 @@ ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std:
 
 class MetalInterpCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto interpParam = op->main_as_Interp();
         auto type = interpParam->resizeType();
         if (type > 3) {

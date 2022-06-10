@@ -15,9 +15,10 @@
 asm_function MNNPackedMatMulFP16
 //void MNNPackedMatMulFP16(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, const size_t* parameter, const FLOAT16* postParameters, const FLOAT16* bias);
 // x0: C, x1:A, x2:B, x3:parameter, x5: postParameters, x6:bias
-sub sp, sp, #128
-st1 {v8.8h, v9.8h, v10.8h, v11.8h}, [sp], #64
-st1 {v12.8h, v13.8h, v14.8h, v15.8h}, [sp], #64
+stp d14, d15, [sp, #-64]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
@@ -388,9 +389,10 @@ LoopHRemain:
 
 
 End:
-sub sp, sp, #128
-ld1 {v8.8h, v9.8h, v10.8h, v11.8h}, [sp], #64
-ld1 {v12.8h, v13.8h, v14.8h, v15.8h}, [sp], #64
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #64
 
 ret
 

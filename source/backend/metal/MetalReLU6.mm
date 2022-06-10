@@ -57,7 +57,7 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
 
 class MetalReLU6Creator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         float minV = 0.0f;
         float maxV = 6.0f;
         if (nullptr != op->main()) {

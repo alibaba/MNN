@@ -36,9 +36,10 @@ ldr x10, [x6, #8]
 ldr w11, [x6, #16]
 ldr w6, [x6, #20]
 
-sub sp, sp, #128
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+stp d14, d15, [sp, #-64]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 cmp x8, #3
 beq L3Dz
@@ -720,9 +721,10 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
-sub sp, sp, #128
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #64
 ret
 
 #endif

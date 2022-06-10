@@ -363,7 +363,9 @@ bool Interpreter::releaseSession(Session* session) {
 }
 
 ErrorCode Interpreter::runSession(Session* session) const {
+#ifdef MNN_INTERNAL_ENABLED
     Timer timer;
+#endif
     ErrorCode errorcode = session->run();
 
 #ifdef MNN_INTERNAL_ENABLED
@@ -451,7 +453,9 @@ ErrorCode Interpreter::runSessionWithCallBack(const Session* session, const Tens
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
 
+#ifdef MNN_INTERNAL_ENABLED
     Timer timer;
+#endif
     ErrorCode errorcode = session->runWithCallBack(before, callBack, sync);
 
 #ifdef MNN_INTERNAL_ENABLED

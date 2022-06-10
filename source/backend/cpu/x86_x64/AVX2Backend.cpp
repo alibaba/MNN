@@ -343,6 +343,8 @@ Backend::MemObj* AVX2Backend::onAcquire(const Tensor* nativeTensor, StorageType 
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();
     auto tensorSize = getTensorSize(nativeTensor, true);
+    // MNN_PRINT("acquire tensor:%p, tensorSize:%d, shape: ", nativeTensor, tensorSize);
+    // nativeTensor->printShape();
     auto res = allocBuffer(tensorSize, (Tensor*)nativeTensor, storageType);
     if (!res) {
         return nullptr;

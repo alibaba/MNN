@@ -41,17 +41,18 @@ def_class_methods(RuntimeManager,
 def_class_without_getset(RuntimeManager)
 def_class_smart_end(RuntimeManager, Executor::RuntimeManager)
 
-static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObject *outputs, PyObject *backend, PyObject *memory_mode,
-                             PyObject *power_mode, PyObject *precision_mode, const char* file_name, int dynamic,
+static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObject *outputs,
+                             MNNForwardType backend, MemoryMode memory_mode, PowerMode power_mode, PrecisionMode precision_mode,
+                             const char* file_name, int dynamic,
                              int shape_mutable, int rearrange, int thread_num) {
 
     BackendConfig backend_config;
-    backend_config.memory = toEnum<MemoryMode>(memory_mode);
-    backend_config.power = toEnum<PowerMode>(power_mode);
-    backend_config.precision = toEnum<PrecisionMode>(precision_mode);
+    backend_config.memory = memory_mode;
+    backend_config.power = power_mode;
+    backend_config.precision = precision_mode;
 
     Module::BackendInfo backend_info;
-    backend_info.type = toEnum<MNNForwardType>(backend);
+    backend_info.type = backend;
     backend_info.config = &backend_config;
 
     Module::Config config;
@@ -77,6 +78,7 @@ static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObje
         std::string mnn_errno = "load_module_from_file failed ";
         mnn_errno = mnn_errno + std::string(file_name);
         PyErr_SetString(PyExc_Exception, mnn_errno.c_str());
+        Py_RETURN_NONE;
     }
 
     return toPyObj(m_ptr);
@@ -235,7 +237,11 @@ static PyObject* PyMNNNN_load_module_from_file(PyObject *self, PyObject *args) {
                         "PyMNNNN_load_module_from_file: unsupported interface, should use load_module_from_file_with_token.");
     return NULL;
 #endif
-    PyObject *inputs, *outputs, *backend, *memory_mode, *power_mode, *precision_mode, *runtime_manager;
+    PyObject *inputs, *outputs, *runtime_manager,
+             *backend = nullptr /* MNN_FORWARD_CPU */,
+             *memory_mode = nullptr /* MemoryMode::Memory_Normal */,
+             *power_mode = nullptr /* PowerMode::Power_Normal */,
+             *precision_mode = nullptr /* PrecisionMode::Precision_Normal */;
     const char* file_name;
     int dynamic, shape_mutable, rearrange;
     int thread_num;
@@ -246,8 +252,13 @@ static PyObject* PyMNNNN_load_module_from_file(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    return load_module(runtime_manager, inputs, outputs, backend, memory_mode, power_mode, precision_mode, file_name, dynamic,
-     shape_mutable,  rearrange,  thread_num);
+    return load_module(runtime_manager, inputs, outputs,
+                           PARSE(backend, MNN_FORWARD_CPU, toEnum<MNNForwardType>),
+                           PARSE(memory_mode, MemoryMode::Memory_Normal, toEnum<MemoryMode>),
+                           PARSE(power_mode, PowerMode::Power_Normal, toEnum<PowerMode>),
+                           PARSE(precision_mode, PrecisionMode::Precision_Normal, toEnum<PrecisionMode>),
+                           file_name, dynamic,
+                           shape_mutable,  rearrange,  thread_num);
 }
 
 
@@ -409,10 +420,10 @@ static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) 
 static PyObject* PyMNNNN_load_module_from_file_with_token(PyObject *self, PyObject *args) {
     PyObject *inputs, *outputs;
     const char* file_name;
-    PyObject *backend = toPyObj(MNN_FORWARD_CPU);
-    PyObject *memory_mode = toPyObj(MemoryMode::Memory_Normal);
-    PyObject *power_mode = toPyObj(PowerMode::Power_Normal);;
-    PyObject *precision_mode = toPyObj(PrecisionMode::Precision_Normal);;
+    PyObject *backend = nullptr /* MNN_FORWARD_CPU */,
+             *memory_mode = nullptr /* MemoryMode::Memory_Normal */,
+             *power_mode = nullptr /* PowerMode::Power_Normal */,
+             *precision_mode = nullptr /* PrecisionMode::Precision_Normal */;
     int dynamic = 0;
     int shape_mutable = 0;
     int rearrange = 0;
@@ -442,8 +453,13 @@ static PyObject* PyMNNNN_load_module_from_file_with_token(PyObject *self, PyObje
         return NULL;
     }
 
-    return load_module(inputs, outputs, backend, memory_mode, power_mode, precision_mode, file_name, dynamic,
-     shape_mutable,  rearrange,  thread_num);
+    return load_module(inputs, outputs,
+                           PARSE(backend, MNN_FORWARD_CPU, toEnum<MNNForwardType>),
+                           PARSE(memory_mode, MemoryMode::Memory_Normal, toEnum<MemoryMode>),
+                           PARSE(power_mode, PowerMode::Power_Normal, toEnum<PowerMode>),
+                           PARSE(precision_mode, PrecisionMode::Precision_Normal, toEnum<PrecisionMode>),
+                           file_name, dynamic,
+                           shape_mutable,  rearrange,  thread_num);
 
 }
 #endif
@@ -453,10 +469,10 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
     INTS default_1 = {1, 1}, default_0 = {0, 0};
     int in_channel, out_channel;
     PyObject *kernel_size,
-             *stride = toPyObj(default_1),
-             *padding = toPyObj(default_0),
-             *dilation = toPyObj(default_1),
-             *padding_mode = toPyObj(PaddingMode::VALID);
+             *stride = nullptr /* default_1 */,
+             *padding = nullptr /* default_0 */,
+             *dilation = nullptr /* default_1 */,
+             *padding_mode = nullptr /* PaddingMode::VALID */;
     int depthwise = 0, bias = 1;
     if (!PyArg_ParseTuple(args, "iiO|OOOiiO", &in_channel, &out_channel, &kernel_size,
                           &stride, &padding, &dilation, &depthwise, &bias, &padding_mode)) {
@@ -466,13 +482,13 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
     NN::ConvOption option;
     option.channel = {in_channel, out_channel};
     option.kernelSize = toInts(kernel_size);
-    auto stride_ = toInts(stride);
-    auto padding_ = toInts(padding);
-    auto dilation_ = toInts(dilation);
+    auto stride_ = PARSE(stride, default_1, toInts);
+    auto padding_ = PARSE(padding, default_0, toInts);
+    auto dilation_ = PARSE(dilation, default_1, toInts);
     if (!stride_.empty()) {
         option.stride = stride_;
     }
-    option.padMode = toEnum<PaddingMode>(padding_mode);
+    option.padMode = PARSE(padding_mode, PaddingMode::VALID, toEnum<PaddingMode>);
     if (!padding_.empty()) {
         option.pads = padding_;
     }

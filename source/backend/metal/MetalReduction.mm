@@ -98,7 +98,7 @@ ErrorCode MetalReduction::onExecute(const std::vector<Tensor *> &inputs, const s
 
 class MetalReductionCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto param = op->main_as_ReductionParam();
         switch (param->operation()) {
             case ReductionType_ALL:

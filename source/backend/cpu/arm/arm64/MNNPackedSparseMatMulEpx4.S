@@ -20,14 +20,14 @@ asm_function MNNPackedSparseMatMulEpx4
 // void MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap) {
 //Auto x0: C, x1:A, x2:B, x3:eSize, x4:parameter, x5:postParameters, x6:bias, x7:NNZMap
 // avoid to touch platform-register x-18
-stp x19, x20, [sp, #(-16 * 1)]
-stp x21, x22, [sp, #(-16 * 2)]
-stp x23, x24, [sp, #(-16 * 3)]
-stp x25, x26, [sp, #(-16 * 4)]
-
 ldr x8, [sp, #0] // x7: unsigned int* NNZMap, x8: int* dataOffsetMap
 ldp x9, x10, [x4, #0]   // x9: aStride, x10: l
 ldp x11, x12, [x4, #16] // x11: h, x12: cStride
+
+stp x25, x26, [sp, #(-16 * 4)]!
+stp x23, x24, [sp, #(16 * 1)]
+stp x21, x22, [sp, #(16 * 2)]
+stp x19, x20, [sp, #(16 * 3)]
 
 mul x13, x9, x10 // x13: aStride with sizeof()
 lsr x9, x9, #2 // x9: eP = parameter[0] / sizeof(float);
@@ -822,11 +822,10 @@ beq loop_end
 
 
 loop_end:
-ldp x19, x20, [sp, #(-16 * 1)]
-ldp x21, x22, [sp, #(-16 * 2)]
-ldp x23, x24, [sp, #(-16 * 3)]
-ldp x25, x26, [sp, #(-16 * 4)]
-
+ldp x19, x20, [sp, #(16 * 3)]
+ldp x21, x22, [sp, #(16 * 2)]
+ldp x23, x24, [sp, #(16 * 1)]
+ldp x25, x26, [sp], #(16 * 4)
 ret
 
 #undef sizeof_value

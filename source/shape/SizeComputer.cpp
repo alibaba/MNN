@@ -11,7 +11,7 @@
 #include <mutex>
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-//#define MNN_DEBUG_TENSOR_SIZE
+// #define MNN_DEBUG_TENSOR_SIZE
 namespace MNN {
 void registerShapeOps();
 SizeComputerSuite* SizeComputerSuite::gInstance = nullptr;
@@ -100,14 +100,14 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
             bool ret = computer->onComputeSize(op, inputs, outputs);
 #ifdef MNN_DEBUG_TENSOR_SIZE
             if (op->name() != nullptr) {
-                MNN_PRINT("\t===> compute shape: %s, [%s]\n", op->name()->c_str(), MNN::EnumNameOpType(op->type()));
+                MNN_PRINT("===> compute shape: %s, [%s]\n", op->name()->c_str(), MNN::EnumNameOpType(op->type()));
             } else {
-                MNN_PRINT("\t===> compute shape:[%s]\n", MNN::EnumNameOpType(op->type()));
+                MNN_PRINT("===> compute shape:[%s]\n", MNN::EnumNameOpType(op->type()));
             }
             if (inputs.size()) {
-                MNN_PRINT("Inputs:\n");
+                MNN_PRINT("\tInputs:\n");
                 for (auto o : inputs) {
-                    MNN_PRINT("\tformat=%d\t", TensorUtils::getDescribe(o)->dimensionFormat);
+                    MNN_PRINT("\tformat=%s, datatype=%d;\t", EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
                     if (o->dimensions() == 0) {
                         MNN_PRINT("\t*Scalar*");
                     }
@@ -117,9 +117,9 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
                     MNN_PRINT("\n");
                 }
             }
-            MNN_PRINT("Outputs:\n");
+            MNN_PRINT("\tOutputs:\n");
             for (auto o : outputs) {
-                MNN_PRINT("\tformat=%d\t", TensorUtils::getDescribe(o)->dimensionFormat);
+                MNN_PRINT("\tformat=%s, datatype=%d;\t", EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
                 if (o->dimensions() == 0) {
                     MNN_PRINT("\t*Scalar*");
                 }

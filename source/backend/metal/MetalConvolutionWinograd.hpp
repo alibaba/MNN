@@ -16,7 +16,7 @@ namespace MNN {
 
 class MetalConvolutionWinograd : public MetalConvolutionCommon {
 public:
-    static bool isValid(const Convolution2D *conv, const Tensor *input);
+    static bool isValid(const Convolution2D *conv, const Tensor *input, const Tensor* output);
     MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op);
     virtual ~MetalConvolutionWinograd() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

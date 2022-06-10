@@ -16,13 +16,10 @@
 asm_function NEON_MNNPackedMatMul_BF16
 //void NEON_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 // x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias
-// sub sp, sp, #128
-// st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-// st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
-stp d8,  d9,  [sp, #-16]
-stp d10, d11, [sp, #-32]
-stp d12, d13, [sp, #-48]
-stp d14, d15, [sp, #-64]
+stp d14, d15, [sp, #-64]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
@@ -493,13 +490,10 @@ LoopHRemain:
 
 
 End:
-// sub sp, sp, #128
-// ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-// ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
-ldp d8,  d9,  [sp, #-16]
-ldp d10, d11, [sp, #-32]
-ldp d12, d13, [sp, #-48]
-ldp d14, d15, [sp, #-64]
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #64
 
 
 ret

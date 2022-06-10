@@ -84,7 +84,7 @@ static std::string _convert(int originOp) {
 
 class MetalBinaryCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto binaryop = op->main_as_BinaryOp();
         auto type = _convert(binaryop->opType());
         if (inputs[0]->getType().code != halide_type_float) {

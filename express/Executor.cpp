@@ -667,7 +667,7 @@ ErrorCode Executor::ComputeCache::resizeImpl() {
             GeometryComputerUtils::makeRaster(buffer, mCmdBuffer[unitIndex], mContext);
             for (auto out : iter.outputs) {
                 if (TensorUtils::getDescribe(out)->usage == Tensor::InsideDescribe::OUTPUT) {
-                    mContext.getRasterCacheCreateRecurrse(out, mCmdBuffer[unitIndex]);
+                    mContext.getRasterCacheCreateRecursive(out, mCmdBuffer[unitIndex]);
                 }
             }
 #ifdef MNN_EXPR_ENABLE_PROFILER
@@ -809,6 +809,7 @@ ErrorCode Executor::ComputeCache::resizeImpl() {
                     }
                 }
             }
+
             auto code= cmd.execution->onResize(cmd.inputs, cmd.outputs);
             if (NO_ERROR != code) {
                 return code;

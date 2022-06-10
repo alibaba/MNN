@@ -46,8 +46,13 @@ public:
         } else {
             buffer.type = input0->getType();
         }
+
         if (input0->getType().code != input1->getType().code) {
-            MNN_PRINT("Error for binary op: input0's type != input1's type\n");
+            MNN_PRINT("Error for binary op: input0's type != input1's type, %d != %d, optype:%d, ", input0->getType().code, input1->getType().code, opType);
+            if (nullptr != op->name()) {
+                MNN_PRINT("op name: %s", op->name()->c_str());
+            }
+            MNN_PRINT("\n");
             return false;
         }
 

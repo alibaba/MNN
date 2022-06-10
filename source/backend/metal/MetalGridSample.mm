@@ -83,7 +83,7 @@ ErrorCode MetalGridSample::onExecute(const std::vector<Tensor *> &inputs, const 
 class MetalGridSampleCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op,
-                                Backend *backend) const override {
+                                Backend *backend, const std::vector<Tensor *>& outputs) const override {
         return new MetalGridSample(backend, op->main_as_GridSample());
     }
 };

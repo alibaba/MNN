@@ -13,6 +13,7 @@
 #include "Backend.hpp"
 #include "AutoStorage.h"
 #include "Tensor_generated.h"
+#define MNN_MAX_TENSOR_DIM 8
 
 #ifdef CONSTANT
 #undef CONSTANT

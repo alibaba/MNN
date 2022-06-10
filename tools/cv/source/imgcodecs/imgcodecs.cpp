@@ -79,7 +79,7 @@ VARP imdecode(const std::vector<uint8_t>& buf, int flags) {
         MNN_ERROR("Can't decode\n");
         return nullptr;
     }
-    return buildImgVARP(img, height, width, channel, flags);
+    return buildImgVARP(img, height, width, 3, flags);
 }
 
 std::pair<bool, std::vector<uint8_t>> imencode(std::string ext, VARP img, const std::vector<int>& params) {
@@ -115,7 +115,7 @@ VARP imread(const std::string& filename, int flags) {
         MNN_ERROR("Can't open %s\n", filename.c_str());
         return nullptr;
     }
-    return buildImgVARP(img, height, width, channel, flags);
+    return buildImgVARP(img, height, width, 3, flags);
 }
 
 bool imwrite(const std::string& filename, VARP img, const std::vector<int>& params) {

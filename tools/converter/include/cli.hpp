@@ -16,6 +16,7 @@ class MNN_PUBLIC Cli {
 public:
     static bool initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv);
     static bool convertModel(modelConfig& modelPath);
+    static int testconvert(const std::string& defaultCacheFile, const std::string& directName, float maxErrorRate);
 };
 };
 

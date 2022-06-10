@@ -278,7 +278,7 @@ static PyTypeObject PyMNNVarType = {
 };
 // helper functions
 static PyMNNVar* getVar() {
-    PyMNNVar *var = (PyMNNVar *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNNVarType), PyTuple_New(0), NULL);
+    PyMNNVar *var = (PyMNNVar *)PyObject_CallObject((PyObject*)PyType_FindTLSType(&PyMNNVarType), NULL);
     var->var = new VARP;
     return var;
 }
@@ -1142,14 +1142,16 @@ static PyObject* PyMNNExpr_broadcast_to(PyObject *self, PyObject *args) {
 // NN ops
 static PyObject* PyMNNExpr_placeholder(PyObject *self, PyObject *args) {
     INTS default_shape = {};
-    PyObject *shape = toPyObj(default_shape),
-             *format = toPyObj(NCHW),
-             *type = toPyObj(DType_FLOAT);
+    PyObject *shape = nullptr /* default_shape */ ,
+             *format = nullptr /* NCHW */ ,
+             *type = nullptr /* DType_FLOAT */ ;
     if (PyArg_ParseTuple(args, "|OOO", &shape, &format, &type)
-        && isInts(shape) && isdata_format(format) && isdtype(type)) {
-        auto data_format = toEnum<Dimensionformat>(format);
-        auto dtype = toEnum<DType>(type);
-        return toPyObj(Express::_Input(toInts(shape), data_format, dtype2htype(dtype)));
+        && (shape == nullptr || isInts(shape))
+        && (format == nullptr || isdata_format(format))
+        && (type == nullptr || isdtype(type))) {
+            auto data_format = PARSE(format, NCHW, toEnum<Dimensionformat>);
+            auto dtype = PARSE(type, DType_FLOAT, toEnum<DType>);
+            return toPyObj(Express::_Input(PARSE(shape, default_shape, toInts), data_format, dtype2htype(dtype)));
     }
     PyMNN_ERROR("placeholder require args: (|[int], data_format, dtype)");
 }
@@ -1162,18 +1164,16 @@ static PyObject* PyMNNExpr_clone(PyObject *self, PyObject *args) {
     PyMNN_ERROR("clone require args: (Var, |bool)");
 }
 static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwargs) {
-    PyObject *value, *shapes,
-             *format = toPyObj(NCHW),
-             *type = toPyObj(DType_FLOAT);
+    PyObject *value, *shapes, *format = nullptr /* NCHW */, *type = nullptr /* DType_FLOAT */;
     static char *kwlist[] = { "value_list", "shape", "data_format", "dtype", NULL };
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OO", kwlist, &value, &shapes, &format, &type)) {
         PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
     }
-    if (!isVals(value) || !isInts(shapes) || !isdata_format(format) || !isdtype(type)) {
+    if (!isVals(value) || !isInts(shapes) || (format != nullptr && !isdata_format(format)) || (type != nullptr && !isdtype(type))) {
         PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
     }
-    auto data_format = toEnum<Dimensionformat>(format);
-    auto dtype = toEnum<DType>(type);
+    auto data_format = (format == nullptr ? NCHW : toEnum<Dimensionformat>(format));
+    auto dtype = (type == nullptr ? DType_FLOAT : toEnum<DType>(type));
     auto shape = toInts(shapes);
     int64_t total_length = 1;
     for(size_t i = 0; i < shape.size(); i++) {
@@ -1211,19 +1211,23 @@ static PyObject* PyMNNExpr_conv2d(PyObject *self, PyObject *args) {
     INTS default_stride = {1, 1};
     INTS default_pads = {0, 0};
     PyObject *input, *weight, *bias,
-             *stride = toPyObj(default_stride),
-             *padding = toPyObj(default_pads),
-             *dilate = toPyObj(default_stride),
-             *padding_mode = toPyObj(VALID);
+             *stride = nullptr /* default_stride */,
+             *padding = nullptr /* default_pads */,
+             *dilate = nullptr /* default_stride */,
+             *padding_mode = nullptr /* VALID */;
     int group = 1;
     if (PyArg_ParseTuple(args, "OOO|OOOiO", &input, &weight, &bias,
         &stride, &padding, &dilate, &group, &padding_mode)
-        && isVar(input) && isVar(weight) && isVar(bias) && isInts(stride)
-        && isPadding_Mode(padding_mode) && isInts(padding)) {
+        && isVar(input) && isVar(weight) && isVar(bias)
+        && (stride == nullptr || isInts(stride))
+        && (padding_mode == nullptr || isPadding_Mode(padding_mode))
+        && (padding == nullptr || isInts(padding))) {
         return toPyObj(Express::_Conv(toVar(weight), toVar(bias), toVar(input),
-                                    toEnum<PaddingMode>(padding_mode),
-                                    toInts(stride), toInts(dilate),
-                                    group, toInts(padding)));
+                                    PARSE(padding_mode, VALID, toEnum<PaddingMode>),
+                                    PARSE(stride, default_stride, toInts),
+                                    PARSE(dilate, default_stride, toInts),
+                                    group,
+                                    PARSE(padding, default_pads, toInts)));
     }
     PyMNN_ERROR("conv2d require args: (Var, Var, Var, |Padding_Mode, [int], [int], int, [int])");
 }
@@ -1231,56 +1235,63 @@ static PyObject* PyMNNExpr_conv2d_transpose(PyObject *self, PyObject *args) {
     INTS default_stride = {1, 1};
     INTS default_pads = {0, 0};
     PyObject *input, *weight, *bias,
-             *stride = toPyObj(default_stride),
-             *padding = toPyObj(default_pads),
-             *dilate = toPyObj(default_stride),
-             *padding_mode = toPyObj(VALID);
+             *stride = nullptr /* default_stride */,
+             *padding = nullptr /* default_pads */,
+             *dilate = nullptr /* default_stride */,
+             *padding_mode = nullptr /* VALID */;
     int group = 1;
     if (PyArg_ParseTuple(args, "OOO|OOOiO", &input, &weight, &bias,
         &stride, &padding, &dilate, &group, &padding_mode)
-        && isVar(input) && isVar(weight) && isVar(bias) && isInts(stride)
-        && isPadding_Mode(padding_mode) && isInts(padding)) {
+        && isVar(input) && isVar(weight) && isVar(bias)
+        && (stride == nullptr || isInts(stride))
+        && (padding_mode == nullptr || isPadding_Mode(padding_mode))
+        && (padding == nullptr || isInts(padding))) {
         return toPyObj(Express::_Deconv(toVar(weight), toVar(bias), toVar(input),
-                                        toEnum<PaddingMode>(padding_mode),
-                                        toInts(stride), toInts(dilate),
-                                        group, toInts(padding)));
+                                    PARSE(padding_mode, VALID, toEnum<PaddingMode>),
+                                    PARSE(stride, default_stride, toInts),
+                                    PARSE(dilate, default_stride, toInts),
+                                    group,
+                                    PARSE(padding, default_pads, toInts)));
     }
     PyMNN_ERROR("conv2d_transpose require args: (Var, Var, Var, |Padding_Mode, [int], [int], int, [int])");
 }
 static PyObject* PyMNNExpr_max_pool(PyObject *self, PyObject *args) {
     INTS default_pads = {0, 0};
     PyObject *x, *kernel, *stride,
-             *padding_mode = toPyObj(VALID),
-             *pads = toPyObj(default_pads);
+             *padding_mode = nullptr /* VALID */,
+             *pads = nullptr /* default_pads */;
     if (PyArg_ParseTuple(args, "OOO|OO", &x, &kernel, &stride, &padding_mode, &pads)
         && isVar(x) && isInts(kernel) && isInts(stride)
-        && isPadding_Mode(padding_mode) && isInts(pads)) {
+        && (padding_mode == nullptr || isPadding_Mode(padding_mode))
+        && (pads == nullptr || isInts(pads))) {
         return toPyObj(Express::_MaxPool(toVar(x), toInts(kernel), toInts(stride),
-                                    toEnum<PaddingMode>(padding_mode),
-                                    toInts(pads)));
+                                    PARSE(padding_mode, VALID, toEnum<PaddingMode>),
+                                    PARSE(pads, default_pads, toInts)));
     }
     PyMNN_ERROR("max_pool require args: (Var, [int], [int], |Padding_Mode, [int])");
 }
 static PyObject* PyMNNExpr_avg_pool(PyObject *self, PyObject *args) {
     INTS default_pads = {0, 0};
     PyObject *x, *kernel, *stride,
-             *padding_mode = toPyObj(VALID),
-             *pads = toPyObj(default_pads);
+             *padding_mode = nullptr /* VALID */,
+             *pads = nullptr /* default_pads */;
     if (PyArg_ParseTuple(args, "OOO|OO", &x, &kernel, &stride, &padding_mode, &pads)
         && isVar(x) && isInts(kernel) && isInts(stride)
-        && isPadding_Mode(padding_mode) && isInts(pads)) {
+        && (padding_mode == nullptr || isPadding_Mode(padding_mode))
+        && (pads == nullptr || isInts(pads))) {
         return toPyObj(Express::_AvePool(toVar(x), toInts(kernel), toInts(stride),
-                                        toEnum<PaddingMode>(padding_mode),
-                                        toInts(pads)));
+                                    PARSE(padding_mode, VALID, toEnum<PaddingMode>),
+                                    PARSE(pads, default_pads, toInts)));
     }
     PyMNN_ERROR("avg_pool require args: (Var, [int], [int], |Padding_Mode, [int])");
 }
 static PyObject* PyMNNExpr_reshape(PyObject *self, PyObject *args) {
-    PyObject *x, *shape, *original_format = toPyObj(NCHW);
+    PyObject *x, *shape, *original_format = nullptr /* NCHW */;
     if (PyArg_ParseTuple(args, "OO|O", &x, &shape, &original_format)
-        && isVar(x) && isInts(shape) && isdata_format(original_format)) {
+        && isVar(x) && isInts(shape)
+        && (original_format == nullptr || isdata_format(original_format))) {
         return toPyObj(Express::_Reshape(toVar(x), toInts(shape),
-                       toEnum<Dimensionformat>(original_format)));
+                            PARSE(original_format, NCHW, toEnum<Dimensionformat>)));
     }
     PyMNN_ERROR("reshape require args: (Var, [int], |data_format)");
 }
@@ -1412,11 +1423,12 @@ static PyObject* PyMNNExpr_resize(PyObject *self, PyObject *args) {
     PyMNN_ERROR("resize require args: (Var, float, float)");
 }
 static PyObject* PyMNNExpr_pad(PyObject *self, PyObject *args) {
-    PyObject *x, *paddings, *mode = toPyObj(CONSTANT);
+    PyObject *x, *paddings, *mode = nullptr /* CONSTANT */;
     if (PyArg_ParseTuple(args, "OO|O", &x, &paddings, &mode)
-        && isVar(x) && isVar(paddings) && isPadValue_Mode(mode)) {
+        && isVar(x) && isVar(paddings)
+        && (mode == nullptr || isPadValue_Mode(mode))) {
         return toPyObj(Express::_Pad(toVar(x), toVar(paddings),
-                       toEnum<MNN::Express::PadValueMode>(mode)));
+                       PARSE(mode, CONSTANT, toEnum<MNN::Express::PadValueMode>)));
     }
     PyMNN_ERROR("pad require args: (Var, Var, |Padding_Mode)");
 }
@@ -1437,15 +1449,16 @@ static PyObject* PyMNNExpr_stack(PyObject *self, PyObject *args) {
 }
 static PyObject* PyMNNExpr_crop_and_resize(PyObject *self, PyObject *args) {
     PyObject *image, *boxes, *box_ind, *crop_size,
-             *method = toPyObj(BILINEAR);
+             *method = nullptr /* BILINEAR */;
     float extrapolation_value = 0.0f;
     if (PyArg_ParseTuple(args, "OOOO|Of", &image, &boxes, &box_ind,
                          &crop_size, &method, extrapolation_value)
         && isVar(image) && isVar(boxes) && isVar(box_ind)
-        && isVar(crop_size) && isInterp_Method(method)) {
+        && isVar(crop_size)
+        && (method == nullptr || isInterp_Method(method))) {
         return toPyObj(Express::_CropAndResize(toVar(image), toVar(boxes),
                                             toVar(box_ind), toVar(crop_size),
-                                            toEnum<InterpolationMethod>(method),
+                                            PARSE(method, BILINEAR, toEnum<InterpolationMethod>),
                                             extrapolation_value));
     }
     PyMNN_ERROR("crop_and_resize require args: (Var, Var, Var, Var, |Interp_Method, float)");

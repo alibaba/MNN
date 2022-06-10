@@ -16,6 +16,11 @@ class SqueezeTest : public MNNTestCase {
 public:
     virtual ~SqueezeTest() = default;
     virtual bool run(int precision) {
+        return commonCase() &&
+               badCase();
+
+    }
+    bool commonCase() {
         auto input = _Input({1, 1, 1, 4}, NCHW);
         input->setName("input_tensor");
         // set input data
@@ -38,5 +43,23 @@ public:
         }
         return true;
     }
+
+    bool badCase() {
+        auto input = _Input({2, 2}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output                             = _Squeeze(input, {1});
+        auto gotOutput                          = output->readMap<float>();
+        if (output.get() != nullptr && output->getInfo() != nullptr) {
+            MNN_ERROR("SqueezeTest badCase test failed, output should be null.\n");
+            return false;
+        }
+        return true;
+    }
+
 };
 MNNTestSuiteRegister(SqueezeTest, "op/squeeze");

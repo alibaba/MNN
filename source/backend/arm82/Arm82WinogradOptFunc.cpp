@@ -1198,8 +1198,7 @@ Arm82WinogradFunction::TransformPackFunc Arm82WinogradFunction::chooseWinoSource
 #endif
         // other packing size
     }
-    MNN_ERROR("Arm82WinogradFunction Can not find function for ePack:%d, packCUnit:%d\n", ePack, packCUnit);
-    // MNN_ASSERT(false);
+    //MNN_ERROR("Arm82WinogradFunction Can not find function for ePack:%d, packCUnit:%d\n", ePack, packCUnit);
     return nullptr;
 }
 
@@ -1420,8 +1419,7 @@ void Arm82WinogradFunction::chooseWinoDestUnrollTransform(Arm82WinogradFunction:
         memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(Arm82WinogradFunction::WinoUnrollDestTransFunc));
         return;
     }
-    MNN_ASSERT(false);
-    MNN_ERROR("Can not find function for fp16 chooseWinoDestUnrollTransform: k:%d, h:%d\n", k, h);
+    //MNN_ERROR("Can not find function for fp16 chooseWinoDestUnrollTransform: k:%d, h:%d\n", k, h);
     return;
 }
 

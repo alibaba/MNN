@@ -53,6 +53,8 @@ public:
     bool alignDenormalizedValue = true;
     std::string customOpLibs = "";
     std::string authCode = "";
+    std::string testDir = "";
+    float testThredhold = 0.01;
 };
 
 #endif // CONFIG_HPP

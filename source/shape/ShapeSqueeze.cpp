@@ -74,6 +74,11 @@ class SqueezeSizeComputer : public SizeComputer {
             if (axis < 0) {
                 axis += ib.dimensions;
             }
+            if (1 != ib.dim[axis].extent) {
+                MNN_ERROR("Cannot Squeeze dim[%d], 1 is expected, %d is got. input shape:", axis, ib.dim[axis].extent);
+                inputs[0]->printShape();
+                return false;
+            }
             mask[axis] = 1;
         }
         if (squeezeDimSize == 0) {

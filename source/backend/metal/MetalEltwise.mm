@@ -82,7 +82,7 @@ ErrorCode MetalEltwise::onExecute(const std::vector<Tensor *> &inputs, const std
 
 class MetalEltwiseCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto eltwise = op->main_as_Eltwise();
         return new MetalEltwise(backend, eltwise->type());
     }

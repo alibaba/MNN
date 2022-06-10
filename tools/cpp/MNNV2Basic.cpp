@@ -235,6 +235,12 @@ static int test_main(int argc, const char* argv[]) {
             //Set when size is changed, After resizeSession
         }
     }
+    int resizeStatus = 0;
+    net->getSessionInfo(session, MNN::Interpreter::RESIZE_STATUS, &resizeStatus);
+    if (resizeStatus != 0) {
+        MNN_ERROR("Resize error, can't execute MNN\n");
+        return 0;
+    }
 
     float memoryUsage = 0.0f;
     net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
@@ -243,6 +249,7 @@ static int test_main(int argc, const char* argv[]) {
     int backendType[2];
     net->getSessionInfo(session, MNN::Interpreter::BACKENDS, backendType);
     MNN_PRINT("Session Info: memory use %f MB, flops is %f M, backendType is %d\n", memoryUsage, flops, backendType[0]);
+    // Set Other Inputs to Zero
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
         auto inputTensor = iter.second;

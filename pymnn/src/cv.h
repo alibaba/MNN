@@ -45,9 +45,9 @@ static PyObject* PyMNNCV_imdecode(PyObject *self, PyObject *args) {
 static PyObject* PyMNNCV_imencode(PyObject *self, PyObject *args) {
     const char *ext = NULL;
     INTS default_param = {};
-    PyObject *img, *params = toPyObj(default_param);
-    if (PyArg_ParseTuple(args, "sO|O", &ext, &img, &params) && isVar(img) && isInts(params)) {
-        return toPyObj<bool, toPyObj, std::vector<uint8_t>, toPyObj>(CV::imencode(ext, toVar(img), toInts(params)));
+    PyObject *img, *params = nullptr /* default_param */;
+    if (PyArg_ParseTuple(args, "sO|O", &ext, &img, &params) && isVar(img) && (params == nullptr || isInts(params))) {
+        return toPyObj<bool, toPyObj, std::vector<uint8_t>, toPyObj>(CV::imencode(ext, toVar(img), PARSE(params, default_param, toInts)));
     }
     PyMNN_ERROR("imencode require args: (string, Var, |[int])");
 }
@@ -62,10 +62,10 @@ static PyObject* PyMNNCV_imread(PyObject *self, PyObject *args) {
 static PyObject* PyMNNCV_imwrite(PyObject *self, PyObject *args) {
     const char *filename = NULL;
     INTS default_param = {};
-    PyObject *img, *params = toPyObj(default_param);
+    PyObject *img, *params = nullptr /* default_param */;
     if (PyArg_ParseTuple(args, "sO|O", &filename, &img, &params) &&
-        filename && isVar(img) && isInts(params)) {
-        return toPyObj(CV::imwrite(filename, toVar(img), toInts(params)));
+        filename && isVar(img) && (params == nullptr || isInts(params))) {
+        return toPyObj(CV::imwrite(filename, toVar(img), PARSE(params, default_param, toInts)));
     }
     PyMNN_ERROR("imwrite require args: (string, Var, |[int])");
 }
@@ -188,21 +188,25 @@ static PyObject* PyMNNCV_Laplacian(PyObject *self, PyObject *args) {
 }
 static PyObject* PyMNNCV_pyrDown(PyObject *self, PyObject *args) {
     INTS default_size = {0, 0};
-    PyObject *src, *dstsize = toPyObj(default_size);
+    PyObject *src, *dstsize = nullptr /* default_size */;
     int borderType = 1;
     if (PyArg_ParseTuple(args, "O|Oi", &src, &dstsize, &borderType) &&
-        isVar(src) && isSize(dstsize))  {
-        return toPyObj(CV::pyrDown(toVar(src), toSize(dstsize), borderType));
+        isVar(src) && (dstsize == nullptr || isSize(dstsize)))  {
+        return toPyObj(CV::pyrDown(toVar(src),
+                PARSE(dstsize, CV::Size(default_size[0], default_size[1]), toSize),
+                borderType));
     }
     PyMNN_ERROR("pyrDown require args: (Var, |[int], BorderTypes)");
 }
 static PyObject* PyMNNCV_pyrUp(PyObject *self, PyObject *args) {
     INTS default_size = {0, 0};
-    PyObject *src, *dstsize = toPyObj(default_size);
+    PyObject *src, *dstsize = nullptr /* default_size */;
     int borderType = 1;
     if (PyArg_ParseTuple(args, "O|Oi", &src, &dstsize, &borderType) &&
-        isVar(src) && isSize(dstsize))  {
-        return toPyObj(CV::pyrUp(toVar(src), toSize(dstsize)));
+        isVar(src) && (dstsize == nullptr || isSize(dstsize)))  {
+        return toPyObj(CV::pyrUp(toVar(src),
+                PARSE(dstsize, CV::Size(default_size[0], default_size[1]), toSize),
+                borderType));
     }
     PyMNN_ERROR("pyrUp require args: (Var, |[int], BorderTypes)");
 }
@@ -302,23 +306,31 @@ static PyObject* PyMNNCV_invertAffineTransform(PyObject *self, PyObject *args) {
 }
 static PyObject* PyMNNCV_resize(PyObject *self, PyObject *args) {
     std::vector<float> default_floats = {};
-    PyObject *src, *dsize, *mean = toPyObj(default_floats), *norm = toPyObj(default_floats);
+    PyObject *src, *dsize, *mean = nullptr /* default_floats */, *norm = nullptr /* default_floats */;
     float fx = 0, fy = 0;
     int code = -1, interpolation = CV::INTER_LINEAR;
     if (PyArg_ParseTuple(args, "OO|ffiiOO", &src, &dsize, &fx, &fy, &interpolation, &code, &mean, &norm) &&
-        isVar(src) && isSize(dsize) && isFloats(mean) && isFloats(norm)) {
-        return toPyObj(CV::resize(toVar(src), toSize(dsize), fx, fy, interpolation, code, toFloats(mean), toFloats(norm)));
+        isVar(src) && isSize(dsize)
+        && (mean == nullptr || isFloats(mean))
+        && (norm == nullptr || isFloats(norm))) {
+        return toPyObj(CV::resize(toVar(src), toSize(dsize), fx, fy, interpolation, code,
+                    PARSE(mean, default_floats, toFloats),
+                    PARSE(norm, default_floats, toFloats)));
     }
     PyMNN_ERROR("resize require args: (Var, [int], |float, float, InterpolationFlags, int, [float], [float])");
 }
 static PyObject* PyMNNCV_warpAffine(PyObject *self, PyObject *args) {
     std::vector<float> default_floats = {};
-    PyObject *src, *M, *dsize, *mean = toPyObj(default_floats), *norm = toPyObj(default_floats);
+    PyObject *src, *M, *dsize, *mean = nullptr /* default_floats */, *norm = nullptr /* default_floats */;
     int borderValue = 0, code = -1, flag = CV::INTER_LINEAR, borderMode = CV::BORDER_CONSTANT;
     if (PyArg_ParseTuple(args, "OOO|iiiiOO", &src, &M, &dsize, &flag, &borderMode, &borderValue, &code, &mean, &norm) &&
-        isVar(src) && isMatrix(M) && isSize(dsize) && isFloats(mean) && isFloats(norm)) {
+        isVar(src) && isMatrix(M) && isSize(dsize)
+        && (mean == nullptr || isFloats(mean))
+        && (norm == nullptr || isFloats(norm))) {
         return toPyObj(CV::warpAffine(toVar(src), toMatrix(M), toSize(dsize),
-                       flag, borderMode, borderValue, code, toFloats(mean), toFloats(norm)));
+                       flag, borderMode, borderValue, code,
+                                PARSE(mean, default_floats, toFloats),
+                                PARSE(norm, default_floats, toFloats)));
     }
     PyMNN_ERROR("warpAffine require args: (Var, Matrix, [int], |InterpolationFlags, BorderTypes, int, int, [float], [float])");
 }
@@ -355,11 +367,18 @@ static PyObject* PyMNNCV_threshold(PyObject *self, PyObject *args) {
 // structural
 #ifdef PYMNN_IMGPROC_STRUCTURAL
 static PyObject* PyMNNCV_findContours(PyObject *self, PyObject *args) {
-    PyObject *image, *offset = toPyObj(std::vector<float>{0, 0});
+    PyObject *image, *offset = nullptr /* {0, 0} */;
     int mode, method;
     if (PyArg_ParseTuple(args, "Oii|O", &image, &mode, &method, &offset) &&
-        isVar(image) && isPoint(offset)) {
-        auto contours = CV::findContours(toVar(image), mode, method, toPoint(offset));
+        isVar(image)
+        && (offset == nullptr || isPoint(offset))) {
+        CV::Point point;
+        if (offset == nullptr) {
+            point.set(0.f, 0.f);
+        } else {
+            point = toPoint(offset);
+        }
+        auto contours = CV::findContours(toVar(image), mode, method, point);
         PyObject* obj = PyTuple_New(2);
         PyTuple_SetItem(obj, 0, toPyObj<VARP, toPyObj>(contours));
         PyTuple_SetItem(obj, 1, toPyObj("no hierarchy"));
@@ -546,13 +565,19 @@ static PyObject* PyMNNCV_drawContours(PyObject *self, PyObject *args) {
     PyMNN_ERROR("drawContours require args: (Var, [Points], int, Color, |int, LineType)");
 }
 static PyObject* PyMNNCV_fillPoly(PyObject *self, PyObject *args) {
-    PyObject *img, *contours, *color, *offset = toPyObj(std::vector<float>{0, 0});
+    PyObject *img, *contours, *color, *offset = nullptr /* {0, 0} */;
     int shift = 0, linetype = CV::LINE_8;
     if (PyArg_ParseTuple(args, "OOO|OiO", &img, &contours, &color, &linetype, &shift, &offset)
-        && isVar(img) && (isVec<isPoints>(contours) || isPoints(contours)) && isColor(color) && isPoint(offset)) {
+        && isVar(img) && (isVec<isPoints>(contours) || isPoints(contours)) && isColor(color)
+        && (offset == nullptr || isPoint(offset))) {
         auto image = toVar(img);
-        CV::fillPoly(image, toVec<std::vector<CV::Point>, toPoints>(contours), toColor(color),
-                     linetype, shift, toPoint(offset));
+        CV::Point point;
+        if (offset == nullptr) {
+            point.set(0.f, 0.f);
+        } else {
+            point = toPoint(offset);
+        }
+        CV::fillPoly(image, toVec<std::vector<CV::Point>, toPoints>(contours), toColor(color), linetype, shift, point);
         Py_RETURN_NONE;
     }
     PyMNN_ERROR("fillPoly require args: (Var, [Points], Color, |LineType, int, Point)");

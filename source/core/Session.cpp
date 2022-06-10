@@ -229,6 +229,16 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             *dst = flo;
             return true;
         } break;
+        case Interpreter::RESIZE_STATUS: {
+            auto dst = (int*)ptr;
+            if (mNeedResize) {
+                *dst = 2;
+            } else if (mNeedMalloc) {
+                *dst = 1;
+            } else {
+                *dst = 0;
+            }
+        } break;
         // TODO: Support other debug info
         default:
             break;

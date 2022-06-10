@@ -22,16 +22,15 @@ asm_function MNNPackedSparseQuantMatMulEpx4
 // const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap) {
 // x0: C, x1:A, x2:B, x3:sparseQuantParam, x4:QuanPostTreatParameters, x5:NNZMap, x6:dataOffsetMap
 
-stp x19, x20, [sp, #(-16 * 1)]
-stp x21, x22, [sp, #(-16 * 2)]
-stp x23, x24, [sp, #(-16 * 3)]
-stp x25, x26, [sp, #(-16 * 4)]
-stp x27, x28, [sp, #(-16 * 5)]
-
-stp d8,  d9,  [sp, #(-16 * 6)]
-stp d10, d11, [sp, #(-16 * 7)]
-stp d12, d13, [sp, #(-16 * 8)]
-str d14, [sp, #(-16 * 9)]
+str d14, [sp, #(-16 * 9)]!
+stp d12, d13, [sp, #(16 * 1)]
+stp d10, d11, [sp, #(16 * 2)]
+stp d8,  d9,  [sp, #(16 * 3)]
+stp x27, x28, [sp, #(16 * 4)]
+stp x25, x26, [sp, #(16 * 5)]
+stp x23, x24, [sp, #(16 * 6)]
+stp x21, x22, [sp, #(16 * 7)]
+stp x19, x20, [sp, #(16 * 8)]
 
 ldp x13, x10, [x3, #16]     // x13: aStride, x10: l
 ldp x11, x12, [x3, #32]     // x11: h, x12: cStride
@@ -1065,15 +1064,15 @@ beq loop_end
 
 loop_end:
 
-ldp x19, x20, [sp, #(-16 * 1)]
-ldp x21, x22, [sp, #(-16 * 2)]
-ldp x23, x24, [sp, #(-16 * 3)]
-ldp x25, x26, [sp, #(-16 * 4)]
-ldp x27, x28, [sp, #(-16 * 5)]
-ldp d8,  d9,  [sp, #(-16 * 6)]
-ldp d10, d11, [sp, #(-16 * 7)]
-ldp d12, d13, [sp, #(-16 * 8)]
-ldr d14, [sp, #(-16 * 9)]
+ldp x19, x20, [sp, #(16 * 8)]
+ldp x21, x22, [sp, #(16 * 7)]
+ldp x23, x24, [sp, #(16 * 6)]
+ldp x25, x26, [sp, #(16 * 5)]
+ldp x27, x28, [sp, #(16 * 4)]
+ldp d8,  d9,  [sp, #(16 * 3)]
+ldp d10, d11, [sp, #(16 * 2)]
+ldp d12, d13, [sp, #(16 * 1)]
+ldr d14, [sp], #(16 * 9)
 
 ret
 

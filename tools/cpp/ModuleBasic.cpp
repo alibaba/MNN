@@ -12,6 +12,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
+#include "common/MemoryFormater.h"
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -94,6 +95,7 @@ static void _initDebug() {
             std::ostringstream outputFileName;
             outputFileName << "output/Input_" << opCopyName << "_" << i;
             dumpTensor2File(expectTensor, outputFileName.str().c_str(), gOrderFile);
+
             delete expectTensor;
         }
         return true;
@@ -129,6 +131,7 @@ static void _initDebug() {
 
             outputFileName << "output/" << opCopyName << "_" << i;
             dumpTensor2File(expectTensor, outputFileName.str().c_str(), gOrderFile);
+
             delete expectTensor;
         }
         return true;
@@ -137,12 +140,19 @@ static void _initDebug() {
 }
 
 static bool compareOutput(VARP output, const std::string& directName, const std::string& name, Dimensionformat dataFormat, int order) {
+
     auto info = output->getInfo();
     auto ptr = output->readMap<float>();
+    if (info && info->size <= 0) {
+        MNN_PRINT("skip checking value for zero content tensor %s\n", name.c_str());
+        return true;
+    }
+
     if (nullptr == info || nullptr == ptr) {
-        MNN_ERROR("TESTERROR ptr / info nullptr\n");
+        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p. size:%d\n", name.c_str(), info, ptr, info->size);
         return false;
     }
+
     std::ifstream outputOrigin;
     // First find key
     {
@@ -160,7 +170,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         MNN_PRINT("Skip check %s\n", name.c_str());
         return true;
     }
-    MNN_PRINT("%s: (", name.c_str());
+    MNN_PRINT("before compare %s: (", name.c_str());
     for (int i=0; i<info->dim.size(); ++i) {
         MNN_PRINT("%d, ", info->dim[i]);
     }
@@ -292,7 +302,7 @@ int main(int argc, char *argv[]) {
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
     // backendConfig.memory = BackendConfig::Memory_High;
     config.backendConfig     = &backendConfig;
-    
+
     MNN::Express::Module::Config mConfig;
     mConfig.shapeMutable = shapeMutable;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
@@ -333,6 +343,8 @@ int main(int argc, char *argv[]) {
             inputOs >> ptr[i];\
         }\
     }
+
+
     std::vector<VARP> inputs(mInfo->inputs.size());
     for (int i=0; i<inputs.size(); ++i) {
         inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
@@ -360,6 +372,7 @@ int main(int argc, char *argv[]) {
         inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
     }
 #undef LOAD_DATA
+
     bool modelError = false;
     // Module Branch
     auto outputs = net->onForward(inputs);
@@ -412,7 +425,7 @@ int main(int argc, char *argv[]) {
     float memoryInMB = 0.0f;
     rtmgr->getInfo(Interpreter::MEMORY, &memoryInMB);
     FUNC_PRINT_ALL(memoryInMB, f);
-    
+
     // benchmark. for CPU, op time means calc duration; for others, op time means schedule duration.
     int runTime = 0;
     if (argc > 5) {
@@ -422,10 +435,12 @@ int main(int argc, char *argv[]) {
     if (runTime > 0) {
         int t = runTime;
         std::vector<float> times(t, 0.0f);
+
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
             times[i] = _l.durationInUs() / 1000.0f;
+
         }
         auto minTime = std::min_element(times.begin(), times.end());
         auto maxTime = std::max_element(times.begin(), times.end());

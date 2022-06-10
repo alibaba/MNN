@@ -22,9 +22,10 @@ asm_function MNNGemmint8to32_8x4_Unit
 //x4: src_depth_quad, x5: dst_step, 
 //x6: dst_depth_quad
 
-sub sp, sp, #128
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+stp d14, d15, [sp, #-64]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 L4LoopDz:
     mov x8, x1
@@ -182,9 +183,10 @@ L4LoopDz:
     bne L4LoopDz
 
 
-sub sp, sp, #128
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #64
 ret
 
 #endif

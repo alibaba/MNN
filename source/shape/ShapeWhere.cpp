@@ -59,8 +59,10 @@ class WhereSizeComputer : public SizeComputer {
         if (count > 0) {
             ob.dim[0].extent = count;
         } else {
-            ob.dimensions = 1;
+            // When no true element is found, the second demision should be kept, other than squeezed.
+            ob.dimensions = 2;
             ob.dim[0].extent = 0;
+            ob.dim[1].extent = ib.dimensions;
         }
         return true;
     }
