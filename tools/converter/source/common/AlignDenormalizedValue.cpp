@@ -8,6 +8,7 @@
 #include "math.h"
 #include "CommonUtils.hpp"
 using namespace MNN;
+static bool gPrinted = false;
 
 void AlignDenormalizedValue(std::unique_ptr<MNN::OpT>& op) {
 
@@ -29,7 +30,10 @@ void AlignDenormalizedValue(std::unique_ptr<MNN::OpT>& op) {
             }
 
             if (aligned) {
-                MNN_PRINT("caution: some weight absolute value is smaller than float min:%e, please check your training process.\n", ValueMin);
+                if (!gPrinted) {
+                    MNN_PRINT("caution: some weight absolute value is smaller than float min:%e, please check your training process.\n", ValueMin);
+                    gPrinted = true;
+                }
             }
 
             break;

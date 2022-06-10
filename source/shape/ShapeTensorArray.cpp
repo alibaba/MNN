@@ -341,7 +341,7 @@ class TensorArrayConcatComputer : public SizeComputer {
         auto tpParam = op->main_as_TensorArray();
         int concatAxis = tpParam->axis(), newAxis = tpParam->new_axis();
         outputs[0]->setType(op->main_as_TensorArray()->T());
-        
+
         const auto& elemShapes = inDes->tensorArrayAttr->elemShape;
         auto outShape = elemShapes[0];
         bool valid = true; // avoid use MNN_ASSERT because it's no-op in release mode
@@ -389,7 +389,7 @@ class TensorArrayInsertComputer : public SizeComputer {
             return false;
         }
         MNN_ASSERT(inDes->tensorArrayAttr->isDynamicSize);
-        
+
         copyTensorArrayAttribute(inputs[3], outputs[0]);
         auto outSeq = TensorUtils::getDescribe(outputs[0])->tensorArrayAttr;
         outputs[0]->buffer().type = inputs[3]->buffer().type;
@@ -425,7 +425,7 @@ class TensorArrayEraseComputer : public SizeComputer {
             return false;
         }
         MNN_ASSERT(inDes->tensorArrayAttr->isDynamicSize);
-        
+
         copyTensorArrayAttribute(inputs[2], outputs[0]);
         auto outSeq = TensorUtils::getDescribe(outputs[0])->tensorArrayAttr;
         outputs[0]->buffer().type = inputs[2]->buffer().type;

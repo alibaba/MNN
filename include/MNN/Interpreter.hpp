@@ -300,6 +300,9 @@ public:
 
         /** Backends in session in M, int*, length >= 1 + number of configs when create session */
         BACKENDS = 2,
+        
+        /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
+        RESIZE_STATUS = 3,
 
         ALL
     };

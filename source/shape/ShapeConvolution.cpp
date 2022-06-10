@@ -60,10 +60,12 @@ public:
 
         // For Tensorflow Group Convolution, the inputCount is the size of filter's input count
         if (inputs.size() == 1 && !valid && OpType_Convolution == op->type()) {
+            input->printShape();
             MNN_ERROR(
-                "Error for compute convolution shape, inputCount:%d, group:%d, inputChannel: %d, batch:%d, width:%d, height:%d. "
+                "Error for compute convolution shape, inputCount:%d, outputCount:%d, KH:%d, KW:%d, group:%d\ninputChannel: %d, batch:%d, width:%d, height:%d. "
                 "Input data channel may be mismatch with filter channel count\n",
-                layer->inputCount(), layer->group(), input->channel(), input->batch(), input->width(), input->height());
+                layer->inputCount(), outputCount, kY, kX, layer->group(),
+                input->channel(), input->batch(), input->width(), input->height());
             return false;
         }
 

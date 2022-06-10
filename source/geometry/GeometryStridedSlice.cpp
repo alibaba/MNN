@@ -221,6 +221,9 @@ public:
         OpCommonUtils::computeStride(mod, remainDims, (int)remainDimSize);
         int outputStrideTotal = 1;
         int basicInputOffset  = 0;
+        for (int i = 0; i < shapeNum - regionSize; ++i) {
+            basicInputOffset += inputStride[i] * beginShape[i];
+        }
         for (int i = 0; i < regionSize; ++i) {
             int pos  = shapeNum - i - 1;
             auto len = outputShape[pos];

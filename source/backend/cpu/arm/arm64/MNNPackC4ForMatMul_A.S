@@ -31,23 +31,20 @@ asm_function MNNPackC4ForMatMul_A
 //void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el)
 //Auto: x0: dest, x1:sourceGroup, x2: info, x3:el
 
-str x19, [sp, #(-16 * 1)]
-
 ldr w10, [x2, #0] // number
 mov x4, #0
 mov x11, #0
 mov x6, #0
 ldr w4, [x2, #4] // eReal
 ldr w11, [x2, #8] // eDest
-mov x19, x11      // eP
+mov x12, x11      // eP
 ldr w6, [x2, #12] // xOffset
 // xOffset -> xOffset * 4 * sizeof(float)
 // eReal -> eReal * 4 * sizeof(float)
 // eDest -> eDest * sizeof(float)
-mov x12, #4 // sizeof(float).  kept as a const
 mov x9, #16
 mul x4, x9, x4 // eReal * 4 * sizeof(float)
-mul x11, x12, x11 // eDest * sizeof(float)
+lsl x11, x11, #2 // eDest * sizeof(float)
 mul x6, x9, x6 // xOffset * 4 * sizeof(float)
 
 LoopNumber:
@@ -65,11 +62,11 @@ ldr w2, [x3, #0] // e
 
 // Compute dest ptr: x0 = x0 + eOffset * sizeof(float) + lOffset * eDest * sizeof(float)
 mul x7, x11, x7
-mul x8, x12, x8
+lsl x8, x8, #2
 add x0, x0, x7
 add x0, x0, x8
 
-cmp w19, #16
+cmp w12, #16
 bne E12Body
 
 Body:
@@ -158,7 +155,7 @@ bne Right
 b End
 
 E12Body:
-cmp w19, #12
+cmp w12, #12
 bne Right
 cmp w2, #12
 bne Right
@@ -316,7 +313,7 @@ LoopE1:
     LoopE1End:
 
     subs w2, w2, #1
-    add x0, x8, x12
+    add x0, x8, #4
     add x1, x7, x6
     mov w5, w9
     bne LoopE1
@@ -330,8 +327,6 @@ add x3, x3, #16
 add x1, x1, #8
 
 bne LoopNumber
-
-ldr x19, [sp, #(-16 * 1)]
 
 ret
 

@@ -364,7 +364,7 @@ public:
                                       [](int a, int b) { return a * b; });
         auto inside = std::accumulate(shape.begin() + splitAxis + 1, shape.end(), 1,
                                        [](int a, int b) { return a * b; });
-        
+
         auto value = inputs[1], lengths = inputs[2];
         bool scalarSplit = (lengths->elementSize() == 1);
         int totalLen = value->shape()[splitAxis];
@@ -417,7 +417,7 @@ public:
         if (attr->isIdenticalShape) {
             concatFinal *= attr->arraySize;
         }
-        
+
         auto output    = outputs[0];
         auto outDes = TensorUtils::getDescribe(output);
         outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
@@ -459,7 +459,7 @@ public:
         auto output    = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        
+
         int eraseIndex = inputs[1]->host<int32_t>()[0], oldSize = inDes->tensorArrayAttr->arraySize;
         eraseIndex += (eraseIndex < 0 ? oldSize: 0);
         auto eleSize = getElemSize(tensorArrayInput, eraseIndex);

@@ -250,7 +250,7 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
 
 class MetalRasterCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         return new MetalRaster(backend);
     }
 };

@@ -73,7 +73,7 @@ ErrorCode MetalPReLU::onExecute(const std::vector<Tensor *> &inputs, const std::
 
 class MetalPReLUCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto prelu = op->main_as_PRelu();
         return new MetalPReLU(backend, prelu->slope()->data(), prelu->slopeCount());
     }

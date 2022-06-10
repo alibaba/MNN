@@ -200,6 +200,11 @@ public:
         if (inputs.size() == 2) {
             auto info = inputs[1]->getInfo();
             auto ptr = inputs[1]->readMap<float>();
+            if (!ptr) {
+                mergeredResize->main.value = resizeParam.release();
+                auto output = Variable::create(Expr::create(mergeredResize.get(), {inputs[0], inputs[1]}));
+                return output->expr().first;
+            }
             MNN_ASSERT((ptr[0] == 1) && (ptr[1] == 1));
             if (info->size > 2) {
                 resizeParam->heightScale   = ptr[2];

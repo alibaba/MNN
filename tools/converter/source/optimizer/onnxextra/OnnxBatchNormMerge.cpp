@@ -143,7 +143,7 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
             }
         }
 
-        auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Size(_Shape(input, true)) - _Scalar<int>(2), _Scalar<int>(1))}, 0);
+        auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Unsqueeze(_Size(_Shape(input, true)) - _Scalar<int>(2), {0}), _Scalar<int>(1))}, 0);
         auto scale      = _OnnxReshape(inputs[1], compatShape);
         auto bias       = _OnnxReshape(inputs[2], compatShape);
         auto epsilonVar = _Scalar<float>(epsilon);

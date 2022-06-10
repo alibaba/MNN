@@ -108,7 +108,7 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
 class MetalMatMulCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op,
-                                Backend *backend) const override {
+                                Backend *backend, const std::vector<Tensor *>& outputs) const override {
         if(inputs.size() < 2) {
             MNN_PRINT("metal not support matmul inpt size less than 2\n");
             return nullptr;

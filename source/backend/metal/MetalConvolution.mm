@@ -226,7 +226,7 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
 
 class MetalConvolutionCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto param = op->main_as_Convolution2D();
         if (param->quanParameter() != nullptr) {
             if (param->quanParameter()->has_scaleInt()) {
@@ -239,7 +239,7 @@ public:
         if (op->type() == OpType_Convolution) {
             auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
-            if (MetalConvolutionWinograd::isValid(conv, input)) {
+            if (MetalConvolutionWinograd::isValid(conv, inputs[0], outputs[0])) {
                 return new MetalConvolutionWinograd(backend, input, op);
             }
             if (MetalConvolutionGEMM::isValid(conv, input)) {

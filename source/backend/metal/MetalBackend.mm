@@ -147,7 +147,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
         return NULL;
     }
 
-    auto exe = iter->second->onCreate(inputs, op, this);
+    auto exe = iter->second->onCreate(inputs, op, this, outputs);
     if (NULL == exe) {
         mOpFullSupport = false;
         MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "");

@@ -231,7 +231,7 @@ ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, con
 
 class MetalDeconvolutionCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         if (inputs.size() > 1) {
             MNN_PRINT("multi input deconv for metal not supoort!\n");
             return nullptr;

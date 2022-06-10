@@ -100,7 +100,7 @@ ErrorCode MetalUnary::onExecute(const std::vector<Tensor *> &inputs, const std::
 
 class MetalUnaryCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         if (op->type() == OpType_TanH) {
             return new MetalUnary(backend, UnaryOpOperation_TANH);
         }

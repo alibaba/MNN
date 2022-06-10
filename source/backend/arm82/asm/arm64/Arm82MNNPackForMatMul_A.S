@@ -16,9 +16,10 @@
 asm_function Arm82MNNPackForMatMul_A
 //void Arm82MNNPackForMatMul_A(FLOAT16* destOrigin, FLOAT16 const** sourceGroup, const int32_t* info, const int32_t* el)
 //Auto: x0: dest, x1:sourceGroup, x2: info, x3:el
-sub sp, sp, #128
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+stp d14, d15, [sp, #-64]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 ldr w10, [x2, #0] // number
 mov x4, #0
@@ -499,9 +500,10 @@ add x1, x1, #8  // sizeof(FLOAT16*)
 
 bne LoopNumber
 
-sub sp, sp, #128
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #64
 
 ret
 

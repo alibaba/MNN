@@ -225,7 +225,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_PRINT("Acquire buffer size = %d\n", size);
-//        MNN_ASSERT(false);
+       // MNN_ASSERT(false);
         return nullptr;
     }
     // if (size > LARGE_MEMORY) {

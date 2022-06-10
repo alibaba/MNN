@@ -62,7 +62,7 @@ static DataType _mapDataType(DataType src) {
 }
 class MetalCastCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         auto cast = op->main_as_CastParam();
         auto srcType = inputs[0]->getType();
         auto dst = _mapDataType(cast->dstT());

@@ -54,7 +54,7 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
     /** Compute map index
      int mCondInputNumber;
      int mBodyInputNumber;
-     
+
      // First mCondInputs' index, Second: inputs's index
      std::vector<std::pair<int, int>> mInputForCond;
 
@@ -106,7 +106,7 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
         condOutputPos = _findPos(cond.outputs, outputName);
 
         auto updateBodyOutputPos = _findPos(body.outputs, inputName);
-        
+
         MNN_ASSERT(bodyOutputPos == -1 || condOutputPos == -1);
         if (condOutputPos >= 0) {
             if (bodyInputPos >= 0) {
@@ -220,7 +220,7 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
             break;
         }
         step++;
-        //MNN_PRINT("%s - %d\n", name().c_str(), step);
+        // MNN_PRINT("before while op name: %s, step:%d\n", name().c_str(), step);
         auto bodyOutputs = mBody->onForward(bodyInputs);
         for (auto& p : mInfo->mUpdateForCond) {
             condInputs[p.first] = bodyOutputs[p.second];

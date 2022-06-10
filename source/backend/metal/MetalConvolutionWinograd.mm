@@ -18,9 +18,9 @@
 #define UNIT 2
 
 namespace MNN {
-bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor *input) {
+bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor* input, const Tensor *output) {
     auto common = conv->common();
-    if (input->batch() != 1
+    if (output->batch() != 1
         || !((common->kernelX() == common->kernelY()) && ((common->kernelX() == 3) || (common->kernelX() == 5)))
         || common->dilateX() != 1
         || common->dilateY() != 1
@@ -28,9 +28,19 @@ bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor *
         || common->strideY() != 1) {
         return false;
     }
-    auto iw = input->width(), ih = input->height();
-    auto ic = ROUND_UP(input->channel(), 4), oc = ROUND_UP(common->outputCount(), 4);
-    return ic * oc * ih / iw >= 2048;
+    int ow = output->width();
+    int oh = output->height();
+    int oc = output->channel();
+    int ic = input->channel();
+    int kernelSize = common->kernelX();
+    const int u = 2;
+    float su = (float)(u + kernelSize - 1);
+    float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
+    float winogradCost =
+        ( (2 * su - 6) * su * su * ic + 2 * su * su * ic * oc + ((su + u) * u * (2 * su - 6) * oc)) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+    float reduceRate = originCost / winogradCost;
+
+    return reduceRate > 1.0f;
 }
 
 MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op)

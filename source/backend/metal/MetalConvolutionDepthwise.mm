@@ -137,7 +137,7 @@ id<MTLBuffer> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int i
 
 class MetalConvolutionDepthwiseCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         if (inputs.size() > 1) {
             return nullptr;
         }

@@ -74,9 +74,24 @@ bool GeometryComputer::Context::allocTensor(Tensor* tensor) {
     return true;
 }
 
-void GeometryComputer::Context::getRasterCacheCreateRecurrse(Tensor* src, CommandBuffer& cmd) {
+inline bool _hasZeroDim(const Tensor* t) {
+
+    for (int i = 0; i < t->dimensions(); ++i) {
+        if (t->length(i) <= 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+void GeometryComputer::Context::getRasterCacheCreateRecursive(Tensor* src, CommandBuffer& cmd) {
     auto srcDes = TensorUtils::getDescribe(src);
     if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        return;
+    }
+
+    if (_hasZeroDim(src)) {
         return;
     }
     for (auto& input : srcDes->regions) {
@@ -92,7 +107,7 @@ void GeometryComputer::Context::getRasterCacheCreateRecurrse(Tensor* src, Comman
             }
             inputDes = TensorUtils::getDescribe(input.origin);
         }
-        getRasterCacheCreateRecurrse(input.origin, cmd);
+        getRasterCacheCreateRecursive(input.origin, cmd);
     }
     getRasterCacheCreate(src, cmd);
 }

@@ -465,6 +465,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         }
     }
     for (auto& info : mInfo) {
+
         auto& buffer = info.executeBuffer;
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
@@ -527,8 +528,8 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         auto& buffer = info.executeBuffer;
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
-            // MNN_PRINT("%d - %s\n", i, EnumNameOpType(iter.op->type()));
-            // MNN_PRINT("%s\n", iter.name.c_str());
+            // MNN_PRINT("before Resize: %d - %s\n", i, EnumNameOpType(iter.op->type()));
+            // MNN_PRINT("before Resize: %s\n", iter.name.c_str());
             if (nullptr == iter.executionOrigin) {
                 bool cached    = false;
                 /** Cache origin execution for fast resize*/
@@ -631,6 +632,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
             } else {
                 iter.execution = iter.executionOrigin;
             }
+
             auto code = iter.execution->onResize(iter.inputs, iter.outputs);
             if (NO_ERROR != code && (!iter.info.get())) {
                 MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());

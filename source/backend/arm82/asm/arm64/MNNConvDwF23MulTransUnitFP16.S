@@ -16,8 +16,8 @@ asm_function MNNConvDwF23MulTransUnitFP16
 //void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weigth, FLOAT16 *dest, size_t ow);
 //Auto: x0:cacheLine, x1:weight, x2:dest, x3:ow, x4: bias, x5: parameters
 
-sub sp, sp, #64
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+stp d10, d11, [sp, #-32]!
+stp d8,  d9,  [sp, #16]
 
 ld1 {v8.8h}, [x4] // bias
 ldr w9, [x5, #8]
@@ -115,8 +115,8 @@ fmax v0.8h, v0.8h, v9.8h
 st1 {v0.8h}, [x2]
 End:
 
-sub sp, sp, #64
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+ldp d8,  d9,  [sp, #16]
+ldp d10, d11, [sp], #32
 
 ret
 #endif

@@ -28,7 +28,7 @@ public:
 
         void clear();
         void setBackend(Backend* backend);
-        void getRasterCacheCreateRecurrse(Tensor* src, CommandBuffer& cmd);
+        void getRasterCacheCreateRecursive(Tensor* src, CommandBuffer& cmd);
 
         // If has cache, return. Otherwise create cache
         const std::vector<std::shared_ptr<Tensor>>& searchConst(const Op* op);

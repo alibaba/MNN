@@ -74,7 +74,7 @@ ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::
 
 class MetalScaleCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         return new MetalScale(backend, op->main_as_Scale());
     }
 };

@@ -179,6 +179,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         for (auto t : info.outputs) {
             TensorUtils::adjustTensorForCompability(t);
         }
+
+
         if (info.type == Schedule::CONSTANT) {
             if (_hasZeroShapeOutput(info)) {
                 continue;
@@ -199,7 +201,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             GeometryComputerUtils::makeRaster(tempBuffer, cmdBufferVir, ctx);
             for (auto t : info.outputs) {
-                ctx.getRasterCacheCreateRecurrse(t, cmdBufferVir);
+                ctx.getRasterCacheCreateRecursive(t, cmdBufferVir);
             }
             for (auto& cp : cmdBufferVir.command) {
                 auto& c = *cp;
@@ -230,12 +232,15 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
+
             }
             // Clear const command
             ctx.pushCache(cmdBufferVir);
             cmdBufferVir.command.clear();
             cmdBufferVir.extras.clear();
         }
+
+
     }
     /** Size Compute and compute Const End */
 
@@ -268,7 +273,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 if (des->usage == Tensor::InsideDescribe::OUTPUT) {
                     // TODO: If output is static and lenght larger than new size, don't clear mem
                     des->mem.reset(nullptr);
-                    geoContext.getRasterCacheCreateRecurrse(t, cmdBufferReal);
+                    geoContext.getRasterCacheCreateRecursive(t, cmdBufferReal);
                 }
             }
         }
@@ -301,7 +306,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
             auto des = TensorUtils::getDescribe(cmd.inputs[i]);
             //MNN_ASSERT(des->tensorArrayAttr == nullptr);
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                ctx.getRasterCacheCreateRecurrse(cmd.inputs[i], dstBuffer);
+                ctx.getRasterCacheCreateRecursive(cmd.inputs[i], dstBuffer);
             }
         }
         dstBuffer.command.emplace_back(srcBuffer.command[index]);

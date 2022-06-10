@@ -1151,7 +1151,6 @@ WinogradFunctionHalf::WinoUnrollTransFunc WinogradFunctionHalf::chooseSourceUnro
     if (4 == k && 4 == w) {
         return _sourceUnrollTransformUnit4x4;
     }
-    MNN_ASSERT(false);
     return nullptr;
 }
 
@@ -1353,8 +1352,6 @@ void WinogradFunctionHalf::chooseWinoDestUnrollTransform(WinogradFunctionHalf::W
         memcpy((void*)destFunctions, gDestTransUnit4[h], (4 + 1) * sizeof(WinogradFunctionHalf::WinoUnrollDestTransFunc));
         return;
     }
-    MNN_ASSERT(false);
-    MNN_ERROR("Can not find function for bf16 chooseWinoDestUnrollTransform: k:%d, h:%d\n", k, h);
     return;
 }
 

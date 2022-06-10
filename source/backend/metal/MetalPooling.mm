@@ -96,7 +96,7 @@ ErrorCode MetalPooling::onExecute(const std::vector<Tensor *> &inputs, const std
 
 class MetalPoolingCreator : public MetalBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
         return new MetalPooling(backend, op->main_as_Pool());
     }
 };

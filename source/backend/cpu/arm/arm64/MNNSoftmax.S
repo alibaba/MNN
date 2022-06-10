@@ -14,8 +14,8 @@
 
 //void MNNSoftmax(float* dest, const float* source, size_t countC8)
 asm_function MNNSoftmax
-    stp x19, x20, [sp, #(-16 * 1)]
-    stp x21, x22, [sp, #(-16 * 2)]
+    stp x21, x22, [sp, #-32]!
+    stp x19, x20, [sp, #16]
     sxtw    x8, w2
     lsr     w9, w2, #2
     and     x8, x8, #-4
@@ -198,8 +198,8 @@ Loop_19:
     str     s1, [x9], #4
     b.lo    Loop_21
 Loop_22:
-    ldp x19, x20, [sp, #(-16 * 1)]
-    ldp x21, x22, [sp, #(-16 * 2)]
+    ldp x19, x20, [sp, #16]
+    ldp x21, x22, [sp], #32
     ret
 #endif
 

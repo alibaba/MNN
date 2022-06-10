@@ -372,11 +372,11 @@ android_test() {
     fi
 
     # 2. test Androird32
-    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 32 unit
-    if [ $? -ne 0 ]; then
-        echo '### AndroidTest32测试失败，测试终止！'
-        failed
-    fi
+    #python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 32 unit
+    #if [ $? -ne 0 ]; then
+    #    echo '### AndroidTest32测试失败，测试终止！'
+    #    failed
+    #fi
     popd
 
     # 3. build Android64
@@ -394,11 +394,11 @@ android_test() {
     fi
 
     # 4. test Android64
-    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 64 unit
-    if [ $? -ne 0 ]; then
-        echo '### AndroidTest64测试失败，测试终止！'
-        failed
-    fi
+    #python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 64 unit
+    #if [ $? -ne 0 ]; then
+    #    echo '### AndroidTest64测试失败，测试终止！'
+    #    failed
+    #fi
     popd
     popd
 }

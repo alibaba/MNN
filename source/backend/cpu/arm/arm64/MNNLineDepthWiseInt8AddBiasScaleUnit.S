@@ -38,8 +38,8 @@ asm_function MNNLineDepthWiseInt8AddBiasScaleUnit
 ldr x8, [sp, #0]
 ldr x9, [sp, #8]
 
-sub sp, sp, #64
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+stp d10, d11, [sp, #-32]!
+stp d8,  d9,  [sp, #16]
 
 ldr x10, [x3, #0]
 ldr w11, [x3, #16]
@@ -383,8 +383,8 @@ L1Loop:
     bne L1Loop
 
 End:
-sub sp, sp, #64
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+ldp d8,  d9,  [sp, #16]
+ldp d10, d11, [sp], #32
 ret
 
 #endif
