@@ -175,14 +175,16 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
         sche_config.backendConfig = moduleconfig.backend->config;
         rtMgr.reset(Executor::RuntimeManager::createRuntimeManager(sche_config));
     }
+    const BackendConfig* userConfig = nullptr;
     if (nullptr == rtMgr) {
         rt = Executor::getRuntime();
     } else {
         mResource->mModes = rtMgr->getInside()->modes;
-        rt = rtMgr->getRuntimeInfo();
+        rt = rtMgr->getInside()->mRuntime;
+        userConfig = &rtMgr->getInside()->mConfig;
     }
     if (moduleconfig.rearrange) {
-        mResourceBackend.reset(rt.first.begin()->second->onCreate());
+        mResourceBackend.reset(rt.first.begin()->second->onCreate(userConfig));
         if (mResourceBackend->type() == MNN_FORWARD_CPU) {
             mBackupResourceBackend = mResourceBackend;
         } else {
@@ -236,6 +238,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     mResource->mConfig.path.outputs = outputs;
     mResource->mConfig.saveTensors = outputs;
     mResource->mConfig.path.inputs = inputs;
+    mResource->mConfig.backendConfig = (BackendConfig*)userConfig;
     Schedule::ScheduleInfo scheduleInfo;
     // Copy Const
     if (nullptr != mResource->mSharedConst) {

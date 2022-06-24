@@ -153,65 +153,63 @@ void CPUResizeCommon::CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_
     const int outW            = output.dim[3].extent;
     const int outH            = output.dim[2].extent;
 
-    int depthQuad = UP_DIV(input.dim[1].extent, 4);
+    int depthQuad = UP_DIV(input.dim[1].extent, 4) * batches;
 
-    for (int b = 0; b < batches; ++b) {
-        auto threadFunction = [&](size_t tId) {
-            for (int n = (int)tId; n < depthQuad; n += threadNumber) {
-                auto _lineBuffer = lineBuffer + 2 * 4 * outW * tId;
-                auto _line0      = _lineBuffer + 4 * outW * 0;
-                auto _line1      = _lineBuffer + 4 * outW * 1;
-                int yUsed[2]     = {0, 0};
-                int yCache[2]    = {-1, -1};
+    auto threadFunction = [&](size_t tId) {
+        for (int n = (int)tId; n < depthQuad; n += threadNumber) {
+            auto _lineBuffer = lineBuffer + 2 * 4 * outW * tId;
+            auto _line0      = _lineBuffer + 4 * outW * 0;
+            auto _line1      = _lineBuffer + 4 * outW * 1;
+            int yUsed[2]     = {0, 0};
+            int yCache[2]    = {-1, -1};
 
-                float* yCacheLine[2]          = {_line0, _line1};
-                float* const yCacheStorage[2] = {_line0, _line1};
+            float* yCacheLine[2]          = {_line0, _line1};
+            float* const yCacheStorage[2] = {_line0, _line1};
 
-                auto bottomData =
-                    reinterpret_cast<const float*>(input.host) + b * inputBatchSize + (int)n * 4 * inW * inH;
-                auto topData = reinterpret_cast<float*>(output.host) + b * outputBatchSize + (int)n * 4 * outW * outH;
-                for (int dy = 0; dy < outH; dy++) {
-                    int yp[2];
-                    yp[0] = heightPosition[2 * dy + 0];
-                    yp[1] = heightPosition[2 * dy + 1];
-                    // Search cache
-                    for (int j = 0; j < 2; ++j) {
-                        yUsed[j] = 0;
+            auto bottomData =
+                reinterpret_cast<const float*>(input.host)  + (int)n * 4 * inW * inH;
+            auto topData = reinterpret_cast<float*>(output.host) + (int)n * 4 * outW * outH;
+            for (int dy = 0; dy < outH; dy++) {
+                int yp[2];
+                yp[0] = heightPosition[2 * dy + 0];
+                yp[1] = heightPosition[2 * dy + 1];
+                // Search cache
+                for (int j = 0; j < 2; ++j) {
+                    yUsed[j] = 0;
+                }
+                for (int j = 0; j < 2; ++j) {
+                    int find = 0;
+                    for (int k = 0; k < 2; ++k) {
+                        if (yp[j] == yCache[k]) {
+                            yUsed[k]      = 1;
+                            yCacheLine[j] = yCacheStorage[k];
+                            find          = 1;
+                            break;
+                        }
                     }
-                    for (int j = 0; j < 2; ++j) {
-                        int find = 0;
+                    if (!find) {
+                        const float* bottomY0 = bottomData + yp[j] * inW * 4;
                         for (int k = 0; k < 2; ++k) {
-                            if (yp[j] == yCache[k]) {
+                            if (!yUsed[k]) {
+                                yCache[k]     = yp[j];
                                 yUsed[k]      = 1;
                                 yCacheLine[j] = yCacheStorage[k];
-                                find          = 1;
+                                CPUBilinearSampleC4(bottomY0, yCacheLine[j], widthPosition, widthFactor, outW);
                                 break;
                             }
                         }
-                        if (!find) {
-                            const float* bottomY0 = bottomData + yp[j] * inW * 4;
-                            for (int k = 0; k < 2; ++k) {
-                                if (!yUsed[k]) {
-                                    yCache[k]     = yp[j];
-                                    yUsed[k]      = 1;
-                                    yCacheLine[j] = yCacheStorage[k];
-                                    CPUBilinearSampleC4(bottomY0, yCacheLine[j], widthPosition, widthFactor, outW);
-                                    break;
-                                }
-                            }
-                        }
                     }
-                    auto topY = topData + outW * 4 * dy;
-                    // Sample Input
-                    CPUBilinearLineC4(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outW);
                 }
+                auto topY = topData + outW * 4 * dy;
+                // Sample Input
+                CPUBilinearLineC4(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outW);
             }
-        };
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            threadFunction(tId);
         }
-        MNN_CONCURRENCY_END();
+    };
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        threadFunction(tId);
     }
+    MNN_CONCURRENCY_END();
 }
 
 void CPUResizeCommon::CPUResizeNearestneighborRoundC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset, float hOffset) {

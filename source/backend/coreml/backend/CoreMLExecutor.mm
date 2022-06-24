@@ -156,32 +156,37 @@ id<MTLComputePipelineState> getRasterPipeline() {
     if (_model == nil) {
         return NO;
     }
-    NSError* error = nil;
-    MultiArrayFeatureProvider* inputFeature = [[MultiArrayFeatureProvider alloc] initWithInputs:&inputs coreMlVersion:[self coreMlVersion]];
-    if (inputFeature == nil) {
-        NSLog(@"inputFeature is not initialized.");
-        return NO;
-    }
-    MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
-    // options.usesCPUOnly = true;
-    id<MLFeatureProvider> outputFeature = [_model predictionFromFeatures:inputFeature
-                                                                 options:options
-                                                                   error:&error];
-    if (error != nil) {
-        NSLog(@"Error executing model: %@", [error localizedDescription]);
-        return NO;
-    }
-    NSSet<NSString*>* outputFeatureNames = [outputFeature featureNames];
-    for (auto& output : outputs) {
-        NSString* outputName = [NSString stringWithCString:output.second.c_str()
-                                                  encoding:[NSString defaultCStringEncoding]];
-        MLFeatureValue* outputValue = [outputFeature featureValueForName:[outputFeatureNames member:outputName]];
-        auto* data = [outputValue multiArrayValue];
-        float* outputData = (float*)data.dataPointer;
-        if (outputData == nullptr) {
+    @autoreleasepool {
+        NSError* error = nil;
+        MultiArrayFeatureProvider* inputFeature = [[MultiArrayFeatureProvider alloc] initWithInputs:&inputs coreMlVersion:[self coreMlVersion]];
+        if (inputFeature == nil) {
+            NSLog(@"inputFeature is not initialized.");
             return NO;
         }
-        memcpy(output.first->host<float*>(), outputData, output.first->size());
+        MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
+        // options.usesCPUOnly = true;
+        //NSDate* timeStartData = [NSDate date];
+        id<MLFeatureProvider> outputFeature = [_model predictionFromFeatures:inputFeature
+                                                                     options:options
+                                                                       error:&error];
+        //float deltaTime = [[NSDate date] timeIntervalSinceDate:timeStartData];
+        //NSLog(@"cost time = %f", deltaTime * 1000);
+        if (error != nil) {
+            NSLog(@"Error executing model: %@", [error localizedDescription]);
+            return NO;
+        }
+        NSSet<NSString*>* outputFeatureNames = [outputFeature featureNames];
+        for (auto& output : outputs) {
+            NSString* outputName = [NSString stringWithCString:output.second.c_str()
+                                                      encoding:[NSString defaultCStringEncoding]];
+            MLFeatureValue* outputValue = [outputFeature featureValueForName:[outputFeatureNames member:outputName]];
+            auto* data = [outputValue multiArrayValue];
+            float* outputData = (float*)data.dataPointer;
+            if (outputData == nullptr) {
+                return NO;
+            }
+            memcpy(output.first->host<float*>(), outputData, output.first->size());
+        }
     }
     return YES;
 }
@@ -451,6 +456,13 @@ id<MTLComputePipelineState> getRasterPipeline() {
 
 - (NSArray<NSArray<NSNumber *> *> *)outputShapesForInputShapes:(NSArray<NSArray<NSNumber *> *> *)inputShapes
                                                          error:(NSError * _Nullable *)error {
+    for (int i = 0; i < inputShapes.count; i++) {
+        printf("### shape_%d : { ", i);
+        for (int j = 0; j < inputShapes[i].count; j++) {
+            printf("%d, ", inputShapes[i][j].intValue);
+        }
+        printf(" }\n");
+    }
     return inputShapes;
 }
 

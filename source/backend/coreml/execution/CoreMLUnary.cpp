@@ -234,5 +234,5 @@ ErrorCode CoreMLUnary::onResize(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLUnary>> __unary_op(OpType_UnaryOp);
+REGISTER_COREML_OP_CREATOR(CoreMLUnary, OpType_UnaryOp)
 } // namespace MNN

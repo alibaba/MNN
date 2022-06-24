@@ -33,19 +33,20 @@ REGISTER_CONVERTER(GatherTorch, embedding);
 DECLARE_OP_CONVERTER(SelectTorch);
 
 MNN::OpType SelectTorch::opType() {
-    return MNN::OpType_Gather;
+    return MNN::OpType_Extra;
 }
 MNN::OpParameter SelectTorch::type() {
-    return MNN::OpParameter_Axis;
+    return MNN::OpParameter_Extra;
 }
 std::vector<int> SelectTorch::inputTensorIdx() {
-    return {0, 2};
+    return {-1};
 }
 
 void SelectTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
-    auto param = new MNN::AxisT;
-    param->axis = getValue<int64_t>(node->input(1));
-    dstOp->main.value = param;
+    auto extra = new MNN::ExtraT;
+    dstOp->main.value = extra;
+    extra->engine     = "Torch";
+    extra->type       = getRealOpType(node);
 }
 
 REGISTER_CONVERTER(SelectTorch, select);

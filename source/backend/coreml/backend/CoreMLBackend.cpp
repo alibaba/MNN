@@ -15,6 +15,7 @@
 
 extern bool isAvailable();
 namespace MNN {
+    void registerCoreMLOps();
     static inline std::map<OpType, CoreMLBackend::Creator*>* getCreatorMap() {
         static std::once_flag of;
         static std::map<OpType, CoreMLBackend::Creator*>* ret = nullptr;
@@ -298,6 +299,7 @@ namespace MNN {
         if (!isAvailable()) {
             return;
         }
+        registerCoreMLOps();
         MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new CoreMLBackendCreator, true);
     }
 }

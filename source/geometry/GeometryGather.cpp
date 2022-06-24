@@ -161,8 +161,8 @@ public:
     enum MID_POSITION {
         P_constStride = 0,
         P_reshapeIndice = 1,
-        P_reshapeIndiceFloat = 2,
-        P_indiceFloat = 3,
+        P_broadcastStride = 2,
+        P_mulIndice = 3,
         P_indiceOneLine = 4,
         P_MAX
     };
@@ -236,18 +236,20 @@ public:
         auto paramSize = params->elementSize();
         auto constStride = cmd.extras[P_constStride];
         auto reshapeIndice = cmd.extras[P_reshapeIndice];
-        auto reshapeIndiceFloat = cmd.extras[P_reshapeIndiceFloat];
-        auto indiceFloat = cmd.extras[P_indiceFloat];
+        auto broadcastStride = cmd.extras[P_broadcastStride];
+        auto mulIndice = cmd.extras[P_mulIndice];
         auto indiceOneLine = cmd.extras[P_indiceOneLine];
         // Set length
         bool needAlloc = constStride->length(0) < indiceNd;
         constStride->setLength(0, indiceNd);
         reshapeIndice->setLength(0, mSliceN);
         reshapeIndice->setLength(1, indiceNd);
-        reshapeIndiceFloat->setLength(0, mSliceN);
-        reshapeIndiceFloat->setLength(1, indiceNd);
-        indiceFloat->setLength(0, mSliceN);
+        broadcastStride->setLength(0, mSliceN);
+        broadcastStride->setLength(1, indiceNd);
+        mulIndice->setLength(0, mSliceN);
+        mulIndice->setLength(1, indiceNd);
         indiceOneLine->setLength(0, mSliceN);
+        indiceOneLine->setLength(1, 1);
 
         if (needAlloc) {
             if (!context.allocTensor(constStride.get())) {
@@ -256,9 +258,10 @@ public:
         }
         for (int i=0; i<indiceNd; ++i) {
             int dimCount = paramSize / params->length(i);
-            constStride->host<float>()[i] = (float)dimCount;
+            constStride->host<int>()[i] = dimCount;
             paramSize = dimCount;
         }
+        // recompute reshape
         reshapeIndice->buffer().device = 0;
         reshapeIndice->buffer().host = 0;
         auto des = TensorUtils::getDescribe(reshapeIndice.get());
@@ -266,7 +269,21 @@ public:
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         des->backend = nullptr;
         des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
-        
+        // recompute broadcast
+        broadcastStride->buffer().device = 0;
+        broadcastStride->buffer().host = 0;
+        des = TensorUtils::getDescribe(broadcastStride.get());
+        des->extra.offset = 0;
+        des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        des->backend = nullptr;
+        des->regions[0].origin = constStride.get();
+        des->regions[0].size[0] = 1;
+        des->regions[0].size[1] = mSliceN;
+        des->regions[0].size[2] = indiceNd;
+        des->regions[0].dst.stride[0] = indiceNd*mSliceN;
+        des->regions[0].dst.stride[1] = indiceNd;
+        des->regions[0].dst.stride[2] = 1;
+        // recompute loop
         auto loopCmd = cmd.command[cmd.command.size() - 1];
         auto param = loopCmd->op->main_as_LoopParam();
         // Reset parameters for last command
@@ -304,14 +321,14 @@ public:
         }
         auto paramSize = params->elementSize();
         std::array<std::shared_ptr<Tensor>, 5> midTensors;
-        std::shared_ptr<Tensor> constStride(Tensor::createDevice<float>({indiceNd, 1}));
+        std::shared_ptr<Tensor> constStride(Tensor::createDevice<int>({indiceNd}));
         if (!context.allocTensor(constStride.get())) {
             return false;
         }
         midTensors[P_constStride] = constStride;
         for (int i=0; i<indiceNd; ++i) {
             int dimCount = paramSize / params->length(i);
-            constStride->host<float>()[i] = (float)dimCount;
+            constStride->host<int>()[i] = dimCount;
             paramSize = dimCount;
         }
         std::shared_ptr<Tensor> reshapeIndice(Tensor::createDevice<int>({mSliceN, indiceNd}));
@@ -321,41 +338,36 @@ public:
             des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
         }
-        std::shared_ptr<Tensor> reshapeIndiceFloat(Tensor::createDevice<float>({mSliceN, indiceNd}));
-        midTensors[P_reshapeIndiceFloat] = reshapeIndiceFloat;
+        std::shared_ptr<Tensor> broadcastStride(Tensor::createDevice<int>({mSliceN, indiceNd}));
+        midTensors[P_broadcastStride] = broadcastStride;
         {
-            flatbuffers::FlatBufferBuilder builder;
-            CastParamBuilder builder_(builder);
-            builder_.add_dstT(DataType_DT_FLOAT);
-            auto mainOffset = builder_.Finish().Union();
-            OpBuilder opB(builder);
-            opB.add_type(OpType_Cast);
-            opB.add_main(mainOffset);
-            opB.add_main_type(OpParameter_CastParam);
-            builder.Finish(opB.Finish());
-            auto cmd = GeometryComputerUtils::makeCommand(builder, {reshapeIndice.get()}, {reshapeIndiceFloat.get()});
-            res.command.emplace_back(std::move(cmd));
+            // [D] => [N, D]
+            auto des = TensorUtils::getDescribe(broadcastStride.get());
+            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->regions.resize(1);
+            des->regions[0].origin = constStride.get();
+            des->regions[0].size[0] = 1;
+            des->regions[0].size[1] = mSliceN;
+            des->regions[0].size[2] = indiceNd;
+            des->regions[0].dst.stride[0] = indiceNd*mSliceN;
+            des->regions[0].dst.stride[1] = indiceNd;
+            des->regions[0].dst.stride[2] = 1;
+            des->regions[0].src.stride[0] = 0;
+            des->regions[0].src.stride[1] = 0;
+            des->regions[0].src.stride[2] = 1;
         }
-        std::shared_ptr<Tensor> indiceFloat(Tensor::createDevice<float>({mSliceN, 1}));
-        midTensors[P_indiceFloat] = indiceFloat;
+        std::shared_ptr<Tensor> mulIndice(Tensor::createDevice<int>({mSliceN, indiceNd}));
+        midTensors[P_mulIndice] = mulIndice;
         {
-            // MatMul
-            auto cmd = GeometryComputerUtils::makeMatMul(reshapeIndiceFloat.get(), constStride.get(), indiceFloat.get());
+            // [N, D] * [N, D] => [N, D]
+            auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, reshapeIndice.get(), broadcastStride.get(), mulIndice.get());
             res.command.emplace_back(std::move(cmd));
         }
         std::shared_ptr<Tensor> indiceOneLine(Tensor::createDevice<int>({mSliceN, 1}));
         midTensors[P_indiceOneLine] = indiceOneLine;
         {
-            flatbuffers::FlatBufferBuilder builder;
-            CastParamBuilder builder_(builder);
-            builder_.add_dstT(DataType_DT_INT32);
-            auto mainOffset = builder_.Finish().Union();
-            OpBuilder opB(builder);
-            opB.add_type(OpType_Cast);
-            opB.add_main(mainOffset);
-            opB.add_main_type(OpParameter_CastParam);
-            builder.Finish(opB.Finish());
-            auto cmd = GeometryComputerUtils::makeCommand(builder, {indiceFloat.get()}, {indiceOneLine.get()});
+            // [N, D] => [N, 1]
+            auto cmd = GeometryComputerUtils::makeReduce(ReductionType_SUM, mulIndice.get(), indiceOneLine.get());
             res.command.emplace_back(std::move(cmd));
         }
 

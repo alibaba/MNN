@@ -50,15 +50,29 @@ std::vector<int> Relu6Torch::inputTensorIdx() {
 
 void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::Relu6T;
+    bool isFloat = node->input(1)->type()->kind() == c10::TypeKind::FloatType;
     if (getRealOpType(node) == "clamp") {
-        param->minValue = getValue<double>(node->input(1));
-        param->maxValue = getValue<double>(node->input(2));
+        if (isFloat) {
+            param->minValue = getValue<double>(node->input(1));
+            param->maxValue = getValue<double>(node->input(2));
+        } else {
+            param->minValue = getValue<int64_t>(node->input(1));
+            param->maxValue = getValue<int64_t>(node->input(2));
+        }
     } else if (getRealOpType(node) == "clamp_min") {
-        param->minValue = getValue<double>(node->input(1));
+        if (isFloat) {
+            param->minValue = getValue<double>(node->input(1));
+        } else {
+            param->minValue = getValue<int64_t>(node->input(1));
+        }
         param->maxValue = std::numeric_limits<float>::max();
     } else if (getRealOpType(node) == "clamp_max") {
         param->minValue = std::numeric_limits<float>::min();
-        param->maxValue = getValue<double>(node->input(1));
+        if (isFloat) {
+            param->maxValue = getValue<double>(node->input(1));
+        } else {
+            param->maxValue = getValue<int64_t>(node->input(1));
+        }
     }
     dstOp->main.value = param;
 }

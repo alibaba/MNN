@@ -19,6 +19,7 @@ struct ExtraInfoT : public flatbuffers::NativeTable {
   typedef ExtraInfo TableType;
   std::vector<int8_t> buffer;
   std::string name;
+  std::string version;
   ExtraInfoT() {
   }
 };
@@ -34,12 +35,17 @@ struct ExtraInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(6);
   }
+  const flatbuffers::String *version() const {
+    return GetPointer<const flatbuffers::String *>(8);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(buffer()) &&
            VerifyOffset(verifier, 6) &&
            verifier.VerifyString(name()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyString(version()) &&
            verifier.EndTable();
   }
   ExtraInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -56,6 +62,9 @@ struct ExtraInfoBuilder {
   void add_name(flatbuffers::Offset<flatbuffers::String> name) {
     fbb_.AddOffset(6, name);
   }
+  void add_version(flatbuffers::Offset<flatbuffers::String> version) {
+    fbb_.AddOffset(8, version);
+  }
   explicit ExtraInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -71,8 +80,10 @@ struct ExtraInfoBuilder {
 inline flatbuffers::Offset<ExtraInfo> CreateExtraInfo(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer = 0,
-    flatbuffers::Offset<flatbuffers::String> name = 0) {
+    flatbuffers::Offset<flatbuffers::String> name = 0,
+    flatbuffers::Offset<flatbuffers::String> version = 0) {
   ExtraInfoBuilder builder_(_fbb);
+  builder_.add_version(version);
   builder_.add_name(name);
   builder_.add_buffer(buffer);
   return builder_.Finish();
@@ -91,6 +102,7 @@ inline void ExtraInfo::UnPackTo(ExtraInfoT *_o, const flatbuffers::resolver_func
   (void)_resolver;
   { auto _e = buffer(); if (_e) { _o->buffer.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->buffer[_i] = _e->Get(_i); } } };
   { auto _e = name(); if (_e) _o->name = _e->str(); };
+  { auto _e = version(); if (_e) _o->version = _e->str(); };
 }
 
 inline flatbuffers::Offset<ExtraInfo> ExtraInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ExtraInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -103,23 +115,27 @@ inline flatbuffers::Offset<ExtraInfo> CreateExtraInfo(flatbuffers::FlatBufferBui
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const ExtraInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _buffer = _o->buffer.size() ? _fbb.CreateVector(_o->buffer) : 0;
   auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _version = _o->version.empty() ? 0 : _fbb.CreateString(_o->version);
   return MNN::CreateExtraInfo(
       _fbb,
       _buffer,
-      _name);
+      _name,
+      _version);
 }
 
 inline const flatbuffers::TypeTable *ExtraInfoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 1, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 }
   };
   static const char * const names[] = {
     "buffer",
-    "name"
+    "name",
+    "version"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

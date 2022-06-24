@@ -357,3 +357,6 @@ project/ios/ios_32
 project/ios/MNN.framework
 
 pymnn_build/
+
+# mnncompress generated
+MNN_compression_pb2.py

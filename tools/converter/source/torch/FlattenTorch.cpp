@@ -28,7 +28,6 @@ void FlattenTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope
     const auto end_dim = inputs[2];
     param->axis = getValue<int64_t>(start_dim);
     param->endAxis = getValue<int64_t>(end_dim);
-    param->endAxis = 0;
     dstOp->main.value = param;
 }
 

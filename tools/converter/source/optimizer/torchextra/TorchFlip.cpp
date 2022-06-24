@@ -31,10 +31,12 @@ public:
             }
         }
         auto input   = expr->inputs()[0];
-        auto shape   = _Shape(input);
-        auto dim0    = _Unsqueeze(_GatherV2(shape, _Scalar(0), _Scalar(0)), {0});
-        auto dim1    = _GatherV2(shape, _Scalar(1), _Scalar(0));
-        auto newExpr = _ReverseSequence(input, _Fill(dim0, dim1), 0, dim)->expr().first;
+        auto end = _Shape(input);
+        auto begin = _ZerosLike(end);
+        auto dims = _Scalar(dim);
+        auto index = _Add(dims, _Multiply(_Rank(input), _Less(dims, _Scalar(0))));
+        auto strided = _ScatterNd(_Unsqueeze(index, {0}), _Unsqueeze(_Scalar(-1), {0}), _Shape(end), begin + _Scalar(1));
+        auto newExpr = _StridedSlice(input, begin, end, strided, 31, 31, 0, 0, 0)->expr().first;
         newExpr->setName(expr->name());
         return newExpr;
     }

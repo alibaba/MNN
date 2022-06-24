@@ -18,7 +18,11 @@ int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode,
     // Load tensorflow model.
     tensorflow::GraphDef tfGraph;
     bool success = tf_read_proto_from_binary(inputModel.c_str(), &tfGraph);
-    DCHECK(success) << "read_proto_from_binary failed";
+    DCHECK(success) << "read_proto_from_binary failed!";
+    if (!success) {
+        MNN_ERROR("[ERROR] MNNConvert just support tensorflow frozen graph model. Model file is not tf frozen graph model.\n");
+        return 1;
+    }
 
     TFGraphResolver resolver(tfGraph);
     for (int i = 0; i < resolver.graph_size(); ++i) {

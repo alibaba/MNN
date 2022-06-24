@@ -73,14 +73,6 @@ void Executor::Profiler::addFlops(const std::string& opType, float flops) {
 }
 #endif
 
-struct Executor::Cache{
-    AutoStorage<uint8_t> modelBuffer;
-    AutoStorage<uint8_t> cacheBuffer;
-    size_t cacheOffset = 0;
-    std::string cacheFile;
-    size_t lastCacheSize = 0;
-};
-
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
     std::lock_guard<std::mutex> _l(mMutex);
     mFirstType = std::make_pair(type, numberThread);
@@ -237,7 +229,7 @@ static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime> &rt) {
     return std::make_pair(nullptr, 0);
 }
 
-static void writeCacheFile(std::shared_ptr<Executor::Cache> cache, std::pair<const void*, size_t> buffer) {
+static void writeCacheFile(std::shared_ptr<Cache> cache, std::pair<const void*, size_t> buffer) {
     auto verifyInfo = std::make_pair((const void*)cache->modelBuffer.get(), cache->cacheOffset);
     bool res = FileLoader::write(cache->cacheFile.c_str(), buffer);
     if (!res) {
@@ -273,9 +265,9 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
     switch (code) {
         case Interpreter::MEMORY: {
             auto dst     = (float*)ptr;
-            float summer = mRuntime.second->onGetMemoryInMB();
-            for (auto& r : mRuntime.first) {
-                if (r.second.get() != mRuntime.second.get()) {
+            float summer = mInside->mRuntime.second->onGetMemoryInMB();
+            for (auto& r : mInside->mRuntime.first) {
+                if (r.second.get() != mInside->mRuntime.second.get()) {
                     summer += r.second->onGetMemoryInMB();
                 }
             }
@@ -326,21 +318,33 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
         }
         originRt.insert(std::make_pair(std::make_pair(compute.type, compute.numThread), std::shared_ptr<Runtime>(newBn)));
     }
-    res->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
-    res->mRuntime.first.insert(std::make_pair(compute.type, originRt[std::make_pair(compute.type, compute.numThread)]));
-    res->mInfo = originRt[std::make_pair(compute.type, compute.numThread)];
+    res->mInside->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
+    res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[std::make_pair(compute.type, compute.numThread)]));
+    res->mInside->mInfo = originRt[std::make_pair(compute.type, compute.numThread)];
+    if (nullptr != config.backendConfig) {
+        res->mInside->mConfig = *config.backendConfig;
+        res->mInside->mUserConfig = true;
+    } else {
+        res->mInside->mUserConfig = false;
+    }
     return res;
+}
+BackendConfig* Executor::RuntimeManager::getBnConfig() {
+    if (mInside->mUserConfig) {
+        return &mInside->mConfig;
+    }
+    return nullptr;
 }
 
 
 void Executor::RuntimeManager::setCache(std::string cacheName) {
-    mCache.reset(new Cache);
-    mCache->cacheFile = cacheName;
-    if (nullptr == mCache->cacheFile.c_str()) {
+    mInside->mCache.reset(new Cache);
+    mInside->mCache->cacheFile = cacheName;
+    if (nullptr == mInside->mCache->cacheFile.c_str()) {
         MNN_ERROR("Empty cacheFile\n");
         return;
     }
-    std::unique_ptr<FileLoader> loader(new FileLoader(mCache->cacheFile.c_str()));
+    std::unique_ptr<FileLoader> loader(new FileLoader(mInside->mCache->cacheFile.c_str()));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
         return;
@@ -354,36 +358,36 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
         MNN_ERROR("Load Cache file error.\n");
         return;
     }
-    bool success = loader->merge(mCache->cacheBuffer);
+    bool success = loader->merge(mInside->mCache->cacheBuffer);
     if (!success) {
         MNN_ERROR("Alloc memory for Cache error.\n");
         return;
     }
 
     // load cache
-    bool valid = loadCache(mInfo, mCache->cacheBuffer.get() + mCache->cacheOffset,
-                           mCache->cacheBuffer.size() - mCache->cacheOffset);
+    bool valid = loadCache(mInside->mInfo, mInside->mCache->cacheBuffer.get() + mInside->mCache->cacheOffset,
+                           mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset);
     if(!valid) {
         // Reset cache
-        loadCache(mInfo, nullptr, 0);
+        loadCache(mInside->mInfo, nullptr, 0);
         MNN_PRINT("Cache invalid, will be reset\n");
     }
 
-    mCache->lastCacheSize = mCache->cacheBuffer.size() - mCache->cacheOffset;
+    mInside->mCache->lastCacheSize = mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset;
 }
 
 void Executor::RuntimeManager::updateCache() {
-    mInfo->waitAsyncWork();
-    auto buffer = getCache(mInfo);
+    mInside->mInfo->waitAsyncWork();
+    auto buffer = getCache(mInside->mInfo);
 
     //When current cacheSize bigger than previous, update
-    if (buffer.first != nullptr && buffer.second > mCache->lastCacheSize) {
-        MNN_PRINT("Update cache to %s, size = %zu\n", mCache->cacheFile.c_str(), buffer.second);
-        writeCacheFile(mCache, buffer);
-        mCache->lastCacheSize = buffer.second;
+    if (buffer.first != nullptr && buffer.second > mInside->mCache->lastCacheSize) {
+        MNN_PRINT("Update cache to %s, size = %zu\n", mInside->mCache->cacheFile.c_str(), buffer.second);
+        writeCacheFile(mInside->mCache, buffer);
+        mInside->mCache->lastCacheSize = buffer.second;
     }
     // Reset cache
-    loadCache(mInfo, nullptr, 0);
+    loadCache(mInside->mInfo, nullptr, 0);
 }
 
 std::vector<bool> Executor::RuntimeManager::isBackendSupport(const std::vector<MNNForwardType> types) {

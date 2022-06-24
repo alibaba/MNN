@@ -27,6 +27,7 @@ private:
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     const float *weightPtr, *biasPtr;
     int weightSize, biasSize;
+    bool isDeconv = false;
 };
 } // namespace MNN
 

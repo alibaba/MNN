@@ -366,5 +366,5 @@ ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLRaster>> __raster_op(OpType_Raster);
+REGISTER_COREML_OP_CREATOR(CoreMLRaster, OpType_Raster)
 } // namespace MNN

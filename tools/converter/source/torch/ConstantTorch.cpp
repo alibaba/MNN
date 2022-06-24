@@ -99,6 +99,13 @@ void ConstantTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScop
                     break;
                 }
                 case at::ScalarType::Bool:
+                    param->dataType = MNN::DataType_DT_INT32;
+                    param->int32s = std::move(getValue<int32_t>(output, param->dims));
+                    if (param->dims.empty() && param->int32s.empty()) {
+                        param->int32s.push_back(0);
+                        param->dims.push_back(1);
+                    }
+                    break;
                 case at::ScalarType::BFloat16:
                 case at::ScalarType::Short:
                 case at::ScalarType::Half:

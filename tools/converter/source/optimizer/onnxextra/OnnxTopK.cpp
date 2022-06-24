@@ -54,6 +54,9 @@ public:
         onnxTopKOp->main.type  = OpParameter_TopKV2;
         onnxTopKOp->main.value = onnxTopKParam.release();
 
+        if (axis < 0 && inputs[0]->getInfo()) {
+            axis += inputs[0]->getInfo()->dim.size();
+        }
         EXPRP output = Expr::create(onnxTopKOp.get(), {inputs[0], kVar, _Scalar<int>(axis)}, 2);
         output->setName(expr->name());
         Variable::create(output, 0)->setName(expr->outputName(0));

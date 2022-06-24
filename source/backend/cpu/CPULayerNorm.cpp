@@ -29,7 +29,7 @@ public:
                        const std::vector<Tensor*> &outputs) override;
 
 private:
-    std::vector<int> axis_;
+    int axis_size = 0;
     int inner_size_ = 1;
     int outter_size_ = 1;
     int group_ = 1;
@@ -43,11 +43,7 @@ private:
 CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend)
         : Execution(backend) {
     const auto* layer_norm_param = op->main_as_LayerNorm();
-    int axis_size = layer_norm_param->axis()->size();
-    axis_.resize(axis_size);
-    for (int i = 0; i < axis_size; ++i) {
-        axis_[i] = layer_norm_param->axis()->Get(i);
-    }
+    axis_size = layer_norm_param->axis()->size();
     group_ = layer_norm_param->group();
     epsilon_ = layer_norm_param->epsilon();
 
@@ -104,18 +100,10 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
         inner_size_ /= group_;
         return NO_ERROR;
     }
-    std::vector<int> axis(axis_.size());
-    for (int i = 0; i < axis_.size(); ++i) {
-        if (axis_[i] < 0) {
-            axis[i] += rank;
-        }
-    }
-    std::sort(axis.begin(), axis.end());
-
-    for (int i = 0; i < rank - axis.size(); ++i) {
+    for (int i = 0; i < rank - axis_size; ++i) {
         outter_size_ *= inputs.at(0)->length(i);
     }
-    for (int i = rank - axis.size(); i < rank; ++i) {
+    for (int i = rank - axis_size; i < rank; ++i) {
         inner_size_ *= inputs.at(0)->length(i);
     }
     return NO_ERROR;

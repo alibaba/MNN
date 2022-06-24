@@ -40,7 +40,10 @@ void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope*
         {"eq", MNN::BinaryOpOperation_EQUAL}, {"__is__", MNN::BinaryOpOperation_EQUAL},
         {"mode", MNN::BinaryOpOperation_MOD}, {"remainder", MNN::BinaryOpOperation_MOD},
         {"atan2", MNN::BinaryOpOperation_ATAN2},
-        {"logical_or", MNN::BinaryOpOperation_LOGICALOR}, {"__or__", MNN::BinaryOpOperation_LOGICALOR},
+        {"logical_or", MNN::BinaryOpOperation_LOGICALOR},
+        {"__or__", MNN::BinaryOpOperation_BITWISE_OR}, {"__ior__", MNN::BinaryOpOperation_BITWISE_OR},
+        {"__and__", MNN::BinaryOpOperation_BITWISE_AND}, {"__iand__", MNN::BinaryOpOperation_BITWISE_AND},
+        {"__xor__", MNN::BinaryOpOperation_BITWISE_XOR}, {"__ixor__", MNN::BinaryOpOperation_BITWISE_XOR},
         {"ne", MNN::BinaryOpOperation_NOTEQUAL}, {"__isnot__", MNN::BinaryOpOperation_NOTEQUAL}
     };
     auto param = new MNN::BinaryOpT;
@@ -56,14 +59,14 @@ void BinaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope*
 }
 
 REGISTER_CONVERTER(BinaryTorch, add);
-REGISTER_CONVERTER(BinaryTorch, sum);
+REGISTER_CONVERTER(BinaryTorch, sum_binary);
 REGISTER_CONVERTER(BinaryTorch, sub);
 REGISTER_CONVERTER(BinaryTorch, mul);
 REGISTER_CONVERTER(BinaryTorch, pow);
 REGISTER_CONVERTER(BinaryTorch, div);
-REGISTER_CONVERTER(BinaryTorch, min_compare);
+REGISTER_CONVERTER(BinaryTorch, min_binary);
 REGISTER_CONVERTER(BinaryTorch, minimum);
-REGISTER_CONVERTER(BinaryTorch, max_compare);
+REGISTER_CONVERTER(BinaryTorch, max_binary);
 REGISTER_CONVERTER(BinaryTorch, maximum);
 REGISTER_CONVERTER(BinaryTorch, gt);
 REGISTER_CONVERTER(BinaryTorch, greater);
@@ -78,8 +81,13 @@ REGISTER_CONVERTER(BinaryTorch, mode);
 REGISTER_CONVERTER(BinaryTorch, remainder);
 REGISTER_CONVERTER(BinaryTorch, atan2);
 REGISTER_CONVERTER(BinaryTorch, logical_or);
-REGISTER_CONVERTER(BinaryTorch, __or__);
 REGISTER_CONVERTER(BinaryTorch, ne);
 REGISTER_CONVERTER(BinaryTorch, rsub);
 REGISTER_CONVERTER(BinaryTorch, __is__);
 REGISTER_CONVERTER(BinaryTorch, __isnot__);
+REGISTER_CONVERTER(BinaryTorch, __or__);
+REGISTER_CONVERTER(BinaryTorch, __ior__);
+REGISTER_CONVERTER(BinaryTorch, __and__);
+REGISTER_CONVERTER(BinaryTorch, __iand__);
+REGISTER_CONVERTER(BinaryTorch, __xor__);
+REGISTER_CONVERTER(BinaryTorch, __ixor__);

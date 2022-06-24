@@ -5,15 +5,20 @@ from __future__ import print_function
 import numpy as np
 import MNN
 import cv2
+import sys
+
 def inference():
     """ inference mobilenet_v1 using a specific picture """
-    interpreter = MNN.Interpreter("mobilenet_v1.mnn")
+    interpreter = MNN.Interpreter(sys.argv[1])
     interpreter.setCacheFile('.tempcache')
     config = {}
     config['precision'] = 'low'
     session = interpreter.createSession()
     input_tensor = interpreter.getSessionInput(session)
-    image = cv2.imread('0000.jpg')
+    interpreter.resizeTensor(input_tensor, (1, 3, 224, 224))
+    interpreter.resizeSession(session)
+
+    image = cv2.imread(sys.argv[2])
     #cv2 read as bgr format
     image = image[..., ::-1]
     #change to rgb format

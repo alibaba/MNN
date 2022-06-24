@@ -155,6 +155,37 @@ void removeListAppend(Graph* graph, Block* block) {
     }
 }
 /*
+   We remove all ListConstruct op with only one input and not used by aten::cat, like below:
+        %116 : Tensor?[] = prim::ListConstruct(%115)
+        %alpha0.1 : Tensor = aten::index_put_(%alpha.1, %116, %x.1, %16)
+   ListConstruct used by aten::cat will be reserved like below:
+        %features.2 : Tensor[] = prim::ListConstruct(%input3.4)
+        %concated_features.380 : Tensor = aten::cat(%features.2, %5)
+   Attention: Runing this pass after removeListAppend
+ */
+void removeListConstructOps(Block* block) {
+    for (auto it = block->nodes().begin(), end = block->nodes().end(); it != end; ++it) {
+        for (auto b : it->blocks()) {
+            removeUselessOps(b);
+        }
+        if (it->kind() == prim::ListConstruct && it->inputs().size() == 1) {
+            bool remove = true;
+            for (auto use : it->output()->uses()) {
+                if (use.user->kind() == aten::cat) {
+                    remove = false;
+                    break;
+                }
+            }
+            if (remove) {
+                it->output()->replaceAllUsesWith(it->input(0));
+                it->removeInput(0);
+                it.destroyCurrent();
+            }
+        }
+    }
+}
+
+/*
    We rewrite something like:
         y = chunk(x)
         v1, v2, v3 = ListUnpack(y)
@@ -403,11 +434,18 @@ void overloadDistinguish(Block* block) {
             // min/max(Tensor, int) is reduce
             case aten::min:
             case aten::max:
+            case aten::sum:
                 if (node->inputs().size() > 1 &&
-                    node->input(1)->type()->kind() == c10::TypeKind::IntType) {
+                    (node->input(1)->type()->kind() == c10::TypeKind::IntType ||
+                     node->input(1)->type()->kind() == c10::TypeKind::ListType)) {
                     node->s_(symb, "reduce");
                 } else {
-                    node->s_(symb, "compare");
+                    node->s_(symb, "binary");
+                }
+                break;
+            case aten::index:
+                if (node->input(1)->node()->kind() == prim::ListConstruct) {
+                    node->s_(symb, "stridedslice");
                 }
                 break;
             default:
@@ -459,6 +497,7 @@ std::shared_ptr<Graph> torchOptPass(Module& module) {
     // Example: x = {v0}; x.append(v1); -> x = {v0, v1};
     // RemoveListMutation(graph);
     removeListAppend(graph.get(), graph->block());
+    removeListConstructOps(graph->block());
     //RemoveTensorMutation(graph);
     // elimate dead code
     EliminateDeadCode(graph, DCESideEffectPolicy::ALLOW_DELETING_NODES_WITH_SIDE_EFFECTS);

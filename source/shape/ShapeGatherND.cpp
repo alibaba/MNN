@@ -24,6 +24,14 @@ public:
             MNN_ERROR("params->dimensions() < 1 || indices->dimensions() < 1\n");
             return false;
         }
+        if (indices->elementSize() == 0) {
+            outputs[0]->buffer().type = params->buffer().type;
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            outputs[0]->buffer().dimensions = 2;
+            outputs[0]->setLength(0, 0);
+            outputs[0]->setLength(1, params->shape().back());
+            return true;
+        }
         auto indiceNd = indices->length(indices->dimensions()-1);
         if (indiceNd >  params->dimensions()) {
             MNN_ERROR("indiceNd >  params->dimensions()\n");

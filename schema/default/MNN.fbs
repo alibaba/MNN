@@ -161,6 +161,7 @@ enum OpType : int {
     EyeLike = 147,
     CumSum = 148,
     Det = 149,
+    CumProd = 150,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257

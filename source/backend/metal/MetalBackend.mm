@@ -282,7 +282,7 @@ static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_
                 // from MNN_DATA_FORMAT_NCHW
                 {nil, nil, @"upcast_f_NCHW_to_NC4HW4", nil, nil},
                 // from MNN_DATA_FORMAT_NHWC
-                {nil, nil, @"upcast_f_NHWC_to_NC4HW4", nil, nil},
+                {@"upcast_f_NHWC_to_NCHW", nil, @"upcast_f_NHWC_to_NC4HW4", nil, nil},
                 // from MNN_DATA_FORMAT_NC4HW4
                 {@"upcast_f_NC4HW4_to_NCHW", @"upcast_f_NC4HW4_to_NHWC", nil, nil, nil},
                 // from MNN_DATA_FORMAT_NHWC4
@@ -293,7 +293,7 @@ static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_
             // down
             {
                 // from MNN_DATA_FORMAT_NCHW
-                {nil, nil, @"downcast_f_NCHW_to_NC4HW4", nil, nil},
+                {nil, @"downcast_f_NCHW_to_NHWC", @"downcast_f_NCHW_to_NC4HW4", nil, nil},
                 // from MNN_DATA_FORMAT_NHWC
                 {nil, nil, @"downcast_f_NHWC_to_NC4HW4", nil, nil},
                 // from MNN_DATA_FORMAT_NC4HW4

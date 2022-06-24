@@ -11,7 +11,7 @@
 #endif
 
 // NN Module Start
-def_class_start(_Module, Module)
+def_class_smart_start(_Module, Module)
 def_class_getset(
     _Module,
     name, 0,
@@ -28,7 +28,7 @@ def_class_methods(_Module,
     _register_submodules, "register submodules",
     _add_parameter, "add parameter"
 )
-def_class_end(_Module, Module)
+def_class_smart_end(_Module, Module)
 
 // NN RuntimeManager Start
 def_class_smart_start(RuntimeManager, Executor::RuntimeManager)
@@ -40,6 +40,7 @@ def_class_methods(RuntimeManager,
 )
 def_class_without_getset(RuntimeManager)
 def_class_smart_end(RuntimeManager, Executor::RuntimeManager)
+class_basic_call_impl(RuntimeManager)
 
 static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObject *outputs,
                              MNNForwardType backend, MemoryMode memory_mode, PowerMode power_mode, PrecisionMode precision_mode,
@@ -84,9 +85,10 @@ static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObje
     return toPyObj(m_ptr);
 }
 
+class_basic_init_impl(_Module)
 static PyObject* PyMNN_Module_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     PyMNN_Module *self = (PyMNN_Module *)type->tp_alloc(type, 0);
-    self->ptr = Module::createEmpty({});
+    self->ptr = new std::shared_ptr<Module>(Module::createEmpty({}));
     return (PyObject*)self;
 }
 
@@ -99,19 +101,19 @@ static PyObject* PyMNNRuntimeManager_new(PyTypeObject *type, PyObject *args, PyO
 // PyMNN_Module getter/setter impl
 static PyObject* PyMNN_Module_getname(PyMNN_Module *self, void *closure) {
     if (self->ptr) {
-        return toPyObj(self->ptr->name());
+        return toPyObj((*(self->ptr))->name());
     }
     Py_RETURN_NONE;
 }
 static PyObject* PyMNN_Module_getis_training(PyMNN_Module *self, void *closure) {
     if (self->ptr) {
-        return toPyObj(self->ptr->getIsTraining());
+        return toPyObj((*(self->ptr))->getIsTraining());
     }
     Py_RETURN_NONE;
 }
 static PyObject* PyMNN_Module_getparameters(PyMNN_Module *self, void *closure) {
     if (self->ptr) {
-        return toPyObj<VARP, toPyObj>(self->ptr->parameters());
+        return toPyObj<VARP, toPyObj>((*(self->ptr))->parameters());
     }
     Py_RETURN_NONE;
 }
@@ -134,7 +136,7 @@ static PyObject* PyMNN_Module_forward(PyMNN_Module *self, PyObject *args) {
         (void) MonitorService::GetInstance().EventTrack(self->ptr, timer, status, "PyMNN_Module_forward");
         return toPyObj<VARP, toPyObj>(vars);
 #else
-        return toPyObj<VARP, toPyObj>(self->ptr->onForward(toVars(input)));
+        return toPyObj<VARP, toPyObj>((*(self->ptr))->onForward(toVars(input)));
 #endif
     }
     if (isVar(input)) {
@@ -145,7 +147,7 @@ static PyObject* PyMNN_Module_forward(PyMNN_Module *self, PyObject *args) {
         (void) MonitorService::GetInstance().EventTrack(self->ptr, timer, status, "PyMNN_Module_forward");
         return toPyObj(var);
 #else
-        return toPyObj(self->ptr->forward(toVar(input)));
+        return toPyObj((*(self->ptr))->forward(toVar(input)));
 #endif
     }
     PyMNN_ERROR("PyMNN_Module_forward: args must be Var/[Var].");
@@ -158,17 +160,21 @@ static PyObject* PyMNN_Module_onForward(PyMNN_Module *self, PyObject *args) {
 #ifdef PYMNN_INTERNAL_SERVING
     int status = 0;
     Timer timer;
-    auto vars = self->ptr->onForward(toVars(inputs));
+    auto vars = (*(self->ptr))->onForward(toVars(inputs));
     if (vars.empty()) {
         PyMNN_ERROR("module onForward occur error.");
         status = -1;
     }
 
-    (void) MonitorService::GetInstance().EventTrack(self->ptr, timer, status, "PyMNN_Module_onForward");
+    (void) MonitorService::GetInstance().EventTrack(self->ptr->get(), timer, status, "PyMNN_Module_onForward");
     return toPyObj<VARP, toPyObj>(vars);
 #else
-    return toPyObj<VARP, toPyObj>(self->ptr->onForward(toVars(inputs)));
+    return toPyObj<VARP, toPyObj>((*(self->ptr))->onForward(toVars(inputs)));
 #endif
+}
+
+static PyObject* PyMNN_Module_call(PyObject *self, PyObject *args, PyObject *kwds) {
+    return PyMNN_Module_forward((PyMNN_Module*)self, args);
 }
 
 static PyObject* PyMNN_Module_set_name(PyMNN_Module *self, PyObject *args) {
@@ -176,7 +182,7 @@ static PyObject* PyMNN_Module_set_name(PyMNN_Module *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "s", &name)) {
         Py_RETURN_NONE;
     }
-    self->ptr->setName(name);
+    (*(self->ptr))->setName(name);
     Py_RETURN_NONE;
 }
 static PyObject* PyMNN_Module_train(PyMNN_Module *self, PyObject *args) {
@@ -184,7 +190,7 @@ static PyObject* PyMNN_Module_train(PyMNN_Module *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "i", &isTraining)) {
         Py_RETURN_NONE;
     }
-    self->ptr->setIsTraining(isTraining);
+    (*(self->ptr))->setIsTraining(isTraining);
     Py_RETURN_NONE;
 }
 static PyObject* PyMNN_Module_load_parameters(PyMNN_Module *self, PyObject *args) {
@@ -192,21 +198,21 @@ static PyObject* PyMNN_Module_load_parameters(PyMNN_Module *self, PyObject *args
     if (!PyArg_ParseTuple(args, "O", &parameters)) {
         Py_RETURN_NONE;
     }
-    return toPyObj(self->ptr->loadParameters(toVars(parameters)));
+    return toPyObj((*(self->ptr))->loadParameters(toVars(parameters)));
 }
 static PyObject* PyMNN_Module_clear_cache(PyMNN_Module *self, PyObject *args) {
-    self->ptr->clearCache();
+    (*(self->ptr))->clearCache();
     Py_RETURN_NONE;
 }
 std::shared_ptr<Module> toSharedModule(PyObject* obj)  {
-    return std::shared_ptr<Module>(to_Module(obj), [](Module*){});
+    return *to_Module(obj);
 }
 static PyObject* PyMNN_Module__register_submodules(PyMNN_Module *self, PyObject *args) {
     PyObject *children;
     if (!PyArg_ParseTuple(args, "O", &children)) {
         Py_RETURN_NONE;
     }
-    self->ptr->registerModel(toVec<std::shared_ptr<Module>, toSharedModule>(children));
+    (*(self->ptr))->registerModel(toVec<std::shared_ptr<Module>, toSharedModule>(children));
     Py_RETURN_NONE;
 }
 static PyObject* PyMNN_Module__add_parameter(PyMNN_Module *self, PyObject *args) {
@@ -214,7 +220,7 @@ static PyObject* PyMNN_Module__add_parameter(PyMNN_Module *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "O", &parameter)) {
         Py_RETURN_NONE;
     }
-    return toPyObj(self->ptr->addParameter(toVar(parameter)));
+    return toPyObj((*(self->ptr))->addParameter(toVar(parameter)));
 }
 // NN methods
 static PyObject* PyMNNNN_load_module(PyObject *self, PyObject *args) {
@@ -465,7 +471,7 @@ static PyObject* PyMNNNN_load_module_from_file_with_token(PyObject *self, PyObje
 #endif
 
 #ifdef PYMNN_TRAIN_API
-static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
+static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args, PyObject* kwargs) {
     INTS default_1 = {1, 1}, default_0 = {0, 0};
     int in_channel, out_channel;
     PyObject *kernel_size,
@@ -474,10 +480,11 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
              *dilation = nullptr /* default_1 */,
              *padding_mode = nullptr /* PaddingMode::VALID */;
     int depthwise = 0, bias = 1;
-    if (!PyArg_ParseTuple(args, "iiO|OOOiiO", &in_channel, &out_channel, &kernel_size,
+    static char *kwlist[] = { "in_channels", "out_channels", "kernel_size", "stride", "padding",
+                              "dilation", "depthwise", "bias", "padding_mode", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiO|OOOiiO", kwlist, &in_channel, &out_channel, &kernel_size,
                           &stride, &padding, &dilation, &depthwise, &bias, &padding_mode)) {
-        printf("PyArg_ParseTuple Error\n");
-        return NULL;
+        PyMNN_ERROR("conv require args: int, int, [int], |[int], [int], [int], bool, bool, PaddingMode)");
     }
     NN::ConvOption option;
     option.channel = {in_channel, out_channel};
@@ -498,29 +505,29 @@ static PyObject* PyMNNNN_conv(PyObject *self, PyObject *args) {
     option.depthwise = depthwise;
     return toPyObj(NN::Conv(std::move(option), bias));
 }
-static PyObject* PyMNNNN_linear(PyObject *self, PyObject *args) {
+static PyObject* PyMNNNN_linear(PyObject *self, PyObject *args, PyObject* kwargs) {
     int in_channel, out_channel;
     int bias = 1;
-    if (!PyArg_ParseTuple(args, "ii|i", &in_channel, &out_channel, &bias)) {
-        printf("PyArg_ParseTuple Error\n");
-        return NULL;
+    static char *kwlist[] = { "in_channels", "out_channels", "bias", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "ii|i", kwlist, &in_channel, &out_channel, &bias)) {
+        PyMNN_ERROR("linear require args: int, int, |bool)");
     }
     return toPyObj(NN::Linear(in_channel, out_channel, bias));
 }
-static PyObject* PyMNNNN_batch_norm(PyObject *self, PyObject *args) {
+static PyObject* PyMNNNN_batch_norm(PyObject *self, PyObject *args, PyObject* kwargs) {
     int channels, dims = 4;
     float momentum = 0.99, epsilon = 1e-5;
-    if (!PyArg_ParseTuple(args, "i|iff", &channels, &dims, &momentum, &epsilon)) {
-        printf("PyArg_ParseTuple Error\n");
-        return NULL;
+    static char *kwlist[] = { "channels", "dims", "momentum", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "i|iff", kwlist, &channels, &dims, &momentum, &epsilon)) {
+        PyMNN_ERROR("batch_norm require args: int, |int, float, float)");
     }
     return toPyObj(NN::BatchNorm(channels, dims, momentum, epsilon));
 }
-static PyObject* PyMNNNN_dropout(PyObject *self, PyObject *args) {
+static PyObject* PyMNNNN_dropout(PyObject *self, PyObject *args, PyObject* kwargs) {
     float dropout_ratio;
-    if (!PyArg_ParseTuple(args, "f", &dropout_ratio)) {
-        printf("PyArg_ParseTuple Error\n");
-        return NULL;
+    static char *kwlist[] = { "dropout_ratio", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "f", kwlist, &dropout_ratio)) {
+        PyMNN_ERROR("dropout require args: float)");
     }
     return toPyObj(NN::Dropout(dropout_ratio));
 }
@@ -540,7 +547,7 @@ static PyMethodDef PyMNNNN_methods[] = {
     )
 #endif
 #ifdef PYMNN_TRAIN_API
-    register_methods(NN,
+    register_methods_kw(NN,
         conv, "conv Module",
         linear, "linear Module",
         batch_norm, "batch_norm Module",

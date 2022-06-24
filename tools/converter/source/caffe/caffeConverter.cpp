@@ -26,8 +26,12 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
     bool succ = read_proto_from_text(prototxtFile.c_str(), &caffeProtxt);
     DCHECK(succ) << "read_proto_from_text failed";
 
-    succ = read_proto_from_binary(modelFile.c_str(), &caffeModel);
+    succ &= read_proto_from_binary(modelFile.c_str(), &caffeModel);
     DCHECK(succ) << "read_proto_from_binary failed";
+    if (!succ) {
+        MNN_ERROR("[ERROR] Model file is not caffe model.\n");
+        return 1;
+    }
     std::map<std::string, int> tensorName;
 
     // Load Parameters

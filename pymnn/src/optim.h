@@ -23,6 +23,8 @@ def_class_methods(Optimizer,
 def_class_end(Optimizer, ParameterOptimizer)
 // impl
 class_basic_new_impl(Optimizer)
+class_basic_init_impl(Optimizer)
+class_basic_call_impl(Optimizer)
 // PyMNNOptimizer getter/setter functions impl
 static PyObject* PyMNNOptimizer_getlearning_rate(PyMNNOptimizer *self, void *closure) {
     if (self->ptr) {
@@ -110,33 +112,35 @@ static PyObject* PyMNNOptimizer_step(PyMNNOptimizer *self, PyObject *args) {
     }
     return toPyObj(self->ptr->step(toVar(loss)));
 }
-static PyObject* PyMNNOptim_SGD(PyObject *self, PyObject *args) {
-    PyObject *module, *method = toPyObj(RegularizationMethod::L2);
+static PyObject* PyMNNOptim_SGD(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *module = nullptr, *method = nullptr /* L2 */;
     float learning_rate = 1e-3, momentum = 0.9, weight_decay = 0.0;
-    if (!PyArg_ParseTuple(args, "O|fffO", &module, &learning_rate,
+    static char *kwlist[] = { "module", "learning_rate", "momentum", "weight_decay", "regularization_method", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|fffO", kwlist, &module, &learning_rate,
                           &momentum, &weight_decay, &method)) {
-        return NULL;
+        PyMNN_ERROR("SGD require args: Module, |float, float, float, RegularizationMethod)");
     }
-    auto method_ = toEnum<RegularizationMethod>(method);
-    std::shared_ptr<Module> m(to_Module(module));
+    auto method_ = method == nullptr ? RegularizationMethod::L2 : toEnum<RegularizationMethod>(method);
+    std::shared_ptr<Module> m = *to_Module(module);
     return toPyObj(ParameterOptimizer::createSGD(m, learning_rate, momentum,
                                                  weight_decay, method_));
 }
-static PyObject* PyMNNOptim_ADAM(PyObject *self, PyObject *args) {
-    PyObject *module, *method = toPyObj(RegularizationMethod::L2);
+static PyObject* PyMNNOptim_ADAM(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *module = nullptr, *method = nullptr /* L2 */;
     float learning_rate = 1e-3, momentum = 0.9, momentum2 = 0.999,
           weight_decay = 0.0, eps = 1e-8;
-    if (!PyArg_ParseTuple(args, "O|fffffO", &module, &learning_rate, &momentum,
+    static char *kwlist[] = { "module", "learning_rate", "momentum", "momentum2", "weight_decay", "eps", "regularization_method", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|fffffO", kwlist, &module, &learning_rate, &momentum,
                           &momentum2, &weight_decay, &eps, &method)) {
-        return NULL;
+        PyMNN_ERROR("ADAM require args: Module, |float, float, float, float, float, RegularizationMethod)");
     }
-    auto method_ = toEnum<RegularizationMethod>(method);
-    std::shared_ptr<Module> m(to_Module(module));
+    auto method_ = method == nullptr ? RegularizationMethod::L2 : toEnum<RegularizationMethod>(method);
+    std::shared_ptr<Module> m = *to_Module(module);
     return toPyObj(ParameterOptimizer::createADAM(m, learning_rate, momentum, momentum2,
                                                   weight_decay, eps, method_));
 }
 static PyMethodDef PyMNNOptim_methods[] = {
-    register_methods(Optim,
+    register_methods_kw(Optim,
         SGD, "SGD Optimizer",
         ADAM, "ADAM Optimizer"
     )

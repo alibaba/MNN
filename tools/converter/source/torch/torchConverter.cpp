@@ -36,7 +36,13 @@ MNN_PUBLIC int torch2MNNNet(const std::string inputModel, const std::string bizC
     loadCustomOp(customTorchOps);
     // Deserialize the ScriptModule from a file, set to eval mode and freeze
     c10::Device device("cpu");
-    auto module = torch::jit::load(inputModel.c_str(), device);
+    torch::jit::Module module;
+    try {
+        module = torch::jit::load(inputModel.c_str(), device);
+    } catch (std::exception e) {
+        MNN_ERROR("[ERROR] TorchScript model can't load. Please using `torch.jit.script` or `torch.jit.trace` save model.\n");
+        return 1;
+    }
     auto graph = torch::jit::torchOptPass(module);
     std::unique_ptr<TorchScope> scope(new TorchScope(netT.get()));
     for (const auto input : graph->inputs()) {

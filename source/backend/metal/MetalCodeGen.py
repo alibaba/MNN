@@ -35,7 +35,7 @@ def genSchema():
     FLATC = shaderPath + "/../../../3rd_party/flatbuffers/tmp/flatc"
     sourceFile = shaderPath + "/schema/MetalCache.fbs"
     destFile = shaderPath + "/"
-    cmd = FLATC + " -c " + sourceFile +" --gen-object-api"
+    cmd = FLATC + " -c " + sourceFile +" --gen-object-api" +" --reflect-names"
     print(cmd)
     print(os.popen(cmd).read())
     return

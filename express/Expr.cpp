@@ -978,6 +978,9 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
             }
         }
     }
+    // add version number
+    dest->extraInfo.reset(new ExtraInfoT);
+    dest->extraInfo->version = MNN_VERSION;
 }
 void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     std::unique_ptr<NetT> net(new NetT);

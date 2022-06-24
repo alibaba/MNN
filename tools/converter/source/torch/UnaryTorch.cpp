@@ -99,25 +99,36 @@ REGISTER_CONVERTER(UnaryTorch, sigmoid);
 REGISTER_CONVERTER(UnaryTorch, hardswish);
 REGISTER_CONVERTER(UnaryTorch, gelu);
 
-
 // TODO: silu will impl as unary ?
-DECLARE_OP_CONVERTER(SiluTorch);
+DECLARE_OP_CONVERTER(ExtraUnaryTorch);
 
-MNN::OpType SiluTorch::opType() {
+MNN::OpType ExtraUnaryTorch::opType() {
     return MNN::OpType_Extra;
 }
-MNN::OpParameter SiluTorch::type() {
+MNN::OpParameter ExtraUnaryTorch::type() {
     return MNN::OpParameter_Extra;
 }
-std::vector<int> SiluTorch::inputTensorIdx() {
+std::vector<int> ExtraUnaryTorch::inputTensorIdx() {
     return {0};
 }
 
-void SiluTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
+void ExtraUnaryTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto extra        = new MNN::ExtraT;
     extra->engine     = "Torch";
-    extra->type       = getRealOpType(node);
+    auto type         = getRealOpType(node);
+    extra->type       = type;
     dstOp->main.value = extra;
+    if (type == "softplus") {
+        extra->attr.resize(2);
+        extra->attr[0].reset(new MNN::AttributeT);
+        extra->attr[0]->key = "beta";
+        extra->attr[0]->i = getValue<int64_t>(node->input(1));
+        extra->attr[1].reset(new MNN::AttributeT);
+        extra->attr[1]->key = "threshold";
+        extra->attr[1]->i = getValue<int64_t>(node->input(2));
+    }
 }
 
-REGISTER_CONVERTER(SiluTorch, silu);
+REGISTER_CONVERTER(ExtraUnaryTorch, silu);
+REGISTER_CONVERTER(ExtraUnaryTorch, softplus);
+REGISTER_CONVERTER(ExtraUnaryTorch, bitwise_not);

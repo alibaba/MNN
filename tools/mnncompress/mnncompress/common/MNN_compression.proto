@@ -1,0 +1,100 @@
+syntax = "proto2";
+
+package MNN.Compression;
+
+message QuantizeParams {
+  enum RoundMode {
+    ROUND_TOWARDS_ZERO = 0;
+    ROUND_AWAY_FROM_ZERO = 1;
+    ROUND_HALF_TO_EVEN = 2;
+  }
+  optional RoundMode round_mode = 1 [default = ROUND_AWAY_FROM_ZERO];
+
+  // Quantization parameters for each layer that needs to be quantized.
+  // For a block composed of several operators, such as 
+  // `Convolution` + `BatchNorm` + `Relu`, it should be considered as a
+  // single layer.
+  repeated LayerQuantizeParams layer = 4;
+}
+
+message LayerQuantizeParams {
+  // Activation quantization parameters.
+  // Both symmetric and asymmetric mode are supported for activation,
+  // and `zero_point` should always be zero if symmetric mode.
+  message ActivationParams {
+    // Activation tensor name.
+    required string name = 1;
+    optional int32 bits = 2 [default = 8];
+    repeated float scales = 3;
+    optional int32 zero_point = 4 [default = 0];
+    optional int32 clamp_min = 5 [default = -128];
+    optional int32 clamp_max = 6 [default = 127];
+  }
+
+  // Weight quantization parameters.
+  // Only symmetric mode is supported. Both channel-wise and tensor-wise
+  // quantization are supported, depending on whether `scales` length is
+  // equal to output channels.
+  message WeightParams {
+    // Weight tensor name.
+    required string name = 1;
+    optional int32 bits = 2 [default = 8];
+    repeated float scales = 3;
+    optional int32 clamp_min = 4 [default = -128];
+    optional int32 clamp_max = 5 [default = 127];
+  }
+
+  enum QuantMethod {
+    QAT = 0;
+    OverflowAware = 1;
+    WinogradAware = 2;
+  }
+
+  repeated ActivationParams input = 1;
+  repeated WeightParams weight = 2;
+  repeated ActivationParams output = 3;
+  optional QuantMethod method = 4 [default = QAT];
+}
+
+message LevelPrunerParams {
+  repeated string weight_tensor_names = 1;
+  repeated float prune_ratios = 2;
+  repeated string layer_names = 3;
+}
+
+message SIMDOCPrunerParams {
+  repeated string weight_tensor_names = 1;
+  repeated float prune_ratios = 2;
+  repeated string layer_names = 3;
+  repeated int32 oc_blocks = 4;
+}
+
+message PruneParams {
+  enum PruneType {
+    RANDOM = 0;
+    SIMD_OC = 1;
+    FILTER = 2;
+  }
+  optional PruneType type = 1 [default = RANDOM];
+  optional LevelPrunerParams level_pruner_params = 2;
+  optional SIMDOCPrunerParams simd_oc_pruner_params = 3;
+}
+
+message CompressionAlgo {
+  enum CompressionType {
+    QUANTIZE = 0;
+    PRUNE = 1;
+  }
+  optional CompressionType type = 1 [default = QUANTIZE];
+
+  optional QuantizeParams quant_params = 2;
+  optional PruneParams prune_params = 3;
+}
+
+// Model compression algorithm pipeline.
+message Pipeline {
+  required string version = 1 [default = "0.0.0"];
+
+  repeated CompressionAlgo algo = 2;
+  optional string mnn_uuid = 3;
+}

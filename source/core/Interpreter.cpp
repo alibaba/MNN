@@ -42,6 +42,10 @@ struct Content {
     std::string uuid;
 };
 
+const char* getVersion() {
+    return MNN_VERSION;
+}
+
 static void writeCacheFile(const Content *net, std::pair<const void*, size_t> buffer) {
     bool res = FileLoader::write(net->cacheFile.c_str(), buffer);
     if (!res) {
@@ -552,6 +556,13 @@ ErrorCode Interpreter::updateSessionToModel(Session* session) {
         return INPUT_DATA_ERROR;
     }
     return session->updateToModel((Net*)mNet->net);
+}
+
+const char* Interpreter::getModelVersion() const {
+    if (mNet && mNet->net && mNet->net->extraInfo() && mNet->net->extraInfo()->version()) {
+        return mNet->net->extraInfo()->version()->c_str();
+    }
+    return "version info not found";
 }
 
 bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {

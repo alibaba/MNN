@@ -11,6 +11,16 @@
 #include "OnnxExtraManager.hpp"
 namespace MNN {
 namespace Express {
+static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
+    MNN_ASSERT(nullptr != x);
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type                      = OpType_Reshape;
+    reshape->main.type                 = OpParameter_Reshape;
+    reshape->main.value                = new ReshapeT;
+    reshape->main.AsReshape()->dimType = format;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
+
 class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
@@ -142,19 +152,51 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
                 }
             }
         }
-
-        auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Unsqueeze(_Size(_Shape(input, true)) - _Scalar<int>(2), {0}), _Scalar<int>(1))}, 0);
-        auto scale      = _OnnxReshape(inputs[1], compatShape);
-        auto bias       = _OnnxReshape(inputs[2], compatShape);
-        auto epsilonVar = _Scalar<float>(epsilon);
-        auto mean       = _ReduceMean(input, {2, 3}, true);
-        auto temp       = input - mean;
-        temp            = temp * temp;
-        auto var        = _ReduceMean(temp, {2, 3}, true);
-        auto varRev     = _Rsqrt(var + epsilonVar);
-        auto alpha      = scale * varRev;
-        auto beta       = bias - alpha * mean;
-        auto res        = input * alpha + beta;
+        bool needScale = true;
+        do {
+            auto biasPtr = inputs[2]->readMap<float>();
+            auto scalePtr = inputs[1]->readMap<float>();
+            if (nullptr == biasPtr || nullptr == scalePtr) {
+                break;
+            }
+            auto oneVar = _Scalar<float>(1.0f);
+            auto scaleOff = inputs[1] - oneVar;
+            auto scaleSum = _ReduceSum(scaleOff * scaleOff);
+            if (scaleSum->readMap<float>()[0] > 0.000001f) {
+                break;
+            }
+            auto biasSum = _ReduceSum(inputs[2] * inputs[2]);
+            if (biasSum->readMap<float>()[0] > 0.000001f) {
+                break;
+            }
+            needScale = false;
+        } while (false);
+        auto originShape = _Shape(inputs[0], NCHW);
+        auto inputDim3 = _Reshape(inputs[0], {0, 0, -1}, NCHW);
+        
+        // Turn to layernorm
+        std::unique_ptr<MNN::OpT> layerNormOp(new MNN::OpT);
+        layerNormOp->type = OpType_LayerNorm;
+        layerNormOp->main.value = new LayerNormT;
+        layerNormOp->main.type = OpParameter_LayerNorm;
+        {
+            auto param = layerNormOp->main.AsLayerNorm();
+            param->axis = {2}; // Layernorm only need axis's size as 1
+            param->epsilon = epsilon;
+//                param->beta.resize(inputs[2]->getInfo()->size);
+//                ::memcpy(param->beta.data(), biasPtr, param->beta.size() * sizeof(float));
+//                param->gamma.resize(inputs[1]->getInfo()->size);
+//                ::memcpy(param->gamma.data(), scalePtr, param->beta.size() * sizeof(float));
+            param->group = 1;
+        }
+        auto res = Variable::create(Expr::create(layerNormOp.get(), {inputDim3}));
+        res = _ReshapeF(res, originShape, MNN_DATA_FORMAT_NCHW);
+        if (needScale) {
+            auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Unsqueeze(_Size(_Shape(input, true)) - _Scalar<int>(2), {0}), _Scalar<int>(1))}, 0);
+            auto scale      = _OnnxReshape(inputs[1], compatShape);
+            auto bias       = _OnnxReshape(inputs[2], compatShape);
+            res = res * scale + bias;
+        }
         res->setName(expr->name());
         return res->expr().first;
     }

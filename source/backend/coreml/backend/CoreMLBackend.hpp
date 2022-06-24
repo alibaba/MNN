@@ -146,6 +146,12 @@ namespace MNN {
         }
     };
 
+#define REGISTER_COREML_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static TypedCreator<name> _temp;\
+        CoreMLBackend::addCreator(opType, &_temp); \
+    }
+
 }
 
 #endif //MNN_COREMLBACKEND_H

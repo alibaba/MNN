@@ -438,6 +438,154 @@ void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::ve
     }
 }
 
+void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
+    __m256 zero = _mm256_setzero_ps();
+    __m256 one = _mm256_set1_ps(1);
+    __m256 half = _mm256_set1_ps(0.5f);
+    __m256 a = alignCorners ? one : zero;
+    __m256 b = alignCorners ? zero : one;
+    __m256 in0 = _mm256_set_ps(inH, inW, inD, inH, inW, inD, inH, inW);
+    __m256 in1 = _mm256_set_ps(inW, inD, inH, inW, inD, inH, inW, inD);
+    __m256 in2 = _mm256_set_ps(inD, inH, inW, inD, inH, inW, inD, inH);
+    int area = outD * outH * outW;
+    int areaC4 = area / PACK_UNIT;
+    int areaRemain = area - areaC4 * PACK_UNIT;
+    float buffer[3 * PACK_UNIT] = { 0 };
+    for (int i = 0; i < areaC4; ++i) {
+        __m256 cord0 = _mm256_loadu_ps(src);
+        __m256 cord1 = _mm256_loadu_ps(src + PACK_UNIT);
+        __m256 cord2 = _mm256_loadu_ps(src + PACK_UNIT * 2);
+        cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
+        cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
+        cord2 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord2), _mm256_sub_ps(in2, a)), b));
+        _mm256_storeu_ps(dst, cord0);
+        _mm256_storeu_ps(dst + PACK_UNIT, cord1);
+        _mm256_storeu_ps(dst + PACK_UNIT * 2, cord2);
+        src += PACK_UNIT * 3;
+        dst += PACK_UNIT * 3;
+    }
+
+    if (areaRemain > 0) {
+        float flag[PACK_UNIT] = {0.f};
+        __m256i mask;
+        if (areaRemain < 3) {
+            for (int i = 0; i < areaRemain * 3; i++) {
+                flag[i] = -0.f;
+            }
+            mask = _mm256_loadu_si256((__m256i*)flag);
+            __m256 cord0 = _mm256_loadu_ps(src);
+            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
+            _mm256_maskstore_ps(dst, mask, cord0);
+        } else if (areaRemain < 6) {
+            for (int i = 0; i < areaRemain * 3 - 8; i++) {
+                flag[i] = -0.f;;
+            }
+            mask = _mm256_loadu_si256((__m256i*)flag);
+            __m256 cord0 = _mm256_loadu_ps(src);
+            __m256 cord1 = _mm256_maskload_ps(src + PACK_UNIT, mask);
+            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
+            cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
+            _mm256_storeu_ps(dst, cord0);
+            _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
+        } else {
+            for (int i = 0; i < areaRemain * 3 - 16; i++) {
+                flag[i] = -0.f;;
+            }
+            mask = _mm256_loadu_si256((__m256i*)flag);
+            __m256 cord0 = _mm256_loadu_ps(src);
+            __m256 cord1 = _mm256_loadu_ps(src + PACK_UNIT);
+            __m256 cord2 = _mm256_maskload_ps(src + PACK_UNIT * 2, mask);
+            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
+            cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
+            cord2 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord2), _mm256_sub_ps(in2, a)), b));
+            _mm256_storeu_ps(dst, cord0);
+            _mm256_storeu_ps(dst + PACK_UNIT, cord1);
+            _mm256_maskstore_ps(dst + PACK_UNIT * 2, mask, cord2);
+        }
+    }
+}
+
+static size_t _AVX_MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width) {
+            return -1;
+        }
+    } else {
+        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
+        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
+        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
+        d = d < 0 ? 0 : (d > (depth - 1) ? (depth - 1) : d);
+        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
+        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
+    }
+    return ((d * height + h) * width + w) *  PACK_UNIT;
+}
+
+void _AVX_MNNGridSampleInterp3D(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
+    for (auto ow = 0; ow < outW; ++ow) {
+        auto w = cordPtr[3 * ow + 0];
+        auto h = cordPtr[3 * ow + 1];
+        auto d = cordPtr[3 * ow + 2];
+        __m256 interp;
+
+        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
+            int nd = ::floor(d + 0.5f);
+            int nh = ::floor(h + 0.5f);
+            int nw = ::floor(w + 0.5f);
+            size_t ns = _AVX_MNNGridSampleComputeOffset3D(nd, nh, nw, inD, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? _mm256_set1_ps(0.f) : _mm256_loadu_ps(inputPtr + k * inOffset + ns);
+                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
+            }
+        } else { //sampleMode == GridSampleMode_BILINEAR
+            int w0_d = ::floor(d);
+            int w0_h = ::floor(h);
+            int w0_w = ::floor(w);
+            int w1_d = ::ceil(d);
+            int w1_h = ::ceil(h);
+            int w1_w = ::ceil(w);
+            auto oneV = _mm256_set1_ps(1.0f);
+
+            auto f0 = _mm256_set1_ps((float)w1_w - w);
+            auto f1 = _mm256_sub_ps(oneV, f0);
+            auto h0 = _mm256_set1_ps((float)w1_h - h);
+            auto h1 = _mm256_sub_ps(oneV, h0);
+            auto d0 = _mm256_set1_ps((float)w1_d - d);
+            auto d1 = _mm256_sub_ps(oneV, d0);
+
+            size_t s000 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w0_h, w0_w, inD, inH, inW, padMode);
+            size_t s001 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w0_h, w1_w, inD, inH, inW, padMode);
+            size_t s010 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w1_h, w0_w, inD, inH, inW, padMode);
+            size_t s011 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w1_h, w1_w, inD, inH, inW, padMode);
+            size_t s100 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w0_h, w0_w, inD, inH, inW, padMode);
+            size_t s101 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w0_h, w1_w, inD, inH, inW, padMode);
+            size_t s110 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w1_h, w0_w, inD, inH, inW, padMode);
+            size_t s111 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w1_h, w1_w, inD, inH, inW, padMode);
+
+            for (int k = 0; k < channelCUnit; ++k) {
+                __m256 i000 = s000 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s000);
+                __m256 i001 = s001 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s001);
+                __m256 i010 = s010 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s010);
+                __m256 i011 = s011 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s011);
+                __m256 i100 = s100 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s100);
+                __m256 i101 = s101 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s101);
+                __m256 i110 = s110 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s110);
+                __m256 i111 = s111 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s111);
+
+                __m256 i00 = _mm256_add_ps(_mm256_mul_ps(i000, f0), _mm256_mul_ps(i001, f1));
+                __m256 i01 = _mm256_add_ps(_mm256_mul_ps(i010, f0), _mm256_mul_ps(i011, f1));
+                __m256 i0  = _mm256_add_ps(_mm256_mul_ps(i00, h0), _mm256_mul_ps(i01, h1));
+                __m256 i10 = _mm256_add_ps(_mm256_mul_ps(i100, f0), _mm256_mul_ps(i101, f1));
+                __m256 i11 = _mm256_add_ps(_mm256_mul_ps(i110, f0), _mm256_mul_ps(i111, f1));
+                __m256 i1  = _mm256_add_ps(_mm256_mul_ps(i10, h0), _mm256_mul_ps(i11, h1));
+
+                interp = _mm256_add_ps(_mm256_mul_ps(i0, d0), _mm256_mul_ps(i1, d1));
+                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
+            }
+        }
+    }
+}
+
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
@@ -727,6 +875,8 @@ void _AVX_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX_MNNGridSampleComputeCord;
     coreFunction->MNNGridSampleInterp = _AVX_MNNGridSampleInterp;
+    coreFunction->MNNGridSampleComputeCord3D = _AVX_MNNGridSampleComputeCord3D;
+    coreFunction->MNNGridSampleInterp3D = _AVX_MNNGridSampleInterp3D;
     coreFunction->MNNRoiPoolingMax = _AVX_MNNRoiPoolingMax;
     coreFunction->MNNRoiAlignMax = _AVX_MNNRoiAlignMax;
     coreFunction->MNNRoiAlignAvg = _AVX_MNNRoiAlignAvg;

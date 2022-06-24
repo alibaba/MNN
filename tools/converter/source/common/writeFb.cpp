@@ -37,8 +37,11 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
 
     addUUID(netT, proto);
     
+    // add version info to model
+    netT->extraInfo.reset(new ExtraInfoT);
+    netT->extraInfo->version = MNN_VERSION;
     if (!config.authCode.empty()) {
-        netT->extraInfo.reset(new ExtraInfoT);
+        // add auth code to model
         netT->extraInfo->name = config.authCode;
     }
 

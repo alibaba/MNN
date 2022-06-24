@@ -1221,5 +1221,26 @@ VARP _Mod(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_MOD);
 }
 
+VARP _CumSum(VARP x, int axis, bool exclusive, bool reverse) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_CumSum;
+    op->main.type = OpParameter_CumSum;
+    auto param = new CumSumT;
+    param->exclusive = exclusive;
+    param->reverse = reverse;
+    op->main.value = param;
+    return (Variable::create(Expr::create(std::move(op), {x ,_Scalar(axis)})));
+}
+
+VARP _CumProd(VARP x, int axis) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_CumProd;
+    op->main.type = OpParameter_Axis;
+    auto param = new AxisT;
+    param->axis = axis;
+    op->main.value = param;
+    return (Variable::create(Expr::create(std::move(op), {x})));
+}
+
 } // namespace Express
 } // namespace MNN

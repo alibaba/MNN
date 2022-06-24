@@ -7,6 +7,7 @@ IF(MNN_BUILD_OPENCV)
   option(MNN_IMGPROC_STRUCTRAL "Enable imgproc structral" ON)
   option(MNN_IMGCODECS "Enable imgcodecs" OFF)
   option(MNN_OPENCV_TEST "Enable opencv test" OFF)
+  option(MNN_OPENCV_BENCH "Enable opencv benchmark" OFF)
 
   SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
@@ -15,6 +16,15 @@ IF(MNN_BUILD_OPENCV)
   # include(${CMAKE_CURRENT_LIST_DIR}/test/CMakeLists.txt)
   if(${MNN_OPENCV_TEST})
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/test)
+  endif()
+
+  if(${MNN_OPENCV_BENCH})
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/benchmark)
+  endif()
+
+  if(${MNN_OPENCV_TEST} OR ${MNN_OPENCV_BENCH})
+    # copy test images
+    FILE(COPY imgs DESTINATION ${CMAKE_BINARY_DIR}/)
   endif()
 
   # file(GLOB_RECURSE IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/*.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/*.hpp)
@@ -45,6 +55,7 @@ IF(MNN_BUILD_OPENCV)
   endif()
   # imgcodecs functions
   if(${MNN_IMGCODECS})
+    add_definitions(-DMNN_IMGCODECS)
     file(GLOB_RECURSE IMGCODECS_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgcodecs/*.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgcodecs/*.hpp)
   endif()
 

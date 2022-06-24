@@ -204,6 +204,7 @@ static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObjec
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_getModelVersion(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_new(struct _typeobject *type, PyObject *args, PyObject *kwds);
 static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObject *kwds);
 static void PyMNNInterpreter_dealloc(PyMNNInterpreter *);
@@ -232,6 +233,7 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"cache", (PyCFunction)PyMNNInterpreter_cache, METH_VARARGS, "cache current net instance"},
     {"removeCache", (PyCFunction)PyMNNInterpreter_removeCache, METH_VARARGS, "remove cache with given path"},
     {"updateSessionToModel", (PyCFunction)PyMNNInterpreter_updateSessionToModel, METH_VARARGS, "updateSessionToModel"},
+    {"getModelVersion", (PyCFunction)PyMNNInterpreter_getModelVersion, METH_VARARGS, "getModelVersion"},
 #ifdef PYMNN_INTERNAL_SERVING
     {"createSessionWithToken", (PyCFunction)PyMNNInterpreter_createSessionWithToken, METH_VARARGS, "create session with token"},
 #endif
@@ -1410,6 +1412,10 @@ static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, P
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNInterpreter_getModelVersion(PyMNNInterpreter *self, PyObject *args) {
+    return toPyObj(self->interpreter->getModelVersion());
+}
+
 static void PyMNNInterpreter_dealloc(PyMNNInterpreter *self) {
     if (!self->modelPath) {
         return;
@@ -2522,7 +2528,7 @@ static void PyMNNOpInfo_dealloc(PyMNNOpInfo *self) {
 }
 
 #ifdef PYMNN_TRAIN_API
-static PyObject* PyMN_get_model_uuid(PyObject *self, PyObject *args) {
+static PyObject* PyMNN_get_model_uuid(PyObject *self, PyObject *args) {
     const char* modelFile;
     if (!PyArg_ParseTuple(args, "s", &modelFile)) {
         printf("PyArg_ParseTuple Error\n");
@@ -2531,11 +2537,15 @@ static PyObject* PyMN_get_model_uuid(PyObject *self, PyObject *args) {
     return toPyObj(HelperFuncs::getModelUUID(modelFile));
 }
 #endif
+static PyObject* PyMNN_version(PyObject *self, PyObject *args) {
+    return toPyObj(MNN::getVersion());
+}
 /// module init
 static PyMethodDef module_methods[] = {
 #ifdef PYMNN_TRAIN_API
-    {"get_model_uuid", (PyCFunction)PyMN_get_model_uuid, METH_VARARGS, "get model's uuid"},
+    {"get_model_uuid", (PyCFunction)PyMNN_get_model_uuid, METH_VARARGS, "get model's uuid"},
 #endif
+    {"version", (PyCFunction)PyMNN_version, METH_VARARGS, "get MNN version number"},
     {NULL, NULL, 0, NULL}
 };
 
