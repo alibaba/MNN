@@ -9,4 +9,4 @@ pyrsistent==0.14.0
 boto3==1.15.17
 toml==0.10.1
 botocore==1.18.17
-protobuf==3.13.0
+protobuf==3.15.0
