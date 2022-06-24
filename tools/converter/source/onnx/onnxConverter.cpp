@@ -26,6 +26,10 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
     // read ONNX Model
     bool success = onnx_read_proto_from_binary(inputModel.c_str(), &onnxModel);
     DCHECK(success) << "read onnx model failed: " << inputModel;
+    if (!success) {
+        MNN_ERROR("[ERROR] Model file is not onnx model.\n");
+        return 1;
+    }
 
     LOG(INFO) << "ONNX Model ir version: " << onnxModel.ir_version();
 

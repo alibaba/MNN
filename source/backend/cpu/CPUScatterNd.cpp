@@ -18,6 +18,9 @@ void ScatterNdImpl(const Tensor* indices, const Tensor* updates, const Tensor* s
     auto outputPtr             = output->host<T>();
     const int indicesDimension = indices->dimensions();
     const int indicesLastDim   = indices->length(indicesDimension - 1);
+    if (indicesLastDim == 0) {
+        return;
+    }
     const int indexes          = indices->elementSize() / indicesLastDim;
     int accNumber              = 1;
     for (int i = indicesDimension - 1; i < updates->dimensions(); ++i) {

@@ -41,6 +41,7 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
                 auto reluLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
                 core_ml__specification__neural_network_layer__init(reluLayer);
                 mCoreMLBackend->setLayerName(reluLayer, "relu6-relu");
+                reluLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
                 reluLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_RE_LU;
                 reluLayer->activation->relu = mCoreMLBackend->create<CoreML__Specification__ActivationReLU>();
                 core_ml__specification__activation_re_lu__init(reluLayer->activation->relu);
@@ -98,12 +99,10 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __relu_op(OpType_ReLU);
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __relu6_op(OpType_ReLU6);
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __elu_op(OpType_ELU);
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __prelu_op(OpType_PReLU);
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __sigmoid_op(OpType_Sigmoid);
-CoreMLCreatorRegister<TypedCreator<CoreMLActivation>> __softmax_op(OpType_Softmax);
-
-
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU6)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ELU)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_PReLU)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Sigmoid)
+REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Softmax)
 } // namespace MNN

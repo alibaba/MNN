@@ -2,10 +2,12 @@
 #import "backend/metal/MetalDefine.h"
    namespace MNN {
 #if MNN_METAL_ENABLED
+  extern void ___MetalSoftmaxCreator__OpType_Softmax__();
   extern void ___MetalCastCreator__OpType_Cast__();
   extern void ___MetalReductionCreator__OpType_Reduction__();
   extern void ___MetalEltwiseCreator__OpType_Eltwise__();
   extern void ___MetalConvolutionCreator__OpType_Convolution__();
+  extern void ___MetalLayerNormCreator__OpType_LayerNorm__();
   extern void ___MetalMatMulCreator__OpType_MatMul__();
   extern void ___MetalBinaryCreator__OpType_BinaryOp__();
   extern void ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
@@ -24,10 +26,12 @@
   extern void ___MetalPReLUCreator__OpType_PReLU__();
   extern void ___MetalReLU6Creator__OpType_ReLU6__();
 void registerMetalOps() {
+   ___MetalSoftmaxCreator__OpType_Softmax__();
    ___MetalCastCreator__OpType_Cast__();
    ___MetalReductionCreator__OpType_Reduction__();
    ___MetalEltwiseCreator__OpType_Eltwise__();
    ___MetalConvolutionCreator__OpType_Convolution__();
+   ___MetalLayerNormCreator__OpType_LayerNorm__();
    ___MetalMatMulCreator__OpType_MatMul__();
    ___MetalBinaryCreator__OpType_BinaryOp__();
    ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();

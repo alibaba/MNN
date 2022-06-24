@@ -17,9 +17,11 @@ class GridSampleSizeComputer : public SizeComputer {
         // inputs[0] is input, inputs[1] is grid
         MNN_ASSERT(2 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
-        MNN_ASSERT(4 == inputs[0]->buffer().dimensions && 4 == inputs[1]->buffer().dimensions);
+        int input_dim = inputs[0]->buffer().dimensions;
+        int grid_dim = inputs[1]->buffer().dimensions;
+        MNN_ASSERT((4 == input_dim && 4 == grid_dim) || (5 == input_dim && 5 == grid_dim));
         MNN_ASSERT(inputs[0]->buffer().dim[0].extent == inputs[1]->buffer().dim[0].extent);
-        MNN_ASSERT(2 == inputs[1]->buffer().dim[3].extent);
+        MNN_ASSERT(grid_dim - 2 == inputs[1]->buffer().dim[grid_dim - 1].extent);
 
         auto &ibInput0 = inputs[0]->buffer();
         auto &ibInput1 = inputs[1]->buffer();
@@ -30,6 +32,9 @@ class GridSampleSizeComputer : public SizeComputer {
         ob.dim[1].extent = ibInput0.dim[1].extent;
         ob.dim[2].extent = ibInput1.dim[1].extent;
         ob.dim[3].extent = ibInput1.dim[2].extent;
+        if (grid_dim == 5) {
+            ob.dim[4].extent = ibInput1.dim[3].extent;
+        }
 
         ob.type = ibInput0.type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(

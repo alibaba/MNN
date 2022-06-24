@@ -288,6 +288,7 @@ int main(int argc, char *argv[]) {
     if (argc > 8) {
         cacheFileName = argv[8];
     }
+    FUNC_PRINT(precision);
     FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;

@@ -96,6 +96,12 @@ typedef std::function<bool(const std::vector<Tensor*>&, const std::string& /*opN
 typedef std::function<bool(const std::vector<Tensor*>&, const OperatorInfo*)> TensorCallBackWithInfo;
 typedef std::pair<std::map<MNNForwardType, std::shared_ptr<Runtime>>, std::shared_ptr<Runtime>> RuntimeInfo;
 
+/**
+ * @brief get mnn version info.
+ * @return mnn version string.
+ */
+MNN_PUBLIC const char* getVersion();
+
 /** net data holder. multiple sessions could share same net. */
 class MNN_PUBLIC Interpreter {
 public:
@@ -239,6 +245,13 @@ public:
      * output.write((const char*)buffer.first, buffer.second);
      */
     std::pair<const void*, size_t> getModelBuffer() const;
+
+    /**
+     * @brief Get the model's version info.
+     * @return const char* of model's version info like "2.0.0";
+     * If model is not loaded or model no version info, return "version info not found".
+     */
+    const char* getModelVersion() const;
 
     /**
      * @brief update Session's Tensor to model's Const Op

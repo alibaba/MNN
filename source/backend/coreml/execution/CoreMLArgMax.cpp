@@ -31,5 +31,5 @@ ErrorCode CoreMLArgMax::onResize(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLArgMax>> __argmax_op(OpType_ArgMax);
+REGISTER_COREML_OP_CREATOR(CoreMLArgMax, OpType_ArgMax)
 } // namespace MNN

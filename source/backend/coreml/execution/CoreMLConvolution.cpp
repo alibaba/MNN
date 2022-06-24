@@ -12,6 +12,7 @@ namespace MNN {
 
 
 CoreMLConvolution::CoreMLConvolution(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
+    isDeconv = op->type() == OpType_Deconvolution;
     initLayer();
 }
 
@@ -111,6 +112,7 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
     mLayer_->convolution = mCoreMLBackend->create<CoreML__Specification__ConvolutionLayerParams>();
     core_ml__specification__convolution_layer_params__init(mLayer_->convolution);
     mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CONVOLUTION;
+    mLayer_->convolution->isdeconvolution = isDeconv;
     mLayer_->convolution->ngroups = group;
     mLayer_->convolution->n_stride = 2;
     mLayer_->convolution->stride = mCoreMLBackend->create<uint64_t>(mLayer_->convolution->n_stride);
@@ -183,10 +185,7 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
     return NO_ERROR;
 }
 
-
-CoreMLCreatorRegister<TypedCreator<CoreMLConvolution>> __convolution_op(OpType_Convolution);
-CoreMLCreatorRegister<TypedCreator<CoreMLConvolution>> __convdepwise_op(OpType_ConvolutionDepthwise);
-// CoreMLCreatorRegister<TypedCreator<CoreMLConvolution>> __deconvolution_op(OpType_Deconvolution);
-
-
+REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_Convolution)
+REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_ConvolutionDepthwise)
+REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_Deconvolution)
 } // namespace MNN

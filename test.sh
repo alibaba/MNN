@@ -293,7 +293,18 @@ pymnn_test() {
         echo '### PYMNN模型测试失败，测试终止！'
         failed
     fi
-    # 4. uninstall pymnn
+    # 4. train test
+    ./train_test.sh
+    # 5. quant test
+    python3 ../examples/MNNQuant/test_mnn_offline_quant.py \
+            --mnn_model ~/AliNNModel/TestQuant/mobilenet_v2_tfpb_train_withBN.mnn \
+            --quant_imgs ~/AliNNModel/TestQuant/quant_imgs \
+            --quant_model ./quant_model.mnn
+    rm ./quant_model.mnn
+    quant_wrong=$[$? > 0]
+    printf "TEST_NAME_QUANT_TEST: pymnn量化测试\nTEST_CASE_AMOUNT_QUANT_TEST: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $quant_wrong $[1 - $quant_wrong]
+    # 6. uninstall pymnn
     pip uninstall --yes MNN-Internal
     popd
     popd

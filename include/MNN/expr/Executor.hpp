@@ -69,7 +69,6 @@ public:
     const DebugTools* getDebugTools() const {
         return mDebug.get();
     }
-    struct Cache;
     class MNN_PUBLIC RuntimeManager {
     public:
         ~RuntimeManager();
@@ -100,22 +99,18 @@ public:
          */
         void updateCache();
         std::vector<bool> isBackendSupport(const std::vector<MNNForwardType> type);
-        RuntimeInfo getRuntimeInfo() {
-            return mRuntime;
-        }
         friend class Executor;
         void setMode(Interpreter::SessionMode mode);
         void setHint(Interpreter::HintMode mode, int value);
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
+        BackendConfig* getBnConfig();
         const RuntimeAttr* getInside() const {
             return mInside;
         }
     private:
-        RuntimeManager();
-        RuntimeInfo mRuntime;
-        std::shared_ptr<Runtime> mInfo;
-        std::shared_ptr<Cache> mCache;
         RuntimeAttr* mInside;
+        friend class StaticModule;
+        RuntimeManager();
     };
 private:
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);

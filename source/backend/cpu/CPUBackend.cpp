@@ -220,6 +220,8 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     if (nullptr != originMem) {
         if (static_cast<CPUMemObj*>(originMem)->getSize() >= size) {
             return originMem;
+        } else {
+            TensorUtils::getDescribe(dest)->mem.reset(nullptr);
         }
     }
     // MNN_PRINT("Acquire size = %d\n", size);

@@ -104,7 +104,6 @@ struct BackendConfig {
         STATUS_COUNT
     };
 
-
 }; // namespace MNN
 #endif
 #endif /* MNNForwardType_h */

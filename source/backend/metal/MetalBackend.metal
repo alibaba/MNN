@@ -282,3 +282,58 @@ kernel void blit_int64(const device short4 *in   [[buffer(0)]],
         out[int(dstOffset)] = in[int(srcOffset)];
     }
 }
+
+template<typename IType, typename OType>
+static inline void template_NHWC_to_NCHW(const device IType* in,
+        device OType* out, constant tensor_shape &s, uint2 gid) {
+    int b  = gid.y / s.slice;
+    int c4 = gid.y % s.slice;
+    
+    auto in_off  = (b * s.size + gid.x) * s.channel + c4 * 4;
+    auto out_off = (b * s.channel + c4 * 4) * s.size + gid.x;
+    
+    out[out_off] = in[in_off];
+    if(c4 * 4 + 1 < s.channel) {
+        out[out_off + s.size] = in[in_off + 1];
+    }
+    if(c4 * 4 + 2 < s.channel) {
+        out[out_off + s.size * 2] = in[in_off + 2];
+    }
+    if(c4 * 4 + 3 < s.channel) {
+        out[out_off + s.size * 3] = in[in_off + 3];
+    }
+}
+
+kernel void upcast_f_NHWC_to_NCHW(const device ftype *in      [[buffer(0)]],
+                                    device float *out          [[buffer(1)]],
+                                    constant tensor_shape &s    [[buffer(2)]],
+                                    uint2 gid                   [[thread_position_in_grid]]) {
+    if ((int)gid.x < s.size && (int)gid.y < s.batch_slices) template_NHWC_to_NCHW<ftype, float>(in, out, s, gid);
+}
+
+template<typename IType, typename OType>
+static inline void template_NCHW_to_NHWC(const device IType* in,
+        device OType* out, constant tensor_shape &s, uint2 gid) {
+    int b  = gid.y / s.slice;
+    int c4 = gid.y % s.slice;
+    
+    auto in_off  = (b * s.channel + c4 * 4) * s.size + gid.x;
+    auto out_off = (b * s.size + gid.x) * s.channel + c4 * 4;
+    
+    out[out_off] = in[in_off];
+    if(c4 * 4 + 1 < s.channel) {
+        out[out_off + 1] = in[in_off + s.size];
+    }
+    if(c4 * 4 + 2 < s.channel) {
+        out[out_off + 2] = in[in_off + s.size * 2];
+    }
+    if(c4 * 4 + 3 < s.channel) {
+        out[out_off + 3] = in[in_off + s.size * 3];
+    }
+}
+kernel void downcast_f_NCHW_to_NHWC(const device float *in      [[buffer(0)]],
+                                    device ftype *out          [[buffer(1)]],
+                                    constant tensor_shape &s    [[buffer(2)]],
+                                    uint2 gid                   [[thread_position_in_grid]]) {
+    if ((int)gid.x < s.size && (int)gid.y < s.batch_slices) template_NCHW_to_NHWC<float, ftype>(in, out, s, gid);
+}

@@ -67,5 +67,5 @@ ErrorCode CoreMLReduction::onResize(const std::vector<Tensor *> &inputs, const s
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLReduction>> __reduction_op(OpType_Reduction);
+REGISTER_COREML_OP_CREATOR(CoreMLReduction, OpType_Reduction)
 } // namespace MNN

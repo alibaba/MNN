@@ -17,6 +17,8 @@ public:
     static bool initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv);
     static bool convertModel(modelConfig& modelPath);
     static int testconvert(const std::string& defaultCacheFile, const std::string& directName, float maxErrorRate);
+    static bool mnn2json(const char* modelFile, const char* jsonFile, int flag = 3);
+    static bool json2mnn(const char* jsonFile, const char* modelFile);
 };
 };
 

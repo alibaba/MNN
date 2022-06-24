@@ -6,9 +6,10 @@ import numpy as np
 import MNN
 import cv2
 import sys
+
 def inference():
     """ inference mobilenet_v1 using a specific picture """
-    net = MNN.nn.load_module_from_file(sys.argv[1], ["data"], ["prob"])
+    net = MNN.nn.load_module_from_file(sys.argv[1], ["input"], ["MobilenetV1/Predictions/Reshape_1"])
     image = cv2.imread(sys.argv[2])
     #cv2 read as bgr format
     image = image[..., ::-1]
@@ -28,6 +29,8 @@ def inference():
     output_var = net.forward(input_var)
     #the output from net may be NC4HW4, turn to linear layout
     output_var = MNN.expr.convert(output_var, MNN.expr.NHWC)
+    print("expect 983")
     print("output belong to class: {}".format(np.argmax(output_var.read())))
+
 if __name__ == "__main__":
     inference()

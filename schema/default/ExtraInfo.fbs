@@ -11,4 +11,5 @@ namespace MNN;
 table ExtraInfo {
     buffer:[int8];
     name: string;
+    version: string;
 }

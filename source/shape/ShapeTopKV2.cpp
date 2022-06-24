@@ -22,7 +22,8 @@ class TopKV2SizeComputer : public SizeComputer {
         MNN_ASSERT(kTensor->getType().code == halide_type_int);
         const int k              = kTensor->host<int32_t>()[0];
         const int inputDimension = input->buffer().dimensions;
-        const int axis = (inputs.size() == 3 ? inputs[2]->host<int32_t>()[0] : inputDimension - 1);
+        int axis = (inputs.size() == 3 ? inputs[2]->host<int32_t>()[0] : inputDimension - 1);
+        if (axis < 0) axis += input->dimensions();
         // outputs: 0 --> data, 1 --> index
 
         auto outputData                 = outputs[0];

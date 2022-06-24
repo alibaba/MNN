@@ -72,5 +72,5 @@ ErrorCode CoreMLInterp::onResize(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLInterp>> __interp_op(OpType_Interp);
+REGISTER_COREML_OP_CREATOR(CoreMLInterp, OpType_Interp)
 } // namespace MNN

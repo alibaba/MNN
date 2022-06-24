@@ -38,7 +38,6 @@
 #include <cmath>
 #include "common/MemoryFormater.h"
 namespace MNN {
-static float gMNNVersion = 1.2f;
 
 bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv) {
     cxxopts::Options options("MNNConvert");
@@ -49,9 +48,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
                                                                                                                                  std::make_pair("v", "version"), "show current version")
         (std::make_pair("f", "framework"),
 #ifdef MNN_BUILD_TORCH
-        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH]",
+        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH,JSON]",
 #else
-        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN]",
+        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,JSON]",
 #endif
             cxxopts::value<std::string>())
         (
@@ -166,6 +165,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
             cxxopts::value<float>()
         )
         (
+            "JsonFile",
+            "if input model is MNN and give jsonfile, while Dump MNN model to the JsonFile.",
+            cxxopts::value<std::string>()
+        )
+        (
             "alignDenormalizedValue",
              "if 1, converter would align denormalized float(|x| < 1.18e-38) as zero, because of in ubuntu/protobuf or android/flatbuf, system behaviors are different. default: 1, range: {0, 1}",
              cxxopts::value<int>()
@@ -179,7 +183,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
 
     if (result.count("version")) {
-        std::cout << gMNNVersion << std::endl;
+        std::cout << MNN_VERSION << std::endl;
         return false;
     }
 
@@ -202,13 +206,15 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         } else if ("TORCH" == frameWork) {
             modelPath.model = modelConfig::TORCH;
 #endif
+        } else if ("JSON" == frameWork) {
+            modelPath.model = modelConfig::JSON;
         } else {
             std::cout << "Framework Input ERROR or Not Support This Model Type Now!" << std::endl;
             return false;
         }
     } else {
         std::cout << options.help({""}) << std::endl;
-        DLOG(INFO) << "framework Invalid, use -f CAFFE/MNN/ONNX/TFLITE/TORCH !";
+        DLOG(INFO) << "framework Invalid, use -f CAFFE/MNN/ONNX/TFLITE/TORCH/JSON !";
         return false;
     }
     if (result.count("OP")) {
@@ -266,6 +272,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("MNNModel")) {
         const std::string MNNModelPath = result["MNNModel"].as<std::string>();
         modelPath.MNNModel             = MNNModelPath;
+    } else if (result.count("JsonFile")) {
+        const std::string JsonFilePath = result["JsonFile"].as<std::string>();
+        modelPath.mnn2json             = true;
+        modelPath.MNNModel             = JsonFilePath;
     } else {
         DLOG(INFO) << "MNNModel File Not Set, use --MNNModel XXX.prototxt to set it!";
         return false;
@@ -340,32 +350,50 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("thredhold")) {
         modelPath.testThredhold = result["thredhold"].as<float>();
     }
-
     return true;
 }
 
 bool Cli::convertModel(modelConfig& modelPath) {
     std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
+    int parseRes = 1;
     if (modelPath.model == modelConfig::CAFFE) {
-        caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
+        parseRes = caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::TENSORFLOW) {
-        tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        parseRes = tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::MNN) {
-        addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
+        if (modelPath.mnn2json) {
+            if (mnn2json(modelPath.modelFile.c_str(), modelPath.MNNModel.c_str())) {
+                MNN_PRINT("MNNModel %s has convert to JsonFile %s.\n", modelPath.modelFile.c_str(), modelPath.MNNModel.c_str());
+                return true;
+            } else {
+                MNN_ERROR("[ERROR] MNN to Json failed.\n");
+                return false;
+            }
+        } else {
+            parseRes = addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
+        }
     } else if (modelPath.model == modelConfig::ONNX) {
-        onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        parseRes = onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::TFLITE) {
-        tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        parseRes = tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
 #ifdef MNN_BUILD_TORCH
     } else if (modelPath.model == modelConfig::TORCH) {
-        torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, modelPath.customOpLibs);
+        parseRes = torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, modelPath.customOpLibs);
 #endif
+    } else if (modelPath.model == modelConfig::JSON) {
+        if (json2mnn(modelPath.modelFile.c_str(), modelPath.MNNModel.c_str())) {
+            MNN_PRINT("JsonFile %s has convert to MNNModel %s.\n", modelPath.modelFile.c_str(), modelPath.MNNModel.c_str());
+            return true;
+        } else {
+            MNN_ERROR("[ERROR] Json to MNN failed.\n");
+            return false;
+        }
     } else {
-        std::cout << "Not Support Model Type" << std::endl;
+        MNN_ERROR("[ERROR] Not Support Model Type.\n");
     }
-    if (netT.get() == nullptr) {
-        MNN_ERROR("Convert error\n");
+    if (netT.get() == nullptr || parseRes) {
+        MNN_ERROR("[ERROR] Convert error, please check your file format.\n");
         return false;
     }
     int error = 0;
@@ -457,12 +485,6 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
     auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
     if (absMaxV * maxError < diffAbsMaxV || std::isnan(absMaxV)) {
         MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
-
-        MNN_PRINT("expected value\n");
-        formatMatrix(targetValue->readMap<float>(), targetValue->getInfo()->dim);
-        MNN_PRINT("real value\n");
-        formatMatrix(output->readMap<float>(), output->getInfo()->dim);
-
         return false;
     }
     return true;
@@ -650,6 +672,336 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     return 0;
 }
 
+bool Cli::mnn2json(const char* modelFile, const char* jsonFile, int flag) {
+    std::ifstream inputFile(modelFile, std::ios::binary);
+    inputFile.seekg(0, std::ios::end);
+    auto size = inputFile.tellg();
+    inputFile.seekg(0, std::ios::beg);
+
+    char* buffer = new char[size];
+
+    inputFile.read((char*)buffer, size);
+    std::ofstream output(jsonFile);
+
+    if (flag > 3) {
+        MNN_PRINT("Dont't add convweight\n");
+        auto netT = MNN::UnPackNet((void*)buffer);
+        auto treatFunction = [&](MNN::OpT* opParam) {
+            auto type = opParam->main.type;
+            if (type == MNN::OpParameter::OpParameter_Convolution2D) {
+                auto param = opParam->main.AsConvolution2D();
+                param->weight.clear();
+                param->bias.clear();
+                if (param->symmetricQuan) {
+                    param->symmetricQuan->weight.clear();
+                }
+                if (param->quanParameter) {
+                    param->quanParameter->buffer.clear();
+                }
+            } else if (type == MNN::OpParameter::OpParameter_Blob) {
+                auto blobT = opParam->main.AsBlob();
+                blobT->float32s.clear();
+                blobT->int8s.clear();
+                blobT->uint8s.clear();
+                blobT->int32s.clear();
+                blobT->int64s.clear();
+            } else if (type == MNN::OpParameter::OpParameter_Convolution2D) {
+                opParam->main.AsConvolution2D()->weight.clear();
+                opParam->main.AsConvolution2D()->bias.clear();
+            } else if (type == MNN::OpParameter::OpParameter_MatMul) {
+                opParam->main.AsMatMul()->weight.clear();
+                opParam->main.AsMatMul()->bias.clear();
+            } else if (type == MNN::OpParameter::OpParameter_PRelu) {
+                opParam->main.AsPRelu()->slope.clear();
+            } else if (type == MNN::OpParameter::OpParameter_Extra) {
+                auto extra = opParam->main.AsExtra();
+                extra->info.clear();
+            } else if(type == MNN::OpParameter::OpParameter_LSTM){
+                auto param = opParam->main.AsLSTM();
+                if (param->weightH) {
+                    param->weightH->float32s.clear();
+                }
+                if (param->weightI) {
+                    param->weightI->float32s.clear();
+                }
+                if (param->bias) {
+                    param->bias->float32s.clear();
+                }
+            }
+        };
+        for (int i = 0; i < netT->oplists.size(); ++i) {
+            treatFunction(netT->oplists[i].get());
+        }
+        for (int i = 0; i < netT->subgraphs.size(); ++i) {
+            for (int j=0; j<netT->subgraphs[i]->nodes.size(); ++j) {
+                treatFunction(netT->subgraphs[i]->nodes[j].get());
+            }
+        }
+        if (flag > 4) {
+            printf("Separate dump subgraph\n");
+            for (int i=0; i<netT->subgraphs.size(); ++i) {
+                auto& g = netT->subgraphs[i];
+                flatbuffers::FlatBufferBuilder newBuilder(1024);
+                auto root = MNN::SubGraphProto::Pack(newBuilder, g.get());
+                newBuilder.Finish(root);
+                auto content = newBuilder.GetBufferPointer();
+                char subGraphNameStr[128];
+                sprintf(subGraphNameStr, "%s_%d", jsonFile, i);
+                printf("Dump subgraph %s to %s\n", g->name.c_str(), subGraphNameStr);
+                std::ofstream tempOutput(subGraphNameStr);
+                auto s       = flatbuffers::FlatBufferToString((const uint8_t*)content, MNN::SubGraphProtoTypeTable());
+                tempOutput << s;
+            }
+            netT->subgraphs.clear();
+        }
+        flatbuffers::FlatBufferBuilder newBuilder(1024);
+        auto root = MNN::Net::Pack(newBuilder, netT.get());
+        MNN::FinishNetBuffer(newBuilder, root);
+        {
+            auto content = newBuilder.GetBufferPointer();
+            auto s       = flatbuffers::FlatBufferToString((const uint8_t*)content, MNN::NetTypeTable());
+            output << s;
+        }
+    } else {
+        auto s = flatbuffers::FlatBufferToString((const uint8_t*)buffer, MNN::NetTypeTable());
+        output << s;
+    }
+
+    delete[] buffer;
+    return true;
+}
+
+#define VECTOR_EXTRACT(FLATBUFFER_TYPE, CPP_TYPE, JSON_TYPE)\
+case flatbuffers::ET_##FLATBUFFER_TYPE:\
+{\
+    std::vector<CPP_TYPE> data(array.Size());\
+    for (int i=0; i<array.Size(); ++i) {\
+        data[i] = array[i].JSON_TYPE();\
+    }\
+    indexes[pos].second = builder.CreateVector(data).Union();\
+    break;\
+}\
+
+#define SCALAR_EXTRACT(FLATBUFFER_TYPE, CPP_TYPE, JSON_TYPE)\
+case flatbuffers::ET_##FLATBUFFER_TYPE:\
+{\
+builder.AddElement(field, (CPP_TYPE)(iter->value.JSON_TYPE()), (CPP_TYPE)0);\
+break;\
+}
+static flatbuffers::Offset<void> _writeJsonToFlatbuffer(const flatbuffers::TypeTable * table, flatbuffers::FlatBufferBuilder& builder, const rapidjson::GenericObject<false, rapidjson::GenericValue<rapidjson::UTF8<>>>& object) {
+    std::vector<std::pair<int, flatbuffers::Offset<void>>> indexes;
+    // Load union type for easy to use
+    std::map<std::string, int> unionNames;
+    for (int i=0; i<table->num_elems; ++i) {
+        if (table->type_codes[i].sequence_ref == -1) {
+            continue;
+        }
+        const flatbuffers::TypeTable *ref = table->type_refs[table->type_codes[i].sequence_ref]();
+        if (ref->st == flatbuffers::ST_UNION) {
+            unionNames.insert(std::make_pair(std::string(table->names[i]) + "_type", i));
+        }
+    }
+    // Find index and cache
+    std::map<int, int> unionTypes;
+    for (auto iter = object.begin(); iter !=object.end(); iter++) {
+        auto name = iter->name.GetString();
+        int index = -1;
+        for (int i=0; i<table->num_elems; ++i) {
+            if (0 == ::strcmp(table->names[i], name)) {
+                index = i;
+                break;
+            }
+        }
+        auto uiter = unionNames.find(name);
+        if (uiter != unionNames.end()) {
+            // Find union type id
+            auto value = iter->value.GetString();
+            int typePos = -1;
+            auto unionIndex = uiter->second;
+            auto ref = table->type_refs[table->type_codes[unionIndex].sequence_ref]();
+            for (int j=0; j<ref->num_elems; ++j) {
+                if (0 == ::strcmp(ref->names[j], value)) {
+                    typePos = j;
+                    break;
+                }
+            }
+            if (-1 == typePos) {
+                MNN_ERROR("Can't find union type\n");
+                continue;
+            }
+            if (typePos > 0) {
+                // First is None
+                unionTypes.insert(std::make_pair(unionIndex, typePos-1));
+            }
+        }
+        if (index == -1) {
+            MNN_PRINT("Invalid: %s, Skip it\n", name);
+        }
+        indexes.emplace_back(std::make_pair(index, 0));
+    }
+
+    // resolve single object
+    int pos = 0;
+    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
+        int index = indexes[pos].first;
+        if (-1 == index) {
+            continue;
+        }
+        auto code = table->type_codes[index];
+        if (code.is_vector) {
+            continue;
+        }
+        if (code.sequence_ref != -1 && code.base_type == flatbuffers::ET_SEQUENCE) {
+            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
+            if (ref->st == flatbuffers::ST_TABLE) {
+                indexes[pos].second = _writeJsonToFlatbuffer(ref, builder, iter->value.GetObject());
+            } else if (ref->st == flatbuffers::ST_UNION) {
+                auto unionInd = unionTypes.find(index)->second;
+                ref = ref->type_refs[unionInd]();
+                indexes[pos].second = _writeJsonToFlatbuffer(ref, builder, iter->value.GetObject());
+            }
+        }
+    }
+
+    // Resolve Vector and String
+    pos = 0;
+    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
+        int index = indexes[pos].first;
+        if (-1 == index) {
+            continue;
+        }
+        auto code = table->type_codes[index];
+        if (!code.is_vector) {
+            if (code.base_type == flatbuffers::ET_STRING) {
+                indexes[pos].second = builder.CreateString(iter->value.GetString()).Union();
+            }
+            continue;
+        }
+        auto array = iter->value.GetArray();
+        if (code.sequence_ref != -1) {
+            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
+            std::vector<flatbuffers::Offset<void>> offsets(array.Size());
+            for (int i=0; i<array.Size(); ++i) {
+                offsets[i] = _writeJsonToFlatbuffer(ref, builder, array[i].GetObject());
+            }
+            indexes[pos].second = builder.CreateVector(offsets.data(), offsets.size()).Union();
+            continue;
+        }
+        switch (code.base_type) {
+                VECTOR_EXTRACT(BOOL, bool, GetBool);
+                VECTOR_EXTRACT(CHAR, char, GetInt);
+                VECTOR_EXTRACT(UCHAR, uint8_t, GetInt);
+                VECTOR_EXTRACT(SHORT, int16_t, GetInt);
+                VECTOR_EXTRACT(USHORT, uint16_t, GetInt);
+                VECTOR_EXTRACT(INT, int, GetInt);
+                VECTOR_EXTRACT(UINT, uint32_t, GetUint);
+                VECTOR_EXTRACT(LONG, int64_t, GetInt64);
+                VECTOR_EXTRACT(ULONG, uint64_t, GetUint64);
+                VECTOR_EXTRACT(FLOAT, float, GetFloat);
+                VECTOR_EXTRACT(DOUBLE, double, GetDouble);
+            case flatbuffers::ET_STRING:
+            {
+                std::vector<std::string> data(array.Size());
+                for (int i=0; i<array.Size(); ++i) {
+                    data[i] = array[i].GetString();
+                }
+                indexes[pos].second = builder.CreateVectorOfStrings(data).Union();
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    // Resolve Others
+    pos = 0;
+    auto start = builder.StartTable();
+    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
+        int index = indexes[pos].first;
+        if (-1 == index) {
+            continue;
+        }
+        auto field = 4 + index * 2;
+        if (indexes[pos].second.o != 0) {
+            builder.AddOffset(field, indexes[pos].second);
+            continue;
+        }
+        auto code = table->type_codes[index];
+        if (code.sequence_ref != -1) {
+            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
+            int value = -1;
+            if (ref->st == flatbuffers::ST_UNION || ref->st == flatbuffers::ST_ENUM) {
+                auto type = iter->value.GetString();
+                for (int i=0; i<ref->num_elems; ++i) {
+                    if (0 == ::strcmp(type, ref->names[i])) {
+                        if (nullptr == ref->values) {
+                            value = i;
+                        } else {
+                            value = ref->values[i];
+                        }
+                    }
+                }
+                switch (code.base_type) {
+                    case flatbuffers::ET_UTYPE:
+                    case flatbuffers::ET_UINT:
+                        builder.AddElement(field, (uint32_t)value, (uint32_t)0);
+                        break;
+                    case flatbuffers::ET_INT:
+                        builder.AddElement(field, (int32_t)value, (int32_t)-1);
+                        break;
+                    case flatbuffers::ET_UCHAR:
+                        builder.AddElement(field, (uint8_t)value, (uint8_t)0);
+                        break;
+                    case flatbuffers::ET_CHAR:
+                        builder.AddElement(field, (int8_t)value, (int8_t)0);
+                        break;
+                    default:
+                        break;
+                }
+                continue;
+            }
+        }
+        switch (code.base_type) {
+                SCALAR_EXTRACT(BOOL, bool, GetBool);
+                SCALAR_EXTRACT(CHAR, char, GetInt);
+                SCALAR_EXTRACT(UCHAR, uint8_t, GetInt);
+                SCALAR_EXTRACT(SHORT, int16_t, GetInt);
+                SCALAR_EXTRACT(USHORT, uint16_t, GetInt);
+                SCALAR_EXTRACT(INT, int, GetInt);
+                SCALAR_EXTRACT(UINT, uint32_t, GetUint);
+                SCALAR_EXTRACT(LONG, int64_t, GetInt64);
+                SCALAR_EXTRACT(ULONG, uint64_t, GetUint64);
+                SCALAR_EXTRACT(FLOAT, float, GetFloat);
+                SCALAR_EXTRACT(DOUBLE, double, GetDouble);
+            default:
+                break;
+        }
+    }
+    return builder.EndTable(start);
+}
+bool Cli::json2mnn(const char* jsonFile, const char* modelFile) {
+    rapidjson::Document document;
+    {
+        std::ifstream fileNames(jsonFile);
+        std::ostringstream output;
+        output << fileNames.rdbuf();
+        auto outputStr = output.str();
+        document.Parse(outputStr.c_str());
+        if (document.HasParseError()) {
+            MNN_ERROR("Invalid json\n");
+            return 0;
+        }
+    }
+    auto object = document.GetObject();
+    flatbuffers::FlatBufferBuilder builder;
+    builder.ForceDefaults(true);
+    auto table = MNN::NetTypeTable();
+    auto offset = _writeJsonToFlatbuffer(table, builder, object);
+    builder.Finish(offset);
+    std::ofstream outputOs(modelFile);
+    outputOs.write((char*)builder.GetBufferPointer(), builder.GetSize());
+    return true;
+}
 
 };
 

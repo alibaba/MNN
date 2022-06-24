@@ -1543,6 +1543,24 @@ void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t i
         }
     }
 }
+void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
+    float a = alignCorners ? 1.0f : 0.0f;
+    float b = alignCorners ? 0.0f : 1.0f;
+    for (auto d = 0; d < outD; ++d) {
+        for (auto h = 0; h < outH; ++h) {
+            auto __gridPtr = src + d * strideD + h * strideH;
+            auto cordH = dst + (d * outH + h) * outW * 3;
+            for (auto w = 0; w < outW; ++w) {
+                auto x = __gridPtr[3 * w + 0];
+                auto y = __gridPtr[3 * w + 1];
+                auto z = __gridPtr[3 * w + 2];
+                cordH[3 * w + 0] = ((1 + x) * (inW - a) - b) * 0.5f;
+                cordH[3 * w + 1] = ((1 + y) * (inH - a) - b) * 0.5f;
+                cordH[3 * w + 2] = ((1 + z) * (inD - a) - b) * 0.5f;
+            }
+        }
+    }
+}
 
 #ifndef MNN_USE_SSE
 void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) {
@@ -1583,6 +1601,22 @@ size_t MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padM
         w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
     }
     return h * width * 4 + w * 4;
+}
+
+size_t MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width || d < 0 || d >= depth) {
+            return -1;
+        }
+    } else {
+        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
+        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
+        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
+        d = d < 0 ? 0 : (d > (depth - 1) ? (depth - 1) : d);
+        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
+        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
+    }
+    return ((d * height + h) * width + w) * 4;
 }
 
 void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
@@ -1695,6 +1729,70 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
     }
 }
 
+void MNNGridSampleInterp3D(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
+    for (auto ow = 0; ow < outW; ++ow) {
+        auto w = cordPtr[3 * ow + 0];
+        auto h = cordPtr[3 * ow + 1];
+        auto d = cordPtr[3 * ow + 2];
+        Vec4 interp;
+
+        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
+            int nd = ::floor(d + 0.5f);
+            int nh = ::floor(h + 0.5f);
+            int nw = ::floor(w + 0.5f);
+            size_t ns = MNNGridSampleComputeOffset3D(nd, nh, nw, inD, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + ns);
+                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
+        } else { //sampleMode == GridSampleMode_BILINEAR
+            int w0_d = ::floor(d);
+            int w0_h = ::floor(h);
+            int w0_w = ::floor(w);
+            int w1_d = ::ceil(d);
+            int w1_h = ::ceil(h);
+            int w1_w = ::ceil(w);
+            auto oneV = Vec4(1.0f);
+
+            auto f0 = Vec4((float)w1_w - w);
+            auto f1 = oneV - f0;
+            auto h0 = Vec4((float)w1_h - h);
+            auto h1 = oneV - h0;
+            auto d0 = Vec4((float)w1_d - d);
+            auto d1 = oneV - d0;
+
+            size_t s000 = MNNGridSampleComputeOffset3D(w0_d, w0_h, w0_w, inD, inH, inW, padMode);
+            size_t s001 = MNNGridSampleComputeOffset3D(w0_d, w0_h, w1_w, inD, inH, inW, padMode);
+            size_t s010 = MNNGridSampleComputeOffset3D(w0_d, w1_h, w0_w, inD, inH, inW, padMode);
+            size_t s011 = MNNGridSampleComputeOffset3D(w0_d, w1_h, w1_w, inD, inH, inW, padMode);
+            size_t s100 = MNNGridSampleComputeOffset3D(w1_d, w0_h, w0_w, inD, inH, inW, padMode);
+            size_t s101 = MNNGridSampleComputeOffset3D(w1_d, w0_h, w1_w, inD, inH, inW, padMode);
+            size_t s110 = MNNGridSampleComputeOffset3D(w1_d, w1_h, w0_w, inD, inH, inW, padMode);
+            size_t s111 = MNNGridSampleComputeOffset3D(w1_d, w1_h, w1_w, inD, inH, inW, padMode);
+
+            for (int k = 0; k < channelCUnit; ++k) {
+                Vec4 i000 = s000 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s000);
+                Vec4 i001 = s001 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s001);
+                Vec4 i010 = s010 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s010);
+                Vec4 i011 = s011 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s011);
+                Vec4 i100 = s100 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s100);
+                Vec4 i101 = s101 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s101);
+                Vec4 i110 = s110 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s110);
+                Vec4 i111 = s111 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s111);
+
+                Vec4 i00 = i000 * f0 + i001 * f1;
+                Vec4 i01 = i010 * f0 + i011 * f1;
+                Vec4 i0 = i00 * h0 + i01 * h1;
+                Vec4 i10 = i100 * f0 + i101 * f1;
+                Vec4 i11 = i110 * f0 + i111 * f1;
+                Vec4 i1 = i10 * h0 + i11 * h1;
+                interp = i0 * d0 + i1 * d1;
+
+                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
+        }
+    }
+}
 
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
     MNNPackC4Common(dst, src, area, depth, areaOffset);
@@ -2714,6 +2812,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias;
     gCoreFunction->MNNGridSampleComputeCord = MNNGridSampleComputeCord;
     gCoreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    gCoreFunction->MNNGridSampleComputeCord3D = MNNGridSampleComputeCord3D;
+    gCoreFunction->MNNGridSampleInterp3D = MNNGridSampleInterp3D;
     gCoreFunction->MNNRoiPoolingMax = MNNRoiPoolingMax;
     gCoreFunction->MNNRoiAlignMax = MNNRoiAlignMax;
     gCoreFunction->MNNRoiAlignAvg = MNNRoiAlignAvg;

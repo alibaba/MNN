@@ -192,8 +192,7 @@ ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std:
 }
 
 
-CoreMLCreatorRegister<TypedCreator<CoreMLBinary>> __bianry_op(OpType_BinaryOp);
-CoreMLCreatorRegister<TypedCreator<CoreMLBinary>> __elemwise_op(OpType_Eltwise);
-
+REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_BinaryOp)
+REGISTER_COREML_OP_CREATOR(CoreMLBinary, OpType_Eltwise)
 
 } // namespace MNN

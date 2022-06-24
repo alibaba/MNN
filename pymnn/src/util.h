@@ -1037,6 +1037,8 @@ static PyMethodDef PyMNN##NAME##_methods[] = { \
 };
 #define def_class_end(NAME, TYPE) \
 static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject *kwds); \
+static int PyMNN##NAME##_init(PyTypeObject *self, PyObject *args, PyObject *kwds); \
+static PyObject* PyMNN##NAME##_call(PyObject *self, PyObject *args, PyObject *kwds); \
 static void PyMNN##NAME##_dealloc(PyMNN##NAME *self) { \
     if (self->ptr) { \
         delete self->ptr; \
@@ -1058,7 +1060,7 @@ static PyTypeObject PyMNN##NAME##Type = { \
     0,                                        /*tp_as_sequence*/\
     0,                                        /*tp_as_mapping*/\
     0,                                        /*tp_hash*/\
-    0,                                        /*tp_call*/\
+    PyMNN##NAME##_call,                       /*tp_call*/\
     0,                                        /*tp_str*/\
     0,                                        /*tp_getattro*/\
     0,                                        /*tp_setattro*/\
@@ -1079,7 +1081,7 @@ static PyTypeObject PyMNN##NAME##Type = { \
     0,                                        /*tp_descr_get*/\
     0,                                        /*tp_descr_set*/\
     0,                                        /*tp_dictoffset*/\
-    0,                                        /*tp_init*/\
+    (initproc)PyMNN##NAME##_init,             /*tp_init*/\
     0,                                        /*tp_alloc*/\
     PyMNN##NAME##_new                         /*tp_new*/\
 };\
@@ -1107,6 +1109,14 @@ static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject 
     PyMNN##NAME *self = (PyMNN##NAME *)type->tp_alloc(type, 0); \
     return (PyObject*)self; \
 }
+#define class_basic_init_impl(NAME) \
+static int PyMNN##NAME##_init(PyTypeObject *self, PyObject *args, PyObject *kwds) { \
+    return 0; \
+}
+#define class_basic_call_impl(NAME) \
+static PyObject* PyMNN##NAME##_call(PyObject *self, PyObject *args, PyObject *kwds) { \
+    return (PyObject*)self; \
+}
 // ------------------------ class start ------------------------
 // ------------------------ capsule start ------------------------
 
@@ -1118,6 +1128,7 @@ typedef struct { \
 } PyMNN##NAME;
 #define def_class_smart_end(NAME, TYPE) \
 static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject *kwds); \
+static PyObject* PyMNN##NAME##_call(PyObject *self, PyObject *args, PyObject *kwds); \
 static void PyMNN##NAME##_dealloc(PyMNN##NAME *self) { \
     Py_TYPE(self)->tp_free((PyObject *) self); \
 } \
@@ -1136,7 +1147,7 @@ static PyTypeObject PyMNN##NAME##Type = { \
     0,                                        /*tp_as_sequence*/\
     0,                                        /*tp_as_mapping*/\
     0,                                        /*tp_hash*/\
-    0,                                        /*tp_call*/\
+    PyMNN##NAME##_call,                       /*tp_call*/\
     0,                                        /*tp_str*/\
     0,                                        /*tp_getattro*/\
     0,                                        /*tp_setattro*/\

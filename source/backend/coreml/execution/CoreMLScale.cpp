@@ -47,5 +47,5 @@ ErrorCode CoreMLScale::onResize(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-CoreMLCreatorRegister<TypedCreator<CoreMLScale>> __scale_op(OpType_Scale);
+REGISTER_COREML_OP_CREATOR(CoreMLScale, OpType_Scale)
 } // namespace MNN

@@ -113,7 +113,7 @@ public:
         auto adjustIndexIfNeg = [=](VARP index) {
             return _Select(_Less(index, zero), index + shape, index);
         };
-        startVar = _Maximum(_Minimum(adjustIndexIfNeg(startVar), shape - _Scalar<int>(1)), zero);
+        startVar = adjustIndexIfNeg(startVar);
         endVar = adjustIndexIfNeg(endVar);
 
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);

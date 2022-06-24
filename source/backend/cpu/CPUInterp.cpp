@@ -74,12 +74,6 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     const int inH  = inputs[0]->buffer().dim[2].extent;
     const int outW = outputs[0]->buffer().dim[3].extent;
     const int outH = outputs[0]->buffer().dim[2].extent;
-    if (mInit && mResizeType == 2) {
-        backend()->onReleaseBuffer(&mWidthPosition, Backend::STATIC);
-        backend()->onReleaseBuffer(&mWidthFactor, Backend::STATIC);
-        backend()->onReleaseBuffer(&mHeightPosition, Backend::STATIC);
-        backend()->onReleaseBuffer(&mHeightFactor, Backend::STATIC);
-    }
     const float xScaling = mWidthScale;
     const float yScaling = mHeightScale;
 
@@ -105,8 +99,6 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    mInit = true;
-
     auto _wPosition = mWidthPosition.host<int>();
     auto _wFactor   = mWidthFactor.host<float>();
 

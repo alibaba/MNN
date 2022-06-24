@@ -360,6 +360,9 @@ std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const st
     for (int i = 0; i < axises.size(); ++i) {
         if (axises[i] < 0) {
             axises[i] = inputs[0]->dimensions() + axises[i];
+            if (axises[i] < 0) {
+                return {std::make_tuple(1, totalSize, 1)};
+            }
         }
     }
     // Cache for input's dims

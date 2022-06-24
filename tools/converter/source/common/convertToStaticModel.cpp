@@ -192,8 +192,9 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
         auto name = net->tensorName()->GetAsString(i)->str();
         if (inputConfig.find(name) != inputConfig.end()) {
             auto& dims = inputConfig[name];
+            allTensors[i]->buffer().dimensions = dims.size();
             for (int j = 0; j < dims.size(); j++) {
-                allTensors[i]->buffer().dim[j].extent = dims[j];
+                allTensors[i]->setLength(j, dims[j]);
             }
         }
     }

@@ -12,6 +12,7 @@
 #include "core/FileLoader.hpp"
 #include "MNN_generated.h"
 #include "Utils.hpp"
+#include "RuntimeAttr.hpp"
 
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/auth/ModelAuth.hpp"
@@ -252,7 +253,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
 
 static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config, bool enforceAuth) {
     // Check if runtime is valid
-    if (nullptr != _rtMgr && _rtMgr->getRuntimeInfo().first.empty()) {
+    if (nullptr != _rtMgr && _rtMgr->getInside()->mRuntime.first.empty()) {
         MNN_ERROR("Invalid runtime\n");
         return nullptr;
     }

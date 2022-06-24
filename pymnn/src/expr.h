@@ -630,8 +630,11 @@ static PyObject* PyMNNVar_repr(PyObject *self) {
 #else
     auto content = PyMNNVar_read_as_tuple((PyMNNVar*)self, NULL);
 #endif
-    auto repr = PyObject_GetAttrString(content, "__repr__");
-    return PyEval_CallObject(repr, NULL);
+    auto reprfunc = PyObject_GetAttrString(content, "__repr__");
+    auto str = PyEval_CallObject(reprfunc, NULL);
+    Py_DECREF(content);
+    Py_DECREF(reprfunc);
+    return str;
 }
 // PyMNNVar getter/setter functions impl
 static PyObject* PyMNNVar_getshape(PyMNNVar *self, void *closure) {
@@ -921,6 +924,22 @@ static PyObject* PyMNNVar_write(PyMNNVar *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 // Expr methods
+static PyObject* PyMNNExpr_set_thread_number(PyObject *self, PyObject *args) {
+    int numberThread;
+    if (!PyArg_ParseTuple(args, "i", &numberThread)) {
+        Py_RETURN_NONE;
+    }
+    if (numberThread < 1) {
+        numberThread = 1;
+    }
+    if (numberThread > 8) {
+        numberThread = 8;
+    }
+    auto exe = Executor::getGlobalExecutor();
+    BackendConfig config;
+    exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, numberThread);
+    Py_RETURN_NONE;
+}
 static PyObject* PyMNNExpr_load_as_list(PyObject *self, PyObject *args) {
     const char *fileName;
     if (!PyArg_ParseTuple(args, "s", &fileName)) {
@@ -1558,6 +1577,7 @@ static PyMethodDef PyMNNExpr_methods[] = {
     )
     register_methods(Expr,
         // Var methods
+        set_thread_number, "set threan number of expr.",
         load_as_list, "load file as var list.",
         save, "save vars to file.",
         load_as_dict, "load file as var dict.",
