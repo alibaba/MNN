@@ -1,4 +1,6 @@
 set(MNN_CPP_TOOLS "")
+add_executable(GetMNNInfo ${CMAKE_CURRENT_LIST_DIR}/GetMNNInfo.cpp)
+list(APPEND MNN_CPP_TOOLS GetMNNInfo)
 add_executable(ModuleBasic.out ${CMAKE_CURRENT_LIST_DIR}/ModuleBasic.cpp)
 list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
 add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)

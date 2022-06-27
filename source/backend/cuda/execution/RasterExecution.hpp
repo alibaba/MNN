@@ -35,7 +35,9 @@ private:
     bool mFast = false;
     int mSingleConvert = 0;
     int32_t mZeroPoint = 0;
-    std::pair<bool, int> mFuseRaster;
+    // First: type, 0: not , 1: unit, 4:unitc4
+    // Second: count
+    std::pair<int, int> mFuseRaster;
     void *mOffset;
     std::shared_ptr<Tensor> offsetTensor;
 };

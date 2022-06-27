@@ -39,6 +39,92 @@
 #include "common/MemoryFormater.h"
 namespace MNN {
 
+static std::string _getDataType(const halide_type_t& type) {
+    switch (type.code) {
+        case halide_type_float:
+            if (type.bits == 32) {
+                return "float";
+            }
+            if (type.bits == 16) {
+                return "half";
+            }
+            break;
+        case halide_type_uint:
+            if (type.bits == 32) {
+                return "uint32";
+            }
+            if (type.bits == 16) {
+                return "uint16";
+            }
+            if (type.bits == 8) {
+                return "uint8";
+            }
+            break;
+        case halide_type_int:
+            if (type.bits == 32) {
+                return "int32";
+            }
+            if (type.bits == 16) {
+                return "int16";
+            }
+            if (type.bits == 8) {
+                return "int8";
+            }
+            break;
+        default:
+            break;
+    }
+    return "Unknown";
+}
+static std::string _getFormatString(MNN::Express::Dimensionformat format) {
+    switch (format) {
+        case MNN::Express::NCHW:
+            return "NCHW";
+        case MNN::Express::NHWC:
+            return "NHWC";
+        case MNN::Express::NC4HW4:
+            return "NC4HW4";
+        default:
+            break;
+    }
+    return "Unknown";
+}
+static int dumpModelInfo(const char* modelName) {
+    std::vector<std::string> empty;
+    std::shared_ptr<MNN::Express::Module> module(MNN::Express::Module::load(empty, empty, modelName));
+    if (nullptr == module.get()) {
+        MNN_ERROR("Load MNN from %s Failed\n", modelName);
+        return 1;
+    }
+    auto info = module->getInfo();
+    MNN_ASSERT(info->inputNames.size() == info->inputs.size());
+    MNN_PRINT("Model default dimensionFormat is %s\n", _getFormatString(info->defaultFormat).c_str());
+    MNN_PRINT("Model Inputs:\n");
+    for (int i=0; i<info->inputNames.size(); ++i) {
+        auto& varInfo = info->inputs[i];
+        MNN_PRINT("[ %s ]: dimensionFormat: %s, ", info->inputNames[i].c_str(), _getFormatString(varInfo.order).c_str());
+        MNN_PRINT("size: [ ");
+        if (varInfo.dim.size() > 0) {
+            for (int j=0; j<(int)varInfo.dim.size() - 1; ++j) {
+                MNN_PRINT("%d,", varInfo.dim[j]);
+            }
+            MNN_PRINT("%d ", varInfo.dim[(int)varInfo.dim.size() - 1]);
+        }
+        MNN_PRINT("], ");
+        MNN_PRINT("type is %s\n", _getDataType(varInfo.type).c_str());
+    }
+    MNN_PRINT("Model Outputs:\n");
+    for (int i=0; i<info->outputNames.size(); ++i) {
+        MNN_PRINT("[ %s ]\n", info->outputNames[i].c_str());
+    }
+    if (info->version.empty()) {
+        MNN_PRINT("Model Version: < 2.0.0\n");
+    } else {
+        MNN_PRINT("Model Version: %s \n", info->version.c_str());
+    }
+    return 0;
+}
+
 bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv) {
     cxxopts::Options options("MNNConvert");
 
@@ -143,6 +229,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
             "customOpLibs",
              "custom op libs ex: libmy_add.so;libmy_sub.so",
              cxxopts::value<std::string>()
+        )
+        (
+            "info",
+            "dump MNN's model info"
         )
         (
             "authCode",
@@ -276,6 +366,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         const std::string JsonFilePath = result["JsonFile"].as<std::string>();
         modelPath.mnn2json             = true;
         modelPath.MNNModel             = JsonFilePath;
+    } else if (result.count("info") && modelPath.model == modelConfig::MNN) {
+        modelPath.dumpInfo = true;
+        return true;
     } else {
         DLOG(INFO) << "MNNModel File Not Set, use --MNNModel XXX.prototxt to set it!";
         return false;
@@ -354,6 +447,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
 }
 
 bool Cli::convertModel(modelConfig& modelPath) {
+    if (modelPath.dumpInfo) {
+        dumpModelInfo(modelPath.modelFile.c_str());
+        return true;
+    }
     std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     int parseRes = 1;

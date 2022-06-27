@@ -105,6 +105,14 @@ MNN 的输入（AI推理模型）是一个有向无环图（DAG），图中每�
 - MNN-CV ：类似 OpenCV ，但核心计算功能基于 MNN 实现的图像处理算法库
 - MNN-Train ：MNN 训练模块，支持各平台训练
 
+## 社区交流与反馈
+钉钉群组：
+
+- 钉钉群1:23329087 
+- 钉钉群2:23350225
+- 钉钉群3:https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding8989a1d6ae6ef130b177420cc0e366ea&f0c81=1b93a&cbdbhh=qwertyuiop
+
+
 
 ## License
 Apache 2.0

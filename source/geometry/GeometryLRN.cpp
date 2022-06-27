@@ -276,10 +276,14 @@ public:
         temp0->buffer().type = input->getType();
         std::shared_ptr<Tensor> temp1(new Tensor);
         temp1->buffer().type = input->getType();
+        std::shared_ptr<Tensor> temp2(new Tensor);
+        temp2->buffer().type = input->getType();
         TensorUtils::copyShape(filterOutput.get(), temp0.get(), true);
         TensorUtils::copyShape(filterOutput.get(), temp1.get(), true);
+        TensorUtils::copyShape(filterOutput.get(), temp2.get(), true);
         res.extras.emplace_back(temp0);
         res.extras.emplace_back(temp1);
+        res.extras.emplace_back(temp2);
 
         {
             Tensor* Alpha     = nullptr;
@@ -306,7 +310,7 @@ public:
             res.command.emplace_back(
                 GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, temp0.get(), Bias, temp1.get()));
             res.command.emplace_back(
-                GeometryComputerUtils::makeBinary(BinaryOpOperation_POW, temp1.get(), Beta, temp0.get()));
+                GeometryComputerUtils::makeBinary(BinaryOpOperation_POW, temp1.get(), Beta, temp2.get()));
         }
         // 4. output = input * filter
         std::shared_ptr<Tensor> output(new Tensor);
@@ -315,7 +319,7 @@ public:
         res.extras.emplace_back(output);
 
         res.command.emplace_back(
-            GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, input, temp0.get(), output.get()));
+            GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, input, temp2.get(), output.get()));
         GeometryComputerUtils::makeRawAddressRef(outputs[0], output.get(), 0, outside * inside * channel);
         return true;
     }

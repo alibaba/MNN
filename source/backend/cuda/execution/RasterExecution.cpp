@@ -174,7 +174,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mZeroPoint = 0;
     mTempInput.clear();
     mFastBlit.clear();
-    mFuseRaster.first = false;
+    mFuseRaster.first = 0;
     mTempOutput = nullptr;
     auto midFormat = MNN_DATA_FORMAT_NCHW;
     mTempInputCopy.clear();
@@ -295,42 +295,47 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
     if(mTempInputCopy.size() > 1) {
-        mFuseRaster.first = true;
+        mFuseRaster.first = 1;
         mFuseRaster.second = mTempInputCopy.size();
         auto& slice0 = *mTempInputCopy[0].second;
         for (int i = 1; i < mTempInputCopy.size(); ++i) {
             auto& slice = *mTempInputCopy[i].second;
             if (mTempInputCopy[i].first != mTempInputCopy[0].first) {
-                mFuseRaster.first = false;
+                mFuseRaster.first = 0;
                 break;
             }
             if (slice0.src.stride[0] != slice.src.stride[0] || slice0.dst.stride[0] != slice.dst.stride[0]) {
-                mFuseRaster.first = false;
+                mFuseRaster.first = 0;
                 break;
             }
             if (slice0.src.stride[1] != slice.src.stride[1] || slice0.dst.stride[1] != slice.dst.stride[1]) {
-                mFuseRaster.first = false;
+                mFuseRaster.first = 0;
                 break;
             }      
             if (slice0.src.stride[2] != slice.src.stride[2] || slice0.dst.stride[2] != slice.dst.stride[2]) {
-                mFuseRaster.first = false;
+                mFuseRaster.first = 0;
                 break;
             }
             if (slice0.size[0] != slice.size[0] || slice0.size[1] != slice.size[1] || slice0.size[2] != slice.size[2]) {
-                mFuseRaster.first = false;
+                mFuseRaster.first = 0;
                 break;
             }
         }
     }
-    if(mFuseRaster.first) {
+    if(mFuseRaster.first > 0) {
         auto& slice0 = *mTempInputCopy[0].second;
         auto tensor = mTempInputCopy[0].first;
         int regionSize = mTempInputCopy.size();
         std::vector<int32_t> temp(2*regionSize, 0);
+        // TODO: Reduce logic for these code
+        mFuseRaster.first = 4;
         for (int i = 0; i < regionSize; ++i) {
             auto& slice = *mTempInputCopy[i].second;
             temp[i] = slice.src.offset;
             temp[regionSize+i] = slice.dst.offset;
+            if (temp[i] % 4 != 0 || temp[regionSize+i] % 4 != 0) {
+                mFuseRaster.first = 1;
+            }
             //printf("%d-%d-%d\n", regionSize, temp[i], temp[regionSize+i]);
         }
         //save srcOffset/dstOffset to Device
@@ -425,7 +430,7 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     for (auto& iter : mTempInput) {
         backend()->onCopyBuffer(iter.first, iter.second);
     }
-    if(mFuseRaster.first) {
+    if(mFuseRaster.first > 0) {
         MNN_ASSERT(mTempInputCopy.size() == 1);
         auto& iter  = mTempInputCopy[0];
         auto& slice = *(iter.second);
@@ -433,7 +438,7 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         auto dstPtr = (uint8_t*)mOutputPtr->deviceId();
         //printf("fuseRaster:%p-%p\n", mSrcOffset, mDstOffset);
 
-        FuseRasterBlit(dstPtr, srcPtr, slice.size, slice.src.stride, slice.dst.stride, mFuseRaster.second, mOffset, bytes, runtime);
+        FuseRasterBlit(dstPtr, srcPtr, slice.size, slice.src.stride, slice.dst.stride, mFuseRaster.second, mOffset, bytes, runtime, mFuseRaster.first);
     } else {
         for (auto& iter : mTempInputCopy) {
             auto srcPtr = (uint8_t*)iter.first->deviceId() + iter.second->src.offset * bytes;

@@ -20,6 +20,9 @@
 #include "BF16Unary.hpp"
 using BFVec4 = MNN::Math::VecHalf<4>;
 using Vec4 = MNN::Math::Vec<float, 4>;
+extern "C" {
+void MNNReluWithSlopeChannelBF16(float* dstO, const float* srcO, const float* slopeO, size_t sizeQuad, size_t depthQuad);
+}
 namespace MNN {
 // just for reference BF16 converting of c++ code, not for arm or sse.
 inline int16_t MNNFP32ToBF16(float fp32Value) {
@@ -139,6 +142,7 @@ void MNNAxByClampBroadcastUnitBF16(float* CF, const float* AF, const float* BF, 
         }
     }
 }
+#ifndef MNN_USE_NEON
 void MNNReluWithSlopeChannelBF16(float* dstO, const float* srcO, const float* slopeO, size_t sizeQuad, size_t depthQuad) {
     auto slope = (const int16_t*)slopeO;
     auto dst = (int16_t*)dstO;
@@ -163,7 +167,7 @@ void MNNReluWithSlopeChannelBF16(float* dstO, const float* srcO, const float* sl
         }
     }
 }
-
+#endif
 
 #if !defined(MNN_USE_SSE) && !defined(MNN_USE_NEON)
 void MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {

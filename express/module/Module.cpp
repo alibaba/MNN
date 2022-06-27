@@ -297,6 +297,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
 #endif // MNN_INTERNAL_ENABLED
 
     std::shared_ptr<Module::Info> info(new Module::Info);
+    if (net->extraInfo() && net->extraInfo()->version()) {
+        info->version = net->extraInfo()->version()->str();
+    }
     auto rtMgr = _rtMgr;
     Module::Config defaultConfig;
     if (nullptr == config) {
@@ -308,14 +311,14 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         sche_config.backendConfig = config->backend->config;
         rtMgr.reset(Executor::RuntimeManager::createRuntimeManager(sche_config));
     }
+    info->inputNames = inputs;
+    info->outputNames = outputs;
     if ((!inputs.empty()) && (!outputs.empty())) {
         _loadInputs(info.get(), inputs, net);
         info->runTimeManager = rtMgr;
         std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
         return new NetModule(m, info);
     }
-    std::vector<std::string> newInputs = inputs;
-    std::vector<std::string> newOutputs = outputs;
     std::set<int> inputIdx, outputIdx, realInput, realOutput;
     for (int i=0; i< net->oplists()->size(); ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
@@ -338,18 +341,18 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         }
     }
     std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
-    if (newInputs.empty()) {
+    if (info->inputNames.empty()) {
         for (auto index : realInput) {
-            newInputs.emplace_back(net->tensorName()->GetAsString(index)->str());
+            info->inputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
         }
     }
-    if (newOutputs.empty()) {
+    if (info->outputNames.empty()) {
         for (auto index : realOutput) {
-            newOutputs.emplace_back(net->tensorName()->GetAsString(index)->str());
+            info->outputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
         }
     }
-    std::shared_ptr<Module> m(PipelineModule::load(newInputs, newOutputs, buffer, length, rtMgr, config));
-    _loadInputs(info.get(), newInputs, net);
+    std::shared_ptr<Module> m(PipelineModule::load(info->inputNames, info->outputNames, buffer, length, rtMgr, config));
+    _loadInputs(info.get(), info->inputNames, net);
     info->runTimeManager = rtMgr;
     return new NetModule(m, info);
 }

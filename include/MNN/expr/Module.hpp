@@ -81,10 +81,17 @@ public:
 
     struct Info {
         // Input info load from model
-        // If the ith input has no info, it will be nullptr
         std::vector<Variable::Info> inputs;
+        // The Module's defaultFormat, NCHW or NHWC
         Dimensionformat defaultFormat;
+        // Runtime Info
         std::shared_ptr<MNN::Express::Executor::RuntimeManager> runTimeManager;
+        // Input Names By Order
+        std::vector<std::string> inputNames;
+        // Output Names By Order
+        std::vector<std::string> outputNames;
+        // The MNNConvert's Version build the module
+        std::string version;
     };
     const Info* getInfo() const;
     class CloneContext {

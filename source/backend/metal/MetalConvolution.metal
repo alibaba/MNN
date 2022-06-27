@@ -140,7 +140,7 @@ kernel void convk3s1d1p1_w2z4(const device ftype4 *in         [[buffer(0)]],
                     const device ftype4x4 *wt       [[buffer(3)]],
                     const device ftype4 *biasTerms  [[buffer(4)]],
                     uint3 gid                       [[thread_position_in_grid]]) {
-    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z * CONV_UNROLL >= cst.oz_size) return;
+    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y >= cst.output_height) return;
     
     int idx_w = gid.x << 1;
     int idx_h = gid.y;
@@ -233,7 +233,7 @@ kernel void conv_z4(const device ftype4 *in         [[buffer(0)]],
                     const device ftype4x4 *wt       [[buffer(3)]],
                     const device ftype4 *biasTerms  [[buffer(4)]],
                     uint3 gid                       [[thread_position_in_grid]]) {
-    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z * CONV_UNROLL >= cst.oz_size) return;
+    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height) return;
     
     int idx_w = gid.x;
     int idx_h = gid.y;

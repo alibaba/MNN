@@ -271,8 +271,7 @@ __global__ void fuseblit(const T0 *input, T1 *output,
     }
 }
 
-template<typename T0, typename T1>
-__global__ void fuseblit_4(const T0 *input, T1 *output,
+__global__ void fuseblit_4(const int32_t *input, int32_t *output,
     int fuseNum, int count, const int32_t* sliceOffset,
     DivModFast sizeZ, DivModFast sizeY, DivModFast sizeX,
     int strideZ, int strideY,
@@ -291,8 +290,7 @@ __global__ void fuseblit_4(const T0 *input, T1 *output,
     }
 }
 
-template<typename T0, typename T1>
-__global__ void fuseblit_half_4(const T0 *input, T1 *output,
+__global__ void fuseblit_half_4(const int16_t *input, int16_t *output,
     int fuseNum, int count, const int32_t* sliceOffset,
     DivModFast sizeZ, DivModFast sizeY, DivModFast sizeX,
     int strideZ, int strideY,
@@ -311,36 +309,35 @@ __global__ void fuseblit_half_4(const T0 *input, T1 *output,
     }
 }
 
-void FuseRasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int fuseNum, void* sliceOffset, int bytes, CUDARuntime* runtime) {
+void FuseRasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int fuseNum, void* sliceOffset, int bytes, CUDARuntime* runtime, int unit) {
     DivModFast sz(size[0]);
     DivModFast sy(size[1]);
-    DivModFast sx(size[2]);
-
     int count = fuseNum * size[0] * size[1] * size[2];
-    if(size[2] % 4 == 0 && count > 16384 && srcStride[2] == 1 && dstStride[2] == 1) {
-        //printf("%d-%d-%d, %d-%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], dstStride[0], dstStride[1]);
-        int count = fuseNum * size[0] * size[1] * size[2] / 4;
-        int numBlocks = runtime->blocks_num(count);
+    bool strideC4Support = srcStride[0] % 4 == 0 && srcStride[1] % 4 == 0 && dstStride[0] % 4 == 0 && dstStride[1] % 4 == 0;
+    if(size[2] % 4 == 0 && count > 16384 && srcStride[2] == 1 && dstStride[2] == 1 && unit == 4 && strideC4Support) {
+        int xL4 = size[2] / 4;
+        int countC4 = fuseNum * size[0] * size[1] * xL4;
+        int numBlocks = runtime->blocks_num(countC4);
         int threadsPerBlock = runtime->threads_num();
-        DivModFast sx_4((size[2]/4));
+        DivModFast sx_4(xL4);
 
         if(bytes == 4) {
-            fuseblit_4<<<numBlocks, threadsPerBlock>>>((const float*)input, (float*)output, 
-                fuseNum, count, (const int32_t*)sliceOffset,
+            fuseblit_4<<<numBlocks, threadsPerBlock>>>((const int32_t*)input, (int32_t*)output, 
+                fuseNum, countC4, (const int32_t*)sliceOffset,
                 sz, sy, sx_4,
                 srcStride[0], srcStride[1],
                 dstStride[0], dstStride[1]);
             return;
         } else if(bytes == 2){
-            fuseblit_half_4<<<numBlocks, threadsPerBlock>>>((const half*)input, (half*)output, 
-                fuseNum, count, (const int32_t*)sliceOffset,
+            fuseblit_half_4<<<numBlocks, threadsPerBlock>>>((const int16_t*)input, (int16_t*)output, 
+                fuseNum, countC4, (const int32_t*)sliceOffset,
                 sz, sy, sx_4,
                 srcStride[0], srcStride[1],
                 dstStride[0], dstStride[1]);
             return;
         }
     }
-
+    DivModFast sx(size[2]);
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
 

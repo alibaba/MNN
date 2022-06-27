@@ -56,6 +56,7 @@ public:
     std::string testDir = "";
     float testThredhold = 0.01;
     bool mnn2json = false;
+    bool dumpInfo = false;
 };
 
 #endif // CONFIG_HPP

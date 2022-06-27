@@ -110,7 +110,7 @@ Group #1 (Full): 23329087
 
 Group #2 (Full): 23350225
 
-Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding2c1d5c85a81030b9a483726330e8af54&574b2bb2-c53a-4=497bad6b-25a5-4&cbdbhh=qwertyuiop
+Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding8989a1d6ae6ef130b177420cc0e366ea&f0c81=1b93a&cbdbhh=qwertyuiop
 
 ## License
 Apache 2.0
