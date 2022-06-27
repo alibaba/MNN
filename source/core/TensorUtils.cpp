@@ -677,5 +677,13 @@ std::vector<float> TensorUtils::getQuantInfo(const Tensor* t) {
 Tensor::InsideDescribe* TensorUtils::getDescribeOrigin(const Tensor* tensor) {
     return tensor->mDescribe;
 }
+size_t TensorUtils::getRawSize(const Tensor* t) {
+    size_t len = 1;
+    int dim = t->dimensions();
+    for (int i=0; i<dim; ++i) {
+        len *= (size_t)t->length(i);
+    }
+    return len;
+}
 
 } // namespace MNN
