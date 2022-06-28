@@ -561,10 +561,8 @@ void registerCPURuntimeCreator() {
 #ifdef MNN_SUPPORT_BF16
     registerBF16Backend();
 #endif
-#if defined(__ANDROID__) || defined(__aarch64__)
-#ifdef ENABLE_ARMV82
+#ifdef MNN_USE_ARMV82
     registerArm82RuntimeCreator();
-#endif
 #endif
     // TODO: Merge _initCoreFunction MNNFunctionInit and cpuinfo_arm_init
     MNNCoreFunctionInit();

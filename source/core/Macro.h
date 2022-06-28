@@ -32,6 +32,15 @@
 #if defined(MNN_BUILD_FOR_ANDROID) || defined(__aarch64__)
 #define MNN_USE_ARMV82
 #endif
+
+#if defined(__APPLE__)
+#if TARGET_OS_SIMULATOR
+#ifdef MNN_USE_ARMV82
+#undef MNN_USE_ARMV82
+#endif
+#endif
+#endif
+
 #endif
 
 #endif /* macro_h */
