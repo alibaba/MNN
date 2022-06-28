@@ -451,7 +451,7 @@ static void dealSlice(PyObject* slice, std::vector<int>& begin, std::vector<int>
             if ((step == 1 && start == 0) || (step == -1 && start == -1)) {
                 begin_mask |= (1 << index);
             }
-            if ((step == 1 && stop == -1) || (step == -1 && stop == 0) || PY_SSIZE_T_MAX == stopl) {
+            if ((step == -1 && stop == 0) || PY_SSIZE_T_MAX == stopl) {
                 end_mask |= (1 << index);
             }
         }
