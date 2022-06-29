@@ -26,6 +26,7 @@ private:
     bool buildPad(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output);
     bool buildCrop(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output);
     bool buildSlice(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output);
+    bool buildDepthToSpace(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output);
 };
 } // namespace MNN
 

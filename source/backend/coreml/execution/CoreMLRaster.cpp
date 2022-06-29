@@ -34,6 +34,37 @@ static bool isTranspose(const Tensor::InsideDescribe::Region& region) {
     return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
 }
 
+static bool isDepthToSpace(const Tensor* output) {
+    const auto& regions = TensorUtils::getDescribe(output)->regions;
+    auto input = regions[0].origin;
+    for (const auto region : regions) {
+        if (region.origin != input) {
+            return false;
+        }
+    }
+    auto ic = input->channel();
+    auto ih = input->height();
+    auto iw = input->width();
+    auto oc = output->channel();
+    auto oh = output->height();
+    auto ow = output->width();
+    if (ic * ih * iw != oc * oh * ow) {
+        return false;
+    }
+    int hblock = oh / ih;
+    int wblock = ow / iw;
+    if (hblock != wblock) {
+        return false;
+    }
+    if (hblock * wblock * oc != ic) {
+        return false;
+    }
+    if (regions.size() != hblock * wblock) {
+        return false;
+    }
+    return true;
+}
+
 bool CoreMLRaster::buildReshape(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
     mCoreMLBackend->setLayerName(layer, "Reshape");
     layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_RESHAPE_STATIC;
@@ -232,6 +263,19 @@ bool CoreMLRaster::buildSlice(CoreML__Specification__NeuralNetworkLayer* layer, 
     return true;
 }
 
+bool CoreMLRaster::buildDepthToSpace(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
+    int blockSize = output->height() / input->height();
+    mCoreMLBackend->setLayerName(layer, "DepthToSpace");
+    layer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_REORGANIZE_DATA;
+    layer->reorganizedata = mCoreMLBackend->create<CoreML__Specification__ReorganizeDataLayerParams>();
+    core_ml__specification__reorganize_data_layer_params__init(layer->reorganizedata);
+    layer->reorganizedata->blocksize = blockSize;
+    // layer->reorganizedata->mode = CORE_ML__SPECIFICATION__REORGANIZE_DATA_LAYER_PARAMS__REORGANIZATION_TYPE__DEPTH_TO_SPACE;
+    layer->reorganizedata->mode = CORE_ML__SPECIFICATION__REORGANIZE_DATA_LAYER_PARAMS__REORGANIZATION_TYPE__PIXEL_SHUFFLE;
+    mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
+    return true;
+}
+
 bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     const auto& regions = TensorUtils::getDescribe(inputs[0])->regions;
     const auto region = regions[0];
@@ -267,6 +311,9 @@ bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const
             // return buildSlice(mLayer_, region.origin, outputs[0]);
         }
         return false;
+    }
+    if (isDepthToSpace(outputs[0])) {
+        return buildDepthToSpace(mLayer_, region.origin, outputs[0]);
     }
     // region_size > 1: concat
     {

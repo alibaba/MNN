@@ -18,7 +18,7 @@ ErrorCode CoreMLInterp::onResize(const std::vector<Tensor *> &inputs, const std:
     MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
     auto interpParam = mOp->main_as_Interp();
     // ResizeBilinear: NPU; UpsampleLayer: GPU ?
-#define USE_RESIZE_BILINEAR
+// #define USE_RESIZE_BILINEAR
 #ifdef USE_RESIZE_BILINEAR
     mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_RESIZE_BILINEAR;
     mLayer_->resizebilinear = mCoreMLBackend->create<CoreML__Specification__ResizeBilinearLayerParams>();
@@ -45,23 +45,22 @@ ErrorCode CoreMLInterp::onResize(const std::vector<Tensor *> &inputs, const std:
         mLayer_->upsample->scalingfactor[0] = heightScaleI;
         mLayer_->upsample->scalingfactor[1] = widthScaleI;
     } else {
-        // dont support NN mode
         // scale
         mLayer_->upsample->n_fractionalscalingfactor = 2;
         mLayer_->upsample->fractionalscalingfactor =
             mCoreMLBackend->create<float>(mLayer_->upsample->n_fractionalscalingfactor);
         mLayer_->upsample->fractionalscalingfactor[0] = heightScale;
         mLayer_->upsample->fractionalscalingfactor[1] = widthScale;
-        // align corner
-        mLayer_->upsample->linearupsamplemode = interpParam->alignCorners() ?
-            CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__LINEAR_UPSAMPLE_MODE__ALIGN_CORNERS_TRUE :
-            CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__LINEAR_UPSAMPLE_MODE__ALIGN_CORNERS_FALSE;
     }
     // mode
     if (interpParam->resizeType() == 1 && mLayer_->upsample->n_fractionalscalingfactor != 2) {
         mLayer_->upsample->mode = CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__INTERPOLATION_MODE__NN;
     } else if (interpParam->resizeType() == 2) {
         mLayer_->upsample->mode = CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__INTERPOLATION_MODE__BILINEAR;
+        // align corner
+        mLayer_->upsample->linearupsamplemode = interpParam->alignCorners() ?
+            CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__LINEAR_UPSAMPLE_MODE__ALIGN_CORNERS_TRUE :
+            CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__LINEAR_UPSAMPLE_MODE__ALIGN_CORNERS_FALSE;
     } else {
         MNN_ERROR("[CoreML] Interp Don't support [Cubic, NearestneighborRound] mode.");
     }
