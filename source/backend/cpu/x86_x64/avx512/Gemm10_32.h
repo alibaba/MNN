@@ -8,6 +8,10 @@
 template <int InputTile>
 void _AVX512_MNNPackedMatMulO32FullLoadKernel(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {
 
+#ifdef _MSC_VER
+#define _mm_prefetch(ptr, hint) _mm_prefetch((const char*)(ptr), hint)
+#endif // _MSC_VER
+
 #define REDUCE_MUL_ADD(ick)                                                                               \
     zmm0 = _mm512_loadu_ps(filterICPtr + (ick * bStride + 0 * AVX512_PACK_C_UNIT));                       \
     zmm1 = _mm512_loadu_ps(filterICPtr + (ick * bStride + 1 * AVX512_PACK_C_UNIT));                       \
