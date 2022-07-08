@@ -1,5 +1,5 @@
 # test script for MNN-Release
-#
+#000
 # 0. arg = local: [ test for your local build ]
 #       1. unit-test;
 #       2. model-test;
