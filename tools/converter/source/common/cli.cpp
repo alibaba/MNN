@@ -263,7 +263,13 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
             "alignDenormalizedValue",
              "if 1, converter would align denormalized float(|x| < 1.18e-38) as zero, because of in ubuntu/protobuf or android/flatbuf, system behaviors are different. default: 1, range: {0, 1}",
              cxxopts::value<int>()
+        )
+        (
+            "detectSparseSpeedUp",
+            "if 1 converter would detect weights sparsity and check sparse speedup. default: 1, range : {0, 1}",
+            cxxopts::value<int>()
         );
+
 
     auto result = options.parse(argc, argv);
 
@@ -437,6 +443,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("alignDenormalizedValue")) {
         modelPath.alignDenormalizedValue = result["alignDenormalizedValue"].as<int>();
     }
+    if (result.count("detectSparseSpeedUp")) {
+        modelPath.detectSparseSpeedUp = result["detectSparseSpeedUp"].as<int>();
+    }
+
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }

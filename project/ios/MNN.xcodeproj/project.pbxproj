@@ -373,6 +373,7 @@
 		4DE4E82C275E307B0016A916 /* cv in Headers */ = {isa = PBXBuildFile; fileRef = 4DE4E82B275E307B0016A916 /* cv */; settings = {ATTRIBUTES = (Public, ); }; };
 		4DF63F2D2660D9CB00590730 /* CoreMLInterp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */; };
 		4DF63F2F2660D9D100590730 /* CoreMLInterp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */; };
+		4DF87C1F286D9D460003E2D4 /* GeometryScatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF87C1E286D9D460003E2D4 /* GeometryScatter.cpp */; };
 		6A131E3F25823349002EC3D6 /* PluginShapeInference.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */; };
 		6A131E4025823349002EC3D6 /* PluginKernel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6A131E3E25823349002EC3D6 /* PluginKernel.cpp */; };
 		9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045D21EDBDF600BCE892 /* TensorTest.cpp */; };
@@ -429,7 +430,6 @@
 		92FF026D23AA0B5A00AC97F6 /* CPUMatrixBandPart.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF00EB23AA0B4900AC97F6 /* CPUMatrixBandPart.cpp */; };
 		92FF026E23AA0B5A00AC97F6 /* CPUQuantizationUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF00EC23AA0B4900AC97F6 /* CPUQuantizationUtils.hpp */; };
 		92FF026F23AA0B5A00AC97F6 /* CPUInt8ToFloat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF00ED23AA0B4900AC97F6 /* CPUInt8ToFloat.cpp */; };
-		92FF027223AA0B5A00AC97F6 /* CPUScatterNd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF00F023AA0B4A00AC97F6 /* CPUScatterNd.hpp */; };
 		92FF027323AA0B5A00AC97F6 /* CPUPoolInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF00F123AA0B4A00AC97F6 /* CPUPoolInt8.hpp */; };
 		92FF027423AA0B5A00AC97F6 /* CPUArgMax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF00F223AA0B4A00AC97F6 /* CPUArgMax.cpp */; };
 		92FF027523AA0B5A00AC97F6 /* CPUConvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF00F323AA0B4A00AC97F6 /* CPUConvolution.cpp */; };
@@ -566,7 +566,6 @@
 		92FF034C23AA0B5A00AC97F6 /* CPUSetDiff1D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF01CD23AA0B4F00AC97F6 /* CPUSetDiff1D.hpp */; };
 		92FF034D23AA0B5A00AC97F6 /* CPUCast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF01CE23AA0B4F00AC97F6 /* CPUCast.cpp */; };
 		92FF035023AA0B5A00AC97F6 /* CPUOneHot.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF01D123AA0B4F00AC97F6 /* CPUOneHot.hpp */; };
-		92FF035323AA0B5A00AC97F6 /* CPUScatterNd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF01D423AA0B5000AC97F6 /* CPUScatterNd.cpp */; };
 		92FF035423AA0B5A00AC97F6 /* CPUSelect.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF01D523AA0B5000AC97F6 /* CPUSelect.cpp */; };
 		92FF035623AA0B5A00AC97F6 /* CPUConvolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF01D723AA0B5000AC97F6 /* CPUConvolution.hpp */; };
 		92FF035723AA0B5A00AC97F6 /* CPUOneHot.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF01D823AA0B5000AC97F6 /* CPUOneHot.cpp */; };
@@ -1166,6 +1165,7 @@
 		4DE4E82B275E307B0016A916 /* cv */ = {isa = PBXFileReference; lastKnownFileType = folder; name = cv; path = ../tools/cv/include/cv; sourceTree = "<group>"; };
 		4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLInterp.cpp; sourceTree = "<group>"; };
 		4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CoreMLInterp.hpp; sourceTree = "<group>"; };
+		4DF87C1E286D9D460003E2D4 /* GeometryScatter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryScatter.cpp; sourceTree = "<group>"; };
 		6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PluginShapeInference.cpp; sourceTree = "<group>"; };
 		6A131E3E25823349002EC3D6 /* PluginKernel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PluginKernel.cpp; sourceTree = "<group>"; };
 		9200045321EDBCF700BCE892 /* MNNTestSuite.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MNNTestSuite.h; path = ../../../test/MNNTestSuite.h; sourceTree = "<group>"; };
@@ -1229,7 +1229,6 @@
 		92FF00EB23AA0B4900AC97F6 /* CPUMatrixBandPart.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUMatrixBandPart.cpp; sourceTree = "<group>"; };
 		92FF00EC23AA0B4900AC97F6 /* CPUQuantizationUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUQuantizationUtils.hpp; sourceTree = "<group>"; };
 		92FF00ED23AA0B4900AC97F6 /* CPUInt8ToFloat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUInt8ToFloat.cpp; sourceTree = "<group>"; };
-		92FF00F023AA0B4A00AC97F6 /* CPUScatterNd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUScatterNd.hpp; sourceTree = "<group>"; };
 		92FF00F123AA0B4A00AC97F6 /* CPUPoolInt8.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUPoolInt8.hpp; sourceTree = "<group>"; };
 		92FF00F223AA0B4A00AC97F6 /* CPUArgMax.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUArgMax.cpp; sourceTree = "<group>"; };
 		92FF00F323AA0B4A00AC97F6 /* CPUConvolution.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUConvolution.cpp; sourceTree = "<group>"; };
@@ -1366,7 +1365,6 @@
 		92FF01CD23AA0B4F00AC97F6 /* CPUSetDiff1D.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUSetDiff1D.hpp; sourceTree = "<group>"; };
 		92FF01CE23AA0B4F00AC97F6 /* CPUCast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUCast.cpp; sourceTree = "<group>"; };
 		92FF01D123AA0B4F00AC97F6 /* CPUOneHot.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUOneHot.hpp; sourceTree = "<group>"; };
-		92FF01D423AA0B5000AC97F6 /* CPUScatterNd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUScatterNd.cpp; sourceTree = "<group>"; };
 		92FF01D523AA0B5000AC97F6 /* CPUSelect.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUSelect.cpp; sourceTree = "<group>"; };
 		92FF01D723AA0B5000AC97F6 /* CPUConvolution.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUConvolution.hpp; sourceTree = "<group>"; };
 		92FF01D823AA0B5000AC97F6 /* CPUOneHot.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUOneHot.cpp; sourceTree = "<group>"; };
@@ -1734,6 +1732,7 @@
 		48747D51245D9E33000B9709 /* geometry */ = {
 			isa = PBXGroup;
 			children = (
+				4DF87C1E286D9D460003E2D4 /* GeometryScatter.cpp */,
 				4D759B2B25FF89EE0037B0B6 /* GeometryShape.cpp */,
 				48A046FB25E4ABAC00CFA868 /* GeometryUnary.cpp */,
 				48BFC50025B84D2700580F9E /* GeometryGather.cpp */,
@@ -1986,8 +1985,6 @@
 				92FF01E823AA0B5100AC97F6 /* CPURuntime.hpp */,
 				92FF01E423AA0B5100AC97F6 /* CPUScale.cpp */,
 				92FF011923AA0B4C00AC97F6 /* CPUScale.hpp */,
-				92FF01D423AA0B5000AC97F6 /* CPUScatterNd.cpp */,
-				92FF00F023AA0B4A00AC97F6 /* CPUScatterNd.hpp */,
 				92FF01D523AA0B5000AC97F6 /* CPUSelect.cpp */,
 				92FF00E023AA0B4900AC97F6 /* CPUSelect.hpp */,
 				92FF020323AA0B5300AC97F6 /* CPUSetDiff1D.cpp */,
@@ -2887,7 +2884,6 @@
 				92FF04BB23AA0BFB00AC97F6 /* BufferAllocator.hpp in Headers */,
 				489D7A802550FDC900AD896A /* MetalEltwise.hpp in Headers */,
 				92FF035823AA0B5A00AC97F6 /* CPUTFQuantizedConv2D.hpp in Headers */,
-				92FF027223AA0B5A00AC97F6 /* CPUScatterNd.hpp in Headers */,
 				4DDE201A263809920085AC8F /* CoreMLExecutorWrapper.h in Headers */,
 				489D7A902550FDC900AD896A /* MetalConvolution.hpp in Headers */,
 				92FF03A923AA0B5A00AC97F6 /* ConvolutionGroup.hpp in Headers */,
@@ -3416,7 +3412,6 @@
 				4D759B2C25FF89EE0037B0B6 /* GeometryShape.cpp in Sources */,
 				19D0FE75285C66F200B74B1A /* MetalLayerNorm.metal in Sources */,
 				11A01A07258785EA00745FA7 /* MNNVectorTop1Float.S in Sources */,
-				92FF035323AA0B5A00AC97F6 /* CPUScatterNd.cpp in Sources */,
 				48747D6E245D9E33000B9709 /* GeometrySlice.cpp in Sources */,
 				92FF041923AA0B7100AC97F6 /* ShapeQuantizedMaxPool.cpp in Sources */,
 				92FF038A23AA0B5A00AC97F6 /* CPURange.cpp in Sources */,
@@ -3466,6 +3461,7 @@
 				48F3472F273A7C7300C45394 /* CPUImageProcess.cpp in Sources */,
 				92FF034D23AA0B5A00AC97F6 /* CPUCast.cpp in Sources */,
 				48C84B83250F711700EE7666 /* Module.cpp in Sources */,
+				4DF87C1F286D9D460003E2D4 /* GeometryScatter.cpp in Sources */,
 				4D9A937726255BDA00F9B43C /* CoreMLPool.cpp in Sources */,
 				92FF030C23AA0B5A00AC97F6 /* MNNSamplerC1NearestOpt.S in Sources */,
 				92FF042E23AA0B7100AC97F6 /* ShapeProposal.cpp in Sources */,

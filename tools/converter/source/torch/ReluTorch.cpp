@@ -51,7 +51,7 @@ std::vector<int> Relu6Torch::inputTensorIdx() {
 void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::Relu6T;
     bool isFloat = node->input(1)->type()->kind() == c10::TypeKind::FloatType;
-    if (getRealOpType(node) == "clamp") {
+    if (getRealOpType(node) == "clamp" || getRealOpType(node) == "hardtanh") {
         if (isFloat) {
             param->minValue = getValue<double>(node->input(1));
             param->maxValue = getValue<double>(node->input(2));
@@ -80,3 +80,4 @@ void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* 
 REGISTER_CONVERTER(Relu6Torch, hardtanh);
 REGISTER_CONVERTER(Relu6Torch, clamp);
 REGISTER_CONVERTER(Relu6Torch, clamp_min);
+REGISTER_CONVERTER(Relu6Torch, clamp_max);

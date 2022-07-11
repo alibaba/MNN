@@ -15,22 +15,31 @@ class GatherNDTest : public MNNTestCase {
 public:
     virtual ~GatherNDTest() = default;
     virtual bool run(int precision) {
-        auto params = _Input({2, 2}, NCHW);
-        params->setName("input_tensor");
-        // set input data
-        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
-        auto inputPtr          = params->writeMap<float>();
-        memcpy(inputPtr, inpudata, 4 * sizeof(float));
-        params->unMap();
-        const int indices_data[]                = {0, 0, 1, 1};
-        auto indices                            = _Const(indices_data, {2, 2}, NCHW, halide_type_of<int>());
-        auto output                             = _GatherND(params, indices);
-        const std::vector<float> expectedOutput = {-1.0, 4.0};
-        auto gotOutput                          = output->readMap<float>();
-        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 50;
-        if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 2, 0.01 * errorScale)) {
-            MNN_ERROR("GatherNDTest test failed!\n");
-            return false;
+        {
+            const float inpudata[]                  = {-1.0, -2.0, 3.0, 4.0};
+            const int indices_data[]                = {0, 0, 1, 1};
+            auto params                             = _Const(inpudata, {2, 2}, NCHW, halide_type_of<float>());
+            auto indices                            = _Const(indices_data, {2, 2}, NCHW, halide_type_of<int>());
+            auto output                             = _GatherND(params, indices);
+            const std::vector<float> expectedOutput = {-1.0, 4.0};
+            auto gotOutput                          = output->readMap<float>();
+            if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 2, 0.001)) {
+                MNN_ERROR("GatherNDTest test failed!\n");
+                return false;
+            }
+        }
+        {
+            const float inpudata[]                  = {1, 2, 3, 4, 5, 6, 7, 8};
+            const int indices_data[]                = {0, 0, 1, 1, 1, 0};
+            auto params                             = _Const(inpudata, {2, 2, 2}, NCHW, halide_type_of<float>());
+            auto indices                            = _Const(indices_data, {2, 3}, NCHW, halide_type_of<int>());
+            auto output                             = _GatherND(params, indices);
+            const std::vector<float> expectedOutput = {2, 7};
+            auto gotOutput                          = output->readMap<float>();
+            if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 2, 0.001)) {
+                MNN_ERROR("GatherNDTest test failed!\n");
+                return false;
+            }
         }
         return true;
     }
@@ -53,8 +62,7 @@ public:
         const std::vector<float> expectedOutput = {7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
                                                    7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
         auto gotOutput                          = output->readMap<float>();
-        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 24, 0.01 * errorScale)) {
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 24, 0.001)) {
             MNN_ERROR("GatherTest test failed!\n");
             return false;
         }

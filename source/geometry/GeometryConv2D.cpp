@@ -427,7 +427,11 @@ public:
         auto rcmdAllOffsets = builder.CreateVector<flatbuffers::Offset<RegionCommand>>(rcmdAllOffset);
         auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0});
         auto outputIndexesOffset = builder.CreateVector(std::vector<int>{1});
+        // view0 and view1 is the same
+        RegionCommandBuilder initrcmdBuild(builder);
+        auto initrcmdOffset = initrcmdBuild.Finish();
         LoopParamBuilder loopBuilder(builder);
+        loopBuilder.add_initCommand(initrcmdOffset);
         loopBuilder.add_commands(rcmdAllOffsets);
         loopBuilder.add_loopNumber(batch);
         loopBuilder.add_tensorNumber(2);

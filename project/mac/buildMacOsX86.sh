@@ -6,7 +6,7 @@ echo "Current PWD: ${PWD}"
 rm -rf mac_a64
 mkdir mac_a64
 cd mac_a64
-cmake ../../../ -DMNN_USE_SSE=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_OPENCL=ON -DMNN_METAL=ON -DARCHS="arm64" -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -DCMAKE_OSX_ARCHITECTURES=arm64 $1 $2
+cmake ../../../ -DMNN_USE_SSE=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_OPENCL=ON -DMNN_METAL=ON -DARCHS="arm64" -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -DMNN_ARM82=ON -DCMAKE_OSX_ARCHITECTURES=arm64 $1 $2
 echo "Building ARM64"
 make MNN -j16
 echo "End Building ARM64"
@@ -16,7 +16,7 @@ cd ../
 rm -rf mac_x64
 mkdir mac_x64
 cd mac_x64
-cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DMNN_OPENCL=ON -DMNN_METAL=ON -DARCHS="x86_64" -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 $1 $2
+cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DMNN_OPENCL=ON -DMNN_METAL=ON -DARCHS="x86_64" -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 $1 $2 -DCMAKE_OSX_ARCHITECTURES=x86_64
 echo "Building x86"
 make MNN -j16
 echo "End Building x86"

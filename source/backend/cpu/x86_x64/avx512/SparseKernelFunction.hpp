@@ -20,10 +20,10 @@ constexpr int AVX512F32 = 16;
         auto m128_2 = _mm512_extractf32x4_ps(vacc6, aSegment);                                                  \
         auto m128_3 = _mm512_extractf32x4_ps(vacc9, aSegment);                                                  \
         _MM_TRANSPOSE4_PS(m128_0, m128_1, m128_2, m128_3);                                                      \
-        _mm_store_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment, m128_0);                 \
-        _mm_store_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit, m128_1);     \
-        _mm_store_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit * 2, m128_2); \
-        _mm_store_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit * 3, m128_3); \
+        _mm_storeu_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment, m128_0);                 \
+        _mm_storeu_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit, m128_1);     \
+        _mm_storeu_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit * 2, m128_2); \
+        _mm_storeu_ps(dest + AVX512F32 * packCUnit * ablock + 4 * packCUnit * aSegment + packCUnit * 3, m128_3); \
     }
 
 inline void STORE_VECTOR_AS_COLUMN(float* dest, size_t ablock, size_t packCUnit, __m512 vacc) {
@@ -87,10 +87,10 @@ inline void STORE_VECTOR_AS_COLUMN(float* dest, size_t ablock, size_t packCUnit,
         auto m128_2 = _mm256_extractf128_ps(vacc6, aSegment);                           \
         auto m128_3 = _mm256_extractf128_ps(vacc9, aSegment);                           \
         _MM_TRANSPOSE4_PS(m128_0, m128_1, m128_2, m128_3);                              \
-        _mm_store_ps(dest + 4 * packCUnit * aSegment, m128_0);                          \
-        _mm_store_ps(dest + 4 * packCUnit * aSegment + packCUnit, m128_1);              \
-        _mm_store_ps(dest + 4 * packCUnit * aSegment + packCUnit * 2, m128_2);          \
-        _mm_store_ps(dest + 4 * packCUnit * aSegment + packCUnit * 3, m128_3);          \
+        _mm_storeu_ps(dest + 4 * packCUnit * aSegment, m128_0);                          \
+        _mm_storeu_ps(dest + 4 * packCUnit * aSegment + packCUnit, m128_1);              \
+        _mm_storeu_ps(dest + 4 * packCUnit * aSegment + packCUnit * 2, m128_2);          \
+        _mm_storeu_ps(dest + 4 * packCUnit * aSegment + packCUnit * 3, m128_3);          \
     }
 
 #define TRANSPOSE_M256_8x8_STORE(dest, packCUnit, v0, v3, v6, v9, v12, v15, v18, v21)           \

@@ -23,7 +23,7 @@ void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size) {
     auto varOne = _mm256_set1_ps(1.f);
     auto varNegOne = _mm256_set1_ps(-1.f);
     for (int i = 0; i < size; i++) {
-        auto x = _mm256_load_ps(src + i * 8);
+        auto x = _mm256_loadu_ps(src + i * 8);
         auto y = _mm256_mul_ps(x, x);
         y = _mm256_mul_ps(y, x);
         y = _mm256_fmadd_ps(y, var1, x);

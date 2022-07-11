@@ -1,0 +1,32 @@
+diff --git a/benchmark/benchmark.cpp b/benchmark/benchmark.cpp
+index 37ecf9ff5..20ff25da7 100644
+--- a/benchmark/benchmark.cpp
++++ b/benchmark/benchmark.cpp
+@@ -138,10 +138,14 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward
+     MNN::Tensor* input    = net->getSessionInput(session, NULL);
+ 
+     // if the model has not the input dimension, umcomment the below code to set the input dims
+-    // std::vector<int> dims{1, 3, 224, 224};
+-    // net->resizeTensor(input, dims);
+-    // net->resizeSession(session);
+-    net->releaseModel();
++    std::vector<int> dims{1, 3, 224, 224};
++    net->resizeTensor(input, dims);
++    auto t1 =  std::chrono::high_resolution_clock::now();
++    net->resizeSession(session);
++    auto t2 =  std::chrono::high_resolution_clock::now();
++    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
++    MNN_PRINT("### MNN Semi-Search Time is : %f ms\n", duration);
++    // net->releaseModel();
+ 
+     const MNN::Backend* inBackend = net->getBackend(session, input);
+ 
+@@ -362,7 +366,7 @@ void iosBenchAll(const char* modelPath) {
+     int loop               = 20;
+     int warmup             = 10;
+     MNNForwardType forward = MNN_FORWARD_CPU;
+-    forward = MNN_FORWARD_NN;
++    //forward = MNN_FORWARD_NN;
+     int numberThread       = 4;
+     int precision = 2;
+     std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;

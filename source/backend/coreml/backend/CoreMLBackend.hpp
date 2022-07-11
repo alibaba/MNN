@@ -97,7 +97,7 @@ namespace MNN {
         void addLayer(CoreML__Specification__NeuralNetworkLayer* layer);
         void buildModel();
         void invokeModel() const;
-        void setIO(CoreML__Specification__FeatureDescription** describe, std::string name, std::vector<int> shape);
+        void setIO(CoreML__Specification__FeatureDescription** describe, const Tensor* t);
         void setLayerName(CoreML__Specification__NeuralNetworkLayer* layer, std::string&& name);
         void setLayerInputs(CoreML__Specification__NeuralNetworkLayer* layer, std::vector<std::string>&& inputs);
         void setLayerOutputs(CoreML__Specification__NeuralNetworkLayer* layer, std::vector<std::string>&& outputs);
@@ -116,8 +116,7 @@ namespace MNN {
         std::vector<CoreML__Specification__NeuralNetworkLayer*> mCoreMLLayerPtrs;
 
         std::map<const Tensor*, int> mTensorIdxMap, mInputIdxMap, mOutputIdxMap;
-        std::vector<const Tensor*> mInputTensors, mOutputTensors;
-        std::vector<std::unique_ptr<Tensor>> mOutputTmpTensors;
+        std::vector<const Tensor*> mInputTensors;
         std::vector<std::string> mModelName;
         std::vector<std::unique_ptr<float>> mInputData, mOutputData;
         const CoreMLRuntime* mNPURuntime;

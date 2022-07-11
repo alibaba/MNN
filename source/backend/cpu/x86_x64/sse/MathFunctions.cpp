@@ -51,7 +51,7 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const 
         auto c8        = _mm_mul_ps(c7, t);
         auto c9        = _mm_add_ps(c8, p2);
         auto expRemain = c9;
-        _mm_store_ps(dest + 4 * i, _mm_add_ps(_mm_mul_ps(expBasic, expRemain), B));
+        _mm_storeu_ps(dest + 4 * i, _mm_add_ps(_mm_mul_ps(expBasic, expRemain), B));
     }
 }
 
@@ -66,7 +66,7 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
         for (int i = 1; i < count; i++) {
             maxVal = _mm_max_ps(maxVal, _mm_loadu_ps(source + i * 4));
         }
-        _mm_store_ps(tmpfloat4, maxVal);
+        _mm_storeu_ps(tmpfloat4, maxVal);
         maxValue = tmpfloat4[0] > tmpfloat4[1] ? tmpfloat4[0] : tmpfloat4[1];
         maxValue = maxValue > tmpfloat4[2] ? maxValue : tmpfloat4[2];
         maxValue = maxValue > tmpfloat4[3] ? maxValue : tmpfloat4[3];

@@ -350,31 +350,31 @@ void _SSE_MNNC1ToFloatRGBA(const unsigned char* source, float* dest, const float
             auto curDst = dest +  4 * i * 16;
             
             _MM_TRANSPOSE4_PS(f0, r1, r2, r3);
-            _mm_store_ps(curDst + 4 * 0, f0);
-            _mm_store_ps(curDst + 4 * 1, r1);
-            _mm_store_ps(curDst + 4 * 2, r2);
-            _mm_store_ps(curDst + 4 * 3, r3);
+            _mm_storeu_ps(curDst + 4 * 0, f0);
+            _mm_storeu_ps(curDst + 4 * 1, r1);
+            _mm_storeu_ps(curDst + 4 * 2, r2);
+            _mm_storeu_ps(curDst + 4 * 3, r3);
             curDst += 16;
 
             _MM_TRANSPOSE4_PS(f1, r1, r2, r3);
-            _mm_store_ps(curDst + 4 * 0, f1);
-            _mm_store_ps(curDst + 4 * 1, r1);
-            _mm_store_ps(curDst + 4 * 2, r2);
-            _mm_store_ps(curDst + 4 * 3, r3);
+            _mm_storeu_ps(curDst + 4 * 0, f1);
+            _mm_storeu_ps(curDst + 4 * 1, r1);
+            _mm_storeu_ps(curDst + 4 * 2, r2);
+            _mm_storeu_ps(curDst + 4 * 3, r3);
             curDst += 16;
 
             _MM_TRANSPOSE4_PS(f2, r1, r2, r3);
-            _mm_store_ps(curDst + 4 * 0, f2);
-            _mm_store_ps(curDst + 4 * 1, r1);
-            _mm_store_ps(curDst + 4 * 2, r2);
-            _mm_store_ps(curDst + 4 * 3, r3);
+            _mm_storeu_ps(curDst + 4 * 0, f2);
+            _mm_storeu_ps(curDst + 4 * 1, r1);
+            _mm_storeu_ps(curDst + 4 * 2, r2);
+            _mm_storeu_ps(curDst + 4 * 3, r3);
             curDst += 16;
 
             _MM_TRANSPOSE4_PS(f3, r1, r2, r3);
-            _mm_store_ps(curDst + 4 * 0, f3);
-            _mm_store_ps(curDst + 4 * 1, r1);
-            _mm_store_ps(curDst + 4 * 2, r2);
-            _mm_store_ps(curDst + 4 * 3, r3);
+            _mm_storeu_ps(curDst + 4 * 0, f3);
+            _mm_storeu_ps(curDst + 4 * 1, r1);
+            _mm_storeu_ps(curDst + 4 * 2, r2);
+            _mm_storeu_ps(curDst + 4 * 3, r3);
         }
     }
     for (int i = remain; i < count; ++i) {

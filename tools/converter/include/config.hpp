@@ -51,6 +51,7 @@ public:
     int optimizeLevel = 1;
     bool keepInputFormat = false;
     bool alignDenormalizedValue = true;
+    bool detectSparseSpeedUp = true;
     std::string customOpLibs = "";
     std::string authCode = "";
     std::string testDir = "";

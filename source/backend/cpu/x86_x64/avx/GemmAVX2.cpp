@@ -15,7 +15,7 @@
 #define BROAD_LOAD_4(x) _mm_broadcast_ss(x)
 #define LOAD8(x) _mm256_loadu_ps(x)
 #define LOAD4(x) _mm_loadu_ps(x)
-#define STORE_4(d, x) _mm_store_ps(d, x) // The memory is aligned for 4
+#define STORE_4(d, x) _mm_storeu_ps(d, x) // The memory is aligned for 4
 #define STORE_8(d, x) _mm256_storeu_ps(d, x)
 #include "GemmFunction.hpp"
 

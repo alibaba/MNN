@@ -68,10 +68,10 @@ void _AVX_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP){
         transposeTemp2 = _mm256_extractf128_ps(cVec2, offset);                             \
         transposeTemp3 = _mm256_extractf128_ps(cVec3, offset);                             \
         _MM_TRANSPOSE4_PS(transposeTemp0, transposeTemp1, transposeTemp2, transposeTemp3); \
-        _mm_store_ps(cTilePtr + (rowIdx + 0) * unit, transposeTemp0);                      \
-        _mm_store_ps(cTilePtr + (rowIdx + 1) * unit, transposeTemp1);                      \
-        _mm_store_ps(cTilePtr + (rowIdx + 2) * unit, transposeTemp2);                      \
-        _mm_store_ps(cTilePtr + (rowIdx + 3) * unit, transposeTemp3);                      \
+        _mm_storeu_ps(cTilePtr + (rowIdx + 0) * unit, transposeTemp0);                      \
+        _mm_storeu_ps(cTilePtr + (rowIdx + 1) * unit, transposeTemp1);                      \
+        _mm_storeu_ps(cTilePtr + (rowIdx + 2) * unit, transposeTemp2);                      \
+        _mm_storeu_ps(cTilePtr + (rowIdx + 3) * unit, transposeTemp3);                      \
     }
 
 #define TRANSPOSE_4x24_WITH_STORE(cTilePtr, unit)                               \

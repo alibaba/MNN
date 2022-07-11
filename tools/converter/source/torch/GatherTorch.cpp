@@ -50,3 +50,4 @@ void SelectTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope*
 }
 
 REGISTER_CONVERTER(SelectTorch, select);
+REGISTER_CONVERTER(SelectTorch, index_select);

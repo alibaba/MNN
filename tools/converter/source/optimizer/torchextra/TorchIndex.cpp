@@ -79,6 +79,7 @@ public:
 
 static auto gRegister = []() {
     TorchExtraManager::get()->insert("select", std::shared_ptr<TorchExtraManager::Transform>(new TorchSelectTransform));
+    TorchExtraManager::get()->insert("index_select", std::shared_ptr<TorchExtraManager::Transform>(new TorchSelectTransform));
     TorchExtraManager::get()->insert("index", std::shared_ptr<TorchExtraManager::Transform>(new TorchIndexTransform));
     TorchExtraManager::get()->insert("index_stridedslice", std::shared_ptr<TorchExtraManager::Transform>(new TorchIndexStridedSliceTransform));
     TorchExtraManager::get()->insert("index_put", std::shared_ptr<TorchExtraManager::Transform>(new TorchIndexPutTransform));
