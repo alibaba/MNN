@@ -131,18 +131,33 @@ id<MTLComputePipelineState> getRasterPipeline() {
                     @1,
                 ];
             };
-            NSError* error = nil;
-            MLMultiArray* mlArray = [[MLMultiArray alloc] initWithDataPointer:input.first->host<float>()
-                                                                        shape:shape
-                                                                     dataType:MLMultiArrayDataTypeFloat32
-                                                                      strides:strides
-                                                                  deallocator:(^(void* bytes){})error:&error];
-            if (error != nil) {
-                NSLog(@"Failed to create MLMultiArray for feature %@ error: %@", featureName, [error localizedDescription]);
-                return nil;
+            auto tensor = input.first;
+            if (tensor->getType() == halide_type_of<uint8_t>()) {
+                CVPixelBufferRef pixelBuffer = NULL;
+                OSType pixelFormat = kCVPixelFormatType_OneComponent8;
+                size_t bytePerRow = tensor->width();
+                CVReturn status = CVPixelBufferCreateWithBytes(nil, tensor->width(), tensor->height(), pixelFormat,
+                                                               tensor->host<void>(), bytePerRow, nil, nil, nil, &pixelBuffer);
+                if (status != kCVReturnSuccess) {
+                    NSLog(@"Failed to create CVPixelBufferRef for feature %@", featureName);
+                    return nil;
+                }
+                auto* mlFeatureValue = [MLFeatureValue featureValueWithPixelBuffer:pixelBuffer];
+                return mlFeatureValue;
+            } else {
+                NSError* error = nil;
+                MLMultiArray* mlArray = [[MLMultiArray alloc] initWithDataPointer:tensor->host<float>()
+                                                                            shape:shape
+                                                                         dataType:MLMultiArrayDataTypeFloat32
+                                                                          strides:strides
+                                                                      deallocator:(^(void* bytes){})error:&error];
+                if (error != nil) {
+                    NSLog(@"Failed to create MLMultiArray for feature %@ error: %@", featureName, [error localizedDescription]);
+                    return nil;
+                }
+                auto* mlFeatureValue = [MLFeatureValue featureValueWithMultiArray:mlArray];
+                return mlFeatureValue;
             }
-            auto* mlFeatureValue = [MLFeatureValue featureValueWithMultiArray:mlArray];
-            return mlFeatureValue;
         }
     }
     NSLog(@"Feature %@ not found", featureName);
@@ -165,27 +180,35 @@ id<MTLComputePipelineState> getRasterPipeline() {
         }
         MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
         // options.usesCPUOnly = true;
-        //NSDate* timeStartData = [NSDate date];
-        id<MLFeatureProvider> outputFeature = [_model predictionFromFeatures:inputFeature
-                                                                     options:options
-                                                                       error:&error];
-        //float deltaTime = [[NSDate date] timeIntervalSinceDate:timeStartData];
-        //NSLog(@"cost time = %f", deltaTime * 1000);
+        _outputFeature = [_model predictionFromFeatures:inputFeature
+                                                options:options
+                                                  error:&error];
         if (error != nil) {
             NSLog(@"Error executing model: %@", [error localizedDescription]);
             return NO;
         }
-        NSSet<NSString*>* outputFeatureNames = [outputFeature featureNames];
+        NSSet<NSString*>* outputFeatureNames = [_outputFeature featureNames];
         for (auto& output : outputs) {
             NSString* outputName = [NSString stringWithCString:output.second.c_str()
                                                       encoding:[NSString defaultCStringEncoding]];
-            MLFeatureValue* outputValue = [outputFeature featureValueForName:[outputFeatureNames member:outputName]];
-            auto* data = [outputValue multiArrayValue];
-            float* outputData = (float*)data.dataPointer;
-            if (outputData == nullptr) {
-                return NO;
+            MLFeatureValue* outputValue = [_outputFeature featureValueForName:[outputFeatureNames member:outputName]];
+            if ([outputValue type] == MLFeatureTypeImage) {
+                auto data = [outputValue imageBufferValue];
+                CVPixelBufferLockBaseAddress(data, kCVPixelBufferLock_ReadOnly);
+                auto pixelbuffer = (unsigned char*)CVPixelBufferGetBaseAddress(data);
+                auto width = CVPixelBufferGetWidth(data);
+                auto byte_per_row = CVPixelBufferGetBytesPerRow(data);
+                for (int row = 0; row < CVPixelBufferGetHeight(data); row++) {
+                    memcpy(const_cast<MNN::Tensor*>(output.first)->buffer().host + row * width, pixelbuffer + row * byte_per_row, width);
+                }
+                CVPixelBufferUnlockBaseAddress(data, kCVPixelBufferLock_ReadOnly);
+            } else {
+                auto* data = [outputValue multiArrayValue];
+                if (data.dataPointer == nullptr) {
+                    return NO;
+                }
+                const_cast<MNN::Tensor*>(output.first)->buffer().host = (unsigned char*)data.dataPointer;
             }
-            memcpy(output.first->host<float*>(), outputData, output.first->size());
         }
     }
     return YES;

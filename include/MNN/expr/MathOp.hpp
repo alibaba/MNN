@@ -125,6 +125,10 @@ MNN_PUBLIC VARP _BatchMatMul(VARP x, VARP y, bool adj_x = false, bool adj_y = fa
 MNN_PUBLIC VARP _UnravelIndex(VARP indices, VARP dims);
 MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape);
 MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input);
+MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, int reduction);
+MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input, int reduction);
+MNN_PUBLIC VARP _ScatterElements(VARP data, VARP indices, VARP updates, int reduction = -1);
+MNN_PUBLIC VARP _ScatterElements(VARP data, VARP indices, VARP updates, VARP axis, int reduction = -1);
 MNN_PUBLIC VARP _OneHot(VARP indices, VARP depth, VARP onValue, VARP offValue, int axis = -1);
 MNN_PUBLIC VARP _BroadcastTo(VARP a, VARP shape);
 MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);

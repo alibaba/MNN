@@ -98,6 +98,8 @@ MNN_PUBLIC VARP _Squeeze(VARP input, INTS axis = {});
 MNN_PUBLIC VARP _Unsqueeze(VARP input, INTS axis = {});
 MNN_PUBLIC VARP _BatchToSpaceND(VARP input, VARP block_shape, VARP crops);
 MNN_PUBLIC VARP _GatherND(VARP params, VARP indices);
+MNN_PUBLIC VARP _GatherElements(VARP params, VARP indices);
+MNN_PUBLIC VARP _GatherElements(VARP params, VARP indices, VARP axis);
 MNN_PUBLIC VARP _Selu(VARP features, float scale, float alpha);
 MNN_PUBLIC VARP _Size(VARP input);
 MNN_PUBLIC VARP _Elu(VARP features, float alpha=1.0);

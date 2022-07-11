@@ -81,11 +81,20 @@ namespace MNN {
     Backend::MemObj* CoreMLBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
         bool isInputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
+        // using CvPixelBuffer as input and output
+        if (mPrecision == BackendConfig::Precision_Low) {
+            const_cast<Tensor*>(tensor)->setType(DataType_DT_UINT8);
+        }
         if(isInputCopy){
             mInputIdxMap.insert(std::make_pair(tensor, mInputIdxMap.size()));
         }
         if(isOutputCopy){
             mOutputIdxMap.insert(std::make_pair(tensor, mOutputIdxMap.size()));
+            if (mPrecision == BackendConfig::Precision_Low) {
+                TensorUtils::getDescribe(tensor)->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+                const_cast<halide_buffer_t&>(tensor->buffer()).host = (uint8_t*)MNNMemoryAllocAlign(tensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
+                MNN_ASSERT(tensor->buffer().host != nullptr);
+            }
         }
         // Don't need release
         return new Backend::MemObj;
@@ -108,9 +117,8 @@ namespace MNN {
             MNN_ASSERT(iter != mInputIdxMap.end());
             memcpy((void*)&mInputTensors[iter->second], &srcTensor, sizeof(void*));
         } else if (isOutputCopy) {
-            const auto iter = mOutputIdxMap.find(srcTensor);
-            MNN_ASSERT(iter != mOutputIdxMap.end());
-            memcpy(dstTensor->host<void>(), mOutputTensors[iter->second]->host<void>(), dstTensor->size());
+            MNN_ASSERT(mOutputIdxMap.find(srcTensor) != mOutputIdxMap.end());
+            memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min(srcTensor->size(), dstTensor->size()));
         }
     }
 
@@ -184,27 +192,38 @@ namespace MNN {
             copyName(&(layer->output[i]), std::move(outputs[i]));
         }
     }
-    void CoreMLBackend::setIO(CoreML__Specification__FeatureDescription** describe, std::string name, std::vector<int> shape) {
+    void CoreMLBackend::setIO(CoreML__Specification__FeatureDescription** describe, const Tensor* t) {
+        auto name = getTensorName(t);
         auto des = create<CoreML__Specification__FeatureDescription>();
         core_ml__specification__feature_description__init(des);
         copyName(&(des->name), std::move(name));
         des->type = create<CoreML__Specification__FeatureType>();
         core_ml__specification__feature_type__init(des->type);
-        des->type->type_case = CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_MULTI_ARRAY_TYPE;
-        des->type->multiarraytype = create<CoreML__Specification__ArrayFeatureType>();
-        core_ml__specification__array_feature_type__init(des->type->multiarraytype);
-        des->type->multiarraytype->datatype = CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__FLOAT32;
-        des->type->multiarraytype->n_shape = shape.size();
-        des->type->multiarraytype->shape = create<int64_t>(des->type->multiarraytype->n_shape);
-        for (int i = 0; i < shape.size(); i++) {
-            des->type->multiarraytype->shape[i] = shape[i];
+        if (mPrecision == BackendConfig::Precision_Low) {
+            des->type->type_case = CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_IMAGE_TYPE;
+            des->type->imagetype = create<CoreML__Specification__ImageFeatureType>();
+            core_ml__specification__image_feature_type__init(des->type->imagetype);
+            des->type->imagetype->width = t->width();
+            des->type->imagetype->height = t->height();
+            des->type->imagetype->colorspace = (t->channel() > 1) ? CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__RGB:
+                                               CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__GRAYSCALE;
+            des->type->imagetype->size_flexibility_case = CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__SIZE_FLEXIBILITY__NOT_SET;
+        } else {
+            des->type->type_case = CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_MULTI_ARRAY_TYPE;
+            des->type->multiarraytype = create<CoreML__Specification__ArrayFeatureType>();
+            core_ml__specification__array_feature_type__init(des->type->multiarraytype);
+            des->type->multiarraytype->datatype = CORE_ML__SPECIFICATION__ARRAY_FEATURE_TYPE__ARRAY_DATA_TYPE__FLOAT32;
+            auto shape = t->shape();
+            des->type->multiarraytype->n_shape = shape.size();
+            des->type->multiarraytype->shape = create<int64_t>(des->type->multiarraytype->n_shape);
+            for (int i = 0; i < shape.size(); i++) {
+                des->type->multiarraytype->shape[i] = shape[i];
+            }
         }
         *describe = des;
     }
     void CoreMLBackend::buildModel() {
         mInputTensors.resize(mInputIdxMap.size());
-        mOutputTensors.resize(mOutputIdxMap.size());
-        mOutputTmpTensors.resize(mOutputIdxMap.size());
         mCoreMLModel_->description = create<CoreML__Specification__ModelDescription>();
         core_ml__specification__model_description__init(mCoreMLModel_->description);
         mCoreMLModel_->description->n_input = mInputIdxMap.size();
@@ -212,18 +231,16 @@ namespace MNN {
         int idx = 0;
         for (const auto& iter : mInputIdxMap) {
             auto t = iter.first;
-            setIO(mCoreMLModel_->description->input + idx++, getTensorName(t), t->shape());
+            setIO(mCoreMLModel_->description->input + idx++, t);
         }
         mCoreMLModel_->description->n_output = mOutputIdxMap.size();
         mCoreMLModel_->description->output = create<CoreML__Specification__FeatureDescription*>(mCoreMLModel_->description->n_output);
         idx = 0;
         for (const auto& iter : mOutputIdxMap) {
             auto t = iter.first;
-            mOutputTmpTensors[iter.second].reset(new Tensor(t, t->getDimensionType(), true));
-            mOutputTensors[iter.second] = mOutputTmpTensors[iter.second].get();
-            setIO(mCoreMLModel_->description->output + idx++, getTensorName(t), t->shape());
+            setIO(mCoreMLModel_->description->output + idx++, t);
         }
-        /*
+#ifdef DUMP_COREML_GRAPH
         for (int i = 0; i < mCoreMLModel_->neuralnetwork->n_layers; i++) {
             auto layer = mCoreMLModel_->neuralnetwork->layers[i];
             printf("%d : %s@ inputs: [", i, layer->name);
@@ -233,7 +250,8 @@ namespace MNN {
             for (int j = 0; j < layer->n_output; j++)
                 printf("%s, ", layer->output[j]);
             printf("]\n");
-        }*/
+        }
+#endif
         if (mCoreMLModel_->neuralnetwork->n_layers <= 0) {
             return;
         }
@@ -243,7 +261,7 @@ namespace MNN {
         if (mCoreMLModel_->neuralnetwork->n_layers <= 0) {
             return;
         }
-        std::vector<std::pair<const MNN::Tensor*, std::string>> inputs(mInputTensors.size()), outputs(mOutputTensors.size());
+        std::vector<std::pair<const MNN::Tensor*, std::string>> inputs(mInputTensors.size()), outputs(mOutputIdxMap.size());
         // get names
         for (const auto& iter : mInputIdxMap) {
             auto t = iter.first;
@@ -254,7 +272,7 @@ namespace MNN {
         for (const auto& iter : mOutputIdxMap) {
             auto t = iter.first;
             auto idx = iter.second;
-            outputs[idx].first = mOutputTensors[idx];
+            outputs[idx].first = t;
             outputs[idx].second = std::to_string(mTensorIdxMap.find(t)->second);
         }
         mCoreMLExecutor->invokModel(inputs, outputs);

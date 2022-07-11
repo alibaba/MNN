@@ -36,6 +36,7 @@ struct Region {
 @property NSString* mlModelFilePath;
 @property NSString* compiledModelFilePath;
 @property(nonatomic, readonly) int coreMlVersion;
+@property __strong id<MLFeatureProvider> outputFeature API_AVAILABLE(ios(11));
 @end
 
 // RasterLayer

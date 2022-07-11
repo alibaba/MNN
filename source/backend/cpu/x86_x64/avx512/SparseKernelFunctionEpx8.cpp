@@ -760,10 +760,10 @@ void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B,
             vacc2 = _mm256_max_ps(vacc2, vmin);
             vacc3 = _mm256_max_ps(vacc3, vmin);
 
-            _mm256_store_ps(c, vacc0);
-            _mm256_store_ps(c + packCUnit, vacc1);
-            _mm256_store_ps(c + packCUnit * 2, vacc2);
-            _mm256_store_ps(c + packCUnit * 3, vacc3);
+            _mm256_storeu_ps(c, vacc0);
+            _mm256_storeu_ps(c + packCUnit, vacc1);
+            _mm256_storeu_ps(c + packCUnit * 2, vacc2);
+            _mm256_storeu_ps(c + packCUnit * 3, vacc3);
         }
 
         blockC += (h >> packCUnitLog) * cStride;
@@ -855,8 +855,8 @@ void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B,
             vacc1 = _mm256_max_ps(vacc1, vmin);
 
             // transpose is omitted
-            _mm256_store_ps(c, vacc0);
-            _mm256_store_ps(c + packCUnit, vacc1);
+            _mm256_storeu_ps(c, vacc0);
+            _mm256_storeu_ps(c + packCUnit, vacc1);
         }
 
         blockC += (h >> packCUnitLog) * cStride;
@@ -929,7 +929,7 @@ void _AVX512_MNNPackedSparseMatMulEpx8(float* C, const float* A, const float* B,
             vacc0 = _mm256_max_ps(vacc0, vmin);
 
             // transpose is omitted
-            _mm256_store_ps(c, vacc0);
+            _mm256_storeu_ps(c, vacc0);
         }
 
         blockC += (h >> packCUnitLog) * cStride;

@@ -173,8 +173,8 @@ ErrorCode Arm82Interp::onExecute(const std::vector<Tensor*>& inputs, const std::
     const int oh                  = output->height();
     const int inputBatchStride    = iw * ih * ARMV82_CHANNEL_UNIT;
     const int outputBatchStride   = ow * oh * ARMV82_CHANNEL_UNIT;
-    const int inputChannelStride  = iw * ih;
-    const int outputChannelStride = ow * oh;
+    const int inputChannelStride  = iw * ih * batches;
+    const int outputChannelStride = ow * oh * batches;
     const int channelDivUnit      = UP_DIV(input->channel(), ARMV82_CHANNEL_UNIT);
 
     if (mResizeType == 1) {
