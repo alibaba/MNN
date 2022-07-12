@@ -982,6 +982,17 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
     dest->extraInfo.reset(new ExtraInfoT);
     dest->extraInfo->version = MNN_VERSION;
 }
+std::vector<int8_t> Variable::save(const std::vector<VARP>& vars) {
+    std::unique_ptr<NetT> net(new NetT);
+    save(vars, net.get());
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = Net::Pack(builder, net.get());
+    builder.Finish(offset);
+    std::vector<int8_t> result(builder.GetSize());
+    ::memcpy(result.data(), builder.GetBufferPointer(), builder.GetSize());
+    return result;
+}
+
 void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     std::unique_ptr<NetT> net(new NetT);
     save(vars, net.get());

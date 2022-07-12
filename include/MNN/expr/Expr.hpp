@@ -145,6 +145,7 @@ public:
     static std::vector<VARP> mapToSequence(const std::map<std::string, VARP>& source);
     static std::vector<EXPRP> getExecuteOrder(const std::vector<VARP>& output);
     static void save(const std::vector<VARP>& vars, const char* fileName);
+    static std::vector<int8_t> save(const std::vector<VARP>& vars);
     static void save(const std::vector<VARP>& vars, NetT* dest);
     
     // Pack a few Variable to compute in one pipeline
