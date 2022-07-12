@@ -35,6 +35,7 @@ THE SOFTWARE.
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <limits>
 #include <vector>
 #include <MNN/MNNDefine.h>
 
