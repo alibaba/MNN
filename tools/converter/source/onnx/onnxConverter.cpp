@@ -22,6 +22,12 @@
 
 int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 std::unique_ptr<MNN::NetT>& netT) {
+    std::string modelDir;
+    size_t pos = inputModel.find_last_of("\\/");
+    if (pos != std::string::npos) {
+        modelDir = inputModel.substr(0, pos + 1);
+    }
+
     onnx::ModelProto onnxModel;
     // read ONNX Model
     bool success = onnx_read_proto_from_binary(inputModel.c_str(), &onnxModel);
@@ -89,7 +95,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 MNN::OpT* constOp   = new MNN::OpT;
                 constOp->type       = MNN::OpType_Const;
                 constOp->main.type  = MNN::OpParameter_Blob;
-                constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
+                constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second, modelDir);
                 constOp->name    = it->first;
                 constOp->outputIndexes.push_back(scope->declareTensor(it->first));
                 netT->oplists.emplace_back(constOp);
