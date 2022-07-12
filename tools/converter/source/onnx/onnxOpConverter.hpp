@@ -51,7 +51,7 @@ public:
     std::vector<std::unique_ptr<MNN::SubGraphProtoT>>& getSubGraphs() {
         return _subgraphs;
     }
-    static MNN::DataType convertDataType(::onnx::TensorProto_DataType type);
+    static MNN::DataType convertDataType(int32_t type);
     static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor);
     // static std::unique_ptr<MNN::SubGraphProtoT> buildSubGraph(const onnx::GraphProto* graph, std::string& name);
 protected:
