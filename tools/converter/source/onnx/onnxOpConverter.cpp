@@ -120,7 +120,7 @@ MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     }
     return MNN::DataType_DT_INVALID;
 }
-MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* constantTp) {
+MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* constantTp, const std::string& modelDir) {
     auto constantParam = new MNN::BlobT;
     auto dataType      = convertDataType(constantTp->data_type());
     // printf("origindataType = %d, dataType = %s\n", constantTp->data_type(), MNN::EnumNameDataType(dataType));
@@ -148,6 +148,9 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             } else if (k.key() == "length") {
                 length = std::atoll(k.value().c_str());
             }
+        }
+        if (!modelDir.empty()) {
+            location = modelDir + location;
         }
 
         auto fp = fopen(location.c_str(), "rb");

@@ -52,7 +52,7 @@ public:
         return _subgraphs;
     }
     static MNN::DataType convertDataType(int32_t type);
-    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor);
+    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor, const std::string& modelDir = "");
     // static std::unique_ptr<MNN::SubGraphProtoT> buildSubGraph(const onnx::GraphProto* graph, std::string& name);
 protected:
     std::vector<std::unique_ptr<MNN::SubGraphProtoT>> _subgraphs;
