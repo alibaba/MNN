@@ -107,7 +107,8 @@ Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=d
 
 ## Historical Paper
 
-The design principles and performance data of MNN has been published in an MLSys 2020 paper [here](https://arxiv.org/pdf/2002.12418.pdf). Please cite MNN in your publications if it helps your research:
+The preliminary version of MNN, as mobile inference engine and with the focus on manual optimization, has aslo been published in MLSys 2020 here. Please also cite the paper, if MNN previously helped your research:
+
 
     @inproceedings{alibaba2020mnn,
       author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},

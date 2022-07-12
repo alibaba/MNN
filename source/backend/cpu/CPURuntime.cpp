@@ -1521,6 +1521,7 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
     cpuinfo_isa->dot = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
 #endif
 
+#ifndef __ANDROID__
 #if defined (__linux__) && defined (__aarch64__)
 
     uint32_t isa_features = 0;
@@ -1537,6 +1538,7 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
         }
 
 #endif /* __linux__ && __aarch64__ */
+#endif
 
     MNN_PRINT("The device support dot:%d, support fp16:%d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith);
 }
