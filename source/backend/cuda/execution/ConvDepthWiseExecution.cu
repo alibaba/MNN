@@ -87,8 +87,8 @@ __global__ void CONV_DW_HALF(const half2* input, const half2* kernel, const half
     }
 }
 
-
-__global__ void CONV_DW(const float* input, const half* kernel, const half* bias, float *output, const constBuffer* uConstant) {
+template<typename T>
+__global__ void CONV_DW(const T* input, const half* kernel, const half* bias, T *output, const constBuffer* uConstant) {
     float maxV = uConstant->maxValue;
     float minV = uConstant->minValue;
     int iw = uConstant->inputSize[0];
@@ -332,10 +332,10 @@ ErrorCode ConvDepthWiseExecution::onResize(const std::vector<Tensor *> &inputs, 
     parameters.channel = inputs[0]->batch() * channelDiv;
     parameters.outputSize[0] = outputs[0]->width();
     parameters.outputSize[1] = outputs[0]->height();
+    parameters.total = parameters.channel * parameters.outputSize[1] * parameters.outputSize[0] * PACK_NUMBER;
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        parameters.total = parameters.channel * parameters.outputSize[1] * parameters.outputSize[0] * PACK_NUMBER_C2;
+        // Do nothing
     } else {
-        parameters.total = parameters.channel * parameters.outputSize[1] * parameters.outputSize[0] * PACK_NUMBER;
         parameters.minValue = -FLT_MAX;
         parameters.maxValue = FLT_MAX;
     }
@@ -364,8 +364,8 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     auto constPtr = (uint8_t*)mConstBuffer.first + mConstBuffer.second;
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         if (inputs.size() == 1) {
-            CONV_DW_HALF<<<block_num, threads_num>>>((const half2*)inputs[0]->deviceId(), (const half2*)mResource->mFilter,
-                (const half2*)mResource->mBias, (half2*)outputs[0]->deviceId(), (const constBuffer*)(constPtr));
+            CONV_DW<<<block_num, threads_num>>>((const half*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
+                (const half*)mResource->mBias, (half*)outputs[0]->deviceId(), (const constBuffer*)(constPtr));
         }
         return NO_ERROR;
     }
