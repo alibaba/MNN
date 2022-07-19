@@ -13,9 +13,8 @@
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #if MNN_METAL_ENABLED
-#ifdef MNN_METALLIB_SOURCE
-#import "MNNMetalLib.h"
-#endif
+#include "ShaderMap.hpp"
+#include <sstream>
 
 using namespace MNN;
 
@@ -29,52 +28,41 @@ using namespace MNN;
 // private
 @property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *caches;
 @property (strong, nonatomic) NSMutableArray<id<MTLCommandBuffer>> *waitings;
-@property (strong, nonatomic) id<MTLLibrary> library;
+@property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLLibrary>>* library;
 @end
 
 @implementation MNNMetalContext
 
-static NSString* getMetalLibFromRuntimeCore() {
-    id MRTFileSystemClass = NSClassFromString(@"MRTFileSystem");
-    NSString *resourcePath = [MRTFileSystemClass performSelector:@selector(resourceContainerWithName:) withObject:@"metallib_transfer"];
-    NSString *metallibPath = [resourcePath stringByAppendingPathComponent:@"mnn.metallib"];
-    if ([[NSFileManager defaultManager] fileExistsAtPath:metallibPath]) {
-        return metallibPath;
-    } else {
-        return nil;
-    }
-}
-
-static id<MTLLibrary> createLibrary(id<MTLDevice> device) {
+static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, id<MTLLibrary>>* libraryMap) {
     AUTOTIME;
-    NSError *err = nil;
-#ifndef MNN_METALLIB_SOURCE
-    NSString *remotePath = getMetalLibFromRuntimeCore();
-    NSString *path = remotePath ? remotePath : [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
-    auto library = path ? [device newLibraryWithFile:path error:&err] : nil;
-    if (nil == library) {
-        if (err) {
-            NSLog(@"Warning: Metallib Library error: %@", err);
-        } else {
-            MNN_ERROR("Warning: Can't load mnn.metallib\n");
+    ShaderMap shader;
+    auto first = shader.search("shader_MetalDefine_metal");
+    auto second = shader.search("shader_MetalConvolutionActivation_metal");
+    auto& raw = shader.getRaw();
+    for (auto& iter : raw) {
+        std::ostringstream total;
+        if (iter.first == "shader_MetalDefine_metal") {
+            continue;
         }
-    } else {
-        id<MTLFunction> func = [library newFunctionWithName:@"version_func_002"];
-        if(nil == func) {
-            library = nil;
-            MNN_ERROR("Warning: Metallib version not match.\n");
+        if (iter.first == "shader_MetalConvolutionActivation_metal") {
+            continue;
+        }
+        total << first << "\n" << second << "\n" << iter.second;
+        auto totalString = total.str();
+        auto totalNSString = [[NSString alloc] initWithUTF8String:totalString.c_str()];
+        NSError *err = nil;
+        auto library = [device newLibraryWithSource:totalNSString options:nil error:&err];
+        if (nil == library) {
+            if (err) {
+                printf("Error Key = %s\n", iter.first.c_str());
+                NSLog(@"Warning: Metallib Library error: %@", err);
+            }
+        }
+        auto functionNames = [library functionNames];
+        for(int i=0; i<functionNames.count ; i++) {
+            libraryMap[functionNames[i]] = library;
         }
     }
-#else
-    dispatch_data_t data = dispatch_data_create(MNNMetalLib, MNNMetalLib_len, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
-    auto library = [device newLibraryWithData:data error:&err];
-    if (nil == library) {
-        if (err) {
-            NSLog(@"Warning: Metallib Library error: %@", err);
-        }
-    }
-#endif
-    return library;
 }
 
 + (BOOL)commit_frequent{
@@ -107,7 +95,8 @@ static id<MTLLibrary> createLibrary(id<MTLDevice> device) {
 - (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device {
     MNN_ASSERT(nullptr != context);
     _device = context->device;
-    _library = createLibrary(_device);
+    _library = [NSMutableDictionary dictionary];
+    createLibrary(_device, _library);
     _commandQueue  = context->queue;
     _commandBuffer = [_commandQueue commandBuffer];
     _commandBuffer_net = [_commandQueue commandBuffer];
@@ -154,7 +143,8 @@ static id<MTLLibrary> createLibrary(id<MTLDevice> device) {
 - (id<MTLFunction>)functionWithName:(NSString *)name {
     if (!name)
         return nil;
-    id<MTLFunction> result = [_library newFunctionWithName:name];
+    auto lib = _library[name];
+    id<MTLFunction> result = [lib newFunctionWithName:name];
 #if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
     if (@available(iOS 10.0, *))
         result.label = name;

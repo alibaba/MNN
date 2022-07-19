@@ -2,6 +2,7 @@ import os
 import sys
 from os import listdir
 from os.path import isfile, join
+import makeshader
 shaderPath=sys.argv[1]
 cppPath= shaderPath + "/MetalOPRegister.mm"
 def genRegister():
@@ -41,11 +42,8 @@ def genSchema():
     return
 
 def genShader():
-    tempCacheFile = "MNNMetalLib"
-    cmd = "xcrun -sdk macosx metal -mmacosx-version-min=10.11 -std=osx-metal1.1 *.metal -o " + tempCacheFile
-    print(os.popen(cmd).read())
-    os.popen("xxd -i " + tempCacheFile + " > MNNMetalLib.h").read()
-    os.popen("rm -f " + tempCacheFile).read()
+    shaders = makeshader.findAllShader("shader")
+    makeshader.generateFile("AllShader.hpp", "AllShader.cpp", shaders)
 
 if __name__ == '__main__':
     genRegister()
