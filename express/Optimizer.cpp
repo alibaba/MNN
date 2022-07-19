@@ -7,7 +7,6 @@
 //
 
 #include <MNN/expr/Optimizer.hpp>
-#include "MergeOptimizer.hpp"
 #include "core/Backend.hpp"
 namespace MNN {
 namespace Express {

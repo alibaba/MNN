@@ -5,9 +5,9 @@
 //  Created by MNN on 2019/01/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef MNN_SUPPORT_TFLITE_QUAN
 #include <math.h>
 #include "shape/SizeComputer.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 #include "core/Macro.h"
 
 namespace MNN {
@@ -56,6 +56,8 @@ class QuantizedAvgPoolComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(QuantizedAvgPoolComputer, OpType_QuantizedAvgPool);
 } // namespace MNN
 #endif
+namespace MNN {
+REGISTER_SHAPE_OLD(QuantizedAvgPoolComputer, OpType_QuantizedAvgPool);
+};
