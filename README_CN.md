@@ -4,18 +4,24 @@
 
 [MNN Homepage](http://www.mnn.zone)
 
-[MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络推理引擎，加载深度神经网络模型进行推理预测。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
+[MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
 
-MNN的架构设计理念与性能数据在MLSys 2020上面发表。Paper [在此处](https://arxiv.org/pdf/2002.12418.pdf)。如果MNN对你的研究有所助益，欢迎引用MNN的论文：
+![架构图](doc/architecture.png)
 
-	@inproceedings{alibaba2020mnn,
-      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
-      title = {MNN: A Universal and Efficient Inference Engine},
-      booktitle = {MLSys},
-      year = {2020}
+在阿里巴巴中，[MNN](https://mp.weixin.qq.com/s/5I1ISpx8lQqvCS8tGd6EJw)被用作为[Walle](https://mp.weixin.qq.com/s/qpeCETty0BqqNJV9CMJafA)系统中计算容器的基础模块。Walle是首个端到端、通用型、规模化产业应用的端云协同机器学习系统，发表于操作系统顶会OSDI 2022。Walle的论文中解释了MNN的关键设计理念，并提供了MNN相对于其他深度学习框架（TensorFlow, TensorFlow Lite, PyTorch, PyTorch Mobile, TVM）的benchmark测试结果。相关测试脚本和说明文档被放在“/benchmark”目录下。如果MNN或Walle的设计对你的研究或生产有所助益，欢迎引用我们的OSDI论文：
+
+    @inproceedings {proc:osdi22:walle,
+        author = {Chengfei Lv and Chaoyue Niu and Renjie Gu and Xiaotang Jiang and Zhaode Wang and Bin Liu and Ziqi Wu and Qiulin Yao and Congyu Huang and Panos Huang and Tao Huang and Hui Shu and Jinde Song and Bin Zou and Peng Lan and Guohuan Xu and Fei Wu and Shaojie Tang and Fan Wu and Guihai Chen},
+        title = {Walle: An {End-to-End}, {General-Purpose}, and {Large-Scale} Production System for {Device-Cloud} Collaborative Machine Learning},
+        booktitle = {16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
+        year = {2022},
+        isbn = {978-1-939133-28-1},
+        address = {Carlsbad, CA},
+        pages = {249--265},
+        url = {https://www.usenix.org/conference/osdi22/presentation/lv},
+        publisher = {USENIX Association},
+        month = jul,
     }
-
-![image.png](doc/workflow.png)
 
 ## 文档与工作台
 MNN的使用文档统一放在语雀，请移步至[语雀文档](https://www.yuque.com/mnn/cn)。
@@ -78,26 +84,10 @@ MNN适配的硬件架构与精度详见下表：
 |  | HIAI | B | C | C | B |
 
 
+## 工具
 
-## 架构设计
+基于MNN (张量计算引擎)，提供了一系列工具，以支持模型推理、训练和通用计算：
 
-![架构图](doc/architecture.png)
-
-MNN可以分为主体（推理引擎）和工具两大部分。
-
-### 主体
-MNN 的输入（AI推理模型）是一个有向无环图（DAG），图中每个节点称为算子，描述一种张量计算函数。推理引擎负责这个图的加载与执行，可分为调度（预推理）与执行（推理）两层：
-![runflow.png](doc/runflow.png)
-
-- 调度：加载计算图并做预处理，以使执行过程高效
-   - 对模型中的算子进行预处理，降低算子数
-   - 搜索最优计算方案
-   - 进行资源分配
-- 执行：实现算子，基于各类算法与不同硬件提供的并行接口进行优化，降低执行耗时
-   - 算法层面，采用 Winograd 卷积 / Strassen 矩阵乘 / 分段线性 / 低精度等方案
-   - 硬件层面，使用 CPU 的 SIMD指令 (SSE / NEON / AVX / AVX512) ，各类 GPU 计算 API 进行优化
-
-### 工具
 
 - MNN-Converter：模型转换工具，由Frontends和Graph Optimize构成。前者负责支持不同的训练框架，MNN当前支持Tensorflow(Lite)、Caffe、ONNX(PyTorch/MXNet的模型可先转为ONNX模型再转到MNN)和Torchscripts；后者通过算子融合、算子替代、布局调整等方式优化图，一般离线运行。
 - MNN-Compress: 模型压缩工具，在一定的精度误差许可下，对MNN模型进行压缩，减少模型体积，提升运行性能。
@@ -112,7 +102,16 @@ MNN 的输入（AI推理模型）是一个有向无环图（DAG），图中每�
 - 钉钉群2:23350225
 - 钉钉群3:https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding8989a1d6ae6ef130b177420cc0e366ea&f0c81=1b93a&cbdbhh=qwertyuiop
 
+## 历史论文
 
+MNN初步版本的[论文](https://arxiv.org/pdf/2002.12418.pdf)也曾在MLSys 2020上面发表。该论文主要关注MNN作为移动端机器学习推理引擎的手动算子优化。如果MNN之前对你的研究有所助益，欢迎引用MNN的MLSys论文：
+
+	@inproceedings{alibaba2020mnn,
+      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
+      title = {MNN: A Universal and Efficient Inference Engine},
+      booktitle = {MLSys},
+      year = {2020}
+    }
 
 ## License
 Apache 2.0

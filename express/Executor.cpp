@@ -321,6 +321,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
     res->mInside->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
     res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[std::make_pair(compute.type, compute.numThread)]));
     res->mInside->mInfo = originRt[std::make_pair(compute.type, compute.numThread)];
+    res->mInside->mNumberThread = compute.numThread;
     if (nullptr != config.backendConfig) {
         res->mInside->mConfig = *config.backendConfig;
         res->mInside->mUserConfig = true;

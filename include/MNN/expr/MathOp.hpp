@@ -136,7 +136,7 @@ MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
 MNN_PUBLIC VARP _RandomUnifom(VARP shape, halide_type_t dtype, float low = 0.0f, float high = 1.0f, int seed0 = 0, int seed1 = 0);
 MNN_PUBLIC VARP _CumSum(VARP x, int axis, bool exclusive = false, bool reverse = false);
 MNN_PUBLIC VARP _CumProd(VARP x, int axis);
-
+MNN_PUBLIC VARPS _Svd(VARP x);
 }; // namespace Express
 }; // namespace MNN
 

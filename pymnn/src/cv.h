@@ -70,6 +70,25 @@ static PyObject* PyMNNCV_imwrite(PyObject *self, PyObject *args) {
     PyMNN_ERROR("imwrite require args: (string, Var, |[int])");
 }
 #endif
+#ifdef PYMNN_CALIB3D
+static PyObject* PyMNNCV_Rodrigues(PyObject *self, PyObject *args) {
+    PyObject *src;
+    if (PyArg_ParseTuple(args, "O", &src) && isVar(src)) {
+        return toPyObj(CV::Rodrigues(toVar(src)));
+    }
+    PyMNN_ERROR("Rodrigues require args: (Var)");
+}
+static PyObject* PyMNNCV_solvePnP(PyObject *self, PyObject *args) {
+    int useExtrinsicGuess = 0;
+    PyObject *objPoints, *imgPoints, *cameraMatrix, *distCoeffs;
+    if (PyArg_ParseTuple(args, "OOOO|i", &objPoints, &imgPoints, &cameraMatrix, &distCoeffs, &useExtrinsicGuess) &&
+        isVar(objPoints) && isVar(imgPoints) && isVar(cameraMatrix) && isVar(distCoeffs)) {
+        return toPyObj<VARP, toPyObj, VARP, toPyObj>(CV::solvePnP(toVar(objPoints), toVar(imgPoints), toVar(cameraMatrix),
+                                    toVar(distCoeffs), useExtrinsicGuess));
+    }
+    PyMNN_ERROR("solvePnP require args: (Var, Var, Var, Var, |bool)");
+}
+#endif
 // color
 #ifdef PYMNN_IMGPROC_COLOR
 static PyObject* PyMNNCV_cvtColor(PyObject *self, PyObject *args) {
@@ -593,6 +612,13 @@ static PyMethodDef PyMNNCV_methods[] = {
         imencode, "imencode",
         imread, "imread",
         imwrite, "imwrite"
+    )
+#endif
+#ifdef PYMNN_CALIB3D
+    // calib3d
+    register_methods(CV,
+        Rodrigues, "Rodrigues",
+        solvePnP, "solvePnP"
     )
 #endif
 #ifdef PYMNN_IMGPROC_COLOR

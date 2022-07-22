@@ -62,6 +62,7 @@ extern void ___CPURandomCreator__OpType_RandomUniform__();
 extern void ___CPURandomCreator__OpType_RandomNormal__();
 extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
+extern void ___CPUSvdCreator__OpType_Svd__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
 
 void registerCPUOps() {
@@ -127,6 +128,7 @@ ___CPURandomCreator__OpType_RandomUniform__();
 ___CPURandomCreator__OpType_RandomNormal__();
 ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
+___CPUSvdCreator__OpType_Svd__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
 }
 }

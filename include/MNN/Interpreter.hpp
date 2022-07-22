@@ -392,7 +392,10 @@ private:
     Interpreter(const Interpreter&&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&&) = delete;
-
+    void waitSessionFinish(const Session* session) const;
+#ifdef MNN_INTERNAL_ENABLED
+    void logForRunSession(const Session* session, float time, const char* api) const;
+#endif
     friend class PythonAuthByPass;
 };
 } // namespace MNN

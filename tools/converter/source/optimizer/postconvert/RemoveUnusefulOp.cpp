@@ -46,6 +46,11 @@ public:
                 return true;
             }
         }
+        if (op->type == OpType_Crop) {
+            if (op->main.AsCrop()->offset.empty()) {
+                return true;
+            }
+        }
         if (op->type == OpType_Concat) {
             if (op->inputIndexes.size() == 1) {
                 return true;

@@ -351,6 +351,10 @@
 		4DF63F2D2660D9CB00590730 /* CoreMLInterp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */; };
 		4DF63F2F2660D9D100590730 /* CoreMLInterp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */; };
 		4DF87C1F286D9D460003E2D4 /* GeometryScatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF87C1E286D9D460003E2D4 /* GeometryScatter.cpp */; };
+		4DF87C4A2887D3560003E2D4 /* calib3d.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF87C492887D3560003E2D4 /* calib3d.cpp */; };
+		4DF87C4E2887D39B0003E2D4 /* ShapeSvd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF87C4D2887D39B0003E2D4 /* ShapeSvd.cpp */; };
+		4DF87C502887D3E40003E2D4 /* CPUSvd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DF87C4F2887D3E40003E2D4 /* CPUSvd.cpp */; };
+		4DF87C522887D3F20003E2D4 /* CPUSvd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DF87C512887D3F20003E2D4 /* CPUSvd.hpp */; };
 		6A131E3F25823349002EC3D6 /* PluginShapeInference.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */; };
 		6A131E4025823349002EC3D6 /* PluginKernel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6A131E3E25823349002EC3D6 /* PluginKernel.cpp */; };
 		9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045D21EDBDF600BCE892 /* TensorTest.cpp */; };
@@ -1116,6 +1120,10 @@
 		4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLInterp.cpp; sourceTree = "<group>"; };
 		4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CoreMLInterp.hpp; sourceTree = "<group>"; };
 		4DF87C1E286D9D460003E2D4 /* GeometryScatter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryScatter.cpp; sourceTree = "<group>"; };
+		4DF87C492887D3560003E2D4 /* calib3d.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = calib3d.cpp; sourceTree = "<group>"; };
+		4DF87C4D2887D39B0003E2D4 /* ShapeSvd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeSvd.cpp; sourceTree = "<group>"; };
+		4DF87C4F2887D3E40003E2D4 /* CPUSvd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUSvd.cpp; sourceTree = "<group>"; };
+		4DF87C512887D3F20003E2D4 /* CPUSvd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUSvd.hpp; sourceTree = "<group>"; };
 		6A131E3D25823349002EC3D6 /* PluginShapeInference.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PluginShapeInference.cpp; sourceTree = "<group>"; };
 		6A131E3E25823349002EC3D6 /* PluginKernel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PluginKernel.cpp; sourceTree = "<group>"; };
 		9200045321EDBCF700BCE892 /* MNNTestSuite.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MNNTestSuite.h; path = ../../../test/MNNTestSuite.h; sourceTree = "<group>"; };
@@ -1730,6 +1738,8 @@
 		488873A8215B639D0079B12E /* source */ = {
 			isa = PBXGroup;
 			children = (
+				CE482EF5288536DA007CD935 /* internal */,
+				4DF87C482887D3560003E2D4 /* calib3d */,
 				4D4CF4612760946500A36D9F /* imgproc */,
 				4A5BEC6226AAB3D70032F6BD /* common */,
 				4D9A931B26255BDA00F9B43C /* coreml */,
@@ -1794,6 +1804,8 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				4DF87C512887D3F20003E2D4 /* CPUSvd.hpp */,
+				4DF87C4F2887D3E40003E2D4 /* CPUSvd.cpp */,
 				48925F322744AC0600919B37 /* CPUROIAlign.cpp */,
 				48925F332744AC0600919B37 /* CPUROIAlign.hpp */,
 				48F3472D273A7C7200C45394 /* CPUImageProcess.cpp */,
@@ -2213,6 +2225,15 @@
 			path = ../../../benchmark;
 			sourceTree = "<group>";
 		};
+		4DF87C482887D3560003E2D4 /* calib3d */ = {
+			isa = PBXGroup;
+			children = (
+				4DF87C492887D3560003E2D4 /* calib3d.cpp */,
+			);
+			name = calib3d;
+			path = ../tools/cv/source/calib3d;
+			sourceTree = "<group>";
+		};
 		6A131E3C2582331C002EC3D6 /* plugin */ = {
 			isa = PBXGroup;
 			children = (
@@ -2601,6 +2622,7 @@
 		EBB38EC621E748B9005F76D7 /* shape */ = {
 			isa = PBXGroup;
 			children = (
+				4DF87C4D2887D39B0003E2D4 /* ShapeSvd.cpp */,
 				48925F362744AC2A00919B37 /* ShapeROIAlign.cpp */,
 				48123002269EA83400EB7ABA /* ShapeUnique.cpp */,
 				48958782268EBA7C00EA01A7 /* ShapeSegmentMean.cpp */,
@@ -2693,10 +2715,12 @@
 				92FF02B423AA0B5A00AC97F6 /* CPUMoments.hpp in Headers */,
 				C43C822D2518951800A0FF84 /* SkNx_neon.h in Headers */,
 				489D7AA82550FDC900AD896A /* MetalCast.hpp in Headers */,
+				CE482F44288536DA007CD935 /* log_builder.h in Headers */,
 				C43C822F2518951800A0FF84 /* SkNx.h in Headers */,
 				48123006269EA84800EB7ABA /* CPUUnique.hpp in Headers */,
 				4A224A1527D0C56E000A9260 /* ConvolutionWinogradImpl.hpp in Headers */,
 				4DE4E82C275E307B0016A916 /* cv in Headers */,
+				CE482F41288536DA007CD935 /* sha1.h in Headers */,
 				1F501F842397BA5B004E8721 /* ImageProcess.hpp in Headers */,
 				1F501F822397BA5B004E8721 /* Interpreter.hpp in Headers */,
 				C4F906B327688C3A0026B847 /* NMSModule.hpp in Headers */,
@@ -2745,6 +2769,7 @@
 				92FF038823AA0B5A00AC97F6 /* CPUQuantizedLogistic.hpp in Headers */,
 				4D9A936926255BDA00F9B43C /* CoreMLScale.hpp in Headers */,
 				4D9A937126255BDA00F9B43C /* CoreMLArgMax.hpp in Headers */,
+				CE482F47288536DA007CD935 /* Log.hpp in Headers */,
 				48925F312744AA4100919B37 /* MetalCache_generated.h in Headers */,
 				481C2DEE25FE2CD6001ED6DF /* Arm82Functions.hpp in Headers */,
 				4894C6EA27016F7200D8BE79 /* UnaryUtils.hpp in Headers */,
@@ -2754,9 +2779,11 @@
 				48608B53250632EC00CB1D71 /* GeometryComputerUtils.hpp in Headers */,
 				489D7A732550FDC800AD896A /* MetalBackend.hpp in Headers */,
 				92FF03AC23AA0B5A00AC97F6 /* ResizeFunction.h in Headers */,
+				CE482F38288536DA007CD935 /* hmac-sha.h in Headers */,
 				92FF037823AA0B5A00AC97F6 /* CPUROIPooling.hpp in Headers */,
 				4D9A935626255BDA00F9B43C /* Model.pb-c.h in Headers */,
 				48747D6D245D9E33000B9709 /* ConvertUtils.hpp in Headers */,
+				CE482F3D288536DA007CD935 /* log_util.h in Headers */,
 				4838EA832611C00B0027232C /* MetalGridSample.hpp in Headers */,
 				92FF038723AA0B5A00AC97F6 /* CPUTensorConvert.hpp in Headers */,
 				92FF036E23AA0B5A00AC97F6 /* CPUQuantizedSoftmax.hpp in Headers */,
@@ -2765,10 +2792,13 @@
 				92FF04BF23AA0BFB00AC97F6 /* Concurrency.h in Headers */,
 				489D7A9B2550FDC900AD896A /* MetalDeconvolution.hpp in Headers */,
 				4D9A935726255BDA00F9B43C /* protobuf-c.h in Headers */,
+				CE482F46288536DA007CD935 /* log_define.h in Headers */,
 				489D7A982550FDC900AD896A /* MNNMetalContext.h in Headers */,
 				92FF029323AA0B5A00AC97F6 /* CPURange.hpp in Headers */,
 				4D9A937526255BDA00F9B43C /* CoreMLCommonExecution.hpp in Headers */,
+				4DF87C522887D3F20003E2D4 /* CPUSvd.hpp in Headers */,
 				48747D4B245D9D24000B9709 /* RuntimeFactory.hpp in Headers */,
+				CE482F3E288536DA007CD935 /* log_util_imp.h in Headers */,
 				92FF03B323AA0B5A00AC97F6 /* ConvolutionDepthwise3x3.hpp in Headers */,
 				4D9A937226255BDA00F9B43C /* CoreMLConvolution.hpp in Headers */,
 				92FF038B23AA0B5A00AC97F6 /* CPUUnravelIndex.hpp in Headers */,
@@ -2810,6 +2840,7 @@
 				92FF04B523AA0BFB00AC97F6 /* TensorUtils.hpp in Headers */,
 				92FF04BB23AA0BFB00AC97F6 /* BufferAllocator.hpp in Headers */,
 				489D7A802550FDC900AD896A /* MetalEltwise.hpp in Headers */,
+				CE482F3F288536DA007CD935 /* sds.h in Headers */,
 				92FF035823AA0B5A00AC97F6 /* CPUTFQuantizedConv2D.hpp in Headers */,
 				4DDE201A263809920085AC8F /* CoreMLExecutorWrapper.h in Headers */,
 				489D7A902550FDC900AD896A /* MetalConvolution.hpp in Headers */,
@@ -2843,6 +2874,7 @@
 				4894C6EB27016F7200D8BE79 /* BinaryUtils.hpp in Headers */,
 				48C84B9C250F722B00EE7666 /* Command.hpp in Headers */,
 				92FF026023AA0B5A00AC97F6 /* CPURNNSequenceGRU.hpp in Headers */,
+				CE482F2D288536DA007CD935 /* LogHelper.hpp in Headers */,
 				48747D4F245D9E13000B9709 /* CPURaster.hpp in Headers */,
 				489D7A822550FDC900AD896A /* MetalPReLU.hpp in Headers */,
 				48C84B84250F711700EE7666 /* WhileModule.hpp in Headers */,
@@ -2851,6 +2883,7 @@
 				92FF037923AA0B5A00AC97F6 /* CPUInstanceNorm.hpp in Headers */,
 				92FF026223AA0B5A00AC97F6 /* CPUSelect.hpp in Headers */,
 				92FF02B723AA0B5A00AC97F6 /* CPUQuantizedAdd.hpp in Headers */,
+				CE482F3A288536DA007CD935 /* md5.h in Headers */,
 				92FF03B623AA0B5A00AC97F6 /* StrassenMatmulComputor.hpp in Headers */,
 				92FF03A623AA0B5A00AC97F6 /* ConvolutionTiledExecutor.hpp in Headers */,
 				92FF036523AA0B5A00AC97F6 /* CPUResize.hpp in Headers */,
@@ -2859,6 +2892,8 @@
 				4A224A0E27D0C2D9000A9260 /* ConvolutionPackFreeWinograd.hpp in Headers */,
 				4D9A937426255BDA00F9B43C /* CoreMLReduction.hpp in Headers */,
 				48C84B8B250F711700EE7666 /* PipelineModule.hpp in Headers */,
+				CE482F30288536DA007CD935 /* WorkerThread.hpp in Headers */,
+				CE482F3B288536DA007CD935 /* lz4.h in Headers */,
 				F41497D7278D8A21004A363A /* RuntimeAttr.hpp in Headers */,
 				92FF04C123AA0BFB00AC97F6 /* Backend.hpp in Headers */,
 				482BFBCD28351BA1009210E4 /* ShaderMap.hpp in Headers */,
@@ -2884,6 +2919,7 @@
 				481C2DF125FE2CD6001ED6DF /* Arm82OptFunc.hpp in Headers */,
 				4A5BEC6026AAB3B30032F6BD /* CommonCompute.hpp in Headers */,
 				C43C8225251894F400A0FF84 /* WingoradGenerater.hpp in Headers */,
+				CE482F40288536DA007CD935 /* log_api.h in Headers */,
 				489D7A6A2550FDC800AD896A /* MetalConvolutionGEMM.hpp in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3069,6 +3105,7 @@
 				92FF037323AA0B5A00AC97F6 /* CPUEltwiseInt8.cpp in Sources */,
 				489D7AC52550FF9F00AD896A /* ExecutorScope.cpp in Sources */,
 				481C2DF025FE2CD6001ED6DF /* Arm82Functions.cpp in Sources */,
+				4DF87C4E2887D39B0003E2D4 /* ShapeSvd.cpp in Sources */,
 				92FF042F23AA0B7100AC97F6 /* ShapeSliceTf.cpp in Sources */,
 				4D9A936F26255BDA00F9B43C /* CoreMLConvolution.cpp in Sources */,
 				92FF03B523AA0B5A00AC97F6 /* ResizeFunction.cpp in Sources */,
@@ -3076,6 +3113,7 @@
 				4838EA7D2611BFE20027232C /* CPUGridSample.cpp in Sources */,
 				92FF04B323AA0BFB00AC97F6 /* Schedule.cpp in Sources */,
 				92FF036423AA0B5A00AC97F6 /* CPUUnravelIndex.cpp in Sources */,
+				CE482F3C288536DA007CD935 /* sha1.c in Sources */,
 				92FF02C623AA0B5A00AC97F6 /* MNNBlitC1ToFloatRGBA.S in Sources */,
 				4D9A935F26255BDA00F9B43C /* NeuralNetwork.pb-c.c in Sources */,
 				4D0C80E32862FC4100C7CAD6 /* CoreMLOPRegister.cpp in Sources */,
@@ -3099,12 +3137,14 @@
 				4D4CF46A2760946500A36D9F /* color.cpp in Sources */,
 				4D9A935E26255BDA00F9B43C /* Parameters.pb-c.c in Sources */,
 				92FF02B823AA0B5A00AC97F6 /* CPUWhere.cpp in Sources */,
+				CE482F45288536DA007CD935 /* hmac-sha.c in Sources */,
 				4D9A936126255BDA00F9B43C /* protobuf-c.c in Sources */,
 				92FF027423AA0B5A00AC97F6 /* CPUArgMax.cpp in Sources */,
 				4D6D7FD32656895C00F80814 /* DenseConvolutionTiledExecutor.cpp in Sources */,
 				92FF044523AA0B7100AC97F6 /* ShapeSpaceToDepth.cpp in Sources */,
 				92FF04B823AA0BFB00AC97F6 /* MNNMemoryUtils.cpp in Sources */,
 				92FF042D23AA0B7100AC97F6 /* ShapePadding.cpp in Sources */,
+				CE482F2E288536DA007CD935 /* WorkerThread.cpp in Sources */,
 				4A224A1627D0C56E000A9260 /* ConvolutionWinogradBridge.cpp in Sources */,
 				48747D6A245D9E33000B9709 /* GeometryStridedSlice.cpp in Sources */,
 				92FF04BE23AA0BFB00AC97F6 /* FileLoader.cpp in Sources */,
@@ -3115,8 +3155,10 @@
 				EBECA37B24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S in Sources */,
 				481C2DF525FE2CD6001ED6DF /* Arm82OptFunc.cpp in Sources */,
 				92FF033623AA0B5A00AC97F6 /* MNNConvRunForUnitDepthWise.S in Sources */,
+				4DF87C502887D3E40003E2D4 /* CPUSvd.cpp in Sources */,
 				92FF043523AA0B7100AC97F6 /* ShapeConvolution3D.cpp in Sources */,
 				92FF043923AA0B7100AC97F6 /* ShapeDequantize.cpp in Sources */,
+				CE482F2B288536DA007CD935 /* Log.cpp in Sources */,
 				4D4CF4672760946500A36D9F /* miscellaneous.cpp in Sources */,
 				48747D50245D9E13000B9709 /* CPURaster.cpp in Sources */,
 				489D7A782550FDC800AD896A /* MetalEltwise.mm in Sources */,
@@ -3170,6 +3212,7 @@
 				92FF043B23AA0B7100AC97F6 /* ShapeDetectionPostProcess.cpp in Sources */,
 				48417FF124D13BF50056D9A7 /* GeometryELU.cpp in Sources */,
 				48C84B9A250F720C00EE7666 /* CPULayerNorm.cpp in Sources */,
+				4DF87C4A2887D3560003E2D4 /* calib3d.cpp in Sources */,
 				48F34734273A7C8400C45394 /* ImageProcessFunction.cpp in Sources */,
 				6A131E4025823349002EC3D6 /* PluginKernel.cpp in Sources */,
 				48958781268EBA6F00EA01A7 /* CPUSegmentMean.cpp in Sources */,
@@ -3185,6 +3228,7 @@
 				489D7A8E2550FDC900AD896A /* MetalPooling.mm in Sources */,
 				92FF030823AA0B5A00AC97F6 /* MNNCopyC4WithStride.S in Sources */,
 				4DDE2019263809920085AC8F /* CoreMLExecutorWrapper.mm in Sources */,
+				CE482F36288536DA007CD935 /* sds.c in Sources */,
 				EBECA39B24643D320062C7A3 /* Arm82Backend.cpp in Sources */,
 				4A224A1327D0C56E000A9260 /* ConvolutionWinogradImpl.cpp in Sources */,
 				92FF030023AA0B5A00AC97F6 /* MNNSamplerC4NearestOpt.S in Sources */,
@@ -3225,6 +3269,7 @@
 				4819FB2C24C1396A0050BD09 /* GeometryPoolGrad.cpp in Sources */,
 				92FF042223AA0B7100AC97F6 /* ShapeConcat.cpp in Sources */,
 				4D6D7FD12656891400F80814 /* MNNPackedSparseMatMulEpx4.S in Sources */,
+				CE482F35288536DA007CD935 /* log_util_imp.c in Sources */,
 				92FF025E23AA0B5A00AC97F6 /* CPUROIPooling.cpp in Sources */,
 				4844603D2726558B00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S in Sources */,
 				92FF044A23AA0B7100AC97F6 /* ShapeConvolution.cpp in Sources */,
@@ -3252,6 +3297,7 @@
 				92FF02E823AA0B5A00AC97F6 /* MNNSamplerC1BilinearOpt.S in Sources */,
 				92FF031C23AA0B5A00AC97F6 /* MNNReluInt8.S in Sources */,
 				489D7A912550FDC900AD896A /* MetalScale.mm in Sources */,
+				CE482F39288536DA007CD935 /* log_builder.c in Sources */,
 				92FF043D23AA0B7100AC97F6 /* ShapeGatherV2.cpp in Sources */,
 				489D7AA32550FDC900AD896A /* MetalRaster.mm in Sources */,
 				4D9A936A26255BDA00F9B43C /* CoreMLBinary.cpp in Sources */,
@@ -3284,6 +3330,7 @@
 				92FF02E623AA0B5A00AC97F6 /* MNNWinogradMatrixProductLeft.S in Sources */,
 				48747D64245D9E33000B9709 /* GeometryTile.cpp in Sources */,
 				92FF043723AA0B7100AC97F6 /* ShapeDetectionOutput.cpp in Sources */,
+				CE482F37288536DA007CD935 /* log_api.c in Sources */,
 				92FF042623AA0B7100AC97F6 /* ShapeCosineSimilarity.cpp in Sources */,
 				4AF4FB2D269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx1.S in Sources */,
 				92FF02DC23AA0B5A00AC97F6 /* MNNReluInt8.S in Sources */,
@@ -3360,6 +3407,7 @@
 				48A8A61A21D101DE00C2B9A7 /* Matrix_CV.cpp in Sources */,
 				489D7A8C2550FDC900AD896A /* MetalDeconvolution.mm in Sources */,
 				489D7AA62550FDC900AD896A /* MetalBackend.mm in Sources */,
+				CE482F2F288536DA007CD935 /* LogHelper.mm in Sources */,
 				92FF031823AA0B5A00AC97F6 /* MNNConvRunForUnitDepthWiseUint8.S in Sources */,
 				92FF039623AA0B5A00AC97F6 /* CPUDepthwiseConvInt8.cpp in Sources */,
 				92FF04AA23AA0BFB00AC97F6 /* BufferAllocator.cpp in Sources */,
@@ -3369,6 +3417,7 @@
 				C43C81FA251894A600A0FF84 /* CommonOptFunctionNeon.cpp in Sources */,
 				92FF030123AA0B5A00AC97F6 /* MNNAddC4WithStride.S in Sources */,
 				4D9A936426255BDA00F9B43C /* CoreMLExecutor.mm in Sources */,
+				CE482F43288536DA007CD935 /* lz4.c in Sources */,
 				92FF02E223AA0B5A00AC97F6 /* MNNMatrixAdd.S in Sources */,
 				92FF038223AA0B5A00AC97F6 /* CPUSetDiff1D.cpp in Sources */,
 				92FF031B23AA0B5A00AC97F6 /* MNNScaleAndAddBias.S in Sources */,
@@ -3404,6 +3453,7 @@
 				4D4CF4682760946500A36D9F /* geometric.cpp in Sources */,
 				92FF045023AA0B7100AC97F6 /* ShapeCropAndResize.cpp in Sources */,
 				92FF03D023AA0B5A00AC97F6 /* CPUTensorConvert.cpp in Sources */,
+				CE482F42288536DA007CD935 /* md5.c in Sources */,
 				92FF02C023AA0B5A00AC97F6 /* MNNAddC4WithStride.S in Sources */,
 				92FF02F823AA0B5A00AC97F6 /* MNNConvRunForLineDepthwise.S in Sources */,
 				4896D37925FE2A6B00717702 /* MNNPackedMatMulFP16.S in Sources */,
@@ -3942,9 +3992,12 @@
 				DEVELOPMENT_TEAM = 6G7464HHUS;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = demo/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "use camera to capture photo for demo";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
@@ -3952,7 +4005,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo3v4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -3972,16 +4025,19 @@
 				DEVELOPMENT_TEAM = 6G7464HHUS;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = demo/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "use camera to capture photo for demo";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo3v4;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4031,3 +4087,4 @@
 	};
 	rootObject = 0F1465AE1FA18D1000F9860A /* Project object */;
 }
+

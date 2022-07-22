@@ -35,6 +35,7 @@ struct Expr::Inside {
 struct Executor::DebugTools {
     TensorCallBackWithInfo before = nullptr;
     TensorCallBackWithInfo after = nullptr;
+    mutable float flops = 0.0f;
 };
 class Utils {
 public:
@@ -46,6 +47,7 @@ public:
     static halide_type_t revertDataType(DataType dataType);
     static bool allocMemoryForHostTensor(Tensor* dest);
     static bool releaseMemoryForHostTensor(Tensor* dest);
+    static Tensor* getTensor(VARP var);
 };
 
 } // namespace Express

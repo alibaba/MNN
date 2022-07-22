@@ -40,7 +40,7 @@ static void cmpContours(std::vector<VARP> x, std::vector<std::vector<cv::Point>>
 }
 // findContours
 TEST(findContours, external_none) {
-    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC);
+    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC, halide_type_of<uint8_t>());
     cv::Mat mask = cv::Mat(11, 13, CV_8UC1);
     ::memcpy(mask.data, img.data(), img.size() * sizeof(uchar));
     std::vector<std::vector<cv::Point>> cv_contours;
@@ -50,7 +50,7 @@ TEST(findContours, external_none) {
     cmpContours(mnn_contours, cv_contours);
 }
 TEST(findContours, external_simple) {
-    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC);
+    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC, halide_type_of<uint8_t>());
     cv::Mat mask = cv::Mat(11, 13, CV_8UC1);
     ::memcpy(mask.data, img.data(), img.size() * sizeof(uchar));
     std::vector<std::vector<cv::Point>> cv_contours;
@@ -60,7 +60,7 @@ TEST(findContours, external_simple) {
     cmpContours(mnn_contours, cv_contours);
 }
 TEST(findContours, list_none) {
-    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC);
+    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC, halide_type_of<uint8_t>());
     cv::Mat mask = cv::Mat(11, 13, CV_8UC1);
     ::memcpy(mask.data, img.data(), img.size() * sizeof(uchar));
     std::vector<std::vector<cv::Point>> cv_contours;
@@ -70,7 +70,7 @@ TEST(findContours, list_none) {
     cmpContours(mnn_contours, cv_contours);
 }
 TEST(findContours, list_simple) {
-    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC);
+    VARP x = _Const(img.data(), {1, 11, 13, 1}, NHWC, halide_type_of<uint8_t>());
     cv::Mat mask = cv::Mat(11, 13, CV_8UC1);
     ::memcpy(mask.data, img.data(), img.size() * sizeof(uchar));
     std::vector<std::vector<cv::Point>> cv_contours;
