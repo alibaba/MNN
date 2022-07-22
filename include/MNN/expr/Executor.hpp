@@ -73,15 +73,15 @@ public:
     public:
         ~RuntimeManager();
         /**
-         * @param configs: schedule configs.
-         * @param cacheName: full path for cache file. Note: should choose location for reading and writing.
+         * @param configs : schedule configs.
+         * @param cacheName : full path for cache file. Note: should choose location for reading and writing.
          */
         static RuntimeManager* createRuntimeManager(const ScheduleConfig& config);
 
         /**
          * Deceperate, the same as createRuntimeManager(configs[0])
-         * @param configs: schedule configs.
-         * @param cacheName: full path for cache file. Note: should choose location for reading and writing.
+         * @param configs : schedule configs.
+         * @param cacheName : full path for cache file. Note: should choose location for reading and writing.
          */
         static RuntimeManager* createRuntimeManager(std::vector<ScheduleConfig>& configs);
 

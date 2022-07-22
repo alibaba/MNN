@@ -1273,5 +1273,14 @@ VARP _CumProd(VARP x, int axis) {
     return (Variable::create(Expr::create(std::move(op), {x})));
 }
 
+VARPS _Svd(VARP x) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                        = OpType_Svd;
+    op->main.type                   = OpParameter_NONE;
+    op->main.value                  = nullptr;
+    EXPRP expr = Expr::create(std::move(op), {x}, 3);
+    return { Variable::create(expr, 0), Variable::create(expr, 1), Variable::create(expr, 2) };
+}
+
 } // namespace Express
 } // namespace MNN

@@ -300,12 +300,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             if (nullptr == mInputTensors[i]) {
                 continue;
             }
-            auto exprInfo    = inputs[i]->expr();
-            auto inside      = exprInfo.first->inside();
-            auto inputTensor = inside->mOutputTensors[exprInfo.second];
-            if (nullptr != inside->mCache) {
-                inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
-            }
+            auto inputTensor = Utils::getTensor(inputs[i]);
             auto srcDes = TensorUtils::getDescribe(inputTensor);
             auto des = TensorUtils::getDescribe(mInputTensors[i]);
             des->quantAttr = srcDes->quantAttr;
@@ -377,6 +372,12 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         auto tensor = Tensor::clone(mOutputTensors[i]);
         outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
     }
+#ifdef MNN_INTERNAL_ENABLED
+    auto glo = ExecutorScope::Current();
+    float flops = 0.0f;
+    mSession->getInfo(Interpreter::FLOPS, &flops);
+    glo->getDebugTools()->flops += flops;
+#endif
     return outputs;
 }
 

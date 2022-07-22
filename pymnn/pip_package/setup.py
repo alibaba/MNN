@@ -124,7 +124,7 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API',
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API', '-DPYMNN_CALIB3D',
                            '-DPYMNN_IMGPROC_COLOR', '-DPYMNN_IMGPROC_FILTER', '-DPYMNN_IMGPROC_GEOMETRIC',
                            '-DPYMNN_IMGPROC_MISCELLANEOUS', '-DPYMNN_IMGPROC_STRUCTURAL', '-DPYMNN_IMGPROC_DRAW',
                            '-DPYMNN_IMGCODECS']
