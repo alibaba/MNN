@@ -1105,7 +1105,7 @@ bool Cli::json2mnn(const char* jsonFile, const char* modelFile) {
     auto table = MNN::NetTypeTable();
     auto offset = _writeJsonToFlatbuffer(table, builder, object);
     builder.Finish(offset);
-    std::ofstream outputOs(modelFile);
+    std::ofstream outputOs(modelFile, std::ios::binary);
     outputOs.write((char*)builder.GetBufferPointer(), builder.GetSize());
     return true;
 }
