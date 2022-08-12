@@ -6,13 +6,12 @@ namespace CUDA {
 #define CUDA_KERNEL_LOOP(i, n) for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
 template<typename T>
-__global__ void SCALE(const int n, const int channels, const int dim, const T* in, T* out,
+__global__ void SCALE(const int total, const int channelsPack, const int dim, const T* in, T* out,
                         const float* scaleData, const float* biasData) {
-    CUDA_KERNEL_LOOP(count, n) {
-        int index  = count / PACK_NUMBER;
-        int r      = count % PACK_NUMBER;
-        int c      = (index / dim) * PACK_NUMBER + r;
-        out[count] = (T)((float)in[count] * scaleData[c] + biasData[c]);
+    CUDA_KERNEL_LOOP(index, total) {
+        int nhw_idx = index / channelsPack;
+        int c_idx = index % channelsPack;
+        out[index] = (T)((float)in[index] * scaleData[c_idx] + biasData[c_idx]);
     }
 }
 
@@ -63,11 +62,11 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        SCALE<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const half *)input_addr, (half *)output_addr,
+        SCALE<<<block_num, threads_num>>>(mCount, mChannel*PACK_NUMBER, mArea, (const half *)input_addr, (half *)output_addr,
             (const float *)mDeviceScale, (const float *)mDeviceBias);
         return NO_ERROR;
     }
-    SCALE<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const float *)input_addr, (float *)output_addr,
+    SCALE<<<block_num, threads_num>>>(mCount, mChannel*PACK_NUMBER, mArea, (const float *)input_addr, (float *)output_addr,
         (const float *)mDeviceScale, (const float *)mDeviceBias);
     return NO_ERROR;
 }

@@ -1,14 +1,14 @@
 # -*- coding: UTF-8 -*-
 import unittest
+import cv2
+import torch
+import numpy as np
+from sys import version_info
 # test expr
 import MNN
 import MNN.expr as expr
 import MNN.cv as cv
 import MNN.numpy as mp
-import numpy as np
-import torch
-import cv2
-from sys import version_info
 
 img_path = '../../resource/images/cat.jpg'
 
@@ -656,17 +656,17 @@ class UnitTest(unittest.TestCase):
         x = self.img.copy()
         y = self.img_.copy()
         # 1. arrowedLine
-        cv.arrowedLine(x, [10, 10], [40, 40], [255, 0, 0])
-        cv2.arrowedLine(y, [10, 10], [40, 40], [255, 0, 0])
+        cv.arrowedLine(x, (10, 10), (40, 40), (255, 0, 0))
+        cv2.arrowedLine(y, (10, 10), (40, 40), (255, 0, 0))
         # 2. line
-        cv.line(x, [20, 30], [50, 60], [0, 0, 255])
-        cv2.line(y, [20, 30], [50, 60], [0, 0, 255])
+        cv.line(x, (20, 30), (50, 60), (0, 0, 255))
+        cv2.line(y, (20, 30), (50, 60), (0, 0, 255))
         # 3. circle
-        cv.circle(x, [70, 70], 30, [0, 255, 0])
-        cv2.circle(y, [70, 70], 30, [0, 255, 0])
+        cv.circle(x, (70, 70), 30, (0, 255, 0))
+        cv2.circle(y, (70, 70), 30, (0, 255, 0))
         # 4. rectangle
-        cv.rectangle(x, [80, 80], [120, 120], [0, 0, 255])
-        cv2.rectangle(y, [80, 80], [120, 120], [0, 0, 255])
+        cv.rectangle(x, (80, 80), (120, 120), (0, 0, 255))
+        cv2.rectangle(y, (80, 80), (120, 120), (0, 0, 255))
         # get contours
         y_ = cv2.cvtColor(y, cv2.COLOR_BGR2GRAY)
         y_ = cv2.threshold(y_, 127, 255, cv2.THRESH_BINARY)[1]
@@ -725,6 +725,34 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(labels, labels_)
         self.assertEqualVar(statsv, statsv_)
         self.assertEqualVar(centroids, centroids_)
+    # histogram
+    def test_histogram(self):
+        hist = cv.calcHist([self.img], [0], None, [257], [0., 256.])
+        hist_ = cv2.calcHist([self.img_], [0], None, [257], [0., 256.])
+        self.assertEqualVar(hist, hist_)
+    # calib3d
+    def test_calib3d(self):
+        try:
+            a = cv2.SOLVEPNP_SQPNP
+        except:
+            # python2 opencv don't support SOLVEPNP_SQPNP
+            pass
+        else:
+            model_points = mp.array([0.0, 0.0, 0.0, 0.0, -330.0, -65.0,
+                                     -225.0, 170.0, -135.0, 225.0, 170.0, -135.0,
+                                     -150.0, -150.0, -125.0, 150.0, -150.0, -125.0]).reshape(6, 3)
+            image_points = mp.array([359., 391., 399., 561., 337., 297.,
+                                     513., 301., 345., 465., 453., 469.]).reshape(6, 2)
+            camera_matrix = mp.array([1200., 0., 600., 0., 1200., 337.5, 0., 0., 1.]).reshape(3, 3)
+            dist_coeffs = mp.array([0.0, 0.0, 0.0, 0.0]).reshape(4, 1)
+            _, rv, tv = cv.solvePnP(model_points, image_points, camera_matrix, dist_coeffs, flags=cv.SOLVEPNP_SQPNP)
+            model_points_ = model_points.read()
+            image_points_ = image_points.read()
+            camera_matrix_ = camera_matrix.read()
+            dist_coeffs_ = dist_coeffs.read()
+            _, rv_, tv_ = cv2.solvePnP(model_points_, image_points_, camera_matrix_, dist_coeffs_, flags=cv2.SOLVEPNP_SQPNP)
+            self.assertEqualVar(rv, rv_)
+            self.assertEqualVar(tv, tv_)
     # core
     def test_vconcat(self):
         x = cv.vconcat([self.img, self.img])
@@ -811,7 +839,13 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.asarray_chkfinite([2, 3]), np.asarray_chkfinite([2, 3]))
         self.assertEqualVar(mp.ascontiguousarray([2, 3]), np.ascontiguousarray([2, 3]))
         self.assertEqualVar(mp.asfarray([2, 3]), np.asfarray([2, 3]))
-        self.assertEqual(mp.asscalar(mp.array([24])), np.asscalar(np.array([24])))
+        try:
+            a = np.asscalar
+        except:
+            # py38 numpy don't support asscalar
+            pass
+        else:
+            self.assertEqual(mp.asscalar(mp.array([24])), np.asscalar(np.array([24])))
     def test_joining(self):
         a = mp.array([1, 2, 3])
         b = mp.array([4, 5, 6])
@@ -874,6 +908,10 @@ class UnitTest(unittest.TestCase):
         # Nd * Nd
         self.assertEqualVar(mp.dot(x, y), np.dot(x_, y_))
         self.assertEqualVar(mp.linalg.norm(w), np.linalg.norm(w_))
+        a = mp.arange(9.).reshape([3,3])
+        a_ = np.arange(9.).reshape([3,3])
+        # just compare w Matrix
+        self.assertEqualVar(mp.linalg.svd(a)[1], np.linalg.svd(a_)[1])
     def test_Logic(self):
         x = mp.array([1,0,2,3,0])
         x_ = np.array([1,0,2,3,0])
@@ -960,6 +998,8 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.minimum(x, y), np.minimum(x_, y_))
         self.assertEqualVar(mp.fmax(x, y), np.fmax(x_, y_))
         self.assertEqualVar(mp.fmin(x, y), np.fmin(x_, y_))
+        self.assertEqualVar(mp.cumprod(x), np.cumprod(x_))
+        self.assertEqualVar(mp.cumsum(x), np.cumsum(x_))
     def test_matrix(self):
         import numpy.matlib
         self.assertEqualVar(mp.repmat([1, 2, 3], 2, 2), np.matlib.repmat([1, 2, 3], 2, 2))
@@ -983,6 +1023,7 @@ class UnitTest(unittest.TestCase):
         x = mp.array([[1,0,3], [0,6,5]])
         x_ = np.array([[1,0,3], [0,6,5]])
         self.assertEqual(mp.argmax(x), np.argmax(x_))
+        self.assertEqual(mp.argmin(x), np.argmin(x_))
         self.assertEqualVar(mp.argwhere(x), np.argwhere(x_))
         self.assertEqualVars(mp.nonzero(x), np.nonzero(x_))
         self.assertEqualVar(mp.flatnonzero(x), np.flatnonzero(x_))
@@ -1002,6 +1043,10 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.var(x, 1), np.var(x_,1))
         self.assertAlmostEqual(mp.std(x), np.std(x_), delta=1e-3)
         self.assertEqualVar(mp.std(x, 0), np.std(x_,0))
+    def test_histogram(self):
+        x = mp.array([1., 2., 2., 3., 3., 3., 4., 4., 5.])
+        x_ = x.read()
+        self.assertEqualVars(mp.histogram(x, 7, (2, 4)), np.histogram(x_, 7, (2, 4)))
     def test_ndarray(self):
         x = mp.array([[1,2],[3,4]])
         x_ = np.array([[1,2],[3,4]])

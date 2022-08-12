@@ -28,7 +28,8 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mCpuParam.outside = outside;
     mCpuParam.axis = axis;
     cuda_check(cudaMemcpy((uint8_t*)mParam.first + mParam.second, &mCpuParam, sizeof(ReduceParam), cudaMemcpyHostToDevice));
-
+    
+    //MNN_PRINT("Reduction axis_idx:%d, outside:%d, axis:%d, inside:%d\n", mAxis, outside, axis, inside);
     return NO_ERROR;
 }
 

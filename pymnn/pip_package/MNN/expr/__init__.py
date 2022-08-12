@@ -1543,6 +1543,99 @@ def argmax(x, axis=0):
     x = _to_var(x)
     axis = _to_int(axis)
     return _F.argmax(x, axis)
+def argmin(x, axis=0):
+    '''
+    argmin(x, axis=0)
+    Return argmin of `x` along the `axis`.
+
+    Parameters
+    ----------
+    x : var_like, input value.
+    axis : int, input value. Default is 0.
+
+    Returns
+    -------
+    c : Var. The argmin of `x` along the `axis`, dtype is int32.
+
+    Example:
+    -------
+    >>> expr.argmin([[1,2],[3,4]])
+    var([0, 0], dtype=int32)
+    '''
+    x = _to_var(x)
+    axis = _to_int(axis)
+    return _F.argmin(x, axis)
+def cumsum(x, axis=0):
+    '''
+    cumsum(x, axis=0)
+    Return cumsum of `x` along the `axis`.
+
+    Parameters
+    ----------
+    x : var_like, input value.
+    axis : int, input value. Default is 0.
+
+    Returns
+    -------
+    c : Var. The cumsum of `x` along the `axis`.
+
+    Example:
+    -------
+    >>> expr.cumsum([[1,2],[3,4]])
+    var([[1, 2],
+         [4, 6]], dtype=int32)
+    '''
+    x = _to_var(x)
+    axis = _to_int(axis)
+    return _F.cumsum(x, axis)
+def cumprod(x, axis=0):
+    '''
+    cumprod(x, axis=0)
+    Return cumprod of `x` along the `axis`.
+
+    Parameters
+    ----------
+    x : var_like, input value, dtype is float32.
+    axis : int, input value. Default is 0.
+
+    Returns
+    -------
+    c : Var. The cumprod of `x` along the `axis`.
+
+    Example:
+    -------
+    >>> expr.cumprod([[1.,2.],[3.,4.]])
+    var([[1., 2.],
+         [3., 8.]], dtype=float32)
+    '''
+    x = _to_var(x, dtype=_F.float)
+    axis = _to_int(axis)
+    return _F.cumprod(x, axis)
+def svd(x):
+    '''
+    svd(x)
+    Return svd matrixs of `x`, `x` is a 2D Matrix.
+    Return `w`, `u`, `vt` as ``a = u @ w @ vt``.
+
+    Parameters
+    ----------
+    x : var_like, input value.
+
+    Returns
+    -------
+    w : Var, shape is (N).
+    u : Var, shape is (M, N).
+    vt : Var, shape is (N, N).
+
+    Example:
+    -------
+    >>> expr.cumprod([[1.,2.],[3.,4.]])
+    [var([5.464986  , 0.36596605], dtype=float32), var([[ 0.40455356,  0.91451436],
+       [ 0.91451424, -0.40455365]], dtype=float32), var([[ 0.5760485 ,  0.81741554],
+       [-0.81741554,  0.5760485 ]], dtype=float32)]
+    '''
+    x = _to_var(x, dtype=_F.float)
+    return _F.svd(x)
 def unravel_index(indices, shape):
     '''
     unravel_index(indices, shape)

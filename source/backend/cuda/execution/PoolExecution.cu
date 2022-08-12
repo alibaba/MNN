@@ -12,193 +12,101 @@ namespace CUDA {
         (a).y = __hgt((a).y, (b).y) ? (a).y : (b).y; \
     } while (0)
 
-__global__ void maxpool_halfC16(const half* uInput, half* uOutput,
-    int bc,
-    int ih, int iw,
-    int oh, int ow,
-    int padX, int padY,
-    int kernelX, int kernelY,
-    int strideX, int strideY
+template<typename T>
+__global__ void maxpool_C8(const T* uInput, T* uOutput,
+    const int ib, const int ic_p,
+    const int ih, const int iw,
+    const int oh, const int ow,
+    const int padX, const int padY,
+    const int kernelX, const int kernelY,
+    const int strideX, const int strideY
     ) {
-    int total = bc * oh * ow * 8;
+    int total = ib * oh * ow * ic_p;
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
-        int x = i % ow;
-        int tmp = i / ow;
-        int y = tmp % oh;
-        int z = tmp / oh;
-        int zC = z / 8;
-        int zR = z % 8;
-        int ix = x * strideX - padX;
-        int iy = y * strideY - padY;
-        int sx = max(0, -ix);
-        int sy = max(0, -iy);
-        int ex = min(kernelX, iw - ix);
-        int ey = min(kernelY, ih - iy);
-        float div = (float)(ey-sy)* (float)(ex-sx);
-        half2 sumValue = HALF2_MIN;
+        int ic_idx = i % ic_p;
+        int tmp0 = i / ic_p;
+        int ow_idx = tmp0 % ow;
+        int tmp1 = tmp0 / ow;
+        int ib_idx = tmp1 / oh;
+        int oh_idx = tmp1 % oh;
+
+        int iw_idx = ow_idx * strideX - padX;
+        int ih_idx = oh_idx * strideY - padY;
+        int sx = max(0, -iw_idx);
+        int sy = max(0, -ih_idx);
+        int ex = min(kernelX, iw - iw_idx);
+        int ey = min(kernelY, ih - ih_idx);
+        T maxValue = HALF_MIN;
         for (int fy=sy; fy<ey; ++fy) {
             for (int fx=sx; fx<ex; ++fx) {
-                int currentX = ix + fx;
-                int currentY = iy + fy;
-                const half2* input = (const half2*)(uInput
-                    + zR * 2
-                    + currentX * 16
-                    + currentY * iw * 16
-                    + zC * iw * ih * 16
+                int currentX = iw_idx + fx;
+                int currentY = ih_idx + fy;
+                const T* input = (const T*)(uInput
+                    + ib_idx * ih * iw * ic_p 
+                    + currentY * iw * ic_p
+                    + currentX * ic_p
+                    + ic_idx
                 );
-                half2 inputV = *input;
-                MNN_CUDA_HALF2_MAX(sumValue, inputV);
+                T val = *input;
+                maxValue = maxValue > val ? maxValue : val;
             }
         }
-        half2* dst = (half2*)(uOutput
-            + zC * ow * oh * 16
-            + y * ow * 16
-            + x * 16
-            + zR * 2
-        );
-        *dst = sumValue;
-    }
-}
-
-__global__ void avgpool_halfC16(const half* uInput, half* uOutput,
-    int bc,
-    int ih, int iw,
-    int oh, int ow,
-    int padX, int padY,
-    int kernelX, int kernelY,
-    int strideX, int strideY
-    ) {
-    int total = bc * oh * ow * 8;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
-        int x = i % ow;
-        int tmp = i / ow;
-        int y = tmp % oh;
-        int z = tmp / oh;
-        int zC = z / 8;
-        int zR = z % 8;
-        int ix = x * strideX - padX;
-        int iy = y * strideY - padY;
-        int sx = max(0, -ix);
-        int sy = max(0, -iy);
-        int ex = min(kernelX, iw - ix);
-        int ey = min(kernelY, ih - iy);
-        float div = (float)(ey-sy)* (float)(ex-sx);
-        half2 sumValue = half2(0.0f, 0.0f);
-        half2 mulValue = half2(1.0f / div, 1.0f/div);
-        for (int fy=sy; fy<ey; ++fy) {
-            for (int fx=sx; fx<ex; ++fx) {
-                int currentX = ix + fx;
-                int currentY = iy + fy;
-                const half2* input = (const half2*)(uInput
-                    + zR * 2
-                    + currentX * 16
-                    + currentY * iw * 16
-                    + zC * iw * ih * 16
-                );
-                sumValue = __hadd2(sumValue, (*input) * mulValue);
-            }
-        }
-        half2* dst = (half2*)(uOutput
-            + zC * ow * oh * 16
-            + y * ow * 16
-            + x * 16
-            + zR * 2
-        );
-        *dst = sumValue;
-    }
-}
-
-
-
-__global__ void maxpool_floatC16(const float* uInput, float* uOutput,
-    int bc,
-    int ih, int iw,
-    int oh, int ow,
-    int padX, int padY,
-    int kernelX, int kernelY,
-    int strideX, int strideY
-    ) {
-    int total = bc * oh * ow * PACK_NUMBER;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
-        int x = i % ow;
-        int tmp = i / ow;
-        int y = tmp % oh;
-        int z = tmp / oh;
-        int zC = z / PACK_NUMBER;
-        int zR = z % PACK_NUMBER;
-        int ix = x * strideX - padX;
-        int iy = y * strideY - padY;
-        int sx = max(0, -ix);
-        int sy = max(0, -iy);
-        int ex = min(kernelX, iw - ix);
-        int ey = min(kernelY, ih - iy);
-        float maxValue = -FLT_MAX;
-        for (int fy=sy; fy<ey; ++fy) {
-            for (int fx=sx; fx<ex; ++fx) {
-                int currentX = ix + fx;
-                int currentY = iy + fy;
-                const float* input = (const float*)(uInput
-                    + zR
-                    + currentX * PACK_NUMBER
-                    + currentY * iw * PACK_NUMBER
-                    + zC * iw * ih * PACK_NUMBER
-                );
-                maxValue = max(maxValue, *input);
-            }
-        }
-        float* dst = (float*)(uOutput
-            + zC * ow * oh * PACK_NUMBER
-            + y * ow * PACK_NUMBER
-            + x * PACK_NUMBER
-            + zR
+        T* dst = (T*)(uOutput
+            + ib_idx * oh * ow * ic_p 
+            + oh_idx * ow * ic_p
+            + ow_idx * ic_p
+            + ic_idx
         );
         *dst = maxValue;
     }
 }
 
-__global__ void avgpool_floatC16(const float* uInput, float* uOutput,
-    int bc,
-    int ih, int iw,
-    int oh, int ow,
-    int padX, int padY,
-    int kernelX, int kernelY,
-    int strideX, int strideY
+template<typename T>
+__global__ void avgpool_C8(const T* uInput, T* uOutput,
+    const int ib, const int ic_p,
+    const int ih, const int iw,
+    const int oh, const int ow,
+    const int padX, const int padY,
+    const int kernelX, const int kernelY,
+    const int strideX, const int strideY
     ) {
-    int total = bc * oh * ow * PACK_NUMBER;
+    int total = ib * oh * ow * ic_p;
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
-        int x = i % ow;
-        int tmp = i / ow;
-        int y = tmp % oh;
-        int z = tmp / oh;
-        int zC = z / PACK_NUMBER;
-        int zR = z % PACK_NUMBER;
-        int ix = x * strideX - padX;
-        int iy = y * strideY - padY;
-        int sx = max(0, -ix);
-        int sy = max(0, -iy);
-        int ex = min(kernelX, iw - ix);
-        int ey = min(kernelY, ih - iy);
-        float div = (float)(ey-sy)* (float)(ex-sx);
-        float sumValue = 0.0f;
-        float mulValue = 1.0f/div;
+        int ic_idx = i % ic_p;
+        int tmp0 = i / ic_p;
+        int ow_idx = tmp0 % ow;
+        int tmp1 = tmp0 / ow;
+        int ib_idx = tmp1 / oh;
+        int oh_idx = tmp1 % oh;
+
+        int iw_idx = ow_idx * strideX - padX;
+        int ih_idx = oh_idx * strideY - padY;
+        int sx = max(0, -iw_idx);
+        int sy = max(0, -ih_idx);
+        int ex = min(kernelX, iw - iw_idx);
+        int ey = min(kernelY, ih - ih_idx);
+        T div = (float)(ey-sy)* (float)(ex-sx);
+        T sumValue = (T)0.0f;
         for (int fy=sy; fy<ey; ++fy) {
             for (int fx=sx; fx<ex; ++fx) {
-                int currentX = ix + fx;
-                int currentY = iy + fy;
-                const float* input = (const float*)(uInput
-                    + zR
-                    + currentX * PACK_NUMBER
-                    + currentY * iw * PACK_NUMBER
-                    + zC * iw * ih * PACK_NUMBER
+                int currentX = iw_idx + fx;
+                int currentY = ih_idx + fy;
+                const T* input = (const T*)(uInput
+                    + ib_idx * ih * iw * ic_p 
+                    + currentY * iw * ic_p
+                    + currentX * ic_p
+                    + ic_idx
                 );
-                sumValue = sumValue + (*input) * mulValue;
+                T val = *input;
+                sumValue += val;
             }
         }
-        float* dst = (float*)(uOutput
-            + zC * ow * oh * 16
-            + y * ow * 16
-            + x * 16
-            + zR
+        sumValue /= div; 
+        T* dst = (T*)(uOutput
+            + ib_idx * oh * ow * ic_p 
+            + oh_idx * ow * ic_p
+            + ow_idx * ic_p
+            + ic_idx
         );
         *dst = sumValue;
     }
@@ -247,6 +155,9 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto iw = inputs[0]->width();
     auto ih = inputs[0]->height();
+    auto ic = inputs[0]->channel();
+    auto ic_p = UP_DIV(inputs[0]->channel(), PACK_NUMBER) * PACK_NUMBER;
+    auto ib = inputs[0]->batch();
     auto bc = inputs[0]->batch() * UP_DIV(inputs[0]->channel(), PACK_NUMBER);
     auto ow = outputs[0]->width();
     auto oh = outputs[0]->height();
@@ -259,8 +170,8 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         auto outputPtr = (half*)outputs[0]->deviceId();
         switch (mPoolType) {
             case PoolType_AVEPOOL:
-                avgpool_halfC16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
-                    bc, 
+                avgpool_C8<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                    ib, ic_p, 
                     ih, iw,
                     oh, ow,
                     mPaddings[0], mPaddings[1],
@@ -269,8 +180,8 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
                 );
                 return NO_ERROR;
             case PoolType_MAXPOOL:
-                maxpool_halfC16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
-                    bc, 
+                maxpool_C8<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                    ib, ic_p, 
                     ih, iw,
                     oh, ow,
                     mPaddings[0], mPaddings[1],
@@ -281,12 +192,15 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         }        
         return NO_ERROR;
     }
+
+    //MNN_PRINT("Pool pad:%d-%d, kernel:%d-%d, stride:%d-%d\n", mPaddings[1], mPaddings[0], mKernels[1], mKernels[0], mStrides[1], mStrides[0]);
+    //MNN_PRINT("Feature input size:%d-%d-%d-%d, output size:%d-%d\n", ib, ic_p, ih, iw, oh, ow);
     auto inputPtr = (const float*)inputs[0]->deviceId();
     auto outputPtr = (float*)outputs[0]->deviceId();
     switch (mPoolType) {
         case PoolType_AVEPOOL:
-            avgpool_floatC16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
-                bc, 
+            avgpool_C8<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                ib, ic_p, 
                 ih, iw,
                 oh, ow,
                 mPaddings[0], mPaddings[1],
@@ -295,8 +209,8 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
             );
             return NO_ERROR;
         case PoolType_MAXPOOL:
-            maxpool_floatC16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
-                bc, 
+            maxpool_C8<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                ib, ic_p, 
                 ih, iw,
                 oh, ow,
                 mPaddings[0], mPaddings[1],
@@ -304,7 +218,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
                 mStrides[0], mStrides[1]
             );
             return NO_ERROR;
-    }
+    }  
     return NOT_SUPPORT;
 }
 class PoolCreator : public CUDABackend::Creator {

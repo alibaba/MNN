@@ -44,6 +44,7 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         type.bits = 16;
     }
+    //MNN_PRINT("unary size:%d\n", mCount);
     callUnary((void*)inputs[0]->deviceId(), (void*)outputs[0]->deviceId(), mCount, mRuntime, type, mOpType);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end UnaryExecution onExecute...");
@@ -181,12 +182,12 @@ public:
         auto dstT = _mapDataType(mDst);
 
         const auto &inputDataType = inputs[0]->getType();
-        if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
-            runtime->memcpy((void*)output, (void*)input, count * static_cast<CUDABackend*>(backend())->getBytes(inputs[0]), MNNMemcpyDeviceToDevice, true);
-            return NO_ERROR;
-        }
         if (inputDataType.bytes() == 4 && mDst == MNN::DataType_DT_BOOL) {
             CASTBOOL<<<block_num, threads_num>>>((int32_t*)input, (int32_t*)output, count);
+            return NO_ERROR;
+        }
+        if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
+            runtime->memcpy((void*)output, (void*)input, count * static_cast<CUDABackend*>(backend())->getBytes(inputs[0]), MNNMemcpyDeviceToDevice, true);
             return NO_ERROR;
         }
         if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {

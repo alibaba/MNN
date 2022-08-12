@@ -86,10 +86,17 @@ ErrorCode GatherV2Execution::onExecute(const std::vector<Tensor *> &inputs, cons
     int block_num = runtime->blocks_num(count);
     int thread_num = runtime->threads_num();
     //printf("count:%d, mOutside:%d, mInside:%d, mInpNum:%d, mOutNum:%d\n", count, mOutside, mInside, mInpNum, mOutNum);
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
 
-    GATHERV2<<<block_num, thread_num>>>(count, mOutside, mInside, mInpNum, mOutNum, (const float*)params, (int *)indices, 
-                                      (float *)output);                                  
-    
+    if(bytes == 4) {
+        GATHERV2<<<block_num, thread_num>>>(count, mOutside, mInside, mInpNum, mOutNum, 
+                (const float*)params, (int *)indices, (float *)output);
+        checkKernelErrors;
+    } else {
+        GATHERV2<<<block_num, thread_num>>>(count, mOutside, mInside, mInpNum, mOutNum, 
+                (const half*)params, (int *)indices, (half *)output);
+        checkKernelErrors;
+    }
     return NO_ERROR;
 }
 class GatherV2Creator : public CUDABackend::Creator {

@@ -165,6 +165,7 @@ enum OpType : int {
     ScatterElements = 151,
     GatherElements = 152,
     Svd = 153,
+    Histogram = 154,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257

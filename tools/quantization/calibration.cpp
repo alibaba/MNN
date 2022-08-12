@@ -37,8 +37,6 @@
 #include "train/source/transformer/Transformer.hpp"
 #include "cpp/ConvertToFullQuant.hpp"
 
-#include "common/WinogradInt8Helper.hpp"
-
 using namespace MNN::CV;
 using namespace MNN::Train;
 using namespace MNN::Express;
@@ -178,8 +176,12 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
         }
         DLOG(INFO) << "feature_clamp_value: " << _featureClampValue;
         DLOG(INFO) << "weight_clamp_value: " << _weightClampValue;
-        if (picObj.HasMember("winogradOptForMobile")) {
-            _winogradOptForMobile = picObj["winogradOptForMobile"].GetBool();
+        if (picObj.HasMember("winogradOpt") && picObj["winogradOpt"].GetBool() == true) {
+            if (_featureQuantizeMethod == "EMA") {
+                _winogradOpt = true;
+            } else {
+                DLOG(ERROR) << "winogradOpt only be available under EMA";
+            }
         }
         if (picObj.HasMember("skip_quant_op_names")) {
             auto skip_quant_op_names = picObj["skip_quant_op_names"].GetArray();
@@ -702,22 +704,6 @@ void Calibration::_insertScale() {
         const int channles        = param->common->outputCount;
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         param->symmetricQuan->nbits = _quant_bits;
-        bool winograd = _winogradOptForMobile;
-        if (_winogradOptForMobile) {
-            const auto& common = param->common;
-            winograd &= (common->strideX == 1 && common->strideY == 1);
-            winograd &= (common->dilateX == 1 && common->dilateY == 1);
-            winograd &= (inputChannel >= 32 && outputChannel >= 32);
-            winograd &= (common->kernelX != 1 || common->kernelY != 1);
-        }
-        if (winograd) {
-            std::vector<float> transWeight;
-            std::vector<int> attrs;
-            WinogradInt8Helper::transformWeight(param->weight, transWeight, attrs, outputChannel, inputChannel,
-                                                               param->common->kernelY, param->common->kernelX);
-            param->weight = transWeight;
-            param->symmetricQuan->winogradAttr = attrs;
-        }
         const int weightSize      = param->weight.size();
         std::vector<int8_t> quantizedWeight(weightSize);
         std::vector<float> quantizedWeightScale(outputChannel);
@@ -866,7 +852,7 @@ void Calibration::_quantizeModelEMA() {
         originType = originInfo->type;
     }
     std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
-    NN::turnQuantize(model.get(), _quant_bits);
+    NN::turnQuantize(model.get(), _quant_bits, NN::PerTensor, NN::MovingAverage, _winogradOpt);
 
     auto exe = Executor::getGlobalExecutor();
     BackendConfig config;

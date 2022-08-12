@@ -23,7 +23,8 @@ static void orthogonal(float* at, float* vt, int i, int j, int row, int col, boo
         normi += ai[i] * ai[i];
         normj += aj[i] * aj[i];
     }
-    if (fabs(norm) < 1e-8) {
+    constexpr float eps = std::numeric_limits<float>::epsilon() * 2;
+    if (std::abs(norm) < eps * std::sqrt(normi * normj)) {
         return;
     }
     pass = false;

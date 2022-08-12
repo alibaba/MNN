@@ -26,7 +26,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
 private:
-    std::map<Tensor*, Tensor*> mTempInput;
+    std::map<Tensor*, std::shared_ptr<Tensor>> mTempInput;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region>> mFastBlit;
     std::shared_ptr<Tensor> mTempOutput;

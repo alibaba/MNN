@@ -50,6 +50,11 @@ protected:
         return this->cloneBaseTo(ctx, module);
     }
 };
+void Module::destroy(Module* m) {
+    if (nullptr != m) {
+        delete m;
+    }
+}
 
 Module* Module::createEmpty(const std::vector<Express::VARP>& parameters) {
     return new EmptyModule(parameters);
@@ -139,27 +144,6 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return load(inputs, outputs, buffer, length, nullptr, config);
 }
 
-// Private function for friend class to load without Auth.
-Module* Module::loadWithoutAuth(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
-    AutoStorage<uint8_t> buffer;
-    {
-        FileLoader loader(fileName);
-        if (!loader.valid()) {
-            MNN_ERROR("Error for open %s\n", fileName);
-            return nullptr;
-        }
-        loader.read();
-        if (!loader.valid()) {
-            return nullptr;
-        }
-        loader.merge(buffer);
-        if (buffer.get() == nullptr) {
-            return nullptr;
-        }
-    }
-    return loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config, false);
-}
-
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
     {
@@ -188,30 +172,31 @@ public:
 #ifdef MNN_INTERNAL_ENABLED
         if (nullptr != net) {
             mLogInfo = getBasicLoggingData();
+            std::string uuid = std::string(net->mnn_uuid() ? net->mnn_uuid()->c_str() : "");
+            mLogInfo.emplace("UUID", uuid);
+            mLogInfo.emplace("ModelVersion", info->version);
+            int backend = MNN_FORWARD_CPU;
+            int precision = BackendConfig::Precision_Normal;
+            int mode = 1;
+            if (info->runTimeManager.get() != nullptr) {
+                auto attr = info->runTimeManager->getInside();
+                mode = attr->mNumberThread;
+                int backendTypes[MNN_FORWARD_ALL];
+                info->runTimeManager->getInfo(Interpreter::BACKENDS, &backendTypes);
+                backend = backendTypes[0];
+                auto config = info->runTimeManager->getBnConfig();
+                if (nullptr != config) {
+                    precision = config->precision;
+                }
+            }
+            mLogInfo.emplace("Backend",  std::to_string(backend));
+            mLogInfo.emplace("Mode",  std::to_string(mode));
+            mLogInfo.emplace("Precision", std::to_string(precision));
             if (shouldLog(FREQ_HIGH)) {
-                std::string uuid = std::string(net->mnn_uuid() ? net->mnn_uuid()->c_str() : "");
                 std::map<std::string, std::string> metrics = mLogInfo;
                 metrics.emplace("Time", std::to_string(costTime));
-                metrics.emplace("UUID", uuid);
-                metrics.emplace("ModelVersion", info->version);
-                int backend = MNN_FORWARD_CPU;
-                int precision = BackendConfig::Precision_Normal;
-                int mode = 1;
-                if (info->runTimeManager.get() != nullptr) {
-                    auto attr = info->runTimeManager->getInside();
-                    mode = attr->mNumberThread;
-                    int backendTypes[MNN_FORWARD_ALL];
-                    info->runTimeManager->getInfo(Interpreter::BACKENDS, &backendTypes);
-                    backend = backendTypes[0];
-                    auto config = info->runTimeManager->getBnConfig();
-                    if (nullptr != config) {
-                        precision = config->precision;
-                    }
-                }
                 auto sizeInMB = (float)size / 1024.0f / 1024.0f;
                 metrics.emplace("ModelSize",  std::to_string(sizeInMB));
-                metrics.emplace("Backend",  std::to_string(backend));
-                metrics.emplace("Mode",  std::to_string(mode));
                 metrics.emplace("API", "Express::Module::NetModule");
                 logAsync(metrics);
             }

@@ -109,6 +109,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto param = (MatMulParam*)((uint8_t*)mParameters.first + mParameters.second);
     GemmPrepareRerange(runtime, &mParam, param, APtr, aP, BPtr, bP, bytes);
     GemmPackedMain(runtime, &mParam, param, CDestPtr, aP, bP, biasPtr, bytes, false, false);
+
     return NO_ERROR;
 }
 

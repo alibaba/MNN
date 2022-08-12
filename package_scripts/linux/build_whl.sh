@@ -17,11 +17,12 @@ while getopts "o:v:hb" opt; do
   esac
 done
 
+torch_libs="$(pwd)/pymnn_build/tools/converter/libtorch/lib"
 ./schema/generate.sh
 rm -rf $path && mkdir -p $path
 PACKAGE_PATH=$(realpath $path)
 
-CMAKE_ARGS="-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_SEP_BUILD=OFF -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON"
+CMAKE_ARGS="-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_SEP_BUILD=OFF -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_BUILD_TORCH=ON"
 if [ ! -z $opencl ]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMNN_OPENCL=ON"
 fi
@@ -31,7 +32,6 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert MNNOpenCV -j24
 popd
 
 pushd pymnn/pip_package
-echo -e "__version__ = '$mnn_version'" > MNN/version.py
 rm -rf build && mkdir build
 rm -rf dist && mkdir dist
 rm -rf wheelhouse && mkdir wheelhouse
@@ -43,9 +43,9 @@ for PYBIN in /opt/python/*/bin; do
 done
 
 # Bundle external shared libraries into the wheels
+export LD_LIBRARY_PATH=$torch_libs:$LD_LIBRARY_PATH
 for whl in dist/*.whl; do
     auditwheel repair "$whl" --plat manylinux2014_x86_64 -w wheelhouse
 done
 cp wheelhouse/* $PACKAGE_PATH
-rm MNN/version.py
 popd

@@ -50,9 +50,10 @@ __global__ void DeconvKernelReorder(const float* B, half* BP, int kw, int kh, in
     }
 }
 
+template<typename T>
 __global__ void DeconvInputRerange(const int count,
         const InputReorderParameter* param,
-        const float* Inp,
+        const T* Inp,
         __half* InpRe
         ) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
@@ -67,12 +68,13 @@ __global__ void DeconvInputRerange(const int count,
 
         __half* dst = InpRe + hU * param->lpack_size * 16 * 16 + lU * 16 * 16 + lR + hR * 16;
 
-        if(hIndex >= param->h_size) {
+        if(hIndex >= param->h_size || lIndex >= param->l_size) {
             dst[0] = (__half)0.0;
             break;
         }
-        float value = Inp[(lU*param->h_size + hIndex) * 16 + lR];
-        dst[0] = value;
+        const int channel_pack = ((param->l_size + 7) / 8) * 8;
+        T value = Inp[hIndex * channel_pack + lIndex];
+        dst[0] = (half)value;
     }
 }
 
@@ -84,18 +86,16 @@ __global__ void Col2Im(const int n, const Dtype* data_col,
     const int stride_h, const int stride_w,
     const int dilation_h, const int dilation_w,
     const int height_col, const int width_col,
-    const Dtype* bias, Dtype* data_im
+    const float* bias, Dtype* data_im
 ) {
-    const int channel_pack = ((channels+15) / 16);
+    const int channel_pack = ((channels+7) / 8) * 8;
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < (n); index += blockDim.x * gridDim.x) {
         Dtype val = 0;        
-        const int c_p = index / (batch * width * height * 16);
-        const int idx_tmp = index % (batch * width * height * 16);
-        const int b_im = idx_tmp / (width * height * 16);
-        const int hw_16  = idx_tmp % (width * height * 16);
-        const int c_l = hw_16 % 16;
-        const int c_im = c_p * 16 + c_l;
-        const int hw  = hw_16 / 16;
+        const int c_p = index % channel_pack;
+        const int idx_tmp = index / channel_pack;
+        const int b_im = idx_tmp / (width * height);
+        const int hw = idx_tmp % (width * height);
+        const int c_im = c_p;
         const int w_im = hw % width + pad_w;
         const int h_im = hw / width + pad_h;
 
@@ -104,7 +104,7 @@ __global__ void Col2Im(const int n, const Dtype* data_col,
             break;
         }
         if(nullptr != bias) {
-            val += bias[c_im];
+            val += (Dtype)bias[c_im];
         }
         int kernel_extent_w = (kernel_w - 1) * dilation_w + 1;
         int kernel_extent_h = (kernel_h - 1) * dilation_h + 1;
@@ -349,15 +349,21 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
 
     // Do input Rerange
     //runtime->memset(mInputBuffer, 0, mMatMulParam.elhPack[2] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK * sizeof(__half));
-    DeconvInputRerange<<<inp_block_num, inp_thread_num>>>(rerangeCount, gpuInpReorder, (const float*)input_addr, mInputBuffer);
+    if(bytes == 4) {
+        DeconvInputRerange<<<inp_block_num, inp_thread_num>>>(rerangeCount, gpuInpReorder, (const float*)input_addr, mInputBuffer);
+        // Do Gemm operation 
+        GemmPackedMain(runtime, &mMatMulParam, gpuMatMul, (float*)mIm2ColBuffer, (const half*)filter_addr, (const half*)mInputBuffer, nullptr, bytes, false, false);
+    } else {
+        DeconvInputRerange<<<inp_block_num, inp_thread_num>>>(rerangeCount, gpuInpReorder, (const half*)input_addr, mInputBuffer);
+        // Do Gemm operation 
+        GemmPackedMain(runtime, &mMatMulParam, gpuMatMul, (half*)mIm2ColBuffer, (const half*)filter_addr, (const half*)mInputBuffer, nullptr, bytes, false, false);
 
-    // Do Gemm operation 
-    GemmPackedMain(runtime, &mMatMulParam, gpuMatMul, (float*)mIm2ColBuffer, (const half*)filter_addr, (const half*)mInputBuffer, nullptr, bytes, false, false);
+    }
 
     // Do Col2Im trans
     int height_col = mCol2ImParamter.ih;
     int width_col = mCol2ImParamter.iw;
-    int num_kernels = mCol2ImParamter.ob * UP_DIV(mCol2ImParamter.oc, 16) * mCol2ImParamter.oh * mCol2ImParamter.ow * 16;
+    int num_kernels = mCol2ImParamter.ob * UP_DIV(mCol2ImParamter.oc, 8) * mCol2ImParamter.oh * mCol2ImParamter.ow * 8;
 
     int col2im_block_num = runtime->blocks_num(num_kernels);
     int col2im_thread_num = runtime->threads_num();
@@ -367,11 +373,19 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
     //     mCol2ImParamter.padX, mCol2ImParamter.padY, mCol2ImParamter.kernelX, mCol2ImParamter.kernelY, mCol2ImParamter.strideX, mCol2ImParamter.strideY, \
     //     col2im_block_num, col2im_thread_num);
     
-    Col2Im<float><<<col2im_block_num, col2im_thread_num>>>(
-        num_kernels, (const float*)mIm2ColBuffer, mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, 
-        mCol2ImParamter.kernelY, mCol2ImParamter.kernelX, mCol2ImParamter.padY, mCol2ImParamter.padX, 
-        mCol2ImParamter.strideY, mCol2ImParamter.strideX, mCol2ImParamter.dilateY, mCol2ImParamter.dilateX,
-        height_col, width_col, (const float*)bias_addr, (float *)output_addr);
+    if(bytes == 4) {
+        Col2Im<float><<<col2im_block_num, col2im_thread_num>>>(
+            num_kernels, (const float*)mIm2ColBuffer, mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, 
+            mCol2ImParamter.kernelY, mCol2ImParamter.kernelX, mCol2ImParamter.padY, mCol2ImParamter.padX, 
+            mCol2ImParamter.strideY, mCol2ImParamter.strideX, mCol2ImParamter.dilateY, mCol2ImParamter.dilateX,
+            height_col, width_col, (const float*)bias_addr, (float *)output_addr);
+    } else {
+        Col2Im<half><<<col2im_block_num, col2im_thread_num>>>(
+            num_kernels, (const half*)mIm2ColBuffer, mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, 
+            mCol2ImParamter.kernelY, mCol2ImParamter.kernelX, mCol2ImParamter.padY, mCol2ImParamter.padX, 
+            mCol2ImParamter.strideY, mCol2ImParamter.strideX, mCol2ImParamter.dilateY, mCol2ImParamter.dilateX,
+            height_col, width_col, (const float*)bias_addr, (half *)output_addr);
+    }
 
     return NO_ERROR;
 }

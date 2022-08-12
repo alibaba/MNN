@@ -1,11 +1,9 @@
 {
     "Train": true,
     "Optimizor": {
-        "Variables":[],
-        "type": "SGD",
-        "SGD": {
-            "LR": "LearningRate"
-        }
+        "OnlyUpdateOps":[],
+        "NoUpdateOps":[],
+        "type": "SGD"
     },
     "Debug": {
         "L2Norm": []

@@ -239,6 +239,13 @@ static void _computeStride(MNN_DATA_FORMAT srcDimensionFormat, int* srcStride, i
 }
 
 static void _computeBCA(int& batch, int& plane, int& channel, MNN_DATA_FORMAT srcDimensionFormat, const Tensor* srcTensor) {
+    if(srcTensor->dimensions() == 0) {
+        batch = 1;
+        plane = 1;
+        channel = 1;
+        return;
+    }
+
     if (srcDimensionFormat != MNN_DATA_FORMAT_NHWC) {
         batch = srcTensor->length(0);
         channel = srcTensor->length(1);
@@ -248,7 +255,10 @@ static void _computeBCA(int& batch, int& plane, int& channel, MNN_DATA_FORMAT sr
         }
     } else {
         batch = srcTensor->length(0);
-        channel = srcTensor->length(srcTensor->dimensions()-1);
+        channel = 1;
+        if(srcTensor->dimensions() > 1) {
+            channel = srcTensor->length(srcTensor->dimensions()-1);
+        }
         plane = 1;
         for (int i=1; i<srcTensor->dimensions()-1; ++i) {
             plane *= srcTensor->length(i);
@@ -273,6 +283,7 @@ static PackInfo _computePackInfo(MNN_DATA_FORMAT srcDimensionFormat, int batch, 
 }
 
 void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
+     
     auto srcDimensionFormat = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dstDimensionFormat = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcDevice          = srcTensor->deviceId() != 0;
@@ -283,15 +294,22 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     auto bytes = getBytes(srcTensor);
     auto type = srcTensor->getType();
 #ifdef MNN_CUDA_COPY_DEBUG
+    checkKernelErrors;
     MNN_PRINT("CUDA Bn copy: %d -> %d, format %d -> %d, dims: [", srcDevice, dstDevice, srcDimensionFormat, dstDimensionFormat);
     for (int i=0; i<srcTensor->dimensions(); ++i) {
         MNN_PRINT("%d ", srcTensor->length(i));
+        if(srcDevice && !dstDevice) {
+            printf("\n");
+        }
     }
-    MNN_PRINT("]\n");
+    MNN_PRINT("], ");
+    MNN_PRINT("addr:%p %p\n", srcTensor->deviceId(), dstTensor->deviceId());
 #endif
+
+    //printf("%d-%d\n", srcTensor->dimensions(), dstTensor->dimensions());
     bool directCopy = (srcDimensionFormat == dstDimensionFormat && dstDimensionFormat != MNN_DATA_FORMAT_NC4HW4) || srcTensor->dimensions() <= 1;
     if (mUseFp16AsFp32) {
-        if ((!srcDevice) || (!dstDevice)) {
+        if (((!srcDevice) || (!dstDevice))){
             if (type.code == halide_type_float) {
                 directCopy = false;
             }
@@ -331,215 +349,18 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     }
 
     // Format convert
-    FuseRegion reg;
-    int* size = reg.size;
-    int* srcStride = reg.srcStride;
-    int* dstStride = reg.dstStride;
-    int offset[PACK_NUMBER * 8];
-    int offsetNumber = 0;
-    auto offsetGpuStorage = mStaticBufferPool->alloc(PACK_NUMBER * 8 * sizeof(int));
-    auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
-    auto regionStorage = mStaticBufferPool->alloc(sizeof(FuseRegion));
-    auto regionGpu = (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second);
+    int batch, plane, channel;
+    _computeBCA(batch, plane, channel, srcDimensionFormat, srcTensor);
 
-    do {
-        if (srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0) {
-            if (srcTensor->dimensions() <= 1 || srcDimensionFormat == dstDimensionFormat) {
-                auto gpuSize = realSize(srcTensor) * getBytes(srcTensor);
-                mCUDARuntime->memcpy((void*)(dstTensor->deviceId()), (void*)(srcTensor->deviceId()), gpuSize,
-                                    MNNMemcpyDeviceToDevice, true);
-            } else {
-                int batch, plane, channel;
-                _computeBCA(batch, plane, channel, srcDimensionFormat, srcTensor);
-                PackInfo pack;
-                auto func = PackBuffer;
-                if (dstDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                    pack = _computePackInfo(srcDimensionFormat, batch, plane, channel);
-                    func = PackBuffer;
-                } else if (srcDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                    pack = _computePackInfo(dstDimensionFormat, batch, plane, channel);
-                    func = UnpackBuffer;
-                } else {
-                    FUNC_PRINT(1);
-                }
-                func((void*)(dstTensor->deviceId()), (void*)(srcTensor->deviceId()), &pack, getBytes(srcTensor), mCUDARuntime.get());
-            }
-            break;
-        }
-        auto convertFunction = FuseRasterBlitFloatToFloat;
-        if (mUseFp16AsFp32) {
-            if (!srcDevice) {
-                convertFunction = FuseRasterBlitFloatToHalf;
-            } else {
-                convertFunction = FuseRasterBlitHalfToFloat;
-            }
-        }
-        if (srcTensor->dimensions() <= 1) {
-            size[2] = srcTensor->elementSize();
-            srcStride[2] = 1;
-            dstStride[2] = 1;
-            offset[0] = 1;
-            offset[1] = 1;
-            offset[2] = size[2];
-            offset[3] = 0;
-            offset[4] = 1;
-            offset[5] = 1;
-            offset[6] = size[2];
-            offset[7] = 0;
-            offsetNumber = 1;
-        } else {
-            // Compute batch, plane, channel
-            int batch, plane, channel;
-            _computeBCA(batch, plane, channel, srcDimensionFormat, srcTensor);
-            if (dstDimensionFormat == MNN_DATA_FORMAT_NC4HW4 && srcDimensionFormat != MNN_DATA_FORMAT_NC4HW4 && dstDevice) {
-                PackInfo pack = _computePackInfo(srcDimensionFormat, batch, plane, channel);
-                if (mUseFp16AsFp32) {
-                    if (type.code == halide_type_float) {
-                        if (dstDevice) {
-                            PackFP32ToFP16(dstPtr, srcPtr, &pack, mCUDARuntime.get());
-                            break;
-                        } else {
-                            PackFP16ToFP32(dstPtr, srcPtr, &pack, mCUDARuntime.get());
-                            break;
-                        }
-                    }
-                } else {
-                    PackBuffer(dstPtr, srcPtr, &pack, bytes, mCUDARuntime.get());
-                }
-                break;
-            }
-            if (srcDimensionFormat == MNN_DATA_FORMAT_NC4HW4 && dstDimensionFormat != MNN_DATA_FORMAT_NC4HW4 && srcDevice) {
-                PackInfo pack = _computePackInfo(dstDimensionFormat, batch, plane, channel);
-                if (mUseFp16AsFp32) {
-                    if (type.code == halide_type_float) {
-                        if (dstDevice) {
-                            UnpackFP32ToFP16(dstPtr, srcPtr, &pack, mCUDARuntime.get());
-                            break;
-                        } else {
-                            UnpackFP16ToFP32(dstPtr, srcPtr, &pack, mCUDARuntime.get());
-                            break;
-                        }
-                    }
-                } else {
-                    UnpackBuffer(dstPtr, srcPtr, &pack, bytes, mCUDARuntime.get());
-                }
-                break;
-            }
-            //MNN_PRINT("host/device: %d -> %d, format %d -> %d, b, p, c: %d - %d - %d\n", srcDevice, dstDevice, srcDimensionFormat, dstDimensionFormat, batch, plane, channel);
-            // Set region
-            if (srcDimensionFormat != MNN_DATA_FORMAT_NC4HW4 && dstDimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-                size[0] = batch;
-                size[1] = channel;
-                size[2] = plane;
-                offsetNumber = 1;
-                offset[0] = batch;
-                offset[1] = channel;
-                offset[2] = plane;
-                offset[3] = 0;
-                offset[4] = batch;
-                offset[5] = channel;
-                offset[6] = plane;
-                offset[7] = 0;
-                if (srcDimensionFormat == MNN_DATA_FORMAT_NHWC) {
-                    srcStride[0] = channel * plane;
-                    srcStride[1] = 1;
-                    srcStride[2] = channel;
-                } else {
-                    srcStride[0] = channel * plane;
-                    srcStride[1] = plane;
-                    srcStride[2] = 1;
-                }
-                if (dstDimensionFormat == MNN_DATA_FORMAT_NHWC) {
-                    dstStride[0] = channel * plane;
-                    dstStride[1] = 1;
-                    dstStride[2] = channel;
-                } else {
-                    dstStride[0] = channel * plane;
-                    dstStride[1] = plane;
-                    dstStride[2] = 1;
-                }
-            } else {
-                offsetNumber = PACK_NUMBER;
-                size[0] = batch;
-                size[1] = UP_DIV(channel, PACK_NUMBER);
-                size[2] = plane;
-                int srcPack = 1;
-                int dstPack = 1;
-                int srcChannelLimit = channel;
-                if (srcDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                    if (srcDevice) {
-                        srcPack = PACK_NUMBER;
-                        srcChannelLimit = UP_DIV(channel, PACK_NUMBER) * PACK_NUMBER;
-                    } else {
-                        srcPack = 4;
-                        srcChannelLimit = UP_DIV(channel, 4) * 4;
-                    }
-                }
-                int dstChannelLimit = channel;
-                if (dstDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                    if (dstDevice) {
-                        dstPack = PACK_NUMBER;
-                        dstChannelLimit = UP_DIV(channel, PACK_NUMBER) * PACK_NUMBER;
-                    } else {
-                        dstPack = 4;
-                        dstChannelLimit = UP_DIV(channel, 4) * 4;
-                    }
-                }
-                // Compute Stride
-                _computeStride(srcDimensionFormat, srcStride, batch, plane, channel, srcPack);
-                _computeStride(dstDimensionFormat, dstStride, batch, plane, channel, dstPack);
+    // for (int i=0; i<srcTensor->dimensions(); ++i) {
+    //     MNN_PRINT("%d ", srcTensor->length(i));
+    // }
+    // MNN_PRINT("\n, batch:%d, plane:%d, channel:%d, dims:%d\n", batch, plane, channel, srcTensor->dimensions());
 
-                // Compute Offset
-                for (int i=0; i<offsetNumber; ++i) {
-                    auto offsetPtr = offset + i * 8;
-                    int channelStart = i;
-                    offsetPtr[0] = batch;
-                    offsetPtr[1] = (srcChannelLimit + PACK_NUMBER - channelStart - 1) / PACK_NUMBER;
-                    offsetPtr[2] = plane;
-                    if (srcDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                        int sp = i / srcPack;
-                        int sm = i % srcPack;
-                        offsetPtr[3] = sm + sp * srcPack * plane * batch;
-                    } else {
-                        offsetPtr[3] = channelStart * srcStride[1] / PACK_NUMBER;
-                    }
+    FormatConvert((float *)dstPtr, (float *)srcPtr, srcDimensionFormat, dstDimensionFormat, mCUDARuntime.get(), \
+            plane, batch, channel, srcTensor, \
+            mUseFp16AsFp32, srcDevice, dstDevice);
 
-                    offsetPtr[4] = batch;
-                    offsetPtr[5] = (dstChannelLimit + PACK_NUMBER - channelStart - 1) / PACK_NUMBER;
-                    offsetPtr[6] = plane;
-                    if (dstDimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-                        int sp = i / dstPack;
-                        int sm = i % dstPack;
-                        offsetPtr[7] = sm + sp * dstPack * plane * batch;
-                    } else {
-                        offsetPtr[7] = channelStart * dstStride[1] / PACK_NUMBER;
-                    }
-                }
-            }
-        }
-        reg.fuseNumber = offsetNumber;
-        mCUDARuntime->memcpy(regionGpu, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
-        mCUDARuntime->memcpy(offsetGpu, offset, offsetNumber * 8 * sizeof(int), MNNMemcpyHostToDevice, true);
-#ifdef MNN_CUDA_COPY_DEBUG
-        MNN_PRINT("Reg.size: %d - %d - %d\n", reg.size[0], reg.size[1], reg.size[2]);
-        MNN_PRINT("Reg.srcStride: %d - %d - %d\n", reg.srcStride[0], reg.srcStride[1], reg.srcStride[2]);
-        MNN_PRINT("Reg.dstStride: %d - %d - %d\n", reg.dstStride[0], reg.dstStride[1], reg.dstStride[2]);
-        MNN_PRINT("FuseNum: %d\n", reg.fuseNumber);
-        for (int i=0; i<reg.fuseNumber; ++i) {
-            auto off = offset + 8 * i;
-            MNN_PRINT("Src: %d, %d, %d, %d; dst:%d, %d, %d, %d\n", off[0], off[1], off[2], off[3], off[4], off[5], off[6], off[7]);
-        }
-#endif
-        if (mUseFp16AsFp32) {
-            if (type.code == halide_type_float) {
-                convertFunction(dstPtr, srcPtr, regionGpu, offsetGpu, mCUDARuntime.get());
-                break;
-            }
-        }
-        FuseRasterBlitCommon(dstPtr, srcPtr, regionGpu, offsetGpu, mCUDARuntime.get(), type.bytes());
-    } while(false);
-    mStaticBufferPool->free(offsetGpuStorage);
-    mStaticBufferPool->free(regionStorage);
     if (!srcDevice) {
         mStaticBufferPool->free(tempSrcStorage);
     }

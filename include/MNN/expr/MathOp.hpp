@@ -68,7 +68,7 @@ MNN_PUBLIC VARP _Erf(VARP x);
 MNN_PUBLIC VARP _Erfc(VARP x);
 MNN_PUBLIC VARP _Erfinv(VARP x);
 MNN_PUBLIC VARP _Expm1(VARP x);
-
+MNN_PUBLIC VARP _Hardswish(VARP x);
 
 //ReduceOPs
 MNN_PUBLIC VARP _ReduceSum(VARP input_variable, INTS axis = {}, bool keepDims = false);
@@ -137,6 +137,7 @@ MNN_PUBLIC VARP _RandomUnifom(VARP shape, halide_type_t dtype, float low = 0.0f,
 MNN_PUBLIC VARP _CumSum(VARP x, int axis, bool exclusive = false, bool reverse = false);
 MNN_PUBLIC VARP _CumProd(VARP x, int axis);
 MNN_PUBLIC VARPS _Svd(VARP x);
+MNN_PUBLIC VARP _Histogram(VARP x, int bin, int min, int max, int channel = -1);
 }; // namespace Express
 }; // namespace MNN
 

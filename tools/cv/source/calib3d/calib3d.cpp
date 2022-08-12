@@ -12,7 +12,11 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <cmath>
-
+#define DUMP(x)\
+{\
+    printf(#x "\n");\
+    Math::Matrix::print(x.get());\
+}
 namespace MNN {
 namespace CV {
 // helper functions
@@ -52,9 +56,11 @@ std::unique_ptr<Tensor> nearestRotationMatrix(Tensor* e_) {
     float detuv[9] = {1, 0, 0, 0, 1, 0, 0, 0, det3x3(u_->host<float>()) * det3x3(v_->host<float>())};
     std::unique_ptr<Tensor> detuv_(Math::Matrix::createShape(3, 3, detuv));
     std::unique_ptr<Tensor> udetuv_(Math::Matrix::create(3, 3));
+    std::unique_ptr<Tensor> R_(Math::Matrix::create(3, 3));
     std::unique_ptr<Tensor> r_(Math::Matrix::create(3, 3));
     Math::Matrix::multi(udetuv_.get(), u_.get(), detuv_.get());
-    Math::Matrix::multi(r_.get(), udetuv_.get(), vt_.get());
+    Math::Matrix::multi(R_.get(), udetuv_.get(), vt_.get());
+    Math::Matrix::transpose(r_.get(), R_.get());
     r_->buffer().dim[0].extent = 9;
     r_->buffer().dim[0].stride = 1;
     r_->buffer().dim[1].extent = 1;
@@ -355,10 +361,23 @@ std::unique_ptr<Tensor> runSQP(Tensor* r_, Tensor* omega_) {
     }
     return solution_r_hat_;
 }
-void handleSolution(Tensor* solution_r_hat_, Tensor* solution_t, Tensor* omega_, float mean_x, float mean_y, float mean_z, VARP& rvec, VARP& tvec, float& min_sq_error) {
+void handleSolution(Tensor* solution_r_hat_, Tensor* solution_t, Tensor* omega_,
+                    float mean_x, float mean_y, float mean_z, const float* optr, int n,
+                    VARP& rvec, VARP& tvec, float& min_sq_error) {
     auto r = solution_r_hat_->host<float>();
     auto t = solution_t->host<float>();
     bool cheirok = (r[6] * mean_x + r[7] * mean_y + r[8] * mean_z + t[2]) > 0;
+    if (!cheirok) {
+        int npos = 0, nneg = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (r[6] * optr[0] + r[7] * optr[1] + r[8] * optr[2] + t[2] > 0) {
+                ++npos;
+            } else {
+                ++nneg;
+            }
+        }
+        cheirok = (npos >= nneg);
+    }
     if (cheirok) {
         float sq_error = 0.f;
         std::unique_ptr<Tensor> omega_r_(Math::Matrix::create(1, 9));
@@ -474,18 +493,34 @@ std::pair<VARP, VARP> solvePnP(VARP objectPoints, VARP imagePoints, VARP cameraM
         if (orthogonality_sq_error < 1e-8) {
             Math::Matrix::mul(solution_r_hat_.get(), e_.get(), det9x1(e));
             Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, rvec, tvec, min_sq_error);
+            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
         } else {
             auto r0_ = nearestRotationMatrix(e_.get());
             solution_r_hat_ = runSQP(r0_.get(), omega_.get());
             Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, rvec, tvec, min_sq_error);
+            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
             Math::Matrix::mul(e_.get(), e_.get(), -1.f);
             auto r1_ = nearestRotationMatrix(e_.get());
             solution_r_hat_ = runSQP(r1_.get(), omega_.get());
             Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, rvec, tvec, min_sq_error);
+            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
         }
+    }
+    int index, c = 1;
+    while ((index = 9 - num_eigen_points - c) > 0 && min_sq_error > 3 * s_->readMap<float>()[index]) {
+        for (int j = 0; j < 9; j++) {
+            e[j] = vt_->readMap<float>()[index * 9 + j];
+        }
+        auto r0_ = nearestRotationMatrix(e_.get());
+        solution_r_hat_ = runSQP(r0_.get(), omega_.get());
+        Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
+        handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+        Math::Matrix::mul(e_.get(), e_.get(), -1.f);
+        auto r1_ = nearestRotationMatrix(e_.get());
+        solution_r_hat_ = runSQP(r1_.get(), omega_.get());
+        Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
+        handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+        c++;
     }
     // solveInternal end
     rvec = Rodrigues(rvec);
@@ -528,7 +563,7 @@ VARP Rodrigues(VARP src) {
         z *= vth;
     }
     float data[3] = { x, y, z };
-    return _Const(data, {3}, NCHW);
+    return _Const(data, {3, 1}, NCHW);
 }
 } // CV
 } // MNN

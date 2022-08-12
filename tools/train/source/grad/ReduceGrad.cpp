@@ -28,7 +28,6 @@ public:
             for (int i = 0; i < shape->size; ++i) {
                 reductionDims.emplace_back(ptr[i]);
             }
-            inputs[1]->unMap();
         }
         if (reductionDims.empty()) {
             auto shape = inputs[0]->getInfo();
@@ -36,45 +35,53 @@ public:
                 reductionDims.emplace_back(i);
             }
         }
-        VARP init;
-        {
-            unique_ptr<OpT> newOp(new OpT);
-            newOp->name = forwardOp->name + "__Zero";
-            newOp->type = OpType_ZerosLike;
-            init        = Variable::create(Expr::create(std::move(newOp), {inputs[0]}));
-        }
+
+        VARP mask = _ZerosLike(inputs[0]) + _Scalar<float>(1.0f);
         auto outputDiff = backwardOutput[0];
 
         // implement other reduction op's grad below
         if (forwardOp->main.AsReductionParam()->operation == ReductionType_SUM) {
             // do not need to modify grads, just copy them, so, pass
         }
+
         if (forwardOp->main.AsReductionParam()->operation == ReductionType_MEAN) {
             float gradCount  = outputDiff->getInfo()->size;
             float inputCount = inputs[0]->getInfo()->size;
             outputDiff       = _Multiply(outputDiff, _Scalar<float>((float)gradCount / (float)inputCount));
         }
 
-        // this should be common operations, to expand grads to inputs shape
-        if (!keepDim) {
-            // Create Unsqueeze Op
-            unique_ptr<OpT> newOp(new OpT);
-            newOp->name                               = forwardOp->name + "__Unsqueeze";
-            newOp->type                               = OpType_Unsqueeze;
-            newOp->main.type                          = OpParameter_SqueezeParam;
-            newOp->main.value                         = new SqueezeParamT;
-            newOp->main.AsSqueezeParam()->squeezeDims = reductionDims;
-            outputDiff                                = Variable::create(Expr::create(std::move(newOp), {outputDiff}));
-        }
         if (forwardOp->main.AsReductionParam()->operation == ReductionType_MAXIMUM) {
             auto output = Variable::create(expr);
             if (!keepDim) {
                 output = _Unsqueeze(output, reductionDims);
             }
-            result[0] =  (_Sign(inputs[0] - output) + _Scalar<float>(1.0f)) * outputDiff;
-        } else {
-            result[0] = _Add(init, outputDiff);
+            mask = _Sign(inputs[0] - output) + _Scalar<float>(1.0f);
+            mask = mask / _ReduceSum(mask);
         }
+
+        if (forwardOp->main.AsReductionParam()->operation == ReductionType_MINIMUM) {
+            auto output = Variable::create(expr);
+            if (!keepDim) {
+                output = _Unsqueeze(output, reductionDims);
+            }
+            mask = _Sign(output - inputs[0]) + _Scalar<float>(1.0f);
+            mask = mask / _ReduceSum(mask);
+        }
+
+        if (forwardOp->main.AsReductionParam()->operation == ReductionType_PROD) {
+            auto output = Variable::create(expr);
+            if (!keepDim) {
+                output = _Unsqueeze(output, reductionDims);
+            }
+            mask = output / inputs[0];
+        }
+
+        // this should be common operations, to expand grads to inputs shape
+        if (!keepDim) {
+            outputDiff = _Unsqueeze(outputDiff, reductionDims);
+        }
+
+        result[0] = mask * outputDiff;
         return result;
     }
 };

@@ -43,7 +43,7 @@ private:
     int _channels;
     int _batch = 32;
     int _quant_bits = 8;
-    bool _winogradOptForMobile = false;
+    bool _winogradOpt = false;
     Helper::PreprocessConfig _preprocessConfig;
     Helper::InputType _inputType;
     std::string _calibrationFilePath;

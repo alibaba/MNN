@@ -233,7 +233,9 @@ IMREAD_ANYDEPTH = 4
 ROTATE_90_CLOCKWISE = 0
 ROTATE_180 = 1
 ROTATE_90_COUNTERCLOCKWISE = 2
-
+# solvePnP
+SOLVEPNP_ITERATIVE = 0
+SOLVEPNP_SQPNP = 8
 # helper functions
 def __to_int(x):
     dtype = x.dtype
@@ -270,6 +272,9 @@ def copyTo(src, mask=None, dst=None):
     mask = __to_int(mask)
     # select
     return _np.where(mask, src, dst).astype(origin_dtype)
+def solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, flags=SOLVEPNP_ITERATIVE):
+    rv, tv = _F.solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs)
+    return (True, rv, tv)
 def bitwise_and(src1, src2, dst=None, mask=None):
     origin_dtype = src1.dtype
     src1 = __to_int(src1)

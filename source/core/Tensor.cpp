@@ -466,5 +466,10 @@ int Tensor::wait(MapType mtype, bool finish) {
     return bn->onSync(mtype, finish, this);
 }
 
+void Tensor::destroy(Tensor* tensor) {
+    if (nullptr != tensor) {
+        delete tensor;
+    }
+}
 
 } // namespace MNN

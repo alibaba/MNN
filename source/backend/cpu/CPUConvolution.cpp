@@ -17,6 +17,7 @@
 #include <MNN/AutoTime.hpp>
 #include "core/ConvolutionCommon.hpp"
 
+#include "backend/cpu/compute/ConvInt8Winograd.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 #include "backend/cpu/compute/SparseConvInt8TiledExecutor.hpp"
 #ifdef MNN_USE_ONEDNN
@@ -124,8 +125,18 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
 
     std::shared_ptr<CPUConvolution::ResourceInt8> resource(new ResourceInt8);
     resource->backend = backend;
-    resource->mInputScale = inputQuantInfo[0];
-    resource->mOutputScale = outputQuantInfo[0];
+    auto inputScale = inputQuantInfo[0], outputScale = outputQuantInfo[0];
+    // TODO: ConvInt8Winograd need in/out scale, which isn't exist in quantinfo when model construct by V3 API
+    if (convParam->quanParameter() != nullptr) {
+        if (inputScale == 0) {
+            inputScale = convParam->quanParameter()->scaleIn();
+        }
+        if (outputScale == 0) {
+            outputScale = convParam->quanParameter()->scaleOut();
+        }
+    }
+    resource->mInputScale = inputScale;
+    resource->mOutputScale = outputScale;
     const auto convCommon  = convParam->common();
     const auto group = convParam->common()->group();
     const auto outputCount = convCommon->outputCount();
@@ -150,7 +161,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     resource->mOutputCount = outputCount;
     if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr,
-                                                  inputQuantInfo[0], outputQuantInfo[0],
+                                                  inputScale, outputScale,
                                                   convParam->symmetricQuan()->zeroPoint(),
                                                   convParam->symmetricQuan()->outputZeroPoint())) {
         return nullptr;
@@ -178,7 +189,9 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     for (int x = 0; x < outputCount; ++x) {
         int offset = resource->mInt8WeightKernelSum[x] * (-128);
         resource->offsets[x] = offset;
-        biasPtr[x] = biasPtr[x] + offset;
+        if (convParam->symmetricQuan()->winogradAttr() == nullptr) {
+            biasPtr[x] = biasPtr[x] + offset;
+        }
     }
 #endif
     auto weightDst = resource->mWeightInt8->host<int8_t>();
@@ -281,6 +294,9 @@ public:
             return new SparseConvInt8TiledExecutor(backend, convOp, res);
         }
 #endif
+        if (ConvInt8Winograd::mustUse(convOp)) {
+            return new ConvInt8Winograd(backend, convOp, res);
+        }
         return new DenseConvInt8TiledExecutor(backend, convOp, res);
     }
 };

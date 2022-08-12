@@ -368,6 +368,9 @@ static inline bool isInt(PyObject* obj) {
 static inline bool isFloat(PyObject* obj) {
     return PyFloat_Check(obj);
 }
+static inline bool isNone(PyObject* obj) {
+    return (obj == Py_None);
+}
 static inline bool isVals(PyObject* obj) {
     return
 #ifdef PYMNN_NUMPY_USABLE

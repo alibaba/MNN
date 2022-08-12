@@ -9,6 +9,7 @@
 #ifndef WingoradGenerater_hpp
 #define WingoradGenerater_hpp
 #include <memory>
+#include <vector>
 #include "math/Matrix.hpp"
 namespace MNN {
 namespace Math {
@@ -16,6 +17,7 @@ class MNN_PUBLIC WinogradGenerater {
 public:
     // If dividedInG, make A, B not frac, else make A, G not frac
     WinogradGenerater(int computeUnit, int kernelSize, float interp = 0.5f, bool dividedInG = false);
+    WinogradGenerater(std::vector<int> computeUnit, std::vector<int> kernelSize, float interp = 0.5f, bool dividedInG = false);
     ~WinogradGenerater() = default;
 
     std::shared_ptr<Tensor> A() const {
@@ -32,11 +34,11 @@ public:
     void transformWeight(const Tensor* dest, const Tensor* source, bool ciFirst = false);
 
 private:
-    std::shared_ptr<Tensor> mA;
-    std::shared_ptr<Tensor> mG;
+    std::shared_ptr<Tensor> mA, mA_Right;
+    std::shared_ptr<Tensor> mG, mG_Right;
     std::shared_ptr<Tensor> mB;
-    int mUnit;
-    int mKernelSize;
+    int mUnitY, mUnitX;
+    int mKernelY, mKernelX;
 };
 } // namespace Math
 } // namespace MNN

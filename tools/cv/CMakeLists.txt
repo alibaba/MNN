@@ -1,10 +1,13 @@
 IF(MNN_BUILD_OPENCV)
+  # imgproc submodules start
   option(MNN_IMGPROC_COLOR "Enable imgproc color" ON)
   option(MNN_IMGPROC_GEOMETRIC "Enable imgproc geometric" ON)
   option(MNN_IMGPROC_DRAW "Enable imgproc draw" ON)
   option(MNN_IMGPROC_FILTER "Enable imgproc filter" ON)
   option(MNN_IMGPROC_MISCELLANEOUS "Enable imgproc miscellaneous" ON)
   option(MNN_IMGPROC_STRUCTRAL "Enable imgproc structral" ON)
+  option(MNN_IMGPROC_HISTOGRAMS "Enable imgproc histograms" ON)
+  # imgproc submodules end
   option(MNN_CALIB3D "Enable calib3d" ON)
   option(MNN_IMGCODECS "Enable imgcodecs" OFF)
   option(MNN_OPENCV_TEST "Enable opencv test" OFF)
@@ -53,6 +56,10 @@ IF(MNN_BUILD_OPENCV)
   # imgproc structural functions
   if(${MNN_IMGPROC_STRUCTRAL})
     list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/structural.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/structural.hpp)
+  endif()
+  # imgproc histograms functions
+  if(${MNN_IMGPROC_HISTOGRAMS})
+    list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/histograms.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/histograms.hpp)
   endif()
   # calib3d functions
   if(${MNN_CALIB3D})

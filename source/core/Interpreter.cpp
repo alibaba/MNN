@@ -85,15 +85,6 @@ static Content* loadModelFile(const char* file) {
     return net;
 }
 
-Interpreter* Interpreter::createFromFileWithoutAuth(const char* file) {
-    Content* net = loadModelFile(file);
-    if (nullptr == net) {
-        return nullptr;
-    }
-
-    return createFromBufferInternal(net, false);
-}
-
 Interpreter* Interpreter::createFromFile(const char* file) {
     Content* net = loadModelFile(file);
     if (nullptr == net) {
@@ -150,7 +141,13 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
 }
 
 void Interpreter::setSessionHint(HintMode mode, int hint) {
-    mNet->modes.maxTuningNumber = hint;
+    switch (mode) {
+        case MAX_TUNING_NUMBER:
+            mNet->modes.maxTuningNumber = hint;
+            break;
+        default:
+            break;
+    }
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
@@ -437,12 +434,18 @@ const std::map<std::string, Tensor*>& Interpreter::getSessionOutputAll(const Ses
     }
     return tensors;
 }
-
 void Interpreter::resizeSession(Session* session) {
+    resizeSession(session, 0);
+}
+
+void Interpreter::resizeSession(Session* session, int needRelloc) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (mNet->buffer.get() == nullptr) {
         MNN_ERROR("The model buffer has been released. Can't resize session\n");
         return;
+    }
+    if (1 == needRelloc) {
+        session->setNeedMalloc(true);
     }
     session->resize();
 }
@@ -611,6 +614,11 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
     }
     _getDefaultBackend(res);
     return res;
+}
+void Interpreter::destroy(Interpreter* net) {
+    if (nullptr != net) {
+        delete net;
+    }
 }
 
 } // namespace MNN

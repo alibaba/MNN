@@ -88,6 +88,7 @@ public:
                                 const int normalCount = 0, const Tensor* dstTensor = nullptr);
 
     ~ImageProcess();
+    static void destroy(ImageProcess* imageProcess);
 
     /**
      * @brief get affine transform matrix.

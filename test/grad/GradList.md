@@ -1,0 +1,169 @@
+- BinaryOp
+  - [x] ADD
+  - [x] SUB
+  - [x] MUL
+  - [x] DIV
+  - [x] POW
+  - [x] REALDIV
+  - [x] MINIMUM
+  - [x] MAXIMUM
+  - [x] SquaredDifference
+  - [x] ATAN2
+
+- UnaryOp
+  - [x] ABS
+  - [x] NEG
+  - [x] SQUARE
+  - [x] SQRT
+  - [x] RSQRT
+  - [x] EXP
+  - [x] LOG
+  - [x] SIN
+  - [x] COS
+  - [x] TAN
+  - [x] ASIN
+  - [x] ACOS
+  - [x] ATAN
+  - [x] RECIPROCAL
+  - [x] LOG1P
+  - [ ] BNLL
+  - [x] ACOSH
+  - [x] SINH
+  - [x] ASINH
+  - [x] ATANH
+  - [x] COSH
+  - [x] ERF
+  - [x] ERFC
+  - [x] ERFINV
+  - [x] EXPM1
+  - [x] TANH
+  - [x] SIGMOID
+  - [x] HARDSWISH
+  - [x] GELU
+  - [x] GELU_STANDARD
+
+- Eltwise
+  - [x] PROD
+  - [x] SUM
+  - [x] MAXIMUM
+  - [x] SUB
+
+- Reduction
+  - [x] SUM
+  - [x] MEAN
+  - [x] MAXIMUM
+  - [x] MINIMUM
+  - [x] PROD
+
+- [ ] Raster
+  - [ ] Tile
+  - [ ] TensorArray
+  - [ ] TensorArraySize
+  - [ ] TensorArrayRead
+  - [ ] TensorArrayWrite
+  - [ ] TensorArrayGather
+  - [ ] TensorArrayScatter
+  - [ ] TensorArraySplit
+  - [ ] TensorArrayConcat
+  - [ ] StridedSlice
+  - [ ] SpaceToBatchND
+  - [ ] BatchToSpaceND
+  - [x] Slice
+  - [ ] Unpack
+  - [ ] SliceTf
+  - [ ] Shape
+  - [ ] Rank
+  - [ ] PriorBox
+  - [ ] Size
+  - [ ] ReverseSequence
+  - [ ] Reverse
+  - [x] Reshape
+  - [x] Squeeze
+  - [x] Unsqueeze
+  - [ ] ExpandDims
+  - [ ] Flatten
+  - [x] Transpose
+  - [x] Permute
+  - [ ] Gather
+  - [x] GatherV2
+  - [ ] GatherND
+  - [x] Fill
+  - [ ] ZerosLike
+  - [x] ZeroGrad
+  - [ ] DepthToSpace
+  - [ ] SpaceToDepth
+  - [ ] Crop
+  - [ ] Padding
+  - [x] ConvertTensor
+  - [ ] Im2Col
+  - [x] Concat
+  - [ ] Pack
+  - [ ] BroadcastTo
+  - [ ] Threshold
+  - [ ] SpatialProduct
+  - [ ] Pooling3D
+  - [ ] LSTM
+  - [ ] LSTMBlockCell
+  - [ ] LRN
+  - [ ] Normalize
+  - [ ] InnerProduct
+  - [ ] ELU
+  - [ ] SELU
+  - [ ] Dilation2D
+  - [ ] CosineSimilarity
+  - [ ] Convolution3D
+  - [x] BatchMatMul
+
+- [ ] ArgMin
+- [ ] ArgMax
+- [ ] InstanceNorm
+- [x] Convolution
+- [x] ConvolutionDepthwise
+- [ ] CropAndResize
+- [ ] ImageProcess
+- [x] Deconvolution
+- [x] DeconvolutionDepthwise
+- [x] Dropout
+- [ ] Exp
+- [ ] Im2Seq
+- [x] Interp
+- [ ] Log
+- [x] MatMul
+- [x] Pooling
+- [ ] Power
+- [x] PReLU
+- [ ] Range
+- [ ] ReduceJoin
+- [x] ReLU
+- [x] ReLU6
+- [x] Resize
+- [ ] RNN
+- [ ] ROIPooling
+- [ ] Scale
+- [ ] Selu
+- [ ] Seq2Out
+- [x] Sigmoid
+- [x] Softmax
+- [ ] Col2Im
+- [x] TanH
+- [ ] TopKV2
+- [ ] RNNSequenceGRU
+- [ ] MatrixBandPart
+- [ ] ScatterNd
+- [ ] OneHot
+- [ ] RandomUniform
+- [ ] ROIAlign
+- [ ] RandomNormal
+- [ ] EyeLike
+- [ ] CumSum
+- [ ] Det
+- [ ] CumProd
+- [ ] ScatterElements
+- [ ] GatherElements
+- [x] Select
+- [ ] Broastcast
+- [ ] BatchNorm
+- [ ] LayerNorm
+- [ ] GridSample
+- [ ] While
+- [ ] If
