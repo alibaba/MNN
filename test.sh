@@ -37,7 +37,8 @@ USER_NAME=`whoami`
 USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 
 # detect change
-SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | grep -v "aliyun-log-c-sdk")
+SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | \
+                grep -Ev "aliyun-log-c-sdk|hiai|tensorrt")
 PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
 PY_CHANGE=$(git show --name-only | grep -E "^pymnn/pip_package/MNN/.*\.(py)$")
 OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
@@ -89,6 +90,7 @@ android_static_build() {
     pushd android_build
     cmake .. \
     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DCMAKE_BUILD_TYPE=Release \
     -DANDROID_ABI="arm64-v8a" \
     -DANDROID_STL=c++_static \
@@ -117,6 +119,7 @@ android_static_build() {
     pushd android_build_32
     cmake .. \
     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DCMAKE_BUILD_TYPE=Release \
     -DANDROID_ABI="armeabi-v7a" \
     -DANDROID_STL=c++_shared \
@@ -151,14 +154,17 @@ linux_build() {
 
     mkdir build_non_sse
     pushd build_non_sse
-    cmake .. -DMNN_USE_SSE=OFF && make -j16
+    cmake .. -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_USE_SSE=OFF && make -j16
 
     linux_build_wrong=$[$? > 0]
     popd
 
     mkdir build
     pushd build
+    # copy libtorch avoid wget, speed up ci build
+    cp ~/libtorch-cxx11-abi-shared-with-deps-1.9.0+cpu.zip .
     cmake .. \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DCMAKE_BUILD_TYPE=Release \
         -DMNN_BUILD_TEST=ON \
         -DMNN_CUDA=ON \
@@ -373,7 +379,7 @@ android_test() {
     # 1. build Android32
     mkdir build_32
     pushd build_32
-    ../build_32.sh
+    ../build_32.sh -DMNN_BUILD_TRAIN=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     android32_build_wrong=$[$? > 0]
     mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -395,7 +401,7 @@ android_test() {
     # 3. build Android64
     mkdir build_64
     pushd build_64
-    ../build_64.sh
+    ../build_64.sh -DMNN_BUILD_TRAIN=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     android64_build_wrong=$[$? > 0]
     mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -449,7 +455,8 @@ case "$1" in
         android_test
         ;;
     *)
-        echo $"Usage: $0 {local|linux|android}"
+        $1
+        echo $"Usage: $0 {local|linux|android|func}"
         exit 2
 esac
 exit $?

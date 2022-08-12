@@ -15,5 +15,6 @@
 #include "miscellaneous.hpp"
 #include "color.hpp"
 #include "structural.hpp"
+#include "histograms.hpp"
 
 #endif // IMGPROC_HPP

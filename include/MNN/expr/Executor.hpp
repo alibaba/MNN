@@ -42,6 +42,7 @@ public:
     ErrorCode computeInfo(Expr* expr);
     void makeCache(const std::vector<EXPRP>& expr, bool forceCPU = false);
     ErrorCode runCache(std::shared_ptr<ComputeCache> cache);
+    bool lazyEval = true;
     /**Internal Usage End*/
 
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
@@ -77,6 +78,11 @@ public:
          * @param cacheName : full path for cache file. Note: should choose location for reading and writing.
          */
         static RuntimeManager* createRuntimeManager(const ScheduleConfig& config);
+        
+        /**
+         * @param rtmgr : the rtmgr to destroy
+         */
+        static void destroy(RuntimeManager* rtmgr);
 
         /**
          * Deceperate, the same as createRuntimeManager(configs[0])

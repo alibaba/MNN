@@ -61,7 +61,7 @@ static void dumpTensorToFile(const Tensor* tensor, std::string fileName) {
 int main(int argc, const char* argv[]) {
     if (argc < 5) {
         MNN_PRINT(
-            "Usage: ./train.out model.mnn data.bin test.bin times [learningRate] [LossName] [backend "
+            "Usage: ./train.out model.mnn data.bin test.bin times [learningRate] [weightDecay] [momentum] [LossName] [backend "
             "{0:CPU,1:OPENCL}]\n");
         return 0;
     }
@@ -73,13 +73,21 @@ int main(int argc, const char* argv[]) {
     if (argc > 5) {
         lr = stringConvert<float>(argv[5]);
     }
-    std::string lossName = "Loss";
+    float weightDecay = 1e-4;
     if (argc > 6) {
-        lossName = argv[6];
+        weightDecay = stringConvert<float>(argv[6]);
+    }
+    float moment = 0.9;
+    if (argc > 7) {
+        moment = stringConvert<float>(argv[7]);
+    }
+    std::string lossName = "Loss";
+    if (argc > 8) {
+        lossName = argv[8];
     }
     ScheduleConfig config;
-    if (argc > 7) {
-        int backend = stringConvert<int>(argv[7]);
+    if (argc > 9) {
+        int backend = stringConvert<int>(argv[9]);
         if (backend == 1) {
             config.type = MNN_FORWARD_OPENCL;
         }
@@ -146,6 +154,15 @@ int main(int argc, const char* argv[]) {
     auto learnRate = net->getSessionInput(session, "LearningRate");
     std::unique_ptr<Tensor> learnRateHost(Tensor::createHostTensorFromDevice(learnRate, false));
     learnRateHost->host<float>()[0] = lr;
+
+    auto wd = net->getSessionInput(session, "WeightDecay");
+    std::unique_ptr<Tensor> wdHost(Tensor::createHostTensorFromDevice(wd, false));
+    wd->host<float>()[0] = weightDecay;
+
+    auto momentum = net->getSessionInput(session, "Momentum");
+    std::unique_ptr<Tensor> momentumHost(Tensor::createHostTensorFromDevice(momentum, false));
+    momentum->host<float>()[0] = moment;
+
     TensorCallBack begin            = [](const std::vector<Tensor*>& inputs, const std::string& name) { return true; };
     TensorCallBack afterEval        = [lossName](const std::vector<Tensor*>& output, const std::string& name) {
         if (name == lossName) {

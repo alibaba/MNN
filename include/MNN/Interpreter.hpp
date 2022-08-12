@@ -119,6 +119,12 @@ public:
      */
     static Interpreter* createFromBuffer(const void* buffer, size_t size);
     ~Interpreter();
+    
+    /**
+     * @brief destroy Interpreter
+     * @param model    given Interpreter to release.
+     */
+    static void destroy(Interpreter* net);
 
     enum SessionMode {
         /** About CallBack, Default Session_Debug*/
@@ -230,6 +236,15 @@ public:
      */
     void resizeSession(Session* session);
 
+    /**
+     * @brief call this function to get tensors ready. output tensor buffer (host or deviceId) should be retrieved
+     *        after resize of any input tensor.
+     * @param session given session.
+     * @param needRelloc, 1 means need realloc.
+     */
+    void resizeSession(Session* session, int needRelloc);
+
+    
     /**
      * @brief call this function if don't need resize or create session any more, it will save a few memory that equal
      * to the size of model buffer
@@ -382,9 +397,6 @@ public:
 private:
     static Interpreter* createFromBufferInternal(Content* net, bool enforceAuth);
 
-    // Private method for internal use to bypass Model Auth.
-    static Interpreter* createFromFileWithoutAuth(const char* file);
-
     Content* mNet = nullptr;
     Interpreter(Content* net);
 
@@ -396,7 +408,6 @@ private:
 #ifdef MNN_INTERNAL_ENABLED
     void logForRunSession(const Session* session, float time, const char* api) const;
 #endif
-    friend class PythonAuthByPass;
 };
 } // namespace MNN
 

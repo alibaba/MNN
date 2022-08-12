@@ -251,7 +251,6 @@ struct CoreFunctions {
     void(*MNNCopyC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
     void(*MNNAddC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 
-    typedef void (*WinoTransFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);
     typedef void (*WinoTransPackFunc)(float* srcBlock, float* dstStart, size_t dstStep);
     WinoTransPackFunc(*chooseWinoSourceTransformPack)(int k, int w, int ePack, int lPack, int packCUnit);
 

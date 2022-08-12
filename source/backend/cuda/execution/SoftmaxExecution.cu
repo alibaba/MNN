@@ -87,10 +87,8 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
     mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
-    if (mNeedUnpackC4) {
-        for (int i=0; i < dimensions; ++i) {
-            mStorage.buffer().dim[i].extent = input->length(i);            
-        }
+    if (mNeedUnpackC4) {    
+        TensorUtils::copyShape(input, &mStorage);
         TensorUtils::getDescribe(&mStorage)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
         mStorage.buffer().dimensions    = dimensions;
         mStorage.buffer().type          = input->getType();
@@ -115,6 +113,7 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mCpuParam.outside = outside;
     mCpuParam.axis = input->length(axis);
     cuda_check(cudaMemcpy((uint8_t*)mParam.first + mParam.second, &mCpuParam, sizeof(ReduceParam), cudaMemcpyHostToDevice));
+    //MNN_PRINT("Softmax unpack:%d, outside:%d, axis:%d, inside:%d\n", mNeedUnpackC4, mCpuParam.outside, mCpuParam.axis, mCpuParam.inside);
 
     return NO_ERROR;
 }
@@ -129,6 +128,10 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
         input = (void*)mStorage.deviceId();
         dst = (void*)mStorage.deviceId();
     }
+
+    //MNN_PRINT("softmax input dims:%d, size:%d-%d-%d-%d\n", inputs[0]->dimensions(), inputs[0]->batch(), inputs[0]->height(), inputs[0]->width(), inputs[0]->channel());
+    //MNN_PRINT("softmax storage dims:%d, size:%d-%d-%d-%d\n", mStorage.dimensions(), mStorage.batch(), mStorage.height(), mStorage.width(), mStorage.channel());
+
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int inside = mCpuParam.inside;
     int outside = mCpuParam.outside;

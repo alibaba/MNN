@@ -133,17 +133,40 @@ static std::shared_ptr<Tensor> computeFDiag(const float* a, int alpha) {
     return res;
 }
 
-WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp, bool dividedInG) {
-    MNN_ASSERT(computeUnit > 0 && kernelSize > 0);
-    mUnit       = computeUnit;
-    mKernelSize = kernelSize;
+WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp, bool dividedInG) : WinogradGenerater({computeUnit, computeUnit}, {kernelSize, kernelSize}, interp, dividedInG) {
 
-    int n     = computeUnit;
-    int r     = kernelSize;
-    int alpha = n + r - 1;
-    mG.reset(Matrix::create(r, alpha));
+}
+WinogradGenerater::WinogradGenerater(std::vector<int> computeUnit, std::vector<int> kernelSize, float interp, bool dividedInG) {
+    MNN_ASSERT(computeUnit.size() == 2 && kernelSize.size() == 2);
+    mUnitY   = computeUnit[0];
+    mUnitX   = computeUnit[1];
+    mKernelY = kernelSize[0];
+    mKernelX = kernelSize[1];
+
+    int nY = mUnitY, rY = mKernelY, nX = mUnitX, rX = mKernelX;
+    int alpha = ALIMAX(nY + rY - 1, nX + rX - 1);
+    if (nY > 1 && nX > 1) {
+        MNN_ASSERT((nY + rY - 1) == (nX + rX - 1));
+    }
     mB.reset(Matrix::create(alpha, alpha));
-    mA.reset(Matrix::create(n, alpha));
+    if (mUnitY > 1) {
+        mG.reset(Matrix::create(rY, alpha));
+        mA.reset(Matrix::create(nY, alpha));
+    } else {
+        mG.reset(Matrix::create(1, 1));
+        mG->host<float>()[0] = 1;
+        mA.reset(Matrix::create(1, 1));
+        mA->host<float>()[0] = 1;
+    }
+    if (mUnitX > 1) {
+        mG_Right.reset(Matrix::create(alpha, rX));
+        mA_Right.reset(Matrix::create(alpha, nX));
+    } else {
+        mG_Right.reset(Matrix::create(1, 1));
+        mG_Right->host<float>()[0] = 1;
+        mA_Right.reset(Matrix::create(1, 1));
+        mA->host<float>()[0] = 1;
+    }
 
     std::shared_ptr<Tensor> polyBuffer(Matrix::create(alpha, 1));
 
@@ -156,17 +179,29 @@ WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float inte
         sign *= -1;
     }
     // Matrix::print(polyBuffer.get());
-    {
-        auto A = computeA(a, alpha, n);
+    if (mUnitY > 1) {
+        auto A = computeA(a, alpha, nY);
         Matrix::transpose(mA.get(), A.get());
+    }
+    if (mUnitX > 1) {
+        mA_Right = computeA(a, alpha, nX);
     }
     auto fdiag = computeFDiag(a, alpha);
     // Matrix::print(fdiag.get());
-    {
-        auto A = computeA(a, alpha, r);
+    if (mUnitY > 1) {
+        auto A = computeA(a, alpha, rY);
         Matrix::transpose(mG.get(), A.get());
         if (dividedInG) {
             Matrix::divPerLine(mG.get(), mG.get(), fdiag.get());
+        }
+    }
+    if (mUnitX > 1) {
+        mG_Right = computeA(a, alpha, rX);
+        if (dividedInG) {
+            std::shared_ptr<Tensor> A(Matrix::create(rX, alpha));
+            Matrix::transpose(A.get(), mG_Right.get());
+            Matrix::divPerLine(A.get(), A.get(), fdiag.get());
+            Matrix::transpose(mG_Right.get(), A.get());
         }
     }
     {
@@ -193,11 +228,8 @@ std::shared_ptr<Tensor> WinogradGenerater::allocTransformWeight(const Tensor* so
 }
 
 void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* source, bool ciFirst) {
-    std::shared_ptr<Tensor> GT(Math::Matrix::create(mG->length(0), mG->length(1)));
-    Math::Matrix::transpose(GT.get(), mG.get());
     int ci          = source->length(1);
     int co          = source->length(0);
-    int kernelCount = source->length(2);
     int unitCi      = weightDest->length(3);
     int unitCo      = weightDest->length(4);
     auto alpha      = mB->length(0);
@@ -205,8 +237,8 @@ void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* 
     if (ci % unitCi != 0 || co % unitCo != 0) {
         ::memset(weightDest->host<float>(), 0, weightDest->size());
     }
-    std::shared_ptr<Tensor> M(Math::Matrix::create(kernelCount, alpha));
-    std::shared_ptr<Tensor> K(Math::Matrix::createShape(kernelCount, kernelCount));
+    std::shared_ptr<Tensor> M(Math::Matrix::create(mKernelX, alpha));
+    std::shared_ptr<Tensor> K(Math::Matrix::createShape(mKernelX, mKernelY));
     std::shared_ptr<Tensor> K_Transform(Math::Matrix::create(alpha, alpha));
     auto weightPtr      = source->host<float>();
     auto KTransformData = K_Transform->host<float>();
@@ -217,7 +249,7 @@ void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* 
         lCo = unitCi;
     }
     for (int oz = 0; oz < co; ++oz) {
-        auto srcOz = weightPtr + oz * ci * kernelCount * kernelCount;
+        auto srcOz = weightPtr + oz * ci * mKernelY * mKernelX;
 
         int ozC4 = oz / unitCo;
         int mx   = oz % unitCo;
@@ -226,12 +258,12 @@ void WinogradGenerater::transformWeight(const Tensor* weightDest, const Tensor* 
         for (int sz = 0; sz < ci; ++sz) {
             int szC4         = sz / unitCi;
             int my           = sz % unitCi;
-            auto srcSz       = srcOz + kernelCount * kernelCount * sz;
+            auto srcSz       = srcOz + mKernelY * mKernelX * sz;
             K->buffer().host = (uint8_t*)srcSz;
             // M = G * K
             Math::Matrix::multi(M.get(), mG.get(), K.get());
             // K_Transform = M*GT
-            Math::Matrix::multi(K_Transform.get(), M.get(), GT.get());
+            Math::Matrix::multi(K_Transform.get(), M.get(), mG_Right.get());
 
             auto dstSz = dstOz + szC4 * weightDest->stride(2) + my * lCi;
 

@@ -7,47 +7,53 @@ namespace CUDA {
 #define CUDA_KERNEL_LOOP(i, n) for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
 template<typename T>
-__global__ void INTERP_NERAEST(const int n, const int ih, const int iw, const int oh, const int ow, 
-    const float scaleh, const float scalew, const float offseth, const float offsetw, const T* in, T* out) {
-    CUDA_KERNEL_LOOP(total, n) {
-        int index = total / PACK_NUMBER;
-        int remain = total % PACK_NUMBER;
-        int x = index % ow;
-        int tmp = index / ow;
+__global__ void INTERP_NERAEST(const int total, const int c_p, 
+    const int ih, const int iw, const int oh, const int ow, 
+    const float scaleh, const float scalew, const float offseth, const float offsetw, 
+    const T* in, T* out) {
+    CUDA_KERNEL_LOOP(index, total) {
+        int tmp0 = index / c_p;
+        int c_idx = index % c_p;
+        int x = tmp0 % ow;
+        int tmp = tmp0 / ow;
         int y = tmp % oh;
         int z = tmp / oh;
-        int ix = min(max(0, (int)floor((float)x*scalew+offsetw)), iw-1);
-        int iy = min(max(0, (int)floor((float)y*scaleh+offseth)), ih-1);
-        out[(z*oh*ow + y*ow + x) * PACK_NUMBER + remain]
-            = in[(z*ih*iw + iy*iw + ix) * PACK_NUMBER + remain];
+        int ix = min(max(0, (int)floor((float)x * scalew + offsetw)), iw-1);
+        int iy = min(max(0, (int)floor((float)y * scaleh + offseth)), ih-1);
+        out[((z * oh + y) * ow + x) * c_p + c_idx]
+            = in[((z * ih + iy) * iw + ix) * c_p + c_idx];
     }
 }
 
 template<typename T>
-__global__ void INTERP_NERAEST_ROUND(const int n, const int ih, const int iw, const int oh, const int ow, 
-    const float scaleh, const float scalew, const float offseth, const float offsetw, const T* in, T* out) {
-    CUDA_KERNEL_LOOP(total, n) {
-        int index = total / PACK_NUMBER;
-        int remain = total % PACK_NUMBER;
-        int x = index % ow;
-        int tmp = index / ow;
+__global__ void INTERP_NERAEST_ROUND(const int total, const int c_p, 
+    const int ih, const int iw, const int oh, const int ow, 
+    const float scaleh, const float scalew, const float offseth, const float offsetw, 
+    const T* in, T* out) {
+    CUDA_KERNEL_LOOP(index, total) {
+        int tmp0 = index / c_p;
+        int c_idx = index % c_p;
+        int x = tmp0 % ow;
+        int tmp = tmp0 / ow;
         int y = tmp % oh;
         int z = tmp / oh;
-        int ix = min(max(0, (int)floor((float)x*scalew+offsetw + 0.499f)), iw-1);
-        int iy = min(max(0, (int)floor((float)y*scaleh+offseth + 0.499f)), ih-1);
-        out[(z*oh*ow + y*ow + x) * PACK_NUMBER + remain]
-            = in[(z*ih*iw + iy*iw + ix) * PACK_NUMBER + remain];
+        int ix = min(max(0, (int)floor((float)x * scalew + offsetw + 0.499f)), iw-1);
+        int iy = min(max(0, (int)floor((float)y * scaleh + offseth + 0.499f)), ih-1);
+        out[((z * oh + y) * ow + x) * c_p + c_idx]
+            = in[((z * ih + iy) * iw + ix) * c_p + c_idx];
     }
 }
 
 template<typename T>
-__global__ void INTERP_BILINEAR(const int n, const int ih, const int iw, const int oh, const int ow, 
-    const float scaleh, const float scalew, const float offseth, const float offsetw, const T* in, T* out) {
-    CUDA_KERNEL_LOOP(total, n) {
-        int index = total / PACK_NUMBER;
-        int remain = total % PACK_NUMBER;
-        int x = index % ow;
-        int tmp = index / ow;
+__global__ void INTERP_BILINEAR(const int total, const int c_p, 
+    const int ih, const int iw, const int oh, const int ow, 
+    const float scaleh, const float scalew, const float offseth, const float offsetw,
+    const T* in, T* out) {
+    CUDA_KERNEL_LOOP(index, total) {
+        int tmp0 = index / c_p;
+        int c_idx = index % c_p;
+        int x = tmp0 % ow;
+        int tmp = tmp0 / ow;
         int y = tmp % oh;
         int z = tmp / oh;
         float fx = x*scalew+offsetw;
@@ -57,23 +63,26 @@ __global__ void INTERP_BILINEAR(const int n, const int ih, const int iw, const i
         int iy_0 = min(max(0, (int)floor(fy)), ih-1);
         int iy_1 = min((int)ceil(fy), ih-1);
 
-        int index_00 = z*ih*iw + iy_0*iw + ix_0;
-        int index_01 = z*ih*iw + iy_0*iw + ix_1;
-        int index_10 = z*ih*iw + iy_1*iw + ix_0;
-        int index_11 = z*ih*iw + iy_1*iw + ix_1;
-        index_00 = index_00 * PACK_NUMBER + remain;
-        index_01 = index_01 * PACK_NUMBER + remain;
-        index_10 = index_10 * PACK_NUMBER + remain;
-        index_11 = index_11 * PACK_NUMBER + remain;
+        int index_00 = (z * ih + iy_0) * iw + ix_0;
+        int index_01 = (z * ih + iy_0) * iw + ix_1;
+        int index_10 = (z * ih + iy_1) * iw + ix_0;
+        int index_11 = (z * ih + iy_1) * iw + ix_1;
+        index_00 = index_00 * c_p + c_idx;
+        index_01 = index_01 * c_p + c_idx;
+        index_10 = index_10 * c_p + c_idx;
+        index_11 = index_11 * c_p + c_idx;
 
         float factor_x = fx-ix_0;
         float factor_y = fy-iy_0;
-        out[(z*oh*ow + y*ow + x) * PACK_NUMBER + remain] =
-            (1.0-factor_x)*(1.0-factor_y)*(float)in[index_00] + factor_x*(1.0-factor_y)*(float)in[index_01] +
-                                  (1.0-factor_x)*factor_y*(float)in[index_10] + factor_x*factor_y*(float)in[index_11];
+        out[((z * oh + y) * ow + x) * c_p + c_idx] =
+            (1.0-factor_x)*(1.0-factor_y)*(float)in[index_00] 
+            + factor_x*(1.0-factor_y)*(float)in[index_01] 
+            + (1.0-factor_x)*factor_y*(float)in[index_10] 
+            + factor_x*factor_y*(float)in[index_11];
     }
 }
 
+/* FIXME : TODO */
 template<typename T>
 __global__ void INTERP_BILINEAR_OPT(const int n, const int ih, const int iw, const int oh, const int ow, 
     const float scaleh, const float scalew, const float offseth, const float offsetw, const T* in, T* out,
@@ -181,7 +190,7 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mOutputWidth  = output->width();
 
     mCount = mBatch*UP_DIV(mChannel, PACK_NUMBER)*mOutputHeight*mOutputWidth * PACK_NUMBER;
-    //printf("mBatch:%d-mChannel:%d-mInputHeight:%d- mInputWidth:%d- mOutputHeight:%d- mOutputWidth:%d, mScaleHeight:%f- mScaleWidth:%f %f %f\n", mBatch, mChannel, mInputHeight,mInputWidth,mOutputHeight, mOutputWidth, mScaleHeight, mScaleWidth, mWidthOffset, mHeightOffset);
+    //MNN_PRINT("mBatch:%d-mChannel:%d-mInputHeight:%d- mInputWidth:%d- mOutputHeight:%d- mOutputWidth:%d, mScaleHeight:%f- mScaleWidth:%f %f %f\n", mBatch, mChannel, mInputHeight,mInputWidth,mOutputHeight, mOutputWidth, mScaleHeight, mScaleWidth, mWidthOffset, mHeightOffset);
     return NO_ERROR;
 }
 
@@ -192,38 +201,47 @@ ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int threads_num = runtime->threads_num();
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
+    //MNN_PRINT("Interp type:%d\n", mResizeType);
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         if(mResizeType == 1){
-            INTERP_NERAEST<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
+            INTERP_NERAEST<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER,
+                mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
                 mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const half *)input_addr, (half *)output_addr);
         } else if(mResizeType == 2) {
-            //INTERP_BILINEAR<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,\
+            INTERP_BILINEAR<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER, 
+                mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,\
                 mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const half *)input_addr, (half *)output_addr);
 
-            mCount = mBatch*UP_DIV(mChannel, PACK_NUMBER)*mOutputHeight*((mOutputWidth+1)/ 2) * PACK_NUMBER;
-            block_num = runtime->blocks_num(mCount);
-            threads_num = runtime->threads_num();
+            if(0) { // TO USE after fixed
+                mCount = mBatch*UP_DIV(mChannel, PACK_NUMBER)*mOutputHeight*((mOutputWidth+1)/ 2) * PACK_NUMBER;
+                block_num = runtime->blocks_num(mCount);
+                threads_num = runtime->threads_num();
 
-            DivModFast d_ow((mOutputWidth+1)/2);
-            DivModFast d_oh(mOutputHeight);
-            INTERP_BILINEAR_OPT<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,\
-                mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const half *)input_addr, (half *)output_addr, d_ow, d_oh);       
+                DivModFast d_ow((mOutputWidth+1)/2);
+                DivModFast d_oh(mOutputHeight);
+                INTERP_BILINEAR_OPT<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,\
+                    mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const half *)input_addr, (half *)output_addr, d_ow, d_oh);
+            }   
 
         } else if (mResizeType == 4) {
-            INTERP_NERAEST_ROUND<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
+            INTERP_NERAEST_ROUND<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER,
+                mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
                 mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const half *)input_addr, (half *)output_addr);
         }
         return NO_ERROR;
     }
 
     if(mResizeType == 1){
-        INTERP_NERAEST<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
+        INTERP_NERAEST<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER,
+            mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
             mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const float *)input_addr, (float *)output_addr);
     } else if(mResizeType == 2) {
-        INTERP_BILINEAR<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
+        INTERP_BILINEAR<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER, 
+            mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
             mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const float *)input_addr, (float *)output_addr);       
     } else if (mResizeType == 4) {
-        INTERP_NERAEST_ROUND<<<block_num, threads_num>>>(mCount, mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
+        INTERP_NERAEST_ROUND<<<block_num, threads_num>>>(mCount, UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER,
+            mInputHeight, mInputWidth, mOutputHeight, mOutputWidth,
             mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset, (const float *)input_addr, (float *)output_addr);
     }
     return NO_ERROR;

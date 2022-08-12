@@ -163,9 +163,11 @@ void CUDARuntime::memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMe
     }
     //TODO, support Async Afterwards
     cuda_check(cudaMemcpy(dst, src, size_in_bytes, cuda_kind));
+    checkKernelErrors;
 }
 
 void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     cuda_check(cudaMemset(dst, value, size_in_bytes));
+    checkKernelErrors;
 }
 } // namespace MNN

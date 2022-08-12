@@ -132,7 +132,9 @@ int main(int argc, const char* argv[]) {
     }
     Module::Config config;
     config.rearrange = true;
-    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath));
+    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath), [](void* net) {
+        MNN::Express::Module::destroy((MNN::Express::Module*)net);
+    });
     if (nullptr == m) {
         MNN_ERROR("Model is Error\n");
         return 0;

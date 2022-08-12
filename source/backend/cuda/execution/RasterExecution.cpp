@@ -15,6 +15,7 @@
 namespace MNN {
 namespace CUDA {
 
+
 static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& area) {
     batch = t->batch();
     if (t->dimensions() == 4) {
@@ -55,25 +56,6 @@ static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& 
             }
         }
     }
-}
-// Detect if the region is a transpose
-static bool _transpose(const Tensor::InsideDescribe::Region& region) {
-    int srcOne = -1, dstOne = -1;
-    for (int i = 0; i < 3; i++) {
-        if (region.src.stride[i] == 1 && region.size[i] != 1) {
-            if (srcOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            srcOne = i;
-        }
-        if (region.dst.stride[i] == 1 && region.size[i] != 1) {
-            if (dstOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            dstOne = i;
-        }
-    }
-    return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
 }
 
 static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
@@ -171,43 +153,12 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
     auto des = TensorUtils::getDescribe(input);
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(input);
-    mZeroPoint = 0;
-    mTempInput.clear();
-    mFastBlit.clear();
-    mFuseRaster.first = 0;
-    mTempOutput = nullptr;
-    auto midFormat = MNN_DATA_FORMAT_NCHW;
     mTempInputCopy.clear();
+    mTempInput.clear();
+
+    mTempOutput = nullptr;
     mOutputPtr = output;
-    mFast = false;
-    int pack = PACK_NUMBER;
-    // all_srcFormat == dstFormat == NC4HW4 : Fast Exe
-    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        mFast = true;
-        for (int i=0; i< des->regions.size(); ++i) {
-            auto& slice = des->regions[i];
-            if (TensorUtils::getDescribe(slice.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-                mFast = false;
-                break;
-            }
-            if (!OpCommonUtils::canBlitFast(slice, output, pack, true)) {
-                mFast = false;
-                break;
-            }
-        }
-        if (mFast) {
-            for (int i=0; i< des->regions.size(); ++i) {
-                auto& slice = des->regions[i];
-                if (slice.origin == nullptr) {
-                    continue;
-                }
-                Tensor::InsideDescribe::Region newRegion;
-                OpCommonUtils::turnToPackRegion(slice, newRegion, output, pack, true);
-                mFastBlit.emplace_back(std::make_pair(slice.origin, std::move(newRegion)));
-            }
-            return NO_ERROR;
-        }
-    }
+
     mSingleConvert = 0;
     // srcNum == 1 && srcFormat != dstFormat : Single Convert
     if (des->regions.size() == 1) {
@@ -216,84 +167,56 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
             return NO_ERROR;
         }
     }
-    // Acquire Buffer for temp output
-    // TODO: optimize it
+
+    for(int i = 0; i < des->regions.size(); i++) {
+        auto& slice = des->regions[i];
+        auto origin = slice.origin;
+        if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            continue;
+        }
+        if (mTempInput.find(origin)!=mTempInput.end()) {
+            continue;
+        }
+        std::shared_ptr<Tensor> newTensor(new Tensor);
+        TensorUtils::copyShape(origin, newTensor.get());
+        TensorUtils::getDescribe(newTensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        newTensor->buffer().type = origin->getType();
+        TensorUtils::setLinearLayout(newTensor.get());
+        mTempInput.insert(std::make_pair(origin, newTensor));
+    }
+
     if (MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat) {
         mTempOutput.reset(new Tensor);
-        TensorUtils::setupTensorInfo(output, mTempOutput.get(), midFormat);
-    }
-    if (nullptr != mTempOutput) {
+        TensorUtils::setupTensorInfo(output, mTempOutput.get(), MNN_DATA_FORMAT_NCHW);
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
         }
         mOutputPtr = mTempOutput.get();
     }
-    // input is NC4HW4 add Convert
-    std::vector<Tensor*> forRelease;
-    for (int i=0; i< des->regions.size(); ++i) {
-        auto& slice = des->regions[i];
-        auto origin = slice.origin;
-        if (slice.mask != 0) {
-            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
-            continue;
+
+    for (auto& iter : mTempInput) {
+        auto res = backend()->onAcquireBuffer(iter.second.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
         }
-        // if tensor is not NC4HW4 or has been merged, don't need deal
-        if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
-            continue;
-        }
-        // if NC4HW4's C%4 == 0, change convert to transpose and fuse it
-        if (origin->batch() == 1 && origin->channel() % pack == 0) {
-            int channel = origin->channel();
-            int area = 1;
-            // conv3d/pool3d will has 5 dims, area = depth * width * height, otherwise area = width * height
-            for (int d = 2; d < origin->dimensions(); d++) {
-                area *= origin->length(d);
-            }
-            Tensor::InsideDescribe::Region regionTmp;
-            regionTmp.src.offset = 0;
-            regionTmp.src.stride[0] = area * pack;
-            regionTmp.src.stride[1] = 1;
-            regionTmp.src.stride[2] = pack;
-            regionTmp.dst.offset = 0;
-            regionTmp.dst.stride[0] = area * pack;
-            regionTmp.dst.stride[1] = area;
-            regionTmp.dst.stride[2] = 1;
-            regionTmp.size[0] = channel / pack;
-            regionTmp.size[1] = pack;
-            regionTmp.size[2] = area;
-            regionTmp.origin = slice.origin;
-            bool merge = TensorUtils::fuseRegion(regionTmp, slice);
-            if (merge) {
-                // cache the merged tensor
-                slice.mask = 1;
-                mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
-                continue;
-            }
-        }
-        auto cache = static_cast<CUDABackend*>(backend())->getCache();
-        auto tempTensor = cache->findCacheTensor(origin, midFormat);
-        if (nullptr == tempTensor) {
-            std::shared_ptr<Tensor> newTensor(new Tensor);
-            TensorUtils::copyShape(origin, newTensor.get());
-            TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
-            newTensor->buffer().type = origin->getType();
-            TensorUtils::setLinearLayout(newTensor.get());
-            mTempInput.insert(std::make_pair(origin, newTensor.get()));
-            auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
-            if (!res) {
-                return OUT_OF_MEMORY;
-            }
-            tempTensor = newTensor.get();
-            TensorUtils::getDescribe(tempTensor)->useCount = TensorUtils::getDescribe(origin)->useCount;
-            cache->pushCacheTensor(newTensor, origin, midFormat);
-        }
-        if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
-            forRelease.emplace_back(tempTensor);
-        }
-        mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
+
+    for (int i = 0; i < des->regions.size(); ++i) {
+        auto& slice = des->regions[i];
+        if (nullptr == slice.origin) {
+            continue;
+        }
+        auto iter = mTempInput.find(slice.origin);
+        if (iter != mTempInput.end()) {
+            mTempInputCopy.emplace_back(std::make_pair(iter->second.get(), &slice));
+            continue;
+        }
+        mTempInputCopy.emplace_back(std::make_pair(slice.origin, &slice));
+    }
+
+
+    //MNN_PRINT("Raster copy size:%d\n", mTempInputCopy.size());
     if(mTempInputCopy.size() > 1) {
         mFuseRaster.first = 1;
         mFuseRaster.second = mTempInputCopy.size();
@@ -302,21 +225,26 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
             auto& slice = *mTempInputCopy[i].second;
             if (mTempInputCopy[i].first != mTempInputCopy[0].first) {
                 mFuseRaster.first = 0;
+                //MNN_PRINT("Raster total:%d, index:%d, origin:%p-%p\n", mTempInputCopy.size(), i, mTempInputCopy[i].first, mTempInputCopy[0].first);
                 break;
             }
             if (slice0.src.stride[0] != slice.src.stride[0] || slice0.dst.stride[0] != slice.dst.stride[0]) {
+                //MNN_PRINT("Raster total:%d, index:%d, src stride0:%d-%d, , dst stride0:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[0], slice0.src.stride[0], slice.dst.stride[0], slice0.dst.stride[0]);
                 mFuseRaster.first = 0;
                 break;
             }
             if (slice0.src.stride[1] != slice.src.stride[1] || slice0.dst.stride[1] != slice.dst.stride[1]) {
+                //MNN_PRINT("Raster total:%d, index:%d, src stride1:%d-%d, , dst stride1:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[1], slice0.src.stride[1], slice.dst.stride[1], slice0.dst.stride[1]);
                 mFuseRaster.first = 0;
                 break;
             }      
             if (slice0.src.stride[2] != slice.src.stride[2] || slice0.dst.stride[2] != slice.dst.stride[2]) {
+                //MNN_PRINT("Raster total:%d, index:%d, src stride2:%d-%d, , dst stride2:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[2], slice0.src.stride[2], slice.dst.stride[2], slice0.dst.stride[2]);
                 mFuseRaster.first = 0;
                 break;
             }
             if (slice0.size[0] != slice.size[0] || slice0.size[1] != slice.size[1] || slice0.size[2] != slice.size[2]) {
+                //MNN_PRINT("Raster total:%d, index:%d, copy size:%d-%d-%d, %d-%d-%d\n", mTempInputCopy.size(), i, slice.size[0], slice.size[1], slice.size[2], slice0.size[0], slice0.size[1], slice0.size[2]);
                 mFuseRaster.first = 0;
                 break;
             }
@@ -347,8 +275,8 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mTempInputCopy.emplace_back(std::make_pair(tensor, &slice0));
     }
 
-    for (auto t : forRelease) {
-        backend()->onReleaseBuffer(t, Backend::DYNAMIC);
+    for (auto& iter : mTempInput) {
+        backend()->onReleaseBuffer(iter.second.get(), Backend::DYNAMIC);
     }
     if (nullptr != mTempOutput) {
         backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
@@ -356,35 +284,16 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
     return NO_ERROR;
 }
 
-void RasterExecution::executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const {
-    auto bn = static_cast<CUDABackend*>(backend());
-    auto input = inputs[0];
-    auto output = outputs[0];
-    auto bytes = bn->getBytes(output);
-    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    if (mNeedZero) {
-        auto size = static_cast<CUDABackend*>(backend())->realSize(output) * bytes;
-        cudaMemset((uint8_t*)output->deviceId(), 0, size);
-    }
-    // Use mFastBlit
-    for (auto& iter : mFastBlit) {
-        auto srcPtr = (uint8_t*)iter.first->deviceId() + iter.second.src.offset * bytes;
-        auto dstPtr = (uint8_t*)output->deviceId() + iter.second.dst.offset * bytes;
-        RasterBlit(dstPtr, srcPtr, iter.second.size, iter.second.src.stride, iter.second.dst.stride, bytes * PACK_NUMBER, runtime);
-    }
-}
-
-
 ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if (mFast) {
-        executeFaster(inputs, outputs);
-        return NO_ERROR;
-    }
     auto bn = static_cast<CUDABackend*>(backend());
     auto input = inputs[0];
     auto output = outputs[0];
     auto bytes = bn->getBytes(output);
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    // printf("raster format:%d -> %d, addr:%p %p\n", TensorUtils::getDescribe(input)->dimensionFormat, \
+    //     TensorUtils::getDescribe(output)->dimensionFormat, \
+    //     input->deviceId(), output->deviceId());
+
     if (mSingleConvert > 0) {
         auto realInput = TensorUtils::getDescribe(input)->regions[0].origin;
         int srcBatch = 1, srcChannel = 1, srcArea = 1;
@@ -423,13 +332,15 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         }
         return NO_ERROR;
     }
+
     if (mNeedZero) {
         auto size = static_cast<CUDABackend*>(backend())->realSize(mOutputPtr) * bytes;
         cudaMemset((uint8_t*)mOutputPtr->deviceId(), 0, size);
     }
     for (auto& iter : mTempInput) {
-        backend()->onCopyBuffer(iter.first, iter.second);
+        backend()->onCopyBuffer(iter.first, iter.second.get());
     }
+    //printf("\n%d\n", mFuseRaster.first);
     if(mFuseRaster.first > 0) {
         MNN_ASSERT(mTempInputCopy.size() == 1);
         auto& iter  = mTempInputCopy[0];

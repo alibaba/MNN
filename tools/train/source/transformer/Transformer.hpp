@@ -15,7 +15,8 @@ namespace Train {
 class MNN_PUBLIC Transformer {
 public:
     struct TrainConfig {
-        std::vector<std::string> variableLimits;
+        std::vector<std::string> noUpdateOps;
+        std::vector<std::string> onlyUpdateOps;
     };
 
     static std::shared_ptr<Express::Optimizer> turnModelToTrainable(TrainConfig config);

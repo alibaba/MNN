@@ -1162,24 +1162,24 @@ fmin = minimum
 def hypot(x1, x2):
     return sqrt(x1*x1 + x2*x2)
 def exp2(x):
-    x = array(x)
+    x = array(x, dtype=float32)
     return _F.scalar(2, x.dtype) ** x
 def log2(x):
-    x = array(x)
+    x = array(x, dtype=float32)
     return log(x) / log(_F.scalar(2, x.dtype))
 def log10(x):
-    x = array(x)
+    x = array(x, dtype=float32)
     return log(x) / log(_F.scalar(10, x.dtype))
 def logaddexp(x1, x2):
-    x1 = array(x1)
-    x2 = array(x2)
+    x1 = array(x1, dtype=float32)
+    x2 = array(x2, dtype=float32)
     return log(exp(x1) + exp(x2))
 def logaddexp2(x1, x2):
-    x1 = array(x1)
-    x2 = array(x2)
+    x1 = array(x1, dtype=float32)
+    x2 = array(x2, dtype=float32)
     return log2(exp2(x1) + exp2(x2))
 def sinc(x):
-    x = array(x)
+    x = array(x, dtype=float32)
     _pi = _F.scalar(pi, x.dtype)
     return sin(_pi * x) / (_pi * x)
 def signbit(x):
@@ -1209,10 +1209,10 @@ def radians(x):__not_impl()
 def unwrap(p, discont=None, axis=- 1):__not_impl()
 def deg2rad(x):__not_impl()
 def rad2deg(x):__not_impl()
-def cumprod(x):__not_impl()
-def cumsum(x):__not_impl()
-def nancumprod(x):__not_impl()
-def nancumsum(x):__not_impl()
+cumprod = _F.cumprod
+cumsum = _F.cumsum
+nancumprod = cumprod
+nancumsum = cumsum
 def diff(a, n=1, axis=-1):__not_impl()
 def ediff1d(ary, to_end=None, to_begin=None):__not_impl()
 def gradient(f, varargs, axis=None, edge_order=1):__not_impl()
@@ -1224,11 +1224,7 @@ def nextafter(x1, x2):__not_impl()
 def spacing(x):__not_impl()
 def lcm(x1, x2):__not_impl()
 def gcd(x1, x2):__not_impl()
-def convolve(a, v):
-    __not_impl()
-    a = _F.convert(a, _F.NC4HW4)
-    r = _F.conv2d(a, v, 0)
-    return _F.convert(r, _F.NCHW)
+def convolve(a, v):__not_impl()
 def heaviside(x1, x2):__not_impl()
 def nan_to_num(x):__not_impl()
 def real_if_close(a, tol=100):__not_impl()
@@ -1267,7 +1263,10 @@ def argmax(a, axis=None, out=None):
         return asscalar(_F.argmax(ravel(a), 0))
     return _F.argmax(a, axis)
 nanargmax = argmax
-def argmin(a, axis=None, out=None):__not_impl()
+def argmin(a, axis=None, out=None):
+    if axis is None:
+        return asscalar(_F.argmin(ravel(a), 0))
+    return _F.argmin(a, axis)
 nanargmin = argmin
 def argwhere(a):
     mask = not_equal(a, _F.scalar(0, a.dtype))
@@ -1327,7 +1326,12 @@ nanvar = var
 # Correlating
 corrcoef = correlate = cov = __not_impl
 # Histograms
-histogram = histogram2d = histogramdd = bincount = histogram_bin_edges = digitize = __not_impl
+def histogram(a, bins=10, range=None, normed=None, weights=None, density=None):
+    hist = _F.histogram(a, bins, int(range[0]), int(range[1]))
+    bin_edges = linspace(float(range[0]), float(range[1]), bins, False)
+    bin_edges = concatenate([bin_edges, array([float(range[1])])])
+    return (hist, bin_edges)
+histogram2d = histogramdd = bincount = histogram_bin_edges = digitize = __not_impl
 
 # numpy ndarray functions
 def __item(self, idx):

@@ -131,6 +131,12 @@ public:
      * @param deepCopy whether create new content and copy, currently only support deepCopy = false
      */
     static Tensor* clone(const Tensor* src, bool deepCopy = false);
+    
+    /**
+     * @brief delete tensor.
+     * @param src     tensor
+     */
+    static void destroy(Tensor* tensor);
 public:
     /**
      * @brief for DEVICE tensor, copy data from given host tensor.

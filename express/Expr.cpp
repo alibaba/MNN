@@ -338,6 +338,9 @@ VARP Variable::create(EXPRP expr, int index) {
 #endif
     }
 #endif
+    if (!ExecutorScope::Current()->lazyEval) {
+        res.fix(VARP::CONSTANT);
+    }
     return res;
 }
 void Expr::replace(EXPRP old, EXPRP from) {

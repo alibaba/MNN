@@ -45,10 +45,10 @@ int main(int argc, const char* argv[]) {
     config.destFormat   = RGBA;
     config.wrap         = ZERO;
 
-    std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
+    std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config), ImageProcess::destroy);
     pretreat->setMatrix(trans);
     {
-        std::shared_ptr<Tensor> wrapTensor(ImageProcess::createImageTensor<uint8_t>(width, height, 4, nullptr));
+        std::shared_ptr<Tensor> wrapTensor(ImageProcess::createImageTensor<uint8_t>(width, height, 4, nullptr), MNN::Tensor::destroy);
         pretreat->convert((uint8_t*)inputImage, width, height, 0, wrapTensor.get());
         stbi_write_png(argv[3], width, height, 4, wrapTensor->host<uint8_t>(), 4 * width);
     }

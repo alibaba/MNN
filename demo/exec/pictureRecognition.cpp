@@ -29,7 +29,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./pictureRecognition.out model.mnn input0.jpg input1.jpg input2.jpg ... \n");
         return 0;
     }
-    std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
+    std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]), Interpreter::destroy);
     ScheduleConfig config;
     config.type  = MNN_FORWARD_AUTO;
     // BackendConfig bnconfig;
@@ -99,7 +99,7 @@ int main(int argc, const char* argv[]) {
         config.sourceFormat = RGBA;
         config.destFormat   = BGR;
 
-        std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
+        std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config), ImageProcess::destroy);
         pretreat->setMatrix(trans);
         pretreat->convert((uint8_t*)inputImage, width, height, 0, inputUser->host<uint8_t>() + inputUser->stride(0) * batch * inputUser->getType().bytes(), size_w, size_h, bpp, 0, inputUser->getType());
         stbi_image_free(inputImage);

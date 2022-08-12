@@ -18,6 +18,7 @@
 #define MNN_MISCELLANEOUS_TEST
 #define MNN_STRUCTRAL_TEST
 #define MNN_DRAW_TEST
+#define MNN_HISTOGRAMS_TEST
 #define MNN_CALIB3D_TEST
 
 #include <iostream>

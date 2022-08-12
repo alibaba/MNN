@@ -192,7 +192,7 @@ static int test_main(int argc, const char* argv[]) {
     // create net
     MNN_PRINT("Open Model %s\n", fileName);
     std::shared_ptr<MNN::Interpreter> net =
-        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(fileName));
+        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(fileName), MNN::Interpreter::destroy);
     if (nullptr == net) {
         return 0;
     }

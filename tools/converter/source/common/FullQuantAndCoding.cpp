@@ -10,7 +10,6 @@
 #include "CommonUtils.hpp"
 #include "MNN/expr/ExprCreator.hpp"
 #include "cpp/IDSTEncoder.hpp"
-#include "common/WinogradInt8Helper.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -100,17 +99,7 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     const int kernelNum = common->outputCount;
     int kernelSize = weightFloat.size() / kernelNum;
 
-    VARP weightVar;
-    std::vector<int> attrs;
-    if (quantParams.method() == MNN::Compression::LayerQuantizeParams::WinogradAware) {
-        std::vector<float> transWeight;
-        WinogradInt8Helper::transformWeight(weightFloat, transWeight, attrs, ko, ki, kh, kw);
-        weightVar = _Const(transWeight.data(), {ko, ki, attrs[2], attrs[3]}, NCHW);
-        kernelSize = transWeight.size() / kernelNum;
-    } else {
-        weightVar = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
-    }
-    
+    VARP weightVar = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
     VARP biasVar        = _Const(biasFloat.data(), {ko, 1, 1, 1}, NCHW);
     VARP inputScaleVar  = _Const(inputParams.scales(0), {}, NCHW);
     VARP outputScaleVar = _Const(outputParams.scales(0), {}, NCHW);
@@ -171,9 +160,12 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     convParams->symmetricQuan->clampMax = outputParams.clamp_max();
 
     convParams->bias = std::move(biasData);
-    
+    // winogradAttr store:
+    // 1. transformed weight and input scale
+    // 2. winograd config (F(2,3)/F(4,3)/F(6,3)/...)
     if (quantParams.method() == MNN::Compression::LayerQuantizeParams::WinogradAware) {
-        convParams->symmetricQuan->winogradAttr = attrs;
+        const auto& attr = quantParams.wino_params().units_attr();
+        convParams->symmetricQuan->winogradAttr.assign(attr.begin(), attr.end());
     }
 };
 

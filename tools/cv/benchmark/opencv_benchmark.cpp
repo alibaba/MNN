@@ -287,6 +287,18 @@ void draw(cv::Mat cvimg, VARP mnnimg) {
     BENCHMARK(3, fillPoly, mnnimg, mnn_contours, {0, 0, 255})
 }
 
+void histogram(cv::Mat cvimg, VARP mnnimg) {
+    std::vector<cv::Mat> images {cvimg};
+    std::vector<int> histSize {256};
+    std::vector<int> channels {0};
+    std::vector<float> ranges {0., 256.};
+    cv::Mat cvDest;
+    // solvePnP
+    BENCHMARK_CV(calcHist, images, channels, cv::Mat(), cvDest, histSize, ranges)
+    BENCHMARK_MNN(calcHist, {mnnimg}, channels, nullptr, histSize, ranges)
+}
+
+
 void codecs(cv::Mat cvimg, VARP mnnimg) {
 #ifdef MNN_IMGCODECS
     // imread
@@ -371,6 +383,7 @@ int main(int argc, char** argv) {
     draw(img_uchar, mnn_uchar);
     codecs(img_uchar, mnn_uchar);
     calib3d(img_uchar, mnn_uchar);
+    histogram(img_uchar, mnn_uchar);
     log();
     return 0;
 }

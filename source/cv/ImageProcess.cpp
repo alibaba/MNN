@@ -42,6 +42,12 @@ struct ImageProcess::Inside {
     std::unique_ptr<CPUImageProcess> execution;
 };
 
+void ImageProcess::destroy(ImageProcess* pro) {
+    if (nullptr != pro) {
+        delete pro;
+    }
+}
+
 ImageProcess::~ImageProcess() {
     delete mInside;
 }

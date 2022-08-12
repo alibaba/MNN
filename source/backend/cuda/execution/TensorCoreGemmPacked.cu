@@ -18,17 +18,20 @@ __global__ void GemmPackedFull(const MatMulParam* param, const int iBlock, T *c,
     size_t wrapId = threadIdx.x / warpSize;
     size_t laneId = threadIdx.x % warpSize;
     extern __shared__ float sharedMemory[];
+
+    T* cache = (T*)(sharedMemory + wrapId * 16 * 16);
+
+    // Declare the fragments
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major>
+        a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major>
+        b_frag;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, T> acc_frag;
+    
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
         size_t subIndex = index / warpSize;
         size_t warpM = subIndex % eU;
         size_t warpN = subIndex / eU;
-        T* cache = (T*)(sharedMemory + wrapId * 16 * 16);
-        // Declare the fragments
-        wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major>
-            a_frag;
-        wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major>
-            b_frag;
-        wmma::fragment<wmma::accumulator, 16, 16, 16, T> acc_frag;
 
         wmma::load_matrix_sync(acc_frag, biasPtr + 16 * warpN, 0, wmma::mem_row_major);
         const half* aStart = a + warpM * lU * 16 * 16;
@@ -36,6 +39,9 @@ __global__ void GemmPackedFull(const MatMulParam* param, const int iBlock, T *c,
         //printf("GemmPacked: %d - %d - %d, numele: %d, %d\n", eU, lU, hU, a_frag.num_elements, b_frag.num_elements);
         // MLA
         for (size_t i = 0; i < lU; ++i) {
+            half* aTemp = ((half *)(aStart+i*256));//aStart + (i << 8) + (laneId << 1);
+            half* bTemp = ((half *)(bStart+i*256));//bStart + (i << 8) + (laneId << 1);
+
             wmma::load_matrix_sync(a_frag, aStart + i * 256, 16);
             wmma::load_matrix_sync(b_frag, bStart + i * 256, 16);
             wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
@@ -54,13 +60,23 @@ __global__ void GemmPackedFull(const MatMulParam* param, const int iBlock, T *c,
         size_t eC = eEnd - eSta;
         T* dstStart = (T*)(c + warpN * 16 * (size_t)param->elh[0] + eSta * 16);
         wmma::store_matrix_sync(cache, acc_frag, 16, wmma::mem_row_major);
+
         if (warpSize % 16 == 0) {
-            size_t r = warpSize / 16;
-            size_t x = laneId / r;
-            size_t ysta = laneId % r;
-            for (size_t y = ysta; y < eC; y+=r) {
-                float value = *((T*)(cache + 16 * y + x));
-                dstStart[y * 16 + x] = value;
+            if(sizeof(T) == 4) {
+                size_t r = warpSize / 16;
+                size_t x = laneId / r;
+                size_t ysta = laneId % r;
+                for (size_t y = ysta; y < eC; y+=r) {
+                    float value = *((T*)(cache + 16 * y + x));
+                    dstStart[y * 16 + x] = value;
+                }
+            } else {
+                size_t xsta = (laneId % 8) * 2;
+                size_t ysta = laneId / 8;
+                for (size_t y = ysta; y < eC; y+=4) {
+                    dstStart[y * 16 + xsta]     = *((T*)(cache + 16 * y + xsta));
+                    dstStart[y * 16 + xsta + 1] = *((T*)(cache + 16 * y + xsta + 1));
+                }
             }
         } else {
             for (size_t tId = laneId; tId < eC * 16; tId += warpSize) {
@@ -219,7 +235,7 @@ __global__ void GemmPackedFull32x16(const MatMulParam* param, const int iBlock, 
 void GemmPackedFullMain(CUDARuntime* runtime, const MatMulParam* cpuParam, const MatMulParam* param, void *c, const half *a, const half *b, const half* biasPtr, int bytes, int iBlock) {
     auto& prop = runtime->prop();
     int cores = prop.multiProcessorCount;
-    //MNN_PRINT("%d: %d - %d - %d  - %d\n", iBlock, cpuParam->elhPack[0], cpuParam->elhPack[1], cpuParam->elhPack[2], cpuParam->elh[0]);
+    // MNN_PRINT("%d: %d - %d - %d  - %d\n", iBlock, cpuParam->elhPack[0], cpuParam->elhPack[1], cpuParam->elhPack[2], cpuParam->elh[0]);
     {
         int maxThreadInWarp = UP_DIV(cpuParam->elhPack[0] * cpuParam->elhPack[2], cores);
         int threads_num = std::min(prop.maxThreadsPerBlock, maxThreadInWarp * prop.warpSize);

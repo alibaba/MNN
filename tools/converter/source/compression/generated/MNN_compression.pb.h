@@ -47,7 +47,7 @@ struct TableStruct_MNN_5fcompression_2eproto {
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::AuxiliaryParseTableField aux[]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
-  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[9]
+  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[10]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::FieldMetadata field_metadata[];
   static const ::PROTOBUF_NAMESPACE_ID::internal::SerializationTable serialization_table[];
@@ -68,6 +68,9 @@ extern LayerQuantizeParams_ActivationParamsDefaultTypeInternal _LayerQuantizePar
 class LayerQuantizeParams_WeightParams;
 struct LayerQuantizeParams_WeightParamsDefaultTypeInternal;
 extern LayerQuantizeParams_WeightParamsDefaultTypeInternal _LayerQuantizeParams_WeightParams_default_instance_;
+class LayerQuantizeParams_WinogradParams;
+struct LayerQuantizeParams_WinogradParamsDefaultTypeInternal;
+extern LayerQuantizeParams_WinogradParamsDefaultTypeInternal _LayerQuantizeParams_WinogradParams_default_instance_;
 class LevelPrunerParams;
 struct LevelPrunerParamsDefaultTypeInternal;
 extern LevelPrunerParamsDefaultTypeInternal _LevelPrunerParams_default_instance_;
@@ -90,6 +93,7 @@ template<> ::MNN::Compression::CompressionAlgo* Arena::CreateMaybeMessage<::MNN:
 template<> ::MNN::Compression::LayerQuantizeParams* Arena::CreateMaybeMessage<::MNN::Compression::LayerQuantizeParams>(Arena*);
 template<> ::MNN::Compression::LayerQuantizeParams_ActivationParams* Arena::CreateMaybeMessage<::MNN::Compression::LayerQuantizeParams_ActivationParams>(Arena*);
 template<> ::MNN::Compression::LayerQuantizeParams_WeightParams* Arena::CreateMaybeMessage<::MNN::Compression::LayerQuantizeParams_WeightParams>(Arena*);
+template<> ::MNN::Compression::LayerQuantizeParams_WinogradParams* Arena::CreateMaybeMessage<::MNN::Compression::LayerQuantizeParams_WinogradParams>(Arena*);
 template<> ::MNN::Compression::LevelPrunerParams* Arena::CreateMaybeMessage<::MNN::Compression::LevelPrunerParams>(Arena*);
 template<> ::MNN::Compression::Pipeline* Arena::CreateMaybeMessage<::MNN::Compression::Pipeline>(Arena*);
 template<> ::MNN::Compression::PruneParams* Arena::CreateMaybeMessage<::MNN::Compression::PruneParams>(Arena*);
@@ -884,6 +888,188 @@ class LayerQuantizeParams_WeightParams final :
 };
 // -------------------------------------------------------------------
 
+class LayerQuantizeParams_WinogradParams final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:MNN.Compression.LayerQuantizeParams.WinogradParams) */ {
+ public:
+  inline LayerQuantizeParams_WinogradParams() : LayerQuantizeParams_WinogradParams(nullptr) {}
+  ~LayerQuantizeParams_WinogradParams() override;
+  explicit constexpr LayerQuantizeParams_WinogradParams(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  LayerQuantizeParams_WinogradParams(const LayerQuantizeParams_WinogradParams& from);
+  LayerQuantizeParams_WinogradParams(LayerQuantizeParams_WinogradParams&& from) noexcept
+    : LayerQuantizeParams_WinogradParams() {
+    *this = ::std::move(from);
+  }
+
+  inline LayerQuantizeParams_WinogradParams& operator=(const LayerQuantizeParams_WinogradParams& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline LayerQuantizeParams_WinogradParams& operator=(LayerQuantizeParams_WinogradParams&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  inline const ::PROTOBUF_NAMESPACE_ID::UnknownFieldSet& unknown_fields() const {
+    return _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance);
+  }
+  inline ::PROTOBUF_NAMESPACE_ID::UnknownFieldSet* mutable_unknown_fields() {
+    return _internal_metadata_.mutable_unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const LayerQuantizeParams_WinogradParams& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const LayerQuantizeParams_WinogradParams* internal_default_instance() {
+    return reinterpret_cast<const LayerQuantizeParams_WinogradParams*>(
+               &_LayerQuantizeParams_WinogradParams_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    3;
+
+  friend void swap(LayerQuantizeParams_WinogradParams& a, LayerQuantizeParams_WinogradParams& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(LayerQuantizeParams_WinogradParams* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(LayerQuantizeParams_WinogradParams* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  LayerQuantizeParams_WinogradParams* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<LayerQuantizeParams_WinogradParams>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const LayerQuantizeParams_WinogradParams& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom(const LayerQuantizeParams_WinogradParams& from);
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to, const ::PROTOBUF_NAMESPACE_ID::Message& from);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _cached_size_.Get(); }
+
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(LayerQuantizeParams_WinogradParams* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "MNN.Compression.LayerQuantizeParams.WinogradParams";
+  }
+  protected:
+  explicit LayerQuantizeParams_WinogradParams(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  private:
+  static void ArenaDtor(void* object);
+  inline void RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena* arena);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kUnitsAttrFieldNumber = 4,
+    kVersionFieldNumber = 1,
+  };
+  // repeated int32 units_attr = 4;
+  int units_attr_size() const;
+  private:
+  int _internal_units_attr_size() const;
+  public:
+  void clear_units_attr();
+  private:
+  int32_t _internal_units_attr(int index) const;
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >&
+      _internal_units_attr() const;
+  void _internal_add_units_attr(int32_t value);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >*
+      _internal_mutable_units_attr();
+  public:
+  int32_t units_attr(int index) const;
+  void set_units_attr(int index, int32_t value);
+  void add_units_attr(int32_t value);
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >&
+      units_attr() const;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >*
+      mutable_units_attr();
+
+  // required int32 version = 1 [default = 0];
+  bool has_version() const;
+  private:
+  bool _internal_has_version() const;
+  public:
+  void clear_version();
+  int32_t version() const;
+  void set_version(int32_t value);
+  private:
+  int32_t _internal_version() const;
+  void _internal_set_version(int32_t value);
+  public:
+
+  // @@protoc_insertion_point(class_scope:MNN.Compression.LayerQuantizeParams.WinogradParams)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  ::PROTOBUF_NAMESPACE_ID::internal::HasBits<1> _has_bits_;
+  mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t > units_attr_;
+  int32_t version_;
+  friend struct ::TableStruct_MNN_5fcompression_2eproto;
+};
+// -------------------------------------------------------------------
+
 class LayerQuantizeParams final :
     public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:MNN.Compression.LayerQuantizeParams) */ {
  public:
@@ -939,7 +1125,7 @@ class LayerQuantizeParams final :
                &_LayerQuantizeParams_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    3;
+    4;
 
   friend void swap(LayerQuantizeParams& a, LayerQuantizeParams& b) {
     a.Swap(&b);
@@ -1012,6 +1198,7 @@ class LayerQuantizeParams final :
 
   typedef LayerQuantizeParams_ActivationParams ActivationParams;
   typedef LayerQuantizeParams_WeightParams WeightParams;
+  typedef LayerQuantizeParams_WinogradParams WinogradParams;
 
   typedef LayerQuantizeParams_QuantMethod QuantMethod;
   static constexpr QuantMethod QAT =
@@ -1051,6 +1238,7 @@ class LayerQuantizeParams final :
     kInputFieldNumber = 1,
     kWeightFieldNumber = 2,
     kOutputFieldNumber = 3,
+    kWinoParamsFieldNumber = 5,
     kMethodFieldNumber = 4,
   };
   // repeated .MNN.Compression.LayerQuantizeParams.ActivationParams input = 1;
@@ -1107,6 +1295,24 @@ class LayerQuantizeParams final :
   const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::MNN::Compression::LayerQuantizeParams_ActivationParams >&
       output() const;
 
+  // optional .MNN.Compression.LayerQuantizeParams.WinogradParams wino_params = 5;
+  bool has_wino_params() const;
+  private:
+  bool _internal_has_wino_params() const;
+  public:
+  void clear_wino_params();
+  const ::MNN::Compression::LayerQuantizeParams_WinogradParams& wino_params() const;
+  PROTOBUF_NODISCARD ::MNN::Compression::LayerQuantizeParams_WinogradParams* release_wino_params();
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* mutable_wino_params();
+  void set_allocated_wino_params(::MNN::Compression::LayerQuantizeParams_WinogradParams* wino_params);
+  private:
+  const ::MNN::Compression::LayerQuantizeParams_WinogradParams& _internal_wino_params() const;
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* _internal_mutable_wino_params();
+  public:
+  void unsafe_arena_set_allocated_wino_params(
+      ::MNN::Compression::LayerQuantizeParams_WinogradParams* wino_params);
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* unsafe_arena_release_wino_params();
+
   // optional .MNN.Compression.LayerQuantizeParams.QuantMethod method = 4 [default = QAT];
   bool has_method() const;
   private:
@@ -1132,6 +1338,7 @@ class LayerQuantizeParams final :
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::MNN::Compression::LayerQuantizeParams_ActivationParams > input_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::MNN::Compression::LayerQuantizeParams_WeightParams > weight_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::MNN::Compression::LayerQuantizeParams_ActivationParams > output_;
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* wino_params_;
   int method_;
   friend struct ::TableStruct_MNN_5fcompression_2eproto;
 };
@@ -1192,7 +1399,7 @@ class LevelPrunerParams final :
                &_LevelPrunerParams_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    4;
+    5;
 
   friend void swap(LevelPrunerParams& a, LevelPrunerParams& b) {
     a.Swap(&b);
@@ -1410,7 +1617,7 @@ class SIMDOCPrunerParams final :
                &_SIMDOCPrunerParams_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    5;
+    6;
 
   friend void swap(SIMDOCPrunerParams& a, SIMDOCPrunerParams& b) {
     a.Swap(&b);
@@ -1652,7 +1859,7 @@ class PruneParams final :
                &_PruneParams_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    6;
+    7;
 
   friend void swap(PruneParams& a, PruneParams& b) {
     a.Swap(&b);
@@ -1880,7 +2087,7 @@ class CompressionAlgo final :
                &_CompressionAlgo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    7;
+    8;
 
   friend void swap(CompressionAlgo& a, CompressionAlgo& b) {
     a.Swap(&b);
@@ -2108,7 +2315,7 @@ class Pipeline final :
                &_Pipeline_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    8;
+    9;
 
   friend void swap(Pipeline& a, Pipeline& b) {
     a.Swap(&b);
@@ -2773,6 +2980,85 @@ inline void LayerQuantizeParams_WeightParams::set_clamp_max(int32_t value) {
 
 // -------------------------------------------------------------------
 
+// LayerQuantizeParams_WinogradParams
+
+// required int32 version = 1 [default = 0];
+inline bool LayerQuantizeParams_WinogradParams::_internal_has_version() const {
+  bool value = (_has_bits_[0] & 0x00000001u) != 0;
+  return value;
+}
+inline bool LayerQuantizeParams_WinogradParams::has_version() const {
+  return _internal_has_version();
+}
+inline void LayerQuantizeParams_WinogradParams::clear_version() {
+  version_ = 0;
+  _has_bits_[0] &= ~0x00000001u;
+}
+inline int32_t LayerQuantizeParams_WinogradParams::_internal_version() const {
+  return version_;
+}
+inline int32_t LayerQuantizeParams_WinogradParams::version() const {
+  // @@protoc_insertion_point(field_get:MNN.Compression.LayerQuantizeParams.WinogradParams.version)
+  return _internal_version();
+}
+inline void LayerQuantizeParams_WinogradParams::_internal_set_version(int32_t value) {
+  _has_bits_[0] |= 0x00000001u;
+  version_ = value;
+}
+inline void LayerQuantizeParams_WinogradParams::set_version(int32_t value) {
+  _internal_set_version(value);
+  // @@protoc_insertion_point(field_set:MNN.Compression.LayerQuantizeParams.WinogradParams.version)
+}
+
+// repeated int32 units_attr = 4;
+inline int LayerQuantizeParams_WinogradParams::_internal_units_attr_size() const {
+  return units_attr_.size();
+}
+inline int LayerQuantizeParams_WinogradParams::units_attr_size() const {
+  return _internal_units_attr_size();
+}
+inline void LayerQuantizeParams_WinogradParams::clear_units_attr() {
+  units_attr_.Clear();
+}
+inline int32_t LayerQuantizeParams_WinogradParams::_internal_units_attr(int index) const {
+  return units_attr_.Get(index);
+}
+inline int32_t LayerQuantizeParams_WinogradParams::units_attr(int index) const {
+  // @@protoc_insertion_point(field_get:MNN.Compression.LayerQuantizeParams.WinogradParams.units_attr)
+  return _internal_units_attr(index);
+}
+inline void LayerQuantizeParams_WinogradParams::set_units_attr(int index, int32_t value) {
+  units_attr_.Set(index, value);
+  // @@protoc_insertion_point(field_set:MNN.Compression.LayerQuantizeParams.WinogradParams.units_attr)
+}
+inline void LayerQuantizeParams_WinogradParams::_internal_add_units_attr(int32_t value) {
+  units_attr_.Add(value);
+}
+inline void LayerQuantizeParams_WinogradParams::add_units_attr(int32_t value) {
+  _internal_add_units_attr(value);
+  // @@protoc_insertion_point(field_add:MNN.Compression.LayerQuantizeParams.WinogradParams.units_attr)
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >&
+LayerQuantizeParams_WinogradParams::_internal_units_attr() const {
+  return units_attr_;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >&
+LayerQuantizeParams_WinogradParams::units_attr() const {
+  // @@protoc_insertion_point(field_list:MNN.Compression.LayerQuantizeParams.WinogradParams.units_attr)
+  return _internal_units_attr();
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >*
+LayerQuantizeParams_WinogradParams::_internal_mutable_units_attr() {
+  return &units_attr_;
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedField< int32_t >*
+LayerQuantizeParams_WinogradParams::mutable_units_attr() {
+  // @@protoc_insertion_point(field_mutable_list:MNN.Compression.LayerQuantizeParams.WinogradParams.units_attr)
+  return _internal_mutable_units_attr();
+}
+
+// -------------------------------------------------------------------
+
 // LayerQuantizeParams
 
 // repeated .MNN.Compression.LayerQuantizeParams.ActivationParams input = 1;
@@ -2897,7 +3183,7 @@ LayerQuantizeParams::output() const {
 
 // optional .MNN.Compression.LayerQuantizeParams.QuantMethod method = 4 [default = QAT];
 inline bool LayerQuantizeParams::_internal_has_method() const {
-  bool value = (_has_bits_[0] & 0x00000001u) != 0;
+  bool value = (_has_bits_[0] & 0x00000002u) != 0;
   return value;
 }
 inline bool LayerQuantizeParams::has_method() const {
@@ -2905,7 +3191,7 @@ inline bool LayerQuantizeParams::has_method() const {
 }
 inline void LayerQuantizeParams::clear_method() {
   method_ = 0;
-  _has_bits_[0] &= ~0x00000001u;
+  _has_bits_[0] &= ~0x00000002u;
 }
 inline ::MNN::Compression::LayerQuantizeParams_QuantMethod LayerQuantizeParams::_internal_method() const {
   return static_cast< ::MNN::Compression::LayerQuantizeParams_QuantMethod >(method_);
@@ -2916,12 +3202,102 @@ inline ::MNN::Compression::LayerQuantizeParams_QuantMethod LayerQuantizeParams::
 }
 inline void LayerQuantizeParams::_internal_set_method(::MNN::Compression::LayerQuantizeParams_QuantMethod value) {
   assert(::MNN::Compression::LayerQuantizeParams_QuantMethod_IsValid(value));
-  _has_bits_[0] |= 0x00000001u;
+  _has_bits_[0] |= 0x00000002u;
   method_ = value;
 }
 inline void LayerQuantizeParams::set_method(::MNN::Compression::LayerQuantizeParams_QuantMethod value) {
   _internal_set_method(value);
   // @@protoc_insertion_point(field_set:MNN.Compression.LayerQuantizeParams.method)
+}
+
+// optional .MNN.Compression.LayerQuantizeParams.WinogradParams wino_params = 5;
+inline bool LayerQuantizeParams::_internal_has_wino_params() const {
+  bool value = (_has_bits_[0] & 0x00000001u) != 0;
+  PROTOBUF_ASSUME(!value || wino_params_ != nullptr);
+  return value;
+}
+inline bool LayerQuantizeParams::has_wino_params() const {
+  return _internal_has_wino_params();
+}
+inline void LayerQuantizeParams::clear_wino_params() {
+  if (wino_params_ != nullptr) wino_params_->Clear();
+  _has_bits_[0] &= ~0x00000001u;
+}
+inline const ::MNN::Compression::LayerQuantizeParams_WinogradParams& LayerQuantizeParams::_internal_wino_params() const {
+  const ::MNN::Compression::LayerQuantizeParams_WinogradParams* p = wino_params_;
+  return p != nullptr ? *p : reinterpret_cast<const ::MNN::Compression::LayerQuantizeParams_WinogradParams&>(
+      ::MNN::Compression::_LayerQuantizeParams_WinogradParams_default_instance_);
+}
+inline const ::MNN::Compression::LayerQuantizeParams_WinogradParams& LayerQuantizeParams::wino_params() const {
+  // @@protoc_insertion_point(field_get:MNN.Compression.LayerQuantizeParams.wino_params)
+  return _internal_wino_params();
+}
+inline void LayerQuantizeParams::unsafe_arena_set_allocated_wino_params(
+    ::MNN::Compression::LayerQuantizeParams_WinogradParams* wino_params) {
+  if (GetArenaForAllocation() == nullptr) {
+    delete reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(wino_params_);
+  }
+  wino_params_ = wino_params;
+  if (wino_params) {
+    _has_bits_[0] |= 0x00000001u;
+  } else {
+    _has_bits_[0] &= ~0x00000001u;
+  }
+  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:MNN.Compression.LayerQuantizeParams.wino_params)
+}
+inline ::MNN::Compression::LayerQuantizeParams_WinogradParams* LayerQuantizeParams::release_wino_params() {
+  _has_bits_[0] &= ~0x00000001u;
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* temp = wino_params_;
+  wino_params_ = nullptr;
+#ifdef PROTOBUF_FORCE_COPY_IN_RELEASE
+  auto* old =  reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(temp);
+  temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  if (GetArenaForAllocation() == nullptr) { delete old; }
+#else  // PROTOBUF_FORCE_COPY_IN_RELEASE
+  if (GetArenaForAllocation() != nullptr) {
+    temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  }
+#endif  // !PROTOBUF_FORCE_COPY_IN_RELEASE
+  return temp;
+}
+inline ::MNN::Compression::LayerQuantizeParams_WinogradParams* LayerQuantizeParams::unsafe_arena_release_wino_params() {
+  // @@protoc_insertion_point(field_release:MNN.Compression.LayerQuantizeParams.wino_params)
+  _has_bits_[0] &= ~0x00000001u;
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* temp = wino_params_;
+  wino_params_ = nullptr;
+  return temp;
+}
+inline ::MNN::Compression::LayerQuantizeParams_WinogradParams* LayerQuantizeParams::_internal_mutable_wino_params() {
+  _has_bits_[0] |= 0x00000001u;
+  if (wino_params_ == nullptr) {
+    auto* p = CreateMaybeMessage<::MNN::Compression::LayerQuantizeParams_WinogradParams>(GetArenaForAllocation());
+    wino_params_ = p;
+  }
+  return wino_params_;
+}
+inline ::MNN::Compression::LayerQuantizeParams_WinogradParams* LayerQuantizeParams::mutable_wino_params() {
+  ::MNN::Compression::LayerQuantizeParams_WinogradParams* _msg = _internal_mutable_wino_params();
+  // @@protoc_insertion_point(field_mutable:MNN.Compression.LayerQuantizeParams.wino_params)
+  return _msg;
+}
+inline void LayerQuantizeParams::set_allocated_wino_params(::MNN::Compression::LayerQuantizeParams_WinogradParams* wino_params) {
+  ::PROTOBUF_NAMESPACE_ID::Arena* message_arena = GetArenaForAllocation();
+  if (message_arena == nullptr) {
+    delete wino_params_;
+  }
+  if (wino_params) {
+    ::PROTOBUF_NAMESPACE_ID::Arena* submessage_arena =
+        ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper<::MNN::Compression::LayerQuantizeParams_WinogradParams>::GetOwningArena(wino_params);
+    if (message_arena != submessage_arena) {
+      wino_params = ::PROTOBUF_NAMESPACE_ID::internal::GetOwnedMessage(
+          message_arena, wino_params, submessage_arena);
+    }
+    _has_bits_[0] |= 0x00000001u;
+  } else {
+    _has_bits_[0] &= ~0x00000001u;
+  }
+  wino_params_ = wino_params;
+  // @@protoc_insertion_point(field_set_allocated:MNN.Compression.LayerQuantizeParams.wino_params)
 }
 
 // -------------------------------------------------------------------
@@ -3975,6 +4351,8 @@ inline void Pipeline::set_allocated_mnn_uuid(std::string* mnn_uuid) {
 #ifdef __GNUC__
   #pragma GCC diagnostic pop
 #endif  // __GNUC__
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

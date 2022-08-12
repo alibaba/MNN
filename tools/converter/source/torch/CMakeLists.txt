@@ -2,9 +2,19 @@ file(GLOB TORCH_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.
 add_library(MNNConverterTorch OBJECT ${TORCH_SRC})
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux" AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    SET(LIB_TORCH_ZIP "${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/libtorch.zip")
     SET(LIB_TORCH_PATH "${CMAKE_CURRENT_BINARY_DIR}/libtorch/share/cmake")
-    IF(NOT EXISTS ${LIB_TORCH_PATH})
+    IF (EXISTS "/etc/redhat-release")
+        # redhat force _GLIBCXX_USE_CXX11_ABI=0
+        SET(LIB_TORCH_NAME "libtorch-shared-with-deps-1.9.0%2Bcpu.zip")
+    ELSE()
+        # ubuntu MNN use _GLIBCXX_USE_CXX11_ABI=1
+        SET(LIB_TORCH_NAME "libtorch-cxx11-abi-shared-with-deps-1.9.0%2Bcpu.zip")
+    ENDIF()
+    STRING(REPLACE "%2B" "+" LIB_TORCH_ZIP ${LIB_TORCH_NAME})
+    IF (NOT EXISTS ${LIB_TORCH_PATH})
+        IF (NOT EXISTS ${LIB_TORCH_ZIP})
+            execute_process(COMMAND wget "https://download.pytorch.org/libtorch/cpu/${LIB_TORCH_NAME}")
+        ENDIF()
         execute_process(COMMAND unzip ${LIB_TORCH_ZIP} -d ${CMAKE_CURRENT_BINARY_DIR}
                         OUTPUT_VARIABLE TORCH_PATH
                         RESULT_VARIABLE EXIT_CODE

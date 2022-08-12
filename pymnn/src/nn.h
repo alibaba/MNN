@@ -6,10 +6,6 @@
 #include "internal/verify_service.h"
 #endif
 
-#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
-#include "internal/PythonAuthByPass.hpp"
-#endif
-
 // NN Module Start
 def_class_smart_start(_Module, Module)
 def_class_getset(
@@ -68,13 +64,7 @@ static PyObject* load_module(PyObject *runtime_manager, PyObject *inputs, PyObje
         rt_mgr = *(toRuntimeManager(runtime_manager));
     }
 
-
-#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
-    Module* m_ptr = PythonAuthByPass::loadModuleWithoutAuth(toStrings(inputs), toStrings(outputs), converted_file_name.data(), rt_mgr, &config);
-#else
     Module* m_ptr = Module::load(toStrings(inputs), toStrings(outputs), converted_file_name.data(), rt_mgr, &config);
-#endif
-
     if (m_ptr == nullptr) {
         std::string mnn_errno = "load_module_from_file failed ";
         mnn_errno = mnn_errno + std::string(file_name);

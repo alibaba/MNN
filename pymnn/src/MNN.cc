@@ -66,10 +66,6 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 #endif
 #endif
 
-#if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
-#include "internal/PythonAuthByPass.hpp"
-#endif
-
 #ifdef PYMNN_INTERNAL_SERVING
 #include <MNN/AutoTime.hpp>
 #include "internal/monitor_service.h"
@@ -1349,16 +1345,11 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
     if ((*interpreterMap())[*self->modelPath]) {
         self->interpreter = (*interpreterMap())[*self->modelPath];
     } else {
-        #if defined(PYMNN_INTERNAL_SERVING) || defined(PYMNN_USE_ALINNPYTHON)
-        // Allows the interpreters created in the Python API.
-        self->interpreter = PythonAuthByPass::createInterpreterWithoutAuth(path);
-        #else
         self->interpreter = Interpreter::createFromFile(path);
-        #endif
     }
     if (!self->interpreter) {
         PyErr_SetString(PyExc_Exception,
-                        "PyMNNInterpreter_new: NetInstance::createFromFile failed. Invalid model file or model authentication failed. Check console log messages!");
+                        "PyMNNInterpreter_new: NetInstance::createFromFile failed. Invalid model file, Check console log messages!");
         return -1;
     }
 
@@ -2716,6 +2707,8 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     // for expr multi-thread
     BackendConfig bnConfig;
     auto threadExecutor = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+    // close lazy evaluation in python for speed and memory
+    threadExecutor->lazyEval = false;
 #if TARGET_OS_IPHONE
     tlsData->scope = new ExecutorScope(threadExecutor);
 #else

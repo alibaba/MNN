@@ -4,7 +4,6 @@ set -e
 usage() {
     echo "Usage: $0 -p python_version -v mnn_version [-t]"
     echo -e "\t-p python versions in pyenv [only support 2.x]"
-    echo -v "\t-v MNN version to set"
     echo -t "\t-t include train API wrapper"
     echo -c "\t-c check pyc need update"
     exit 1
@@ -13,7 +12,6 @@ usage() {
 while getopts "p:v:t:c" opt; do
   case "$opt" in
     p ) py_version=$OPTARG ;;
-    v ) mnn_version=$OPTARG ;;
     t ) train_api=true ;;
     c ) check=true;;
     * ) usage ;;
@@ -32,7 +30,6 @@ python3 rm_comments.py /tmp/mnn_py/MNN
 pushd /tmp/mnn_py/MNN
 
 rm -rf tools
-echo -e "__version__ = '$mnn_version'" > version.py
 cat __init__.py | sed '/from . import tools/d' > __init__.py.tmp
 mv __init__.py.tmp __init__.py
 

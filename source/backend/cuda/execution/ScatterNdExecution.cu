@@ -22,8 +22,8 @@ __global__ void SCATTERND(const int n, const int indicesLastDim, const int accNu
             pos += curIndex * dimsToCount[j];
         }
         for (int k = 0; k < accNumber; ++k) {
-            float updateValue = updatesPtr[index * accNumber + k];
-            atomicAdd(outputPtr + pos + k, updateValue);
+            T updateValue = updatesPtr[index * accNumber + k];
+            atomicAdd((T *)(outputPtr + pos + k), updateValue);
         }
     }
 }
@@ -79,12 +79,23 @@ ErrorCode ScatterNdExecution::onExecute(const std::vector<Tensor *> &inputs, con
     auto input_addr0 = (void*)inputs[0]->deviceId();
     auto input_addr1 = (void*)inputs[1]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[1]);
 
     //printf("mOutElementSize:%d- mIndexes:%d- mIndicesLastDim:%d- mAccNumber:%d\n", mOutElementSize,mIndexes,mIndicesLastDim, mAccNumber);
 
-    SETZERO<<<block_num0, threads_num>>>(mOutElementSize, (float*)output_addr);
-    SCATTERND<<<block_num1, threads_num>>>(mIndexes, mIndicesLastDim, mAccNumber,
-        (const int*)input_addr0, (const float*)input_addr1, (float*)output_addr, (const int32_t*)mDimsToCount);
+    if(bytes == 4) {
+        SETZERO<<<block_num0, threads_num>>>(mOutElementSize, (float*)output_addr);
+        SCATTERND<<<block_num1, threads_num>>>(mIndexes, mIndicesLastDim, mAccNumber,
+            (const int*)input_addr0, (const float*)input_addr1, (float*)output_addr, (const int32_t*)mDimsToCount);
+        checkKernelErrors;
+    } else {
+        SETZERO<<<block_num0, threads_num>>>(mOutElementSize, (half*)output_addr);
+        SCATTERND<<<block_num1, threads_num>>>(mIndexes, mIndicesLastDim, mAccNumber,
+            (const int*)input_addr0, (const half*)input_addr1, (half*)output_addr, (const int32_t*)mDimsToCount);
+        checkKernelErrors;
+    }
+
+
     return NO_ERROR;
 }
 
@@ -92,6 +103,7 @@ class ScatterNdCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        
         if(inputs.size() != 3) {
             MNN_PRINT("CUDA ScatterNd inputs size:%d not support, back to CPU\n", inputs.size());
             return nullptr;

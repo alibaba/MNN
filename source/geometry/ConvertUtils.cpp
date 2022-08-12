@@ -75,7 +75,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
 void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
     auto outputDes        = TensorUtils::getDescribe(output);
     outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-    if (input->elementSize() == output->elementSize()) {
+    if (TensorUtils::getRawSize(input) == TensorUtils::getRawSize(output)) {
         // Just Copy Tensor
         outputDes->regions = {TensorUtils::makeFullSlice(input)};
         return;

@@ -6,6 +6,9 @@ from dataset import MnistDataset
 nn = MNN.nn
 F = MNN.expr
 
+# open lazy evaluation for train
+F.lazy_eval(True)
+
 class Net(nn.Module):
     """construct a lenet 5 model"""
     def __init__(self):

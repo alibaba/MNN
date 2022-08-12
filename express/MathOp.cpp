@@ -492,6 +492,17 @@ VARP _Gelu(VARP x)
     return _Unary(x, UnaryOpOperation_GELU);
 }
 
+/*Computes Hardswish of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float
+Returns:
+A variable. Has the same type as x .
+*/
+VARP _Hardswish(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_HARDSWISH);
+}
+
 /*Computes hyperbolic tangent of x element-wise.
 Given an input variable, this function computes hyperbolic tangent of every element in the variable.
 Input range is [-inf, inf] and output range is [-1,1].
@@ -1280,6 +1291,20 @@ VARPS _Svd(VARP x) {
     op->main.value                  = nullptr;
     EXPRP expr = Expr::create(std::move(op), {x}, 3);
     return { Variable::create(expr, 0), Variable::create(expr, 1), Variable::create(expr, 2) };
+}
+
+VARP _Histogram(VARP x, int bin, int min, int max, int channel) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                        = OpType_Histogram;
+    op->main.type                   = OpParameter_ArgMax;
+    auto param = new ArgMaxT;
+    param->outMaxVal = bin;
+    param->softmaxThreshold = min;
+    param->topK = max;
+    param->axis = channel;
+    op->main.value                  = param;
+    EXPRP expr = Expr::create(std::move(op), {x});
+    return (Variable::create(Expr::create(std::move(op), {x})));
 }
 
 } // namespace Express

@@ -457,6 +457,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
             }
         }
     }
+    int maxLayerUsage = 0;
     // Compute RefCount
     for (auto& info : mInfo) {
         auto& buffer = info.executeBuffer;
@@ -476,7 +477,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         }
     }
     for (auto& info : mInfo) {
-
         auto& buffer = info.executeBuffer;
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;

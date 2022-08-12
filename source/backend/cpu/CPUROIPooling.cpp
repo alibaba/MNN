@@ -49,9 +49,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
     // dataType of ROI must be float32.
     Tensor *roiTensor = &mROI;
     if (core->bytes != 4) {
-        std::shared_ptr<Tensor> tempRoiTensor(Tensor::create<float>(mROI.shape(), nullptr, TensorUtils::getDimType(&mROI)));
-        core->MNNLowpToFp32(mROI.host<int16_t>(), tempRoiTensor->host<float>(), inputs[1]->elementSize());
-        roiTensor = tempRoiTensor.get();
+        core->MNNLowpToFp32(mROI.host<int16_t>(), mROI.host<float>(), mROI.elementSize());
     }
 
     // get params

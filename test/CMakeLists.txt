@@ -10,6 +10,11 @@ else()
   file(GLOB_RECURSE Files ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
 endif()
 
+if(NOT MNN_BUILD_TRAIN)
+  file(GLOB_RECURSE GradTestFiles ${CMAKE_CURRENT_LIST_DIR}/grad/*.cpp)
+  list(REMOVE_ITEM Files ${GradTestFiles})
+endif()
+
 add_executable(run_test.out ${Files})
 target_link_libraries(run_test.out ${MNN_DEPS})
 if (WIN32)
