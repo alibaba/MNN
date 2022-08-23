@@ -80,11 +80,6 @@ public:
         // Reshape the input as outside, axis, inside
         auto index = inputs[1];
         auto input = inputs[0];
-        auto info = input->getInfo();
-        if (nullptr == info) {
-            MNN_ERROR("Currently don't suport GatherElements with no rank input\n");
-            return nullptr;
-        }
         auto dst = Express::_GatherElements(input, index, _Scalar(axis));
         dst->setName(expr->name());
         return dst->expr().first;

@@ -834,7 +834,8 @@ std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
         for (int index = 0; index < op->outputIndexes.size(); ++index) {
             auto outputIndex = op->outputIndexes[index];
             if (variableMap.find(outputIndex) == variableMap.end()) {
-                auto newVariable = Variable::create(expr, index);
+                // just create VARP and don't compute
+                VARP newVariable(new Variable(expr, index));
                 if (source->tensorName.size() > outputIndex) {
                     newVariable->setName(source->tensorName[outputIndex]);
                 }

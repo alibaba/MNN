@@ -48,6 +48,34 @@ failed() {
     exit 1
 }
 
+doc_check() {
+    echo 'doc_check'
+    # 1. CHECK CMakeLists.txt: check all macro, executable is in doc or not
+    cmake_files=$(find tools source demo test benchmark  -name "CMakeLists.txt")
+    cmake_files="$cmake_files CMakeLists.txt"
+    macros=''
+    executables=''
+    for cmake_file in $cmake_files
+    do
+        executables="$executables $(cat $cmake_file | grep -oE "add_executable\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
+        macros="$macros $(cat $cmake_file | grep -oE "option\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
+    done
+    for macro in $macros
+    do
+        if [ $(grep -c $macro ./docs/compile/cmake.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $macro 'not in ./docs/compile/cmake.md'
+            failed 
+        fi
+    done
+    for executable in $executables
+    do
+        if [ $(grep -c $executable ./docs/compile/tools.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/tools.md'
+            #failed 
+        fi
+    done
+}
+
 py_check() {
     if [ -z "$PY_CHANGE" ]; then
         return
