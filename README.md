@@ -4,6 +4,14 @@
 
 [MNN Homepage](http://www.mnn.zone)
 
+## CI Status
+| Platform |  C++ | Python |
+|:---------|:-----|:-------|
+| Linux    | [![linux](https://github.com/alibaba/MNN/actions/workflows/linux.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/linux.yml) | [![pymnn_linux](https://github.com/alibaba/MNN/actions/workflows/pymnn_linux.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/pymnn_linux.yml) |
+| Macos    | [![macos](https://github.com/alibaba/MNN/actions/workflows/macos.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/macos.yml) | [![pymnn_macos](https://github.com/alibaba/MNN/actions/workflows/pymnn_macos.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/pymnn_macos.yml) |
+| Windows  | [![windows](https://github.com/alibaba/MNN/actions/workflows/windows.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/windows.yml) | [![pymnn_windows](https://github.com/alibaba/MNN/actions/workflows/pymnn_windows.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/pymnn_windows.yml) |
+| Android  | [![android](https://github.com/alibaba/MNN/actions/workflows/android.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/android.yml) | - |
+| iOS      | [![ios](https://github.com/alibaba/MNN/actions/workflows/ios.yml/badge.svg)](https://github.com/alibaba/MNN/actions/workflows/ios.yml) | - |
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models, and has industry leading performance for inference and training on-device. At present, MNN has been integrated in more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, Dingtalk, Xianyu and etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
 
