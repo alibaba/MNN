@@ -1,0 +1,14 @@
+name: linux-x86
+on: [push]
+jobs:
+  check-bats-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+            mkdir build && cd build
+            cmake -DMNN_BUILD_TESTS=ON ..
+            make -j4
+      - name: test
+        run: cd build && ./run_test.out
