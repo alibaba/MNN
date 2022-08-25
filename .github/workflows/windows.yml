@@ -1,0 +1,35 @@
+name: windows
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/windows.yml'
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  windows_build_test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: test
+        run: |
+            mkdir build && cd build
+            cmake -DMNN_BUILD_TEST=ON ..
+            cmake --build . -j4

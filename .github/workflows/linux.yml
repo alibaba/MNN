@@ -1,0 +1,53 @@
+name: linux
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/linux.yml'
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  linux_buil_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+            mkdir build && cd build
+            cmake -DMNN_BUILD_TEST=ON ..
+            make -j4
+      - name: test
+        run: cd build && ./run_test.out
+
+      - name: build_non_sse
+        run: |
+            mkdir build_non_sse && cd build_non_sse
+            cmake -DMNN_BUILD_TEST=ON -DMNN_USE_SSE=OFF ..
+            make -j4
+      - name: test_non_sse
+        run: cd build_non_sse && ./run_test.out
+
+      - name: build_avx512
+        run: |
+            mkdir build_avx512 && cd build_avx512
+            cmake -DMNN_BUILD_TEST=ON -DMNN_AVX512=ON -DMNN_AVX512_VNNI=ON ..
+            make -j4
+      - name: test_avx512
+        run: cd build_avx512 && ./run_test.out

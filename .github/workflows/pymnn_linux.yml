@@ -1,0 +1,38 @@
+name: pymnn-linux
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'pymnn/**'
+      - '.github/workflows/pymnn_linux.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'pymnn/**'
+      - '.github/workflows/pymnn_linux.yml'
+
+concurrency:
+  group: pymnn-linux-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  pymnn_linux_buil_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: prepare
+        run: |
+            sudo pip3 install numpy opencv-python torch
+      - name: build
+        run: |
+            cd pymnn/pip_package
+            python3 build_deps.py
+            sudo python3 setup.py install --version 1.0
+      - name: test
+        run: |
+            cd pymnn/test
+            python3 unit_test.py
