@@ -9,13 +9,15 @@
 #include "backend/cpu/ThreadPool.hpp"
 #include <string.h>
 #include <MNN/MNNDefine.h>
-#ifdef __ANDROID__
+
+//#define MNN_THREAD_LOCK_CPU
+
+#ifdef MNN_THREAD_LOCK_CPU
 #include <stdint.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <algorithm>
 #endif
-//#define MNN_THREAD_LOCK_CPU
 
 #define MNN_THREAD_POOL_MAX_TASKS 2
 namespace MNN {
