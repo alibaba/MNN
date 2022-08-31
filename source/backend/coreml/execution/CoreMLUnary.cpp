@@ -218,13 +218,19 @@ ErrorCode CoreMLUnary::onResize(const std::vector<Tensor *> &inputs, const std::
             mCoreMLBackend->addLayer(mLayer_);
             return NO_ERROR;
         }
-            /*
+        case UnaryOpOperation_GELU:
+        case UnaryOpOperation_GELU_STANDARD:
+            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_GELU;
+            mLayer_->gelu = mCoreMLBackend->create<CoreML__Specification__GeluLayerParams>();
+            core_ml__specification__gelu_layer_params__init(mLayer_->gelu);
+            break;
+        /*
         // Don't support Op
         case UnaryOpOperation_EXPM1:
         case UnaryOpOperation_ERFC:
         case UnaryOpOperation_BNLL:
         case UnaryOpOperation_ERFINV:
-             */
+        */
         default:
             MNN_ERROR("NPU Unary not support %s\n", MNN::EnumNameUnaryOpOperation(opType));
             break;

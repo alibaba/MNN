@@ -16,6 +16,8 @@
 #include "MNN_generated.h"
 #include "RandomGenerator.hpp"
 #include "core/Macro.h"
+#include "math/WingoradGenerater.hpp"
+#include "common/WinogradInt8Attr.hpp"
 #include <string>
 
 using namespace MNN::Express;
@@ -539,7 +541,7 @@ class ConvBNReluFusedModule : public Module {
 public:
     ConvBNReluFusedModule(std::vector<std::shared_ptr<Module> > modules,
                           NN::FeatureScaleStatMethod featureScaleStatMethod,
-                          NN::ScaleUpdateMethod scaleUpdateMethod, const int bits) {
+                          NN::ScaleUpdateMethod scaleUpdateMethod, const int bits, bool winograd = false) {
         MNN_ASSERT(modules.size() >= 1);
         MNN_ASSERT(modules[0]->type() == "Conv");
 
@@ -561,6 +563,14 @@ public:
                 }
                 if (nullptr != mBias) {
                     addParameter(mBias);
+                }
+                if (winograd && mOption.kernelSize[0] > 1 && mOption.kernelSize[1] > 1
+                    && mOption.stride[0] == 1 && mOption.stride[1] == 1
+                    && mOption.dilate[0] == 1 && mOption.dilate[1] == 1 && mGroup == 1) {
+                    mWinogradAttr.reset(new WinogradInt8Attr);
+                    mWinogradTransInputMaxPos = addParameter(mWinogradTransInputMax);
+                    mWinogradTransInputMinPos = addParameter(mWinogradTransInputMin);
+                    mWinogradTransWeightScalePos = addParameter(nullptr);
                 }
                 setName(mConvParameter.name);
                 modules[i] = nullptr;
@@ -617,7 +627,7 @@ public:
         return std::make_pair(scale, zeroPoint);
     }
 
-    std::vector<VARP> fakeQuantFeatureWithMinMax(VARP x, VARP useMin, VARP useMax, VARP clampVar) {
+    std::vector<VARP> fakeQuantFeatureWithMinMax(VARP x, VARP useMin, VARP useMax, VARP clampVar, INTS axis = {}) {
         auto originFormat = x->getInfo()->order;
         auto tempX        = x;
         if (originFormat == NC4HW4) {
@@ -625,9 +635,15 @@ public:
         }
         auto originX = tempX;
         VARP min, max;
-        // always PerTensor
-        min = _ReduceMin(tempX);
-        max = _ReduceMax(tempX);
+
+        bool keepDims = false;
+        if (axis.size() > 0) {
+            // PerChannel for winograd
+            keepDims = true;
+        }
+
+        min = _ReduceMin(tempX, axis, keepDims);
+        max = _ReduceMax(tempX, axis, keepDims);
 
         VARP scale, zeroPoint;
         VARP nudgeMin, nudgeMax;
@@ -679,6 +695,113 @@ public:
         MNN_ASSERT(false);
         return nullptr;
     }
+    bool bestWinogradUnit(const VARP x, int* unitH = nullptr, int* unitW = nullptr) {
+        if (x->getInfo() == nullptr) {
+            return false;
+        }
+        int kernelW = mOption.kernelSize[0], kernelH = mOption.kernelSize[1], padW = mOption.pads[0], padH = mOption.pads[1];
+        int outH = x->getInfo()->dim[2] + 2 * padH - kernelH + 1, outW = x->getInfo()->dim[3] + 2 * padW - kernelW + 1;
+        int inChannel = mOption.channel[0], outChannel = mOption.channel[1];
+        int threadNumber = 1, ePack = 12;
+        int unit2   = UP_DIV(outH * outW, ePack * threadNumber);
+        int maxUnit = (int)::sqrtf((float)unit2);
+        const int MAX_UNIT = 4, MIN_UNIT = 2;
+        maxUnit = std::max(std::min(maxUnit, MAX_UNIT), MIN_UNIT);
+
+        auto units = std::pair<int, int>({0, 0});
+        float maxRate = 1.0f, originCost = outH * outW * inChannel * outChannel * kernelH * kernelW;
+        std::set<int> supportSu{4, 6};
+        for (int uh = MIN_UNIT; uh <= maxUnit; ++uh) {
+            for (int uw = MIN_UNIT; uw <= maxUnit; ++uw) {
+                auto alphaH = uh + kernelH - 1, alphaW = uw + kernelW - 1;
+                if (supportSu.find(alphaH) == supportSu.end() || supportSu.find(alphaW) == supportSu.end()) {
+                    continue;
+                }
+                float winogradCost =
+                    (2 * alphaH * alphaW * inChannel + alphaH * alphaW * inChannel * outChannel + (alphaH * alphaW + uh * alphaW) * outChannel) * (UP_DIV(outW, uw) * UP_DIV(outH, uh));
+                float reduceRate = originCost / winogradCost;
+                if (reduceRate > maxRate) {
+                    maxRate = reduceRate;
+                    units = std::pair<int, int>({uh, uw});
+                }
+            }
+        }
+        if (units.first == 0 || units.second == 0) {
+            return false;
+        }
+        if (unitH != nullptr && unitW != nullptr) {
+            *unitH = units.first;
+            *unitW = units.second;
+        }
+        return true;
+    }
+    VARP _winogradConv(const VARP x, const VARP weight) {
+        auto inDims = x->getInfo()->dim;
+        int batch = inDims[0], inH = inDims[2], inW = inDims[3];
+        int inChannel = mOption.channel[0], outChannel = mOption.channel[1];
+        int kernelW = mOption.kernelSize[0], kernelH = mOption.kernelSize[1], padW = mOption.pads[0], padH = mOption.pads[1];
+        int outH = inH + 2 * padH - kernelH + 1, outW = inW + 2 * padW - kernelW + 1;
+        int unitH, unitW;
+        bestWinogradUnit(x, &unitH, &unitW);
+        if (mWinogradAttr->attrs.empty()) {
+            mWinogradAttr->add(0, 0, kernelH, kernelW, unitH, unitW);
+        }
+        if (unitH != mWinogradAttr->attrs[0].unitY || unitW != mWinogradAttr->attrs[0].unitX) {
+            MNN_ERROR("Winograd Conv not support variable input shape\n");
+            return nullptr;
+        }
+        int alphaH = unitH + kernelH - 1, alphaW = unitW + kernelW - 1;
+        int unitNumH = UP_DIV(outH, unitH), unitNumW = UP_DIV(outW, unitW);
+        int needH = unitNumH * unitH + kernelH - 1, needW = unitNumW * unitW + kernelW - 1;
+        int paddings[] = {0, 0, 0, 0, padH, needH - inH - padH, padW, needW - inW - padW};
+        auto xx = _Pad(x, _Const(paddings, {8}, NCHW, halide_type_of<int32_t>()));
+        // [ic * alphaH * alphaW, N * h_unit_num * w_unit_num]
+        xx = _Im2Col(xx, {alphaW, alphaH}, {1, 1}, {0, 0}, {unitW, unitH});
+        // [N * h_unit_num * w_unit_num, ic, alphaH, alphaW]
+        xx = _Transpose(_Reshape(xx, {inChannel, alphaH, alphaW, -1}), {3, 0, 1, 2});
+        Math::WinogradGenerater genH(unitH, kernelH), genW(unitW, kernelW);
+        auto srcTransH = _Const(genH.B()->host<void>(), {alphaH, alphaH}, NCHW);
+        auto srcTransW = _Const(genW.B()->host<void>(), {alphaW, alphaW}, NCHW);
+        xx = _MatMul(_MatMul(_Transpose(srcTransH, {1, 0}), xx), srcTransW);
+        // [alphaH * alphaW, ic, N * h_unit_num * w_unit_num]
+        xx = _Reshape(_Transpose(xx, {2, 3, 1, 0}), {alphaH * alphaW, inChannel, -1});
+        
+        auto inputPair = fakeQuantFeatureWithMinMax(xx, nullptr, nullptr, mInputClampValue, {1, 2, 3});
+        mWinogradTransInputMin = updateParameter(mWinogradTransInputMin, inputPair[1]);
+        mWinogradTransInputMax = updateParameter(mWinogradTransInputMax, inputPair[2]);
+        setParameter(mWinogradTransInputMin, mWinogradTransInputMinPos);
+        setParameter(mWinogradTransInputMax, mWinogradTransInputMaxPos);
+        
+        auto wTransH = _Const(genH.G()->host<void>(), {alphaH, kernelH}, NCHW);
+        auto wTransW = _Const(genW.G()->host<void>(), {alphaW, kernelW}, NCHW);
+        // [oc, ic, alphaH, alphaW]
+        auto ww = _MatMul(_MatMul(wTransH, weight), _Transpose(wTransW, {1, 0}));
+        // [alphaH * alphaW, oc, ic]
+        ww = _Transpose(_Reshape(ww, {outChannel, inChannel, -1}), {2, 0, 1});
+        
+        // simulate weight quant
+        auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {1, 2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
+//        ww = clamp(_Round(ww * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
+        setParameter(weightScale, mWinogradTransWeightScalePos);
+        
+        // [alphaH * alphaW, oc, N * h_unit_num * w_unit_num]
+        auto yy = _MatMul(ww, xx);
+        // [oc, N * h_unit_num * w_unit_num, alphaH, alphaW]
+        yy = _Reshape(_Transpose(yy, {1, 2, 0}), {outChannel, -1, alphaH, alphaW});
+        auto dstTransH = _Const(genH.A()->host<void>(), {alphaH, unitH}, NCHW);
+        auto dstTransW = _Const(genW.A()->host<void>(), {alphaW, unitW}, NCHW);
+        // [oc, N * h_unit_num * w_unit_num, unitH, unitW]
+        yy = _MatMul(_MatMul(_Transpose(dstTransH, {1, 0}), yy), dstTransW);
+        // [N, oc, h_unit_num * unitH, w_unit_num * unitW]
+        yy = _Reshape(_Transpose(_Reshape(yy, {outChannel, batch, unitNumH, unitNumW, unitH, unitW}), {1, 0, 2, 4, 3, 5}), {batch, outChannel, unitNumH * unitH, unitNumW * unitW});
+        int sliceStartData[] = {0, 0, 0, 0}, sliceEndData[] = {-1, -1, outH, outW};
+        yy = _Slice(yy, _Const(sliceStartData, {4}, NCHW), _Const(sliceEndData, {4}, NCHW));
+        // TODO: add operator!= to VARP
+        if (!(mBias == nullptr)) {
+            yy = yy + _Reshape(mBias, {1, -1, 1, 1});
+        }
+        return yy;
+    }
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
         VARP res;
@@ -697,8 +820,12 @@ public:
             setParameter(mInputMax, mInputMaxPos);
 
             // simulate output quant to get original output scale
-            res = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
-                        mOption.dilate, mGroup, mOption.pads);
+            if (mWinogradAttr != nullptr && bestWinogradUnit(x)) {
+                res = _winogradConv(x, weightTemp);
+            } else {
+                res = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
+                            mOption.dilate, mGroup, mOption.pads);
+            }
             res->setName(name());
 
             if (mBatchNorm) {
@@ -729,8 +856,13 @@ public:
                 setParameter(mInputMin, mInputMinPos);
                 setParameter(mInputMax, mInputMaxPos);
 
-                auto simuRes = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
+                VARP simuRes;
+                if (mWinogradAttr != nullptr && bestWinogradUnit(x)) {
+                    simuRes = _winogradConv(x, weightTemp);
+                } else {
+                    simuRes = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
                                      mOption.dilate, mGroup, mOption.pads);
+                }
                 if (mBatchNorm) {
                     simuRes = mBatchNorm->forward(simuRes);
                 }
@@ -841,6 +973,44 @@ public:
                         mInputScale->readMap<float>()[0], mOutputScale->readMap<float>()[0],
                         inputZeroPoint, outputZeroPoint,
                         -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mWeightClampValue->readMap<float>()[0], mAccumulateToInt16);
+            if (mWinogradAttr != nullptr && !mWinogradAttr->attrs.empty()) {
+                auto scaleAndZeroPoint = computeScaleAndZeroPoint(mWinogradTransInputMin, mWinogradTransInputMax, mInputClampValue);
+                auto inputScaleVar = scaleAndZeroPoint.first;
+                auto inputZeroPointVar = scaleAndZeroPoint.second;
+                auto weightScaleVar = parameters()[mWinogradTransWeightScalePos];
+                
+                // Winograd Transformed input scale
+                auto inputScaleInfo = inputScaleVar->getInfo();
+                auto inputScaleData = inputScaleVar->readMap<float>();
+                if (inputScaleInfo == nullptr || inputScaleData == nullptr) {
+                    MNN_ERROR("Error for WinogradConvModule, trans input scale not ready\n");
+                    return {};
+                }
+                std::vector<float> inputScales(inputScaleData, inputScaleData + inputScaleInfo->size);
+                // Winograd Transformed input zero point
+                inputZeroPointVar = _Cast<int32_t>(inputZeroPointVar);
+                auto inputZeroPointInfo = inputZeroPointVar->getInfo();
+                auto inputZeroPointData = inputZeroPointVar->readMap<int32_t>();
+                if (inputZeroPointInfo == nullptr || inputZeroPointData == nullptr) {
+                    MNN_ERROR("Error for WinogradConvModule, trans input zero point not ready\n");
+                    return {};
+                }
+                std::vector<int32_t> inputZeroPoints(inputZeroPointData, inputZeroPointData + inputZeroPointInfo->size);
+                // Winograd Transformed weight scale
+                auto weightScaleInfo = weightScaleVar->getInfo();
+                auto weightScaleData = weightScaleVar->readMap<float>();
+                if (weightScaleInfo == nullptr || weightScaleData == nullptr) {
+                    MNN_ERROR("Error for WinogradConvModule, trans input scale not ready\n");
+                    return {};
+                }
+                std::vector<float> weightScales(weightScaleData, weightScaleData + weightScaleInfo->size);
+                
+                mWinogradAttr->attrs[0].inputScales = inputScales;
+                mWinogradAttr->attrs[0].inputZeroPoints = inputZeroPoints;
+                mWinogradAttr->attrs[0].weightScales = weightScales;
+                
+                res = mWinogradAttr->turnToWinogradConv(res);
+            }
             res->setName(name());
 
             // always PerTensor
@@ -888,6 +1058,12 @@ private:
             module->mBatchNorm.reset(mBatchNorm->clone(ctx));
             module->registerModel({module->mBatchNorm});
         }
+        module->mWinogradAttr = mWinogradAttr;
+        module->mWinogradTransInputMin = ctx->getOrClone(mWinogradTransInputMin);
+        module->mWinogradTransInputMax = ctx->getOrClone(mWinogradTransInputMax);
+        module->mWinogradTransInputMinPos = mWinogradTransInputMinPos;
+        module->mWinogradTransInputMaxPos = mWinogradTransInputMaxPos;
+        module->mWinogradTransWeightScalePos = mWinogradTransWeightScalePos;
         return this->cloneBaseTo(ctx, module);
     }
 
@@ -920,12 +1096,18 @@ private:
     NN::FeatureScaleStatMethod mFeatureScaleStatMethod;
     NN::ScaleUpdateMethod mScaleUpdateMethod;
     bool mAccumulateToInt16 = false;
+    std::shared_ptr<WinogradInt8Attr> mWinogradAttr;
+    VARP mWinogradTransInputMin = nullptr;
+    VARP mWinogradTransInputMax = nullptr;
+    int mWinogradTransInputMinPos = -1;
+    int mWinogradTransInputMaxPos = -1;
+    int mWinogradTransWeightScalePos = -1;
 };
 
 Module* NN::ConvBNReluFused(std::vector<std::shared_ptr<Module> > modules,
                                             NN::FeatureScaleStatMethod featureScaleStatMethod,
-                                            NN::ScaleUpdateMethod scaleUpdateMethod, const int bits) {
-    return new ConvBNReluFusedModule(modules, featureScaleStatMethod, scaleUpdateMethod, bits);
+                                            NN::ScaleUpdateMethod scaleUpdateMethod, const int bits, bool winograd) {
+    return new ConvBNReluFusedModule(modules, featureScaleStatMethod, scaleUpdateMethod, bits, winograd);
 }
 
 Module* NN::ConvInt8(const ConvOption& option, int bits, bool hasBias,
@@ -938,7 +1120,7 @@ Module* NN::ConvInt8(const ConvParameters& para, int bits, NN::FeatureScaleStatM
     return new ConvBNReluFusedModule({conv}, featureMethod, method, bits);
 }
 
-bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod, NN::ScaleUpdateMethod scaleUpdateMethod) {
+bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod, NN::ScaleUpdateMethod scaleUpdateMethod, bool winogradOpt) {
     if (nullptr == module || module->type() != PIPELINE_MODULE) {
         MNN_ERROR("Invalide module for quantized\n");
         return false;
@@ -965,7 +1147,7 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
             // only conv
             if ((!convSingleOutputReference) || (p1ModuleType == "Conv") ||
                     (p1ModuleType != "BatchNorm" && p1ModuleType != "ReLU" && p1ModuleType != "ReLU6")) {
-                theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                 pipModule->registerModel({theModule});
                 continue;
             }
@@ -973,14 +1155,14 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
             if (p1ModuleType == "BatchNorm") {
                 bool convBnConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
                 if (!convBnConnected) {
-                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                     pipModule->registerModel({theModule});
                     continue;
                 }
 
                 // last conv + bn
                 if (i == pipModule->mSubModules.size() - 2) {
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                     pipModule->registerModel({theModule});
                     outputIndices = p1OutputIndices;
                     needEraseIndices.emplace_back(i + 1);
@@ -998,7 +1180,7 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
 
                 // only conv + bn
                 if ((!bnSingleOutputReference) || (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6")) {
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                     pipModule->registerModel({theModule});
                     outputIndices = p1OutputIndices;
                     needEraseIndices.emplace_back(i + 1);
@@ -1012,14 +1194,14 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
                         isPrelu = std::abs(slope) > 1e-6;
                     }
                     if (!convBnReluConnected || isPrelu) {
-                        theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                        theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                         pipModule->registerModel({theModule});
                         outputIndices = p1OutputIndices;
                         needEraseIndices.emplace_back(i + 1);
                         continue;
                     }
 
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits, winogradOpt));
                     pipModule->registerModel({theModule});
                     outputIndices = p2OutputIndices;
                     needEraseIndices.emplace_back(i + 1);

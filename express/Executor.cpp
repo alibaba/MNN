@@ -243,6 +243,11 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(std::ve
     }
     return createRuntimeManager(configs[0]);
 }
+void Executor::RuntimeManager::destroy(RuntimeManager* rtmgr) {
+    if (nullptr != rtmgr) {
+        delete rtmgr;
+    }
+}
 
 void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
     if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
@@ -273,6 +278,12 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
             }
             *dst = summer;
             return true;
+        } break;
+        case Interpreter::BACKENDS: {
+            auto dst = (int*)ptr;
+            if (!mInside->mRuntime.first.empty()) {
+                *dst = mInside->mRuntime.first.begin()->first;
+            }
         } break;
         default: {
             // Do nothing
@@ -321,6 +332,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
     res->mInside->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
     res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[std::make_pair(compute.type, compute.numThread)]));
     res->mInside->mInfo = originRt[std::make_pair(compute.type, compute.numThread)];
+    res->mInside->mNumberThread = compute.numThread;
     if (nullptr != config.backendConfig) {
         res->mInside->mConfig = *config.backendConfig;
         res->mInside->mUserConfig = true;

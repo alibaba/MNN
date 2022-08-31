@@ -155,10 +155,10 @@ static void _SSE_MNNPackedMatMul_4(float* C, const float* A, const float* B, con
             z9 = MNNSSEFMA(s0, w3, z9);
         }
         _MM_TRANSPOSE4_PS(z0, z3, z6, z9);
-        _mm_store_ps(dst + 4 * 0, z0);
-        _mm_store_ps(dst + 4 * 1, z3);
-        _mm_store_ps(dst + 4 * 2, z6);
-        _mm_store_ps(dst + 4 * 3, z9);
+        _mm_storeu_ps(dst + 4 * 0, z0);
+        _mm_storeu_ps(dst + 4 * 1, z3);
+        _mm_storeu_ps(dst + 4 * 2, z6);
+        _mm_storeu_ps(dst + 4 * 3, z9);
     }
 }
 static void _SSE_MNNPackednMatMulRemainCommon(float* C, const float* A, const float* B, size_t eSize,
@@ -196,7 +196,7 @@ static void _SSE_MNNPackednMatMulRemainCommon(float* C, const float* A, const fl
                 auto w = _mm_loadu_ps(weight + 4 * sy);
                 sum    = MNNSSEFMA(s, w, sum);
             }
-            _mm_store_ps(dst, sum);
+            _mm_storeu_ps(dst, sum);
         }
     }
 }

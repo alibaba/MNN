@@ -5,15 +5,14 @@
 //  Created by MNN on 2018/08/02.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef MNN_SUPPORT_TFLITE_QUAN
+#include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 #include "backend/cpu/CPUTFQuantizedConv2D.hpp"
 #include <math.h>
-#include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUFixedPoint.hpp"
 #include "backend/cpu/CPUQuantizationUtils.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
 #ifdef MNN_USE_NEON
@@ -483,6 +482,8 @@ public:
         return new CPUTFQuantizedConv2D(backend, op);
     }
 };
-REGISTER_CPU_OP_CREATOR(CPUTFQuantizedConv2DCreator, OpType_TfQuantizedConv2D);
 } // namespace MNN
 #endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUTFQuantizedConv2DCreator, OpType_TfQuantizedConv2D);
+}

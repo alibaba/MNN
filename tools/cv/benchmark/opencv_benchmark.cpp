@@ -10,8 +10,10 @@
 #include <iomanip>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include "cv/imgproc/imgproc.hpp"
+#include "cv/calib3d.hpp"
 #ifdef MNN_IMGCODECS
 #include "cv/imgcodecs.hpp"
 #endif
@@ -285,6 +287,18 @@ void draw(cv::Mat cvimg, VARP mnnimg) {
     BENCHMARK(3, fillPoly, mnnimg, mnn_contours, {0, 0, 255})
 }
 
+void histogram(cv::Mat cvimg, VARP mnnimg) {
+    std::vector<cv::Mat> images {cvimg};
+    std::vector<int> histSize {256};
+    std::vector<int> channels {0};
+    std::vector<float> ranges {0., 256.};
+    cv::Mat cvDest;
+    // solvePnP
+    BENCHMARK_CV(calcHist, images, channels, cv::Mat(), cvDest, histSize, ranges)
+    BENCHMARK_MNN(calcHist, {mnnimg}, channels, nullptr, histSize, ranges)
+}
+
+
 void codecs(cv::Mat cvimg, VARP mnnimg) {
 #ifdef MNN_IMGCODECS
     // imread
@@ -294,6 +308,33 @@ void codecs(cv::Mat cvimg, VARP mnnimg) {
     BENCHMARK_CV(imwrite, "cv.jpg", cvimg)
     BENCHMARK(3, imwrite, "mnn.jpg", mnnimg)
 #endif
+}
+
+void calib3d(cv::Mat cvimg, VARP mnnimg) {
+    float model_points[18] = {
+        0.0, 0.0, 0.0, 0.0, -330.0, -65.0, -225.0, 170.0, -135.0,
+        225.0, 170.0, -135.0, -150.0, -150.0, -125.0, 150.0, -150.0, -125.0
+    };
+    float image_points[12] = {
+        359, 391, 399, 561, 337, 297, 513, 301, 345, 465, 453, 469
+    };
+    float camera_matrix[9] = {
+        1200, 0, 600, 0, 1200, 337.5, 0, 0, 1
+    };
+    float dist_coeffs[4] = { 0, 0, 0, 0 };
+    VARP mnnObj = _Const(model_points, {6, 3});
+    VARP mnnImg = _Const(image_points, {6, 2});
+    VARP mnnCam = _Const(camera_matrix, {3, 3});
+    VARP mnnCoe = _Const(dist_coeffs, {4, 1});
+    cv::Mat cvObj = cv::Mat(6, 3, CV_32F, model_points);
+    cv::Mat cvImg = cv::Mat(6, 2, CV_32F, image_points);
+    cv::Mat cvCam = cv::Mat(3, 3, CV_32F, camera_matrix);
+    cv::Mat cvCoe = cv::Mat(4, 1, CV_32F, dist_coeffs);
+    std::vector<float> rv(3), tv(3);
+    cv::Mat rvecs(rv),tvecs(tv);
+    // solvePnP
+    BENCHMARK_CV(solvePnP, cvObj, cvImg, cvCam, cvCoe, rvecs, tvecs, false, cv::SOLVEPNP_SQPNP)
+    BENCHMARK(3, solvePnP, mnnObj, mnnImg, mnnCam, mnnCoe)
 }
 
 void printLine() {
@@ -334,7 +375,6 @@ int main(int argc, char** argv) {
     cv::Mat img_fp32;
     img_uchar.convertTo(img_fp32, CV_32FC3);
     auto mnn_fp32 = cv2mnn<float>(img_fp32);
-    
     color(img_uchar, mnn_uchar);
     filter(img_fp32, mnn_fp32);
     geometric(img_uchar, mnn_uchar);
@@ -342,6 +382,8 @@ int main(int argc, char** argv) {
     structral(img_uchar, mnn_uchar);
     draw(img_uchar, mnn_uchar);
     codecs(img_uchar, mnn_uchar);
+    calib3d(img_uchar, mnn_uchar);
+    histogram(img_uchar, mnn_uchar);
     log();
     return 0;
 }

@@ -61,6 +61,7 @@ public:
 
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
+
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
 
@@ -127,6 +128,19 @@ private:
         static name _temp;\
         CPUBackend::addCreator(opType, &_temp); \
     }
+
+#ifdef MNN_SUPPORT_DEPRECATED_OP
+#define REGISTER_CPU_OP_CREATOR_OLD(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static name _temp;\
+        CPUBackend::addCreator(opType, &_temp); \
+    }
+
+#else
+#define REGISTER_CPU_OP_CREATOR_OLD(name, opType)     \
+    void ___##name##__##opType##__() {            \
+    }
+#endif
 
 } // namespace MNN
 

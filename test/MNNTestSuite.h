@@ -58,7 +58,7 @@ public:
     virtual ~MNNTestCase() = default;
     /**
      * @brief run test case with runtime precision, see FP32Converter in TestUtil.h.
-     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * @param precision  fp32 / bf16 precision should use FP32Converter[1 - 2].
      * fp16 precision should use FP32Converter[3].
      */
     virtual bool run(int precision) = 0;
@@ -90,13 +90,13 @@ public:
     void add(MNNTestCase* test, const char* name);
     /**
      * @brief run all registered test case with runtime precision, see FP32Converter in TestUtil.h.
-     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * @param precision . fp32 / bf16 precision should use FP32Converter[1 - 2].
      * fp16 precision should use FP32Converter[3].
      */
     static int runAll(int precision, const char* flag = "");
     /**
      * @brief run test case with runtime precision, see FP32Converter in TestUtil.h.
-     * @param precision. fp32 / bf16 precision should use FP32Converter[1 - 2].
+     * @param precision . fp32 / bf16 precision should use FP32Converter[1 - 2].
      * fp16 precision should use FP32Converter[3].
      */
     static int run(const char* name, int precision, const char* flag = "");

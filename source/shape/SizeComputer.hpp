@@ -131,7 +131,6 @@ public:
     }
 };
 } // namespace MNN
-
 #define REGISTER_SHAPE(name, op)                          \
     void ___##name##__##op##__() {                        \
         name* _temp = new name;                            \
@@ -146,5 +145,18 @@ public:
         computer->setInputIndex(index);                    \
         ts->insert(computer, op);                        \
     }
+
+#ifdef MNN_SUPPORT_DEPRECATED_OP
+#define REGISTER_SHAPE_OLD(name, op)                          \
+    void ___##name##__##op##__() {                        \
+        name* _temp = new name;                            \
+        SizeComputerSuite* ts = SizeComputerSuite::get(); \
+        ts->insert(_temp, op);                           \
+    }
+#else
+#define REGISTER_SHAPE_OLD(name, op) void ___##name##__##op##__() {}
+
+#endif
+
 
 #endif

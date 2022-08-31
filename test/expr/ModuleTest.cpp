@@ -95,18 +95,18 @@ public:
         Module::Config config;
         config.shapeMutable = false;
         config.rearrange = true;
-        std::shared_ptr<Module> interp0(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, &config));
+        std::shared_ptr<Module> interp0(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, &config), Module::destroy);
         auto mem1 = rt->onGetMemoryInMB();
         MNN_PRINT("Increase: %f in rt\n", mem1 - mem0);
-        std::shared_ptr<Module> interp1(Module::clone(interp0.get(), true));
+        std::shared_ptr<Module> interp1(Module::clone(interp0.get(), true), Module::destroy);
         auto mem2 = rt->onGetMemoryInMB();
         MNN_PRINT("Increase: %f in rt\n", mem2 - mem1);
         if (mem2 - mem1 > mem1 - mem0) {
             return false;
         }
         config.rearrange = false;
-        std::shared_ptr<Module> interp2(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, &config));
-        std::shared_ptr<Module> interp3(Module::clone(interp2.get()));
+        std::shared_ptr<Module> interp2(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, &config), Module::destroy);
+        std::shared_ptr<Module> interp3(Module::clone(interp2.get()), Module::destroy);
         auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
         auto xPtr = x->writeMap<float>();
         ::memset(xPtr, 0, 1*3*224*224*sizeof(float));
@@ -142,8 +142,8 @@ public:
         interp1.reset();
         MNN::ScheduleConfig sconfig;
         std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
-        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
-        interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs), Executor::RuntimeManager::destroy);
+        interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
         auto z0 = interp0->onForward({x});
         // Release runtime and module, then trigger var's release
         interp0.reset();
@@ -179,7 +179,7 @@ public:
             sconfig.numThread = 1;
             std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
             std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
-            interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+            interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
         }
         std::shared_ptr<Module> interp1;
         {
@@ -187,7 +187,7 @@ public:
             sconfig.numThread = 4;
             std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
             std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
-            interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config));
+            interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
         }
         auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
         auto xPtr = x->writeMap<float>();
@@ -227,7 +227,7 @@ public:
         }
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
-        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput));
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
         config.numThread = 1;
         auto s1 = net->createSession(config);

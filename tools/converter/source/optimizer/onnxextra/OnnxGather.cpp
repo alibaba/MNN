@@ -80,65 +80,9 @@ public:
         // Reshape the input as outside, axis, inside
         auto index = inputs[1];
         auto input = inputs[0];
-        auto info = input->getInfo();
-        if (nullptr == info) {
-            MNN_ERROR("Currently don't suport GatherElements with no rank input\n");
-            return nullptr;
-        }
-        auto shape = _Shape(input, NCHW), shapeIndex = _Shape(index, NCHW);
-        if (axis < 0) {
-            axis = axis + info->dim.size();
-        }
-        VARP outsideDims;
-        auto zero = _Scalar<int>(0);
-        auto oneV = _Scalar<int>(1);
-        if (axis > 0) {
-            auto outsideDimsAll = _Slice(shape, _Unsqueeze(zero, {0}), _Unsqueeze(_Scalar<int>(axis), {0}));
-            outsideDims = _ReduceProd(outsideDimsAll);
-        } else {
-            outsideDims = oneV;
-        }
-        auto axisLength = _Slice(shape, _Unsqueeze(_Scalar<int>(axis), {0}), _Unsqueeze(oneV, {0}));
-        VARP insideDims;
-        if (axis + 1 < info->dim.size()) {
-            auto length = info->dim.size() - (axis + 1);
-            auto dimsAll = _Slice(shape, _Unsqueeze(_Scalar<int>(axis+1), {0}), _Unsqueeze(_Scalar<int>(length), {0}));
-            insideDims = _ReduceProd(dimsAll);
-        } else {
-            insideDims = oneV;
-        }
-        // Compute auto index
-        auto outputRange = _Range(zero, outsideDims, oneV) * axisLength * insideDims;
-        auto insideRange = _Range(zero, insideDims, oneV);
-        auto sliceShapeLeft = [=](VARP shape) {
-            std::vector<int32_t> broadDimData(info->dim.size() - axis, 1);
-            auto broadDim = _Const(broadDimData.data(), {(int32_t)broadDimData.size()}, NCHW, halide_type_of<int32_t>());
-            if (axis == 0) {
-                return broadDim;
-            }
-            return _Concat({_Slice(shape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(_Scalar<int>(axis), {0})), broadDim}, 0);
-        };
-        auto sliceShapeRight = [=](VARP shape) {
-            std::vector<int32_t> broadDimData(axis + 1, 1);
-            auto broadDim = _Const(broadDimData.data(), {(int32_t)broadDimData.size()}, NCHW, halide_type_of<int32_t>());
-            if (axis == info->dim.size() - 1) {
-                return broadDim;
-            }
-            return _Concat({broadDim, _Slice(shape, _Unsqueeze(_Unsqueeze(_Scalar<int>(axis + 1), {0})), _Unsqueeze(_Scalar<int>(info->dim.size() - axis - 1), {0}))}, 0);
-        };
-        auto reshapeSliceRange = [=](VARP range, std::function<VARP(VARP)> sliceFunc) {
-            std::vector<int32_t> beginData(info->dim.size(), 0);
-            auto begin = _Const(beginData.data(), {(int32_t)beginData.size()}, NCHW, halide_type_of<int32_t>());
-            return _Slice(_Reshape(range, sliceFunc(shape)), begin, sliceFunc(shapeIndex));
-        };
-        auto autoIndex = reshapeSliceRange(outputRange, sliceShapeLeft) + reshapeSliceRange(insideRange, sliceShapeRight);
-        // index -> index * insideDims + autoindex
-        index = index * insideDims + autoIndex;
-
-        auto output = _GatherV2(_Reshape(input, {-1}), _Reshape(index, {-1}), _Scalar<int>(0));
-        output = _Reshape(output, shapeIndex);
-        output->setName(expr->name());
-        return output->expr().first;
+        auto dst = Express::_GatherElements(input, index, _Scalar(axis));
+        dst->setName(expr->name());
+        return dst->expr().first;
     }
 };
 

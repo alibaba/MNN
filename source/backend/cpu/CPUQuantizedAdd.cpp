@@ -5,9 +5,9 @@
 //  Created by MNN on 2018/10/18.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "backend/cpu/CPUQuantizedAdd.hpp"
 #include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
+#include "backend/cpu/CPUQuantizedAdd.hpp"
 #include "backend/cpu/CPUQuantizationUtils.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
@@ -205,6 +205,8 @@ public:
         return new CPUQuantizedAdd(backend, op);
     }
 };
-REGISTER_CPU_OP_CREATOR(CPUQuantizedAddCreator, OpType_QuantizedAdd);
 } // namespace MNN
 #endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUQuantizedAddCreator, OpType_QuantizedAdd);
+}

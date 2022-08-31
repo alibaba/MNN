@@ -171,6 +171,56 @@ void Matrix::add(Tensor* C, const Tensor* A, const Tensor* B) {
     }
 }
 
+void Matrix::sub(Tensor* C, const Tensor* A, const Tensor* B) {
+    MNN_ASSERT(NULL != C);
+    MNN_ASSERT(NULL != B);
+    MNN_ASSERT(NULL != A);
+
+    MNN_ASSERT(A->size() == C->size());
+    auto height = A->length(0);
+    auto width = A->length(1);
+    int bOffset = 0;
+    if (B->dimensions() == A->dimensions()) {
+        bOffset = B->stride(0);
+        MNN_ASSERT(B->length(1) == A->length(1));
+        MNN_ASSERT(B->length(0) == A->length(0));
+    } else {
+        bOffset = 0;
+        MNN_ASSERT(B->length(0) == A->length(1));
+    }
+    const int size = width;
+    for (int y=0; y<height; ++y) {
+        auto a = A->host<float>() + y * A->stride(0);
+        auto b = B->host<float>() + y * bOffset;
+        auto c = C->host<float>() + y * C->stride(0);
+        int i = 0;
+#ifdef MNN_USE_NEON
+        for (; i <= size - 8; i += 8) {
+            float32x4_t a0 = vld1q_f32(a + i);
+            float32x4_t a1 = vld1q_f32(a + i + 4);
+            float32x4_t b0 = vld1q_f32(b + i);
+            float32x4_t b1 = vld1q_f32(b + i + 4);
+
+            float32x4_t sub0 = vsubq_f32(a0, b0);
+            float32x4_t sub1 = vsubq_f32(a1, b1);
+
+            vst1q_f32(c + i, sub0);
+            vst1q_f32(c + i + 4, sub1);
+        }
+
+        for (; i <= size - 4; i += 4) {
+            float32x4_t aa  = vld1q_f32(a + i);
+            float32x4_t bb  = vld1q_f32(b + i);
+            float32x4_t sub = vsubq_f32(aa, bb);
+            vst1q_f32(c + i, sub);
+        }
+#endif
+        for (; i < size; ++i) {
+            c[i] = a[i] - b[i];
+        }
+    }
+}
+
 void Matrix::dot(Tensor* C, const Tensor* A, const Tensor* B) {
     MNN_ASSERT(NULL != C);
     MNN_ASSERT(NULL != B);
@@ -317,6 +367,45 @@ void Matrix::print(const Tensor* C, const char* head) {
             MNN_PRINT("%.7f\t", c[x + y * stride]);
         }
         MNN_PRINT("\n");
+    }
+}
+
+void Matrix::mul(Tensor* dst, const Tensor* src, const float scale) {
+    MNN_ASSERT(NULL != dst);
+    MNN_ASSERT(NULL != src);
+    MNN_ASSERT(2 == dst->dimensions());
+    MNN_ASSERT(2 == src->dimensions());
+    MNN_ASSERT(src->shape() == dst->shape());
+    const int height = src->length(0);
+    const int width = src->length(1);
+
+    const int sw = src->stride(0);
+    const int dw = dst->stride(0);
+#ifdef MNN_USE_NEON
+    float32x4_t scale_ = vdupq_n_f32(scale);
+#endif
+    for(int y = 0; y < height; y++) {
+        auto s = src->host<float>() + y * sw;
+        auto d = dst->host<float>() + y * dw;
+        int i = 0;
+#ifdef MNN_USE_NEON
+        for (; i <= width - 8; i += 8) {
+            float32x4_t s0 = vld1q_f32(s + i);
+            float32x4_t s1 = vld1q_f32(s + i + 4);
+            float32x4_t d0 = vmulq_f32(s0, scale_);
+            float32x4_t d1 = vmulq_f32(s1, scale_);
+            vst1q_f32(d + i, d0);
+            vst1q_f32(d + i + 4, d1);
+        }
+        for (; i <= width - 4; i += 4) {
+            float32x4_t ss  = vld1q_f32(s + i);
+            float32x4_t dd = vmulq_f32(ss, scale_);
+            vst1q_f32(d + i, dd);
+        }
+#endif
+        for (; i < width; ++i) {
+            d[i] = s[i] * scale;
+        }
     }
 }
 

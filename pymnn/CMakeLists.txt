@@ -26,12 +26,6 @@ else()
     file(GLOB_RECURSE SRC   ${CMAKE_CURRENT_LIST_DIR}/src/MNN.cc)
 endif()
 
-
-# Allow the model authentication to be bypassed if alinnpython is used.
-if(PYMNN_USE_ALINNPYTHON)
-    list(APPEND SRC ${CMAKE_CURRENT_LIST_DIR}/src/internal/PythonAuthByPass.cpp)
-endif()
-
 if (MNN_BUILD_SHARED_LIBS)
     add_library(mnnpybridge SHARED ${SRC})
 else()
@@ -81,6 +75,9 @@ if(PYMNN_IMGPROC_GEOMETRIC)
 endif()
 if(PYMNN_IMGPROC_FILTER)
     target_compile_definitions(mnnpybridge PRIVATE PYMNN_IMGPROC_FILTER)
+endif()
+if(PYMNN_CALIB3D)
+    target_compile_definitions(mnnpybridge PRIVATE PYMNN_CALIB3D)
 endif()
 
 if(PYMNN_INTERNAL_SERVING)

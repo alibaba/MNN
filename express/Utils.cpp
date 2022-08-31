@@ -130,6 +130,16 @@ bool Utils::releaseMemoryForHostTensor(Tensor* dest) {
     dest->buffer().host = nullptr;
     return true;
 }
+Tensor* Utils::getTensor(VARP var) {
+    auto exprInfo    = var->expr();
+    auto inside      = exprInfo.first->inside();
+    auto inputTensor = inside->mOutputTensors[exprInfo.second];
+    if (nullptr != inside->mCache) {
+        inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
+    }
+    return inputTensor;
+}
+
 
 } // namespace Express
 } // namespace MNN

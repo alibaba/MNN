@@ -78,7 +78,9 @@ int main(int argc, const char* argv[]) {
         precision = (MNN::BackendConfig::PrecisionMode)stringConvert<int>(argv[6]);
     }
     std::shared_ptr<MNN::Interpreter> net =
-        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath));
+    std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath), [](void* net) {
+        MNN::Interpreter::destroy((MNN::Interpreter*)net);
+    });
 
     // create session
     MNN::ScheduleConfig config;
@@ -135,7 +137,9 @@ int main(int argc, const char* argv[]) {
 
     // write input tensor
     auto inputTensor = net->getSessionInput(session, NULL);
-    std::shared_ptr<MNN::Tensor> givenTensor(createTensor(inputTensor, givenName));
+    std::shared_ptr<MNN::Tensor> givenTensor(createTensor(inputTensor, givenName), [](void* t) {
+        MNN::Tensor::destroy((MNN::Tensor*)t);
+    });
     if (!givenTensor) {
 #if defined(_MSC_VER)
         printf("Failed to open input file %s.\n", givenName);

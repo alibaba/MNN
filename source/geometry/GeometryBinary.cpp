@@ -21,9 +21,9 @@ public:
         auto input0     = inputs[0];
         auto input1     = inputs[1];
         auto output     = outputs[0];
-        auto inputL0    = input0->elementSize();
-        auto inputL1    = input1->elementSize();
-        auto outputSize = output->elementSize();
+        auto inputL0    = TensorUtils::getRawSize(input0);
+        auto inputL1    = TensorUtils::getRawSize(input1);
+        auto outputSize = TensorUtils::getRawSize(output);
         auto inp0format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         auto inp1format = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
         auto outFormat  = TensorUtils::getDescribe(output)->dimensionFormat;
@@ -92,9 +92,9 @@ public:
         auto input0     = inputs[0];
         auto input1     = inputs[1];
         auto output     = outputs[0];
-        auto inputL0    = input0->elementSize();
-        auto inputL1    = input1->elementSize();
-        auto outputSize = output->elementSize();
+        auto inputL0    = TensorUtils::getRawSize(input0);
+        auto inputL1    = TensorUtils::getRawSize(input1);
+        auto outputSize = TensorUtils::getRawSize(output);
         auto inp0format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         auto inp1format = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
         auto outFormat  = TensorUtils::getDescribe(output)->dimensionFormat;

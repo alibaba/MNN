@@ -25,8 +25,8 @@ extern void ___CPUBinaryCreator__OpType_BinaryOp__();
 extern void ___CPUDepthwiseCreator__OpType_QuantizedDepthwiseConv2D__();
 extern void ___CPUQuantizedSoftmaxCreator__OpType_QuantizedSoftmax__();
 extern void ___CPUPoolCreator__OpType_Pooling__();
-extern void ___CPUScatterNdCreator__OpType_ScatterNd__();
 extern void ___CPUDetCreator__OpType_Det__();
+extern void ___CPUHistogramCreator__OpType_Histogram__();
 extern void ___CPUPluginCreator__OpType_Plugin__();
 extern void ___CPUInt8ToFloatCreator__OpType_Int8ToFloat__();
 extern void ___CPUROIAlignCreator__OpType_ROIAlign__();
@@ -63,6 +63,7 @@ extern void ___CPURandomCreator__OpType_RandomUniform__();
 extern void ___CPURandomCreator__OpType_RandomNormal__();
 extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
+extern void ___CPUSvdCreator__OpType_Svd__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
 
 void registerCPUOps() {
@@ -91,8 +92,8 @@ ___CPUBinaryCreator__OpType_BinaryOp__();
 ___CPUDepthwiseCreator__OpType_QuantizedDepthwiseConv2D__();
 ___CPUQuantizedSoftmaxCreator__OpType_QuantizedSoftmax__();
 ___CPUPoolCreator__OpType_Pooling__();
-___CPUScatterNdCreator__OpType_ScatterNd__();
 ___CPUDetCreator__OpType_Det__();
+___CPUHistogramCreator__OpType_Histogram__();
 ___CPUPluginCreator__OpType_Plugin__();
 ___CPUInt8ToFloatCreator__OpType_Int8ToFloat__();
 ___CPUROIAlignCreator__OpType_ROIAlign__();
@@ -129,6 +130,7 @@ ___CPURandomCreator__OpType_RandomUniform__();
 ___CPURandomCreator__OpType_RandomNormal__();
 ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
+___CPUSvdCreator__OpType_Svd__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
 }
 }

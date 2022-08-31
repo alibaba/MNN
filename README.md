@@ -7,16 +7,23 @@
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models, and has industry leading performance for inference and training on-device. At present, MNN has been integrated in more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, Dingtalk, Xianyu and etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
 
-The design principles and performance data of MNN has been published in an MLSys 2020 paper [here](https://arxiv.org/pdf/2002.12418.pdf). Please cite MNN in your publications if it helps your research:
+![architecture](doc/architecture.png)
 
-    @inproceedings{alibaba2020mnn,
-      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
-      title = {MNN: A Universal and Efficient Inference Engine},
-      booktitle = {MLSys},
-      year = {2020}
+Inside Alibaba, [MNN](https://mp.weixin.qq.com/s/5I1ISpx8lQqvCS8tGd6EJw) works as the basic module of the compute container in the [Walle](https://mp.weixin.qq.com/s/qpeCETty0BqqNJV9CMJafA) System, the first end-to-end, general-purpose, and large-scale production system for device-cloud collaborative machine learning, which has been published in the top system conference OSDI’22. The key design principles of MNN and the extensive benchmark testing results (vs. TensorFlow, TensorFlow Lite, PyTorch, PyTorch Mobile, TVM) can be found in the OSDI paper. The scripts and instructions for benchmark testing are put in the path “/benchmark”. If MNN or the design of Walle helps your research or production use, please cite our OSDI paper as follows:
+
+    @inproceedings {proc:osdi22:walle,
+        author = {Chengfei Lv and Chaoyue Niu and Renjie Gu and Xiaotang Jiang and Zhaode Wang and Bin Liu and Ziqi Wu and Qiulin Yao and Congyu Huang and Panos Huang and Tao Huang and Hui Shu and Jinde Song and Bin Zou and Peng Lan and Guohuan Xu and Fei Wu and Shaojie Tang and Fan Wu and Guihai Chen},
+        title = {Walle: An {End-to-End}, {General-Purpose}, and {Large-Scale} Production System for {Device-Cloud} Collaborative Machine Learning},
+        booktitle = {16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
+        year = {2022},
+        isbn = {978-1-939133-28-1},
+        address = {Carlsbad, CA},
+        pages = {249--265},
+        url = {https://www.usenix.org/conference/osdi22/presentation/lv},
+        publisher = {USENIX Association},
+        month = jul,
     }
 
-![image.png](doc/workflow.png)
 
 ## Documentation and Workbench
 MNN's docs are in placed in [Yuque docs here](https://www.yuque.com/mnn/en).
@@ -52,6 +59,7 @@ MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), wh
 - Support build model and train it on PC / mobile.
 - MNN Python API helps ML engineers to easily use MNN to inference, train, process image, without dipping their toes in C++ code.
 
+The Architecture / Precision MNN supported is shown below:
 
 - S ：Support and work well, deeply optimized, recommend to use
 - A ：Support and work well, can use
@@ -75,29 +83,14 @@ MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), wh
 
 
 
-## Architecture
-![architecture](doc/architecture.png)
+## Tools
 
-MNN can be divided into two parts: Inference Engine and Tools.
+Base on MNN (Tensor compute engine), we provided a series of tools for inference, train and general computation.
 
-### Inference Engine
-
-The input of Inference Engine, AI model is a Directed Acyclic Graph(DAG), each node in model is an operator, which describe a kind of tensor compute function. Inference Engine will load and execute the graph. It can seperate into schedule and execute:
-![runflow.png](doc/runflow.png)
-
-- Schedule: Load Graph and Pretreat it
-    - Decompose OP, reduce kinds of OPs
-    - Search best compute stratagy
-    - Find best resource allocation
-- Execute: Implete OP, use algorithm and hardware feature to optimize
-    - Algorithm: Winograd Convolution, Strassen Matrix Multiply, Low Precision Compute
-    - Hardware: SIMD for CPU (SSE/NEON/AVX), GPU API (OpenCL / CUDA / Metal)
-
-### Tools
-- MNN-Converter: Convert other model to MNN model, such as Tensorflow(lite), Caffe, ONNX, Torchscripts. And do graph optimization to reduce computation.
+- MNN-Converter: Convert other model to MNN model for inference, such as Tensorflow(lite), Caffe, ONNX, Torchscripts. And do graph optimization to reduce computation.
 - MNN-Compress: Compress model to reduce size and increase performance / speed
 - MNN-Express: Support model with controlflow, use MNN's OP to do general-purpose compute.
-- MNN-CV: A OpenCV liked library, but based on MNN and then much more lightweight.
+- MNN-CV: An OpenCV liked library, but based on MNN and then much more lightweight.
 - MNN-Train: Support train MNN model.
 
 ## How to Discuss and Get Help From MNN Community
@@ -111,6 +104,19 @@ Group #1 (Full): 23329087
 Group #2 (Full): 23350225
 
 Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding8989a1d6ae6ef130b177420cc0e366ea&f0c81=1b93a&cbdbhh=qwertyuiop
+
+## Historical Paper
+
+The preliminary version of MNN, as mobile inference engine and with the focus on manual optimization, has also been published in MLSys 2020. Please cite the paper, if MNN previously helped your research:
+
+
+    @inproceedings{alibaba2020mnn,
+      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
+      title = {MNN: A Universal and Efficient Inference Engine},
+      booktitle = {MLSys},
+      year = {2020}
+    }
+
 
 ## License
 Apache 2.0

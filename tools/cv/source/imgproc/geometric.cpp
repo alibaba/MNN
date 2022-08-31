@@ -178,5 +178,31 @@ VARP warpPerspective(VARP src, Matrix M, Size dsize, int flags, int borderMode, 
     return warpAffine(src, M, dsize, flags, borderMode, borderValue);
 }
 
+VARP undistortPoints(VARP src, VARP cameraMatrix, VARP distCoeffs) {
+    // Don't support distCoeffs
+    auto dims = src->getInfo()->dim;
+    int n = dims[0];
+    auto dst  = _Input(dims, NCHW);
+    auto iptr = src->readMap<float>();
+    auto optr = dst->writeMap<float>();
+    auto cptr = cameraMatrix->readMap<float>();
+    double fx = cptr[0];
+    double fy = cptr[4];
+    double ifx = 1./fx;
+    double ify = 1./fy;
+    double cx = cptr[2];
+    double cy = cptr[5];
+    for (int i = 0; i < n; i++) {
+        auto x = iptr[i * 2], y = iptr[i * 2 + 1];
+        auto u = x;
+        auto v = y;
+        x = (x - cx)*ifx;
+        y = (y - cy)*ify;
+        optr[i * 2] = x;
+        optr[i * 2 + 1] = y;
+    }
+    return dst;
+}
+
 } // CV
 } // MNN

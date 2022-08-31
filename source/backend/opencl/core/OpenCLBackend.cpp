@@ -560,6 +560,12 @@ void OpenCLBackend::copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstT
         auto DeviceBuffer = (cl::Buffer*)dstTensor->deviceId();
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*DeviceBuffer, CL_TRUE, 0, needSize, hostPtr);
 }
+int OpenCLBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    if (toCpu) {
+        mOpenCLRuntime->commandQueue().finish();
+    }
+    return 0;
+}
 
 void OpenCLBackend::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag) const {
 #ifndef MNN_OPENCL_BUFFER_CLOSED

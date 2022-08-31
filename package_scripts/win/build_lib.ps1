@@ -48,6 +48,8 @@ if ($backends -ne $null) {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_OPENCL=ON"
         } elseif ($backend -eq "vulkan") {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_VULKAN=ON"
+        } elseif ($backend -eq "cuda") {
+            $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_CUDA=ON"
         }
     }
 }

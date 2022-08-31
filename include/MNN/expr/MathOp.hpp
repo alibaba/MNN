@@ -68,7 +68,7 @@ MNN_PUBLIC VARP _Erf(VARP x);
 MNN_PUBLIC VARP _Erfc(VARP x);
 MNN_PUBLIC VARP _Erfinv(VARP x);
 MNN_PUBLIC VARP _Expm1(VARP x);
-
+MNN_PUBLIC VARP _Hardswish(VARP x);
 
 //ReduceOPs
 MNN_PUBLIC VARP _ReduceSum(VARP input_variable, INTS axis = {}, bool keepDims = false);
@@ -125,6 +125,10 @@ MNN_PUBLIC VARP _BatchMatMul(VARP x, VARP y, bool adj_x = false, bool adj_y = fa
 MNN_PUBLIC VARP _UnravelIndex(VARP indices, VARP dims);
 MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape);
 MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input);
+MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, int reduction);
+MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input, int reduction);
+MNN_PUBLIC VARP _ScatterElements(VARP data, VARP indices, VARP updates, int reduction = -1);
+MNN_PUBLIC VARP _ScatterElements(VARP data, VARP indices, VARP updates, VARP axis, int reduction = -1);
 MNN_PUBLIC VARP _OneHot(VARP indices, VARP depth, VARP onValue, VARP offValue, int axis = -1);
 MNN_PUBLIC VARP _BroadcastTo(VARP a, VARP shape);
 MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
@@ -132,7 +136,8 @@ MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
 MNN_PUBLIC VARP _RandomUnifom(VARP shape, halide_type_t dtype, float low = 0.0f, float high = 1.0f, int seed0 = 0, int seed1 = 0);
 MNN_PUBLIC VARP _CumSum(VARP x, int axis, bool exclusive = false, bool reverse = false);
 MNN_PUBLIC VARP _CumProd(VARP x, int axis);
-
+MNN_PUBLIC VARPS _Svd(VARP x);
+MNN_PUBLIC VARP _Histogram(VARP x, int bin, int min, int max, int channel = -1);
 }; // namespace Express
 }; // namespace MNN
 

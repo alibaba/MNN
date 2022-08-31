@@ -1,4 +1,5 @@
 #include <vector>
+#include <cstddef>
 #include "BF16Unary.hpp"
 #include "VecHalf.hpp"
 #include "math/Vec.hpp"

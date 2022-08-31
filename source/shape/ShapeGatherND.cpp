@@ -51,5 +51,20 @@ public:
     }
 };
 
+class GatherElementsComputer : public SizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        outputs[0]->buffer().dimensions = inputs[1]->dimensions();
+        for (int i = 0; i < inputs[1]->dimensions(); i++) {
+            outputs[0]->setLength(i, inputs[1]->length(i));
+        }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        outputs[0]->buffer().type = inputs[0]->buffer().type;
+        return true;
+    }
+};
+
 REGISTER_SHAPE(GatherNDComputer, OpType_GatherND);
+REGISTER_SHAPE(GatherElementsComputer, OpType_GatherElements);
 } // namespace MNN

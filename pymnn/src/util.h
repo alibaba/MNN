@@ -368,6 +368,9 @@ static inline bool isInt(PyObject* obj) {
 static inline bool isFloat(PyObject* obj) {
     return PyFloat_Check(obj);
 }
+static inline bool isNone(PyObject* obj) {
+    return (obj == Py_None);
+}
 static inline bool isVals(PyObject* obj) {
     return
 #ifdef PYMNN_NUMPY_USABLE
@@ -1130,6 +1133,9 @@ typedef struct { \
 static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject *kwds); \
 static PyObject* PyMNN##NAME##_call(PyObject *self, PyObject *args, PyObject *kwds); \
 static void PyMNN##NAME##_dealloc(PyMNN##NAME *self) { \
+    if (self->ptr) { \
+        delete self->ptr; \
+    } \
     Py_TYPE(self)->tp_free((PyObject *) self); \
 } \
 static PyTypeObject PyMNN##NAME##Type = { \

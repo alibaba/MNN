@@ -1041,6 +1041,18 @@ VARP _GatherND(VARP params, VARP indices) {
     return (Variable::create(Expr::create(std::move(op), {params, indices})));
 }
 
+VARP _GatherElements(VARP params, VARP indices) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_GatherElements;
+    return (Variable::create(Expr::create(std::move(op), {params, indices})));
+}
+
+VARP _GatherElements(VARP params, VARP indices, VARP axis) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_GatherElements;
+    return (Variable::create(Expr::create(std::move(op), {params, indices, axis})));
+}
+
 /*BatchToSpace for N-D variables
 This operation reshapes the "batch" dimension 0 into M + 1 dimensions of shape block_shape + [batch], 
 interleaves these blocks back into the grid defined by the spatial dimensions [1, ..., M], 

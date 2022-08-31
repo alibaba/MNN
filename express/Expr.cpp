@@ -338,6 +338,9 @@ VARP Variable::create(EXPRP expr, int index) {
 #endif
     }
 #endif
+    if (!ExecutorScope::Current()->lazyEval) {
+        res.fix(VARP::CONSTANT);
+    }
     return res;
 }
 void Expr::replace(EXPRP old, EXPRP from) {
@@ -831,7 +834,8 @@ std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
         for (int index = 0; index < op->outputIndexes.size(); ++index) {
             auto outputIndex = op->outputIndexes[index];
             if (variableMap.find(outputIndex) == variableMap.end()) {
-                auto newVariable = Variable::create(expr, index);
+                // just create VARP and don't compute
+                VARP newVariable(new Variable(expr, index));
                 if (source->tensorName.size() > outputIndex) {
                     newVariable->setName(source->tensorName[outputIndex]);
                 }
@@ -940,7 +944,9 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 op->main.AsInput()->dformat = (MNN_DATA_FORMAT)Utils::convertFormat(info.order);
             }
         }
-        op->name = expr->name();
+        if (!expr->name().empty()) {
+            op->name = expr->name();
+        }
         op->inputIndexes.resize(expr->inputs().size());
         for (int i = 0; i < op->inputIndexes.size(); ++i) {
             if (expr->inputs()[i] == nullptr) {
@@ -982,6 +988,17 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
     dest->extraInfo.reset(new ExtraInfoT);
     dest->extraInfo->version = MNN_VERSION;
 }
+std::vector<int8_t> Variable::save(const std::vector<VARP>& vars) {
+    std::unique_ptr<NetT> net(new NetT);
+    save(vars, net.get());
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = Net::Pack(builder, net.get());
+    builder.Finish(offset);
+    std::vector<int8_t> result(builder.GetSize());
+    ::memcpy(result.data(), builder.GetBufferPointer(), builder.GetSize());
+    return result;
+}
+
 void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     std::unique_ptr<NetT> net(new NetT);
     save(vars, net.get());

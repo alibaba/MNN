@@ -118,7 +118,8 @@ class TestModel():
     def __init__(self, modelName):
         self.__copy_to_here(modelName)
     def __run_mnn(self):
-        result = os.popen("./TestConvertResult Onnx onnx").read()
+        convert = ('MNNConvert.exe' if os.name == 'nt' else './MNNConvert') + ' -f ONNX --bizCode MNN --modelFile onnx/test.onnx --MNNModel convert_cache.mnn --keepInputFormat --testdir onnx'
+        result = os.popen(convert).read()
         print(result)
         return result
     def __run_onnx(self):

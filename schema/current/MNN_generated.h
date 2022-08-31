@@ -231,6 +231,10 @@ enum OpType {
   OpType_CumSum = 148,
   OpType_Det = 149,
   OpType_CumProd = 150,
+  OpType_ScatterElements = 151,
+  OpType_GatherElements = 152,
+  OpType_Svd = 153,
+  OpType_Histogram = 154,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -259,7 +263,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[169] {
+inline const OpType (&EnumValuesOpType())[173] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -406,6 +410,10 @@ inline const OpType (&EnumValuesOpType())[169] {
     OpType_CumSum,
     OpType_Det,
     OpType_CumProd,
+    OpType_ScatterElements,
+    OpType_GatherElements,
+    OpType_Svd,
+    OpType_Histogram,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -587,10 +595,10 @@ inline const char * const *EnumNamesOpType() {
     "CumSum",
     "Det",
     "CumProd",
-    "",
-    "",
-    "",
-    "",
+    "ScatterElements",
+    "GatherElements",
+    "Svd",
+    "Histogram",
     "",
     "",
     "",
@@ -3130,6 +3138,7 @@ struct LoopParamT : public flatbuffers::NativeTable {
   bool parallel;
   int32_t loopNumber;
   std::vector<std::unique_ptr<RegionCommandT>> commands;
+  std::unique_ptr<RegionCommandT> initCommand;
   LoopParamT()
       : tensorNumber(0),
         parallel(true),
@@ -3149,7 +3158,8 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_MIDTENSORS = 10,
     VT_PARALLEL = 12,
     VT_LOOPNUMBER = 14,
-    VT_COMMANDS = 16
+    VT_COMMANDS = 16,
+    VT_INITCOMMAND = 18
   };
   int32_t tensorNumber() const {
     return GetField<int32_t>(4, 0);
@@ -3172,6 +3182,9 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *commands() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *>(16);
   }
+  const RegionCommand *initCommand() const {
+    return GetPointer<const RegionCommand *>(18);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
@@ -3187,6 +3200,8 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 16) &&
            verifier.VerifyVector(commands()) &&
            verifier.VerifyVectorOfTables(commands()) &&
+           VerifyOffset(verifier, 18) &&
+           verifier.VerifyTable(initCommand()) &&
            verifier.EndTable();
   }
   LoopParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3218,6 +3233,9 @@ struct LoopParamBuilder {
   void add_commands(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> commands) {
     fbb_.AddOffset(16, commands);
   }
+  void add_initCommand(flatbuffers::Offset<RegionCommand> initCommand) {
+    fbb_.AddOffset(18, initCommand);
+  }
   explicit LoopParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3238,8 +3256,10 @@ inline flatbuffers::Offset<LoopParam> CreateLoopParam(
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> midTensors = 0,
     bool parallel = true,
     int32_t loopNumber = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> commands = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> commands = 0,
+    flatbuffers::Offset<RegionCommand> initCommand = 0) {
   LoopParamBuilder builder_(_fbb);
+  builder_.add_initCommand(initCommand);
   builder_.add_commands(commands);
   builder_.add_loopNumber(loopNumber);
   builder_.add_midTensors(midTensors);
@@ -4893,6 +4913,7 @@ inline void LoopParam::UnPackTo(LoopParamT *_o, const flatbuffers::resolver_func
   { auto _e = parallel(); _o->parallel = _e; };
   { auto _e = loopNumber(); _o->loopNumber = _e; };
   { auto _e = commands(); if (_e) { _o->commands.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->commands[_i] = std::unique_ptr<RegionCommandT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = initCommand(); if (_e) _o->initCommand = std::unique_ptr<RegionCommandT>(_e->UnPack(_resolver)); };
 }
 
 inline flatbuffers::Offset<LoopParam> LoopParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LoopParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4910,6 +4931,7 @@ inline flatbuffers::Offset<LoopParam> CreateLoopParam(flatbuffers::FlatBufferBui
   auto _parallel = _o->parallel;
   auto _loopNumber = _o->loopNumber;
   auto _commands = _o->commands.size() ? _fbb.CreateVector<flatbuffers::Offset<RegionCommand>> (_o->commands.size(), [](size_t i, _VectorArgs *__va) { return CreateRegionCommand(*__va->__fbb, __va->__o->commands[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _initCommand = _o->initCommand ? CreateRegionCommand(_fbb, _o->initCommand.get(), _rehasher) : 0;
   return MNN::CreateLoopParam(
       _fbb,
       _tensorNumber,
@@ -4918,7 +4940,8 @@ inline flatbuffers::Offset<LoopParam> CreateLoopParam(flatbuffers::FlatBufferBui
       _midTensors,
       _parallel,
       _loopNumber,
-      _commands);
+      _commands,
+      _initCommand);
 }
 
 inline OpT *Op::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -7397,12 +7420,16 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7549,6 +7576,10 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "CumSum",
     "Det",
     "CumProd",
+    "ScatterElements",
+    "GatherElements",
+    "Svd",
+    "Histogram",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7575,7 +7606,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 169, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 173, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -8057,7 +8088,8 @@ inline const flatbuffers::TypeTable *LoopParamTypeTable() {
     { flatbuffers::ET_SEQUENCE, 1, 0 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_SEQUENCE, 1, 1 }
+    { flatbuffers::ET_SEQUENCE, 1, 1 },
+    { flatbuffers::ET_SEQUENCE, 0, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorDescribeTypeTable,
@@ -8070,10 +8102,11 @@ inline const flatbuffers::TypeTable *LoopParamTypeTable() {
     "midTensors",
     "parallel",
     "loopNumber",
-    "commands"
+    "commands",
+    "initCommand"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

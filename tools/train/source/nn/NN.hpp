@@ -76,7 +76,7 @@ public:
     static Module* Conv(const ConvParameters& parameters);
     static Module* ConvBNReluFused(std::vector<std::shared_ptr<Module> > modules,
                                                    NN::FeatureScaleStatMethod featureScaleStatMethod = PerTensor,
-                                                   NN::ScaleUpdateMethod scaleUpdateMethod = MovingAverage, const int bits = 8);
+                                                   NN::ScaleUpdateMethod scaleUpdateMethod = MovingAverage, const int bits = 8, bool winograd = false);
 
     class Utils {
     public:
@@ -87,7 +87,7 @@ public:
         static Module* ExtractNotRunableOp(Express::EXPRP expr, const std::map<std::string, SubGraph>& subgraphs);
     };
     
-    static bool turnQuantize(Module* module, const int bits = 8, NN::FeatureScaleStatMethod featureScaleStatMethod = NN::PerTensor, NN::ScaleUpdateMethod scaleUpdateMethod = NN::MovingAverage);
+    static bool turnQuantize(Module* module, const int bits = 8, NN::FeatureScaleStatMethod featureScaleStatMethod = NN::PerTensor, NN::ScaleUpdateMethod scaleUpdateMethod = NN::MovingAverage, bool winogradOpt = false);
     static Module* extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph = {});
 };
 

@@ -34,7 +34,8 @@ public:
             }
         }
         exprs                = Variable::getExecuteOrder(outputs);
-        auto& variableLimits = mConfig.variableLimits;
+        auto& noUpdateOps = mConfig.noUpdateOps;
+        auto& onlyUpdateOps = mConfig.onlyUpdateOps;
         // Collect Const Variable and turn to Trainable
         for (auto v : exprs) {
             if (v->get() == nullptr && VARP::INPUT != v->inputType()) {
@@ -43,17 +44,34 @@ public:
                 if (halide_type_float != info->type.code) {
                     continue;
                 }
-                bool match = variableLimits.empty();
-                for (auto limit : variableLimits) {
-                    if (name.find(limit) != std::string::npos) {
-                        match = true;
-                        break;
+
+                bool update;
+                if (!onlyUpdateOps.empty()) {
+                    update = false;
+                    for (auto limit : onlyUpdateOps) {
+                        if (name.find(limit) != std::string::npos) {
+                            update = true;
+                            break;
+                        }
+                    }
+                } else {
+                    update = true;
+                    for (auto limit : noUpdateOps) {
+                        if (name.find(limit) != std::string::npos) {
+                            update = false;
+                            break;
+                        }
                     }
                 }
+                
                 auto va = Variable::create(v, 0);
-                if (match) {
+                if (update) {
                     MNN_PRINT("Add Variable: %s\n", name.c_str());
                     va.fix(VARP::TRAINABLE);
+                    if (name.find("Weight") == std::string::npos && name.find("Bias") == std::string::npos) {
+                        MNN_PRINT(">>>\ncheck mnn model if const '%s' is a learnable parameter in your original training model, ", name.c_str());
+                        MNN_PRINT("if not, add it to transformConfig.json NoUpdateOps\n<<<\n");
+                    }
                 } else {
                     va.fix(VARP::CONSTANT);
                 }

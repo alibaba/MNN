@@ -20,6 +20,7 @@ std::shared_ptr<TorchExtraManager> TorchExtraManager::get() {
 }
 
 void TorchExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
+    OpCount::get()->insertOp("TORCH", name);
     mTransform.insert(std::make_pair(name, transform));
 }
 std::shared_ptr<TorchExtraManager::Transform> TorchExtraManager::find(const std::string& name) const {
@@ -27,7 +28,6 @@ std::shared_ptr<TorchExtraManager::Transform> TorchExtraManager::find(const std:
     if (iter == mTransform.end()) {
         return nullptr;
     }
-    OpCount::get()->insertOp("TORCH", name);
     return iter->second;
 }
 

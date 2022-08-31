@@ -5,12 +5,12 @@
 //  Created by MNN on 2018/09/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef MNN_SUPPORT_TFLITE_QUAN
+#include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
 #include "backend/cpu/CPUQuantizedSoftmax.hpp"
-#include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUFixedPoint.hpp"
 #include "backend/cpu/CPUQuantizationUtils.hpp"
 #include "core/Macro.h"
@@ -109,7 +109,7 @@ void CPUQuantizedSoftmax<T>::QuantizedSoftmax(const uint8_t* inputData, const st
             if (_BitScanReverse(&leading_zero, static_cast<uint32_t>(fixedSumOfExps))) {
                 headroomPlusOne = 31 - leading_zero;
             } else {
-                headroomPlusOne = 32;
+                headroomPlusOne = 31;
             }
         }
 #else
@@ -160,6 +160,8 @@ public:
         return new CPUQuantizedSoftmax<uint8_t>(backend, op);
     }
 };
-REGISTER_CPU_OP_CREATOR(CPUQuantizedSoftmaxCreator, OpType_QuantizedSoftmax);
 } // namespace MNN
 #endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUQuantizedSoftmaxCreator, OpType_QuantizedSoftmax);
+}

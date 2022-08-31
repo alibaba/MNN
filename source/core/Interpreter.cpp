@@ -21,7 +21,6 @@
 #include <MNN/AutoTime.hpp>
 
 #ifdef MNN_INTERNAL_ENABLED
-#include "internal/auth/ModelAuth.hpp"
 #include "internal/logging/Log.hpp"
 #include "internal/logging/LogHelper.hpp"
 #endif // MNN_INTERNAL_ENABLED
@@ -32,7 +31,7 @@ struct Content {
     AutoStorage<uint8_t> buffer;
     const Net* net = nullptr;
     std::vector<std::unique_ptr<Session>> sessions;
-    std::map<const Tensor*, const Session*> tensorMap;
+    std::map<Tensor*, const Session*> tensorMap;
     Session::ModeGroup modes;
     AutoStorage<uint8_t> cacheBuffer;
     std::string cacheFile;
@@ -40,6 +39,10 @@ struct Content {
     size_t lastCacheSize = 0;
     std::string bizCode;
     std::string uuid;
+#ifdef MNN_INTERNAL_ENABLED
+    std::map<std::string, std::string> basicLogginData;
+    std::map<const Session*, std::tuple<int, int>> sessionInfo;
+#endif
 };
 
 const char* getVersion() {
@@ -80,15 +83,6 @@ static Content* loadModelFile(const char* file) {
     }
     loader.reset();
     return net;
-}
-
-Interpreter* Interpreter::createFromFileWithoutAuth(const char* file) {
-    Content* net = loadModelFile(file);
-    if (nullptr == net) {
-        return nullptr;
-    }
-
-    return createFromBufferInternal(net, false);
 }
 
 Interpreter* Interpreter::createFromFile(const char* file) {
@@ -143,43 +137,17 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
             return nullptr;
         }
     }
-
-#ifdef MNN_INTERNAL_ENABLED
-    std::string uuid = std::string(net->net->mnn_uuid() ? net->net->mnn_uuid()->c_str() : "");
-    if (!enforceAuth) {
-        MNN_PRINT("MNN: Bypass model auth for model uuid %s\n", uuid.c_str());
-    }
-
-    if (enforceAuth && !authenticateModel(net->net)) {
-        MNN_ERROR("MNN: Model authentication failed.\n");
-        delete net;
-
-        std::map<std::string, std::string> metrics;
-        metrics.emplace("Model_UUID", uuid);
-        metrics.emplace("Event", "AUTH_FAILURE");
-        metrics.emplace("API", "Interpreter::createFromBufferInternal");
-
-        auto basicMetrics = getBasicLoggingData();
-        metrics.insert(basicMetrics.begin(), basicMetrics.end());
-        logAsync(metrics);
-
-        return nullptr;
-    }
-    std::map<std::string, std::string> metrics;
-    metrics.emplace("Model_UUID", uuid);
-    metrics.emplace("Event", "AUTH_SUCCESS");
-    metrics.emplace("API", "Interpreter::createFromBufferInternal");
-
-    auto basicMetrics = getBasicLoggingData();
-    metrics.insert(basicMetrics.begin(), basicMetrics.end());
-    logAsync(metrics);
-#endif // MNN_INTERNAL_ENABLED
-
     return new Interpreter(net);
 }
 
 void Interpreter::setSessionHint(HintMode mode, int hint) {
-    mNet->modes.maxTuningNumber = hint;
+    switch (mode) {
+        case MAX_TUNING_NUMBER:
+            mNet->modes.maxTuningNumber = hint;
+            break;
+        default:
+            break;
+    }
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
@@ -243,6 +211,10 @@ Interpreter::Interpreter(Content* net) {
     // Store bizcode and uuid because we need them even after `releaseModel` is called.
     mNet->bizCode = std::string(mNet->net->bizCode() ? mNet->net->bizCode()->c_str() : "");
     mNet->uuid = std::string(mNet->net->mnn_uuid() ? mNet->net->mnn_uuid()->c_str() : "");
+#ifdef MNN_INTERNAL_ENABLED
+    mNet->basicLogginData = getBasicLoggingData();
+    mNet->basicLogginData.emplace("ModelVersion", getModelVersion());
+#endif
 }
 
 Interpreter::~Interpreter() {
@@ -274,6 +246,10 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         return nullptr;
     }
     std::unique_lock<std::mutex> _l(mNet->lock);
+#ifdef MNN_INTERNAL_ENABLED
+    Timer _timer;
+#endif
+    int cacheMode = 0; // No cache
     Schedule::ScheduleInfo info;
     auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
@@ -294,6 +270,7 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         }
         if (valid) {
             mNet->lastCacheSize = mNet->cacheBuffer.size();
+            cacheMode = cacheMode | 1; // READ cache
         }
     }
 
@@ -316,6 +293,8 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
             MNN_PRINT("Write cache to %s, size = %zu\n", mNet->cacheFile.c_str(), buffer.second);
             writeCacheFile(mNet, buffer);
             mNet->lastCacheSize = buffer.second;
+            // Write Cache
+            cacheMode = cacheMode | 2;
         }
     }
     // Reset cache
@@ -324,15 +303,26 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     mNet->sessions.emplace_back(std::move(newSession));
 
 #ifdef MNN_INTERNAL_ENABLED
-    std::map<std::string, std::string> metrics;
-    metrics.emplace("Model_UUID", mNet->uuid);
-    metrics.emplace("Event", "CREATE_SESSION");
-    metrics.emplace("Backend", std::to_string(configs[0].type));
-    metrics.emplace("Precision", configs[0].backendConfig ? std::to_string(configs[0].backendConfig->precision) : "");
-    metrics.emplace("API", "Interpreter::createMultiPathSession");
-    auto basicMetrics = getBasicLoggingData();
-    metrics.insert(basicMetrics.begin(), basicMetrics.end());
-    logAsync(metrics);
+    int precision = BackendConfig::Precision_Normal;
+    if (nullptr != configs[0].backendConfig) {
+        precision = configs[0].backendConfig->precision;
+    }
+    int mode = configs[0].mode;
+    mNet->sessionInfo.insert(std::make_pair(result, std::make_tuple(precision, mode)));
+    if (shouldLog(FREQ_HIGH)) {
+        std::map<std::string, std::string> metrics = mNet->basicLogginData;
+        metrics.emplace("UUID", mNet->uuid);
+        metrics.emplace("Time", std::to_string((float)_timer.durationInUs() / 1024.0f));
+        metrics.emplace("Backend", std::to_string(configs[0].type));
+        metrics.emplace("Precision", std::to_string(precision));
+        metrics.emplace("Mode", std::to_string(mode));
+        metrics.emplace("Cache", std::to_string(cacheMode));
+        metrics.emplace("CacheSize", std::to_string((float)(mNet->lastCacheSize / 1024.0f)));
+        metrics.emplace("ModelSize", std::to_string ((float)mNet->buffer.size() / 1024.0f / 1024.0f));
+        metrics.emplace("Usage", std::to_string((int) mNet->net->usage()));
+        metrics.emplace("API", "Interpreter::createMultiPathSession");
+        logAsync(metrics);
+    }
 #endif // MNN_INTERNAL_ENABLED
 
     return result;
@@ -366,6 +356,30 @@ bool Interpreter::releaseSession(Session* session) {
     return false;
 }
 
+#ifdef MNN_INTERNAL_ENABLED
+void Interpreter::logForRunSession(const Session* session, float timeInMs, const char* api) const {
+    int backendType[MNN_FORWARD_ALL] ;
+    session->getInfo(MNN::Interpreter::BACKENDS, backendType);
+    float flops = 0.0f;
+    session->getInfo(MNN::Interpreter::FLOPS, &flops);
+    float memory = 0.0f;
+    session->getInfo(MNN::Interpreter::MEMORY, &memory);
+    std::map<std::string, std::string> metrics = mNet->basicLogginData;
+    metrics.emplace("UUID", mNet->uuid);
+    metrics.emplace("Backend", std::to_string(backendType[0])); // "Precision" is not logged here. Don't need it.
+    metrics.emplace("Time", std::to_string(timeInMs));
+    metrics.emplace("API", api);
+    metrics.emplace("Flops", std::to_string(flops));
+    metrics.emplace("Memory", std::to_string(memory));
+    auto iter = mNet->sessionInfo.find(session);
+    if (iter != mNet->sessionInfo.end()) {
+        metrics.emplace("Precision", std::to_string(std::get<0>(iter->second)));
+        metrics.emplace("Mode", std::to_string(std::get<1>(iter->second)));
+    }
+    logAsync(metrics);
+}
+#endif
+
 ErrorCode Interpreter::runSession(Session* session) const {
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
@@ -373,24 +387,11 @@ ErrorCode Interpreter::runSession(Session* session) const {
     ErrorCode errorcode = session->run();
 
 #ifdef MNN_INTERNAL_ENABLED
-    int backendType[MNN_FORWARD_ALL] ;
-    session->getInfo(MNN::Interpreter::BACKENDS, backendType);
-
-    // Only log the performance of CPU backend inference.
-    if (backendType[0] == MNN_FORWARD_CPU) {
+    if (shouldLog(FREQ_LOW)) {
+        waitSessionFinish(session);
         float costTime = (float)timer.durationInUs() / (float)1000;
-        std::map<std::string, std::string> metrics;
-        metrics.emplace("Model_UUID", mNet->uuid);
-        metrics.emplace("Event", "RUN_SESSION");
-        metrics.emplace("Backend", std::to_string(MNN_FORWARD_CPU)); // "Precision" is not logged here. Don't need it.
-        metrics.emplace("InferTimeMs", std::to_string(costTime));
-        metrics.emplace("ErrorCode", std::to_string(errorcode));
-        metrics.emplace("API", "Interpreter::runSession");
-        auto basicMetrics = getBasicLoggingData();
-        metrics.insert(basicMetrics.begin(), basicMetrics.end());
-        logAsync(metrics);
-       return errorcode;
-   }
+        logForRunSession(session, costTime, "Interpreter::runSession");
+    }
 #endif // MNN_INTERNAL_ENABLED
 
     return errorcode;
@@ -433,12 +434,18 @@ const std::map<std::string, Tensor*>& Interpreter::getSessionOutputAll(const Ses
     }
     return tensors;
 }
-
 void Interpreter::resizeSession(Session* session) {
+    resizeSession(session, 0);
+}
+
+void Interpreter::resizeSession(Session* session, int needRelloc) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (mNet->buffer.get() == nullptr) {
         MNN_ERROR("The model buffer has been released. Can't resize session\n");
         return;
+    }
+    if (1 == needRelloc) {
+        session->setNeedMalloc(true);
     }
     session->resize();
 }
@@ -454,6 +461,16 @@ ErrorCode Interpreter::runSessionWithCallBack(const Session* session, const Tens
     return runSessionWithCallBackInfo(session, beforeWrap, afterWrap, sync);
 }
 
+void Interpreter::waitSessionFinish(const Session* session) const {
+    for (auto& t : mNet->tensorMap) {
+        if (t.second == session) {
+            if (TensorUtils::getDescribe(t.first)->usage != Tensor::InsideDescribe::INPUT) {
+                t.first->wait(Tensor::MAP_TENSOR_READ, true);
+            }
+        }
+    }
+}
+
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
 
@@ -463,23 +480,10 @@ ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const 
     ErrorCode errorcode = session->runWithCallBack(before, callBack, sync);
 
 #ifdef MNN_INTERNAL_ENABLED
-    int backendType[MNN_FORWARD_ALL];
-    session->getInfo(MNN::Interpreter::BACKENDS, backendType);
-
-    // Only log the performance of CPU backend inference.
-    if (backendType[0] == MNN_FORWARD_CPU) {
+    if (shouldLog(FREQ_LOW)) {
+        waitSessionFinish(session);
         float costTime = (float)timer.durationInUs() / (float)1000;
-        std::map<std::string, std::string> metrics;
-        metrics.emplace("Model_UUID", mNet->uuid);
-        metrics.emplace("Event", "RUN_SESSION");
-        metrics.emplace("Backend", std::to_string(MNN_FORWARD_CPU)); // "Precision" is not logged here. Don't need it.
-        metrics.emplace("InferTimeMs", std::to_string(costTime));
-        metrics.emplace("ErrorCode", std::to_string(errorcode));
-        metrics.emplace("API", "Interpreter::runSessionWithCallBackInfo");
-        auto basicMetrics = getBasicLoggingData();
-        metrics.insert(basicMetrics.begin(), basicMetrics.end());
-        logAsync(metrics);
-        return errorcode;
+        logForRunSession(session, costTime, "Interpreter::runSessionWithCallBackInfo");
     }
 #endif // MNN_INTERNAL_ENABLED
 
@@ -562,7 +566,7 @@ const char* Interpreter::getModelVersion() const {
     if (mNet && mNet->net && mNet->net->extraInfo() && mNet->net->extraInfo()->version()) {
         return mNet->net->extraInfo()->version()->c_str();
     }
-    return "version info not found";
+    return "<2.0.0";
 }
 
 bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {
@@ -610,6 +614,11 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
     }
     _getDefaultBackend(res);
     return res;
+}
+void Interpreter::destroy(Interpreter* net) {
+    if (nullptr != net) {
+        delete net;
+    }
 }
 
 } // namespace MNN

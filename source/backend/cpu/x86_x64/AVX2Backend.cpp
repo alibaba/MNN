@@ -113,8 +113,8 @@ static void _CopyC4ToC16_int8(float* dstO, const float* srcO, int channelC4, int
             for (int v=cR; v<4; ++v) {
                 d[v] = 0;
             }
-            s0 += 4;
-            d += 16;
+            s0 ++;
+            d += 4;
         }
     }
 }

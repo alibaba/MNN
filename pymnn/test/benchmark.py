@@ -106,7 +106,7 @@ def binary():
 
 def reduce():
     inputs = [x]
-    reduce = ['prod', 'sum', 'argmax', 'nonzero', 'count_nonzero', 'max', 'min', 'ptp', 'mean', 'var', 'std']
+    reduce = ['prod', 'sum', 'argmax', 'argmin', 'cumsum', 'cumprod', 'nonzero', 'count_nonzero', 'max', 'min', 'ptp', 'mean', 'var', 'std']
     bench_funcs(reduce, inputs, 1)
     bench_funcs(['all', 'any'], [{'shape':[64000], 'dtype':'int32'}], 1)
 
@@ -122,11 +122,20 @@ def memory():
     bench_funcs(['pad'], [x, 2])
     bench_funcs(['tile', 'repeat'], [x, 2])
 
+def linalg():
+    loop=10
+    mode = 2
+    np_args, mp_args = gen_data([{'shape':[9, 9],'dtype':'float32'}])
+    np_time = np_eval(np.linalg.svd, np_args, loop, mode)
+    mp_time = mnn_eval(mp.linalg.svd, mp_args, loop, mode)
+    res.add_row(['svd', np_time, mp_time])
+
 def all():
     unary()
     binary()
     reduce()
     memory()
+    linalg()
 
 def log():
     np_sum = 0

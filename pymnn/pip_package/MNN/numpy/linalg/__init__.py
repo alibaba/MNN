@@ -41,4 +41,7 @@ def norm(x, ord=None, axis=None, keepdims=False):
         else:
             ord = float(ord)
             return np.sum(np.abs(x)**ord, axis=axis, keepdims=keepdims)**(1./ord)
-    
+
+def svd(a, full_matrices=True, compute_uv=True, hermitian=False):
+    w, u, vt = _F.svd(a)
+    return (u, w, vt)

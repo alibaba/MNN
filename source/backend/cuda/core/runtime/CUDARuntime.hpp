@@ -49,6 +49,16 @@ typedef enum {
         cuda_check(cudaGetLastError()); \
     } while (0)
 
+#define cutlass_check(status)                                                                    \
+  {                                                                                              \
+    cutlass::Status error = status;                                                              \
+    if (error != cutlass::Status::kSuccess) {                                                    \
+        printf("File:%s Line %d: failed: %s\n", __FILE__, __LINE__,\
+            cutlassGetStatusString(error)); \
+        abort();                                              \
+    }                                                                                            \
+  }
+
 #ifdef DEBUG
 #define checkKernelErrors\
   do {                                                      \
@@ -97,6 +107,9 @@ public:
     }
     int major_sm() const {
         return mProp.major;
+    }
+    int compute_capability() {
+        return mProp.major * 10 + mProp.minor;
     }
     size_t blocks_num(const size_t total_threads);
     const cudaDeviceProp& prop() const {

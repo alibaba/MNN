@@ -64,7 +64,15 @@ ErrorCode ArgMaxExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int count = mOutside * mInside;
     int block_num = runtime->blocks_num(count);
     int thread_num = runtime->threads_num();
-    ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(int *)output);
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
+
+    if(bytes == 4) {
+        ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(int *)output);
+        checkKernelErrors;
+    } else {
+        ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const half*)input,(int *)output);
+        checkKernelErrors;
+    }
     
     return NO_ERROR;
 }

@@ -5,16 +5,16 @@ namespace CUDA {
 #define CUDA_KERNEL_LOOP(i, n) for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
 template<typename T>
-__global__ void PRELU(const int n, const int channels, const int dim, const T* in, T* out,
+__global__ void PRELU(const int total, const int channelsPack, const int dim, const T* in, T* out,
                         const float* slopeData, int share_factor) {
-    CUDA_KERNEL_LOOP(t, n) {
-        int index = t / PACK_NUMBER;
-        int r = t % PACK_NUMBER;
-        int c      = (index / dim) % channels;
-        float iv = (float)in[t];
-        const int c_idx = share_factor ? 0 : (c * PACK_NUMBER + r);
+    CUDA_KERNEL_LOOP(index, total) {
+        int nhw_idx = index / channelsPack;
+        int c_idx = index % channelsPack;
+
+        float iv = (float)in[index];
+        c_idx = share_factor ? 0 : c_idx;
         float ov = iv > 0.0 ? iv : iv * slopeData[c_idx];
-        out[t] = (T)ov;
+        out[index] = (T)ov;
     }
 }
 
@@ -46,7 +46,7 @@ ErrorCode PReLUExecution::onResize(const std::vector<Tensor *> &inputs, const st
         mArea *= input->length(i);
     }
     mChannel = UP_DIV(input->length(1), PACK_NUMBER);
-    mCount = mChannel*mArea * PACK_NUMBER;
+    mCount = mChannel * mArea * PACK_NUMBER;
     //printf("mBatch:%d- mChannel:%d- mArea:%d- mCount:%d\n", mBatch,mChannel,mArea, mCount);
     return NO_ERROR;
 }
@@ -61,11 +61,15 @@ ErrorCode PReLUExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     auto output_addr = (void*)outputs[0]->deviceId();
     int share_factor = mIsChannelShared ? 1 : 0;
     if (2 == bytes) {
-        PRELU<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const half *)input_addr, (half *)output_addr,
+        PRELU<<<block_num, threads_num>>>(mCount, mChannel * PACK_NUMBER, mArea, 
+            (const half *)input_addr, (half *)output_addr,
             (const float *)mDeviceSlope, share_factor);
+        checkKernelErrors;
     } else {
-        PRELU<<<block_num, threads_num>>>(mCount, mChannel, mArea, (const float *)input_addr, (float *)output_addr,
+        PRELU<<<block_num, threads_num>>>(mCount, mChannel * PACK_NUMBER, mArea, 
+            (const float *)input_addr, (float *)output_addr,
             (const float *)mDeviceSlope, share_factor);
+        checkKernelErrors;
     }
     return NO_ERROR;
 }

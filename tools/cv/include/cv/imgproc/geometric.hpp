@@ -66,6 +66,8 @@ MNN_PUBLIC VARP warpAffine(VARP src, Matrix M, Size dsize,
 MNN_PUBLIC VARP warpPerspective(VARP src, Matrix M, Size dsize,
                                 int flags = INTER_LINEAR, int borderMode = BORDER_CONSTANT,
                                 int borderValue = 0);
+
+MNN_PUBLIC VARP undistortPoints(VARP src, VARP cameraMatrix, VARP distCoeffs);
 } // CV
 } // MNN
 #endif // GEOMETRIC_HPP

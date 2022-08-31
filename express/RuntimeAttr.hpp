@@ -18,6 +18,9 @@ struct RuntimeAttr {
     RuntimeAttr* mInside;
     BackendConfig mConfig;
     bool mUserConfig;
+    int mNumberThread;
+    // Use for static module to compute flops
+    float mFlops;
 };
 };
 };

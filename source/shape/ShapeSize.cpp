@@ -26,4 +26,5 @@ class SizeOpComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE(SizeOpComputer, OpType_Size);
+REGISTER_SHAPE(SizeOpComputer, OpType_Rank);
 } // namespace MNN

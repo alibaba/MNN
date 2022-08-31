@@ -1,0 +1,44 @@
+name: android
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - 'project/android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - 'project/android/**'
+      - '.github/workflows/android.yml'
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  android_build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build_android_64
+        run: |
+            cd project/android
+            mkdir build_64
+            cd build_64
+            ../build_64.sh
+      - name: build_android_32
+        run: |
+            cd project/android
+            mkdir build_32
+            cd build_32
+            ../build_32.sh

@@ -7,6 +7,8 @@
 //
 
 #include "ConvSingleInputExecution.hpp"
+#include "ConvWinogradExecution.hpp"
+#include "ConvCutlassExecution.hpp"
 #include "Raster.cuh"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
@@ -219,7 +221,7 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
 
     runtime->memcpy((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second, &mIm2ColParamter, sizeof(ConvolutionCommon::Im2ColParameter), MNNMemcpyHostToDevice);
 
-    //MNN_PRINT("conv size:%d-%d-%d, %d-%d-%d\n", input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
+    //MNN_PRINT("conv size:%d-%d, %d-%d-%d, %d-%d-%d\n", mIm2ColParamter.kernelX, mIm2ColParamter.strideX, input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
     int e = output->height() * output->width() * output->batch();
     int l = icDiv * mIm2ColParamter.kernelX * mIm2ColParamter.kernelY * MATMULPACK;
     int h = output->channel();
@@ -318,8 +320,20 @@ public:
                 }
             }
         }
-        std::shared_ptr<ConvSingleInputExecution::Resource> resource(new ConvSingleInputExecution::Resource(backend, op));
-        return new ConvSingleInputExecution(backend, op, resource);
+
+        auto conv = op->main_as_Convolution2D()->common();
+        if(ConvWinogradExecution::isValid(op->main_as_Convolution2D(), inputs[0])) {
+            //printf("%dx%ds%dd%d\n", conv->kernelX(), conv->kernelY(), conv->strideX(), conv->dilateX());
+
+            std::shared_ptr<ConvWinogradExecution::Resource> resource(new ConvWinogradExecution::Resource(backend, op));
+            return new ConvWinogradExecution(backend, op, resource);
+        }
+
+        // std::shared_ptr<ConvSingleInputExecution::Resource> resource(new ConvSingleInputExecution::Resource(backend, op));
+        // return new ConvSingleInputExecution(backend, op, resource);
+
+        std::shared_ptr<ConvCutlassExecution::Resource> resource(new ConvCutlassExecution::Resource(backend, op));
+        return new ConvCutlassExecution(backend, op, resource);
     }
 };
 

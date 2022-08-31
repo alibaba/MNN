@@ -99,7 +99,7 @@ onnxOpConverter* onnxOpConverterSuit::search(const std::string& name) {
     }
     return iter->second;
 }
-MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type) {
+MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
         {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
@@ -114,12 +114,13 @@ MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type
         {onnx::TensorProto_DataType_UINT32, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint32
         {onnx::TensorProto_DataType_UINT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint64
     };
+    auto type = static_cast<::onnx::TensorProto_DataType>(itype);
     if (dataTypeMap.find(type) != dataTypeMap.end()) {
         return dataTypeMap[type];
     }
     return MNN::DataType_DT_INVALID;
 }
-MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* constantTp) {
+MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* constantTp, const std::string& modelDir) {
     auto constantParam = new MNN::BlobT;
     auto dataType      = convertDataType(constantTp->data_type());
     // printf("origindataType = %d, dataType = %s\n", constantTp->data_type(), MNN::EnumNameDataType(dataType));
@@ -134,8 +135,41 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         constantParam->dims[i] = constantTp->dims(i);
         dataSize               = dataSize * constantTp->dims(i);
     }
-    std::vector<int64_t> alignContent((constantTp->raw_data().size() + sizeof(int64_t) - 1) / sizeof(int64_t));
-    ::memcpy(alignContent.data(), constantTp->raw_data().data(), constantTp->raw_data().size());
+    std::vector<int64_t> alignContent;
+    if (constantTp->data_location() == onnx::TensorProto_DataLocation_EXTERNAL) {
+        std::string location;
+        int64_t offset = 0;
+        int64_t length = -1;
+        for (const auto& k : constantTp->external_data()) {
+            if (k.key() == "location") {
+                location = k.value();
+            } else if (k.key() == "offset") {
+                offset = std::atoll(k.value().c_str());
+            } else if (k.key() == "length") {
+                length = std::atoll(k.value().c_str());
+            }
+        }
+        if (!modelDir.empty()) {
+            location = modelDir + location;
+        }
+
+        auto fp = fopen(location.c_str(), "rb");
+        if (fp == nullptr) {
+            DLOG(FATAL) << "Fail to open external data: " << location;
+            return nullptr;
+        }
+        if (length < 0) {
+            fseek(fp, 0, SEEK_END);
+            length = ftell(fp) - offset;
+        }
+        fseek(fp, offset, SEEK_SET);
+        alignContent.resize((length + sizeof(int64_t) - 1) / sizeof(int64_t));
+        fread(alignContent.data(), 1, length, fp);
+        fclose(fp);
+    } else {
+        alignContent.resize((constantTp->raw_data().size() + sizeof(int64_t) - 1) / sizeof(int64_t));
+        ::memcpy(alignContent.data(), constantTp->raw_data().data(), constantTp->raw_data().size());
+    }
 
     const void* tensor_content = (const void*)alignContent.data();
 
@@ -163,6 +197,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
     if (!tensor_content) {
         DLOG(FATAL) << "Convert no data, "
                        "Please make sure ";
+        return nullptr;
     }
 
     switch (constantTp->data_type()) {

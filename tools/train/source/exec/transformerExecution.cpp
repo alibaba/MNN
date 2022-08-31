@@ -49,15 +49,29 @@ int main(int argc, const char* argv[]) {
         FUNC_PRINT(document.IsObject());
     }
     auto configObject = document.GetObject();
-    std::vector<std::string> variableLimits;
+    std::vector<std::string> noUpdateOps;
+    std::vector<std::string> onlyUpdateOps;
+    std::string optimizerType = "SGD";
     if (configObject.HasMember("Optimizor")) {
         auto optimizor = configObject["Optimizor"].GetObject();
-        if (optimizor.HasMember("Variables")) {
-            auto limitArray = optimizor["Variables"].GetArray();
+        if (optimizor.HasMember("OnlyUpdateOps")) {
+            auto limitArray = optimizor["OnlyUpdateOps"].GetArray();
             for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
-                variableLimits.emplace_back(vIter->GetString());
-                MNN_PRINT("Variabale contain : %s \n", vIter->GetString());
+                onlyUpdateOps.emplace_back(vIter->GetString());
+                MNN_PRINT("will only update: %s \n", vIter->GetString());
             }
+        }
+        if (optimizor.HasMember("NoUpdateOps")) {
+            auto limitArray = optimizor["NoUpdateOps"].GetArray();
+            for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
+                noUpdateOps.emplace_back(vIter->GetString());
+                if (onlyUpdateOps.empty())
+                    MNN_PRINT("will not update: %s \n", vIter->GetString());
+            }
+        }
+        if (optimizor.HasMember("type")) {
+            optimizerType = std::string(optimizor["type"].GetString());
+            MNN_PRINT("optimizer type: %s\n", optimizerType.c_str());
         }
     }
     const char* inputModeFileName = argv[1];
@@ -70,7 +84,8 @@ int main(int argc, const char* argv[]) {
         outputVars = inputsOutputs.second;
     }
     Transformer::TrainConfig trainConfig;
-    trainConfig.variableLimits = std::move(variableLimits);
+    trainConfig.noUpdateOps = std::move(noUpdateOps);
+    trainConfig.onlyUpdateOps = std::move(onlyUpdateOps);
     Transformer::turnModelToTrainable(trainConfig)->onExecute(Variable::mapToSequence(outputVars));
     if (configObject.HasMember("Shape")) {
         auto shapeArray = configObject["Shape"].GetObject();
@@ -156,13 +171,107 @@ int main(int argc, const char* argv[]) {
     std::map<VARP, VARP> varUpdateMap;
     auto learningRate = _Input();
     learningRate->setName("LearningRate");
-    for (auto iter : gradMap) {
-        auto p = iter.first;
-        auto q = iter.second;
-        q      = _Subtract(p, _Multiply(q, learningRate));
-        q->setName("update_" + p->name());
-        varUpdateMap[p] = q;
+    auto weightDecay = _Input();
+    weightDecay->setName("WeightDecay");
+
+    auto step = _Scalar<float>(1.0f);
+    step->setName("optimize_step");
+    step.fix(VARP::TRAINABLE);
+    auto stepPlus1 = step + _Scalar<float>(1.0f);
+    stepPlus1->setName("optimize_step+1");
+    varUpdateMap[step] = stepPlus1;
+
+    if (optimizerType == "SGD") {
+        auto momentum = _Input();
+        momentum->setName("Momentum");
+        MNN_PRINT(">>>\nextra input tensors for SGD: LearningRate, WeightDecay, Momentum\n<<<\n");
+
+        for (auto iter : gradMap) {
+            auto p = iter.first;
+            p.fix(VARP::TRAINABLE);
+            auto grad = iter.second;
+            grad->setName(p->name()+"_grad");
+
+            auto pInfo = p->getInfo();
+            auto pDims = pInfo->dim;
+
+            auto l2grad = weightDecay * p;
+            l2grad->setName(p->name() + "_l2grad");
+
+            VARP gradWithDecay = nullptr;
+            if (p->name().find("Weight") != string::npos) {
+                gradWithDecay = grad + l2grad;
+            } else {
+                gradWithDecay = grad;
+            }
+
+            VARP history = _Const(0.0f, pDims, pInfo->order);
+            history->setName(p->name() + "_momentum");
+            history.fix(VARP::TRAINABLE);
+            auto newHistory = _Multiply(learningRate, gradWithDecay) + momentum * history;
+            newHistory->setName("update_" + history->name());
+
+            auto updateValue = _Subtract(p, history);
+            updateValue->setName("update_" + p->name());
+            varUpdateMap[p] = updateValue;
+            varUpdateMap[history] = newHistory;
+        }
+    } else if (optimizerType == "ADAM") {
+        auto beta1 = _Input();
+        beta1->setName("Beta1");
+        auto beta2 = _Input();
+        beta2->setName("Beta2");
+        auto eps = _Input();
+        eps->setName("Eps");
+        MNN_PRINT(">>>\nextra input tensors for ADAM: LearningRate, WeightDecay, Beta1, Beta2, Eps\n<<<\n");
+
+        auto correction = _Sqrt(_Const(1.0f, {}, NCHW) - _Pow(beta2, step)) / (_Const(1.0f, {}, NCHW) - _Pow(beta1, step));
+        correction->setName("correction");
+        
+        for (auto iter : gradMap) {
+            auto p = iter.first;
+            p.fix(VARP::TRAINABLE);
+            auto grad = iter.second;
+            grad->setName(p->name()+"_grad");
+
+            auto pInfo = p->getInfo();
+            auto pDims = pInfo->dim;
+
+            auto l2grad = weightDecay * p;
+            l2grad->setName(p->name() + "_l2grad");
+
+            VARP gradWithDecay = nullptr;
+            if (p->name().find("Weight") != string::npos) {
+                gradWithDecay = grad + l2grad;
+            } else {
+                gradWithDecay = grad;
+            }
+        
+            VARP history1 = _Const(0.0f, pDims, pInfo->order);
+            history1->setName(p->name() + "_momentum1");
+            history1.fix(VARP::TRAINABLE);
+            auto newHistory1 = beta1 * history1 + (_Scalar(1.0f) - beta1) * gradWithDecay;
+            newHistory1->setName("update_" + history1->name());
+
+            VARP history2 = _Const(0.0f, pDims, pInfo->order);
+            history2->setName(p->name() + "_momentum2");
+            history2.fix(VARP::TRAINABLE);
+            auto newHistory2 = beta2 * history2 + (_Scalar(1.0f) - beta2) * _Square(gradWithDecay);
+            newHistory2->setName("update_" + history2->name());
+
+            auto finalGrad = learningRate * correction * (history1 / (_Sqrt(history2 + _Scalar<float>(1e-8)) + eps));
+            finalGrad->setName(p->name() + "_final_grad");
+
+            auto updateValue = _Subtract(p, finalGrad);
+            updateValue->setName("update_" + p->name());
+            varUpdateMap[p] = updateValue;
+            varUpdateMap[history1] = newHistory1;
+            varUpdateMap[history2] = newHistory2;
+        }
+    } else {
+        MNN_ERROR("error: don't support optimizer type: %s\n", optimizerType.c_str());
     }
+
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
     std::vector<VARP> resultOutputs;
     for (auto output : outputVars) {
@@ -187,6 +296,8 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
+    netStruct->usage = MNN::Usage_TRAIN;
+
     {
         flatbuffers::FlatBufferBuilder builder(1024);
         auto offset = Net::Pack(builder, netStruct.get());

@@ -1,0 +1,37 @@
+name: macos
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/macos.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - '.github/workflows/macos.yml'
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  macos_buil_test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+            mkdir build && cd build
+            cmake -DMNN_BUILD_TEST=ON ..
+            make -j4
+      - name: test
+        run: cd build && ./run_test.out

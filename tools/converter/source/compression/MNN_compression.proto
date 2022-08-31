@@ -43,6 +43,12 @@ message LayerQuantizeParams {
     optional int32 clamp_min = 4 [default = -128];
     optional int32 clamp_max = 5 [default = 127];
   }
+    
+  message WinogradParams {
+    required int32 version = 1 [default = 0];
+    // units_attr: {kyStart, kxStart, subKy, subKx, unitY, unitX} x N
+    repeated int32 units_attr = 4;
+  }
 
   enum QuantMethod {
     QAT = 0;
@@ -54,6 +60,7 @@ message LayerQuantizeParams {
   repeated WeightParams weight = 2;
   repeated ActivationParams output = 3;
   optional QuantMethod method = 4 [default = QAT];
+  optional WinogradParams wino_params = 5;
 }
 
 message LevelPrunerParams {

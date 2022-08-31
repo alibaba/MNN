@@ -999,6 +999,15 @@ static PyObject* PyMNNExpr_gc(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNExpr_lazy_eval(PyObject *self, PyObject *args) {
+    int lazy = 0;
+    if (!PyArg_ParseTuple(args, "i", &lazy)) {
+        return NULL;
+    }
+    ExecutorScope::Current()->lazyEval = lazy;
+    Py_RETURN_NONE;
+}
+
 def_unary(Expr,
     sign, Express::_Sign,
     abs, Express::_Abs,
@@ -1139,6 +1148,45 @@ static PyObject* PyMNNExpr_argmax(PyObject *self, PyObject *args) {
         return toPyObj(Express::_ArgMax(toVar(input), axis));
     }
     PyMNN_ERROR("argmax require args: (Var, |int)");
+}
+static PyObject* PyMNNExpr_argmin(PyObject *self, PyObject *args) {
+    PyObject *input;
+    int axis = 0;
+    if (PyArg_ParseTuple(args, "O|i", &input, &axis) && isVar(input)) {
+        return toPyObj(Express::_ArgMin(toVar(input), axis));
+    }
+    PyMNN_ERROR("argmin require args: (Var, |int)");
+}
+static PyObject* PyMNNExpr_cumsum(PyObject *self, PyObject *args) {
+    PyObject *input;
+    int axis = 0;
+    if (PyArg_ParseTuple(args, "O|i", &input, &axis) && isVar(input)) {
+        return toPyObj(Express::_CumSum(toVar(input), axis));
+    }
+    PyMNN_ERROR("cumsum require args: (Var, |int)");
+}
+static PyObject* PyMNNExpr_cumprod(PyObject *self, PyObject *args) {
+    PyObject *input;
+    int axis = 0;
+    if (PyArg_ParseTuple(args, "O|i", &input, &axis) && isVar(input)) {
+        return toPyObj(Express::_CumProd(toVar(input), axis));
+    }
+    PyMNN_ERROR("cumprod require args: (Var, |int)");
+}
+static PyObject* PyMNNExpr_svd(PyObject *self, PyObject *args) {
+    PyObject *input;
+    if (PyArg_ParseTuple(args, "O", &input) && isVar(input)) {
+        return toPyObj<VARP, toPyObj>(Express::_Svd(toVar(input)));
+    }
+    PyMNN_ERROR("svd require args: (Var)");
+}
+static PyObject* PyMNNExpr_histogram(PyObject *self, PyObject *args) {
+    PyObject *input;
+    int binNum, minVal, maxVal;
+    if (PyArg_ParseTuple(args, "Oiii", &input, &binNum, &minVal, &maxVal) && isVar(input)) {
+        return toPyObj(Express::_Histogram(toVar(input), binNum, minVal, maxVal));
+    }
+    PyMNN_ERROR("histogram require args: (Var, int, int, int)");
 }
 static PyObject* PyMNNExpr_one_hot(PyObject *self, PyObject *args) {
     PyObject *indices;
@@ -1582,7 +1630,8 @@ static PyMethodDef PyMNNExpr_methods[] = {
         save, "save vars to file.",
         load_as_dict, "load file as var dict.",
         get_inputs_and_outputs, "get input and output of var dict.",
-        gc, "do gc full or part."
+        gc, "do gc full or part.",
+        lazy_eval, "expr do lazy evaluation or not."
     )
     register_methods(Expr,
         // unary expr
@@ -1665,6 +1714,11 @@ static PyMethodDef PyMNNExpr_methods[] = {
         matmul, "build matmul expr: matmul(Var a, Var b, bool transposeA, bool transposeB)",
         normalize, "build normalize expr:",
         argmax, "build argmax expr:",
+        argmin, "build argmin expr:",
+        cumsum, "build cumsum expr:",
+        cumprod, "build cumprod expr:",
+        svd, "build svd expr:",
+        histogram, "build histogram expr:",
         unravel_index, "build unravel_index expr:",
         scatter_nd, "build scatter_nd expr:",
         one_hot, "build one_hot expr:",

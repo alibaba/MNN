@@ -124,10 +124,7 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API',
-                           '-DPYMNN_IMGPROC_COLOR', '-DPYMNN_IMGPROC_FILTER', '-DPYMNN_IMGPROC_GEOMETRIC',
-                           '-DPYMNN_IMGPROC_MISCELLANEOUS', '-DPYMNN_IMGPROC_STRUCTURAL', '-DPYMNN_IMGPROC_DRAW',
-                           '-DPYMNN_IMGCODECS']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
     if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
         extra_compile_args += ['-DPYMNN_INTERNAL_SERVING']
         if args.env == 'daily':
@@ -188,11 +185,30 @@ def configure_extension_build():
 
     tools_compile_args = []
     tools_libraries = []
+    tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lprotobuf']
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "3rd_party", "protobuf", "cmake")]
 
+    # add libTorch dependency
+    lib_files = []
+    torch_lib = None
+    cmakecache = os.path.join(root_dir, BUILD_DIR, 'CMakeCache.txt')
+    for line in open(cmakecache, 'rt').readlines():
+        if 'TORCH_LIBRARY' in line:
+            torch_lib = os.path.dirname(line[line.find('=')+1:])
+            break
+    if torch_lib is not None:
+        tools_depend += ['-ltorch', '-ltorch_cpu', '-lc10']
+        if IS_LINUX:
+            tools_library_dirs += [torch_lib]
+        elif IS_DARWIN:
+            torch_path = os.path.dirname(torch_lib)
+            tools_library_dirs += [torch_lib]
+            lib_files = [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
+                                  os.path.join(torch_lib, 'libc10.dylib')]),
+                         ('.dylibs', [os.path.join(torch_path, '.dylibs', 'libiomp5.dylib')])]
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         tools_library_dirs += ['/usr/local/cuda/lib64/']
@@ -228,8 +244,6 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source")]
     tools_include_dirs += [np.get_include()]
 
-
-    tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lprotobuf']
     # enable logging and model authentication on linux.
     if IS_LINUX and IS_INTERNAL_BUILD:
         tools_depend += ['-lcurl', '-lssl', '-lcrypto']
@@ -238,6 +252,7 @@ def configure_extension_build():
         tools_depend += trt_depend
 
     if IS_DARWIN:
+        engine_link_args += ['-stdlib=libc++']
         engine_link_args += ['-Wl,-all_load']
         engine_link_args += engine_depend
         engine_link_args += ['-Wl,-noall_load']
@@ -327,7 +342,7 @@ def configure_extension_build():
         ]
     }
 
-    return extensions, cmdclass, packages, entry_points
+    return extensions, cmdclass, packages, entry_points, lib_files
 
 # post run, warnings, printed at the end to make them more visible
 build_update_message = """
@@ -354,7 +369,7 @@ if __name__ == '__main__':
     if not ok:
         sys.exit()
 
-    extensions, cmdclass, packages, entry_points = configure_extension_build()
+    extensions, cmdclass, packages, entry_points, lib_files = configure_extension_build()
 
     setup(
         name=package_name,
@@ -364,6 +379,7 @@ if __name__ == '__main__':
         ext_modules=extensions,
         cmdclass=cmdclass,
         packages=packages,
+        data_files=lib_files,
         entry_points=entry_points,
         install_requires=depend_pip_packages,
         url='https://www.yuque.com/mnn/en/usage_in_python',

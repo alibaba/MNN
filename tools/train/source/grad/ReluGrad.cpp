@@ -19,7 +19,7 @@ public:
         std::vector<Express::VARP> result(1, nullptr);
         auto op = expr->get();
         auto input = expr->inputs()[0];
-        auto mask = (_Sign(input) + _Scalar<float>(1.0f)) * _Scalar<float>(0.5f);
+        auto mask = _Cast<float>(_Greater(input, _Scalar(0.0f)));
         auto prelu = op->main_as_PRelu();
         if (prelu->slope()->size() == 1) {
             auto slope = prelu->slope()->data()[0];
@@ -53,9 +53,10 @@ public:
         std::vector<Express::VARP> result(1, nullptr);
         auto op = expr->get();
         auto input = expr->inputs()[0];
-        auto mask = (_Sign(input) + _Scalar<float>(1.0f)) * _Scalar<float>(0.5f);
+        auto mask = _Cast<float>(_Greater(input, _Scalar(0.0f)));
         if (nullptr != op->main_as_Relu() && op->main_as_Relu()->slope() != 0.0f) {
-            result[0] = (mask + (_Scalar<float>(1.0f) - mask) * _Scalar<float>(op->main_as_Relu()->slope())) * backwardOutput[0];
+            auto mask2 = _Cast<float>(_Less(input, _Scalar(0.0f)));
+            result[0] = (mask + mask2 * _Scalar<float>(op->main_as_Relu()->slope())) * backwardOutput[0];
             return result;
         }
         result[0] = mask * backwardOutput[0];
@@ -71,9 +72,10 @@ public:
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result{nullptr};
         auto input = expr->inputs()[0];
-        auto mask0 = (_Sign(input) + _Scalar<float>(1.0f));
-        auto mask1 = (_Sign(_Scalar<float>(6.0f) - input) + _Scalar<float>(1.0f));
-        result[0] = mask0 * mask1 * backwardOutput[0] * _Scalar<float>(0.25f);
+        auto mask0 = _Cast<float>(_Greater(input, _Scalar(0.0f)));
+        auto mask1 = _Cast<float>(_Less(input, _Scalar(6.0f)));
+
+        result[0] = mask0 * mask1 * backwardOutput[0];
         return result;
     }
 };

@@ -1,0 +1,236 @@
+diff --git a/apps/android_rpc/app/src/main/AndroidManifest.xml b/apps/android_rpc/app/src/main/AndroidManifest.xml
+index d6e1ef8e6..7ca3b8bae 100644
+--- a/apps/android_rpc/app/src/main/AndroidManifest.xml
++++ b/apps/android_rpc/app/src/main/AndroidManifest.xml
+@@ -29,6 +29,8 @@ under the License.
+         android:label="@string/app_name"
+         android:supportsRtl="true"
+         android:theme="@style/AppTheme"
++        android:hardwareAccelerated="false"
++        android:largeHeap="true"
+         android:icon="@mipmap/ic_launcher" >
+         <activity
+             android:name=".MainActivity"
+diff --git a/apps/ios_rpc/tvmrpc.xcodeproj/project.pbxproj b/apps/ios_rpc/tvmrpc.xcodeproj/project.pbxproj
+index b33c892cf..407f3139f 100644
+--- a/apps/ios_rpc/tvmrpc.xcodeproj/project.pbxproj
++++ b/apps/ios_rpc/tvmrpc.xcodeproj/project.pbxproj
+@@ -1,23 +1,4 @@
+ // !$*UTF8*$!
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one
+- * or more contributor license agreements.  See the NOTICE file
+- * distributed with this work for additional information
+- * regarding copyright ownership.  The ASF licenses this file
+- * to you under the Apache License, Version 2.0 (the
+- * "License"); you may not use this file except in compliance
+- * with the License.  You may obtain a copy of the License at
+- *
+- *   http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing,
+- * software distributed under the License is distributed on an
+- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+- * KIND, either express or implied.  See the License for the
+- * specific language governing permissions and limitations
+- * under the License.
+- */
+-
+ {
+ 	archiveVersion = 1;
+ 	classes = {
+@@ -199,12 +180,12 @@
+ 				TargetAttributes = {
+ 					C026374A1F1C25E8007247A9 = {
+ 						CreatedOnToolsVersion = 8.3.3;
+-						DevelopmentTeam = 3FR42MXLK9;
++						DevelopmentTeam = 6T3QR3X696;
+ 						ProvisioningStyle = Automatic;
+ 					};
+ 					C05A2C851F1DCE0900D4798B = {
+ 						CreatedOnToolsVersion = 8.3.3;
+-						DevelopmentTeam = 3FR42MXLK9;
++						DevelopmentTeam = 6T3QR3X696;
+ 						ProvisioningStyle = Automatic;
+ 						TestTargetID = C026374A1F1C25E8007247A9;
+ 					};
+@@ -215,6 +196,7 @@
+ 			developmentRegion = English;
+ 			hasScannedForEncodings = 0;
+ 			knownRegions = (
++				English,
+ 				en,
+ 				Base,
+ 			);
+@@ -413,7 +395,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				CLANG_ENABLE_OBJC_ARC = NO;
+ 				CLANG_ENABLE_OBJC_WEAK = YES;
+-				DEVELOPMENT_TEAM = 3FR42MXLK9;
++				DEVELOPMENT_TEAM = 6T3QR3X696;
+ 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+ 				HEADER_SEARCH_PATHS = (
+ 					../../include,
+@@ -422,7 +404,7 @@
+ 				);
+ 				INFOPLIST_FILE = tvmrpc/Info.plist;
+ 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+-				PRODUCT_BUNDLE_IDENTIFIER = org.apache.tvmrpc;
++				PRODUCT_BUNDLE_IDENTIFIER = zhaode.mnn.test;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 			};
+ 			name = Debug;
+@@ -433,7 +415,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				CLANG_ENABLE_OBJC_ARC = NO;
+ 				CLANG_ENABLE_OBJC_WEAK = YES;
+-				DEVELOPMENT_TEAM = 3FR42MXLK9;
++				DEVELOPMENT_TEAM = 6T3QR3X696;
+ 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+ 				HEADER_SEARCH_PATHS = (
+ 					../../include,
+@@ -442,7 +424,7 @@
+ 				);
+ 				INFOPLIST_FILE = tvmrpc/Info.plist;
+ 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+-				PRODUCT_BUNDLE_IDENTIFIER = org.apache.tvmrpc;
++				PRODUCT_BUNDLE_IDENTIFIER = zhaode.mnn.test;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 			};
+ 			name = Release;
+@@ -451,7 +433,7 @@
+ 			isa = XCBuildConfiguration;
+ 			buildSettings = {
+ 				BUNDLE_LOADER = "$(TEST_HOST)";
+-				DEVELOPMENT_TEAM = 3FR42MXLK9;
++				DEVELOPMENT_TEAM = 6T3QR3X696;
+ 				HEADER_SEARCH_PATHS = (
+ 					../../3rdparty/dlpack/include,
+ 					../../include,
+@@ -469,7 +451,7 @@
+ 			isa = XCBuildConfiguration;
+ 			buildSettings = {
+ 				BUNDLE_LOADER = "$(TEST_HOST)";
+-				DEVELOPMENT_TEAM = 3FR42MXLK9;
++				DEVELOPMENT_TEAM = 6T3QR3X696;
+ 				HEADER_SEARCH_PATHS = (
+ 					../../3rdparty/dlpack/include,
+ 					../../include,
+diff --git a/apps/ios_rpc/tvmrpc/TVMRuntime.mm b/apps/ios_rpc/tvmrpc/TVMRuntime.mm
+index fbe4850e1..69e52e825 100644
+--- a/apps/ios_rpc/tvmrpc/TVMRuntime.mm
++++ b/apps/ios_rpc/tvmrpc/TVMRuntime.mm
+@@ -47,6 +47,7 @@
+ #include "../../../src/runtime/rpc/rpc_socket_impl.cc"
+ // Graph runtime
+ #include "../../../src/runtime/graph/graph_runtime.cc"
++#include "../../../src/runtime/graph/graph_runtime_factory.cc"
+ // Metal
+ #include "../../../src/runtime/metal/metal_device_api.mm"
+ #include "../../../src/runtime/metal/metal_module.mm"
+diff --git a/jvm/native/osx-x86_64/pom.xml b/jvm/native/osx-x86_64/pom.xml
+index 0a374beac..c1a10141c 100644
+--- a/jvm/native/osx-x86_64/pom.xml
++++ b/jvm/native/osx-x86_64/pom.xml
+@@ -83,7 +83,7 @@ under the License.
+             <linkerStartOption>-shared</linkerStartOption>
+           </linkerStartOptions>
+           <linkerMiddleOptions>
+-            <linkerMiddleOption>-framework JavaVM</linkerMiddleOption>
++            <linkerMiddleOption>-framework JavaNativeFoundation</linkerMiddleOption>
+             <linkerMiddleOption>-Wl,-exported_symbol,_Java_*</linkerMiddleOption>
+             <linkerMiddleOption>-undefined dynamic_lookup</linkerMiddleOption>
+             <linkerMiddleOption>-Wl,-x</linkerMiddleOption>
+diff --git a/python/tvm/auto_scheduler/cost_model/xgb_model.py b/python/tvm/auto_scheduler/cost_model/xgb_model.py
+index 5b10054d4..ea307627a 100644
+--- a/python/tvm/auto_scheduler/cost_model/xgb_model.py
++++ b/python/tvm/auto_scheduler/cost_model/xgb_model.py
+@@ -513,7 +513,11 @@ def custom_callback(
+     # pylint: disable=import-outside-toplevel
+     from xgboost.core import EarlyStopException
+     from xgboost.callback import _fmt_metric
+-    from xgboost.training import aggcv
++    # from xgboost.training import aggcv
++    try:
++        from xgboost.training import aggcv
++    except ImportError:
++        from xgboost.callback import _aggcv as aggcv
+ 
+     state = {}
+     metric_shortname = metric.split("-")[1]
+diff --git a/python/tvm/autotvm/measure/local_executor.py b/python/tvm/autotvm/measure/local_executor.py
+index 5dd5cba2b..4ab62c545 100644
+--- a/python/tvm/autotvm/measure/local_executor.py
++++ b/python/tvm/autotvm/measure/local_executor.py
+@@ -137,7 +137,7 @@ class LocalExecutor(executor.Executor):
+         before submitting jobs.
+     """
+ 
+-    def __init__(self, timeout=None, do_fork=True):
++    def __init__(self, timeout=None, do_fork=False):
+         self.timeout = timeout or executor.Executor.DEFAULT_TIMEOUT
+         self.do_fork = do_fork
+ 
+@@ -149,6 +149,11 @@ class LocalExecutor(executor.Executor):
+ 
+     def submit(self, func, *args, **kwargs):
+         if not self.do_fork:
++            try:
++                res = func(*args, **kwargs)
++            except Exception as exc:
++                res = exc
++            return LocalFutureNoFork(res)
+             return LocalFutureNoFork(func(*args, **kwargs))
+ 
+         queue = Queue(2)  # Size of 2 to avoid a race condition with size 1.
+diff --git a/python/tvm/autotvm/measure/measure_methods.py b/python/tvm/autotvm/measure/measure_methods.py
+index 4d6c5daad..7e354c48c 100644
+--- a/python/tvm/autotvm/measure/measure_methods.py
++++ b/python/tvm/autotvm/measure/measure_methods.py
+@@ -493,9 +493,10 @@ class _WrappedBuildFunc:
+         """
+         tic = time.time()
+         try:
+-            filename = os.path.join(
+-                tmp_dir, "tmp_func_%0x.%s" % (getrandbits(64), self.build_func.output_format)
+-            )
++            #filename = os.path.join(
++            #    tmp_dir, "tmp_func_%0x.%s" % (getrandbits(64), self.build_func.output_format)
++            #)
++            filename = os.path.join("tmp_func_%0x.%s" % (getrandbits(64), self.build_func.output_format))
+             # TODO(tvm-team) consider linline _build_func_common
+             func, arg_info = _build_func_common(measure_input, **kwargs)
+             func.export_library(filename, self.build_func)
+@@ -573,7 +574,7 @@ def run_through_rpc(
+ 
+             program_fpga(remote, None)
+             reconfig_runtime(remote)
+-        remote.upload(build_result.filename)
++        # remote.upload(build_result.filename)
+         func = remote.load_module(os.path.split(build_result.filename)[1])
+         ctx = remote.context(str(measure_input.target), 0)
+ 
+@@ -592,6 +593,7 @@ def run_through_rpc(
+             f_preproc=f_prepare,
+         )
+ 
++        ref_input = [np.ones(x[0], dtype=x[1]) for x in build_result.arg_info]
+         # set input
+         if ref_input:
+             args = [nd.array(x, ctx=ctx) for x in ref_input]
+diff --git a/python/tvm/autotvm/tuner/xgboost_cost_model.py b/python/tvm/autotvm/tuner/xgboost_cost_model.py
+index 287cbffe6..583262346 100644
+--- a/python/tvm/autotvm/tuner/xgboost_cost_model.py
++++ b/python/tvm/autotvm/tuner/xgboost_cost_model.py
+@@ -469,7 +469,10 @@ def custom_callback(
+     # pylint: disable=import-outside-toplevel
+     from xgboost.core import EarlyStopException
+     from xgboost.callback import _fmt_metric
+-    from xgboost.training import aggcv
++    try:
++        from xgboost.training import aggcv
++    except:
++        from xgboost.callback import _aggcv as aggcv
+ 
+     state = {}
+     metric_shortname = metric.split("-")[1]

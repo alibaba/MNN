@@ -37,7 +37,7 @@ def quant_func(net, dataloader, opt):
         input_data = example[0]
         predicts = net.forward(input_data)
         # fake update
-        opt.step(F.const(0.0, []))
+        opt.step(F.const([0.0], []))
         for predict in predicts:
             predict.read()
 

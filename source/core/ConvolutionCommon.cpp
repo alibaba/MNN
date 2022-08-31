@@ -503,6 +503,11 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         return true;
     }
     if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
+        if (conv2d->symmetricQuan()->winogradAttr() != nullptr) {
+            ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
+            ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), outputCount * sizeof(float));
+            return true;
+        }
         const int kernelNum = conv2d->common()->outputCount();
         const int kernelSize = weightSize / kernelNum;
 

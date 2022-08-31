@@ -25,6 +25,13 @@ def generateShape(rootDir):
                     l = l.split(',')
                     func = '___' + l[0] + '__'+l[1]+"__"
                     shapeLists.append(func)
+                elif l.find('REGISTER_SHAPE_OLD(')>=0:
+                    l = l.replace("REGISTER_SHAPE_OLD(", "")
+                    l = l.split(')')[0]
+                    l = l.replace(' ', "")
+                    l = l.split(',')
+                    func = '___' + l[0] + '__'+l[1]+"__"
+                    shapeLists.append(func)
                 elif l.find('REGISTER_SHAPE_INPUTS(') >= 0:
                     l = l.replace("REGISTER_SHAPE_INPUTS(", "")
                     l = l.split(')')[0]

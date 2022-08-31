@@ -98,15 +98,17 @@ public:
             case BinaryOpOperation_MAXIMUM: {
                 auto mask0 = _Sign(inputs[0] - output[0]) + _Const(1.0f, {}, NCHW);
                 auto mask1 = _Sign(inputs[1] - output[0]) + _Const(1.0f, {}, NCHW);
-                res[0]     = outputDiff * mask0;
-                res[1]     = outputDiff * mask1;
+                auto maskSum = mask0 + mask1;
+                res[0]     = outputDiff * mask0 / maskSum;
+                res[1]     = outputDiff * mask1 / maskSum;
                 break;
             }
             case BinaryOpOperation_MINIMUM: {
                 auto mask0 = _Sign(output[0] - inputs[0]) + _Const(1.0f, {}, NCHW);
                 auto mask1 = _Sign(output[0] - inputs[1]) + _Const(1.0f, {}, NCHW);
-                res[0]     = outputDiff * mask0;
-                res[1]     = outputDiff * mask1;
+                auto maskSum = mask0 + mask1;
+                res[0]     = outputDiff * mask0 / maskSum;
+                res[1]     = outputDiff * mask1 / maskSum;
                 break;
             }
             case BinaryOpOperation_REALDIV: {
@@ -116,9 +118,24 @@ public:
                 break;
             }
             case BinaryOpOperation_POW: {
-                // d (pow(x, y)) = dv * pow(x, y) / x * y , dv * pow(x, y) * ln(y)
+                // d (pow(x, y)) = dv * pow(x, y) / x * y , dv * pow(x, y) * ln(x)
                 res[0] = outputDiff * output[0] * _Divide(inputs[1], inputs[0]);
-                res[1] = outputDiff * output[0] * _Log(inputs[1]);
+                res[1] = outputDiff * output[0] * _Log(inputs[0]);
+                break;
+            }
+            case BinaryOpOperation_ATAN2: {
+                // d atan(x/y) = (y/(x^2 + y^2), -x/(x^2 + y^2)) * outputDiff
+                auto x2y2 = _Square(inputs[0]) + _Square(inputs[1]);
+                res[0] = inputs[1] / x2y2 * outputDiff;
+                res[1] = _Negative(inputs[0]) / x2y2 * outputDiff;
+                break;
+            }
+            case BinaryOpOperation_SquaredDifference: {
+                // d (x - y)^2 = (2 * (x - y), -2 * (x - y)) * outputDiff
+                auto two = _Scalar(2.0f);
+                auto xmy = inputs[0] - inputs[1];
+                res[0] = two * xmy * outputDiff;
+                res[1] = _Negative(res[0]);
                 break;
             }
             default:

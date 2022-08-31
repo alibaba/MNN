@@ -285,6 +285,17 @@ ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
             }
         }
     }
+#ifndef MNN_BUILD_MINI
+    else {
+        for (auto& info : mInfo) {
+            auto& buffer = info.executeBuffer;
+            for (auto& cmdP : buffer.command) {
+                mFlops += SizeComputer::computeFlops(cmdP->op, cmdP->inputs, cmdP->outputs);
+            }
+        }
+    }
+#endif
+
     return NO_ERROR;
 }
 
@@ -446,6 +457,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
             }
         }
     }
+    int maxLayerUsage = 0;
     // Compute RefCount
     for (auto& info : mInfo) {
         auto& buffer = info.executeBuffer;
@@ -465,7 +477,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         }
     }
     for (auto& info : mInfo) {
-
         auto& buffer = info.executeBuffer;
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
@@ -596,7 +607,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
                 if (isRaster) {
                     // Raster's inputs
                     for (auto& r : des->regions) {
-                        MNNForwardType type = MNN_FORWARD_CPU;
                         auto origin     = r.origin;
                         if (WrapExecution::needWrap(origin, curBackend)) {
                             auto newTensor = WrapExecution::copyConstCache(origin, curBackend, mCacheConstTensors);
