@@ -71,7 +71,7 @@ doc_check() {
     do
         if [ $(grep -c $executable ./docs/compile/tools.md) -le 0 ]; then
             echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/tools.md'
-            #failed 
+            failed 
         fi
     done
 }

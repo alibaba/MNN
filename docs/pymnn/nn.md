@@ -53,6 +53,7 @@ MNN是Pymnn中最基础的Module，其中包含了V2 API所需要数据结构与
 - `memory_mode:expr.MemoryMode` 内存模式，默认为`expr.MemoryMode.Normal`
 - `power_mode:expr.PowerMode` 功耗模式，默认为`expr.PowerMode.Normal`
 - `precision_mode:expr.PrecisionMode` 精度模式，默认为`expr.PrecisionMode.Normal`
+- `thread_num:int` 使用线程数，默认为`4`
 
 返回：创建的模型
 

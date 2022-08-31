@@ -944,7 +944,9 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 op->main.AsInput()->dformat = (MNN_DATA_FORMAT)Utils::convertFormat(info.order);
             }
         }
-        op->name = expr->name();
+        if (!expr->name().empty()) {
+            op->name = expr->name();
+        }
         op->inputIndexes.resize(expr->inputs().size());
         for (int i = 0; i < op->inputIndexes.size(); ++i) {
             if (expr->inputs()[i] == nullptr) {

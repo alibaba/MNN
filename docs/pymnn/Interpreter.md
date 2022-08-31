@@ -26,7 +26,7 @@ Interpreter是MNN V2接口中模型数据的持有者。使用MNN推理时，有
 
 |    key        |  value  |      说明         |
 |:--------------|:--------|:-----------------|
-| backend     | `str` | 可选值：`"CPU"`(默认), `"OPENCL"`,`"OPENGL"`, `"VULKAN"`, `"METAL"`, `"TRT"`, `"CUDA"`, `"HIAI"`  |
+| backend     | `str` or `int` | 可选值：`"CPU"或0`(默认), `"OPENCL"或3`,`"OPENGL"或6`, `"VULKAN"或7`, `"METAL"或1`, `"TRT"或9`, `"CUDA"或2`, `"HIAI"或8`  |
 | precision   | `str` | 可选值：`"normal"`(默认), `"low"`,`"high"` |
 | numThread   | `int` or `long` | `value`为推理线程数，只在 CPU 后端下起作用 |
 | saveTensors | `tuple` of `str` | `value`为想要保留成为输出层的`tensorName` |

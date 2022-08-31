@@ -30,14 +30,10 @@ pushd $PACKAGE_LIB_PATH
 mkdir -p Release\Dynamic\MD, Release\Static\MD
 popd
 
-$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AVX512=ON"
+$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON  -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_AVX512=ON"
 if ($backends -ne $null) {
     Foreach ($backend in $backends.Split(",")) {
-        if ($backend -eq "opencl") {
-            $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_OPENCL=ON"
-        } elseif ($backend -eq "vulkan") {
-            $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_VULKAN=ON"
-        } elseif ($backend -eq "cuda") {
+        if ($backend -eq "cuda") {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_CUDA=ON"
         }
     }

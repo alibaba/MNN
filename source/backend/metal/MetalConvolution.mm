@@ -20,29 +20,6 @@ MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalC
     loadWeight(op->main_as_Convolution2D());
 }
 
-// definitely less than max threadgroup memory to ensure that it won't take too long in one step.
-#define kMaxGemmStepMemory (8 * 1024)
-
-bool MetalConvolution::isThreadgroupLocalPreferred(const Tensor *input, const Tensor *output) {
-    if (output->width() * output->height() > 256) {
-        return false;
-    }
-
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    int ic_4      = UP_DIV(input->channel(), 4);
-    int oc_4      = UP_DIV(output->channel(), 4);
-
-    int unit          = sizeof(metal_float);
-    int sliceMemory   = 4 * mKernelY * mKernelX * 4 * unit;
-    int maxMemory     = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
-    int maxStepSlices = maxMemory / sliceMemory;
-    int steps         = UP_DIV(ic_4, maxStepSlices);
-
-    static int kGemmUnroll = 4;
-    return oc_4 * oc_4 * kGemmUnroll / steps / steps >= output->width() * output->height();
-}
-
 ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MetalConvolutionCommon::onResize(inputs, outputs);
 
@@ -88,20 +65,6 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
                        mActivationType};
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
-    
-    // update threadgroup memory if needed
-    mLocalPreferred = isThreadgroupLocalPreferred(input, output);
-    mLocalPreferred = false;//not used temporarily
-    
-    if (mLocalPreferred) {
-        int unit        = sizeof(metal_float);
-        int sliceMemory = 4 * mKernelY * mKernelX * 4 * unit;
-        int maxMemory = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
-        int maxStepSlices  = maxMemory / sliceMemory;
-        int steps          = UP_DIV(ic_4, maxStepSlices);
-        stepSlices         = UP_DIV(ic_4, steps);
-        mThreadgroupMemory = stepSlices * sliceMemory;
-    }
     
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
     bool isMuchComputer = (ow * oh >= 32 ? oc_4 >= 4 : oc_4 >= 128);
@@ -203,13 +166,8 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
         [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
         [encoder setBuffer:mWeight offset:0 atIndex:3];
         [encoder setBuffer:mBias offset:0 atIndex:4];
-        if (mLocalPreferred) {
-            [encoder setThreadgroupMemoryLength:mThreadgroupMemory atIndex:0];
-            //[encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-            [context dispatchEncoder:encoder threads:_mThreads.first threadsPerGroup:{ 1, 1, (NSUInteger)oc_4 } bandwidth:_mThreads.second];
-        } else {
-            [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        }
+
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         
         //need to commit
         if(backend->isCmdBufferCommit()) {

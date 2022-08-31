@@ -24,7 +24,6 @@ using namespace MNN;
 @property (strong, nonatomic) id<MTLCommandQueue> commandQueue;
 @property (strong, nonatomic) id<MTLCommandBuffer> commandBuffer;
 @property (strong, nonatomic) id<MTLCommandBuffer> commandBuffer_net;
-@property (assign, nonatomic) NSUInteger maxThreadgroupMemoryLength;
 // private
 @property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *caches;
 @property (strong, nonatomic) NSMutableArray<id<MTLCommandBuffer>> *waitings;
@@ -102,11 +101,6 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     _commandBuffer_net = [_commandQueue commandBuffer];
     _caches   = [NSMutableDictionary dictionary];
     _waitings = [NSMutableArray array];
-    if (@available(iOS 11.0, *)) {
-        _maxThreadgroupMemoryLength = _device.maxThreadgroupMemoryLength;
-    } else {
-        _maxThreadgroupMemoryLength = 16352; // 16352(16k - 32b) on iOS 11- according to feature set doc
-    }
     _isCommitEachShader = self.class.commit_frequent;
     return nil != _library;
 }
