@@ -212,7 +212,7 @@ static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr,
 }
 
 static void MNNRoiPoolingMaxFP16(FLOAT16* dst, const FLOAT16* src, int hLen, int wLen, int iw) {
-    Vec max = Vec(-__FLT16_MAX__);
+    Vec max = Vec(-65504.0f);
     for (int h = 0; h < hLen; h++, src += iw * 8) {
         for (int w = 0; w < wLen; w++) {
             Vec in = Vec::load(src + w * 8);
@@ -226,7 +226,7 @@ static void MNNRoiAlignMaxFP16(FLOAT16* dst, const FLOAT16* src, const std::vect
     for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * 8) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
-            Vec res = Vec(-__FLT16_MAX__);
+            Vec res = Vec(-65504.0f);
             for (int i = 0; i < samplingRatioArea; ++i) {
                 const std::vector<int>& pos    = vecPos[preCalcIdx];
                 const std::vector<float>& area = vecArea[preCalcIdx];

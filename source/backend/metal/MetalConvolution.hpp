@@ -25,8 +25,6 @@ protected:
 
 private:
     int mThreadgroupMemory = 0;
-    bool mLocalPreferred   = false;
-    bool isThreadgroupLocalPreferred(const Tensor *input, const Tensor *output);
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
     MTLSize local;

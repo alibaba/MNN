@@ -334,6 +334,7 @@ Copies nine scalar values contained by Matrix into list, in member value ascendi
 ```python
 import MNN
 import MNN.cv as cv
+import MNN.expr as expr
 # CVMatrix创建
 matrix = MNN.CVMatrix() # [[1., 0., 0.], [0., 1., 0.], [0., 0., 0.]]
 
@@ -351,15 +352,17 @@ image_data = image.ptr
 src_height, src_width, channel = image.shape
 dst_height = dst_width = 224
 dst_tensor = MNN.Tensor((1, dst_height, dst_width, channel), MNN.Halide_Type_Float, MNN.Tensor_DimensionType_Tensorflow)
-image_processer = MNN.CVImageProcess({'sourceFormat': MNN.CV_ImageFormat_BGR,
-                                      'wrap': MNN.CV_Wrap_ZERO,
-                                      'destFormat': MNN.CV_ImageFormat_BGR})
 # 1. 图像缩放
+image_processer = MNN.CVImageProcess({'sourceFormat': MNN.CV_ImageFormat_BGR,
+                                      'wrap': MNN.CV_Wrap_REPEAT,
+                                      'destFormat': MNN.CV_ImageFormat_BGR})
 height_scale = float(src_height / dst_height)
 width_scale = float(src_width / dst_width)
 matrix.setScale(width_scale, height_scale)
 image_processer.setMatrix(matrix)
 image_processer.convert(image_data, src_width, src_height, 0, dst_tensor)
+scale_img = expr.const(dst_tensor.getHost(), [dst_height, dst_width, channel], expr.NHWC).astype(expr.uint8)
+cv.imwrite('CVMatrix_scale.jpg', scale_img)
 # 2. 图像填充
 scale = max(height_scale, width_scale)
 matrix.setScale(scale, scale)
@@ -371,17 +374,34 @@ else:
     matrix.postTranslate(-(dst_width - resize_width) // 2 * scale, 0)
 image_processer.setMatrix(matrix)
 image_processer.convert(image_data, src_width, src_height, 0, dst_tensor)
+pad_img = expr.const(dst_tensor.getHost(), [dst_height, dst_width, channel], expr.NHWC).astype(expr.uint8)
+cv.imwrite('CVMatrix_pad.jpg', pad_img)
 # 3. 图像裁剪
+image_processer = MNN.CVImageProcess({'sourceFormat': MNN.CV_ImageFormat_BGR,
+                                      'wrap': MNN.CV_Wrap_ZERO,
+                                      'destFormat': MNN.CV_ImageFormat_BGR})
 matrix.setScale(width_scale, height_scale)
-image_processer.setMatrix(matrix)
 offset_y = (resize_height - dst_height) / 2 * height_scale
 offset_x = (resize_width - dst_width) / 2 * width_scale
 matrix.postTranslate(offset_x, offset_y)
+image_processer.setMatrix(matrix)
 image_processer.convert(image_data, src_width, src_height, 0, dst_tensor)
+crop_img = expr.const(dst_tensor.getHost(), [dst_height, dst_width, channel], expr.NHWC).astype(expr.uint8)
+cv.imwrite('CVMatrix_crop.jpg', crop_img)
 # 4. 图像旋转
 matrix.setScale(1 / src_width, 1 / src_height)
 matrix.postRotate(30, 0.5, 0.5)
 matrix.postScale(dst_width, dst_height)
 matrix.invert() # 由于设置的是源图片到目标图片的变换矩阵， 因此取逆
+image_processer.setMatrix(matrix)
 image_processer.convert(image_data, src_width, src_height, 0, dst_tensor)
+rotate_img = expr.const(dst_tensor.getHost(), [dst_height, dst_width, channel], expr.NHWC).astype(expr.uint8)
+cv.imwrite('CVMatrix_rotate.jpg', rotate_img)
 ```
+
+|    |    |
+|:---|:---|
+|![CVMatrix_scale.jpg](../_static/images/pymnn/CVMatrix_scale.jpg)|![CVMatrix_pad.jpg](../_static/images/pymnn/CVMatrix_pad.jpg)|
+| CVMatrix_scale.jpg | CVMatrix_pad.jpg |
+|![CVMatrix_crop.jpg](../_static/images/pymnn/CVMatrix_crop.jpg)|![CVMatrix_rotate.jpg](../_static/images/pymnn/CVMatrix_rotate.jpg)|
+| CVMatrix_crop.jpg | CVMatrix_rotate.jpg |

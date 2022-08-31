@@ -445,6 +445,7 @@ array([ 85.656685, 135.9716, 125.76543,   0.], dtype=float32)
 ---
 ### `flip(src, flipCode)`
 对src进行水平，垂直，或水平+垂直翻转，并返回，参考：[flip](https://docs.opencv.org/4.5.2/d2/de8/group__core__array.html#gaca7be533e3dac7feb70fc60635adf441)
+
 |    flipCode  |    说明      |
 |:------------:|:-----------:|
 | filpCode = 0 | 垂直翻转 |
@@ -471,6 +472,7 @@ True
 ---
 ### `rotate(src, rotateMode)`
 以90度的倍数旋转src，并返回，参考：[rotate](https://docs.opencv.org/4.5.2/d2/de8/group__core__array.html#ga4ad01c0978b0ce64baa246811deeac24)
+
 |  rotateCode  |    说明      |
 |:------------:|:-----------:|
 | ROTATE_90_CLOCKWISE |  顺时针旋转90度 |

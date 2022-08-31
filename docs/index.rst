@@ -3,8 +3,10 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to MNN-Doc's documentation!
+欢迎使用MNN文档
 ===================================
+
+遇到问题请先查看文档和FAQ，如果没有答案请在Github提issue或在钉钉群提问。
 
 .. toctree::
    :maxdepth: 1
@@ -20,6 +22,7 @@ Welcome to MNN-Doc's documentation!
    :name: quick-start
 
    start/overall
+   start/demo
 
 .. toctree::
    :maxdepth: 1
@@ -33,13 +36,69 @@ Welcome to MNN-Doc's documentation!
 
 .. toctree::
    :maxdepth: 1
-   :caption: 使用
-   :name: usage
+   :caption: 推理用法
+   :name: inference
 
-   usage/session
-   usage/convert
-   usage/train
-   usage/tools
+   inference/session
+   inference/module
+   inference/expr
+   inference/python
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 训练框架
+   :name: train
+
+   train/expr
+   train/data
+   train/optim
+   train/quant
+   train/finetune
+   train/distl
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 测试工具
+   :name: tools
+
+   tools/convert
+   tools/test
+   tools/benchmark
+   tools/quant
+   tools/compress
+   tools/visual
+   tools/python
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 贡献代码
+   :name: contribute
+
+   contribute/code
+   contribute/backend
+   contribute/op
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FAQ
+   :name: faq
+
+   faq.md
+
+.. toctree::
+   :maxdepth: 1
+   :caption: C++ API
+
+   cpp/Interpreter
+   cpp/Tensor
+   cpp/ImageProcess
+   cpp/Matrix
+
+   cpp/Expr
+   cpp/Module
+   cpp/Optimizer
+   cpp/MathOp
+   cpp/NeuralNetWorkOp
 
 .. toctree::
    :maxdepth: 1
