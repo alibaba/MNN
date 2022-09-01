@@ -100,6 +100,9 @@ struct ProposalT;
 struct Interp;
 struct InterpT;
 
+struct Interp3D;
+struct Interp3DT;
+
 struct Resize;
 struct ResizeT;
 
@@ -174,6 +177,8 @@ inline const flatbuffers::TypeTable *RoiParametersTypeTable();
 inline const flatbuffers::TypeTable *ProposalTypeTable();
 
 inline const flatbuffers::TypeTable *InterpTypeTable();
+
+inline const flatbuffers::TypeTable *Interp3DTypeTable();
 
 inline const flatbuffers::TypeTable *ResizeTypeTable();
 
@@ -3641,6 +3646,203 @@ inline flatbuffers::Offset<Interp> CreateInterp(
 
 flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &_fbb, const InterpT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct Interp3DT : public flatbuffers::NativeTable {
+  typedef Interp3D TableType;
+  float widthScale;
+  float heightScale;
+  float depthScale;
+  int32_t outputWidth;
+  int32_t outputHeight;
+  int32_t outputDepth;
+  int32_t resizeType;
+  bool alignCorners;
+  bool halfPixelCenters;
+  float widthOffset;
+  float heightOffset;
+  float depthOffset;
+  float cubicCoeffA;
+  CoordinateTransformationMode ctm;
+  Interp3DT()
+      : widthScale(0.0f),
+        heightScale(0.0f),
+        depthScale(0.0f),
+        outputWidth(0),
+        outputHeight(0),
+        outputDepth(0),
+        resizeType(0),
+        alignCorners(false),
+        halfPixelCenters(false),
+        widthOffset(0.0f),
+        heightOffset(0.0f),
+        depthOffset(0.0f),
+        cubicCoeffA(-0.75f),
+        ctm(CoordinateTransformationMode_NotSet) {
+  }
+};
+
+struct Interp3D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef Interp3DT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return Interp3DTypeTable();
+  }
+  float widthScale() const {
+    return GetField<float>(4, 0.0f);
+  }
+  float heightScale() const {
+    return GetField<float>(6, 0.0f);
+  }
+  float depthScale() const {
+    return GetField<float>(8, 0.0f);
+  }
+  int32_t outputWidth() const {
+    return GetField<int32_t>(10, 0);
+  }
+  int32_t outputHeight() const {
+    return GetField<int32_t>(12, 0);
+  }
+  int32_t outputDepth() const {
+    return GetField<int32_t>(14, 0);
+  }
+  int32_t resizeType() const {
+    return GetField<int32_t>(16, 0);
+  }
+  bool alignCorners() const {
+    return GetField<uint8_t>(18, 0) != 0;
+  }
+  bool halfPixelCenters() const {
+    return GetField<uint8_t>(20, 0) != 0;
+  }
+  float widthOffset() const {
+    return GetField<float>(22, 0.0f);
+  }
+  float heightOffset() const {
+    return GetField<float>(24, 0.0f);
+  }
+  float depthOffset() const {
+    return GetField<float>(26, 0.0f);
+  }
+  float cubicCoeffA() const {
+    return GetField<float>(28, -0.75f);
+  }
+  CoordinateTransformationMode ctm() const {
+    return static_cast<CoordinateTransformationMode>(GetField<int8_t>(30, 0));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<float>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
+           VerifyField<float>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<uint8_t>(verifier, 18) &&
+           VerifyField<uint8_t>(verifier, 20) &&
+           VerifyField<float>(verifier, 22) &&
+           VerifyField<float>(verifier, 24) &&
+           VerifyField<float>(verifier, 26) &&
+           VerifyField<float>(verifier, 28) &&
+           VerifyField<int8_t>(verifier, 30) &&
+           verifier.EndTable();
+  }
+  Interp3DT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(Interp3DT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<Interp3D> Pack(flatbuffers::FlatBufferBuilder &_fbb, const Interp3DT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct Interp3DBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_widthScale(float widthScale) {
+    fbb_.AddElement<float>(4, widthScale, 0.0f);
+  }
+  void add_heightScale(float heightScale) {
+    fbb_.AddElement<float>(6, heightScale, 0.0f);
+  }
+  void add_depthScale(float depthScale) {
+    fbb_.AddElement<float>(8, depthScale, 0.0f);
+  }
+  void add_outputWidth(int32_t outputWidth) {
+    fbb_.AddElement<int32_t>(10, outputWidth, 0);
+  }
+  void add_outputHeight(int32_t outputHeight) {
+    fbb_.AddElement<int32_t>(12, outputHeight, 0);
+  }
+  void add_outputDepth(int32_t outputDepth) {
+    fbb_.AddElement<int32_t>(14, outputDepth, 0);
+  }
+  void add_resizeType(int32_t resizeType) {
+    fbb_.AddElement<int32_t>(16, resizeType, 0);
+  }
+  void add_alignCorners(bool alignCorners) {
+    fbb_.AddElement<uint8_t>(18, static_cast<uint8_t>(alignCorners), 0);
+  }
+  void add_halfPixelCenters(bool halfPixelCenters) {
+    fbb_.AddElement<uint8_t>(20, static_cast<uint8_t>(halfPixelCenters), 0);
+  }
+  void add_widthOffset(float widthOffset) {
+    fbb_.AddElement<float>(22, widthOffset, 0.0f);
+  }
+  void add_heightOffset(float heightOffset) {
+    fbb_.AddElement<float>(24, heightOffset, 0.0f);
+  }
+  void add_depthOffset(float depthOffset) {
+    fbb_.AddElement<float>(26, depthOffset, 0.0f);
+  }
+  void add_cubicCoeffA(float cubicCoeffA) {
+    fbb_.AddElement<float>(28, cubicCoeffA, -0.75f);
+  }
+  void add_ctm(CoordinateTransformationMode ctm) {
+    fbb_.AddElement<int8_t>(30, static_cast<int8_t>(ctm), 0);
+  }
+  explicit Interp3DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  Interp3DBuilder &operator=(const Interp3DBuilder &);
+  flatbuffers::Offset<Interp3D> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<Interp3D>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<Interp3D> CreateInterp3D(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    float widthScale = 0.0f,
+    float heightScale = 0.0f,
+    float depthScale = 0.0f,
+    int32_t outputWidth = 0,
+    int32_t outputHeight = 0,
+    int32_t outputDepth = 0,
+    int32_t resizeType = 0,
+    bool alignCorners = false,
+    bool halfPixelCenters = false,
+    float widthOffset = 0.0f,
+    float heightOffset = 0.0f,
+    float depthOffset = 0.0f,
+    float cubicCoeffA = -0.75f,
+    CoordinateTransformationMode ctm = CoordinateTransformationMode_NotSet) {
+  Interp3DBuilder builder_(_fbb);
+  builder_.add_cubicCoeffA(cubicCoeffA);
+  builder_.add_depthOffset(depthOffset);
+  builder_.add_heightOffset(heightOffset);
+  builder_.add_widthOffset(widthOffset);
+  builder_.add_resizeType(resizeType);
+  builder_.add_outputDepth(outputDepth);
+  builder_.add_outputHeight(outputHeight);
+  builder_.add_outputWidth(outputWidth);
+  builder_.add_depthScale(depthScale);
+  builder_.add_heightScale(heightScale);
+  builder_.add_widthScale(widthScale);
+  builder_.add_ctm(ctm);
+  builder_.add_halfPixelCenters(halfPixelCenters);
+  builder_.add_alignCorners(alignCorners);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<Interp3D> CreateInterp3D(flatbuffers::FlatBufferBuilder &_fbb, const Interp3DT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct ResizeT : public flatbuffers::NativeTable {
   typedef Resize TableType;
   float xScale;
@@ -5315,6 +5517,71 @@ inline flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &
       _ctm);
 }
 
+inline Interp3DT *Interp3D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new Interp3DT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void Interp3D::UnPackTo(Interp3DT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = widthScale(); _o->widthScale = _e; };
+  { auto _e = heightScale(); _o->heightScale = _e; };
+  { auto _e = depthScale(); _o->depthScale = _e; };
+  { auto _e = outputWidth(); _o->outputWidth = _e; };
+  { auto _e = outputHeight(); _o->outputHeight = _e; };
+  { auto _e = outputDepth(); _o->outputDepth = _e; };
+  { auto _e = resizeType(); _o->resizeType = _e; };
+  { auto _e = alignCorners(); _o->alignCorners = _e; };
+  { auto _e = halfPixelCenters(); _o->halfPixelCenters = _e; };
+  { auto _e = widthOffset(); _o->widthOffset = _e; };
+  { auto _e = heightOffset(); _o->heightOffset = _e; };
+  { auto _e = depthOffset(); _o->depthOffset = _e; };
+  { auto _e = cubicCoeffA(); _o->cubicCoeffA = _e; };
+  { auto _e = ctm(); _o->ctm = _e; };
+}
+
+inline flatbuffers::Offset<Interp3D> Interp3D::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Interp3DT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateInterp3D(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<Interp3D> CreateInterp3D(flatbuffers::FlatBufferBuilder &_fbb, const Interp3DT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const Interp3DT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _widthScale = _o->widthScale;
+  auto _heightScale = _o->heightScale;
+  auto _depthScale = _o->depthScale;
+  auto _outputWidth = _o->outputWidth;
+  auto _outputHeight = _o->outputHeight;
+  auto _outputDepth = _o->outputDepth;
+  auto _resizeType = _o->resizeType;
+  auto _alignCorners = _o->alignCorners;
+  auto _halfPixelCenters = _o->halfPixelCenters;
+  auto _widthOffset = _o->widthOffset;
+  auto _heightOffset = _o->heightOffset;
+  auto _depthOffset = _o->depthOffset;
+  auto _cubicCoeffA = _o->cubicCoeffA;
+  auto _ctm = _o->ctm;
+  return MNN::CreateInterp3D(
+      _fbb,
+      _widthScale,
+      _heightScale,
+      _depthScale,
+      _outputWidth,
+      _outputHeight,
+      _outputDepth,
+      _resizeType,
+      _alignCorners,
+      _halfPixelCenters,
+      _widthOffset,
+      _heightOffset,
+      _depthOffset,
+      _cubicCoeffA,
+      _ctm);
+}
+
 inline ResizeT *Resize::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new ResizeT();
   UnPackTo(_o, _resolver);
@@ -6395,6 +6662,48 @@ inline const flatbuffers::TypeTable *InterpTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *Interp3DTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    CoordinateTransformationModeTypeTable
+  };
+  static const char * const names[] = {
+    "widthScale",
+    "heightScale",
+    "depthScale",
+    "outputWidth",
+    "outputHeight",
+    "outputDepth",
+    "resizeType",
+    "alignCorners",
+    "halfPixelCenters",
+    "widthOffset",
+    "heightOffset",
+    "depthOffset",
+    "cubicCoeffA",
+    "ctm"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 14, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
