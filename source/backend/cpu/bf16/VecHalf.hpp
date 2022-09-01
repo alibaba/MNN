@@ -12,6 +12,18 @@
 #include <stdint.h>
 #include <array>
 #include <algorithm>  // supply std::max and std::min
+
+#ifdef MNN_USE_NEON
+#include <arm_neon.h>
+#endif
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
+
 namespace MNN {
 namespace Math {
 
@@ -160,11 +172,6 @@ struct VecHalf {
 };
 
 #if defined(MNN_USE_SSE)
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
 
 template<>
 struct VecHalf<4> {
@@ -310,7 +317,6 @@ struct VecHalf<4> {
 #endif
 
 #if defined(MNN_USE_NEON)
-#include <arm_neon.h>
 
 template<>
 struct VecHalf<4> {
