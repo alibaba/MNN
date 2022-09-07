@@ -320,6 +320,23 @@ table Interp {
     heightOffset:float;
     cubicCoeffA:float = -0.75;
     ctm:CoordinateTransformationMode = NotSet;
+} 
+
+table Interp3D {
+    widthScale:float;
+    heightScale:float;
+    depthScale:float;
+    outputWidth:int;
+    outputHeight:int;
+    outputDepth:int;
+    resizeType:int;
+    alignCorners:bool;
+    halfPixelCenters:bool = false;
+    widthOffset:float;
+    heightOffset:float;
+    depthOffset:float;
+    cubicCoeffA:float = -0.75;
+    ctm:CoordinateTransformationMode = NotSet;
 }
 
 table Resize {

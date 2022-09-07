@@ -38,6 +38,15 @@ struct InterpInfo {
     float widthOffset = 0.0f;
     float heightOffset = 0.0f;
 };
+struct Interp3DInfo {
+    float depthScale;
+    float heightScale;
+    float widthScale;
+    float widthOffset = 0.0f;
+    float heightOffset = 0.0f;
+    float depthOffset = 0.0f;
+
+};
 static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW, int inH, int outW, int outH, bool computeScale = true) {
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
@@ -147,6 +156,143 @@ static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW,
             break;
     }
 }
+static void _ConverterInterp3D(const Interp3D* resize, Interp3DInfo* dstInfo, int inW, int inH, int inD, int outW, int outH, int outD, bool computeScale = true) {
+    switch (resize->ctm()) {
+        case CoordinateTransformationMode_NotSet:
+        {
+            // For compability, old model's nearest don't support halfpixels
+            if (resize->halfPixelCenters() && resize->resizeType() != 1) {
+                if (computeScale) {
+                    dstInfo->depthScale  = (float)(inD) / (float)(outD);
+                    dstInfo->heightScale = (float)(inH) / (float)(outH);
+                    dstInfo->widthScale  = (float)(inW) / (float)(outW);
+                }
+                dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
+                dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
+                dstInfo->depthOffset = 0.5f * dstInfo->depthScale - 0.5f;
+            } else if (resize->alignCorners()) {
+                if (computeScale) {
+                    if (outD == 1) {
+                        dstInfo->depthScale = 0.0f;
+                    } else {
+                        dstInfo->depthScale = (float)(inD - 1) / (float)(outD - 1);
+                    }
+                    if (outH == 1) {
+                        dstInfo->heightScale = 0.0f;
+                    } else {
+                        dstInfo->heightScale = (float)(inH - 1) / (float)(outH - 1);
+                    }
+                    if (outW == 1) {
+                        dstInfo->widthScale = 0.0f;
+                    } else {
+                        dstInfo->widthScale  = (float)(inW - 1) / (float)(outW - 1);
+                    }
+                }
+            } else if (computeScale) {
+                dstInfo->depthScale = (float)(inD) / (float)(outD);
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
+            break;
+        }
+        case CoordinateTransformationMode_AlignCorners:
+        {
+            if (computeScale) {
+                if (outD == 1) {
+                    dstInfo->depthScale = 0.0f;
+                } else {
+                    dstInfo->depthScale = (float)(inD - 1) / (float)(outD - 1);
+                }
+                if (outH == 1) {
+                    dstInfo->heightScale = 0.0f;
+                } else {
+                    dstInfo->heightScale = (float)(inH - 1) / (float)(outH - 1);
+                }
+                if (outW == 1) {
+                    dstInfo->widthScale = 0.0f;
+                } else {
+                    dstInfo->widthScale  = (float)(inW - 1) / (float)(outW - 1);
+                }
+            }
+            break;
+        }
+        case CoordinateTransformationMode_HalfPixels:
+        {
+            if (computeScale) {
+                dstInfo->depthScale = (float)(inD) / (float)(outD);
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
+            dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
+            dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
+            dstInfo->depthOffset = 0.5f * dstInfo->depthScale - 0.5f;
+            break;
+        }
+        case CoordinateTransformationMode_PytorchHalfPixels:
+        {
+            if (outD > 1) {
+                if (computeScale) {
+                    dstInfo->depthScale = (float)inD / (float)outD;
+                }
+                dstInfo->depthScale = 0.5f * dstInfo->depthScale - 0.5f;
+            } else {
+                if (computeScale) {
+                    dstInfo->depthScale = 0.0f;
+                }
+            }
+            if (outH > 1) {
+                if (computeScale) {
+                    dstInfo->heightScale = (float)inH / (float)outH;
+                }
+                dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
+            } else {
+                if (computeScale) {
+                    dstInfo->heightScale = 0.0f;
+                }
+            }
+            if (outW > 1) {
+                if (computeScale) {
+                    dstInfo->widthScale = (float)inW / (float)outW;
+                }
+                dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
+            } else {
+                if (computeScale) {
+                    dstInfo->widthScale = 0.0f;
+                }
+            }
+            break;
+        }
+        case CoordinateTransformationMode_Asymmetric:
+        {
+            if (computeScale) {
+                dstInfo->depthScale = (float)(inD) / (float)(outD);
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
+            break;
+        }
+        case CoordinateTransformationMode_TensorflowHalfPixels:
+        {
+            if (computeScale) {
+                dstInfo->depthScale = (float)(inD) / (float)(outD);
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
+            dstInfo->widthOffset = 0.5f * dstInfo->widthScale;
+            dstInfo->heightOffset = 0.5f * dstInfo->heightScale;
+            dstInfo->depthOffset = 0.5f * dstInfo->depthScale;
+            break;
+        }
+        case CoordinateTransformationMode_TensorflowCropAndResize:
+        {
+            //FIXME: Not support now
+            MNN_ERROR("Don't support CoordinateTransformationMode_TensorflowCropAndResize currently\n");
+            break;
+        }
+        default:
+            break;
+    }
+}
 static flatbuffers::Offset<Op> makeInterp(flatbuffers::FlatBufferBuilder& builder, const InterpInfo* info, int resizeType, const Op* op) {
     flatbuffers::Offset<flatbuffers::String> temp;
     if (nullptr != op->name()) {
@@ -163,6 +309,30 @@ static flatbuffers::Offset<Op> makeInterp(flatbuffers::FlatBufferBuilder& builde
     opB.add_type(OpType_Interp);
     opB.add_main(offsetInterp);
     opB.add_main_type(OpParameter_Interp);
+    if (nullptr != op->name()) {
+        opB.add_name(temp);
+    }
+    return opB.Finish();
+}
+
+static flatbuffers::Offset<Op> makeInterp3D(flatbuffers::FlatBufferBuilder& builder, const Interp3DInfo* info, int resizeType, const Op* op) {
+    flatbuffers::Offset<flatbuffers::String> temp;
+    if (nullptr != op->name()) {
+        temp = builder.CreateString(op->name()->str());
+    }
+    Interp3DBuilder intp3DB(builder);
+    intp3DB.add_resizeType(resizeType);
+    intp3DB.add_widthScale(info->widthScale);
+    intp3DB.add_heightScale(info->heightScale);
+    intp3DB.add_depthScale(info->depthScale);
+    intp3DB.add_heightOffset(info->heightOffset);
+    intp3DB.add_widthOffset(info->widthOffset);
+    intp3DB.add_depthOffset(info->depthOffset);
+    auto offsetInterp3D = intp3DB.Finish().Union();
+    OpBuilder opB(builder);
+    opB.add_type(OpType_Interp3D);
+    opB.add_main(offsetInterp3D);
+    opB.add_main_type(OpParameter_Interp3D);
     if (nullptr != op->name()) {
         opB.add_name(temp);
     }
@@ -218,6 +388,33 @@ public:
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
+        } else if (OpType_Interp3D == op->type()) {
+            // Compute cord transform for interp
+            auto resize                           = op->main_as_Interp3D();
+            auto inShape = inputs[0]->shape();
+            auto outShape = outputs[0]->shape();
+            auto inW = inShape[4];
+            auto inH = inShape[3];
+            auto inD = inShape[2];
+            auto outW = outShape[4];
+            auto outH = outShape[3];
+            auto outD = outShape[2];
+            Interp3DInfo info;
+            bool computeScale = true;
+            if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
+                computeScale = false;
+                info.depthScale = 1.0f / inputs[1]->host<float>()[2];
+                if (inputs[0]->dimensions() >= 4) {
+                    info.heightScale = 1.0f / inputs[1]->host<float>()[3];
+                }
+                if (inputs[0]->dimensions() >= 5) {
+                    info.widthScale = 1.0f / inputs[1]->host<float>()[4];
+                }
+            }
+            _ConverterInterp3D(resize, &info, inW, inH, inD, outW, outH, outD, computeScale);
+            flatbuffers::FlatBufferBuilder builder;
+            builder.Finish(makeInterp3D(builder, &info, resize->resizeType(), op));
+            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else {
             SharedPtr<Command> cmdP = new Command;
             auto& cmd = *cmdP;;
@@ -243,6 +440,7 @@ static void _create() {
         OpType_DeconvolutionDepthwise,
         OpType_Pooling,
         OpType_Interp,
+        OpType_Interp3D,
         OpType_Resize,
         OpType_Int8ToFloat,
         OpType_FloatToInt8

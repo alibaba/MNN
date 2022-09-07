@@ -60,6 +60,7 @@ static FormatSetType _getFormatType(const OpT* op, MNN_DATA_FORMAT originFormat)
         case MNN::OpType_Int8ToFloat:
         case MNN::OpType_FloatToInt8:
         case MNN::OpType_DepthwiseConvInt8:
+        case MNN::OpType_Interp3D:
             return NC4HW4_SINGLE;
         case MNN::OpType_ReLU:
         case MNN::OpType_ReLU6:
