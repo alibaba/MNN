@@ -60,11 +60,11 @@ ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std:
         //CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),
         //                    mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<float>(),
         //                    ((CPUBackend *)backend())->threadNumber());
-        MNN_ERROR("Bilinear interpolation is not implemented in interp3D.");
+        MNN_ERROR("Bilinear interpolation is not implemented in interp3D. Do nothing...");
     } else if (mResizeType == 3) {
         // cubic
         //CPUResizeCubicC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
-        MNN_ERROR("cubic interpolation is not implemented in interp3D.");
+        MNN_ERROR("cubic interpolation is not implemented in interp3D. Do nothing...");
     } else if (mResizeType == 4) {
         // Nearstneighbor
         CPUResizeNearestneighbor3DRoundC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
