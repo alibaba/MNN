@@ -1,0 +1,36 @@
+name: ios
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - 'project/ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'express/**'
+      - 'test/**'
+      - 'project/ios/**'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  ios_build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build_ios
+        run: |
+            cd project/ios
+            ./buildiOS.sh

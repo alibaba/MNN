@@ -174,6 +174,13 @@ int main(int argc, const char* argv[]) {
     auto weightDecay = _Input();
     weightDecay->setName("WeightDecay");
 
+    auto step = _Scalar<float>(1.0f);
+    step->setName("optimize_step");
+    step.fix(VARP::TRAINABLE);
+    auto stepPlus1 = step + _Scalar<float>(1.0f);
+    stepPlus1->setName("optimize_step+1");
+    varUpdateMap[step] = stepPlus1;
+
     if (optimizerType == "SGD") {
         auto momentum = _Input();
         momentum->setName("Momentum");
@@ -181,6 +188,7 @@ int main(int argc, const char* argv[]) {
 
         for (auto iter : gradMap) {
             auto p = iter.first;
+            p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
 
@@ -197,8 +205,9 @@ int main(int argc, const char* argv[]) {
                 gradWithDecay = grad;
             }
 
-            VARP history = _Const(0.0, pDims, pInfo->order);
+            VARP history = _Const(0.0f, pDims, pInfo->order);
             history->setName(p->name() + "_momentum");
+            history.fix(VARP::TRAINABLE);
             auto newHistory = _Multiply(learningRate, gradWithDecay) + momentum * history;
             newHistory->setName("update_" + history->name());
 
@@ -215,17 +224,13 @@ int main(int argc, const char* argv[]) {
         auto eps = _Input();
         eps->setName("Eps");
         MNN_PRINT(">>>\nextra input tensors for ADAM: LearningRate, WeightDecay, Beta1, Beta2, Eps\n<<<\n");
-        
-        auto step = _Scalar<float>(0.0f);
-        step->setName("step_init");
-        auto stepPlus1 = step + _Scalar<float>(1.0f);
-        stepPlus1->setName("step+1");
-        varUpdateMap[step] = stepPlus1;
 
         auto correction = _Sqrt(_Const(1.0f, {}, NCHW) - _Pow(beta2, step)) / (_Const(1.0f, {}, NCHW) - _Pow(beta1, step));
+        correction->setName("correction");
         
         for (auto iter : gradMap) {
             auto p = iter.first;
+            p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
 
@@ -242,17 +247,20 @@ int main(int argc, const char* argv[]) {
                 gradWithDecay = grad;
             }
         
-            VARP history1 = _Const(0.0, pDims, pInfo->order);
+            VARP history1 = _Const(0.0f, pDims, pInfo->order);
             history1->setName(p->name() + "_momentum1");
+            history1.fix(VARP::TRAINABLE);
             auto newHistory1 = beta1 * history1 + (_Scalar(1.0f) - beta1) * gradWithDecay;
             newHistory1->setName("update_" + history1->name());
 
-            VARP history2 = _Const(0.0, pDims, pInfo->order);
+            VARP history2 = _Const(0.0f, pDims, pInfo->order);
             history2->setName(p->name() + "_momentum2");
+            history2.fix(VARP::TRAINABLE);
             auto newHistory2 = beta2 * history2 + (_Scalar(1.0f) - beta2) * _Square(gradWithDecay);
             newHistory2->setName("update_" + history2->name());
 
-            auto finalGrad = learningRate * correction * (history1 / (_Sqrt(history2) + eps));
+            auto finalGrad = learningRate * correction * (history1 / (_Sqrt(history2 + _Scalar<float>(1e-8)) + eps));
+            finalGrad->setName(p->name() + "_final_grad");
 
             auto updateValue = _Subtract(p, finalGrad);
             updateValue->setName("update_" + p->name());
@@ -288,6 +296,8 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
+    netStruct->usage = MNN::Usage_TRAIN;
+
     {
         flatbuffers::FlatBufferBuilder builder(1024);
         auto offset = Net::Pack(builder, netStruct.get());

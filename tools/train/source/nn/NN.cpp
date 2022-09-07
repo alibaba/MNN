@@ -566,7 +566,7 @@ public:
                 }
                 if (winograd && mOption.kernelSize[0] > 1 && mOption.kernelSize[1] > 1
                     && mOption.stride[0] == 1 && mOption.stride[1] == 1
-                    && mOption.dilate[0] == 1 && mOption.dilate[1] == 1) {
+                    && mOption.dilate[0] == 1 && mOption.dilate[1] == 1 && mGroup == 1) {
                     mWinogradAttr.reset(new WinogradInt8Attr);
                     mWinogradTransInputMaxPos = addParameter(mWinogradTransInputMax);
                     mWinogradTransInputMinPos = addParameter(mWinogradTransInputMin);
@@ -635,9 +635,15 @@ public:
         }
         auto originX = tempX;
         VARP min, max;
-        // always PerTensor
-        min = _ReduceMin(tempX, axis);
-        max = _ReduceMax(tempX, axis);
+
+        bool keepDims = false;
+        if (axis.size() > 0) {
+            // PerChannel for winograd
+            keepDims = true;
+        }
+
+        min = _ReduceMin(tempX, axis, keepDims);
+        max = _ReduceMax(tempX, axis, keepDims);
 
         VARP scale, zeroPoint;
         VARP nudgeMin, nudgeMax;
@@ -696,7 +702,7 @@ public:
         int kernelW = mOption.kernelSize[0], kernelH = mOption.kernelSize[1], padW = mOption.pads[0], padH = mOption.pads[1];
         int outH = x->getInfo()->dim[2] + 2 * padH - kernelH + 1, outW = x->getInfo()->dim[3] + 2 * padW - kernelW + 1;
         int inChannel = mOption.channel[0], outChannel = mOption.channel[1];
-        int threadNumber = 1, ePack;
+        int threadNumber = 1, ePack = 12;
         int unit2   = UP_DIV(outH * outW, ePack * threadNumber);
         int maxUnit = (int)::sqrtf((float)unit2);
         const int MAX_UNIT = 4, MIN_UNIT = 2;
@@ -747,7 +753,7 @@ public:
         int alphaH = unitH + kernelH - 1, alphaW = unitW + kernelW - 1;
         int unitNumH = UP_DIV(outH, unitH), unitNumW = UP_DIV(outW, unitW);
         int needH = unitNumH * unitH + kernelH - 1, needW = unitNumW * unitW + kernelW - 1;
-        int paddings[] = {0, 0, 0, 0, padH, needH - padH, padW, needW - padW};
+        int paddings[] = {0, 0, 0, 0, padH, needH - inH - padH, padW, needW - inW - padW};
         auto xx = _Pad(x, _Const(paddings, {8}, NCHW, halide_type_of<int32_t>()));
         // [ic * alphaH * alphaW, N * h_unit_num * w_unit_num]
         xx = _Im2Col(xx, {alphaW, alphaH}, {1, 1}, {0, 0}, {unitW, unitH});
@@ -756,7 +762,7 @@ public:
         Math::WinogradGenerater genH(unitH, kernelH), genW(unitW, kernelW);
         auto srcTransH = _Const(genH.B()->host<void>(), {alphaH, alphaH}, NCHW);
         auto srcTransW = _Const(genW.B()->host<void>(), {alphaW, alphaW}, NCHW);
-        xx = _MatMul(_MatMul(srcTransH, xx), srcTransW);
+        xx = _MatMul(_MatMul(_Transpose(srcTransH, {1, 0}), xx), srcTransW);
         // [alphaH * alphaW, ic, N * h_unit_num * w_unit_num]
         xx = _Reshape(_Transpose(xx, {2, 3, 1, 0}), {alphaH * alphaW, inChannel, -1});
         
@@ -769,13 +775,13 @@ public:
         auto wTransH = _Const(genH.G()->host<void>(), {alphaH, kernelH}, NCHW);
         auto wTransW = _Const(genW.G()->host<void>(), {alphaW, kernelW}, NCHW);
         // [oc, ic, alphaH, alphaW]
-        auto ww = _MatMul(_MatMul(wTransH, weight), wTransW);
+        auto ww = _MatMul(_MatMul(wTransH, weight), _Transpose(wTransW, {1, 0}));
         // [alphaH * alphaW, oc, ic]
         ww = _Transpose(_Reshape(ww, {outChannel, inChannel, -1}), {2, 0, 1});
         
         // simulate weight quant
-        auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
-        ww = clamp(_Round(ww * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
+        auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {1, 2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
+//        ww = clamp(_Round(ww * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
         setParameter(weightScale, mWinogradTransWeightScalePos);
         
         // [alphaH * alphaW, oc, N * h_unit_num * w_unit_num]
@@ -785,7 +791,7 @@ public:
         auto dstTransH = _Const(genH.A()->host<void>(), {alphaH, unitH}, NCHW);
         auto dstTransW = _Const(genW.A()->host<void>(), {alphaW, unitW}, NCHW);
         // [oc, N * h_unit_num * w_unit_num, unitH, unitW]
-        yy = _MatMul(_MatMul(dstTransH, yy), dstTransW);
+        yy = _MatMul(_MatMul(_Transpose(dstTransH, {1, 0}), yy), dstTransW);
         // [N, oc, h_unit_num * unitH, w_unit_num * unitW]
         yy = _Reshape(_Transpose(_Reshape(yy, {outChannel, batch, unitNumH, unitNumW, unitH, unitW}), {1, 0, 2, 4, 3, 5}), {batch, outChannel, unitNumH * unitH, unitNumW * unitW});
         int sliceStartData[] = {0, 0, 0, 0}, sliceEndData[] = {-1, -1, outH, outW};
@@ -982,6 +988,7 @@ public:
                 }
                 std::vector<float> inputScales(inputScaleData, inputScaleData + inputScaleInfo->size);
                 // Winograd Transformed input zero point
+                inputZeroPointVar = _Cast<int32_t>(inputZeroPointVar);
                 auto inputZeroPointInfo = inputZeroPointVar->getInfo();
                 auto inputZeroPointData = inputZeroPointVar->readMap<int32_t>();
                 if (inputZeroPointInfo == nullptr || inputZeroPointData == nullptr) {

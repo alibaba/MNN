@@ -1133,6 +1133,9 @@ typedef struct { \
 static PyObject* PyMNN##NAME##_new(PyTypeObject *type, PyObject *args, PyObject *kwds); \
 static PyObject* PyMNN##NAME##_call(PyObject *self, PyObject *args, PyObject *kwds); \
 static void PyMNN##NAME##_dealloc(PyMNN##NAME *self) { \
+    if (self->ptr) { \
+        delete self->ptr; \
+    } \
     Py_TYPE(self)->tp_free((PyObject *) self); \
 } \
 static PyTypeObject PyMNN##NAME##Type = { \

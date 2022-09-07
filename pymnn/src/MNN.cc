@@ -2795,7 +2795,7 @@ static auto registerMNN = []() {
 #endif
 
 #if defined(PYMNN_USE_ALINNPYTHON)
-extern "C" __attribute__((visibility("default"))) void* memoryToVar(const void* ptr, int h, int w, int c, int type) {
+extern "C" MNN_PUBLIC void* memoryToVar(const void* ptr, int h, int w, int c, int type) {
     auto var = Express::_Const(ptr, {h, w, c}, NHWC, dtype2htype(static_cast<DType>(type)));
     return reinterpret_cast<void*>(toPyObj(var));
 }

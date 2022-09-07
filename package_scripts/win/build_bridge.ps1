@@ -80,19 +80,13 @@ if (!$train_api) {
 
 popd
 popd
-conda activate $pyc_env
-python -c "import compileall; compileall.compile_dir('./pymnn_pyc_tmp', force=True)"
-conda deactivate
-Remove-Item .\pymnn_pyc_tmp -Include *.py -Recurse
-Set-Content -Path pymnn_pyc_tmp\version.py -Value "__version__ = '$version'"
-cp -r .\pymnn_pyc_tmp\* $PACKAGE_PATH\wrapper -Force
-rm -r -force pymnn_pyc_tmp
+
 
 $mnn_path = $(Resolve-Path $mnn_path).Path
 $python_path = $(Resolve-Path $python_path).Path
 $numpy_path = $(Resolve-Path $numpy_path).Path
 
-$CMAKE_ARGS = "-DPYMNN_USE_ALINNPYTHON=ON -DPYMNN_RUNTIME_CHECK_VM=ON -DPYMNN_EXPR_API=ON -DPYMNN_NUMPY_USABLE=ON -DPYMNN_BUILD_TEST=OFF"
+$CMAKE_ARGS = "-DPYMNN_USE_ALINNPYTHON=ON -DPYMNN_RUNTIME_CHECK_VM=ON -DPYMNN_EXPR_API=ON -DPYMNN_NUMPY_USABLE=ON -DPYMNN_BUILD_TEST=OFF -DPYMNN_IMGCODECS=ON  -DPYMNN_IMGPROC_DRAW=ON  -DPYMNN_IMGPROC_STRUCTURAL=ON  -DPYMNN_IMGPROC_MISCELLANEOUS=ON -DPYMNN_IMGPROC_COLOR=ON -DPYMNN_IMGPROC_GEOMETRIC=ON -DPYMNN_IMGPROC_FILTER=ON"
 if ($train_api) {
   $CMAKE_ARGS = "$CMAKE_ARGS -DPYMNN_TRAIN_API=ON"
 }

@@ -28,7 +28,8 @@ class TestModel():
     def __init__(self, modelName):
         self.__copy_to_here(modelName)
     def __run_mnn(self):
-        result = os.popen("./TestConvertResult Tf tf").read()
+        convert = ('MNNConvert.exe' if os.name == 'nt' else './MNNConvert') + ' -f TF --bizCode MNN --modelFile tf/test.pb --MNNModel convert_cache.mnn --keepInputFormat --testdir tf'
+        result = os.popen(convert).read()
         print(result)
         return result
     def __load_graph(self, filename):
