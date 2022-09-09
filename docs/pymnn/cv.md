@@ -5,7 +5,27 @@ module cv
 ```
 cv模块提供了基础的图像处理函数，并在接口上兼容了opencv-python的API。
 
-*CV模块中的枚举类型都是用int实现，所以请使用`cv.COLOR_BGR2BGRA`，不要用`cv.ColorConversionCodes.COLOR_BGR2BGRA`*
+
+**使用注意：**
+- 图像描述使用`Var`变量，其属性为：
+  - `data_format`为`NHWC`
+  - `shape`是`[h, w, c]`
+  - `dtype`是`uint8`
+- CV模块中的枚举类型直接用int实现，所以请使用`cv.COLOR_BGR2BGRA`，不要用`cv.ColorConversionCodes.COLOR_BGR2BGRA`*
+- 将`[h, w, c]`的图形转换为模型输入的`[n, c, h, w]`不要使用`transpose`；请使用`expr.convert`，示例如下：
+  ```python
+  import MNN.cv as cv
+  import MNN.numpy as np
+  import MNN.expr as expr
+  # data_format: NHWC, shape: [360, 480, 3], dtype: uint8
+  img = imread('cat.jpg')
+  # data_format: NHWC, shape: [360, 480, 3], dtype: float32
+  imgf = img.astype(np.float32)
+  # data_format: NHWC, shape: [1, 360, 480, 3], dtype: float32
+  imgf_batch = np.expand_dims(imgf, 0)
+  # data_format: NCHW, shape: [1, 360, 480, 3], dtype: float32
+  input_var = expr.convert(imgf_batch, expr.NCHW)
+  ```
 
 ---
 ### `cv Types`
@@ -997,9 +1017,7 @@ True
 
 ```python
 >>> img = cv.imread('cat.jpg')
->>> img = img.astype(np.float32) # bug, now just support float32
 >>> img = cv.pyrDown(img)
->>> img = img.astype(np.uint8)
 >>> cv.imwrite('pyrDown.jpg', img)
 True
 ```
@@ -1022,9 +1040,7 @@ True
 
 ```python
 >>> img = cv.imread('cat.jpg')
->>> img = img.astype(np.float32) # bug, now just support float32
 >>> img = cv.pyrUp(img)
->>> img = img.astype(np.uint8)
 >>> cv.imwrite('pyrUp.jpg', img)
 True
 ```
@@ -1157,7 +1173,6 @@ array([[[0, 0, 0],
 
 ```python
 >>> img = cv.imread('cat.jpg')
->>> img = img.astype(np.float32) # bug, now just support float32
 >>> img = cv.sqrBoxFilter(img, -1, (3,3))
 >>> img = img.astype(np.uint8)
 >>> cv.imwrite('sqrBoxFilter.jpg', img)
@@ -1773,7 +1788,6 @@ True
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
 >>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
->>> contours = [c.read_as_tuple() for c in contours] # there has a bug, need [[int]]
 >>> cv.drawContours(img, contours, -1, [0, 0, 255])
 >>> cv.imwrite('drawContours.jpg', img)
 True
@@ -1807,7 +1821,6 @@ True
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
 >>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
->>> contours = [c.read_as_tuple() for c in contours] # there has a bug, need [[int]]
 >>> cv.fillPoly(img, contours, [0, 0, 255])
 >>> cv.imwrite('fillPoly.jpg', img)
 True

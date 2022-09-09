@@ -1,6 +1,38 @@
 # 发布版本
-
-## 2.0.0 (`Latest`)
+## 2.1.0 (`Latest`)
+### 框架通用性
+- MNN-CV增加`solvepnp / svd`等函数实现
+- MNN-Train补充`Unary/Binary/Reduction`的求导实现
+- MNN-Express支持`Eager模式`，该模式下不保存计算图，直接计算结果，可通过Executor的`lazyEval`配置
+  - 在C++中默认使用`Lazy模式`
+  - 在Python中默认使用`Eager模式`
+- 新增基于`Markdown+Sphinx`的文档
+### 性能优化
+- 服务端推理 CUDA 性能提升
+  - 基于 cutlass 重新实现了矩阵乘，对卷积应用 Winograd算法优化
+  ![cuda](../_static/images/intro/releases/2_1_0_cuda.png)
+- MNN-CoreML后端支持输出zero-copy
+  ![coreml](../_static/images/intro/releases/2_1_0_coreml.png)
+### 模型压缩
+支持 Winograd Int8对`kernel_size > 1`的量化卷积进行优化 ，离线量化工具（C++: quantized.out，python: mnnquant）json配置文件中增加`"winogradOpt": true`，并将特征量化方法设置为`"feature_quantize_method":"EMA"`即可使用
+![winograd](../_static/images/intro/releases/2_1_0_winograd.png)
+### 其他
+- 进行了部分代码重构（包括但不限于）
+  - MNN Metal 改为在线生成 Shader 编译，避免集成 MNN.metallib 的兼容性问题
+  - 移除 CPU / Geometry / Arm82 部分冗余代码
+  - 默认移除原先 TFlite - Uint8 的算子支持，但可以通过 MNN_SUPPORT_DEPRECATED_OP 宏打开
+  - 移除 linux 系统下编译 Torchscript 所需要的 libTorch 库，改为编译时从网络下载
+  - ScatterND 改为基于 Loop 算子实现
+- 修复了如下 Bug（包括但不限于）
+  - CPU - AVX512 int8 在转换 NC4HW4 格式时内存访问越界
+  - GeometryBinary 处理 NC4HW4 输入，两边Channel上对齐大小相同，但Channel不同时计算出错
+  - Arm82 Interp 算子多 Batch 情况下计算出错问题
+  - Windows 上 json2MNN 工具写入结果有误
+  - Onnx GatherElement 算子在输入大小不确定时转换失败
+  - 修复Python中Module，RuntimeManager内存泄露问题
+  - 修复控制流模型转换时输出算子Name不匹配的问题
+  - 修正 ROIPooling / ROIAlign 低精度计算 crash 的问题
+## 2.0.0
 ### 框架通用性
 - 模型推理通用性增加：Torchsciprts OP 添加，Onnx OP 补齐
    - Onnx 算子数由 117 增加到 158 

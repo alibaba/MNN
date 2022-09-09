@@ -473,9 +473,11 @@ IF(MNN_COREML)
     find_library(COREML CoreML)
     find_library(FOUNDATION Foundation)
     find_library(METAL Metal)
+    find_library(VIDEO CoreVideo)
     list(APPEND MNN_EXTRA_DEPENDS ${COREML})
     list(APPEND MNN_EXTRA_DEPENDS ${FOUNDATION})
     list(APPEND MNN_EXTRA_DEPENDS ${METAL})
+    list(APPEND MNN_EXTRA_DEPENDS ${VIDEO})
 ENDIF()
 
 # Vulkan

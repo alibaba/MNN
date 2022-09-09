@@ -154,6 +154,7 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
     int remainDimSize = sepInputShapeSize > 3 ? (int)sepInputShapeSize - 3 : 0;
     int remainStride[MNN_MAX_TENSOR_DIM];
     int remainSize = OpCommonUtils::computeStride(remainStride, sepOutputShape, remainDimSize);
+    outputDes->regions.clear();
     outputDes->regions.resize(remainSize);
     int cords[MNN_MAX_TENSOR_DIM];
     for (int index = 0; index < remainSize; ++index) {

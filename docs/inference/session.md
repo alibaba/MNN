@@ -585,3 +585,10 @@ auto index = outputTensor->host<float>()[1];
 `Tensor`上最简洁的输出方式是直接读取`host`数据，但这种使用方式仅限于CPU后端，其他后端需要通过`deviceid`来读取数据。另一方面，用户需要自行处理`NC4HW4`、`NHWC`数据格式上的差异。
 
 **对于非CPU后端，或不熟悉数据布局的用户，宜使用拷贝数据接口。**
+
+## 示例代码
+完整的示例代码可以参考`demo/exec/`文件夹中的以下源码文件：
+- `pictureRecognition.cpp` 使用`Session`执行模型推理进行图片分类，使用`ImageProcess`进行前处理
+- `multiPose.cpp` 使用`Session`执行模型推理进行姿态检测，使用`ImageProcess`进行前处理
+- `segment.cpp` 使用`Session`执行模型推理进行图像分割，使用`ImageProcess`进行前处理，`Expr`进行后处理
+- `pictureRotate.cpp` 使用`ImageProcess`进行图像处理
