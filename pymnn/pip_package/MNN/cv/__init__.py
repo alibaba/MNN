@@ -300,7 +300,9 @@ def vconcat(src):
 def mean(src, mask=None):
     if mask is not None:
         src = copyTo(src, mask)
-    res = _np.mean(src, [0, 1])
+        res = _expr.reduce_sum(src, [0, 1]) / _np.sum(mask)
+    else:
+        res = _np.mean(src, [0, 1])
     if res.ndim == 0:
         res = _np.expand_dims(res, 0)
     size = res.shape[0]

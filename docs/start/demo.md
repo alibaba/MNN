@@ -186,3 +186,19 @@ $ python test_save.py
 ```bash
 $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_train_withBN.mnn --val_image_path quant_demo/quant_imgs --val_txt quant_demo/val.txt
 ```
+
+## Github Demo
+
+**欢迎开发者提供示例，可以在issue中提交自己的示例项目，审核通过后可以再此处展示**
+
+以下示例为Github开发者贡献，具体用法需参考相关代码；
+- [图像算法工具箱](https://github.com/DefTruth/lite.ai.toolkit)
+- [嵌入式设备部署示例](https://github.com/xindongzhang/MNN-APPLICATIONS)
+- [车道线检测](https://github.com/MaybeShewill-CV/MNN-LaneNet)
+- [轻量级人脸检测](https://github.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB/tree/master/MNN)
+- [LFFD人脸检测](https://github.com/SyGoing/LFFD-MNN)
+- [Android人脸识别](https://github.com/jackweiwang/Android-FaceDetection-UltraNet-MNN)
+- [人脸追踪](https://github.com/qaz734913414/MNN_FaceTrack)
+- [视频抠图](https://github.com/DefTruth/RobustVideoMatting.lite.ai.toolkit)
+- [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
+- [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)

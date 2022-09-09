@@ -24,7 +24,9 @@
     }
 
 ## 文档与工作台
-MNN的使用文档统一放在语雀，请移步至[语雀文档](https://www.yuque.com/mnn/cn)。
+MNN文档：
+- [最新文档(readthedocs)](https://mnn-docs.readthedocs.io/en/latest/index.html)
+- [语雀文档](https://www.yuque.com/mnn/cn)
 
 [MNN官网](http://www.mnn.zone)上还可以下载MNN团队全新力作MNN工作台，涵盖开箱即用模型、可视化训练等工具，更可以一键部署到多端设备。
 

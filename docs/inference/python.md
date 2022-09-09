@@ -1,40 +1,246 @@
-# Python 各模块用法
+# Python API使用
 
 ## 概览
 MNN在C++的基础上，增加了Python扩展。扩展单元包括两个部分：
 - MNN：负责推理，训练，图像处理和数值计算
 - MNNTools：对MNN的部分工具进行封装，包括：mnn，mnnconvert和mnnquant
 
-## MNN模块
-MNN中的模块信息如下：
-- [MNN](../pymnn/MNN.md)
-  - [expr](../pymnn/expr.md)
-  - [nn](../pymnn/nn.md)
-    - [loss](../pymnn/loss.md)
-    - [compress](../pymnn/compress.md)
-  - [data](../pymnn/data.md)
-  - [optim](../pymnn/optim.md)
-  - [cv](../pymnn/cv.md)
-  - [numpy](../pymnn/numpy.md)
-    - [linalg](../pymnn/linalg.md)
-    - [random](../pymnn/random.md)
 ### MNN
-MNN模块是对[Session API](session.md)的Python封装。
-同时对图像处理进行了封装，封装了ImageProcess和Matri相关的所有数据结构与函数。
+[MNN](../pymnn/MNN.md)
+- [expr](../pymnn/expr.md)
+- [nn](../pymnn/nn.md)
+  - [loss](../pymnn/loss.md)
+  - [compress](../pymnn/compress.md)
+- [data](../pymnn/data.md)
+- [optim](../pymnn/optim.md)
+- [cv](../pymnn/cv.md)
+- [numpy](../pymnn/numpy.md)
+  - [linalg](../pymnn/linalg.md)
+  - [random](../pymnn/random.md)
+### MNNTools
+MNNTools提供目前主要是2个工具，用法可以参考[mnnconvert](../tools/python.html#mnnconvert)和[mnnquant](../tools/python.html#mnnquant)
 
-### expr
-expr模块是对[Expr API](expr.md)的Python封装。
+## 使用Python Session API
+### 数据类型
+Python中`Session API`的函数名与用法与C++基本一样。使用的主要数据类型如下：
+- [Interpreter](../pymnn/Interpreter.md) 解释器，持有模型资源
+- [Session](../pymnn/Session.md) 会话，持有推理资源
+- [Tensor](../pymnn/Tensor.md) 用来描述输入输出数据
+- [CVImageProcess](../pymnn/CVImageProcess.md) 图像处理模块
+- [CVMatrix](../pymnn/CVMatrix.md) 用来描述图像的仿射变换
+### 推理流程
+基本推理流程如下：
+- [创建Interpreter](../pymnn/Interpreter.html#interpreter-model-path)
+- [创建Session](../pymnn/Interpreter.html#createsession-config-runtime)
+- [获取Session的输入输出](../pymnn/Interpreter.html#getsessioninput-session-tensorname)
+- [使用ImageProcess/cv进行图像处理（可选）](../pymnn/CVImageProcess.html#example)
+- [拷贝数据到输入Tensor](../pymnn/Tensor.html#copyfrom-from)
+- [执行resize（可选）](../pymnn/Interpreter.html#resizesession-session)
+- [执行Session](../pymnn/Interpreter.html#runsession-session)
+- [获取输出Tensor数据](../pymnn/Tensor.html#copytohosttensor-to)
+### 示例
+```python
+import MNN
+import MNN.cv as cv
+import MNN.numpy as np
+import MNN.expr as expr
 
-### nn
-nn模块是对[Module API](module.md)的Python封装。
+# 创建interpreter
+interpreter = MNN.Interpreter("mobilenet_v1.mnn")
+# 创建session
+config = {}
+config['precision'] = 'low'
+config['backend'] = 'CPU'
+config['thread'] = 4
+session = interpreter.createSession(config)
+# 获取会话的输入输出
+input_tensor = interpreter.getSessionInput(session)
+output_tensor = interpreter.getSessionOutput(session)
 
-### data
-data模块是对[Dataset]的Python封装。
+# 读取图片
+image = cv.imread('cat.jpg')
 
-### optim
-optim模块是对[Optimizer]的Python封装。
+dst_height = dst_width = 224
+# 使用ImageProcess处理第一张图片，将图片转换为转换为size=(224, 224), dtype=float32，并赋值给input_data1
+image_processer = MNN.CVImageProcess({'sourceFormat': MNN.CV_ImageFormat_BGR,
+                                      'destFormat': MNN.CV_ImageFormat_BGR,
+                                      'mean': (103.94, 116.78, 123.68, 0.0),
+                                      'filterType': MNN.CV_Filter_BILINEAL,
+                                      'normal': (0.017, 0.017, 0.017, 0.0)})
+image_data = image.ptr
+src_height, src_width, channel = image.shape
+input_data1 = MNN.Tensor((1, dst_height, dst_width, channel), MNN.Halide_Type_Float, MNN.Tensor_DimensionType_Tensorflow)
+#设置图像变换矩阵
+matrix = MNN.CVMatrix()
+x_scale = src_width / dst_width
+y_scale = src_height / dst_height
+matrix.setScale(x_scale, y_scale)
+image_processer.setMatrix(matrix)
+image_processer.convert(image_data, src_width, src_height, 0, input_data1)
 
-### cv
+# 使用cv模块处理第二张图片，将图片转换为转换为size=(224, 224), dtype=float32，并赋值给input_data2
+image = cv.imread('TestMe.jpg')
+image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
+input_data2 = np.expand_dims(image, 0) # [224, 224, 3] -> [1, 224, 224, 3]
+
+# 合并2张图片到，并赋值给input_data
+input_data1 = expr.const(input_data1.getHost(), input_data1.getShape(), expr.NHWC) # Tensor -> Var
+input_data = np.concatenate([input_data1, input_data2])  # [2, 224, 224, 3]
+input_data = MNN.Tensor(input_data) # Var -> Tensor
+
+# 演示多张图片输入，所以将输入resize到[2, 3, 224, 224]
+interpreter.resizeTensor(input_tensor, (2, 3, 224, 224))
+# 重新计算形状分配内存
+interpreter.resizeSession(session)
+
+# 拷贝数据到输入Tensor
+input_tensor.copyFrom(input_data)
+
+# 执行会话推理
+interpreter.runSession(session)
+
+# 从输出Tensor拷贝出数据 
+output_data = MNN.Tensor(output_tensor.getShape(), MNN.Halide_Type_Float, MNN.Tensor_DimensionType_Caffe)
+output_tensor.copyToHostTensor(output_data)
+
+# 打印出分类结果: 282为猫，385为象
+output_var = expr.const(output_data.getHost(), [2, 1001])
+print("output belong to class: {}".format(np.argmax(output_var, 1)))
+# output belong to class: array([282, 385], dtype=int32)
+```
+其他示例可以参考[示例](../pymnn/Interpreter.html#example)；也可以参考[示例工程](../start/demo.html#session)。
+## 使用Python Module API
+### 数据类型
+Python中的`Module API`与C++中的函数名略有区别，用法相似。主要数据类型如下：
+- [_Module](../pymnn/_Module.md) 模型实例
+- [Var](../pymnn/Var.md) 模型的输入输出
+### 推理流程
+基本推理流程如下：
+- [创建Module](../pymnn/nn.html#load-module-from-file-file-name-input-names-output-names-dynamic-shape-mutable-rearrange-backend-memory-mode-power-mode-precision-mode)
+- 创建输入: 使用`expr`或`numpy`函数创建`Var`即可作为输入
+- [执行推理](../pymnn/_Module.html#forward-input)
+- 获取输出: 输出为`Var`类型，可以通过`expr`或`numpy`函数执行后处理
+### 示例
+```python
+import MNN.nn as nn
+import MNN.cv as cv
+import MNN.numpy as np
+import MNN.expr as expr
+
+# 配置执行后端，线程数，精度等信息；key-vlaue请查看API介绍
+config = {}
+config['precision'] = 'low' # 当硬件支持（armv8.2）时使用fp16推理
+config['backend'] = 0       # CPU
+config['numThread'] = 4     # 线程数
+
+rt = nn.create_runtime_manager((config,))
+# 加载模型创建_Module
+net = nn.load_module_from_file('mobilenet_v1.mnn', ['data'], ['prob'], runtime_manager=rt)
+
+# 读取图片
+image = cv.imread('cat.jpg')
+# 转换为float32, 形状为[224,224,3]        
+image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
+# 增加batch HWC to NHWC
+input_var = np.expand_dims(image, 0)
+# NHWC to NC4HW4
+input_var = expr.convert(input_var, expr.NC4HW4)
+
+# 执行推理
+output_var = net.forward(input_var)
+
+# NC4HW4 to NHWC 
+output_var = expr.convert(output_var, expr.NHWC)
+# 打印出分类结果, 282为猫
+print("output belong to class: {}".format(np.argmax(output_var)))
+# output belong to class: 282
+```
+其他示例可以参考[示例](../pymnn/RuntimeManager.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
+
+## 使用Python Expr API
+### 数据类型
+Python的`Expr API`相比C++在命名和使用方式上略有区别，但是功能一致。主要数据类型如下：
+- [Var](../pymnn/Var.md) 表达式计算中的变量
+### 主要用法
+因为`Expr`不仅有模型推理的能力，还具备数值计算的能力。在实际使用中`Expr`被用作构图或者计算的情况更多，实际用来执行模型推理的情况并不多，当`Expr`用作模型推理时的主要流程如下：
+- [加载计算图](../pymnn/expr.html#load-as-dict-filename)
+- 获取输入输出：直接使用Python中的`dict`的方式获取，如：`net['input']`
+- [写入输入数据](../pymnn/Var.html#write-data)
+- [读取输出数据](../pymnn/Var.html#read)：读取数据不限于`read`，尝试打印和使用都可能触发读取操作
+### 示例
+`Expr`用作模型推理：
+```python
+import MNN.cv as cv
+import MNN.numpy as np
+import MNN.expr as expr
+
+net = expr.load_as_dict('mobilenet_v1.mnn')
+input_var = net['data']
+output_var = net['prob']
+
+# 读取图片
+image = cv.imread('cat.jpg')
+# 转换为float32, 形状为[224,224,3]        
+image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
+# 增加batch HWC to NHWC
+input_data = np.expand_dims(image, 0)
+# NHWC to NC4HW4
+input_data = expr.convert(input_data, expr.NC4HW4)
+
+input_var.write(input_data.read_as_tuple())
+
+# 打印出分类结果, 282为猫
+print("output belong to class: {}".format(np.argmax(output_var)))
+```
+`Expr`用于数值计算与数据存取：
+```python
+import MNN.numpy as np
+import MNN.expr as expr
+
+x = expr.range(0., 10., 1.)
+y = expr.fill([10], 3.1415)
+z = expr.sin(x * y + x / y)
+expr.save([z], 'z.mnn')
+a = expr.load_as_list('z.mnn')[0]
+print(a)
+'''
+array([ 0.        , -0.31288275,  0.59434694, -0.8161286 ,  0.955958  ,
+       -0.9997932 ,  0.943233  , -0.79195637,  0.561154  , -0.27400237],
+      dtype=float32)
+'''
+```
+其他示例可以参考[示例](../pymnn/Var.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
+## 使用cv/numpy API
+### 数据类型
+Python的`cv`和`numpy`接口，其中`cv`是对C++中`tools/cv`实现的封装；`numpy`则是对`expr`接口的封装；这两个接口主要为了提高MNN的易用性，与`opencv`与`numpy`做到了再接口上的部分兼容，再用法和死路上基本一致。主要数据类型如下：
+- [Var](../pymnn/Var.md) `cv`中的图像，`numpy`中的`ndarray`
+### 主要用法
+`cv`和`numpy`主要用作模型的前后处理部分，和一些数值计算任务。比如从图片直接读取数据后一般需要执行颜色空间变换，数据类型变换，缩放，裁剪等操作，这些可以用`cv`模块函数实现；模型输出的结果可能需要做一些额外的变换和计算，这些可以用`numpy`模块函数实现。
+### 示例
+使用`cv`与`numpy`中的函数做前后处理，执行模型推理的例子
+```python
+import MNN
+import MNN.cv as cv
+import MNN.numpy as np
+
+# 加载模型
+net = MNN.nn.load_module_from_file('mobilenet_v1.mnn', ["data"], ["prob"])
+# cv模块图片处理
+image = cv.imread('cat.jpg')
+image = cv.resize(image, (224, 224))
+# 类似ndarray的数值运算
+image = image - (103.94, 116.78, 123.68)
+image = image * (0.017, 0.017, 0.017)
+input_var = np.expand_dims(image, 0)
+input_var = MNN.expr.convert(input_var, MNN.expr.NC4HW4)
+output_var = net.forward(input_var)
+output_var = MNN.expr.convert(output_var, MNN.expr.NHWC)
+# 类似numpy操作的后处理
+print("output belong to class: {}".format(np.argmax(output_var)))
+```
+其他示例可以参考[示例](../pymnn/Interpreter.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
+
+### cv能力列表
 cv模块提供了与OpenCV相似的接口函数，具备基础的图像处理能力，目前支持的cv函数60个。
 
 #### 图像编解码
@@ -147,7 +353,7 @@ cv模块提供了与OpenCV相似的接口函数，具备基础的图像处理能
 | [flip](../pymnn/cv.html#flip-src-flipcode) | 翻转 |
 | [rotate](../pymnn/cv.html#rotate-src-rotatemode) | 旋转 |
 
-### numpy
+### numpy能力列表
 numpy函数170个，函数列表如下:
 #### 数组创建
 
