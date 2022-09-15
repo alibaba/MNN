@@ -925,6 +925,16 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         }
     }
     mBackend->onResizeEnd();
+
+    // cached
+    command_cached.clear();
+    for (auto& info : mInfo.second) {
+        auto& buffer = info.executeBuffer;
+        for (auto& cmdP : buffer.command) {
+            command_cached.push_back(cmdP.get());
+        }
+    }
+
     return NO_ERROR;
 }
 
@@ -951,17 +961,12 @@ ErrorCode Pipeline::execute() {
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
     mBackend->onExecuteBegin();
-    for (auto& info : mInfo.second) {
-        auto& buffer = info.executeBuffer;
-        for (auto& cmdP : buffer.command) {
-            auto& cmd = *cmdP;
-            // MNN_PRINT("before run: %p \n", cmd.info.get());
-            // MNN_PRINT("before run: %s \n", cmd.info->name().c_str());
-            auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);
-            if (NO_ERROR != code) {
-                mBackend->onExecuteEnd();
-                return code;
-            }
+    for (auto& cmd : command_cached) {
+        auto& cmd = *cmdP;
+        auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);
+        if (NO_ERROR != code) {
+            mBackend->onExecuteEnd();
+            return code;
         }
     }
     mBackend->onExecuteEnd();

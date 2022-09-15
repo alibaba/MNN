@@ -70,6 +70,9 @@ private:
     float mFlops = 0.0f;
     bool mIsQuantModel = false;
 
+    // Command cache
+    std::vector<Command *> command_cached;
+
     // For gpu or other backend
     std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
 #ifndef MNN_BUILD_MINI
