@@ -4,7 +4,7 @@ IF(MNN_BUILD_PROTOBUFFER)
 ELSE()
 protobuf_generate_cpp(ONNX_PROTO_SRCS ONNX_PROTO_HDRS
     ${CMAKE_CURRENT_LIST_DIR}/onnx.proto
-    ${CMAKE_CURRENT_LIST_DIR}/onnx-operators.proto
+    # onnx-operators.proto
     # onnx-ml.proto
     # onnx-operators-ml.proto
 )
