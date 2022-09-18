@@ -313,14 +313,18 @@ VARP Laplacian(VARP src, int ddepth, int ksize, double scale, double delta, int 
 }
 
 VARP pyrDown(VARP src, Size dstsize, int borderType) {
-    return _Convert(_Resize(_Convert(pyr(src, borderType), NC4HW4), 0.5, 0.5), NHWC);
+    auto type = formatInput(src);
+    auto res = _Convert(_Resize(_Convert(pyr(src, borderType), NC4HW4), 0.5, 0.5), NHWC);
+    return formatOutput(res, type);
 }
 
 VARP pyrUp(VARP src, Size dstsize, int borderType) {
     if (src->getInfo()->dim.size() == 3) {
         src = _Unsqueeze(src, {0});
     }
-    return pyr(_Convert(_Resize(_Convert(src, NC4HW4), 2, 2), NHWC), borderType);
+    auto type = formatInput(src);
+    auto res = pyr(_Convert(_Resize(_Convert(src, NC4HW4), 2, 2), NHWC), borderType);
+    return formatOutput(res, type);
 }
 
 VARP Scharr(VARP src, int ddepth, int dx, int dy, double scale, double delta, int borderType) {
@@ -353,6 +357,7 @@ std::pair<VARP, VARP> spatialGradient(VARP src, int ksize, int borderType) {
 }
 
 VARP sqrBoxFilter(VARP src, int ddepth, Size ksize, bool normalize, int borderType) {
+    formatInput(src);
     return boxFilter(src * src, ddepth, ksize, normalize, borderType);
 }
 

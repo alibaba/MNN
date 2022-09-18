@@ -60,13 +60,18 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 - `dtype:MNN.Halide_Type_*` Tensor数据类型
 - `dimension:MNN.Tensor_DimensionType_*` 数据排布格式
 
-### `Tensor(shape, dtype, tuple_or_ndarray, dimension)`
-创建一个指定形状，数据类型, 数据和数据排布的Tensor, 数据拷贝自tuple_or_ndarray
+### `Tensor(shape, dtype, value_list, dimension)`
+创建一个指定形状，数据类型, 数据和数据排布的Tensor, 数据拷贝自`value_list`，
+能够将`list`，`tuple`，`bytes`，`ndarray`，`PyCapsule`等格式的数据转换成`Tensor`
+
+*注意：`value_list`仅在PYMNN_NUMPY_USABLE打开的情况下支持`ndarray`，移动端默认关闭*
+
+*此函数在`PYMNN_NUMPY_USABLE=OFF`时不接受`ndarray`作为数据输入*
 
 参数：
 - `shape:tuple` Tensor形状
 - `dtype:MNN.Halide_Type_*` Tensor数据类型
-- `tuple_or_ndarray:tuple/ndarray` 数据
+- `value_list:ndarray/tuple/list/bytes/PyCapsule` 数据
 - `dimension:MNN.Tensor_DimensionType_*` 数据排布格式
 
 ---
@@ -132,7 +137,7 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 ---
 ### `copyFrom(from)`
 
-从from中拷贝数据到当前Tensor。
+从from中拷贝数据到当前Tensor，可用此函数将数据拷贝到输入Tensor中。
 
 参数：
 - `from:Tensor` - 拷贝的源Tensor
@@ -144,7 +149,7 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 ---
 ### `copyToHostTensor(to)`
 
-从当前Tensor拷贝数据到to。
+从当前Tensor拷贝数据到to，可用此函数将输出Tensor中的数据拷出。
 
 参数：
 - `to:Tensor` - 拷贝的目标Tensor
@@ -157,7 +162,7 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 ### `getNumpyData()`
 
 获取Tensor的数据，返回numpy数据。
-*该API仅在PYMNN_NUMPY_USABLE=ON时生效*
+*该API仅在PYMNN_NUMPY_USABLE=ON时生效，移动端默认关闭*
 
 参数：
 - `None`

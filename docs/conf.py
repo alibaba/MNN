@@ -23,7 +23,7 @@ copyright = '2022, Alibaba Group'
 author = 'Alibaba Group'
 
 # The full version, including alpha/beta/rc tags
-release = '2.0.4'
+release = '2.1.1'
 
 
 # -- General configuration ---------------------------------------------------

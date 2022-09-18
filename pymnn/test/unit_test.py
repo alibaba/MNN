@@ -65,6 +65,20 @@ class UnitTest(unittest.TestCase):
         self.assertEqualArray(l, r)
     # test V2 api
     # test ImageProcess
+    def test_Tensor(self):
+        x = MNN.Tensor((2, 2), MNN.Halide_Type_Float, MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), np.zeros([2, 2], dtype=np.float32))
+        data = np.array([[1., 2.], [3., 4.]], dtype=np.float32);
+        x = MNN.Tensor((2, 2), MNN.Halide_Type_Float, [1., 2., 3., 4.], MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, (1., 2., 3., 4.), MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data, MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data.tobytes(), MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, mp.array([[1., 2.], [3., 4.]]).ptr, MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
     def test_image_process(self):
         src = np.asarray([[50, 50], [200, 50], [50, 200]], dtype=np.float32)
         dst = np.asarray([[10, 100], [200, 20], [100, 250]], dtype=np.float32)
@@ -254,6 +268,14 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.clone(self.x), np.copy(self.x_))
     def test_const(self):
         self.assertEqualVar(self.x, self.x_)
+        list_data = [1., 2., 3., 4.]
+        tuple_data = (1., 2., 3., 4.)
+        data = np.array(list_data, dtype=np.float32).reshape([2, 2])
+        self.assertEqualVar(expr.const(list_data, [2, 2]), data)
+        self.assertEqualVar(expr.const(tuple_data, [2, 2]), data)
+        self.assertEqualVar(expr.const(data, [2, 2]), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, (1., 2., 3., 4.), MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualVar(expr.const(x.getHost(), [2, 2]), data)
     def test_conv2d(self):
         w_ = np.random.randn(2, 4, 3, 3).astype(np.float32)
         b_ = np.random.randn(2).astype(np.float32)

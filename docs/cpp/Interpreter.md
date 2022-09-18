@@ -205,7 +205,10 @@ void setSessionHint(HintMode mode, int value);
 ```cpp
 static RuntimeInfo createRuntime(const std::vector<ScheduleConfig>& configs);
 ```
-根据配置创建一个Runtime，默认情况下，在`createSession`时对应create单独一个Runtime。对于串行的一系列模型，可以先单独创建Runtime，然后在各Session创建时传入，使各模型用共享同样的运行时资源（对CPU而言为线程池、内存池，对GPU而言Kernel池等）
+根据配置创建一个Runtime，默认情况下，在`createSession`时对应create单独一个Runtime。对于串行的一系列模型，可以先单独创建Runtime，然后在各Session创建时传入，使各模型用共享同样的运行时资源（对CPU而言为线程池、内存池，对GPU而言Kernel池等）；`RuntimeInfo`的定义如下：
+```cpp
+typedef std::pair<std::map<MNNForwardType, std::shared_ptr<Runtime>>, std::shared_ptr<Runtime>> RuntimeInfo;
+```
 
 参数：
 - `configs` 调度信息
@@ -449,7 +452,7 @@ void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
 ```cpp
 const Backend* getBackend(const Session* session, const Tensor* tensor) const;
 ```
-获取指定`tensor`创建时使用的后端`Backend`
+获取指定`tensor`创建时使用的后端`Backend`；可以在代码中使用该函数来判断当前`Session`的推理实际使用什么后端。
 
 参数：
 - `session` tensor相关的会话

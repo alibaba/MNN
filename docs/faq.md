@@ -153,8 +153,10 @@ const float* outputPtr = output->readMap<float>();
 ```
 ### compute shape error for XXX
 
+- 输入形状不正确
 - MNN 推理过程分形状计算-几何计算-内容计算三步，前两步在 resizeSession 中完成，在 createSession 时，会用初始设定的输入大小进行一次 resizeSession ，若初始 shape 设定不对，则会在某个算子报 shape 计算的 error ，重新设置输入 tensor 的大小并 resizeSession 即可
 - 在导出 Onnx 时，shape 没设成 dynamic ，导致部分参数写死，变动大小后无法 resize 网络
+- 如果确定输入形状正确，并且执行了`resizeTensor`和`resizeSession`；可以打开`source/shape/SizeComputer.cpp`中的宏`// #define MNN_DEBUG_TENSOR_SIZE`定义，然后执行模型推理；打开宏之后可以看到每一层的形状信息，可以逐层进行Debug
 
 ### Android 设备无法查看日志
 Android 系统有两类打印日志的方式: printf 和 logcat. 默认 MNN 的编译脚本使用 printf，这样方便在命令行中调试（[https://www.yuque.com/mnn/cn/tool_test](https://www.yuque.com/mnn/cn/tool_test)），集成到 App 上时，用 cmake  -DMNN_USE_LOGCAT=ON 将打印日志的方式改成 logcat 即可用 adb logcat 查看

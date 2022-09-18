@@ -50,7 +50,7 @@ failed() {
 
 doc_check() {
     echo 'doc_check'
-    # 1. CHECK CMakeLists.txt: check all macro, executable is in doc or not
+    # 1. CHECK CMakeLists.txt:
     cmake_files=$(find tools source demo test benchmark  -name "CMakeLists.txt")
     cmake_files="$cmake_files CMakeLists.txt"
     macros=''
@@ -60,20 +60,54 @@ doc_check() {
         executables="$executables $(cat $cmake_file | grep -oE "add_executable\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
         macros="$macros $(cat $cmake_file | grep -oE "option\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
     done
+    # 1.1 check all macro
     for macro in $macros
     do
         if [ $(grep -c $macro ./docs/compile/cmake.md) -le 0 ]; then
             echo 'DOC CHECK FAILED:' $macro 'not in ./docs/compile/cmake.md'
-            failed 
+            failed
         fi
     done
+    # 1.2 check executable
     for executable in $executables
     do
         if [ $(grep -c $executable ./docs/compile/tools.md) -le 0 ]; then
             echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/tools.md'
-            failed 
+            failed
         fi
     done
+    # 2. CHECK Pymnn API:
+    # 2.1 check cv api
+    cv_apis=$(cat pymnn/src/cv.h | grep -oE "        .+, \".+\"" | awk '{ print $1 }' | awk -F ',' '{ print $1 }')
+    cv_apis="$cv_apis $(cat pymnn/pip_package/MNN/cv/__init__.py | grep -oE "def .+\(" | awk '{ print $2 }' | awk -F '(' '{print $1}' | grep -v "__")"
+    for cv_api in $cv_apis
+    do
+        if [ $(grep -c $cv_api ./docs/pymnn/cv.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $cv_api 'not in ./docs/pymnn/cv.md'
+            failed
+        fi
+    done
+    # 2.2 check numpy api
+    # np_apis=$(cat pymnn/pip_package/MNN/numpy/__init__.py | grep -oE "def .+\(" | grep -v "__" | awk '{ print $2 }' | awk -F '(' '{print $1}')
+    # for np_api in $np_apis
+    # do
+    #     if [ $(grep -c $np_api ./docs/pymnn/numpy.md) -le 0 ]; then
+    #         echo 'DOC CHECK FAILED:' $np_api 'not in ./docs/pymnn/numpy.md'
+    #         # failed
+    #     fi
+    # done
+    # 2.3 check expr api
+    expr_apis=$(cat pymnn/src/expr.h | grep -oE "        [a-z_]+, \"" | awk '{ print $1 }' | awk -F ',' '{ print $1 }')
+    for expr_api in $expr_apis
+    do
+        if [ $(grep -c $expr_api ./docs/pymnn/expr.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $expr_api 'not in ./docs/pymnn/expr.md'
+            # failed
+        fi
+    done
+    # 3. CHECK C++ API:
+    # 3.1 check Interpreter
+    # 3.2 check Tensor
 }
 
 py_check() {
@@ -307,7 +341,7 @@ pymnn_test() {
     python3 build_deps.py
     # uninstall original MNN
     pip uninstall --yes MNN MNN-Internal
-    python3 setup.py install --version 1.0
+    python3 setup.py install --version 1.0 --install-lib=/usr/lib/python3/dist-packages
     pymnn_build_wrong=$[$? > 0]
     printf "TEST_NAME_PYMNN_BUILD: PYMNN编译测试\nTEST_CASE_AMOUNT_PYMNN_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
             $pymnn_build_wrong $[1 - $pymnn_build_wrong]
@@ -463,6 +497,7 @@ case "$1" in
         pymnn_test
         ;;
     linux)
+        doc_check
         static_check
         py_check
         linux_build 1
