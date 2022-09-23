@@ -9,9 +9,6 @@
 #ifndef MNN_NPUBACKEND_H
 #define MNN_NPUBACKEND_H
 
-#include <core/Backend.hpp>
-#include <core/Execution.hpp>
-
 #include <graph/attr_value.h>
 #include <graph/attr_value.h>
 #include <graph/compatible/operator_reg.h>
@@ -20,6 +17,8 @@
 #include <graph/compatible/all_ops.h>
 #include <hiai_ir_build.h>
 #include <graph/buffer.h>
+#include <core/Backend.hpp>
+#include <core/Execution.hpp>
 #include "HiAiModelManagerService.h"
 #include "MNN_generated.h"
 
