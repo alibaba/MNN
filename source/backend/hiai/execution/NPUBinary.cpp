@@ -175,7 +175,7 @@ ErrorCode NPUBinary::onResize(const std::vector<Tensor *> &inputs, const std::ve
         
         auto inputIndex1 = mOp->inputIndexes()->data()[1];
         auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
-        auto xOp1        = iops1.front().first;
+        auto xOp1        = iops1.back().first;
         
         OpInsert(binary_type, opName, *xOp0.get(), *xOp1.get(), outputs);
 
