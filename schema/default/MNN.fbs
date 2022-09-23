@@ -180,7 +180,7 @@ enum OpType : int {
     Conv2DBackPropFilter,
     TrainableParam,
     BatchNorm,
-
+    ConvTranspose3D,
     // Use for self defined grad
     ZeroGrad,
 

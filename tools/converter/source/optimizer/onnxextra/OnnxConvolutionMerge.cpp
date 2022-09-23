@@ -41,13 +41,17 @@ static EXPRP _transformConv3D(EXPRP expr) {
     auto& weightShape = weightInfo->dim;
 
     auto extraParam = expr->get()->main_as_Extra();
-
+    std::string originalOpType(extraParam->type()->c_str());
+    bool isDeconv = originalOpType == "ConvTranspose";
     int co    = weightShape[0];
     int ci    = weightShape[1];
     int depth = weightShape[2];
     int kh    = weightShape[3];
     int kw    = weightShape[4];
-
+    if (isDeconv) {
+        co = weightShape[1];
+        ci = weightShape[0];
+    }
     std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
     const float* weightDataPtr = weight->readMap<float>();
     conv3d->weight.resize(weightInfo->size);
@@ -81,13 +85,18 @@ static EXPRP _transformConv3D(EXPRP expr) {
     }
 
     common->relu = common->relu6 = false;
-    common->outputCount          = co;
-    common->inputCount           = ci * common->group;
+    if (isDeconv) {
+        common->outputCount = co * common->group; // deconv set inputCount to be ci, dw to be group
+        common->inputCount = ci;
+    } else {
+        common->outputCount = co;
+        common->inputCount  = ci * common->group; // conv set inputCount to be ci, dw to be group
+    }
     common->kernels              = std::vector<int>({depth, kh, kw});
 
     std::unique_ptr<OpT> newOp(new OpT);
     newOp->name       = expr->name();
-    newOp->type       = OpType_Convolution3D;
+    newOp->type       = isDeconv ? OpType_ConvTranspose3D : OpType_Convolution3D;
     newOp->main.type  = OpParameter_Convolution3D;
     newOp->main.value = conv3d.release();
 
