@@ -45,14 +45,20 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
             .set_input_x(*xOp.get()).set_input_weight(mConst_w);
         mNpuBackend->setOutputOps(mOp, {prelu}, outputs);
     }else{
+        float slope = 0.0;
+        if (mOp->type() == OpType_ReLU) {
+            slope = mOp->main_as_Relu()->slope();
+            mType = 5;
+        }
+
         shared_ptr<ge::op::Activation> relu(new ge::op::Activation(opName + "_relu"));
         (*relu)
             .set_input_x(*xOp.get())
-            .set_attr_coef(.000000) 
+            .set_attr_coef(.000000)
+            .set_attr_negative_slope(slope)
             .set_attr_mode(mType);
         mNpuBackend->setOutputOps(mOp, {relu}, outputs);
     }
-
 
     return NO_ERROR;
 }
