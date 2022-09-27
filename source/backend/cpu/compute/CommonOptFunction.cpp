@@ -2030,6 +2030,40 @@ void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t 
 }
 
 void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+#if defined(MNN_USE_NEON)
+    if (3 == depth) {
+        int areaC4     = (int)area / 4;
+        int remain     = areaC4 * 4;
+        for (int i = 0; i < areaC4; ++i) {
+            auto srcCur   = src + 16 * i;
+            auto dstCur   = dst + 12 * i;
+            auto srcValue = vld4q_f32(srcCur);
+            float32x4x3_t dstValue;
+            dstValue.val[0] = srcValue.val[0];
+            dstValue.val[1] = srcValue.val[1];
+            dstValue.val[2] = srcValue.val[2];
+            vst3q_f32(dstCur, dstValue);
+        }
+        for (int i = remain; i < area; ++i) {
+            dst[3 * i + 0] = src[4 * i + 0];
+            dst[3 * i + 1] = src[4 * i + 1];
+            dst[3 * i + 2] = src[4 * i + 2];
+        }
+        return;
+    }
+#elif defined(MNN_USE_SSE)
+    if (3 == depth) {
+        if (area < 1) return;
+        for (int i = 0; i < area - 1; ++i) {
+            auto srcValue = Vec4::load(src + 4 * i);
+            Vec4::save(dst + 3 * i, srcValue);
+        }
+        for (int i = 0; i < 3; ++i) {
+            dst[3 * (area - 1) + i] = src[4 * (area - 1) + i];
+        }
+        return;
+    }
+#endif
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;

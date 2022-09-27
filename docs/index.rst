@@ -40,8 +40,8 @@
    :name: inference
 
    inference/session
-   inference/module
    inference/expr
+   inference/module
    inference/python
 
 .. toctree::

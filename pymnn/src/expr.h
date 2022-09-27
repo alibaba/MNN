@@ -625,6 +625,15 @@ static void PyMNNVar_dealloc(PyMNNVar *self) {
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 static PyObject* PyMNNVar_repr(PyObject *self) {
+    PyMNNVar* var = (PyMNNVar*)self;
+    if (var->var == nullptr) {
+        return toPyObj("None Var");
+    }
+    auto info = (*(var->var))->getInfo();
+    const void* ptr = (*(var->var))->readMap<void>();
+    if (info == nullptr || ptr == nullptr) {
+        return toPyObj((*(var->var))->name());
+    }
 #ifdef PYMNN_NUMPY_USABLE
     auto content = PyMNNVar_read((PyMNNVar*)self, NULL);
 #else
@@ -1259,6 +1268,10 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
         bool need_free = false;
         if (PyCapsule_CheckExact(value)) {
             data = PyCapsule_GetPointer(value, NULL);
+        } else if (PyBytes_Check(value)) {
+            int64_t bytesize = PyBytes_Size(value);
+            data = toPtr(value, DType_UINT8, bytesize);
+            need_free = true;
         } else {
             data = toPtr(value, dtype, total_length);
             need_free = true;

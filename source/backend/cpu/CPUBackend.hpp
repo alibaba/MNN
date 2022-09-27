@@ -29,10 +29,13 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
+    void onConcurrencyBegin() const;
+    void onConcurrencyEnd() const;
+
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     int mThreadNumber;
-    int mTaskIndex;
+    mutable int mTaskIndex;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;

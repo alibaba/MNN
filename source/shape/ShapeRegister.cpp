@@ -107,6 +107,7 @@ extern void ___SpaceToBatchNDSizeComputer__OpType_SpaceToBatchND__();
 extern void ___PackComputer__OpType_Pack__();
 extern void ___DeconvolutionSizeComputer__OpType_Deconvolution__();
 extern void ___DeconvolutionSizeComputer__OpType_DeconvolutionDepthwise__();
+extern void ___ConvTranspose3DSizeComputer__OpType_ConvTranspose3D__();
 extern void ___Interp3DComputer__OpType_Interp3D__();
 
 void registerShapeOps() {
@@ -217,6 +218,7 @@ ___SpaceToBatchNDSizeComputer__OpType_SpaceToBatchND__();
 ___PackComputer__OpType_Pack__();
 ___DeconvolutionSizeComputer__OpType_Deconvolution__();
 ___DeconvolutionSizeComputer__OpType_DeconvolutionDepthwise__();
+___ConvTranspose3DSizeComputer__OpType_ConvTranspose3D__();
 ___Interp3DComputer__OpType_Interp3D__();
 }
 }

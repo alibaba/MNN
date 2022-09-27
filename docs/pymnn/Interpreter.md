@@ -45,7 +45,7 @@ Interpreter是MNN V2接口中模型数据的持有者。使用MNN推理时，有
 根据配置创建[Session](Session.md)，返回一个`Session`对象。
 
 参数：
-- `config:dict` 创建推理会话的配置，含义同`createRuntime`方法
+- `config:dict` 创建推理会话的配置，含义同[createRuntime](Interpreter.html#createruntime-config)方法
 - `runtime:PyCapsule` 指定的runtime信息，如果不指定，则使用config中的配置创建runtime
 
 返回：持有推理会话数据的Session对象

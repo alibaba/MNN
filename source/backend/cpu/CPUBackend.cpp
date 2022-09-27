@@ -147,6 +147,32 @@ int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
 void CPURuntime::onGabageCollect(int level) {
     mStaticAllocator->release(false);
 }
+
+void CPURuntime::onConcurrencyBegin() const {
+#ifdef MNN_USE_THREAD_POOL
+    if (mThreadNumber > 1 && mPower != BackendConfig::Power_High) {
+        mTaskIndex = ThreadPool::acquireWorkIndex();
+        if (mTaskIndex >= 0 ) {
+            ThreadPool::active();
+        }
+    }
+#else
+#ifdef _OPENMP
+    omp_set_dynamic(0);
+    omp_set_num_threads(mThreadNumber);
+#endif
+#endif
+}
+
+void CPURuntime::onConcurrencyEnd() const {
+#ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
+        ThreadPool::deactive();
+        ThreadPool::releaseWorkIndex(mTaskIndex);
+    }
+#endif
+}
+
 std::map<OpType, CPUBackend::Creator*>* CPUBackend::gCreator = nullptr;
 void CPUBackend::initCreatorMap() {
     gCreator = new std::map<OpType, CPUBackend::Creator*>;
@@ -178,24 +204,13 @@ CPUBackend::~CPUBackend() {
 }
 
 void CPUBackend::onExecuteBegin() const {
-#ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::active();
-    }
-#else
-#ifdef _OPENMP
-    omp_set_dynamic(0);
-    omp_set_num_threads(threadNumber());
-#endif
-#endif
+    mRuntime->onConcurrencyBegin();
 }
+
 void CPUBackend::onExecuteEnd() const {
-#ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::deactive();
-    }
-#endif
+    mRuntime->onConcurrencyEnd();
 }
+
 class CPUMemObj : public Backend::MemObj {
 public:
     CPUMemObj(BufferAllocator* allocator, std::pair<void*, int> points, int size) {

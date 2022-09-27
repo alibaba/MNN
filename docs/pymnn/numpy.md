@@ -7,6 +7,11 @@ numpy模块提供了基础的数值计算函数，在[expr](expr.md)模块基础
 
 *numpy兼容参数是指为了兼容numpy的api，但是在MNN.numpy中无效的参数*
 
+**用法注意：**
+- 此numpy模块并非完整支持`numpy`的所有API，当遇到函数或用法不支持时可以尝试用其他函数拼凑；
+- 此numpy模块数值计算基于`MNN.expr`封装，计算过程会有创建`Op`的开销，对于较小规模的`Var`计算性能相比`numpy`会有比较明显的劣势，因此尽量避免使用此模块处理小规模数据；
+- `Var`的存取可以利用`expr.save`和`expr.load_as_list`实现；
+
 ---
 ### `numpy Types`
 - [Var](Var.md)
