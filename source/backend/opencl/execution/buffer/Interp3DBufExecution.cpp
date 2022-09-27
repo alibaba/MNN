@@ -17,7 +17,7 @@ namespace OpenCL {
 Interp3DBufExecution::Interp3DBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) : Execution(backend) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
-    auto interp3DParam = op->main_as_Interp3D();
+    auto interp3DParam = op->main_as_Interp();
     mCordTransform[0] = interp3DParam->widthScale();
     mCordTransform[1] = interp3DParam->widthOffset();
     mCordTransform[2] = interp3DParam->heightScale();
@@ -25,7 +25,7 @@ Interp3DBufExecution::Interp3DBufExecution(const std::vector<Tensor *> &inputs, 
     mCordTransform[4] = interp3DParam->depthScale();
     mCordTransform[5] = interp3DParam->depthOffset();
     std::set<std::string> buildOptions;
-    if (op->main_as_Interp3D()->resizeType() == 1) {
+    if (op->main_as_Interp()->resizeType() == 1) {
         mKernelName = "nearest3D_buf";
         mKernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
     } else {

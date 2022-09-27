@@ -59,7 +59,7 @@ class Interp3DComputer : public SizeComputer {
             }
         }
         if (1 == inputSize) {
-            auto interp3D = op->main_as_Interp3D();
+            auto interp3D = op->main_as_Interp();
             // get output dims
             w = interp3D->outputWidth();
             h = interp3D->outputHeight();
@@ -106,7 +106,7 @@ class Interp3DComputer : public SizeComputer {
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) const override {
         auto elementInM = (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
-        auto interp3D     = op->main_as_Interp3D();
+        auto interp3D     = op->main_as_Interp();
         auto unit       = 0;
         switch (interp3D->resizeType()) {
             case 1:

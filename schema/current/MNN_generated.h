@@ -1158,12 +1158,11 @@ enum OpParameter {
   OpParameter_LoopParam = 92,
   OpParameter_ImageProcessParam = 93,
   OpParameter_CumSum = 94,
-  OpParameter_Interp3D = 95,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_Interp3D
+  OpParameter_MAX = OpParameter_CumSum
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[96] {
+inline const OpParameter (&EnumValuesOpParameter())[95] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1259,8 +1258,7 @@ inline const OpParameter (&EnumValuesOpParameter())[96] {
     OpParameter_GridSample,
     OpParameter_LoopParam,
     OpParameter_ImageProcessParam,
-    OpParameter_CumSum,
-    OpParameter_Interp3D
+    OpParameter_CumSum
   };
   return values;
 }
@@ -1362,14 +1360,13 @@ inline const char * const *EnumNamesOpParameter() {
     "LoopParam",
     "ImageProcessParam",
     "CumSum",
-    "Interp3D",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_Interp3D) return "";
+  if (e < OpParameter_NONE || e > OpParameter_CumSum) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1752,10 +1749,6 @@ template<> struct OpParameterTraits<ImageProcessParam> {
 
 template<> struct OpParameterTraits<CumSum> {
   static const OpParameter enum_value = OpParameter_CumSum;
-};
-
-template<> struct OpParameterTraits<Interp3D> {
-  static const OpParameter enum_value = OpParameter_Interp3D;
 };
 
 struct OpParameterUnion {
@@ -2540,14 +2533,6 @@ struct OpParameterUnion {
   const CumSumT *AsCumSum() const {
     return type == OpParameter_CumSum ?
       reinterpret_cast<const CumSumT *>(value) : nullptr;
-  }
-  Interp3DT *AsInterp3D() {
-    return type == OpParameter_Interp3D ?
-      reinterpret_cast<Interp3DT *>(value) : nullptr;
-  }
-  const Interp3DT *AsInterp3D() const {
-    return type == OpParameter_Interp3D ?
-      reinterpret_cast<const Interp3DT *>(value) : nullptr;
   }
 };
 
@@ -3600,9 +3585,6 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const CumSum *main_as_CumSum() const {
     return main_type() == OpParameter_CumSum ? static_cast<const CumSum *>(main()) : nullptr;
   }
-  const Interp3D *main_as_Interp3D() const {
-    return main_type() == OpParameter_Interp3D ? static_cast<const Interp3D *>(main()) : nullptr;
-  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -4009,10 +3991,6 @@ template<> inline const ImageProcessParam *Op::main_as<ImageProcessParam>() cons
 
 template<> inline const CumSum *Op::main_as<CumSum>() const {
   return main_as_CumSum();
-}
-
-template<> inline const Interp3D *Op::main_as<Interp3D>() const {
-  return main_as_Interp3D();
 }
 
 struct OpBuilder {
@@ -5633,10 +5611,6 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case OpParameter_Interp3D: {
-      auto ptr = reinterpret_cast<const Interp3D *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     default: return false;
   }
 }
@@ -6031,10 +6005,6 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return ptr->UnPack(resolver);
     }
-    case OpParameter_Interp3D: {
-      auto ptr = reinterpret_cast<const Interp3D *>(obj);
-      return ptr->UnPack(resolver);
-    }
     default: return nullptr;
   }
 }
@@ -6417,10 +6387,6 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const CumSumT *>(value);
       return CreateCumSum(_fbb, ptr, _rehasher).Union();
     }
-    case OpParameter_Interp3D: {
-      auto ptr = reinterpret_cast<const Interp3DT *>(value);
-      return CreateInterp3D(_fbb, ptr, _rehasher).Union();
-    }
     default: return 0;
   }
 }
@@ -6801,10 +6767,6 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_CumSum: {
       value = new CumSumT(*reinterpret_cast<CumSumT *>(u.value));
-      break;
-    }
-    case OpParameter_Interp3D: {
-      value = new Interp3DT(*reinterpret_cast<Interp3DT *>(u.value));
       break;
     }
     default:
@@ -7284,11 +7246,6 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
-    case OpParameter_Interp3D: {
-      auto ptr = reinterpret_cast<Interp3DT *>(value);
-      delete ptr;
-      break;
-    }
     default: break;
   }
   value = nullptr;
@@ -7754,8 +7711,7 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 90 },
     { flatbuffers::ET_SEQUENCE, 0, 91 },
     { flatbuffers::ET_SEQUENCE, 0, 92 },
-    { flatbuffers::ET_SEQUENCE, 0, 93 },
-    { flatbuffers::ET_SEQUENCE, 0, 94 }
+    { flatbuffers::ET_SEQUENCE, 0, 93 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7851,8 +7807,7 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     GridSampleTypeTable,
     LoopParamTypeTable,
     ImageProcessParamTypeTable,
-    CumSumTypeTable,
-    Interp3DTypeTable
+    CumSumTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7949,11 +7904,10 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "GridSample",
     "LoopParam",
     "ImageProcessParam",
-    "CumSum",
-    "Interp3D"
+    "CumSum"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 96, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 95, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

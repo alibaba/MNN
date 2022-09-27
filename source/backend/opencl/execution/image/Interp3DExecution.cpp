@@ -16,7 +16,7 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
     : Execution(backend) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
-    auto interp3DParam = op->main_as_Interp3D();
+    auto interp3DParam = op->main_as_Interp();
     mCordTransform[0] = interp3DParam->widthScale();
     mCordTransform[1] = interp3DParam->widthOffset();
     mCordTransform[2] = interp3DParam->heightScale();
@@ -26,7 +26,7 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
 
     std::set<std::string> buildOptions;
     std::string kernelName = "interp3D";
-    if (op->main_as_Interp3D()->resizeType() == 1) {
+    if (op->main_as_Interp()->resizeType() == 1) {
         mKernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
     } else {
         MNN_ERROR("Resize types other than nearest are not supported in Interp3D opencl! Using nearest instead\n");

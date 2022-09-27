@@ -130,9 +130,9 @@ static EXPRP _transformResize3D(EXPRP expr) {
 
     std::unique_ptr<OpT> mergeredResize3D(new OpT);
     mergeredResize3D->type      = OpType_Interp3D;
-    mergeredResize3D->main.type = OpParameter_Interp3D;
+    mergeredResize3D->main.type = OpParameter_Interp;
 
-    std::unique_ptr<Interp3DT> resize3DParam(new Interp3DT);
+    std::unique_ptr<InterpT> resize3DParam(new InterpT);
     // 1:near 2: bilinear 3: cubic
     if (resizeMode == "nearest") {
         if (nearestMode == "round_prefer_floor") {

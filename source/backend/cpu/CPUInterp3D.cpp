@@ -180,7 +180,7 @@ class CPUInterp3DCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
-        auto interp3D = op->main_as_Interp3D();
+        auto interp3D = op->main_as_Interp();
         return new CPUInterp3D(backend, interp3D->resizeType(),
                                interp3D->widthScale(), interp3D->heightScale(), interp3D->depthScale(),
                                interp3D->widthOffset(), interp3D->heightOffset(), interp3D->depthOffset());

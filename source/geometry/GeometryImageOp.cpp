@@ -156,7 +156,7 @@ static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW,
             break;
     }
 }
-static void _ConverterInterp3D(const Interp3D* resize, Interp3DInfo* dstInfo, int inW, int inH, int inD, int outW, int outH, int outD, bool computeScale = true) {
+static void _ConverterInterp3D(const Interp* resize, Interp3DInfo* dstInfo, int inW, int inH, int inD, int outW, int outH, int outD, bool computeScale = true) {
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
         {
@@ -320,7 +320,7 @@ static flatbuffers::Offset<Op> makeInterp3D(flatbuffers::FlatBufferBuilder& buil
     if (nullptr != op->name()) {
         temp = builder.CreateString(op->name()->str());
     }
-    Interp3DBuilder intp3DB(builder);
+    InterpBuilder intp3DB(builder);
     intp3DB.add_resizeType(resizeType);
     intp3DB.add_widthScale(info->widthScale);
     intp3DB.add_heightScale(info->heightScale);
@@ -332,7 +332,7 @@ static flatbuffers::Offset<Op> makeInterp3D(flatbuffers::FlatBufferBuilder& buil
     OpBuilder opB(builder);
     opB.add_type(OpType_Interp3D);
     opB.add_main(offsetInterp3D);
-    opB.add_main_type(OpParameter_Interp3D);
+    opB.add_main_type(OpParameter_Interp);
     if (nullptr != op->name()) {
         opB.add_name(temp);
     }
@@ -390,7 +390,7 @@ public:
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else if (OpType_Interp3D == op->type()) {
             // Compute cord transform for interp
-            auto resize                           = op->main_as_Interp3D();
+            auto resize                           = op->main_as_Interp();
             auto inShape = inputs[0]->shape();
             auto outShape = outputs[0]->shape();
             auto inW = inShape[4];

@@ -387,8 +387,7 @@ union OpParameter {
     GridSample,
     LoopParam,
     ImageProcessParam,
-    CumSum,
-    Interp3D
+    CumSum
 }
 
 table Op {
