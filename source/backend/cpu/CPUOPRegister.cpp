@@ -65,6 +65,7 @@ extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 extern void ___CPUSvdCreator__OpType_Svd__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
+extern void ___CPUInterp3DCreator__OpType_Interp3D__();
 
 void registerCPUOps() {
 ___CPUCropAndResizeCreator__OpType_CropAndResize__();
@@ -132,5 +133,6 @@ ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 ___CPUSvdCreator__OpType_Svd__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
+___CPUInterp3DCreator__OpType_Interp3D__();
 }
 }

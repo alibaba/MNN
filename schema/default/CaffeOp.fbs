@@ -320,7 +320,10 @@ table Interp {
     heightOffset:float;
     cubicCoeffA:float = -0.75;
     ctm:CoordinateTransformationMode = NotSet;
-}
+    depthScale:float;
+    outputDepth:int;
+    depthOffset:float;
+} 
 
 table Resize {
     xScale:float;

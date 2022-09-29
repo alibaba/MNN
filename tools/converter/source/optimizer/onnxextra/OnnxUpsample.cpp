@@ -98,6 +98,172 @@ public:
     }
 };
 
+static int resizeInputDim(EXPRP expr) {
+    auto inputs = expr->inputs();
+    auto x = inputs[0];
+    auto dimSize = x->getInfo()->dim.size();
+    return dimSize;
+}
+
+static EXPRP _transformResize3D(EXPRP expr) {
+    auto inputs = expr->inputs();
+    std::string resizeMode  = "";
+    std::string coordMode   = "half_pixel"; // detect align_corner attribute
+    std::string nearestMode = "round_prefer_floor";
+    auto op                 = expr->get();
+    auto extraParam         = op->main_as_Extra();
+    const int attrSize      = extraParam->attr()->size();
+    float cubicFactor       = -0.75f;
+    for (int i = 0; i < attrSize; ++i) {
+        auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+        const auto& key = attr->key()->str();
+        if (key == "mode") {
+            resizeMode = attr->s()->str();
+        } else if (key == "coordinate_transformation_mode") {
+            coordMode = attr->s()->str();
+        } else if (key == "nearest_mode") {
+            nearestMode = attr->s()->str();
+        } else if (key == "cubic_coeff_a") {
+            cubicFactor = attr->f();
+        }
+    }
+
+    std::unique_ptr<OpT> mergeredResize3D(new OpT);
+    mergeredResize3D->type      = OpType_Interp3D;
+    mergeredResize3D->main.type = OpParameter_Interp;
+
+    std::unique_ptr<InterpT> resize3DParam(new InterpT);
+    // 1:near 2: bilinear 3: cubic
+    if (resizeMode == "nearest") {
+        if (nearestMode == "round_prefer_floor") {
+            resize3DParam->resizeType = 4;
+        } else if (nearestMode == "floor") {
+            resize3DParam->resizeType = 1;
+        } else {
+            MNN_ERROR("Don't support %s neareset mode, use round_prefer_floor instead\n", nearestMode.c_str());
+            resize3DParam->resizeType = 4;
+        }
+        // TODO: trilinear and cubic interpolation
+//    } else if (resizeMode == "trilinear" || resizeMode == "linear") {
+//        resize3DParam->resizeType = 2;
+//    } else if (resizeMode == "cubic") {
+//        resize3DParam->resizeType  = 3;
+//        resize3DParam->cubicCoeffA = cubicFactor;
+    } else {
+        MNN_ERROR("Unsupported Resize mode! ==> %s, use nearest instead\n", resizeMode.c_str());
+        resize3DParam->resizeType = 1;
+    }
+    // For compability of old mnn
+    resize3DParam->alignCorners     = (coordMode == "align_corners");
+    resize3DParam->halfPixelCenters = (coordMode == "half_pixel");
+
+    /*
+    coordinate_transformation_mode: string
+    This attribute describes how to transform the coordinate in the resized tensor to the coordinate in the original
+    tensor.
+
+    The coordinate of each dimension is transformed individually. Let's describe a case using axis x as an example.
+    Denote x_resized as the coordinate of axis x in the resized tensor, x_original as the coordinate of axis x in
+    the original tensor, length_original as the length of the original tensor in axis x, length_resized as the
+    length of the resized tensor in axis x, roi_x = (start_x, end_x) of the axis x in input "roi", scale =
+    length_resized / length_original,
+
+    if coordinate_transformation_mode is "half_pixel",
+    x_original = (x_resized + 0.5) / scale - 0.5,
+
+    if coordinate_transformation_mode is "pytorch_half_pixel",
+    x_original = length_resized > 1 ? (x_resized + 0.5) / scale - 0.5 : 0,
+
+    if coordinate_transformation_mode is "align_corners",
+    x_original = x_resized * (length_original - 1) / (length_resized - 1),
+
+    if coordinate_transformation_mode is "asymmetric",
+    x_original = x_resized / scale,
+
+    if coordinate_transformation_mode is "tf_half_pixel_for_nn",
+    x_original = (x_resized + 0.5) / scale,
+
+    if coordinate_transformation_mode is "tf_crop_and_resize",
+    x_original = length_resized > 1 ? start_x * (length_original - 1) + x_resized * (end_x - start_x) *
+    (length_original - 1) / (length_resized - 1) : 0.5 * (start_x + end_x) * (length_original - 1).
+     */
+#define SET_MODE(str, c)  \
+    if (coordMode == str) \
+    resize3DParam->ctm = MNN::CoordinateTransformationMode_##c
+    SET_MODE("align_corners", AlignCorners);
+    SET_MODE("half_pixel", HalfPixels);
+    SET_MODE("pytorch_half_pixel", PytorchHalfPixels);
+    SET_MODE("tf_half_pixel_for_nn", TensorflowHalfPixels);
+    SET_MODE("tf_crop_and_resize", TensorflowCropAndResize);
+    SET_MODE("asymmetric", Asymmetric);
+#undef SET_MODE
+
+    VARP output;
+    if (inputs.size() == 2) {
+        auto info = inputs[1]->getInfo();
+        auto ptr = inputs[1]->readMap<float>();
+        if (!ptr) {
+            mergeredResize3D->main.value = resize3DParam.release();
+            auto output = Variable::create(Expr::create(mergeredResize3D.get(), {inputs[0], inputs[1]}));
+            return output->expr().first;
+        }
+        MNN_ASSERT((ptr[0] == 1) && (ptr[1] == 1));
+        if (info->size > 2) {
+            resize3DParam->depthScale   = ptr[2];
+        }
+        if (info->size > 3) {
+            resize3DParam->heightScale    = ptr[3];
+        }
+        if (info->size > 4) {
+            resize3DParam->widthScale    = ptr[4];
+        }
+        mergeredResize3D->main.value = resize3DParam.release();
+        auto resizeExpr            = Expr::create(mergeredResize3D.get(), {inputs[0]});
+        resizeExpr->setName(expr->name());
+        output = Variable::create(resizeExpr);
+        return output->expr().first;
+    }
+    if (inputs.size() == 3) {
+        auto scaleT = inputs[2];
+        auto info = inputs[2]->getInfo();
+        auto scale  = scaleT->readMap<float>();
+        if (nullptr == scale) {
+            // Compute shape dynamic
+            mergeredResize3D->main.value = resize3DParam.release();
+            auto resizeExpr            = Expr::create(mergeredResize3D.get(), {inputs[0], {inputs[2]}});
+            resizeExpr->setName(expr->name());
+            output = Variable::create(resizeExpr);
+            return output->expr().first;
+        }
+        MNN_THROW_CHECK(nullptr != scale, "Onnx resize's scale must be const");
+        if (info->size > 2) {
+            resize3DParam->depthScale   = scale[2];
+        }
+        if (info->size > 3) {
+            resize3DParam->heightScale  = scale[3];
+        }
+        if (info->size > 4) {
+            resize3DParam->widthScale   = scale[4];
+        }
+        mergeredResize3D->main.value = resize3DParam.release();
+        auto resizeExpr            = Expr::create(mergeredResize3D.get(), {inputs[0]});
+        resizeExpr->setName(expr->name());
+        output = Variable::create(resizeExpr);
+        return output->expr().first;
+    }
+    if (inputs.size() == 4) {
+        auto sizes                 = inputs[3];
+        auto name                  = sizes->name();
+
+        mergeredResize3D->main.value = resize3DParam.release();
+        auto resizeExpr            = Expr::create(mergeredResize3D.get(), {inputs[0], inputs[3]});
+        resizeExpr->setName(expr->name());
+        output = Variable::create(resizeExpr);
+        return output->expr().first;
+    }
+    return output->expr().first;
+}
+
 class OnnxReiszeTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
@@ -105,7 +271,9 @@ public:
         // input, roi, scales, sizes
         // for more information, please reference from https://github.com/onnx/onnx/blob/master/docs/Operators.md#Resize
         MNN_THROW_CHECK((inputs.size() >= 2), "Onnx Resize should have 2/3/4 inputs!");
-
+        if (resizeInputDim(expr) == 5) {
+            return _transformResize3D(expr);
+        }
         std::string resizeMode  = "";
         std::string coordMode   = "half_pixel"; // detect align_corner attribute
         std::string nearestMode = "round_prefer_floor";

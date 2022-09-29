@@ -3490,6 +3490,9 @@ struct InterpT : public flatbuffers::NativeTable {
   float heightOffset;
   float cubicCoeffA;
   CoordinateTransformationMode ctm;
+  float depthScale;
+  int32_t outputDepth;
+  float depthOffset;
   InterpT()
       : widthScale(0.0f),
         heightScale(0.0f),
@@ -3501,7 +3504,10 @@ struct InterpT : public flatbuffers::NativeTable {
         widthOffset(0.0f),
         heightOffset(0.0f),
         cubicCoeffA(-0.75f),
-        ctm(CoordinateTransformationMode_NotSet) {
+        ctm(CoordinateTransformationMode_NotSet),
+        depthScale(0.0f),
+        outputDepth(0),
+        depthOffset(0.0f) {
   }
 };
 
@@ -3543,6 +3549,15 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   CoordinateTransformationMode ctm() const {
     return static_cast<CoordinateTransformationMode>(GetField<int8_t>(24, 0));
   }
+  float depthScale() const {
+    return GetField<float>(26, 0.0f);
+  }
+  int32_t outputDepth() const {
+    return GetField<int32_t>(28, 0);
+  }
+  float depthOffset() const {
+    return GetField<float>(30, 0.0f);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<float>(verifier, 4) &&
@@ -3556,6 +3571,9 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<float>(verifier, 20) &&
            VerifyField<float>(verifier, 22) &&
            VerifyField<int8_t>(verifier, 24) &&
+           VerifyField<float>(verifier, 26) &&
+           VerifyField<int32_t>(verifier, 28) &&
+           VerifyField<float>(verifier, 30) &&
            verifier.EndTable();
   }
   InterpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3599,6 +3617,15 @@ struct InterpBuilder {
   void add_ctm(CoordinateTransformationMode ctm) {
     fbb_.AddElement<int8_t>(24, static_cast<int8_t>(ctm), 0);
   }
+  void add_depthScale(float depthScale) {
+    fbb_.AddElement<float>(26, depthScale, 0.0f);
+  }
+  void add_outputDepth(int32_t outputDepth) {
+    fbb_.AddElement<int32_t>(28, outputDepth, 0);
+  }
+  void add_depthOffset(float depthOffset) {
+    fbb_.AddElement<float>(30, depthOffset, 0.0f);
+  }
   explicit InterpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3623,8 +3650,14 @@ inline flatbuffers::Offset<Interp> CreateInterp(
     float widthOffset = 0.0f,
     float heightOffset = 0.0f,
     float cubicCoeffA = -0.75f,
-    CoordinateTransformationMode ctm = CoordinateTransformationMode_NotSet) {
+    CoordinateTransformationMode ctm = CoordinateTransformationMode_NotSet,
+    float depthScale = 0.0f,
+    int32_t outputDepth = 0,
+    float depthOffset = 0.0f) {
   InterpBuilder builder_(_fbb);
+  builder_.add_depthOffset(depthOffset);
+  builder_.add_outputDepth(outputDepth);
+  builder_.add_depthScale(depthScale);
   builder_.add_cubicCoeffA(cubicCoeffA);
   builder_.add_heightOffset(heightOffset);
   builder_.add_widthOffset(widthOffset);
@@ -5279,6 +5312,9 @@ inline void Interp::UnPackTo(InterpT *_o, const flatbuffers::resolver_function_t
   { auto _e = heightOffset(); _o->heightOffset = _e; };
   { auto _e = cubicCoeffA(); _o->cubicCoeffA = _e; };
   { auto _e = ctm(); _o->ctm = _e; };
+  { auto _e = depthScale(); _o->depthScale = _e; };
+  { auto _e = outputDepth(); _o->outputDepth = _e; };
+  { auto _e = depthOffset(); _o->depthOffset = _e; };
 }
 
 inline flatbuffers::Offset<Interp> Interp::Pack(flatbuffers::FlatBufferBuilder &_fbb, const InterpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5300,6 +5336,9 @@ inline flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &
   auto _heightOffset = _o->heightOffset;
   auto _cubicCoeffA = _o->cubicCoeffA;
   auto _ctm = _o->ctm;
+  auto _depthScale = _o->depthScale;
+  auto _outputDepth = _o->outputDepth;
+  auto _depthOffset = _o->depthOffset;
   return MNN::CreateInterp(
       _fbb,
       _widthScale,
@@ -5312,7 +5351,10 @@ inline flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &
       _widthOffset,
       _heightOffset,
       _cubicCoeffA,
-      _ctm);
+      _ctm,
+      _depthScale,
+      _outputDepth,
+      _depthOffset);
 }
 
 inline ResizeT *Resize::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6375,7 +6417,10 @@ inline const flatbuffers::TypeTable *InterpTypeTable() {
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_FLOAT, 0, -1 },
-    { flatbuffers::ET_CHAR, 0, 0 }
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     CoordinateTransformationModeTypeTable
@@ -6391,10 +6436,13 @@ inline const flatbuffers::TypeTable *InterpTypeTable() {
     "widthOffset",
     "heightOffset",
     "cubicCoeffA",
-    "ctm"
+    "ctm",
+    "depthScale",
+    "outputDepth",
+    "depthOffset"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 14, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -138,6 +138,7 @@ enum OpType : int {
     OneHot,
     BroadcastTo,
     Dilation2D,
+    Interp3D,
     Raster = 128,
     ConvertTensor = 129,
     ArgMin = 130,

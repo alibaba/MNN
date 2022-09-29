@@ -29,6 +29,11 @@ public:
                              float *lineBuffer, int threadNumber);
     void CPUResizeNearestneighborC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset = 0.f, float hOffset = 0.f);
     void CPUResizeNearestneighborRoundC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset = 0.f, float hOffset = 0.f);
+
+    void CPUResizeNearestneighbor3DC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float dScale,
+                                      float wOffset = 0.f, float hOffset = 0.f, float dOffset = 0.f);
+    void CPUResizeNearestneighbor3DRoundC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float dScale,
+                                           float wOffset = 0.f, float hOffset = 0.f, float dOffset = 0.f);
 };
 
 } // namespace MNN
