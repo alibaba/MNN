@@ -28,6 +28,7 @@ public:
             op->main.AsArgMax()->softmaxThreshold = 0;
             return (Variable::create(Expr::create(std::move(op), {input})));
         };
+        // auto input_nhwc = _Input({128 * 1600, 64}, NHWC);
         auto input_nhwc = _Input({4, 4}, NHWC);
         auto input_nchw = _Input({4, 4}, NC4HW4);
         input_nhwc->setName("input_tensor_nhwc");
@@ -38,6 +39,7 @@ public:
                                   -9.0, -10.0, 11.0, 12.0,
                                   13.0, 14.0, -15.0, -16.0};
         auto inputPtr          = input_nhwc->writeMap<float>();
+        memset(inputPtr, 0, input_nhwc->getInfo()->size * sizeof(float));
         memcpy(inputPtr, inpudata, 16 * sizeof(float));
         inputPtr          = input_nchw->writeMap<float>();
         memcpy(inputPtr, inpudata, 16 * sizeof(float));
@@ -79,6 +81,7 @@ public:
     virtual ~ArgMinTest() = default;
     virtual bool run(int precision) {
         auto input = _Input({4, 4}, NHWC);
+        // auto input = _Input({128 * 160, 4}, NHWC);
         input->setName("input_tensor");
         // set input data
         const float inpudata[] = {-1.0, 2.0,   -3.0, 4.0,  5.0,  -6.0, 7.0,   -8.0,

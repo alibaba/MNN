@@ -94,6 +94,7 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
         if (tensors[i].get() == nullptr) {
             tensors[i].reset(new Tensor);
             TensorUtils::getDescribe(tensors[i].get())->index = i;
+            // MNN_PRINT("initTensors create tensor:%p, index:%d, backend:%d\n", tensors[i].get(), i, TensorUtils::getDescribe(tensors[i].get())->backend);
         }
     }
     if (describes) {
@@ -136,18 +137,20 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
                     tb.dim[i].extent = extent;
                 }
                 tb.dimensions = idims->size();
-                TensorUtils::setLinearLayout(tensor);
             } else {
                 tb.dimensions = 0;
             }
             tensor->setType(inputParam->dtype());
             TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
+            TensorUtils::setLinearLayout(tensor);
         }
     }
     return valid;
 }
 void initPipelineInfosFromOps(std::vector<Schedule::PipelineInfo>& infos, std::vector<const Op*>& ops, const std::vector<std::shared_ptr<Tensor>>& allTensors) {
     for (const Op* op : ops) {
+        // MNN_PRINT("initPipelineInfosFromOps, op type:%s, op name:%s\n", EnumNameOpType(op->type()), op->name()->c_str());
+
         Schedule::PipelineInfo opInfo;
         opInfo.op = op;
         if (nullptr != op->outputIndexes()) {

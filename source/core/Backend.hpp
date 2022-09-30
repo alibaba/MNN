@@ -22,8 +22,11 @@ struct Op;
 class Execution;
 
 class Runtime;
+class Backend;
+using ReuseCopyTensorMap = std::map<std::pair<void *, size_t>, std::tuple<Backend *, Backend *, Tensor*>>;
 /** abstract backend */
 class Backend : public NonCopyable {
+
 public:
     /** info used to create backend */
     struct Info {
@@ -118,6 +121,10 @@ public:
      * @brief callback after executing ops.
      */
     virtual void onExecuteEnd() const = 0;
+
+    virtual const Runtime* getRuntime() {
+        return nullptr;
+    }
 
 public:
     /**
@@ -258,7 +265,7 @@ public:
                                              const MNN::Op* op, OpInfo& dstInfo) const {
         return true;
     }
-    
+
     // FIXME: Temply use to mask cache valid, in future will delete
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) {
@@ -268,6 +275,7 @@ public:
     bool hasAsyncWork() const;
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
+
 private:
     std::future<int> mFuture;
 };

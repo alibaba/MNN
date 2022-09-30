@@ -54,6 +54,7 @@ extern void ___CPURasterFactory__OpType_While__();
 extern void ___CPUConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
 extern void ___CPURangeCreator__OpType_Range__();
 extern void ___CPUTFQuantizedConv2DCreator__OpType_TfQuantizedConv2D__();
+extern void ___CPUInterp3DCreator__OpType_Interp3D__();
 extern void ___CPUQuantizedAvgPoolCreator__OpType_QuantizedAvgPool__();
 extern void ___ConvolutionFactory__OpType_Convolution__();
 extern void ___CPUConvInt8Creator__OpType_ConvInt8__();
@@ -65,7 +66,6 @@ extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 extern void ___CPUSvdCreator__OpType_Svd__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
-extern void ___CPUInterp3DCreator__OpType_Interp3D__();
 
 void registerCPUOps() {
 ___CPUCropAndResizeCreator__OpType_CropAndResize__();
@@ -122,6 +122,7 @@ ___CPURasterFactory__OpType_While__();
 ___CPUConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
 ___CPURangeCreator__OpType_Range__();
 ___CPUTFQuantizedConv2DCreator__OpType_TfQuantizedConv2D__();
+___CPUInterp3DCreator__OpType_Interp3D__();
 ___CPUQuantizedAvgPoolCreator__OpType_QuantizedAvgPool__();
 ___ConvolutionFactory__OpType_Convolution__();
 ___CPUConvInt8Creator__OpType_ConvInt8__();
@@ -133,6 +134,5 @@ ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 ___CPUSvdCreator__OpType_Svd__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
-___CPUInterp3DCreator__OpType_Interp3D__();
 }
 }

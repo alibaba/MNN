@@ -35,6 +35,9 @@ enum BinaryOpOperation : byte {
 table BinaryOp {
     opType:int;
     T:DataType=DT_FLOAT;
+    // 0 -> No Activation
+    // 1 -> Relu
+    activationType:int=0;
 }
 
 table PackParam {

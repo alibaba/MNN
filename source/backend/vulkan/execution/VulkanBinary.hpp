@@ -15,7 +15,7 @@
 namespace MNN {
 class VulkanBinary : public VulkanBasicExecution {
 public:
-    VulkanBinary(const std::string& shaderName, Backend* bn, bool image);
+    VulkanBinary(const std::string& shaderName, Backend* bn, bool image, int activationType = 0);
     virtual ~VulkanBinary();
 
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -25,6 +25,7 @@ private:
     std::vector<std::shared_ptr<VulkanBuffer>> mConstBuffer;
     const VulkanPipeline* mBinaryPipeline;
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDescriptorSet;
+    int mActivationType = 0;
 };
 } // namespace MNN
 

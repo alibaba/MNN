@@ -17,6 +17,7 @@ namespace MNN {
 namespace OpenGL {
 GLBinary::GLBinary(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn) : Execution(bn) {
     mType = op->main_as_BinaryOp()->opType();
+    mActivationType = op->main_as_BinaryOp()->activationType();
 }
 
 GLBinary::~GLBinary() {
@@ -89,6 +90,7 @@ ErrorCode GLBinary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
         OPENGL_CHECK_ERROR;
     }
     glUniform4i(3, iw, ih, ic_4, 1);
+    glUniform1i(4, mActivationType);
     OPENGL_CHECK_ERROR;
     ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
 

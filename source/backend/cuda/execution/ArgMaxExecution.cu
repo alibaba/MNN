@@ -1,4 +1,5 @@
 #include "ArgMaxExecution.hpp"
+#include "ArgMinExecution.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -14,9 +15,9 @@ __global__ void ARGMAX(const int count, const int outside, const int inside, con
         int* outPtr = output + inside * o;
         const T* inpPtr = input + inside * dim * o;
         int index = 0;
-        T maxValue = inpPtr[n+0*inside];
+        T maxValue = inpPtr[n + 0 * inside];
         for(int j=1; j<dim; j++) {
-            T value = inpPtr[n+j*inside];
+            T value = inpPtr[n + j * inside];
             if(maxValue < value) {
                 index = j;
                 maxValue = value;
@@ -24,6 +25,7 @@ __global__ void ARGMAX(const int count, const int outside, const int inside, con
         }
         outPtr[n] = index;
     }
+
     return;
 }
 ArgMaxExecution::ArgMaxExecution(const Op* op, Backend *backend) : Execution(backend) {
@@ -60,10 +62,10 @@ ErrorCode ArgMaxExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 
     auto input = (void *)inputs[0]->deviceId();
     auto output = (void *)outputs[0]->deviceId();
-
     int count = mOutside * mInside;
     int block_num = runtime->blocks_num(count);
     int thread_num = runtime->threads_num();
+
     auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
 
     if(bytes == 4) {
@@ -73,7 +75,7 @@ ErrorCode ArgMaxExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const half*)input,(int *)output);
         checkKernelErrors;
     }
-    
+
     return NO_ERROR;
 }
 class ArgMaxCreator : public CUDABackend::Creator {
@@ -84,10 +86,17 @@ public:
         if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
             return nullptr;
         }
-        return new ArgMaxExecution(op, backend);
+        if (op->type() == OpType_ArgMax) {
+            return new ArgMaxExecution(op, backend);
+        } else {
+            return new ArgMinExecution(op, backend);
+        }
+
     }
 };
 
 static CUDACreatorRegister<ArgMaxCreator> __init(OpType_ArgMax);
+static CUDACreatorRegister<ArgMaxCreator> __init_op2(OpType_ArgMin);
+
 }
 }

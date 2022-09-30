@@ -37,9 +37,9 @@ public:
 
     static bool needWrap(const Tensor* input, Backend* current);
     static Tensor* copyConstCache(Tensor* tensor, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache);
-
+    static Tensor* getReuseTensor(Tensor* t,  Backend* cacheBackend, Backend* curBackend);
 private:
-    Tensor *_getCopyTensor(Tensor *input);
+    Tensor *_getCopyTensor(Tensor *input, Tensor* outsideInput);
     Backend *mCPUBackend;
     std::shared_ptr<Execution> mExecution;
     std::vector<Tensor *> mWrapInputTensors;

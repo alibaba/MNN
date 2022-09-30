@@ -43,7 +43,7 @@ public:
         /** string handle type */
         HANDLE_STRING = 1
     };
-    
+
     /** Tensor map type : Read or Write*/
     enum MapType {
         /** map Tensor for writing data*/
@@ -131,7 +131,7 @@ public:
      * @param deepCopy whether create new content and copy, currently only support deepCopy = false
      */
     static Tensor* clone(const Tensor* src, bool deepCopy = false);
-    
+
     /**
      * @brief delete tensor.
      * @param src     tensor
@@ -279,7 +279,7 @@ public:
      * @brief print tensor data. for DEBUG use only.
      */
     void print() const;
-    
+
     /**
      *@brief print tensor shape
      */

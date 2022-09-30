@@ -1508,7 +1508,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
             break;
         case 4:
             parse_res = PyArg_ParseTuple(args, "OOOl", &shape, &dataType, &data, &dimensionType)
-                        && isInts(shape) && isVals(data);
+                        && isInts(shape) && (isVals(data) || isInt(data));
             break;
         default:
             parse_res = false;
@@ -1518,7 +1518,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
                         "\t0. (Var)\n"
                         "\t1. (Tensor/Var, DimensionType)\n"
                         "\t2. ([int], DataType, DimensionType)\n"
-                        "\t3. ([int], DataType, tuple/ndarray, DimensionType)\n");
+                        "\t3. ([int], DataType, ndarray/list/tuple/bytes/PyCapsule/int_addr, DimensionType)\n");
         return -1;
     }
 #ifdef PYMNN_EXPR_API
@@ -1589,7 +1589,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         dataSize *= i;
     }
     void *pData = NULL;
-    if (data && !PyCapsule_CheckExact(data)) {
+    if (data && !PyCapsule_CheckExact(data) && !isInt(data)) {
         if (PyBytes_Check(data)) {
             int64_t total_len = PyBytes_Size(data);
             if (dataSize * itemsize != total_len) {
@@ -1626,15 +1626,20 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         }
     } else {
         // no data input, set all zeros
-        // pycapsule input, copy data
+        // pycapsule/int_addr input, copy data
         pData = malloc(dataSize * itemsize);
-        if (data && PyCapsule_CheckExact(data)) {
-            auto src = PyCapsule_GetPointer(data, NULL);
-            if (src == nullptr) {
-                PyMNN_ERROR_LOG("PyMNNTensor_init: PyCapsule pointer is null.");
+        if (data) {
+            void* srcPtr = nullptr;
+            if (PyCapsule_CheckExact(data)) {
+                srcPtr = PyCapsule_GetPointer(data, NULL);
+            } else {
+                srcPtr = PyLong_AsVoidPtr(data);
+            }
+            if (srcPtr == nullptr) {
+                PyMNN_ERROR_LOG("PyMNNTensor_init: PyCapsule/int_addr pointer is null.");
                 return -1;
             }
-            memcpy(pData, src, dataSize * itemsize);
+            memcpy(pData, srcPtr, dataSize * itemsize);
         } else {
             memset(pData, 0, dataSize * itemsize);
         }

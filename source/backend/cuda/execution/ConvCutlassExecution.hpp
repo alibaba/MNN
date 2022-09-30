@@ -11,14 +11,11 @@
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
 #include "CutlassGemmParam.hpp"
+#include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
-
-struct CutlassGemmInfo{
-    int elh[3];
-    int elhPad[3];
-};
 
 class ConvCutlassExecution : public Execution {
 public:

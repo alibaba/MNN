@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 
+// require SSE 4.1
 void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                             size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
@@ -231,6 +232,7 @@ void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
     __m128i zero = _mm_set1_epi32(0);
     __m128 minValue = _mm_set1_ps(minV);
@@ -325,6 +327,7 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step) {
     auto dst = dstO;
     auto src = (const int16_t*)srcO;

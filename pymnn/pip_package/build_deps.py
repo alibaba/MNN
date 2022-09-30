@@ -48,7 +48,7 @@ def build_deps():
         extra_opts += ' -DMNN_INTERNAL=ON ' if IS_INTERNAL_BUILD else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if IS_BUILD_TORCH else ' '
         os.system('cmake ' + extra_opts +
-            '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Debug \
+            '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
             -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF .. && make MNN MNNTrain MNNConvert -j4')
     else:

@@ -553,6 +553,7 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
     if (toCpu) {
         [ctx wait];
     }
+    mFrameEncodeCache = false;
     return 0;
 }
 
@@ -872,7 +873,7 @@ void registerMetalRuntimeCreator() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
         registerMetalOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), true);
     } else {
         MNN_ERROR("Init Metal Error\n");
     }

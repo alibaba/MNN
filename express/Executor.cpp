@@ -201,8 +201,9 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
     info.type = type;
     info.numThread = numberThread;
     info.user = const_cast<BackendConfig*>(&config);
-    std::shared_ptr<Runtime> bn(creator->onCreate(info));
-    return std::shared_ptr<Executor>(new Executor(bn, type, numberThread));
+    std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+    auto executor = new Executor(runtime, type, numberThread);
+    return std::shared_ptr<Executor>(executor);
 }
 
 RuntimeInfo Executor::getRuntime() {

@@ -27,7 +27,7 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const 
     auto p7    = _mm_set1_ps(parameters[7]);
     auto xMax  = _mm_set1_ps(87);
     auto xMin  = _mm_set1_ps(-87);
-    auto basic = _mm_set1_epi32(1 << 23);
+    // auto basic = _mm_set1_epi32(1 << 23);
     for (int i = 0; i < count; ++i) {
         auto x            = _mm_mul_ps(_mm_loadu_ps(source + i * 4), A);
         x                 = _mm_max_ps(x, xMin);
@@ -36,7 +36,8 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const 
         auto divInt       = _mm_cvtps_epi32(div);
         div               = _mm_cvtepi32_ps(divInt);
         auto div2         = _mm_add_epi32(divInt, _mm_set1_epi32(127));
-        div2 = _mm_mullo_epi32(div2, basic);
+        // div2 = _mm_mullo_epi32(div2, basic);
+        div2 = _mm_slli_epi32(div2, 23);
         auto expBasic  = _mm_castsi128_ps(div2);
         auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
         auto t         = xReamin;
@@ -89,7 +90,7 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
         auto p7    = _mm_set1_ps(0.008333333333333333);
         auto xMax  = _mm_set1_ps(87);
         auto xMin  = _mm_set1_ps(-87);
-        auto basic = _mm_set1_epi32(1 << 23);
+        // auto basic = _mm_set1_epi32(1 << 23);
         for (int i = 0; i < count; ++i) {
             auto x            = _mm_sub_ps(_mm_loadu_ps(source + i * 4), _mm_set1_ps(maxValue));
             x                 = _mm_max_ps(x, xMin);
@@ -98,7 +99,8 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
             auto divInt       = _mm_cvtps_epi32(div);
             div               = _mm_cvtepi32_ps(divInt);
             auto div2         = _mm_add_epi32(divInt, _mm_set1_epi32(127));
-            div2 = _mm_mullo_epi32(div2, basic);
+            // div2 = _mm_mullo_epi32(div2, basic);
+            div2 = _mm_slli_epi32(div2, 23);
             auto expBasic  = _mm_castsi128_ps(div2);
             auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
             auto t         = xReamin;

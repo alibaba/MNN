@@ -15,24 +15,26 @@ namespace CUDA {
 #define UNIT 2
 __global__ void WinoWeightReorder(const float* GgGt, 
     half* GgGt_trans,
-    const int outside,
+    const int block,
+    const int co_pack,
+    const int ci_pack,
     const int unitCi,
     const int unitCo
     ) {
-    const int maxCount = outside * unitCi * unitCo;
+    const int maxCount = block * co_pack * ci_pack;
     for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += gridDim.x * blockDim.x) {
-        size_t outside_idx =  index / (unitCi*unitCo);
-        size_t tmp =  index % (unitCi*unitCo);
-        size_t ci_idx = tmp / unitCo;
-        size_t co_idx = tmp % unitCo;
+        size_t tmp =  index / ci_pack;
+        size_t ci_idx =  index % ci_pack;
 
-        // [4x4, Cop, Cip, unitCi, unitCo] -->> [4x4, Cop, Cip, unitCo, unitCi]
-        size_t dst_idx = outside_idx * (unitCi*unitCo) + co_idx * unitCi + ci_idx;
-        *(GgGt_trans + dst_idx) = *(GgGt + index);
+        size_t block_idx =  tmp / co_pack;
+        size_t co_idx = tmp % co_pack;
+        // [4x4, Cop, Cip, unitCi, unitCo] -->> [4x4, Cop*unitCo, Cip*unitCi]
+        size_t src_idx = block_idx * (co_pack*ci_pack) + (co_idx/unitCo) * (ci_pack*unitCo) + (ci_idx/unitCi) * (unitCi*unitCo) + (ci_idx%unitCi) * unitCo + (co_idx%unitCo);
+        *(GgGt_trans + index) = *(GgGt + src_idx);
     }
 }
 
-bool ConvWinogradExecution::isValid(const Convolution2D* conv, const Tensor* input) {
+bool ConvWinogradExecution::isValid(const Convolution2D* conv) {
     //return false;
     if(conv->common()->strideX() != 1 || conv->common()->strideY() != 1) {
         return false;
@@ -74,7 +76,7 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
     std::shared_ptr<Tensor> srcWeight(Tensor::create<float>({mKernelInfo.kernelN, mKernelInfo.kernelC, mKernelInfo.kernelY, mKernelInfo.kernelX},
         (void *)filterDataPtr, Tensor::CAFFE));
 
-    auto dstWeight = generator.allocTransformWeight(srcWeight.get(), MATMULPACK, MATMULPACK);
+    auto dstWeight = generator.allocTransformWeight(srcWeight.get(), PACK_NUMBER, PACK_NUMBER);
     generator.transformWeight(dstWeight.get(), srcWeight.get());
     auto dstWeightSize = dstWeight->elementSize();
 
@@ -90,18 +92,18 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int cores = prop.multiProcessorCount;
         int threadNumbers = prop.maxThreadsPerBlock;
 
-        int coDiv = UP_DIV(mKernelInfo.kernelN, MATMULPACK);
-        int ciDiv = UP_DIV(mKernelInfo.kernelC, MATMULPACK);
+        int coPack = UP_DIV(mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
+        int ciPack = UP_DIV(mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
 
         WinoWeightReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
-                (UNIT+kernel-1) * (UNIT+kernel-1) * coDiv * ciDiv, MATMULPACK, MATMULPACK);
+                (UNIT+kernel-1) * (UNIT+kernel-1), coPack, ciPack, PACK_NUMBER, PACK_NUMBER);
 
         static_cast<CUDABackend*>(backend)->getStaticBufferPool()->free(tempCacheBuffer);
     }
     
     // Copy Bias
     int biasSize = conv->bias()->size();
-    int alignSize = UP_DIV(biasSize, MATMULPACK) * MATMULPACK;
+    int alignSize = UP_DIV(biasSize, PACK_NUMBER) * PACK_NUMBER;
     biasTensor.reset(Tensor::createDevice<uint32_t>({alignSize}));
     backend->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
 
@@ -148,23 +150,23 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     mPadX = std::get<0>(pads);
     mPadY = std::get<1>(pads);
     int ic = input->channel();
-    int icDiv = UP_DIV(ic, MATMULPACK);
+    int icDiv = UP_DIV(ic, PACK_NUMBER);
     auto bytes = static_cast<CUDABackend*>(backend())->getBytes(input);
 
     auto wUnit = UP_DIV(output->width(), UNIT);
     auto hUnit = UP_DIV(output->height(), UNIT);
 
     int e = wUnit * hUnit * output->batch();
-    int l = icDiv * MATMULPACK;
+    int l = ic;
     int h = output->channel();
     mMatMulParam.elh[0] = e;
     mMatMulParam.elh[1] = l;
     mMatMulParam.elh[2] = h;
 
-    int ePack = MATMULPACK;
-    int hPack = MATMULPACK;
+    int ePack = PACK_NUMBER;
+    int hPack = PACK_NUMBER;
     mMatMulParam.elhPack[0] = UP_DIV(e, ePack);
-    mMatMulParam.elhPack[1] = UP_DIV(l, MATMULPACK);
+    mMatMulParam.elhPack[1] = UP_DIV(l, PACK_NUMBER);
     mMatMulParam.elhPack[2] = UP_DIV(h, hPack);
     // mMatMulParam.cStride[0] = mIm2ColParamter.ow * mIm2ColParamter.oh * h;
     // mMatMulParam.cStride[1] = 1;
@@ -185,14 +187,87 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     int block = UNIT + convCommon->kernelY() - 1;
     mBlock2 = block * block;
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto buffer = pool->alloc((size_t)sizeof(__half) * mBlock2 * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * (size_t)ePack * (size_t)MATMULPACK);
-    mBtdB_Buffer = (__half*)((uint8_t*)buffer.first + buffer.second);
+    auto bufferData = pool->alloc((size_t)sizeof(__half) * mBlock2 * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * (size_t)ePack * (size_t)PACK_NUMBER);
+    mBtdB_Buffer = (__half*)((uint8_t*)bufferData.first + bufferData.second);
     
-    auto buffer2 = pool->alloc(bytes * mBlock2 * mMatMulParam.elh[0] * mMatMulParam.elhPack[2] * (size_t)hPack);
-    mMatmul_Buffer = (void*)((uint8_t*)buffer2.first + buffer2.second);
+    auto bufferMatmul = pool->alloc(bytes * mBlock2 * mMatMulParam.elh[0] * mMatMulParam.elhPack[2] * (size_t)hPack);
+    mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
     
-    pool->free(buffer);
-    pool->free(buffer2);
+    pool->free(bufferData);
+    pool->free(bufferMatmul);
+
+
+    mGemmInfo.elh[0] = e;
+    mGemmInfo.elh[1] = l;
+    mGemmInfo.elh[2] = h;
+    mGemmInfo.elhPad[0] = UP_DIV(e, 8) * 8;
+    mGemmInfo.elhPad[1] = UP_DIV(l, 8) * 8;
+    mGemmInfo.elhPad[2] = UP_DIV(h, 8) * 8;
+
+    ElementComputeEpilogue alpha = ElementComputeEpilogue(1);
+    ElementComputeEpilogue beta = ElementComputeEpilogue(0);
+
+    // Split K dimension into 1 partitions
+    cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);// m n k
+
+    //MNN_PRINT("Winograd BatchGemm batch:%d, MNK:%d-%d-%d\n", mBlock2, mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
+    if(bytes == 2) {
+        typename GemmBatched_F16_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInputA *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                            {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                                            {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                            (int64_t)(0), // batch_stride_bias
+                                            {(ElementOutput_F16 *)mMatmul_Buffer, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                                            {alpha, beta},          // <- tuple of alpha and beta
+                                            mBlock2};                // batch_count
+
+        size_t workspace_size = GemmBatched_F16_Linear_Sm75::get_workspace_size(arguments);
+
+        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+        pool->free(bufferWs);
+
+        // Check the problem size is supported or not 
+        cutlass::Status status = mGemmBatchedF16LnSm75.can_implement(arguments);
+        cutlass_check(status);
+
+        // Initialize CUTLASS kernel with arguments and workspace pointer
+        status = mGemmBatchedF16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+        cutlass_check(status);
+    } else {
+
+        typename GemmBatched_F32_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInputA *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                            {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                                            {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                            (int64_t)(0), // batch_stride_bias
+                                            {(ElementOutput_F32 *)mMatmul_Buffer, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                                            {alpha, beta},          // <- tuple of alpha and beta
+                                            mBlock2};                // batch_count
+
+        size_t workspace_size = GemmBatched_F32_Linear_Sm75::get_workspace_size(arguments);
+
+        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+        pool->free(bufferWs);
+
+        // Check the problem size is supported or not 
+        cutlass::Status status = mGemmBatchedF32LnSm75.can_implement(arguments);
+        cutlass_check(status);
+
+        // Initialize CUTLASS kernel with arguments and workspace pointer
+        status = mGemmBatchedF32LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+        cutlass_check(status);
+    }
+
     return NO_ERROR;
 }
 
@@ -205,8 +280,8 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     int threadNumbers = prop.maxThreadsPerBlock / 2;
     auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
 
-    int coDiv = UP_DIV(mResource->mKernelInfo.kernelN, MATMULPACK);
-    int ciDiv = UP_DIV(mResource->mKernelInfo.kernelC, MATMULPACK);
+    int co_pack = UP_DIV(mResource->mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
+    int ci_pack = UP_DIV(mResource->mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
 
     auto bytes = static_cast<CUDABackend*>(backend())->getBytes(input);
     const void *input_addr = (const void*)input->deviceId();
@@ -215,16 +290,23 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     void *output_addr = (void*)output->deviceId();
 
     const int kernel = 3;
+    const int wUnit = UP_DIV(input->width(), UNIT);
+    const int hUnit = UP_DIV(input->height(), UNIT);
+    DivModFast lD(ci_pack);
+    DivModFast hD(co_pack);
+    DivModFast whD(wUnit * hUnit);
+    DivModFast wD(wUnit);
+
     if(bytes == 4) {
         WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ciDiv, output->batch(), UP_DIV(input->width(), UNIT), 
-                UP_DIV(input->height(), UNIT), MATMULPACK, MATMULPACK,
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                mMatMulParam.elh[0] * ci_pack, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else {
         WinoInputTrans<<<cores, threadNumbers>>>((const half*)input_addr, (half*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ciDiv, output->batch(), UP_DIV(input->width(), UNIT), 
-                UP_DIV(input->height(), UNIT), MATMULPACK, MATMULPACK,
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
+                mMatMulParam.elh[0] * ci_pack, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     }
@@ -235,41 +317,27 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
 
     int iBlock = 0;
     if (4 == bytes) {
-        cudaFuncSetAttribute(GemmPackedMulti<float>, cudaFuncAttributeMaxDynamicSharedMemorySize, prop.sharedMemPerMultiprocessor);
-        GemmPackedMulti<<<cores, threads_num, basicMemory>>>(gpuMatMul, iBlock, mBlock2, (float*)mMatmul_Buffer, mBtdB_Buffer, (const __half*)mGgGt_Buffer);
-        checkKernelErrors;
+        cutlass::Status status = mGemmBatchedF32LnSm75();
+        cutlass_check(status);
     } else {
-        //MNN_PRINT("%d - %d, %d- %d\n", cpuParam->elhPack[0], cpuParam->elhPack[2], cpuParam->elh[0], cpuParam->elh[2]);
-        cudaFuncSetAttribute(GemmPackedMulti<half>, cudaFuncAttributeMaxDynamicSharedMemorySize, prop.sharedMemPerMultiprocessor);
-        GemmPackedMulti<<<cores, threads_num, basicMemory>>>(gpuMatMul, iBlock, mBlock2, (half*)mMatmul_Buffer, mBtdB_Buffer, (const __half*)mGgGt_Buffer);
-        checkKernelErrors;
+        cutlass::Status status = mGemmBatchedF16LnSm75();
+        cutlass_check(status);
     }
 
     if (4 == bytes) {
         WinoTrans2Output<<<cores, threadNumbers>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
-                gpuMatMul, UNIT,
-                mBlock2, output->channel(), ciDiv, output->batch(), UP_DIV(output->width(), UNIT), 
-                UP_DIV(output->height(), UNIT), MATMULPACK, MATMULPACK,
+                gpuMatMul, UNIT, mBlock2, output->channel(), co_pack, 
+                mMatMulParam.elh[0] * co_pack, hD, whD, wD,
                 output->width(), output->height());
         checkKernelErrors;
     } else {
         WinoTrans2Output<<<cores, threadNumbers>>>((const half*)mMatmul_Buffer, (const float*)bias_addr, (half*)output_addr,
-                gpuMatMul, UNIT,
-                mBlock2, output->channel(), ciDiv, output->batch(), UP_DIV(output->width(), UNIT), 
-                UP_DIV(output->height(), UNIT), MATMULPACK, MATMULPACK,
+                gpuMatMul, UNIT, mBlock2, output->channel(), co_pack,
+                mMatMulParam.elh[0] * co_pack, hD, whD, wD,
                 output->width(), output->height());
         checkKernelErrors;
     }
 
-
-    // if(output->width() == 56 && output->channel() == 64 && input->channel() == 64) {
-    //     cudaDeviceSynchronize();
-    //     float bias_[mMatMulParam.elhPack[2] * 16];
-    //     runtime->memcpy((void*)bias_, bias_addr, mMatMulParam.elhPack[2] * 16*sizeof(float), MNNMemcpyDeviceToHost);
-    //     for(int i=0; i<mMatMulParam.elhPack[2] * 16; i++) {
-    //         printf("%d-%f\n", i, bias_[i]);
-    //     }
-    // }
     return NO_ERROR;
 }
 

@@ -292,19 +292,65 @@ __global__ void NCHW_2_NHWC8(const T0* input,
     const int maxCount,
     const int channel,
     const int area,
-    const int channel_pack
+    const int channel_pack,
+    DivModFast d_ocp,
+    DivModFast d_area
 ) {
     for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        int chnlp_idx = index % channel_pack;
-        int temp = index / channel_pack;
-        int area_idx = temp % area;
-        int batch_idx = temp / area;
+        int area_idx, temp, chnlp_idx, batch_idx;
+        d_ocp.divmod(index, temp, chnlp_idx);
+        d_area.divmod(temp, batch_idx, area_idx);
 
         if(chnlp_idx >= channel) {
             output[index] = (T1)0.0f;
             continue;
         }
-        output[index] = (T1)input[(batch_idx * channel + chnlp_idx) * area + area_idx];
+        int src_offset = (batch_idx * channel + chnlp_idx) * area + area_idx;
+        output[index] = (T1)input[src_offset];
+    }
+}
+
+template<typename T0, typename T1>
+__global__ void NCHW_2_NHWC(const T0* input,
+    T1* output,
+    const int maxCount,
+    const int channel,
+    const int area,
+    const int channel_pack,
+    DivModFast d_oc,
+    DivModFast d_area
+) {
+    for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+        int area_idx, temp, chnl_idx, batch_idx;
+        d_oc.divmod(index, temp, chnl_idx);
+        d_area.divmod(temp, batch_idx, area_idx);
+        
+        int src_offset = (batch_idx * channel + chnl_idx) * area + area_idx;
+        output[index] = (T1)input[src_offset];
+    }
+}
+
+template<typename T0, typename T1>
+__global__ void NHWC_2_NHWC8(const T0* input,
+    T1* output,
+    const int maxCount,
+    const int channel,
+    const int area,
+    const int channel_pack,
+    DivModFast d_ocp,
+    DivModFast d_area
+) {
+    for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+        int area_idx, temp, chnlp_idx, batch_idx;
+        d_ocp.divmod(index, temp, chnlp_idx);
+        d_area.divmod(temp, batch_idx, area_idx);
+
+        if(chnlp_idx >= channel) {
+            output[index] = (T1)0.0f;
+            continue;
+        }
+        int src_offset = (batch_idx * area + area_idx) * channel + chnlp_idx;
+        output[index] = (T1)input[src_offset];
     }
 }
 
@@ -314,17 +360,40 @@ __global__ void NHWC8_2_NCHW(const T0* input,
     const int maxCount,
     const int channel,
     const int area,
-    const int channel_pack
+    const int channel_pack,
+    DivModFast d_oc,
+    DivModFast d_area
 ) {
     for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        int area_idx = index % area;
-        int temp = index / area;
-        int channel_idx = temp % channel;
-        int batch_idx = temp / channel;
 
-        output[index] = (T1)input[(batch_idx * area + area_idx) * channel_pack + channel_idx];
+        int area_idx, temp, channel_idx, batch_idx;
+        d_area.divmod(index, temp, area_idx);
+        d_oc.divmod(temp, batch_idx, channel_idx);
+
+        int src_offset = (batch_idx * area + area_idx) * channel_pack + channel_idx;
+        output[index] = (T1)input[src_offset];
     }
+}
 
+template<typename T0, typename T1>
+__global__ void NHWC8_2_NHWC(const T0* input,
+    T1* output,
+    const int maxCount,
+    const int channel,
+    const int area,
+    const int channel_pack,
+    DivModFast d_oc,
+    DivModFast d_area
+) {
+    for(size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+
+        int area_idx, temp, channel_idx, batch_idx;
+        d_oc.divmod(index, temp, channel_idx);
+        d_area.divmod(temp, batch_idx, area_idx);
+
+        int src_offset = (batch_idx * area + area_idx) * channel_pack + channel_idx;
+        output[index] = (T1)input[src_offset];
+    }
 }
 
 template<typename T0, typename T1>
@@ -383,11 +452,25 @@ __global__ void NHWC8_2_C4NHW4(const T0* input,
 template<class T0, class T1>
 static void insideFormatConvert(T0* input, T1* output, MNN_DATA_FORMAT srcDataFormat, MNN_DATA_FORMAT dstDataFormat, CUDARuntime* runtime, \
     const int area, const int batch, const int channel) {
+    DivModFast d_oc(channel);
+    DivModFast d_ocp(UP_DIV(channel, 8) * 8);
+    DivModFast d_area(area);
+
     if(srcDataFormat == MNN_DATA_FORMAT_NCHW && dstDataFormat == MNN_DATA_FORMAT_NC4HW4) {
         const int maxCount = batch * area * UP_DIV(channel, 8) * 8;
         const int block_num = runtime->blocks_num(maxCount);
         const int block_size = runtime->threads_num();
-        NCHW_2_NHWC8<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8);
+        NCHW_2_NHWC8<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8,
+                            d_ocp, d_area);
+        checkKernelErrors;
+        return;
+    }
+    if(srcDataFormat == MNN_DATA_FORMAT_NHWC && dstDataFormat == MNN_DATA_FORMAT_NC4HW4) {
+        const int maxCount = batch * area * UP_DIV(channel, 8) * 8;
+        const int block_num = runtime->blocks_num(maxCount);
+        const int block_size = runtime->threads_num();
+        NHWC_2_NHWC8<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8,
+                            d_ocp, d_area);
         checkKernelErrors;
         return;
     }
@@ -404,7 +487,26 @@ static void insideFormatConvert(T0* input, T1* output, MNN_DATA_FORMAT srcDataFo
         const int maxCount = batch * area * channel;
         const int block_num = runtime->blocks_num(maxCount);
         const int block_size = runtime->threads_num();
-        NHWC8_2_NCHW<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8);
+        NHWC8_2_NCHW<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8,
+                            d_oc, d_area);
+        checkKernelErrors;
+        return;
+    }
+    if(srcDataFormat == MNN_DATA_FORMAT_NC4HW4 && dstDataFormat == MNN_DATA_FORMAT_NHWC) {
+        const int maxCount = batch * area * channel;
+        const int block_num = runtime->blocks_num(maxCount);
+        const int block_size = runtime->threads_num();
+        NHWC8_2_NHWC<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8,
+                            d_oc, d_area);
+        checkKernelErrors;
+        return;
+    }
+    if(srcDataFormat == MNN_DATA_FORMAT_NCHW && dstDataFormat == MNN_DATA_FORMAT_NHWC) {
+        const int maxCount = batch * area * channel;
+        const int block_num = runtime->blocks_num(maxCount);
+        const int block_size = runtime->threads_num();
+        NCHW_2_NHWC<T0, T1><<<block_num, block_size>>>(input, output, maxCount, channel, area, UP_DIV(channel, 8) * 8,
+                            d_oc, d_area);
         checkKernelErrors;
         return;
     }

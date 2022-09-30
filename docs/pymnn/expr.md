@@ -18,12 +18,12 @@ expr是MNN的表达式模块，包含了一系列的表达式函数能够构造M
 ---
 ### `const(value_list, shape, data_format, dtype)`
 根据输入数据创建一个`Const`类型的`Var`；该函数是创建的`Var`的最基本函数，
-能够将`list`，`tuple`，`bytes`，`ndarray`，`PyCapsule`等格式的数据转换成`Var`
+能够将`list`，`tuple`，`bytes`，`ndarray`，`PyCapsule`，`int指针`等格式的数据转换成`Var`
 
 *注意：`value_list`仅在PYMNN_NUMPY_USABLE打开的情况下支持`ndarray`，移动端默认关闭*
 
 参数：
-- `value_list:ndarray/list/tuple/bytes/PyCapsule` 输入数据
+- `value_list:ndarray/list/tuple/bytes/PyCapsule/int_addr` 输入数据
 - `shape:[int]` 构造`Var`的形状
 - `data_format:data_format` 数据排布格式，参考[data_format](Var.html#data-format)
 - `dtype:dtype` 数据类型，参考[dtype](Var.html#dtype)
@@ -44,6 +44,8 @@ array([2, 3, 4], dtype=int32)
 array([97, 98, 99], dtype=uint8)
 >>> expr.const(MNN.Tensor([2, 3]).getData(), [2], expr.NCHW, expr.int) # PyCapsule
 array([2, 3], dtype=int32)
+>>> expr.const(np.arange(4.0).astype(np.float32).__array_interface__['data'][0], [4], expr.NCHW, expr.float) # int_addr 该方法要求ndarray内存必须连续
+array([0., 1., 2., 3.], dtype=float32)
 ```
 ---
 ### `set_thread_number(numberThread)`
@@ -1334,6 +1336,94 @@ array([0, 1])
 array(0)
 >>> expr.reduce_all([[0,1],[0,3]], 0)
 array([0, 1])
+```
+
+---
+### `eltwise_prod(x, y, coeff)`
+逐元素对输入的变量执行乘法运算
+
+参数：
+- `x:Var_like` 输入变量
+- `y:Var_like` 输入变量
+- `coeff:[float]` 系数，目前仅支持`[1.,0.]`或`[]/[0.]`
+
+返回：`x*y`, 当`coeff=[1.,0.]`时返回`x`
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> expr.eltwise_prod([1., 2., 3.], [2., 2., 2.], [])
+array([2., 4., 6.], dtype=float32)
+>>> expr.eltwise_prod([1., 2., 3.], [2., 2., 2.], [1., 0.])
+array([1., 2., 3.], dtype=float32)
+```
+
+---
+### `eltwise_sum(x, y, coeff)`
+逐元素对输入的变量执行加法运算
+
+参数：
+- `x:Var_like` 输入变量
+- `y:Var_like` 输入变量
+- `coeff:[float]` 系数，目前仅支持`[1.,0.]`或`[]/[0.]`
+
+返回：`x+y`, 当`coeff=[1.,0.]`时返回`x`
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> expr.eltwise_sum([1., 2., 3.], [2., 2., 2.], [])
+array([3., 4., 5.], dtype=float32)
+>>> expr.eltwise_sum([1., 2., 3.], [2., 2., 2.], [1., 0.])
+array([1., 2., 3.], dtype=float32)
+```
+
+---
+### `eltwise_sub(x, y, coeff)`
+逐元素对输入的变量执行减法运算
+
+参数：
+- `x:Var_like` 输入变量
+- `y:Var_like` 输入变量
+- `coeff:[float]` 系数，目前仅支持`[1.,0.]`或`[]/[0.]`
+
+返回：`x-y`, 当`coeff=[1.,0.]`时返回`x`
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> expr.eltwise_sub([1., 2., 3.], [2., 2., 2.], [])
+array([-1.,  0.,  1.], dtype=float32)
+>>> expr.eltwise_sub([1., 2., 3.], [2., 2., 2.], [1., 0.])
+array([1., 2., 3.], dtype=float32)
+```
+
+---
+### `eltwise_max(x, y, coeff)`
+逐元素对输入的变量执行比较运算，取最大值
+
+参数：
+- `x:Var_like` 输入变量
+- `y:Var_like` 输入变量
+- `coeff:[float]` 系数，目前仅支持`[1.,0.]`或`[]/[0.]`
+
+返回：`max(x,y)`, 当`coeff=[1.,0.]`时返回`x`
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> expr.eltwise_max([1., 2., 3.], [2., 2., 2.], [])
+array([2., 2., 3.], dtype=float32)
+>>> expr.eltwise_max([1., 2., 3.], [2., 2., 2.], [1., 0.])
+array([1., 2., 3.], dtype=float32)
 ```
 
 ---

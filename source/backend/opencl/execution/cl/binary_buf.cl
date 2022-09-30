@@ -5,7 +5,8 @@
 __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
                          __global FLOAT* input0, __global FLOAT* input1, __global FLOAT* output,
                          __private const int4 shape,//[N,H,W,C4]
-                         __private const int2 isFull) {
+                         __private const int2 isFull,
+                         __private const int activationType) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));//NC4, HW
     
     if (pos.x < global_dim0 && pos.y < global_dim1) {
@@ -19,6 +20,9 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
             in1 = (FLOAT4)(in1.x, in1.x, in1.x, in1.x);
         }
         FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+        if(activationType == 1) {
+            out = fmax(out, (FLOAT4)0);
+        }
         vstore4(out, offset, output);
     }
 }

@@ -94,7 +94,7 @@ protected:
 
 typedef std::function<bool(const std::vector<Tensor*>&, const std::string& /*opName*/)> TensorCallBack;
 typedef std::function<bool(const std::vector<Tensor*>&, const OperatorInfo*)> TensorCallBackWithInfo;
-typedef std::pair<std::map<MNNForwardType, std::shared_ptr<Runtime>>, std::shared_ptr<Runtime>> RuntimeInfo;
+typedef std::pair< std::map<MNNForwardType, std::shared_ptr<Runtime>>,  std::shared_ptr<Runtime>> RuntimeInfo;
 
 /**
  * @brief get mnn version info.
@@ -328,7 +328,7 @@ public:
 
         /** Backends in session in M, int*, length >= 1 + number of configs when create session */
         BACKENDS = 2,
-        
+
         /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
         RESIZE_STATUS = 3,
 

@@ -42,8 +42,10 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_ONEDNN           | 是否使用`oneDNN`，默认为`OFF` |
 | MNN_AVX512           | 是否构建`avx512`后端，默认为`OFF` |
 | MNN_CUDA             | 是否构建`Cuda`后端，默认为`OFF` |
+| MNN_CUDA_PROFILE     | 是否打开CUDA profile工具，默认为`OFF` |
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
+| MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
 | MNN_BUILD_BENCHMARK  | 是否构建MNN的性能测试，默认为`OFF` |
 | MNN_BUILD_TEST       | 是否构建MNN的单源测试，默认为`OFF` |
 | MNN_BUILD_FOR_ANDROID_COMMAND | 是否使用命令行构建`Android`，默认为`OFF` |

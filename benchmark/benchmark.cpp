@@ -141,6 +141,7 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     // std::vector<int> dims{1, 3, 224, 224};
     // net->resizeTensor(input, dims);
     // net->resizeSession(session);
+
     net->releaseModel();
 
     const MNN::Backend* inBackend = net->getBackend(session, input);
@@ -162,12 +163,9 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
 
     for (int round = 0; round < loop; round++) {
         auto timeBegin = getTimeInUs();
-
         void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType());
         input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType(), host);
-
         net->runSession(session);
-
         host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType());
         outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType(), host);
         auto timeEnd = getTimeInUs();

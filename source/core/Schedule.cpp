@@ -112,6 +112,12 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& tensors, cons
 
 static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const ScheduleConfig& configs,
                                   const vector<shared_ptr<Tensor>>& allTensors) {
+
+        // for (int i = 0; i < net->oplists()->size(); ++i) {
+        //     auto op       = net->oplists()->Get(i);
+        //     MNN_PRINT("generateScheduleGraph, op type:%s, op name:%s\n", EnumNameOpType(op->type()), op->name()->c_str());
+        // }
+
     if (configs.path.inputs.empty() && configs.path.outputs.empty()) {
         // Use Default Linear schedule
         ops.clear();
@@ -129,7 +135,7 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
     // 0: use, 1: no use
     std::vector<int> opMask(net->oplists()->size());
     ::memset(opMask.data(), 0, opMask.size() * sizeof(int));
-    
+
     // Set Initial Status
     std::set<std::string> inputNames;
     std::set<std::string> outputNames;

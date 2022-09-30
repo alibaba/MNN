@@ -147,7 +147,7 @@ public:
     static void save(const std::vector<VARP>& vars, const char* fileName);
     static std::vector<int8_t> save(const std::vector<VARP>& vars);
     static void save(const std::vector<VARP>& vars, NetT* dest);
-    
+
     // Pack a few Variable to compute in one pipeline
     static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
     static void compute(const std::vector<VARP>& vars, bool forceCPU = false);
@@ -158,6 +158,7 @@ public:
         mFrom = expr;
         mFromIndex = index;
     }
+
 private:
     Variable(EXPRP expr, int index) {
         mFrom      = expr;

@@ -62,7 +62,7 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 
 ### `Tensor(shape, dtype, value_list, dimension)`
 创建一个指定形状，数据类型, 数据和数据排布的Tensor, 数据拷贝自`value_list`，
-能够将`list`，`tuple`，`bytes`，`ndarray`，`PyCapsule`等格式的数据转换成`Tensor`
+能够将`list`，`tuple`，`bytes`，`ndarray`，`PyCapsule`，`int指针`等格式的数据转换成`Tensor`
 
 *注意：`value_list`仅在PYMNN_NUMPY_USABLE打开的情况下支持`ndarray`，移动端默认关闭*
 
@@ -71,7 +71,7 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 参数：
 - `shape:tuple` Tensor形状
 - `dtype:MNN.Halide_Type_*` Tensor数据类型
-- `value_list:ndarray/tuple/list/bytes/PyCapsule` 数据
+- `value_list:ndarray/tuple/list/bytes/PyCapsule/int_addr` 数据
 - `dimension:MNN.Tensor_DimensionType_*` 数据排布格式
 
 ---
@@ -176,13 +176,22 @@ Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类�
 ### `Example`
     
 ```python
+import numpy as _np
 import MNN
 import MNN.numpy as np
+data = _np.array([1., 2., 3.], dtype=_np.float32)
 # 创建Tensor
 # 通过给定的tuple创建Tensor, 参数分别为：形状，数据类型，数据，数据排布格式
 t1 = MNN.Tensor((1, 3), MNN.Halide_Type_Float, (1., 2., 3.), MNN.Tensor_DimensionType_Caffe)
 # 通过Var创建Tensor
 t2 = MNN.Tensor(np.array([1., 2., 3.])) # 与t1等价
+# 通过ndarray创建Tensor
+t3 = MNN.Tensor([1, 3], MNN.Halide_Type_Float, data, MNN.Tensor_DimensionType_Caffe)
+# 通过bytes创建Tensor
+t4 = MNN.Tensor([1, 3], MNN.Halide_Type_Float, data.tobytes(), MNN.Tensor_DimensionType_Caffe)
+# 通过int类型的内存指针创建Tensor，使用该方法比直接用ndarray速度快，但是要求ndarray的内存必须连续
+t5 = MNN.Tensor([1, 3], MNN.Halide_Type_Float, data.__array_interface__['data'][0], MNN.Tensor_DimensionType_Caffe)
+
 print(t1.getShape()) # (1, 3)
 print(t1.getDataType()) # <capsule object NULL at 0x7fe01e74ff30>
 print(t1.getDimensionType()) # 1

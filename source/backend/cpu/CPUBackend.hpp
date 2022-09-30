@@ -29,6 +29,9 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
+    MNN_PUBLIC ReuseCopyTensorMap& getReuseCopyTensorMap();
+
+    MNN_PUBLIC void clearReuseCopyTensorMap();
     void onConcurrencyBegin() const;
     void onConcurrencyEnd() const;
 
@@ -39,6 +42,7 @@ private:
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
+    ReuseCopyTensorMap mReuseCopyTensorMap;
 
     // Backend features
     // CPU features
@@ -71,7 +75,6 @@ public:
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
-
     // Return element size for Tensor, conside pack
     int getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
@@ -106,12 +109,22 @@ public:
     CPUResizeCache* getCache() const {
         return mCache;
     }
+
+    virtual const Runtime* getRuntime() override;
+
+    ReuseCopyTensorMap& getReuseCopyTensorMap();
+
+    void clearReuseCopyTensorMap();
+
+
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
 #endif
     static void initCreatorMap();
     static int getBytes(const Backend* backend, const Tensor* output);
     static DataType getDataType(const Tensor* tensor);
+
+
 protected:
     MemObj* allocBuffer(int size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
@@ -119,7 +132,7 @@ protected:
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
-    const CPURuntime* mRuntime;
+    CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     std::map<const Tensor*, const Tensor*> mCachedCastTensor;

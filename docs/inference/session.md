@@ -545,6 +545,8 @@ const std::map<std::string, Tensor*>& getSessionOutputAll(const Session* session
 
 在只有一个输出tensor时，可以在调用`getSessionOutput`时传入NULL以获取tensor。
 
+**注意：当`Session`析构之后使用`getSessionOutput`获取的`Tensor`将不可用**
+
 ### 拷贝数据
 **不熟悉MNN源码的用户，必须使用这种方式获取输出！！！**
 NCHW （适用于 Caffe / TorchScript / Onnx 转换而来的模型）示例：

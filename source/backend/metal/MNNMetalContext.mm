@@ -56,6 +56,9 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
                 printf("Error Key = %s\n", iter.first.c_str());
                 NSLog(@"Warning: Metallib Library error: %@", err);
             }
+            [libraryMap removeAllObjects];
+            libraryMap = nil;
+            return;
         }
         auto functionNames = [library functionNames];
         for(int i=0; i<functionNames.count ; i++) {
@@ -102,7 +105,8 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     _caches   = [NSMutableDictionary dictionary];
     _waitings = [NSMutableArray array];
     _isCommitEachShader = self.class.commit_frequent;
-    return nil != _library;
+    
+    return (0 != [_library count]);
 }
 
 - (instancetype)init {

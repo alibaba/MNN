@@ -15,14 +15,9 @@
 #include <utility>
 #include <vector>
 #include "core/Macro.h"
-// #define MNN_CUDA_USE_BLAS
+
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#define STR_HELPER(x) #x
-#define STR(x) STR_HELPER(x)
-
-#undef STR
-#undef STR_HELPER
 
 namespace MNN {
 
@@ -32,7 +27,7 @@ bool CUDARuntime::isCreateError() const {
 
 CUDARuntime::CUDARuntime(int device_id) {
 #ifdef LOG_VERBOSE
-    MNN_PRINT("start CUDARuntime !\n");
+    MNN_PRINT("start CUDARuntime id:%d\n", device_id);
 #endif
     int version;
     cuda_check(cudaRuntimeGetVersion(&version));
@@ -40,6 +35,7 @@ CUDARuntime::CUDARuntime(int device_id) {
     if (id < 0) {
         cuda_check(cudaGetDevice(&id));
     }
+    // printf("use GPU device id:%d\n", id);
     // id = selectDeviceMaxFreeMemory();
     // cuda_check(cudaSetDevice(id));
 
@@ -68,23 +64,24 @@ int CUDARuntime::selectDeviceMaxFreeMemory() {
     cudaDeviceProp deviceProp;
     int deviceCount;
     cuda_check(cudaGetDeviceCount(&deviceCount));
-    
+
     // Check id:0 card info
     int id = 0;
     cuda_check(cudaSetDevice(0));
-    size_t total_size, free_size_max;
-    cuda_check(cudaMemGetInfo(&free_size_max, &total_size));
-    //printf("card:0, free:%zu, total:%zu\n", free_size_max, total_size);       
+    size_t total_size = 0, free_size_max = 0;
+    cudaError_t memStatus = cudaMemGetInfo(&free_size_max, &total_size);
+    cuda_check(memStatus);
+    // printf("card:0, free:%zu, total:%zu, memStatusSuccess:%d\n", free_size_max, total_size, memStatus == cudaSuccess);
 
     for(int i = 1; i < deviceCount; i++) {
         cuda_check(cudaSetDevice(i));
         size_t free_size;
-        cuda_check(cudaMemGetInfo(&free_size, &total_size));  
+        cuda_check(cudaMemGetInfo(&free_size, &total_size));
         if(free_size > free_size_max) {
             free_size_max = free_size;
             id = i;
-        }   
-        //printf("card:%d, free:%zu, total:%zu\n", i, free_size, total_size);       
+        }
+        // printf("card:%d, free:%zu, total:%zu\n", i, free_size, total_size);
     }
     return id;
 }
@@ -102,7 +99,7 @@ size_t CUDARuntime::blocks_num(const size_t total_threads) {
     // } else {
     //     mThreadPerBlock = 128;
     // }
-    
+
     mThreadPerBlock = 128;
     return (total_threads + mThreadPerBlock - 1) / mThreadPerBlock;
 }
@@ -170,4 +167,7 @@ void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     cuda_check(cudaMemset(dst, value, size_in_bytes));
     checkKernelErrors;
 }
+
+
+
 } // namespace MNN

@@ -123,6 +123,7 @@ Tensor::Tensor(bool deepCopy, const Tensor* tensor) {
 }
 
 Tensor::~Tensor() {
+    // MNN_PRINT("free tensor:%p\n", this);
     auto nativeDescribe = mDescribe->mContent.get();
     if (nativeDescribe->memoryType == InsideDescribe::MEMORY_HOST) {
         if (nullptr != mBuffer.host) {
@@ -159,6 +160,7 @@ Tensor* Tensor::create(const std::vector<int>& dims, halide_type_t type, void* u
 Tensor* Tensor::clone(const Tensor* src, bool deepCopy) {
     return new Tensor(deepCopy, src);
 }
+
 
 bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
     auto nativeDescribe = mDescribe->mContent.get();
@@ -409,13 +411,13 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
     if (nullptr == bn) {
         return nullptr;
     }
-    
+
     auto mapPtr = bn->onMapTensor(mtype, dtype, this);
     if(mapPtr != nullptr) {
         // Get mapPtr in specific backend
         return mapPtr;
     }
-    
+
     /* Common backend */
     auto needSize = this->size();
     void* hostPtr = malloc(needSize);
@@ -424,7 +426,7 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
         //tmpTensor alloc
         MNN::Tensor tmpTensor(this, dtype, false);
         tmpTensor.buffer().host = (uint8_t *)hostPtr;
-        
+
         //use onCopyBuffer
         bn->onCopyBuffer(this, &tmpTensor);
     }
@@ -437,13 +439,13 @@ void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
     if (nullptr == bn) {
         return;
     }
-    
+
     bool ret = bn->onUnmapTensor(mtype, dtype, this, mapPtr);
     if(true == ret) {
         //do unmap already, just return
         return;
     }
-    
+
     if(mtype == Tensor::MAP_TENSOR_WRITE) {
         //srcTensor alloc
         MNN::Tensor srcTensor(this, dtype, false);

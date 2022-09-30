@@ -2,7 +2,7 @@
 ## 概念说明
 `Module`接口可以用于模型训练与模型推理
 - 模型训练时用户可以继承`Module`类增加自己的实现用来训练；
-- 模型推理与`Session`的区别是不需要用户显示resize，支持控制流，所以当模型中有`if``while`时必须使用`Module`推理
+- 模型推理与`Session`的区别是不需要用户显示resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
 ### 相关数据结构
 - `Module` Module接口的核心类，表示一个模型的虚类；实际加载模型时会创建其子类
 - `Executor` 包含若干个`RuntimeManager`，提供内存管理接口，每个`Executor`必须在单线程环境下运行。默认提供全局 `Executor`，需要并发执行时，可自行创建。
@@ -10,7 +10,7 @@
 - `VARP` 作为`Module`的输入输出，也是[Expr API](expr.md)中的基础数据结构
 
 ## 工作流程
-![workflow](../_static/images/inference/Matrix.png)
+创建Executor(可选) -> 创建Module -> 创建输入VARP -> 使用Module::forwad推理 -> 使用输出VARP -> 销毁Module -> 销毁Executor(可选)
 ### 创建Executor
 `Executor`给用户提供接口来配置推理后端、线程数等属性，以及做性能统计、算子执行的回调函数、内存回收等功能。 提供一个全局的Exector对象，用户不用创建或持有对象即可直接使用。
 ```cpp
@@ -58,7 +58,10 @@ struct Info {
 const Info* getInfo() const;
 ```
 ### 执行推理
-调用`onForward`执行推理
+调用`onForward`执行推理。
+
+**注意：当`Module`析构之后使用`onForward`返回的`VARP`将不可用**
+
 ```cpp
 std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs);
 ```

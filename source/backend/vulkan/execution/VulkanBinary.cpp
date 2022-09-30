@@ -16,6 +16,7 @@ namespace MNN {
 struct ConstBuffer {
     ivec4 stride00;
     ivec4 posLimit;
+    int activationType;
 };
 static std::string _getShaderName(const Op* op, bool image) {
     std::string prefix = "glsl_binaryImage_";
@@ -79,7 +80,7 @@ static std::string _getShaderName(const Op* op, bool image) {
     return prefix + mid + posfix;
 }
 
-VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, bool image) : VulkanBasicExecution(bn) {
+VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, bool image, int activationType) : VulkanBasicExecution(bn) {
     auto vkBn   = static_cast<VulkanBackend*>(bn);
     mBinaryPipeline = vkBn->getPipeline(shaderName, {
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -87,6 +88,7 @@ VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, bool imag
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
     });
+    mActivationType = activationType;
 }
 
 VulkanBinary::~VulkanBinary() {
@@ -118,6 +120,7 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
             binaryOpParam->stride00[2] = 0;
             binaryOpParam->posLimit[0] = 1;
             binaryOpParam->posLimit[1] = 1;
+            binaryOpParam->activationType = mActivationType;
             if (input0Scalar) {
                 binaryOpParam->posLimit[0] = 0;
             }
@@ -165,7 +168,11 @@ public:
         if (shader.empty()) {
             return nullptr;
         }
-        return new VulkanBinary(shader, backend, image);
+        int activationType = 0;
+        if(op->type() == OpType_BinaryOp) {
+            activationType = op->main_as_BinaryOp()->activationType();
+        } 
+        return new VulkanBinary(shader, backend, image, activationType);
     }
 };
 
