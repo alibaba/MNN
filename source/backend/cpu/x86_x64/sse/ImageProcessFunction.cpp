@@ -9,6 +9,7 @@
 #include <algorithm>
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
+#include "backend/cpu/x86_x64/cpu_id.h"
 
 #define MNN_SSE_YUV_INIT \
 countUnit -= 1;\
@@ -245,6 +246,7 @@ void _SSE_MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t 
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNC1ToFloatC1(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count) {
     int remain = 0;
     int countC16 = count / 16;
@@ -275,6 +277,7 @@ void _SSE_MNNC1ToFloatC1(const unsigned char* source, float* dest, const float* 
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNC3ToFloatC3(const unsigned char* source, float* dest, const float* mean, const float* normal,
                              size_t count) {
     int remain = 0;
@@ -316,6 +319,7 @@ void _SSE_MNNC3ToFloatC3(const unsigned char* source, float* dest, const float* 
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNC1ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
                           size_t count) {
     ::memset(dest, 0, 4 * sizeof(float) * count);
@@ -382,6 +386,7 @@ void _SSE_MNNC1ToFloatRGBA(const unsigned char* source, float* dest, const float
     }
 }
 
+// require SSE 4.1
 void _SSE_MNNC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count) {
     int remain = 0;
     int countC4 = count / 4;
@@ -424,14 +429,16 @@ void _SSE_MNNC3ToFloatRGBA(const unsigned char* source, float* dest, const float
     }
 }
 
-void _SSE_ImageProcessInit(void* functions) {
+void _SSE_ImageProcessInit(void* functions, int cpuFlags) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNRGBAToBGRA = _SSE_MNNRGBAToBGRA;
     coreFunction->MNNNV21ToRGBA = _SSE_MNNNV21ToRGBA;
     coreFunction->MNNNV21ToRGB = _SSE_MNNNV21ToRGB;
     coreFunction->MNNNV21ToBGRA = _SSE_MNNNV21ToBGRA;
     coreFunction->MNNNV21ToBGR = _SSE_MNNNV21ToBGR;
-    coreFunction->MNNC1ToFloatC1 = _SSE_MNNC1ToFloatC1;
-    coreFunction->MNNC3ToFloatC3 = _SSE_MNNC3ToFloatC3;
-    coreFunction->MNNC3ToFloatRGBA = _SSE_MNNC3ToFloatRGBA;
+    if (cpuFlags & libyuv::kCpuHasSSE41) {
+        coreFunction->MNNC1ToFloatC1 = _SSE_MNNC1ToFloatC1;
+        coreFunction->MNNC3ToFloatC3 = _SSE_MNNC3ToFloatC3;
+        coreFunction->MNNC3ToFloatRGBA = _SSE_MNNC3ToFloatRGBA;
+    }
 }

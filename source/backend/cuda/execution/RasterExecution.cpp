@@ -145,6 +145,59 @@ static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Te
     return 1;
 }
 
+static bool _equalSizeStride(const Tensor::InsideDescribe::Region& slice0, const Tensor::InsideDescribe::Region& slice1) {
+    if (slice0.src.stride[0] != slice1.src.stride[0] || slice0.dst.stride[0] != slice1.dst.stride[0]) {
+        //MNN_PRINT("Raster total:%d, index:%d, src stride0:%d-%d, , dst stride0:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[0], slice0.src.stride[0], slice.dst.stride[0], slice0.dst.stride[0]);
+        return false;
+    }
+    if (slice0.src.stride[1] != slice1.src.stride[1] || slice0.dst.stride[1] != slice1.dst.stride[1]) {
+        //MNN_PRINT("Raster total:%d, index:%d, src stride1:%d-%d, , dst stride1:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[1], slice0.src.stride[1], slice.dst.stride[1], slice0.dst.stride[1]);
+        return false;
+    }      
+    if (slice0.src.stride[2] != slice1.src.stride[2] || slice0.dst.stride[2] != slice1.dst.stride[2]) {
+        //MNN_PRINT("Raster total:%d, index:%d, src stride2:%d-%d, , dst stride2:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[2], slice0.src.stride[2], slice.dst.stride[2], slice0.dst.stride[2]);
+        return false;
+    }
+    if (slice0.size[0] != slice1.size[0] || slice0.size[1] != slice1.size[1] || slice0.size[2] != slice1.size[2]) {
+        //MNN_PRINT("Raster total:%d, index:%d, copy size:%d-%d-%d, %d-%d-%d\n", mTempInputCopy.size(), i, slice.size[0], slice.size[1], slice.size[2], slice0.size[0], slice0.size[1], slice0.size[2]);
+        return false;
+    }
+    return true;
+}
+
+static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Tensor::InsideDescribe::Region& slice1) {
+    if(slice0.size[1] % PACK_NUMBER != 0 || slice0.size[0] != 1) {
+        return false;
+    }
+    if(slice1.size[1] % PACK_NUMBER != 0 || slice1.size[0] != 1) {
+        return false;
+    }
+    if(slice0.dst.offset % (slice0.size[1] * slice0.size[0]) != 0) {
+        return false;
+    }
+    if(slice1.dst.offset % (slice1.size[1] * slice1.size[0]) != 0) {
+        return false;
+    }
+    return _equalSizeStride(slice0, slice1); 
+}
+
+static void _turnToNewRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& newRegion, int multiStride) {
+    newRegion.size[0] = region.size[0];
+    newRegion.size[1] = region.size[2];
+    newRegion.size[2] = region.size[1];
+
+    newRegion.src.stride[0] = region.src.stride[0];
+    newRegion.src.stride[1] = region.src.stride[2] * region.size[1];
+    newRegion.src.stride[2] = region.src.stride[1] / region.size[2];
+
+    newRegion.dst.stride[0] = region.dst.stride[0] * multiStride;
+    newRegion.dst.stride[1] = region.dst.stride[2] * region.size[1] * multiStride;
+    newRegion.dst.stride[2] = region.dst.stride[1] / region.size[2];
+
+    newRegion.src.offset = region.src.offset / region.size[2];
+    newRegion.dst.offset = region.dst.offset / region.size[2];
+}
+
 ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
@@ -157,7 +210,52 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mTempInput.clear();
 
     mTempOutput = nullptr;
-    mOutputPtr = output;
+    mOutputPtr = output; 
+
+    mFast = false;
+    int pack = PACK_NUMBER;
+    // all_srcFormat == dstFormat == NC4HW4 : Fast Exe
+    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        mFast = true;
+        auto& slice0 = des->regions[0];
+        for (int i=0; i< des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            //MNN_PRINT("%d-%d-%d, %d-%d-%d-%d\n", slice.size[0], slice.size[1], slice.size[2], slice.src.stride[1], slice.src.stride[2], slice.dst.stride[1], slice.dst.stride[2]);
+            if (TensorUtils::getDescribe(slice.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                mFast = false;
+                break;
+            }
+            if(!_directBlitC4(slice0, slice)) {
+                mFast = false;
+                break;
+            }
+            if (!OpCommonUtils::canBlitFast(slice, output, pack, false, true)) {
+                mFast = false;
+                break;
+            }
+        }
+        //MNN_PRINT("raster fast:%d\n", mFast);
+        if (mFast) {
+            int multiStride = 1;
+            for (int i=0; i< des->regions.size(); ++i) {
+                auto& slice = des->regions[i];
+                if(slice.dst.offset / (slice.size[0] * slice.size[1]) >= 1) {
+                    int batchChannel = slice.dst.offset / (slice.size[1] * slice.size[2]) + 1;
+                    multiStride = multiStride > batchChannel ? multiStride : batchChannel;
+                }
+            }
+            for (int i=0; i< des->regions.size(); ++i) {
+                auto& slice = des->regions[i];
+                if (slice.origin == nullptr) {
+                    continue;
+                }
+                Tensor::InsideDescribe::Region newRegion;
+                _turnToNewRegion(slice, newRegion, multiStride);
+                mFastBlit.emplace_back(std::make_pair(slice.origin, std::move(newRegion)));
+            }
+            return NO_ERROR;
+        }
+    }
 
     mSingleConvert = 0;
     // srcNum == 1 && srcFormat != dstFormat : Single Convert
@@ -228,25 +326,8 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
                 //MNN_PRINT("Raster total:%d, index:%d, origin:%p-%p\n", mTempInputCopy.size(), i, mTempInputCopy[i].first, mTempInputCopy[0].first);
                 break;
             }
-            if (slice0.src.stride[0] != slice.src.stride[0] || slice0.dst.stride[0] != slice.dst.stride[0]) {
-                //MNN_PRINT("Raster total:%d, index:%d, src stride0:%d-%d, , dst stride0:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[0], slice0.src.stride[0], slice.dst.stride[0], slice0.dst.stride[0]);
+            if(!_equalSizeStride(slice0, slice)) {
                 mFuseRaster.first = 0;
-                break;
-            }
-            if (slice0.src.stride[1] != slice.src.stride[1] || slice0.dst.stride[1] != slice.dst.stride[1]) {
-                //MNN_PRINT("Raster total:%d, index:%d, src stride1:%d-%d, , dst stride1:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[1], slice0.src.stride[1], slice.dst.stride[1], slice0.dst.stride[1]);
-                mFuseRaster.first = 0;
-                break;
-            }      
-            if (slice0.src.stride[2] != slice.src.stride[2] || slice0.dst.stride[2] != slice.dst.stride[2]) {
-                //MNN_PRINT("Raster total:%d, index:%d, src stride2:%d-%d, , dst stride2:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[2], slice0.src.stride[2], slice.dst.stride[2], slice0.dst.stride[2]);
-                mFuseRaster.first = 0;
-                break;
-            }
-            if (slice0.size[0] != slice.size[0] || slice0.size[1] != slice.size[1] || slice0.size[2] != slice.size[2]) {
-                //MNN_PRINT("Raster total:%d, index:%d, copy size:%d-%d-%d, %d-%d-%d\n", mTempInputCopy.size(), i, slice.size[0], slice.size[1], slice.size[2], slice0.size[0], slice0.size[1], slice0.size[2]);
-                mFuseRaster.first = 0;
-                break;
             }
         }
     }
@@ -284,7 +365,29 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
     return NO_ERROR;
 }
 
+void RasterExecution::executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const {
+    auto bn = static_cast<CUDABackend*>(backend());
+    auto input = inputs[0];
+    auto output = outputs[0];
+    auto bytes = bn->getBytes(output);
+    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
+    if (mNeedZero) {
+        auto size = static_cast<CUDABackend*>(backend())->realSize(output) * bytes;
+        cudaMemset((uint8_t*)output->deviceId(), 0, size);
+    }
+    // Use mFastBlit
+    for (auto& iter : mFastBlit) {
+        auto srcPtr = (uint8_t*)iter.first->deviceId() + iter.second.src.offset * bytes;
+        auto dstPtr = (uint8_t*)output->deviceId() + iter.second.dst.offset * bytes;
+        RasterBlit(dstPtr, srcPtr, iter.second.size, iter.second.src.stride, iter.second.dst.stride, bytes, runtime);
+    }
+}
+
 ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (mFast) {
+        executeFaster(inputs, outputs);
+        return NO_ERROR;
+    }
     auto bn = static_cast<CUDABackend*>(backend());
     auto input = inputs[0];
     auto output = outputs[0];

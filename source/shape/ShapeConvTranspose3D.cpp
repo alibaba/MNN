@@ -10,7 +10,6 @@
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include <iostream>
 namespace MNN {
 class ConvTranspose3DSizeComputer : public SizeComputer {
 public:

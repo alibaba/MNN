@@ -36,7 +36,7 @@ public:
 
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
-    std::shared_ptr<CUDARuntime> mCUDARuntime; 
+    std::shared_ptr<CUDARuntime> mCUDARuntime;
     bool mIsCreateError{false};
     BackendConfig::PrecisionMode mDefaultPrecision;
 };
@@ -47,6 +47,7 @@ public:
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
+    virtual const Runtime* getRuntime() override;
     virtual Backend::MemObj* onAcquire(const Tensor *nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
 

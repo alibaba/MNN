@@ -8,8 +8,6 @@
 
 #include "ConvCutlassExecution.hpp"
 #include "Raster.cuh"
-#include "MNNCUDADefine.hpp"
-#include "MNNCUDAFunction.cuh"
 
 //#define DEBUG
 
@@ -230,8 +228,8 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
     mGemmInfo.elhPad[0] = UP_DIV(e, 8) * 8;
-    mGemmInfo.elhPad[1] = UP_DIV(l, 8) * 8;;
-    mGemmInfo.elhPad[2] = UP_DIV(h, 8) * 8;;
+    mGemmInfo.elhPad[1] = UP_DIV(l, 8) * 8;
+    mGemmInfo.elhPad[2] = UP_DIV(h, 8) * 8;
 
     //MNN_PRINT("Activate:%d \n", mActivationType);
     //MNN_PRINT("Im2Col：%d-%d-%d temp size:%zu!!!\n\n",output->width(), ic, mIm2ColParamter.kernelX, (size_t)sizeof(__half) * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * MATMULPACK * MATMULPACK);
@@ -283,10 +281,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F16_Relu_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16ReluSm70.can_implement(arguments);
@@ -307,10 +305,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F32_Relu_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF32ReluSm70.can_implement(arguments);
@@ -335,10 +333,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F16_Relu6_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16Relu6Sm70.can_implement(arguments);
@@ -359,10 +357,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F32_Relu6_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF32Relu6Sm70.can_implement(arguments);
@@ -385,10 +383,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                             split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F16_Linear_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 cutlass::Status status = mGemmF16LnSm70.can_implement(arguments);
                 cutlass_check(status);
@@ -406,10 +404,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = Gemm_F32_Linear_Sm70::get_workspace_size(arguments);
     
-                auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(buffer3);
+                pool->free(bufferWs);
     
                 cutlass::Status status = mGemmF32LnSm70.can_implement(arguments);
                 cutlass_check(status);
@@ -435,10 +433,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F16_Relu_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16ReluSm75.can_implement(arguments);
@@ -459,10 +457,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F32_Relu_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF32ReluSm75.can_implement(arguments);
@@ -487,10 +485,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F16_Relu6_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16Relu6Sm75.can_implement(arguments);
@@ -511,10 +509,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F32_Relu6_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF32Relu6Sm75.can_implement(arguments);
@@ -537,10 +535,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                         split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F16_Linear_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             cutlass::Status status = mGemmF16LnSm75.can_implement(arguments);
             cutlass_check(status);
@@ -558,10 +556,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = Gemm_F32_Linear_Sm75::get_workspace_size(arguments);
 
-            auto buffer3 = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)buffer3.first + buffer3.second;
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(buffer3);
+            pool->free(bufferWs);
 
             cutlass::Status status = mGemmF32LnSm75.can_implement(arguments);
             cutlass_check(status);

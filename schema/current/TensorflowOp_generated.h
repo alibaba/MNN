@@ -586,9 +586,11 @@ struct BinaryOpT : public flatbuffers::NativeTable {
   typedef BinaryOp TableType;
   int32_t opType;
   DataType T;
+  int32_t activationType;
   BinaryOpT()
       : opType(0),
-        T(DataType_DT_FLOAT) {
+        T(DataType_DT_FLOAT),
+        activationType(0) {
   }
 };
 
@@ -603,10 +605,14 @@ struct BinaryOp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   DataType T() const {
     return static_cast<DataType>(GetField<int32_t>(6, 1));
   }
+  int32_t activationType() const {
+    return GetField<int32_t>(8, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
            VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
            verifier.EndTable();
   }
   BinaryOpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -623,6 +629,9 @@ struct BinaryOpBuilder {
   void add_T(DataType T) {
     fbb_.AddElement<int32_t>(6, static_cast<int32_t>(T), 1);
   }
+  void add_activationType(int32_t activationType) {
+    fbb_.AddElement<int32_t>(8, activationType, 0);
+  }
   explicit BinaryOpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -638,8 +647,10 @@ struct BinaryOpBuilder {
 inline flatbuffers::Offset<BinaryOp> CreateBinaryOp(
     flatbuffers::FlatBufferBuilder &_fbb,
     int32_t opType = 0,
-    DataType T = DataType_DT_FLOAT) {
+    DataType T = DataType_DT_FLOAT,
+    int32_t activationType = 0) {
   BinaryOpBuilder builder_(_fbb);
+  builder_.add_activationType(activationType);
   builder_.add_T(T);
   builder_.add_opType(opType);
   return builder_.Finish();
@@ -3481,6 +3492,7 @@ inline void BinaryOp::UnPackTo(BinaryOpT *_o, const flatbuffers::resolver_functi
   (void)_resolver;
   { auto _e = opType(); _o->opType = _e; };
   { auto _e = T(); _o->T = _e; };
+  { auto _e = activationType(); _o->activationType = _e; };
 }
 
 inline flatbuffers::Offset<BinaryOp> BinaryOp::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BinaryOpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -3493,10 +3505,12 @@ inline flatbuffers::Offset<BinaryOp> CreateBinaryOp(flatbuffers::FlatBufferBuild
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BinaryOpT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _opType = _o->opType;
   auto _T = _o->T;
+  auto _activationType = _o->activationType;
   return MNN::CreateBinaryOp(
       _fbb,
       _opType,
-      _T);
+      _T,
+      _activationType);
 }
 
 inline PackParamT *PackParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4932,17 +4946,19 @@ inline const flatbuffers::TypeTable *PadValueModeTypeTable() {
 inline const flatbuffers::TypeTable *BinaryOpTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, 0 }
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     DataTypeTypeTable
   };
   static const char * const names[] = {
     "opType",
-    "T"
+    "T",
+    "activationType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -11,6 +11,9 @@
 
 #include "ConvSingleInputExecution.hpp"
 #include "TensorCoreGemmPacked.cuh"
+#include "CutlassGemmParam.hpp"
+#include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -18,7 +21,7 @@ namespace CUDA {
 class ConvWinogradExecution : public Execution {
 public:
     struct Resource;
-    static bool isValid(const Convolution2D* conv, const Tensor* input);
+    static bool isValid(const Convolution2D* conv);
     ConvWinogradExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
     virtual ~ConvWinogradExecution();
 
@@ -45,6 +48,13 @@ private:
     void* mMatmul_Buffer;
     MatMulParam mMatMulParam;
     std::pair<void*, int> mGpuMatMulParam;
+    GemmBatched_F16_Linear_Sm75 mGemmBatchedF16LnSm75;
+    GemmBatched_F32_Linear_Sm75 mGemmBatchedF32LnSm75;
+
+    std::shared_ptr<Tensor> workspaceTensor;
+    uint8_t* mWorkspace;
+
+    CutlassGemmInfo mGemmInfo;
 
     int mPadX;
     int mPadY;

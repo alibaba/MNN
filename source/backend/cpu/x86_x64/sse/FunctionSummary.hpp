@@ -68,4 +68,4 @@ void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);
 void _SSE_MNNSoftmax(float* dest, const float* source, size_t size);
 void _SSE_ExtraInit(void* functions);
 void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
-void _SSE_ImageProcessInit(void* functions);
+void _SSE_ImageProcessInit(void* functions, int cpuFlags);

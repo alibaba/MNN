@@ -638,6 +638,7 @@ void* Variable::readInternal(bool forShape) {
     return Executor::mapOutput(cache.get(), mFrom->mInside->mCacheOffset + mFromIndex, mFrom->mInside->mOutputTensors[mFromIndex]);
 }
 
+
 void Variable::informDirty() {
     std::vector<Expr*> visited;
     mFrom->visitOutputs([&visited](EXPRP expr, int index) {

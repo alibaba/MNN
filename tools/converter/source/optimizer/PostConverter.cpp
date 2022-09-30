@@ -260,6 +260,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Merge Relu6 Convolution
         "MergeRelu6ToConvolution",
 
+        // Merge Relu BinaryOp
+        "MergeReluToBinaryOp",
+
     };
     if (ctx->is_training) {
         std::vector<std::string>::iterator iter = afterProgramConvert.begin();

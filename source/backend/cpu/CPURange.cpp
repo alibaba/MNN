@@ -21,9 +21,7 @@ template <typename T>
 ErrorCode CPURange<T>::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const T start = inputs[0]->host<T>()[0];
     const T delta = inputs[2]->host<T>()[0];
-
     int32_t outputSize = outputs[0]->buffer().dim[0].extent;
-
     auto flat = outputs[0]->host<T>();
     T val     = start;
     for (int32_t i = 0; i < outputSize; ++i) {

@@ -9,9 +9,9 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include "MNN_generated.h"
 #include "Utils.hpp"
 #include "RuntimeAttr.hpp"
@@ -202,15 +202,24 @@ public:
             }
         }
 #endif // MNN_INTERNAL_ENABLED
+    if (nullptr == mInfo->runTimeManager.get()) {
+        mRuntime = Executor::getRuntime().second;
+    } else {
+        mRuntime = mInfo->runTimeManager->getInside()->mRuntime.first.begin()->second;
+    }
+
     }
     virtual ~ NetModule(){}
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
+
 #ifdef MNN_INTERNAL_ENABLED
         Timer _time;
         auto glo = ExecutorScope::Current();
         glo->getDebugTools()->flops = 0.0f;
 #endif
+        CPURuntime* runtime = static_cast<CPURuntime*>(mRuntime.get());
+        runtime->clearReuseCopyTensorMap();
         auto outputs = mModule->onForward(inputs);
 #ifdef MNN_INTERNAL_ENABLED
         do {
@@ -237,10 +246,18 @@ public:
         } while(false);
 #endif
         return outputs;
+
     }
+    void setRuntime(std::shared_ptr<Runtime> runtime) {
+        mRuntime = runtime;
+    }
+
     virtual Module* clone(CloneContext* ctx) const override {
         std::shared_ptr<Module> submodule(mModule->clone(ctx));
+
         NetModule* module(new NetModule(submodule, mInfo, nullptr, 0, 0.0f));
+        module->setRuntime(Executor::getRuntime().second);
+
 #ifdef MNN_INTERNAL_ENABLED
         module->mLogInfo = mLogInfo;
 #endif
@@ -249,9 +266,11 @@ public:
     const Module::Info* info() const {
         return mInfo.get();
     }
+
 private:
     std::shared_ptr<Module> mModule;
     std::shared_ptr<Module::Info> mInfo;
+    std::shared_ptr<Runtime> mRuntime = nullptr;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> mLogInfo;
 #endif

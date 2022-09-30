@@ -13,6 +13,9 @@
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
 
+#include "common/MemoryFormater.h"
+#include "backend/cuda/core/CUDATools.hpp"
+
 // 16 / sizeof(int4)
 namespace MNN {
 namespace CUDA {
@@ -100,6 +103,8 @@ ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(int) * maxOffsetNumber);
     auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
 
+
+    NVTX_PUSH("cuda_conv_weight");
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
@@ -121,9 +126,13 @@ ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         }
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     }
+    NVTX_POP();
+
 
     // Copy Bias
     int biasSize = conv->bias()->size();
+
+    NVTX_PUSH("cuda_conv_bias");
     biasTensor.reset(Tensor::createDevice<float>({biasSize}));
     bn->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
 
@@ -159,6 +168,7 @@ ConvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     } else {
         FuseRasterBlitCommon((uint8_t*)mBias, (uint8_t*)biasTemp, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime, 4);
     }
+    NVTX_POP();
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(regionStorage);
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(offsetGpuStorage);
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempBiasStorage);
@@ -219,6 +229,7 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     mIm2ColParamter.srcYStep = input->width() * UNIT;
     mIm2ColParamter.packCUnit = UNIT;
 
+    // hostToDevice
     runtime->memcpy((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second, &mIm2ColParamter, sizeof(ConvolutionCommon::Im2ColParameter), MNNMemcpyHostToDevice);
 
     //MNN_PRINT("conv size:%d-%d, %d-%d-%d, %d-%d-%d\n", mIm2ColParamter.kernelX, mIm2ColParamter.strideX, input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
@@ -267,7 +278,7 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     auto buffer = pool->alloc((size_t)sizeof(__half) * (size_t)mMatMulParam.elhPack[0] * (size_t)mMatMulParam.elhPack[1] * (size_t)ePack * (size_t)hPack);
     mIm2ColBuffer = (__half*)((uint8_t*)buffer.first + buffer.second);
     pool->free(buffer);
-    
+
     return NO_ERROR;
 }
 
@@ -289,6 +300,9 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
     auto gpuIm2Col = (const ConvolutionCommon::Im2ColParameter*)((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second);
     auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
 
+
+    // MNN_PRINT("onExecute bytes is:%d mUseEPack:%d, mResource->mUseHPack:%d, useFp16:%d, mBlockNum:%d,3 dimPack:{ePack:%d, lPack:%d, hPack:%d}, mMatMulParam.elh:{%d,%d,%d}, elhMultiPack:{%d,%d,%d}\n",
+        // bytes, mUseEPack, mResource->mUseHPack, static_cast<CUDABackend*>(backend())->useFp16(), mBlockNum, ePack, MATMULPACK, hPack, mMatMulParam.elh[0], mMatMulParam.elh[1], mMatMulParam.elh[2], mMatMulParam.elhPack[0], mMatMulParam.elhPack[1], mMatMulParam.elhPack[2]);
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if(mUseEPack) {
@@ -307,9 +321,11 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
     return NO_ERROR;
 }
 
+// #define USE_MNN_CONV
+
 class CUDAConvolutionCreator : public CUDABackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, 
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
             const MNN::Op* op, Backend* backend) const override {
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
@@ -321,19 +337,24 @@ public:
             }
         }
 
+#ifdef USE_MNN_CONV
+
+        std::shared_ptr<ConvSingleInputExecution::Resource> resource(new ConvSingleInputExecution::Resource(backend, op));
+        return new ConvSingleInputExecution(backend, op, resource);
+
+#else
         auto conv = op->main_as_Convolution2D()->common();
-        if(ConvWinogradExecution::isValid(op->main_as_Convolution2D(), inputs[0])) {
+        if(ConvWinogradExecution::isValid(op->main_as_Convolution2D())) { // inputs[0] is invalid now.
             //printf("%dx%ds%dd%d\n", conv->kernelX(), conv->kernelY(), conv->strideX(), conv->dilateX());
 
             std::shared_ptr<ConvWinogradExecution::Resource> resource(new ConvWinogradExecution::Resource(backend, op));
             return new ConvWinogradExecution(backend, op, resource);
         }
 
-        // std::shared_ptr<ConvSingleInputExecution::Resource> resource(new ConvSingleInputExecution::Resource(backend, op));
-        // return new ConvSingleInputExecution(backend, op, resource);
-
         std::shared_ptr<ConvCutlassExecution::Resource> resource(new ConvCutlassExecution::Resource(backend, op));
         return new ConvCutlassExecution(backend, op, resource);
+#endif
+
     }
 };
 

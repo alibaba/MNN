@@ -736,6 +736,9 @@
 		C4F906B327688C3A0026B847 /* NMSModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4F906B127688C3A0026B847 /* NMSModule.hpp */; };
 		C4F906B427688C3A0026B847 /* NMSModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4F906B227688C3A0026B847 /* NMSModule.cpp */; };
 		C4FB6CB22769DF0800963B07 /* GeometryCumSum.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */; };
+		CE7DC00028E2DE6B00797689 /* ShapeConvTranspose3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CE7DBFFF28E2DE6B00797689 /* ShapeConvTranspose3D.cpp */; };
+		CE9AFED628E54E3300566949 /* CPUInterp3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CE9AFED428E54E3300566949 /* CPUInterp3D.cpp */; };
+		CE9AFED728E54E3300566949 /* CPUInterp3D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CE9AFED528E54E3300566949 /* CPUInterp3D.hpp */; };
 		CEDB20EB2846D07100AE9DC4 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = CEDB20EA2846D07100AE9DC4 /* AppDelegate.m */; };
 		CEDB20F42846D07100AE9DC4 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CEDB20F22846D07100AE9DC4 /* Main.storyboard */; };
 		CEDB20F62846D07200AE9DC4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CEDB20F52846D07200AE9DC4 /* Assets.xcassets */; };
@@ -1520,6 +1523,9 @@
 		C4F906B127688C3A0026B847 /* NMSModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = NMSModule.hpp; sourceTree = "<group>"; };
 		C4F906B227688C3A0026B847 /* NMSModule.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NMSModule.cpp; sourceTree = "<group>"; };
 		C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryCumSum.cpp; sourceTree = "<group>"; };
+		CE7DBFFF28E2DE6B00797689 /* ShapeConvTranspose3D.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeConvTranspose3D.cpp; sourceTree = "<group>"; };
+		CE9AFED428E54E3300566949 /* CPUInterp3D.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUInterp3D.cpp; sourceTree = "<group>"; };
+		CE9AFED528E54E3300566949 /* CPUInterp3D.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUInterp3D.hpp; sourceTree = "<group>"; };
 		CEDB20E72846D07100AE9DC4 /* demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = demo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CEDB20E92846D07100AE9DC4 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		CEDB20EA2846D07100AE9DC4 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
@@ -1818,6 +1824,8 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				CE9AFED428E54E3300566949 /* CPUInterp3D.cpp */,
+				CE9AFED528E54E3300566949 /* CPUInterp3D.hpp */,
 				4DCF538B2892B16300B5B393 /* CPUHistogram.cpp */,
 				4DCF538C2892B16400B5B393 /* CPUHistogram.hpp */,
 				4DF87C512887D3F20003E2D4 /* CPUSvd.hpp */,
@@ -2642,6 +2650,7 @@
 		EBB38EC621E748B9005F76D7 /* shape */ = {
 			isa = PBXGroup;
 			children = (
+				CE7DBFFF28E2DE6B00797689 /* ShapeConvTranspose3D.cpp */,
 				4DCF538F2892B17000B5B393 /* ShapeHistogram.cpp */,
 				4DF87C4D2887D39B0003E2D4 /* ShapeSvd.cpp */,
 				48925F362744AC2A00919B37 /* ShapeROIAlign.cpp */,
@@ -2871,6 +2880,7 @@
 				92FF03BD23AA0B5A00AC97F6 /* Int8FunctionsOpt.h in Headers */,
 				92FF036623AA0B5A00AC97F6 /* CPUDetectionOutput.hpp in Headers */,
 				92FF04BC23AA0BFB00AC97F6 /* NonCopyable.hpp in Headers */,
+				CE9AFED728E54E3300566949 /* CPUInterp3D.hpp in Headers */,
 				48FA474B23AA127B00172C3B /* Utils.hpp in Headers */,
 				4A224A1427D0C56E000A9260 /* ConvolutionWinogradBridge.hpp in Headers */,
 				4D9A935926255BDA00F9B43C /* DataStructures.pb-c.h in Headers */,
@@ -3422,6 +3432,7 @@
 				4D0C80E52862FC4700C7CAD6 /* CoreMLRaster.metal in Sources */,
 				92FF044123AA0B7100AC97F6 /* ShapeMoments.cpp in Sources */,
 				4D9A936026255BDA00F9B43C /* Model.pb-c.c in Sources */,
+				CE9AFED628E54E3300566949 /* CPUInterp3D.cpp in Sources */,
 				92FF03AB23AA0B5A00AC97F6 /* ConvolutionInt8Executor.cpp in Sources */,
 				C4F906B427688C3A0026B847 /* NMSModule.cpp in Sources */,
 				48FA474523AA127B00172C3B /* Executor.cpp in Sources */,
@@ -3483,6 +3494,7 @@
 				4896D37925FE2A6B00717702 /* MNNPackedMatMulFP16.S in Sources */,
 				92FF02B623AA0B5A00AC97F6 /* CPUUnary.cpp in Sources */,
 				92FF032723AA0B5A00AC97F6 /* MNNDeconvRunForUnitDepthWise.S in Sources */,
+				CE7DC00028E2DE6B00797689 /* ShapeConvTranspose3D.cpp in Sources */,
 				92FF02CA23AA0B5A00AC97F6 /* MNNUnPackC4.S in Sources */,
 				48925F372744AC2A00919B37 /* ShapeROIAlign.cpp in Sources */,
 				92FF02E723AA0B5A00AC97F6 /* MNNDeconvRunForUnitDepthWise.S in Sources */,

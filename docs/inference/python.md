@@ -1,5 +1,14 @@
 # Python API使用
 
+## 安装
+MNN Python API可以使用[源码安装](../compile/pymnn.md)，也可以直接使用`pip`安装预编译whl包；`pip`安装用法如下：
+```bash
+# 外部版本安装
+pip install MNN==$version
+# 公司内部版本安装
+pip install -i https://artifacts.antgroup-inc.cn/simple/ MNN-Internal==$version
+```
+
 ## 概览
 MNN在C++的基础上，增加了Python扩展。扩展单元包括两个部分：
 - MNN：负责推理，训练，图像处理和数值计算

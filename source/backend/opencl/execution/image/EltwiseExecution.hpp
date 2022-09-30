@@ -16,7 +16,7 @@ namespace OpenCL {
 
 class EltwiseExecution : public CommonExecution {
 public:
-    EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend, float operatorData = 0.0001f, bool broadCast = false);
+    EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend);
     virtual ~EltwiseExecution() = default;
 
     uint32_t realSize(const Tensor* tensor);

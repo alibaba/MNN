@@ -29,24 +29,13 @@ ErrorCode CPUHistogram::histogram(Tensor* input, Tensor* output) {
     auto iptr = input->host<T>() + mChannel;
     auto optr = output->host<float>();
     memset(optr, 0, mBinNum * sizeof(float));
-    auto numberThread = ((CPUBackend*)backend())->threadNumber();
-    int sizeDivide = mSize / numberThread;
-    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-        int number = sizeDivide;
-        if (tId == numberThread - 1) {
-            number = mSize - tId * sizeDivide;
-        }
-        auto src = iptr + tId * sizeDivide * mStride * sizeof(T);
-        auto dst = optr + tId * sizeDivide * mStride * sizeof(float);
-        for (int i = 0; i < number; i++) {
-            T val = src[i * mStride];
-            if (val >= mMin && val <= mMax) {
-                const int bin = (int)(val * mAlpha - mBeta);
-                dst[std::min(bin, mBinNum -1)]++;
-            }
+    for (int i = 0; i < mSize; i++) {
+        T val = iptr[i * mStride];
+        if (val >= mMin && val <= mMax) {
+            const int bin = (int)(val * mAlpha - mBeta);
+            optr[std::min(bin, mBinNum -1)]++;
         }
     }
-    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

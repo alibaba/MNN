@@ -27,7 +27,7 @@ __global__ void GemmPackedFull(const MatMulParam* param, const int iBlock, T *c,
     wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::col_major>
         b_frag;
     wmma::fragment<wmma::accumulator, 16, 16, 16, T> acc_frag;
-    
+
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
         size_t subIndex = index / warpSize;
         size_t warpM = subIndex % eU;
@@ -39,9 +39,6 @@ __global__ void GemmPackedFull(const MatMulParam* param, const int iBlock, T *c,
         //printf("GemmPacked: %d - %d - %d, numele: %d, %d\n", eU, lU, hU, a_frag.num_elements, b_frag.num_elements);
         // MLA
         for (size_t i = 0; i < lU; ++i) {
-            half* aTemp = ((half *)(aStart+i*256));//aStart + (i << 8) + (laneId << 1);
-            half* bTemp = ((half *)(bStart+i*256));//bStart + (i << 8) + (laneId << 1);
-
             wmma::load_matrix_sync(a_frag, aStart + i * 256, 16);
             wmma::load_matrix_sync(b_frag, bStart + i * 256, 16);
             wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
@@ -99,7 +96,10 @@ __global__ void GemmPackedFull16x32(const MatMulParam* param, const int iBlock, 
     size_t wrapId = threadIdx.x / warpSize;
     size_t laneId = threadIdx.x % warpSize;
     extern __shared__ float sharedMemory[];
-    T* cache = (T*)(sharedMemory + wrapId * 16 * 32);
+    constexpr int row = 17;
+    constexpr int conflict_free_size = 24;
+    constexpr int offset = 16;
+    T* cache = (T*)(sharedMemory + wrapId * conflict_free_size * (16 + row));
     for (size_t index = blockIdx.x * threadCount + wrapId; index < maxCount; index += gridDim.x * threadCount) {
         size_t warpM = index % eU;
         size_t warpN = index / eU;
@@ -143,18 +143,18 @@ __global__ void GemmPackedFull16x32(const MatMulParam* param, const int iBlock, 
         T* dst0 = (T*)(c + warpN * 32 * (size_t)param->elh[0] + eSta * 16);
         T* dst1 = (T*)(c + (warpN * 32 + 16) * (size_t)param->elh[0] + eSta * 16);
         // First 8x32
-        wmma::store_matrix_sync(cache, MC0, 16, wmma::mem_row_major);
+        wmma::store_matrix_sync(cache, MC0, conflict_free_size, wmma::mem_row_major);
         // Second 8x32
-        wmma::store_matrix_sync(cache + 256, MC1, 16, wmma::mem_row_major);
+        wmma::store_matrix_sync(cache + 16 * conflict_free_size + offset, MC1, conflict_free_size, wmma::mem_row_major);
         auto dst = dst0;
         auto src = cache;
         if (laneId >= 16) {
             dst = dst1;
-            src = cache + 256;
+            src = cache + 16 * conflict_free_size + offset;
         }
         size_t x = laneId % 16;
         for (size_t y = 0; y < eC; ++y) {
-            dst[y * 16 + x] = src[y * 16 + x];
+            dst[y * 16 + x] = src[y * conflict_free_size + x];
         }
     }
 }
@@ -169,7 +169,10 @@ __global__ void GemmPackedFull32x16(const MatMulParam* param, const int iBlock, 
     size_t wrapId = threadIdx.x / warpSize;
     size_t laneId = threadIdx.x % warpSize;
     extern __shared__ float sharedMemory[];
-    T* cache = (T*)(sharedMemory + wrapId * 32 * 16);
+    constexpr int row = 17;
+    constexpr int conflict_free_size = 24;
+    constexpr int offset = 16;
+    T* cache = (T*)(sharedMemory + wrapId * (16 + row) * conflict_free_size);
     for (size_t index = blockIdx.x * threadCount + wrapId; index < maxCount; index += gridDim.x * threadCount) {
         size_t warpN = index % hU;
         size_t warpM = index / hU;
@@ -216,18 +219,18 @@ __global__ void GemmPackedFull32x16(const MatMulParam* param, const int iBlock, 
         T* dst0 = (T*)(c + warpN * 16 * (size_t)param->elh[0] + eSta * 16);
         T* dst1 = (T*)(dst0 + 256);
         // First 8x32
-        wmma::store_matrix_sync(cache, MC0, 16, wmma::mem_row_major);
+        wmma::store_matrix_sync(cache, MC0, conflict_free_size, wmma::mem_row_major);
         // Second 8x32
-        wmma::store_matrix_sync(cache + 256, MC1, 16, wmma::mem_row_major);
+        wmma::store_matrix_sync(cache + 16 * conflict_free_size + offset, MC1, conflict_free_size, wmma::mem_row_major);
         auto dst = dst0;
         auto src = cache;
         if (laneId >= 16) {
             dst = dst1;
-            src = cache + 256;
+            src = cache + 16 * conflict_free_size + offset;
         }
         size_t x = laneId % 16;
         for (size_t y = 0; y < eC; ++y) {
-            dst[y * 16 + x] = src[y * 16 + x];
+            dst[y * 16 + x] = src[y * conflict_free_size + x];
         }
     }
 }
@@ -261,10 +264,14 @@ void GemmPacked16x32(CUDARuntime* runtime, const MatMulParam* cpuParam, const Ma
     {
         int hUP = cpuParam->elhPack[2];
         int maxThreadInWarp = UP_DIV(cpuParam->elhPack[0] * hUP, cores);
-        int threads_num = ALIMIN(512, maxThreadInWarp * prop.warpSize);
+        constexpr int max_threadblock = 512;
+        int threads_num = ALIMIN(max_threadblock, maxThreadInWarp * prop.warpSize);
         //MNN_PRINT("GemmPacked16x32：%d-%d-%d-%d-%d\n\n", hUP, cpuParam->elhPack[0], cpuParam->elhPack[2], cpuParam->elhPack[0]*cpuParam->elhPack[2], threads_num);
         threads_num = ALIMIN(prop.maxThreadsPerBlock, threads_num);
-        int basicMemory = 32 * 16 * sizeof(float) * (threads_num / prop.warpSize);
+        constexpr int row = 17;
+        constexpr int conflict_free_size = 24;
+        int basicMemory = (16 + row) * conflict_free_size * sizeof(float) * (threads_num / prop.warpSize);
+        // MNN_PRINT("GemmPacked16x32 basicMemory byte size:%d\n", basicMemory);
         if (4 == bytes) {
             cudaFuncSetAttribute(GemmPackedFull16x32<float>, cudaFuncAttributeMaxDynamicSharedMemorySize, basicMemory);
             GemmPackedFull16x32<<<cores, threads_num, basicMemory>>>(param, iBlock, (float*)c, a, b, (float*)biasPtr);
@@ -284,10 +291,13 @@ void GemmPacked32x16(CUDARuntime* runtime, const MatMulParam* cpuParam, const Ma
     {
         int eUP = cpuParam->elhPack[0];
         int maxThreadInWarp = UP_DIV(eUP * cpuParam->elhPack[2], cores);
-        int threads_num = ALIMIN(512, maxThreadInWarp * prop.warpSize);
+        constexpr int max_threadblock = 512;
+        int threads_num = ALIMIN(max_threadblock, maxThreadInWarp * prop.warpSize);
         //MNN_PRINT("GemmPacked32x16：%d-%d-%d-%d-%d\n\n", eUP, cpuParam->elhPack[0], cpuParam->elhPack[2], cpuParam->elhPack[0]*cpuParam->elhPack[2], threads_num);
         threads_num = ALIMIN(prop.maxThreadsPerBlock, threads_num);
-        int basicMemory = 32 * 16 * sizeof(float) * (threads_num / prop.warpSize);
+        constexpr int row = 17;
+        constexpr int conflict_free_size = 24;
+        int basicMemory = (16 + row) * conflict_free_size * sizeof(float) * (threads_num / prop.warpSize);
         if (4 == bytes) {
             cudaFuncSetAttribute(GemmPackedFull32x16<float>, cudaFuncAttributeMaxDynamicSharedMemorySize, basicMemory);
             GemmPackedFull32x16<<<cores, threads_num, basicMemory>>>(param, iBlock, (float*)c, a, b, (float*)biasPtr);

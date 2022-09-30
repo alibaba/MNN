@@ -11,9 +11,16 @@
 #include "cutlass/epilogue/thread/linear_combination_relu.h"
 #include "cutlass/epilogue/thread/linear_combination_relu6.h"
 #include "cutlass/gemm/device/gemm.h"
+#include "cutlass/gemm/device/gemm_array.h"
+#include "cutlass/gemm/device/gemm_batched.h"
 
 namespace MNN {
 namespace CUDA {
+
+struct CutlassGemmInfo{
+    int elh[3];
+    int elhPad[3];
+};
 
 using ElementAccumulator = float;                 // <- data type of accumulator
 using ElementComputeEpilogue = ElementAccumulator;  // <- data type of epilogue operations
@@ -37,9 +44,9 @@ using SmArch75 = cutlass::arch::Sm75;
 
 // This code section describes the tile size a thread block will compute
 using ShapeMMAThreadBlock =
-    cutlass::gemm::GemmShape<64, 64, 32>;  // <- threadblock tile M = 128, N = 256, K = 64
+    cutlass::gemm::GemmShape<64, 64, 64>;  // <- threadblock tile M = 128, N = 256, K = 64
 // This code section describes tile size a warp will compute
-using ShapeMMAWarp = cutlass::gemm::GemmShape<32, 32, 32>;  // <- warp tile M = 64, N = 64, K = 64 
+using ShapeMMAWarp = cutlass::gemm::GemmShape<32, 32, 64>;  // <- warp tile M = 64, N = 64, K = 64 
 // This code section describes the size of MMA op
 using ShapeMMAOp1688 = cutlass::gemm::GemmShape<16, 8, 8>;  // <- MMA Op tile M = 8, N = 8, K = 16
 using ShapeMMAOp884 = cutlass::gemm::GemmShape<8, 8, 4>;  // <- MMA Op tile M = 8, N = 8, K = 16
@@ -300,6 +307,45 @@ using Gemm_F32_Relu6_Sm75 = cutlass::gemm::device::Gemm<ElementInputA,
                                          SwizzleThreadBlock,
                                          NumStages>;
 
+// This code section describes how threadblocks are scheduled on GPU
+using BatchedSwizzleThreadBlock = cutlass::gemm::threadblock::GemmBatchedIdentityThreadblockSwizzle;  // <- ??
+
+using ShapeBatchMMAThreadBlock =
+    cutlass::gemm::GemmShape<64, 64, 64>;  // <- threadblock tile M = 128, N = 256, K = 64
+// This code section describes tile size a warp will compute
+using ShapeBatchMMAWarp = cutlass::gemm::GemmShape<16, 64, 64>;  // <- warp tile M = 64, N = 64, K = 64 
+
+using GemmBatched_F16_Linear_Sm75 = cutlass::gemm::device::GemmBatched<ElementInputA,
+                                         LayoutInputA,
+                                         ElementInputB,
+                                         LayoutInputB,
+                                         ElementOutput_F16,
+                                         LayoutOutput,
+                                         ElementAccumulator,
+                                         MMAOp,
+                                         SmArch75,
+                                         ShapeBatchMMAThreadBlock,
+                                         ShapeBatchMMAWarp,
+                                         ShapeMMAOp1688,
+                                         EpilogueOp_F16_Linear,
+                                         BatchedSwizzleThreadBlock,
+                                         NumStages>;
+
+using GemmBatched_F32_Linear_Sm75 = cutlass::gemm::device::GemmBatched<ElementInputA,
+                                         LayoutInputA,
+                                         ElementInputB,
+                                         LayoutInputB,
+                                         ElementOutput_F32,
+                                         LayoutOutput,
+                                         ElementAccumulator,
+                                         MMAOp,
+                                         SmArch75,
+                                         ShapeBatchMMAThreadBlock,
+                                         ShapeBatchMMAWarp,
+                                         ShapeMMAOp1688,
+                                         EpilogueOp_F32_Linear,
+                                         BatchedSwizzleThreadBlock,
+                                         NumStages>;
 
 } // namespace CUDA
 } // namespace MNN

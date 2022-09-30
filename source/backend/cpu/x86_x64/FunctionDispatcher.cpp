@@ -69,7 +69,7 @@ void MNNFunctionInit() {
 void MNNInt8FunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
     auto core = MNN::MNNGetInt8CoreFunctions();
-    if (cpuFlags & libyuv::kCpuHasSSSE3) {
+    if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
         core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;

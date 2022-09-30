@@ -15,7 +15,7 @@
 #include "core/Macro.h"
 
 namespace MNN {
-class MNN_PUBLIC WinogradInt8Attr {
+class WinogradInt8Attr {
 public:
     struct Attr {
         int kyStart, kxStart, kernelY, kernelX, unitY, unitX;
