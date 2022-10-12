@@ -132,19 +132,18 @@ static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_
         src += 16;
         dst += 16;
     }
+    if (areaRemain == 0) {
+        return;
+    }
 
     // areaRemain
-    int areaLack = 8 - areaRemain;
-    auto cordH = vld2q_f16(src - areaLack * 2); // use data of the last pack to fill the vacancy.
+    FLOAT16 tempDst[16];
+    ::memcpy(tempDst, src, areaRemain * 2 * sizeof(int16_t));
+    auto cordH = vld2q_f16(tempDst);
     cordH.val[0] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[0]), inW_sub_a), b));
     cordH.val[1] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[1]), inH_sub_a), b));
-    if (src != dst) {
-        vst2q_f16(dst - areaLack * 2, cordH);
-    } else {
-        auto tmp = vld1q_f16_x2(dst - 16); // store data of the last pack to avoid covering.
-        vst2q_f16(dst - areaLack * 2, cordH);
-        vst1q_f16_x2(dst - 16, tmp);
-    }
+    vst2q_f16(tempDst, cordH);
+    ::memcpy(dst, tempDst, areaRemain * 2 * sizeof(int16_t));
 }
 
 static size_t MNNGridSampleComputeOffsetFP16(int h, int w, int height, int width, bool padMode) {
