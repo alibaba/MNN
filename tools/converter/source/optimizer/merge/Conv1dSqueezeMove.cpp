@@ -217,7 +217,9 @@ static auto gRegister = []() {
             newBiasAddExpr->setName(expr->name());
             auto newBiasAddVar = Variable::create(newBiasAddExpr, 0);
             newBiasAddVar->setName(expr->outputName(0));
-            auto newSqueezeExpr = Expr::create(squeezeExpr->extra(), {newBiasAddVar});
+            auto squeezeExprInputs = squeezeExpr->inputs();
+            squeezeExprInputs[0] = newBiasAddVar;
+            auto newSqueezeExpr = Expr::create(squeezeExpr->extra(), std::move(squeezeExprInputs));
             newSqueezeExpr->setName(squeezeExpr->name());
             auto newSqueezeVar = Variable::create(newSqueezeExpr, 0);
             newSqueezeVar->setName(squeezeExpr->outputName(0));
@@ -245,7 +247,9 @@ static auto gRegister = []() {
             newReluExpr->setName(expr->name());
             auto newReluVar = Variable::create(newReluExpr, 0);
             newReluVar->setName(expr->outputName(0));
-            auto newSqueezeExpr = Expr::create(squeezeExpr->extra(), {newReluVar});
+            auto squeezeExprInputs = squeezeExpr->inputs();
+            squeezeExprInputs[0] = newReluVar;
+            auto newSqueezeExpr = Expr::create(squeezeExpr->extra(), std::move(squeezeExprInputs));
             newSqueezeExpr->setName(squeezeExpr->name());
             auto newSqueezeVar = Variable::create(newSqueezeExpr, 0);
             newSqueezeVar->setName(squeezeExpr->outputName(0));
