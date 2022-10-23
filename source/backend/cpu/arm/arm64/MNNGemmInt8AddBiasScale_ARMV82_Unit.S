@@ -6,7 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#ifdef __aarch64__
+
 #include "MNNAsmGlobal.h"
 
 .text
