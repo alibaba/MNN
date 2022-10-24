@@ -452,7 +452,7 @@ void Interpreter::resizeSession(Session* session, int needRelloc) {
     CPURuntime* runtime = static_cast<CPURuntime*>(session->getCPURuntime());
     runtime->clearReuseCopyTensorMap();
 
-    session->resize();
+    session->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
 }
 
 ErrorCode Interpreter::runSessionWithCallBack(const Session* session, const TensorCallBack& before,
