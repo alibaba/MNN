@@ -36,6 +36,7 @@
 #define MNN_CHECK_CL_SUCCESS(error, info)                  \
     if (error != CL_SUCCESS) {                       \
         MNN_PRINT("CL ERROR CODE : %d, info:%s \n", (int)error, info); \
+        __builtin_trap(); \
     }
 #ifdef MNN_USE_LIB_WRAPPER
 
