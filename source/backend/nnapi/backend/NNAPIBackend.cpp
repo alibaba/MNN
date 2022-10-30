@@ -13,16 +13,40 @@
 #include <stdlib.h>
 #include <mutex>
 #include <MNN/AutoTime.hpp>
-// #define NNAPI_DEBUG
+
+#ifdef MNN_USE_ARMV82
+// FP32 <--> FP16 Function
+#include "backend/arm82/Arm82OptFunc.hpp"
+#define FLOAT_TO_HALF MNNQuantizeFP16
+#define HALF_TO_FLOAT MNNDequantizeFP16
+#else
+#define FLOAT_TO_HALF(...)
+#define HALF_TO_FLOAT(...)
+#endif // MNN_USE_ARMV82
+
+// #define NNAPI_DEBUG_DEVICE
+// #define NNAPI_DEBUG_OP
+// #define NNAPI_PROFILE
 // #define USE_NCHW
 
+#ifdef NNAPI_DEBUG_OP
+    #define NNAPI_OP_LOG MNN_PRINT
+#else
+    #define NNAPI_OP_LOG(...)
+#endif
+#ifdef NNAPI_DEBUG_DEVICE
+    #define NNAPI_DEVICE_LOG MNN_PRINT
+#else
+    #define NNAPI_DEVICE_LOG(...)
+#endif
 #define CHECK(func, ...)                                                \
   do {                                                                  \
     const auto _status = (func(__VA_ARGS__));                           \
     if (_status != ANEURALNETWORKS_NO_ERROR) {                          \
       const auto ENUM_TO_STR = NNAPIEnumToString(_status);              \
-      MNN_PRINT("[NNAPI] Error: %s when call " #func " at line %d.\n",  \
+      MNN_ERROR("[NNAPI] Error: %s when call " #func " at line %d.\n",  \
                                         ENUM_TO_STR.c_str(), __LINE__); \
+      exit(0);\
     }                                                                   \
   } while (0)
 
@@ -55,10 +79,17 @@ namespace MNN {
 #undef ENUM_TO_STR
         }
     }
+
+    static uint16_t fp32to16(float val) {
+        uint32_t x = *((uint32_t*)&val);
+        uint16_t h = ((x>>16)&0x8000)|((((x&0x7f800000)-0x38000000)>>13)&0x7c00)|((x>>13)&0x03ff);
+        return h;
+    }
+
     bool NNAPIBackend::addCreator(OpType t, Creator* c) {
         auto map = getCreatorMap();
         if (map->find(t) != map->end()) {
-            MNN_PRINT("Error: %d type has be added\n", t);
+            MNN_ERROR("Error: %d type has be added\n", t);
             return false;
         }
         map->insert(std::make_pair(t, c));
@@ -73,7 +104,7 @@ namespace MNN {
 #else
         mNCHW = false;
 #endif
-        MNN_PRINT("[NNAPI] DimensionFormat is %s\n", mNCHW ? "NCHW" : "NHWC");
+        NNAPI_DEVICE_LOG("[NNAPI] DimensionFormat is %s\n", mNCHW ? "NCHW" : "NHWC");
         if (mNNAPIModel == nullptr) {
             CHECK(ANeuralNetworksModel_create_27, &mNNAPIModel);
         }
@@ -81,12 +112,12 @@ namespace MNN {
             uint32_t numDevices = 0;
             CHECK(ANeuralNetworks_getDeviceCount_29, &numDevices);
             mNNAPIDevices.resize(numDevices);
-            MNN_PRINT("[NNAPI] numDevices = %d\n", numDevices);
+            NNAPI_DEVICE_LOG("[NNAPI] numDevices = %d\n", numDevices);
             for (int i = 0; i < numDevices; i++) {
                 CHECK(ANeuralNetworks_getDevice_29, i, &mNNAPIDevices[i].device);
                 CHECK(ANeuralNetworksDevice_getName_29, mNNAPIDevices[i].device, &mNNAPIDevices[i].name);
                 CHECK(ANeuralNetworksDevice_getType_29, mNNAPIDevices[i].device, &mNNAPIDevices[i].type);
-                MNN_PRINT("[NNAPI] device %d is : %s, %d\n", i, mNNAPIDevices[i].name, mNNAPIDevices[i].type);
+                NNAPI_DEVICE_LOG("[NNAPI] device %d is : %s, %d\n", i, mNNAPIDevices[i].name, mNNAPIDevices[i].type);
             }
         }
     }
@@ -99,13 +130,14 @@ namespace MNN {
     Execution* NNAPIBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
         auto map = getCreatorMap();
         auto iter = map->find(op->type());
+        NNAPI_OP_LOG("### op: %s, %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "NoName");
         if (iter == map->end()) {
-            MNN_PRINT("[NNAPI] Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
+            MNN_ERROR("[NNAPI] Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
             return nullptr;
         }
         auto exe = iter->second->onCreate(inputs, outputs, op, this);
         if (nullptr == exe) {
-            MNN_PRINT("[NNAPI] The Creator Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
+            MNN_ERROR("[NNAPI] The Creator Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
             return nullptr;
         }
         return exe;
@@ -121,7 +153,15 @@ namespace MNN {
     Backend::MemObj* NNAPIBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
         bool isInputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
-        std::unique_ptr<Tensor> tensor_(new Tensor(tensor, mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW, true));
+        std::unique_ptr<Tensor> tensor_;
+        auto format = mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW;
+        if (bytes() == 2 && tensor->getType() == halide_type_of<float>()) {
+            const_cast<Tensor*>(tensor)->buffer().type = halide_type_t(halide_type_float, 16);
+            tensor_.reset(new Tensor(tensor, format, true));
+            const_cast<Tensor*>(tensor)->buffer().type = halide_type_of<float>();
+        } else {
+            tensor_.reset(new Tensor(tensor, format, true));
+        }
         if(isInputCopy){
             mInputTensors.push_back(tensor);
             mInputContentTensors.push_back(std::move(tensor_));
@@ -135,7 +175,9 @@ namespace MNN {
             // const_cast<halide_buffer_t&>(tensor->buffer()).host = (uint8_t*)MNNMemoryAllocAlign(tensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
             // MNN_ASSERT(tensor->buffer().host != nullptr);
         }
-        getTensorIdx(tensor);
+        if (isInputCopy || isOutputCopy) {
+            getTensorIdx(tensor);
+        }
         // Don't need release
         return new Backend::MemObj;
     }
@@ -149,60 +191,96 @@ namespace MNN {
         mOutputIdxMap.clear();
         return true;
     }
-    
+
     void NNAPIBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
         bool isInputCopy = TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         bool isConst = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT || TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-        if(isConst){ return; }
+        if (isConst) { return; }
 
+        std::unique_ptr<Tensor> tempTensor;
         if (isInputCopy) {
             const auto iter = mInputIdxMap.find(dstTensor);
             MNN_ASSERT(iter != mInputIdxMap.end());
-            // memcpy((void*)&mInputTensors[iter->second], &srcTensor, sizeof(void*));
-            auto code = CPUTensorConverter::convert(srcTensor, mInputContentTensors[iter->second].get());
-            if (NO_ERROR != code) {
-                MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+            auto realTensor = mInputContentTensors[iter->second].get();
+            if (bytes() == 2) {
+                tempTensor.reset(Tensor::create<float>(realTensor->shape(), nullptr, TensorUtils::getDimType(realTensor)));
+                auto code = CPUTensorConverter::convert(srcTensor, tempTensor.get());
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+                }
+                FLOAT_TO_HALF(tempTensor->host<float>(), realTensor->host<int16_t>(), realTensor->elementSize());
+            } else {
+                auto code = CPUTensorConverter::convert(srcTensor, realTensor);
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+                }
             }
         } else if (isOutputCopy) {
             const auto iter = mOutputIdxMap.find(srcTensor);
             MNN_ASSERT(iter != mOutputIdxMap.end());
-            // memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min(srcTensor->size(), dstTensor->size()));
-            auto code = CPUTensorConverter::convert(mOutputContentTensors[iter->second].get(), dstTensor);
-            if (NO_ERROR != code) {
-                MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+            auto realTensor = mOutputContentTensors[iter->second].get();
+            if (bytes() == 2) {
+                tempTensor.reset(Tensor::create<float>(realTensor->shape(), nullptr, TensorUtils::getDimType(realTensor)));
+                HALF_TO_FLOAT(realTensor->host<int16_t>(), tempTensor->host<float>(), realTensor->elementSize());
+                auto code = CPUTensorConverter::convert(tempTensor.get(), dstTensor);
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+                }
+            } else {
+                auto code = CPUTensorConverter::convert(realTensor, dstTensor);
+                if (NO_ERROR != code) {
+                    MNN_ERROR("Error in NNAPIBackend::onCopyBuffer:convert\n");
+                }
             }
         }
     }
 
     void NNAPIBackend::onResizeBegin() {
+        mHalfBuffer.clear();
     }
 
     void NNAPIBackend::onResizeEnd() {
         buildModel();
+        mHalfBuffer.clear();
     }
-
     uint32_t NNAPIBackend::getTensorIdx(const Tensor* t) {
         const auto& iter = mTensorIdxMap.find(t);
         if (iter != mTensorIdxMap.end()) {
             return iter->second;
         }
-        std::vector<uint32_t> dims;
+        std::vector<uint32_t> udims;
         for (auto d : t->shape()) {
-            dims.push_back(d);
+            udims.push_back(d);
         }
-        std::vector<uint32_t> udims(dims.begin(), dims.end());
-        if (TensorUtils::getDescribe(t)->dimensionFormat != MNN_DATA_FORMAT_NHWC && !mNCHW) {
-            // NCHW -> NHWC
-            udims[0] = dims[0];
-            udims[1] = dims[2];
-            udims[2] = dims[3];
-            udims[3] = dims[1];
+        dimsFormat<uint32_t>(udims, TensorUtils::getDescribe(t)->dimensionFormat);
+        // scalar shape is {1} in NNAPI
+        if (udims.empty()) {
+            udims.push_back(1);
         }
-        uint32_t idx = buildOperand(nullptr, 0, ANEURALNETWORKS_TENSOR_FLOAT32, udims);
+        auto dtype = t->getType();
+        auto code = ANEURALNETWORKS_TENSOR_FLOAT32;
+        if (dtype == halide_type_of<int>()) {
+            code = ANEURALNETWORKS_TENSOR_INT32;
+        }
+        uint32_t idx = -1;
+        if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
+            idx = buildOperand(t->host<void>(), t->size(), code, udims);
+        } else {
+            idx = buildOperand(nullptr, 0, code, udims);
+        }
         mTensorIdxMap.insert(std::make_pair(t, idx));
         return idx;
+    }
+    ErrorCode NNAPIBackend::replaceTensorWith(const Tensor* src, const Tensor* replace) {
+        const auto& iter = mTensorIdxMap.find(replace);
+        if (iter != mTensorIdxMap.end()) {
+            mTensorIdxMap.insert(std::make_pair(src, iter->second));
+            return NO_ERROR;
+        }
+        MNN_ERROR("[NNAPI] The replace Tensor must register.");
+        return INVALID_VALUE;
     }
     uint32_t NNAPIBackend::buildScalar(int scalar) {
         auto iter = mScalarIntMap.find(scalar);
@@ -228,12 +306,22 @@ namespace MNN {
         if (iter != mScalarFloatMap.end()) {
             return iter->second;
         }
-        auto scalarIdx = buildOperand(&scalar, 4, ANEURALNETWORKS_FLOAT32);
+        uint32_t scalarIdx = -1;
+        if (bytes() == 2) {
+            uint16_t value = fp32to16(scalar);
+            scalarIdx = buildOperand(&value, 2, ANEURALNETWORKS_FLOAT16);
+        } else {
+            scalarIdx = buildOperand(&scalar, 4, ANEURALNETWORKS_FLOAT32);
+        }
         mScalarFloatMap.insert(std::make_pair(scalar, scalarIdx));
         return scalarIdx;
     }
-
     uint32_t NNAPIBackend::buildOperand(const void* data, size_t size, OperandCode code, std::vector<uint32_t> dims) {
+        bool needQuant = (bytes() == 2 && code == ANEURALNETWORKS_TENSOR_FLOAT32);
+        if (needQuant) {
+            code = ANEURALNETWORKS_TENSOR_FLOAT16;
+            size /= 2;
+        }
         ANeuralNetworksOperandType operandType {
             .type = code,
             .dimensionCount = static_cast<uint32_t>(dims.size()),
@@ -243,32 +331,38 @@ namespace MNN {
         };
         CHECK(ANeuralNetworksModel_addOperand_27, mNNAPIModel, &operandType);
         uint32_t operandIdx = mTensorIdx++;
-#ifdef NNAPI_DEBUG
-        MNN_PRINT("build operand : {\n");
-        MNN_PRINT("\tidx : %d\n", operandIdx);
-        MNN_PRINT("\tdata : %p\n", data);
-        MNN_PRINT("\tsize : %d\n", size);
-        MNN_PRINT("\ttype : %d\n", operandType.type);
-        MNN_PRINT("\tdimensions : [ ");
-        for (auto i : dims) MNN_PRINT("%d, ", i);
-        MNN_PRINT("]\n}\n");
-#endif
+        {
+            NNAPI_OP_LOG("build operand : {\n");
+            NNAPI_OP_LOG("\tidx : %d\n", operandIdx);
+            NNAPI_OP_LOG("\tdata : %p\n", data);
+            NNAPI_OP_LOG("\tsize : %d\n", size);
+            NNAPI_OP_LOG("\ttype : %d\n", operandType.type);
+            NNAPI_OP_LOG("\tdimensions : [ ");
+            for (auto i : dims) NNAPI_OP_LOG("%d, ", i);
+            NNAPI_OP_LOG("]\n}\n");
+        }
         if (data && size) {
+            if (needQuant) {
+                mHalfBuffer.emplace_back(new int16_t[size/2]);
+                FLOAT_TO_HALF(reinterpret_cast<const float*>(data), mHalfBuffer.back().get(), size/2);
+                data = mHalfBuffer.back().get();
+            }
             CHECK(ANeuralNetworksModel_setOperandValue_27, mNNAPIModel, operandIdx, data, size);
         }
         return operandIdx;
     }
 
     ErrorCode NNAPIBackend::buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs, const char* name) {
-#ifdef NNAPI_DEBUG
-        MNN_PRINT("build operation : {\n");
-        MNN_PRINT("\ttype : %d\n", op);
-        MNN_PRINT("\tinputs : [ ");
-        for (auto i : inputs) MNN_PRINT("%d, ", i);
-        MNN_PRINT("]\n\toutputs : [ ");
-        for (auto i : outputs) MNN_PRINT("%d, ", i);
-        MNN_PRINT("]\n}\n");
-#endif
+        {
+            NNAPI_OP_LOG("build operation : {\n");
+            NNAPI_OP_LOG("\tname : %s\n", name ? name : "none");
+            NNAPI_OP_LOG("\ttype : %d\n", op);
+            NNAPI_OP_LOG("\tinputs : [ ");
+            for (auto i : inputs) NNAPI_OP_LOG("%d, ", i);
+            NNAPI_OP_LOG("]\n\toutputs : [ ");
+            for (auto i : outputs) NNAPI_OP_LOG("%d, ", i);
+            NNAPI_OP_LOG("]\n}\n");
+        }
         if (name) mOpNames.push_back(name);
         CHECK(ANeuralNetworksModel_addOperation_27,
               mNNAPIModel, op,
@@ -286,21 +380,20 @@ namespace MNN {
         for (int i = 0; i < mOutputTensors.size(); i++) {
             outputOperands[i] = getTensorIdx(mOutputTensors[i]);
         }
-#ifdef NNAPI_DEBUG
-        MNN_PRINT("set model's inputs & outputs : {\n");
-        MNN_PRINT("\tinputs : [ ");
-        for (auto i : inputOperands) MNN_PRINT("%d, ", i);
-        MNN_PRINT("]\n\toutputs : [ ");
-        for (auto i : outputOperands) MNN_PRINT("%d, ", i);
-        MNN_PRINT("]\n}\n");
-#endif
+        {
+            NNAPI_OP_LOG("set model's inputs & outputs : {\n");
+            NNAPI_OP_LOG("\tinputs : [ ");
+            for (auto i : inputOperands) NNAPI_OP_LOG("%d, ", i);
+            NNAPI_OP_LOG("]\n\toutputs : [ ");
+            for (auto i : outputOperands) NNAPI_OP_LOG("%d, ", i);
+            NNAPI_OP_LOG("]\n}\n");
+        }
         CHECK(ANeuralNetworksModel_identifyInputsAndOutputs_27,
               mNNAPIModel,
               inputOperands.size(),
               inputOperands.data(),
               outputOperands.size(),
               outputOperands.data());
-        // segment fault
         CHECK(ANeuralNetworksModel_finish_27, mNNAPIModel);
         std::unique_ptr<bool[]> supports(new bool[mOpNames.size()]);
         int selectDeviceIdx = -1;
@@ -309,16 +402,16 @@ namespace MNN {
             auto name = mNNAPIDevices[i].name;
             auto type = mNNAPIDevices[i].type;
             CHECK(ANeuralNetworksModel_getSupportedOperationsForDevices_29, mNNAPIModel, &device, 1, supports.get());
-            MNN_PRINT("[NNAPI] device [%d : %s] supportOps = {\n", i, name);
+            NNAPI_DEVICE_LOG("[NNAPI] device [%d : %s] supportOps = {\n", i, name);
             bool allsupport = true;
             for (int i = 0; i < mOpNames.size(); i++) {
                 allsupport &= supports[i];
-                MNN_PRINT("\t%s : %d\n", mOpNames[i], supports[i]);
+                NNAPI_DEVICE_LOG("\t%s : %d\n", mOpNames[i], supports[i]);
             }
-            MNN_PRINT("}\n");
+            NNAPI_DEVICE_LOG("}\n");
             if (allsupport) {
                 selectDeviceIdx = i;
-                MNN_PRINT("[NNAPI] using device [%d : %s : %d].\n", i, name, type);
+                NNAPI_DEVICE_LOG("[NNAPI] using device [%d : %s : %d].\n", i, name, type);
                 break;
             }
         }
@@ -330,11 +423,10 @@ namespace MNN {
     }
 
     void NNAPIBackend::invokeModel() const {
-// #define NNAPI_PROFILE
         ANeuralNetworksExecution *execution;
         CHECK(ANeuralNetworksExecution_create_27, mNNAPICompilation, &execution);
 #ifdef NNAPI_PROFILE
-        CHECK(ANeuralNetworksExecution_setMeasureTiming, execution, true);
+        ANeuralNetworksExecution_setMeasureTiming_29(execution, true);
 #endif
         for (int i = 0; i < mInputTensors.size(); i++) {
             const void* data = mInputContentTensors[i]->host<void>();
@@ -346,20 +438,13 @@ namespace MNN {
             size_t size = mOutputContentTensors[i]->size();
             CHECK(ANeuralNetworksExecution_setOutput_27, execution, i, nullptr, data, size);
         }
-#if 0
-        ANeuralNetworksEvent *event = nullptr;
-        CHECK(ANeuralNetworksExecution_startCompute, execution, &event);
-        CHECK(ANeuralNetworksEvent_wait, event);
-        ANeuralNetworksEvent_free(event);
-#else
+
         CHECK(ANeuralNetworksExecution_compute_29, execution);
-        // CHECK(ANeuralNetworksExecution_burstCompute_29, execution, mNNAPIBurst);
-#endif
 #ifdef NNAPI_PROFILE
         uint64_t duration;
-        CHECK(ANeuralNetworksExecution_getDuration, execution, ANEURALNETWORKS_DURATION_IN_DRIVER, &duration);
+        ANeuralNetworksExecution_getDuration_29(execution, ANEURALNETWORKS_DURATION_IN_DRIVER, &duration);
         if (duration != UINT64_MAX) MNN_PRINT("[NNAPI] driver time : %f ms\n", duration / 1000000.0);
-        CHECK(ANeuralNetworksExecution_getDuration, execution, ANEURALNETWORKS_DURATION_ON_HARDWARE, &duration);
+        ANeuralNetworksExecution_getDuration_29(execution, ANEURALNETWORKS_DURATION_ON_HARDWARE, &duration);
         if (duration != UINT64_MAX) MNN_PRINT("[NNAPI] hardware time : %f ms\n", duration / 1000000.0);
 #endif
         ANeuralNetworksExecution_free_27(execution);

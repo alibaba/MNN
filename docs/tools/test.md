@@ -33,7 +33,7 @@ Model Version: < 2.0.0
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
 - `inputSize:str` 输入tensor的大小，输入格式为：`1x3x224x224`，可选，默认使用模型默认输入
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low)，可选，默认为`2`
+- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2`
 ### 默认输入与输出
 只支持单一输入、单一输出。输入为运行目录下的input_0.txt；输出为推理完成后的第一个输出tensor，转换为文本后，输出到output.txt中。
 ### 示例
@@ -71,7 +71,7 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `runLoops:int` 性能测试的循环次数，可选，默认为`0`即不做性能测试
 - `numberThread:int` GPU的线程数，可选，默认为`1`
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low)，可选，默认为`0`
+- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`0`
 ### 默认输出
 在当前目录 output 文件夹下，依次打印输出为 0.txt , 1.txt , 2.txt , etc
 ### 示例
@@ -172,12 +172,13 @@ Error for a.txt, 0, v1=0.111000
 ### 功能
 模型总耗时，逐层耗时统计和模型运算量估计。**注意：不要用这个工具测非CPU后端的性能，需要的话请用MNNV2Basic工具**
 ### 参数
-`./timeProfile.out model [runLoops forwardType inputSize numberThread]`
+`./timeProfile.out model [runLoops forwardType inputSize numberThread precision]`
 - `model:str` 模型文件路径
 - `runLoops:int` 测试的循环次数，可选，默认为`100`
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`；（当执行推理的计算设备不为 CPU 时，Op平均耗时和耗时占比可能不准）
 - `inputSize:str` 输入tensor的大小，输入格式为：`1x3x224x224`，可选，默认使用模型默认输入
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
+- `precision:int` 精度仅对CPU有效，可选，默认为`0`
 ### 输出
 - 第一列为 Op类型
 - 第二列为 平均耗时
@@ -222,7 +223,7 @@ main, 138, cost time: 111.161003 ms
 - `model:str` 模型文件路径
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `tolerance:float` 误差的绝对阈值，误差大于阈值会认为不一致，可选，默认为`0.05`
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low)，可选，默认为`0`
+- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`0`
 - `modeNum:int` 设置GPU的执行模式，可选，默认为`1`
 - `stopOp:str` 指定某一层的名称，当执行到该层时停止对比，可选，默认为空
 ### 示例
@@ -299,7 +300,7 @@ Correct !
 - `model:str` 模型文件路径
 - `image:str` 输入图片文件路径
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low)，可选，默认为`1`
+- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`1`
 - `label:str` 种类标签文件，imagenet的1000中分类的标签，可选，默认不使用标签，直接输出种类的index
 ### 示例
 ```bash
@@ -345,7 +346,7 @@ Test mobilenet.mnn Correct!
 - `output:str` 期望输出数据，`.mnn`格式文件，使用表达式接口存储的数据
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `tolerance:float` 误差的绝对阈值，误差大于阈值会认为不一致，可选，默认为`0.1`
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low)，可选，默认为`1`
+- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`1`
 ### 示例
 ```bash
 $ ./testModel_expr.out mobilenet.mnn input_0.mnn output.mnn 

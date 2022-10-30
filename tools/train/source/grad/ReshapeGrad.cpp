@@ -29,7 +29,12 @@ public:
         } else {
             // NC4HW4 don't support dynamic shape grad
             // Create Reshape Op
-            result[0] = _Reshape(backwardOutput[0], _Const(info->dim.data(), {(int)info->dim.size()}, NCHW, halide_type_of<int32_t>()));
+            // result[0] = _Reshape(backwardOutput[0], _Const(info->dim.data(), {(int)info->dim.size()}, NCHW, halide_type_of<int32_t>()));
+            auto temp1 = _Convert(inputs[0], NCHW);
+            auto temp2 = _Convert(backwardOutput[0], NCHW);
+            auto shape = _Shape(temp1);
+            auto temp3 = _Reshape(temp2, shape);
+            result[0] = _Convert(temp3, NC4HW4);
         }
         return result;
     }

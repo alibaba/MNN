@@ -63,6 +63,7 @@ ErrorCode CoreMLInterp::onResize(const std::vector<Tensor *> &inputs, const std:
             CORE_ML__SPECIFICATION__UPSAMPLE_LAYER_PARAMS__LINEAR_UPSAMPLE_MODE__ALIGN_CORNERS_FALSE;
     } else {
         MNN_ERROR("[CoreML] Interp Don't support [Cubic, NearestneighborRound] mode.");
+        return NOT_SUPPORT;
     }
 #endif
     setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(inputs[0])},

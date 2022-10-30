@@ -491,6 +491,7 @@ ENDIF()
 
 # NNAPI
 IF(MNN_NNAPI)
+    add_definitions(-DMNN_NNAPI_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/nnapi/)
     list(APPEND MNN_DEPS MNN_NNAPI)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NNAPI>)

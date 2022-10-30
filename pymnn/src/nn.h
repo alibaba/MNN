@@ -361,7 +361,10 @@ static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>
                     MNN_PRINT("MNN use low precision\n");
                     backendConfig->precision = MNN::BackendConfig::Precision_Low;
                 }
-
+                if (!obj_name.compare("Low_BF16")) {
+                    MNN_PRINT("MNN use lowBF precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
+                }
                 if (!obj_name.compare("high")) {
                     MNN_PRINT("MNN use high precision\n");
                     backendConfig->precision = MNN::BackendConfig::Precision_High;

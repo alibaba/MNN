@@ -23,10 +23,12 @@ void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, cons
                                             const QuanPostTreatParameters* post, size_t realCount);
 void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                           size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
-#if defined(__aarch64__) && defined(MNN_USE_ARMV82) // aarch32 sdot workaround
+#if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                          const QuanPostTreatParameters* post, size_t realDstCount);
-#endif // __aarch64__ && MNN_USE_ARMV82
+void MNNGemmInt8AddBiasScale_ARMV86_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                         const QuanPostTreatParameters* post, size_t realDstCount);
+#endif // __aarch64__
 }
 #endif // MNN_USE_NEON
 
@@ -1425,7 +1427,6 @@ static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, fl
 
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
-
     const int bytes = (post->scale != nullptr ? 1 : 4);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
@@ -1777,10 +1778,160 @@ static void MNNGetGemmUnitSdot(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *DST_XUNIT = GEMM_INT8_DST_XUNIT;
 }
 
-/* End */
 #undef GEMM_INT8_UNIT
 #undef GEMM_INT8_SRC_UNIT
 #undef GEMM_INT8_DST_XUNIT
+/* End */
+
+
+/* CPU with i8mm */
+#define GEMM_INT8_UNIT 4
+#define GEMM_INT8_SRC_UNIT 8
+#define GEMM_INT8_DST_XUNIT 20
+
+// icDiv4 % 2 == 0 will call this function
+static void _im2colCommonI8mm(int8_t* colAddr, const int8_t* src, int32_t inputZeroPoint,
+                              const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                              size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size); // the padding process, since per-channel is removed, this is all right
+    auto ih                     = im2colParameter->ih;
+    auto iw                     = im2colParameter->iw;
+    auto kh                     = im2colParameter->kernelY;
+    auto kw                     = im2colParameter->kernelX;
+    auto dilateX                = im2colParameter->dilateX;
+    auto dilateY                = im2colParameter->dilateY;
+    auto icDiv4                 = im2colParameter->icDiv4;
+    auto srcZStep               = im2colParameter->srcZStep;
+    auto srcYStep               = im2colParameter->srcYStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
+    constexpr int SRC_DIV_UNIT = GEMM_INT8_SRC_UNIT / GEMM_INT8_UNIT; // 2
+    auto icDiv8 = icDiv4 / 2;
+    for (int i = 0; i < realDstCount; ++i) {
+        int xIndex = (int)xIndexStart + i;
+        int ox     = xIndex % im2colParameter->ow;
+        int oy     = xIndex / im2colParameter->ow;
+        int sx = ox * im2colParameter->strideX - im2colParameter->padX;
+        int sy = oy * im2colParameter->strideY - im2colParameter->padY;
+        int sfy = ALIMAX(0, (UP_DIV(-sy, im2colParameter->dilateY)));
+        int efy = ALIMIN(kh, UP_DIV(ih - sy, im2colParameter->dilateY));
+        int sfx = ALIMAX(0, (UP_DIV(-sx, im2colParameter->dilateX)));
+        int efx = ALIMIN(kw, UP_DIV(iw - sx, im2colParameter->dilateX));
+        int fyC = efy - sfy;
+        int fxC = efx - sfx;
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputOffset = src + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * GEMM_INT8_UNIT;
+        auto indexOffset = (sfy * kw + sfx) * icDiv8;
+        for (int fy = 0; fy < fyC; ++fy) {
+            for (int fx = 0; fx < fxC; ++fx) {
+                auto inputK     = inputOffset + fy * dilateY * srcYStep + fx * dilateX * GEMM_INT8_UNIT;
+                auto indexStart = indexOffset + (fy * kw + fx) * icDiv8;
+                for (int sz = 0; sz < icDiv8; ++sz) {
+                    const int yIndex      = indexStart + sz;
+                    auto dstK0            = (int32_t*)colAddrI + yIndex * dstXStepInt32;
+                    dstK0[0]              = *((int32_t*)inputK);
+                    dstK0[1]              = *((int32_t*)(inputK + srcZStep));
+                    inputK += 2 * srcZStep;
+                }
+            }
+        }
+    }
+}
+
+static void _slowIm2ColI8mm(int8_t* colAddr, const int8_t* src, int32_t inputZeroPoint,
+                            const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                            size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size); // the padding process, since per-channel is removed, this is all right
+    auto ih                     = im2colParameter->ih;
+    auto iw                     = im2colParameter->iw;
+    auto kh                     = im2colParameter->kernelY;
+    auto kw                     = im2colParameter->kernelX;
+    auto dilateX                = im2colParameter->dilateX;
+    auto dilateY                = im2colParameter->dilateY;
+    auto icDiv4                 = im2colParameter->icDiv4;
+    auto srcZStep               = im2colParameter->srcZStep;
+    auto srcYStep               = im2colParameter->srcYStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
+    constexpr int SRC_DIV_UNIT = GEMM_INT8_SRC_UNIT / GEMM_INT8_UNIT;
+
+    for (int i = 0; i < realDstCount; ++i) {
+        int xIndex = (int)xIndexStart + i;
+        int ox     = xIndex % im2colParameter->ow;
+        int oy     = xIndex / im2colParameter->ow;
+        int sx = ox * im2colParameter->strideX - im2colParameter->padX;
+        int sy = oy * im2colParameter->strideY - im2colParameter->padY;
+        int sfy = ALIMAX(0, (UP_DIV(-sy, im2colParameter->dilateY)));
+        int efy = ALIMIN(kh, UP_DIV(ih - sy, im2colParameter->dilateY));
+        int sfx = ALIMAX(0, (UP_DIV(-sx, im2colParameter->dilateX)));
+        int efx = ALIMIN(kw, UP_DIV(iw - sx, im2colParameter->dilateX));
+        int fyC = efy - sfy;
+        int fxC = efx - sfx;
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputOffset = src + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * GEMM_INT8_UNIT;
+        auto indexOffset = (sfy * kw + sfx) * icDiv4;
+        for (int fy = 0; fy < fyC; ++fy) {
+            for (int fx = 0; fx < fxC; ++fx) {
+                auto inputK     = inputOffset + fy * dilateY * srcYStep + fx * dilateX * GEMM_INT8_UNIT;
+                auto indexStart = indexOffset + (fy * kw + fx) * icDiv4;
+                for (int sz = 0; sz < icDiv4; ++sz) {
+                    const int yIndex      = indexStart + sz;
+                    const int ySubOutside = yIndex / SRC_DIV_UNIT;
+                    const int ySubInside  = yIndex % SRC_DIV_UNIT;
+                    auto dstK0            = (int32_t*)colAddrI + ySubOutside * dstXStepInt32 + ySubInside;
+                    dstK0[0]              = *((int32_t*)inputK);
+                    inputK += srcZStep;
+                }
+            }
+        }
+    }
+}
+
+static void _fastIm2ColI8mm(int8_t* colAddr, const int8_t* inputOrigin, int32_t inputZeroPoint,
+                              const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                              size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size);
+    const int icDiv4    = im2colParameter->icDiv4;
+    const int srcZStep = im2colParameter->iw * im2colParameter->ih * GEMM_INT8_UNIT;
+    inputOrigin += xIndexStart * GEMM_INT8_UNIT;
+    for (int i = 0; i < realDstCount; ++i) {
+        auto colAddrI = colAddr + GEMM_INT8_UNIT * i;
+        auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
+        for (int sz = 0; sz < icDiv4; ++sz) {
+            auto inputZ0       = inputK + srcZStep * sz;
+            auto dstK0         = colAddrI + sz * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
+            *((int32_t*)dstK0) = *((int32_t*)inputZ0);
+        }
+    }
+}
+
+static MNN::CoreInt8Functions::Im2ColFunc chooseIm2ColI8mm(const MNN::ConvolutionCommon::Im2ColParameter* im2colParam, size_t inputChannel) {
+    bool fastIm2Col = im2colParam->kernelX == 1 && im2colParam->kernelY == 1 && im2colParam->icDiv4 % 2 == 0 &&
+                      im2colParam->strideX == 1 && im2colParam->strideY == 1 && im2colParam->padX == 0 &&
+                      im2colParam->padY == 0;
+    int ih = im2colParam->ih, iw = im2colParam->iw;
+    fastIm2Col &= (im2colParam->srcYStep == iw * GEMM_INT8_UNIT && im2colParam->srcZStep == ih * iw * GEMM_INT8_UNIT);
+    if (fastIm2Col) {
+        return _fastIm2ColI8mm;
+    } else {
+        if (im2colParam->icDiv4 % 2) {
+            return _slowIm2ColI8mm;
+        } else {
+            return _im2colCommonI8mm;
+        }
+    }
+}
+
+static void MNNGetGemmUnitI8mm(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
+    *UNIT = GEMM_INT8_UNIT;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT;
+}
+#undef GEMM_INT8_UNIT
+#undef GEMM_INT8_SRC_UNIT
+#undef GEMM_INT8_DST_XUNIT
+/* End */
 
 namespace MNN {
 
@@ -1808,7 +1959,7 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->MNNPackedSparseQuantMatMulEpx4 = MNNPackedSparseQuantMatMulEpx4;
     gCoreFunc->MNNSparseQuantIm2col = MNNSparseQuantIm2col;
 
-#if defined(__aarch64__) && defined(MNN_USE_ARMV82)
+#if defined(__aarch64__)
     auto core = MNNGetCoreFunctions();
     if (core->supportSDot) {
         // MatMul
@@ -1817,6 +1968,14 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitSdot;
         // Im2Col
         gCoreFunc->chooseIm2Col = chooseIm2ColSdot;
+    }
+    if (core->supportI8mm) {
+        // MatMul
+        gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_ARMV86_Unit;
+        gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_ARMV86_Unit;
+        gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitI8mm;
+        // Im2Col
+        gCoreFunc->chooseIm2Col = chooseIm2ColI8mm;
     }
 #endif
     MNNInt8FunctionInit();

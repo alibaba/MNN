@@ -658,6 +658,10 @@ static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>
                     MNN_PRINT("MNN use low precision\n");
                     backendConfig->precision = MNN::BackendConfig::Precision_Low;
                 }
+                if (!obj_name.compare("Low_BF16")) {
+                    MNN_PRINT("MNN use lowBF precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
+                }
                 if (!obj_name.compare("high")) {
                     MNN_PRINT("MNN use high precision\n");
                     backendConfig->precision = MNN::BackendConfig::Precision_High;
@@ -2192,12 +2196,22 @@ std::vector<CV::Point> toPoints(PyObject* obj) {
     }
     if (isVar(obj)) {
         auto vals = toVar(obj);
-        auto size = vals->getInfo()->size;
+        auto info = vals->getInfo();
+        auto size = info->size;
         MNN_ASSERT(size % 2 == 0);
         std::vector<CV::Point> points(size / 2);
-        auto ptr = vals->readMap<int>();
-        for (int i = 0; i < points.size(); i++) {
-            points[i].set(ptr[i*2], ptr[i*2+1]);
+        if (info->type == halide_type_of<float>()) {
+            auto ptr = vals->readMap<float>();
+            for (int i = 0; i < points.size(); i++) {
+                points[i].set(ptr[i*2], ptr[i*2+1]);
+            }
+        } else if (info->type == halide_type_of<int>()) {
+            auto ptr = vals->readMap<int>();
+            for (int i = 0; i < points.size(); i++) {
+                points[i].set(ptr[i*2], ptr[i*2+1]);
+            }
+        } else {
+            PyMNN_ERROR_LOG("Point data type must be int32 or float32.");
         }
         return points;
     }

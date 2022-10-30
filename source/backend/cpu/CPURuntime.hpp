@@ -10,12 +10,11 @@
 
 #include <stdint.h>
 #include "core/Macro.h"
-#ifdef MNN_USE_ARMV82
 struct cpuinfo_arm_isa {
     bool fp16arith;
     bool dot;
+    bool i8mm;
 };
-#endif
 
 /*
  CPU thread mode, only effective on HMP（Heterogeneous Multi-Processing）arch CPUs
@@ -33,13 +32,7 @@ typedef enum {
 } MNNCPUThreadsMode;
 int MNNSetCPUThreadsMode(MNNCPUThreadsMode mode);
 
-//
 float MNNGetCPUFlops(uint32_t number);
-
-#ifdef MNN_USE_ARMV82
-
 void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa);
-
-#endif // __aarch64__
 
 #endif /* CPUInfo_hpp */

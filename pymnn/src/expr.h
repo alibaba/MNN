@@ -57,7 +57,8 @@ def_enum(PowerMode, PowerMode,
 def_enum(PrecisionMode, PrecisionMode,
         PrecisionMode::Precision_Normal, "Normal",
         PrecisionMode::Precision_High, "High",
-        PrecisionMode::Precision_Low, "Low"
+        PrecisionMode::Precision_Low, "Low",
+        PrecisionMode::Precision_Low_BF16, "Low_BF16"
         )
 // class Var
 typedef struct {
@@ -1534,7 +1535,7 @@ static PyObject* PyMNNExpr_crop_and_resize(PyObject *self, PyObject *args) {
              *method = nullptr /* BILINEAR */;
     float extrapolation_value = 0.0f;
     if (PyArg_ParseTuple(args, "OOOO|Of", &image, &boxes, &box_ind,
-                         &crop_size, &method, extrapolation_value)
+                         &crop_size, &method, &extrapolation_value)
         && isVar(image) && isVar(boxes) && isVar(box_ind)
         && isVar(crop_size)
         && (method == nullptr || isInterp_Method(method))) {

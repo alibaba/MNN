@@ -168,6 +168,7 @@ struct CoreFunctions {
     // cpu feature
     bool supportFp16arith = false;
     bool supportSDot = false;
+    bool supportI8mm = false;
     /**MatMul Pack and Functions*/
     void(*MNNGetMatMulPackMode)(int* eP, int *lP, int* hP);
     void(*MNNGetSparseMatMulPackMode)(int* eP, int *lP, int* hP);

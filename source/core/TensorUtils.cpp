@@ -331,6 +331,69 @@ bool TensorUtils::isCopyRegion(const Tensor::InsideDescribe::Region& region) {
     return eq;
 }
 
+bool TensorUtils::isTransposeRegion(const Tensor::InsideDescribe::Region& region) {
+    int srcOne = -1, dstOne = -1;
+    for (int i = 0; i < 3; i++) {
+        if (region.src.stride[i] == 1 && region.size[i] != 1) {
+            if (srcOne >= 0/* || region.size[i] < 4*/) {
+                return false;
+            }
+            srcOne = i;
+        }
+        if (region.dst.stride[i] == 1 && region.size[i] != 1) {
+            if (dstOne >= 0/* || region.size[i] < 4*/) {
+                return false;
+            }
+            dstOne = i;
+        }
+    }
+    return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
+}
+
+bool TensorUtils::isTileRegion(const Tensor::InsideDescribe::Region& region) {
+    bool res = true;
+    for (int i = 0; i < 3; i++) {
+        if (region.src.stride[i] != 0 && region.size[i] > 1) {
+            res &= (region.src.stride[i] == region.dst.stride[i]);
+        }
+    }
+    return res;
+}
+
+bool TensorUtils::isDepthToSpaceRegions(const Tensor* output) {
+    const auto& regions = TensorUtils::getDescribe(output)->regions;
+    if (regions.empty()) {
+        return false;
+    }
+    auto input = regions[0].origin;
+    for (const auto region : regions) {
+        if (region.origin != input) {
+            return false;
+        }
+    }
+    auto ic = input->channel();
+    auto ih = input->height();
+    auto iw = input->width();
+    auto oc = output->channel();
+    auto oh = output->height();
+    auto ow = output->width();
+    if (ic * ih * iw != oc * oh * ow) {
+        return false;
+    }
+    int hblock = oh / ih;
+    int wblock = ow / iw;
+    if (hblock != wblock) {
+        return false;
+    }
+    if (hblock * wblock * oc != ic) {
+        return false;
+    }
+    if (regions.size() != hblock * wblock) {
+        return false;
+    }
+    return true;
+}
+
 // compute offset through region
 static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, bool backward) {
     if (backward) {

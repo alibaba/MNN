@@ -76,7 +76,7 @@ struct BackendConfig {
 
     PowerMode power = Power_Normal;
 
-    enum PrecisionMode { Precision_Normal = 0, Precision_High, Precision_Low };
+    enum PrecisionMode { Precision_Normal = 0, Precision_High, Precision_Low, Precision_Low_BF16 };
 
     PrecisionMode precision = Precision_Normal;
 

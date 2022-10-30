@@ -91,7 +91,7 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
                 core_ml__specification__activation_sigmoid__init(mLayer_->activation->sigmoid);
                 break;
             default:
-                break;
+                return NOT_SUPPORT;
         }
     }
     setLayerInputsAndOutputs(mLayer_, {inputName}, {mCoreMLBackend->getTensorName(outputs[0])});

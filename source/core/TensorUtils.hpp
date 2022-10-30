@@ -157,6 +157,9 @@ public:
     static Tensor::InsideDescribe::Region makeFullSlice(Tensor* input);
     static bool regionIsFull(Tensor* input);
     static bool isCopyRegion(const Tensor::InsideDescribe::Region& region);
+    static bool isTransposeRegion(const Tensor::InsideDescribe::Region& region);
+    static bool isTileRegion(const Tensor::InsideDescribe::Region& region);
+    static bool isDepthToSpaceRegions(const Tensor* output);
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
     static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
     static void adjustTensorForCompability(Tensor* t);

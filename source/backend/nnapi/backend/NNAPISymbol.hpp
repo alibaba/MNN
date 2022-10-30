@@ -47,6 +47,8 @@ typedef int (MNN_ANeuralNetworksDevice_getVersion)(const ANeuralNetworksDevice* 
 typedef int (MNN_ANeuralNetworksMemory_createFromAHardwareBuffer)(const AHardwareBuffer* ahwb, ANeuralNetworksMemory** memory);
 typedef int (MNN_ANeuralNetworksMemory_createFromFd)(size_t size, int protect, int fd, size_t offset, ANeuralNetworksMemory **memory);
 typedef void (MNN_ANeuralNetworksMemory_free)(ANeuralNetworksMemory* memory);
+typedef void (MNN_ANeuralNetworksExecution_setMeasureTiming)(ANeuralNetworksExecution* execution, bool measure);
+typedef void (MNN_ANeuralNetworksExecution_getDuration)(const ANeuralNetworksExecution* execution,int32_t durationCode, uint64_t* duration);
 
 // symbols
 bool loadNNAPISymbol();
@@ -85,5 +87,7 @@ extern MNN_ANeuralNetworksDevice_getVersion *ANeuralNetworksDevice_getVersion_29
 extern MNN_ANeuralNetworksMemory_createFromAHardwareBuffer *ANeuralNetworksMemory_createFromAHardwareBuffer_29;
 extern MNN_ANeuralNetworksMemory_createFromFd *ANeuralNetworksMemory_createFromFd_27;
 extern MNN_ANeuralNetworksMemory_free *ANeuralNetworksMemory_free_27;
+extern MNN_ANeuralNetworksExecution_setMeasureTiming *ANeuralNetworksExecution_setMeasureTiming_29;
+extern MNN_ANeuralNetworksExecution_getDuration *ANeuralNetworksExecution_getDuration_29;
 }
 #endif /* NNAPISymbols_h */

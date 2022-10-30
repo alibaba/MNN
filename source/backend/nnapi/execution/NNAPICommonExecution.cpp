@@ -34,6 +34,14 @@ uint32_t NNAPICommonExecution::buildConstant(const void* data, size_t size, Oper
     return mNNAPIBackend->buildOperand(data, size, dtype, dims);
 }
 
+uint32_t NNAPICommonExecution::buildVector(const std::vector<int32_t>& vec) {
+    return buildConstant(vec.data(), vec.size() * sizeof(int), ANEURALNETWORKS_TENSOR_INT32, {static_cast<uint32_t>(vec.size())});
+}
+
+uint32_t NNAPICommonExecution::buildVector(const std::vector<float>& vec) {
+    return buildConstant(vec.data(), vec.size() * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, {static_cast<uint32_t>(vec.size())});
+}
+
 uint32_t NNAPICommonExecution::buildTensor(OperandCode dtype, std::vector<int> dims) {
     std::vector<uint32_t> udims(dims.begin(), dims.end());
     if (!mNCHW) {
@@ -46,6 +54,18 @@ uint32_t NNAPICommonExecution::buildTensor(OperandCode dtype, std::vector<int> d
     return mNNAPIBackend->buildOperand(nullptr, 0, dtype, udims);
 }
 
+int NNAPICommonExecution::formatAxis(int axis) {
+    if (!mNCHW) {
+        // NCHW -> NHWC
+        const int axisChange[4] = {0, 3, 1, 2};
+        if (axis > 3) {
+            axis = axis;
+        } else {
+            axis = axisChange[axis];
+        }
+    }
+    return axis;
+}
 ErrorCode NNAPICommonExecution::buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs) {
     auto name = mOp->name() ? mOp->name()->c_str() : EnumNameOpType(mOp->type());
     return mNNAPIBackend->buildOperation(op, inputs, outputs, name);

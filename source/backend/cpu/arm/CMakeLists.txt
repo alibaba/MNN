@@ -11,11 +11,6 @@ if (MNN_SUPPORT_BF16)
     FILE(GLOB MNN_AArch64_SRC ${MNN_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/bf16/*.[sS])
 endif()
 
-# remove the armv82 extension assemblies file
-if(NOT MNN_ARM82)
-    list(REMOVE_ITEM MNN_AArch64_SRC ${CMAKE_CURRENT_LIST_DIR}/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S)
-endif()
-
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
     message(STATUS "Enabling AArch32 Assemblies")
     add_library(MNNARM32 OBJECT ${MNN_AArch32_SRC} ${MNN_NEON_SRC})
@@ -41,7 +36,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
 
     if(MNN_ARM82)
         message(STATUS "Enable INT8 SDOT")
-        target_compile_options(MNNARM64 PRIVATE -march=armv8.2-a+dotprod -DENABLE_ARMV82)
+        target_compile_options(MNNARM64 PRIVATE -DENABLE_ARMV82)
     endif()
 
 else()

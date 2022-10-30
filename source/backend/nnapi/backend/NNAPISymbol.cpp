@@ -63,6 +63,8 @@ bool loadNNAPISymbol() {
     LOAD_SYM(ANeuralNetworksMemory_createFromAHardwareBuffer, 29);
     LOAD_SYM(ANeuralNetworksMemory_createFromFd, 27);
     LOAD_SYM(ANeuralNetworksMemory_free, 27);
+    LOAD_SYM(ANeuralNetworksExecution_setMeasureTiming, 29);
+    LOAD_SYM(ANeuralNetworksExecution_getDuration, 29);
     return true;
 }
 MNN_ANeuralNetworksModel_getSupportedOperationsForDevices *ANeuralNetworksModel_getSupportedOperationsForDevices_29 = nullptr;
@@ -100,4 +102,6 @@ MNN_ANeuralNetworksDevice_getVersion *ANeuralNetworksDevice_getVersion_29 = null
 MNN_ANeuralNetworksMemory_createFromAHardwareBuffer *ANeuralNetworksMemory_createFromAHardwareBuffer_29 = nullptr;
 MNN_ANeuralNetworksMemory_createFromFd *ANeuralNetworksMemory_createFromFd_27 = nullptr;
 MNN_ANeuralNetworksMemory_free *ANeuralNetworksMemory_free_27 = nullptr;
+MNN_ANeuralNetworksExecution_setMeasureTiming *ANeuralNetworksExecution_setMeasureTiming_29 = nullptr;
+MNN_ANeuralNetworksExecution_getDuration *ANeuralNetworksExecution_getDuration_29 = nullptr;
 }

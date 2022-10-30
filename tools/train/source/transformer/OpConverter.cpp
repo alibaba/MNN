@@ -74,9 +74,7 @@ EXPRP OpConverter::convert(EXPRP source) {
         newConvOp->main.value = new Convolution2DT;
         newConvOp->main.AsConvolution2D()->common.reset(new Convolution2DCommonT(*conv2DCommon));
     }
-    if (conv2DCommon->padX != 0 && conv2DCommon->padMode == PadMode_CAFFE) {
-        newConvOp->main.AsConvolution2D()->common->padMode = PadMode_SAME;
-    }
+
     newConvOp->main.AsConvolution2D()->common->relu6 = false;
     newConvOp->main.AsConvolution2D()->common->relu  = false;
 
