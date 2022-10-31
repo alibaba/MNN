@@ -18,15 +18,12 @@
 #endif
 
 #include "core/Macro.h"
-#ifdef MNN_USE_ARMV82
 
 #ifdef __ANDROID__
 #include <fcntl.h>
 #include <sys/auxv.h>
 #include <sys/system_properties.h>
 #endif // __ANDROID__
-
-#endif // MNN_USE_ARMV82
 
 #if __APPLE__
 #include "TargetConditionals.h"
@@ -376,9 +373,6 @@ float MNNGetCPUFlops(uint32_t number) {
 
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
-
-#ifdef MNN_USE_ARMV82
-
 #ifdef __ANDROID__
 
 #define CPUINFO_ARM_MIDR_IMPLEMENTER_MASK UINT32_C(0xFF000000)
@@ -406,6 +400,10 @@ float MNNGetCPUFlops(uint32_t number) {
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+// ref: https://cs.android.com/android/platform/superproject/+/master:bionic/libc/kernel/uapi/asm-arm64/asm/hwcap.h;drc=04da58f5b3bc40dbbafb4f8422aa2991479d9e1e;l=70
+#define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
+#define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
+#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
 #else
 #define CPUINFO_ARM_LINUX_FEATURE_HALF     UINT32_C(0x00000002)
 #define CPUINFO_ARM_LINUX_FEATURE_NEON     UINT32_C(0x00001000)
@@ -1400,6 +1398,14 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             cpuinfo_isa->fp16arith = true;
         }
     }
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
+        cpuinfo_isa->i8mm = true;
+    }
+    /*
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
+        // MNN_PRINT("Support SVE2\n");
+    }
+    */
 #else
     // pytorch/cpuinfo: src/arm/linux/aarch32-isa.c
     uint32_t architecture_version = 0;
@@ -1550,10 +1556,12 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             cpuinfo_isa->fp16arith = true;
         }
 
+        if (isa_features & HWCAP2_I8MM) {
+            cpuinfo_isa->i8mm = true;
+        }
+
 #endif /* __linux__ && __aarch64__ */
 #endif
 
-    MNN_PRINT("The device support dot:%d, support fp16:%d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith);
+    MNN_PRINT("The device support dot:%d, support fp16:%d, support i8mm: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm);
 }
-
-#endif // MNN_USE_ARMV82

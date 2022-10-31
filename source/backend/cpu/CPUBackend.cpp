@@ -120,7 +120,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     }
 #endif
 #ifdef MNN_SUPPORT_BF16
-    if (precision == BackendConfig::Precision_Low && BF16Functions::get()) {
+    if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
         return new BF16Backend(this);
     }
 #endif

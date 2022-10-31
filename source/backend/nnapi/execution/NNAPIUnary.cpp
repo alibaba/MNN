@@ -44,7 +44,7 @@ ErrorCode NNAPIUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
         {UnaryOpOperation_LOG1P, -1},
         {UnaryOpOperation_SQUARE, -1},
         {UnaryOpOperation_NEG, ANEURALNETWORKS_NEG},
-        {UnaryOpOperation_HARDSWISH, -1},
+        {UnaryOpOperation_HARDSWISH, ANEURALNETWORKS_HARD_SWISH},
         {UnaryOpOperation_GELU, -1},
         {UnaryOpOperation_GELU_STANDARD, -1},
         {UnaryOpOperation_EXPM1, -1},

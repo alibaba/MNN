@@ -1,5 +1,48 @@
 # 发布版本
-## 2.1.0 (`Latest`)
+## 2.2.0 (`Latest`)
+### 框架通用性
+- MNN新增对`ARMv8.6-A`指令支持，支持了`smmla`和`bfmmla`指令
+- MNN新增汇编预处理脚本，能够将汇编指令转换为`.inst`指令，降低新指令对编译器的依赖
+- 新增A16和M2 CPU family支持
+- 新增Interp3D支持
+- MNN新增`NNAPI`后端，能够利用Android设备上的NPU/APU/DSP进行计算；支持`float32`与`float16`数据类型的模型推理。目前支持的算子如下：
+  - [x] Conv2d, DepthwiseConv2d
+  - [x] MaxPool2d, AvgPool2d
+  - [x] Binary/Elementwise: Add, Sub, Mul, Div
+  - [x] Unary: Abs, Exp, Sqrt, Rsqrt, Log, Sin, Tanh, Floor, Neg, Hardswish
+  - [x] Activation: Softmax, Relu, Relu6, Prelu, Sigmoid, Elu
+  - [x] Reduction: Sum, Mean, Max, Min, Prod, All, Any
+  - [x] Argmax, Argmin
+  - [x] Resize: Nearstneighbor, Bilinear
+  - [x] Reshape, Transpose, Tile, Pad, Slice, DepthToSpace, Concat, Gether
+  - [x] Scale/BatchNorm
+### 性能优化
+- 新增ARMv8.6指令支持后，GemmInt8, GemmBF16性能提升
+  - `smmla`实现的`GemmInt8`实测性能在矩阵规模为`[1024, 1024, 1024]`时，性能相比`sdot`提升为88.47%（s图中`33x33`项），接近理论性能(100%)；模型性能提升20%左右。
+  ![smmla1](../_static/images/intro/releases/2_2_0_smmla1.png)
+  ![smmla2](../_static/images/intro/releases/2_2_0_smmla2.png)
+  - `bfmmla`实现的`GemmBF16`实测性能在规模为`[1024, 1024, 1024]`时，性能相比fp16`fmla`提升为91.53%（图中`1024,1024,1024`项），接近理论性能；模型性能相比原来的bf16提升一倍以上。
+  ![bfmmla1](../_static/images/intro/releases/2_2_0_bfmmla1.png)
+  ![bfmmla2](../_static/images/intro/releases/2_2_0_bfmmla2.png)
+- 在执行Mobilenetv1时，NNAPI使用accelerator设备进行推理，在中端和高端设备上相比CPU单线程均有性能优势；在高端设备上相比CPU 4线程仍有性能优势；在其他类模型对比时，除卷积外其他算子较少的模型NNAPI均有优势，包含其他算子的模型会出现性能不如MNN-CPU的情况；在使用`float16`推理时，NNAPI平均性能相比MNN-CPU慢。
+  ![nnapi](../_static/images/intro/releases/2_2_0_nnapi1.png)
+  ![nnapi](../_static/images/intro/releases/2_2_0_nnapi2.png)
+- CUDA性能优化，Depthwise卷积、Raster快速计算、Im2Col等优化，MobileNet/Squeezenet等模型性能提升
+  ![cuda](../_static/images/intro/releases/2_2_0_cuda.png)
+- 新增BinaryRelu-Fuse和对应的各后端实现，resnet模型性能提升
+  ![bianryrelu](../_static/images/intro/releases/2_2_0_bianryrelu.png)
+### 其他
+- 进行了部分代码重构（包括但不限于）
+  - 对于包含多个SubModule的复杂模型, 复用子模型间共性tensor，重新构建计算图和指令队列，显著降低大内存操作的耗时
+- 修复了如下 Bug（包括但不限于）
+  - Onnx Resize 在指定 scale 且输入输出无法整除时，计算错误
+  - 修复在不支持SSE 4.1的设备上打开SSE执行Crash的问题
+  - 修复多输入Conv转换错误
+  - 修复ARM82后端GridSampler在Linux上的编译错误
+  - 修复Conv1dSqueezeMove在Squeeze双输入时计算出错的问题
+  - 修复输入为NC4HW4时，stride计算错误的问题
+  - 修复HIAI后端编译错误，Binary BUG
+## 2.1.0
 ### 框架通用性
 - MNN-CV增加`solvepnp / svd`等函数实现
 - MNN-Train补充`Unary/Binary/Reduction`的求导实现
@@ -87,7 +130,7 @@
   - BF16 可以给中低端手机和高端机的小核带来性能收益，并且降低内存占用。经MNN团队内部测试，BF16相对于FP32在不同机型的中低端核心(A53 A55 A53kyro A55kyro)上，不同模型有 5%-30%的优化，性能如下：![bf16.png](../_static/images/intro/releases/1_2_0_bf16.png)
   - BF16使用方法：
     - 编译MNN时，指定`-DMNN_SUPPORT_BF16=ON`
-    - BackendConfig中指定`PrecisionMode=Precision_Low`
+    - BackendConfig中指定`PrecisionMode=Precision_Low_BF16`
 - 新增CoreML后端
   - 基于几何计算，MNN添加了CoreML的支持。在iPhone X之后，借助于Apple Neural Engine，相比于CPU，CoreML(ANE)在视觉模型中约有5-6倍的性能提升。
 - 几何计算的演进

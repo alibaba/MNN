@@ -66,6 +66,7 @@ static EXPRP _transformConv3D(EXPRP expr) {
     conv3d->common.reset(new MNN::Convolution3DCommonT);
     auto common = conv3d->common.get();
     const int attrSize = extraParam->attr()->size();
+    std::vector<int> outputPadding;
     for (int i = 0; i < attrSize; ++i) {
         auto attr       = extraParam->attr()->GetAs<Attribute>(i);
         const auto& key = attr->key()->str();
@@ -81,8 +82,17 @@ static EXPRP _transformConv3D(EXPRP expr) {
             auto values     = attr->list()->i()->data();
             common->padMode = MNN::PadMode_CAFFE;
             common->pads    = std::vector<int>({values[0], values[1], values[2]});
+        } else if (key == "output_padding") {
+            // only valid in ConvTranspose
+            auto dataList  = attr->list();
+            const int size = dataList->i()->size();
+            for (int k = 0; k < size; ++k) {
+                outputPadding.push_back(dataList->i()->data()[k]);
+            }
         }
+        // TODO: Support outputshape
     }
+    common->outPads = outputPadding;
 
     common->relu = common->relu6 = false;
     if (isDeconv) {

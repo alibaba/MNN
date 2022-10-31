@@ -70,6 +70,12 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Set ThreadNumber = %d\n", threadNumber);
     }
 
+    auto precision = BackendConfig::PrecisionMode::Precision_Normal;
+    if (argc > 6) {
+        precision = (BackendConfig::PrecisionMode)atoi(argv[6]);
+        printf("Use precision type: %d\n", precision);
+    }
+
     float sparsity = 0.0f;
     if(argc >= 8) {
         sparsity = atof(argv[7]);
@@ -95,6 +101,9 @@ int main(int argc, const char* argv[]) {
     MNN::ScheduleConfig config;
     config.type           = type;
     config.numThread      = threadNumber;
+    BackendConfig backendConfig;
+    backendConfig.precision = precision;
+    config.backendConfig  = &backendConfig;
     MNN::Session* session = NULL;
     session               = net->createSession(config);
     auto inputTensor      = net->getSessionInput(session, NULL);

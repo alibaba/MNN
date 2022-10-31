@@ -22,10 +22,29 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
         {BinaryOpOperation_MUL, ANEURALNETWORKS_MUL},
         {BinaryOpOperation_DIV, ANEURALNETWORKS_DIV}
     };
-    auto opType = static_cast<BinaryOpOperation>(mOp->main_as_BinaryOp()->opType());
-    auto iter = binary_map.find(opType);
+    BinaryOpOperation binaryType;
+    if (mOp->type() == OpType_BinaryOp) {
+        binaryType = static_cast<BinaryOpOperation>(mOp->main_as_BinaryOp()->opType());
+    } else if (mOp->type() == OpType_Eltwise) {
+        auto elemType = mOp->main_as_Eltwise()->type();
+        switch (elemType) {
+            case EltwiseType_PROD:
+                binaryType = BinaryOpOperation_MUL;
+                break;
+            case EltwiseType_SUM:
+                binaryType = BinaryOpOperation_ADD;
+                break;
+            case EltwiseType_SUB:
+                binaryType = BinaryOpOperation_SUB;
+                break;
+            case EltwiseType_MAXIMUM:
+                binaryType = BinaryOpOperation_MAXIMUM;
+                break;
+        }
+    }
+    auto iter = binary_map.find(binaryType);
     if (iter == binary_map.end() || iter->second < 0) {
-        MNN_ERROR("[NNAPI] Binary not support %s\n", MNN::EnumNameBinaryOpOperation(opType));
+        MNN_ERROR("[NNAPI] Binary not support %s\n", MNN::EnumNameBinaryOpOperation(binaryType));
         return NOT_SUPPORT;
     }
     auto inputIdxs = getTensorIdxs(inputs);
@@ -34,4 +53,5 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
 }
 
 REGISTER_NNAPI_OP_CREATOR(NNAPIBinary, OpType_BinaryOp)
+REGISTER_NNAPI_OP_CREATOR(NNAPIBinary, OpType_Eltwise)
 } // namespace MNN

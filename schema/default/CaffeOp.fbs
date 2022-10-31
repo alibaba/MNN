@@ -37,6 +37,8 @@ table Convolution3DCommon {
     relu:bool = false;
     relu6:bool = false;
     group:int = 1;
+    outPads:[int];
+    hasOutputShape:bool = false;
 }
 
 enum SparseAlgo : byte {

@@ -66,13 +66,32 @@ namespace MNN {
         };
         static bool addCreator(OpType t, Creator* c);
         // NNAPI functions
-        bool NCHW() { return mNCHW; }
+        bool NCHW() const { return mNCHW; }
+        int bytes() const {
+#ifdef MNN_USE_ARMV82
+            return mPrecision >= BackendConfig::PrecisionMode::Precision_Low ? 2 : 4;
+#else
+            return 4;
+#endif
+        }
+        template <typename T> void dimsFormat(std::vector<T>& dims, MNN_DATA_FORMAT format) {
+            if (dims.size() == 4) {
+                if (format != MNN_DATA_FORMAT_NHWC && !mNCHW) {
+                    T n = dims[0], c = dims[1], h = dims[2], w = dims[3];
+                    dims[0] = n;
+                    dims[1] = h;
+                    dims[2] = w;
+                    dims[3] = c;
+                }
+            }
+        }
         uint32_t getTensorIdx(const Tensor* t);
         uint32_t buildScalar(int scalar);
         uint32_t buildScalar(bool scalar);
         uint32_t buildScalar(float scalar);
         uint32_t buildOperand(const void* data, size_t size, OperandCode code, std::vector<uint32_t> dims = {});
         ErrorCode buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs, const char* name = nullptr);
+        ErrorCode replaceTensorWith(const Tensor* src, const Tensor* replace);
         void buildModel();
         void invokeModel() const;
     private:
@@ -90,6 +109,8 @@ namespace MNN {
         std::map<int, uint32_t> mScalarIntMap;
         std::map<bool, uint32_t> mScalarBoolMap;
         std::map<float, uint32_t> mScalarFloatMap;
+        // fp16 buffer
+        std::vector<std::unique_ptr<int16_t[]>> mHalfBuffer;
         // NNAPI resource
         struct NNAPIDevice {
             ANeuralNetworksDevice* device;

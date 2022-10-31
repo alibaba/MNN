@@ -234,6 +234,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             EXPRP dense_expr = Expr::create(dense_op.get(), {input}, 1);
             VARP output = Variable::create(dense_expr);
+            output->setName(expr->outputName(0) + "__matmul_converted");
             //MNN_PRINT("%d\n", output->getInfo()->order);
             output = _ConvertF(output, format);
             VARP reshapeVar = _ReshapeF(output, _Concat({inputRemain, inputE, outputH}, 0), format);

@@ -45,7 +45,7 @@ MNN文档：
 - 支持 Tensorflow、Caffe、ONNX、Torchscripts 等主流模型文件格式，支持CNN / RNN / GAN / Transformer 等主流网络结构。
 - 支持多输入多输出，支持任意维度的输入输出，支持动态输入（输入大小可变），支持带控制流的模型
 - 算子丰富，支持 178 个Tensorflow Op、52个 Caffe Op、163个 Torchscipts Op、158 个 ONNX Op（ONNX 基本完整支持）
-- 支持 服务器 / 个人电脑 / 手机 及具有POSIX接口的嵌入式设备，支持使用设备的 CPU / GPU 计算，支持部分设备的 NPU 计算（IOS 11 + CoreML / Huawei + HIAI）
+- 支持 服务器 / 个人电脑 / 手机 及具有POSIX接口的嵌入式设备，支持使用设备的 CPU / GPU 计算，支持部分设备的 NPU 计算（IOS 11 + CoreML / Huawei + HIAI / Android + NNAPI）
 - 支持 Windows / iOS 8.0+ / Android 4.3+ / Linux  及具有POSIX接口的操作系统
 
 ### 高性能
@@ -77,13 +77,14 @@ MNN适配的硬件架构与精度详见下表：
 |  | x86/x64-AVX2 | S | B | B | A |
 |  | x86/x64-AVX512 | S | B | B | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
-|  | ARMv8 | S | S (ARMv8.2) | S | S |
+|  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
 | GPU | OpenCL | A | S | C | C |
 |  | Vulkan | A | A | C | C |
 |  | Metal | A | S | C | C |
 |  | CUDA | A | S | C | C |
-| NPU | CoreML | B | C | C | C |
+| NPU | CoreML | B | B | C | C |
 |  | HIAI | B | C | C | B |
+|  | NNAPI | B | B | C | C |
 
 
 ## 工具

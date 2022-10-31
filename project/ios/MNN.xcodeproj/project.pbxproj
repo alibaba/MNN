@@ -340,6 +340,7 @@
 		4D9A93D426255ECD00F9B43C /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4D9A93D326255ECD00F9B43C /* CoreML.framework */; };
 		4D9A93EB26255FB000F9B43C /* models in Resources */ = {isa = PBXBuildFile; fileRef = 4D9A93EA26255FB000F9B43C /* models */; };
 		4DAE9B9E2799488C00449DC4 /* structural.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DAE9B9D2799488C00449DC4 /* structural.cpp */; };
+		4DCC792328FEC5CB00C9BA9E /* MNNGemmInt8AddBiasScale_ARMV86_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DCC792228FEC5CB00C9BA9E /* MNNGemmInt8AddBiasScale_ARMV86_Unit.S */; };
 		4DCF538A2892B15200B5B393 /* histograms.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DCF53892892B15200B5B393 /* histograms.cpp */; };
 		4DCF538D2892B16400B5B393 /* CPUHistogram.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DCF538B2892B16300B5B393 /* CPUHistogram.cpp */; };
 		4DCF538E2892B16400B5B393 /* CPUHistogram.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DCF538C2892B16400B5B393 /* CPUHistogram.hpp */; };
@@ -1119,6 +1120,7 @@
 		4D9A93D326255ECD00F9B43C /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		4D9A93EA26255FB000F9B43C /* models */ = {isa = PBXFileReference; lastKnownFileType = folder; path = models; sourceTree = "<group>"; };
 		4DAE9B9D2799488C00449DC4 /* structural.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = structural.cpp; sourceTree = "<group>"; };
+		4DCC792228FEC5CB00C9BA9E /* MNNGemmInt8AddBiasScale_ARMV86_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_ARMV86_Unit.S; sourceTree = "<group>"; };
 		4DCF53892892B15200B5B393 /* histograms.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = histograms.cpp; sourceTree = "<group>"; };
 		4DCF538B2892B16300B5B393 /* CPUHistogram.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUHistogram.cpp; sourceTree = "<group>"; };
 		4DCF538C2892B16400B5B393 /* CPUHistogram.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUHistogram.hpp; sourceTree = "<group>"; };
@@ -2480,6 +2482,7 @@
 		92FF017C23AA0B4E00AC97F6 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				4DCC792228FEC5CB00C9BA9E /* MNNGemmInt8AddBiasScale_ARMV86_Unit.S */,
 				4844603C2726558B00F7EABA /* MNNConvWinoSourceTransformUnit6x6FP16.S */,
 				4AF4FB27269ED243005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */,
 				4AF4FB28269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */,
@@ -3487,6 +3490,7 @@
 				92FF037E23AA0B5A00AC97F6 /* CPUDetectionPostProcess.cpp in Sources */,
 				4D4CF4682760946500A36D9F /* geometric.cpp in Sources */,
 				92FF045023AA0B7100AC97F6 /* ShapeCropAndResize.cpp in Sources */,
+				4DCC792328FEC5CB00C9BA9E /* MNNGemmInt8AddBiasScale_ARMV86_Unit.S in Sources */,
 				92FF03D023AA0B5A00AC97F6 /* CPUTensorConvert.cpp in Sources */,
 				CE482F42288536DA007CD935 /* md5.c in Sources */,
 				92FF02C023AA0B5A00AC97F6 /* MNNAddC4WithStride.S in Sources */,

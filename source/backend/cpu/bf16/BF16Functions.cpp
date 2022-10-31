@@ -14,6 +14,7 @@
 #include "WinogradOptFunctionHalf.hpp"
 #include "../compute/CommonOptFunction.h"
 #include "../CPUPool.hpp"
+#include "../CPURuntime.hpp"
 #include "VecHalf.hpp"
 #include "math/Vec.hpp"
 #include "BF16Binary.hpp"
@@ -890,6 +891,20 @@ bool BF16Functions::init() {
     gInstance->MNNConvRunForLineDepthwise = NEON_MNNConvRunForLineDepthwise_BF16;
     gInstance->MNNConvRunForUnitDepthWise = NEON_MNNConvRunForUnitDepthWise_BF16;
     gInstance->MNNAxByClampBroadcastUnit = NEON_MNNAxByClampBroadcastC4_BF16;
+#ifdef __aarch64__
+    cpuinfo_arm_isa gCPUInfo;
+    cpuinfo_arm_init(&gCPUInfo);
+    gInstance->supportFp16arith = gCPUInfo.fp16arith;
+    gInstance->supportSDot = gCPUInfo.dot;
+    gInstance->supportI8mm = gCPUInfo.i8mm;
+    if (gInstance->supportI8mm) {
+        gInstance->MNNPackForMatMul_B = ARMV86_MNNPackForMatMul_B_BF16;
+        gInstance->MNNPackC4ForMatMul_A = ARMV86_MNNPackC4ForMatMul_A_BF16;
+        gInstance->MNNGetMatMulPackMode = ARMV86_MNNGetMatMulPackMode_BF16;
+        gInstance->MNNPackedMatMul = ARMV86_MNNPackedMatMul_BF16;
+        gInstance->MNNPackedMatMulRemain = ARMV86_MNNPackedMatMulRemain_BF16;
+    }
+#endif
     return true;
 #endif
     // TODO: raw cpu version of bf16

@@ -74,14 +74,6 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     return NO_ERROR;
 }
 
-//
-//  DenseConvInt8TiledExecutor.cpp
-//  MNN
-//
-//  Created by MNN on 2019/5/17.
-//  Copyright © 2018, Alibaba Group Holding Limited
-//
-
 static bool reorderWeight(Backend* bn, const Convolution2DCommon* common,
                           const std::shared_ptr<Tensor>& weightOrigin,
                           std::shared_ptr<Tensor>& weight) {

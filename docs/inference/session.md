@@ -174,7 +174,8 @@ struct BackendConfig {
     enum PrecisionMode {
         Precision_Normal = 0,
         Precision_High,
-        Precision_Low
+        Precision_Low,
+        Precision_Low_BF16
     };
     
     PrecisionMode precision = Precision_Normal;
@@ -191,7 +192,8 @@ struct BackendConfig {
 **precision 为 Low 时，使用 fp16 存储与计算**，计算结果与CPU计算结果有少量误差，实时性最好；precision 为 Normal 时，使用 fp16存储，计算时将fp16转为fp32计算，计算结果与CPU计算结果相近，实时性也较好；precision 为 High 时，使用 fp32 存储与计算，实时性下降，但与CPU计算结果保持一致。
 
 后端 CPU
-**precision 为 Low 时，根据设备情况开启 FP16 或 BF16 计算**
+**precision 为 Low 时，根据设备情况开启 FP16 计算**
+**precision 为 Low_BF16 时，根据设备情况开启 BF16 计算**
 
 `sharedContext`用于自定义后端，用户可以根据自身需要赋值。
 

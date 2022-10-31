@@ -58,6 +58,16 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         bottom = common->padY();
         right = common->padX();
     }
+    if (padMod == PadMode_SAME) {
+        int inputY = (outputs[0]->height() - 1) * strideY + (kernelY - 1) * dilateY + 1;
+        int inputX = (outputs[0]->width() - 1) * strideX + (kernelX - 1) * dilateX + 1;
+        int padY = std::max(inputY - inputs[0]->height(), 0);
+        int padX = std::max(inputX - inputs[0]->width(), 0);
+        top = bottom = padY / 2;
+        left = right = padX / 2;
+        top += padY % 2;
+        left += padX % 2;
+    }
     // NNAPI inputs:
     // conv2d: [input, weight, bias, pad_left, pad_right, pad_top, pad_bottom, stride_w, stride_h, fusecode, NCHW/NHWC, dilate_w, dilate_h]
     // depthwise_conv2d: [input, weight, bias, pad_left, pad_right, pad_top, pad_bottom, stride_w, stride_h, multiplier, fusecode, NCHW/NHWC, dilate_w, dilate_h]
@@ -92,11 +102,11 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             n = 1;
             c = outputCount;
         }
-        nhwcWeight.reset(new float[weightSize]);
         std::vector<uint32_t> weightDims {n, h, w, c};
+        std::vector<uint32_t> biasDims {outputCount};
+        nhwcWeight.reset(new float[weightSize]);
         // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
         NCHW2NHWC<float>(reinterpret_cast<const float*>(weightPtr), nhwcWeight.get(), n, c, h * w);
-        std::vector<uint32_t> biasDims {outputCount};
         inputIdxs.push_back(buildConstant(nhwcWeight.get(), weightSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, weightDims));
         inputIdxs.push_back(buildConstant(biasPtr, biasSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, biasDims));
     }

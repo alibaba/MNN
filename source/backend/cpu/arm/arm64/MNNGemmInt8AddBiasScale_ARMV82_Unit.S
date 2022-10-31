@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(__aarch64__)
 #include "MNNAsmGlobal.h"
 
 .text
@@ -17,12 +17,6 @@
     mov \d1\().16b, \s\().16b
     mov \d2\().16b, \s\().16b
     mov \d3\().16b, \s\().16b
-.endm
-.macro COMPUTE s0, s1, d0, d1, d2, d3
-    sdot \d0\().4s, \s0\().16b, \s1\().4b[0]
-    sdot \d1\().4s, \s0\().16b, \s1\().4b[1]
-    sdot \d2\().4s, \s0\().16b, \s1\().4b[2]
-    sdot \d3\().4s, \s0\().16b, \s1\().4b[3]
 .endm
 .macro Int32ToFloat z0, z1, z2, z3
     scvtf \z0\().4s, \z0\().4s
@@ -115,15 +109,33 @@ L8LoopDz_TILE_12:
     L8LoopSz_TILE_12:
         ld1 {v3.16b}, [x2], x15 // weight
         ld1 {v0.16b, v1.16b, v2.16b}, [x11], #48 // src
-        COMPUTE v3, v0, v8, v9, v10, v11
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         ld1 {v4.16b}, [x2], #16
-        COMPUTE v3, v1, v12, v13, v14, v15
-        COMPUTE v3, v2, v16, v17, v18, v19
-        COMPUTE v4, v0, v20, v21, v22, v23
+        .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
+        .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
+        .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
+        .inst 0x4fa1e86f // sdot v15.4s, v3.16b, v1.4b[3]
+        .inst 0x4f82e070 // sdot v16.4s, v3.16b, v2.4b[0]
+        .inst 0x4fa2e071 // sdot v17.4s, v3.16b, v2.4b[1]
+        .inst 0x4f82e872 // sdot v18.4s, v3.16b, v2.4b[2]
+        .inst 0x4fa2e873 // sdot v19.4s, v3.16b, v2.4b[3]
+        .inst 0x4f80e094 // sdot v20.4s, v4.16b, v0.4b[0]
+        .inst 0x4fa0e095 // sdot v21.4s, v4.16b, v0.4b[1]
+        .inst 0x4f80e896 // sdot v22.4s, v4.16b, v0.4b[2]
+        .inst 0x4fa0e897 // sdot v23.4s, v4.16b, v0.4b[3]
         sub x2, x2, x15
-        COMPUTE v4, v1, v24, v25, v26, v27
+        .inst 0x4f81e098 // sdot v24.4s, v4.16b, v1.4b[0]
+        .inst 0x4fa1e099 // sdot v25.4s, v4.16b, v1.4b[1]
+        .inst 0x4f81e89a // sdot v26.4s, v4.16b, v1.4b[2]
+        .inst 0x4fa1e89b // sdot v27.4s, v4.16b, v1.4b[3]
         subs x13, x13, #1
-        COMPUTE v4, v2, v28, v29, v30, v31
+        .inst 0x4f82e09c // sdot v28.4s, v4.16b, v2.4b[0]
+        .inst 0x4fa2e09d // sdot v29.4s, v4.16b, v2.4b[1]
+        .inst 0x4f82e89e // sdot v30.4s, v4.16b, v2.4b[2]
+        .inst 0x4fa2e89f // sdot v31.4s, v4.16b, v2.4b[3]
         bne L8LoopSz_TILE_12
 
     L8LoopSzEnd_TILE_12:
@@ -205,10 +217,19 @@ L4LoopDz_TILE_12:
     L4LoopSz_TILE_12:
         ld1 {v3.16b}, [x2], #16 // weight
         ld1 {v0.16b, v1.16b, v2.16b}, [x1], #48 // src
-        COMPUTE v3, v0, v8, v9, v10, v11
-        COMPUTE v3, v1, v12, v13, v14, v15
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
+        .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
+        .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
+        .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
+        .inst 0x4fa1e86f // sdot v15.4s, v3.16b, v1.4b[3]
         subs x3, x3, #1
-        COMPUTE v3, v2, v16, v17, v18, v19
+        .inst 0x4f82e070 // sdot v16.4s, v3.16b, v2.4b[0]
+        .inst 0x4fa2e071 // sdot v17.4s, v3.16b, v2.4b[1]
+        .inst 0x4f82e872 // sdot v18.4s, v3.16b, v2.4b[2]
+        .inst 0x4fa2e873 // sdot v19.4s, v3.16b, v2.4b[3]
         bne L4LoopSz_TILE_12
 
     L4LoopSzEnd_TILE_12:
@@ -271,13 +292,25 @@ L8LoopDz_TILE_8:
     L8LoopSz_TILE_8:
         ld1 {v3.16b}, [x12], x15 // weight
         ld1 {v0.16b, v1.16b}, [x11], x22 // src
-        COMPUTE v3, v0, v8, v9, v10, v11
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         ld1 {v4.16b}, [x12], #16
-        COMPUTE v3, v1, v12, v13, v14, v15
+        .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
+        .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
+        .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
+        .inst 0x4fa1e86f // sdot v15.4s, v3.16b, v1.4b[3]
         sub x12, x12, x15
-        COMPUTE v4, v0, v16, v17, v18, v19
+        .inst 0x4f80e090 // sdot v16.4s, v4.16b, v0.4b[0]
+        .inst 0x4fa0e091 // sdot v17.4s, v4.16b, v0.4b[1]
+        .inst 0x4f80e892 // sdot v18.4s, v4.16b, v0.4b[2]
+        .inst 0x4fa0e893 // sdot v19.4s, v4.16b, v0.4b[3]
         subs x13, x13, #1
-        COMPUTE v4, v1, v20, v21, v22, v23
+        .inst 0x4f81e094 // sdot v20.4s, v4.16b, v1.4b[0]
+        .inst 0x4fa1e095 // sdot v21.4s, v4.16b, v1.4b[1]
+        .inst 0x4f81e896 // sdot v22.4s, v4.16b, v1.4b[2]
+        .inst 0x4fa1e897 // sdot v23.4s, v4.16b, v1.4b[3]
         bne L8LoopSz_TILE_8
 
     L8LoopSzEnd_TILE_8:
@@ -343,9 +376,15 @@ L4LoopDz_TILE_8:
     L4LoopSz_TILE_8:
         ld1 {v3.16b}, [x12], #16 // weight
         ld1 {v0.16b, v1.16b}, [x11], x22 // src
-        COMPUTE v3, v0, v8, v9, v10, v11
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         subs x13, x13, #1
-        COMPUTE v3, v1, v12, v13, v14, v15
+        .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
+        .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
+        .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
+        .inst 0x4fa1e86f // sdot v15.4s, v3.16b, v1.4b[3]
         bne L4LoopSz_TILE_8
 
     L4LoopSzEnd_TILE_8:
@@ -402,10 +441,16 @@ L8LoopDz_TILE_4:
         ld1 {v3.16b}, [x12], x15 // weight
         ld1 {v0.16b}, [x11], x22 // src
         ld1 {v4.16b}, [x12], #16 // weight
-        COMPUTE v3, v0, v8, v9, v10, v11
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         subs x13, x13, #1
         sub x12, x12, x15
-        COMPUTE v4, v0, v12, v13, v14, v15
+        .inst 0x4f80e08c // sdot v12.4s, v4.16b, v0.4b[0]
+        .inst 0x4fa0e08d // sdot v13.4s, v4.16b, v0.4b[1]
+        .inst 0x4f80e88e // sdot v14.4s, v4.16b, v0.4b[2]
+        .inst 0x4fa0e88f // sdot v15.4s, v4.16b, v0.4b[3]
         bne L8LoopSz_TILE_4
 
     L8LoopSzEnd_TILE_4:
@@ -451,7 +496,10 @@ L4LoopDz_TILE_4:
         ld1 {v3.16b}, [x12], #16 // weight
         ld1 {v0.16b}, [x11], x22 // src
         subs x13, x13, #1
-        COMPUTE v3, v0, v8, v9, v10, v11
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
+        .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
+        .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         bne L4LoopSz_TILE_4
 
     L4LoopSzEnd_TILE_4:
@@ -495,10 +543,10 @@ L8LoopDz_TILE_1:
         ld1 {v3.16b}, [x12], x15 // weight
         ld1 {v0.s}[0], [x11], x22 // src
         ld1 {v4.16b}, [x12], #16 // weight
-        sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         subs x13, x13, #1
         sub x12, x12, x15
-        sdot v9.4s, v4.16b, v0.4b[0]
+        .inst 0x4f80e089 // sdot v9.4s, v4.16b, v0.4b[0]
         bne L8LoopSz_TILE_1
 
     L8LoopSzEnd_TILE_1:
@@ -541,7 +589,7 @@ L4LoopDz_TILE_1:
         ld1 {v3.16b}, [x12], #16 // weight
         ld1 {v0.s}[0], [x11], x22 // src
         subs x13, x13, #1
-        sdot v8.4s, v3.16b, v0.4b[0]
+        .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         bne L4LoopSz_TILE_1
 
     L4LoopSzEnd_TILE_1:
@@ -576,4 +624,4 @@ ldp d12, d13, [sp, #(16 * 1)]
 ldp d14, d15, [sp], #(16 * 6)
 ret
 
-#endif // MNN_USE_ARMV82
+#endif // __aarch64__

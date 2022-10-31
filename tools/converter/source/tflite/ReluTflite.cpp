@@ -59,8 +59,26 @@ void Relu6Tflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
   auto relu6   = new MNN::Relu6T;
   dstOp->main.value = relu6;
 }
+DECLARE_OP_COVERTER(PreluTflite);
+MNN::OpType PreluTflite::opType(bool quantizedModel) {
+    return MNN::OpType_Extra;
+}
+MNN::OpParameter PreluTflite::type(bool quantizedModel) {
+    return MNN::OpParameter_Extra;
+}
+
+void PreluTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
+                         const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
+                         const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+    dstOp->main.value = new MNN::ExtraT;
+    auto dstP = dstOp->main.AsExtra();
+    dstP->engine = "Tflite";
+    dstP->type = "PRELU";
+}
 
 using namespace tflite;
 REGISTER_CONVERTER(ReluTflite, BuiltinOperator_RELU);
 REGISTER_CONVERTER(LeakyReluTflite, BuiltinOperator_LEAKY_RELU);
 REGISTER_CONVERTER(Relu6Tflite, BuiltinOperator_RELU6);
+REGISTER_CONVERTER(PreluTflite, BuiltinOperator_PRELU);

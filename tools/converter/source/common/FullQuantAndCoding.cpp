@@ -30,7 +30,7 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
                 auto quantParams = algo.quant_params();
                 for (const auto& layerProto : quantParams.layer()) {
                     const std::string& outputName = layerProto.output(0).name();
-                    if (outputName == outputTensorName) {
+                    if ((outputName == outputTensorName) || (outputTensorName == outputName+"__matmul_converted")) {
                         return layerProto;
                     }
                 }

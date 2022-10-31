@@ -2875,12 +2875,11 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNC3ToFloatC3 = MNNC3ToFloatC3;
     gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
 
-#ifdef MNN_USE_ARMV82
     cpuinfo_arm_isa gCPUInfo;
     cpuinfo_arm_init(&gCPUInfo);
     gCoreFunction->supportFp16arith = gCPUInfo.fp16arith;
     gCoreFunction->supportSDot = gCPUInfo.dot;
-#endif
+    gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     MNNCoreInt8FunctionInit();
     MNNFunctionInit();
 }

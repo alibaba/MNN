@@ -26,8 +26,11 @@ protected:
     std::vector<uint32_t> getTensorIdxs(const std::vector<Tensor*>& tensors);
     template <typename T> inline uint32_t buildScalar(T scalar) { return mNNAPIBackend->buildScalar(scalar); }
     uint32_t buildConstant(const void* data, size_t size, OperandCode dtype, std::vector<uint32_t> dims = {});
+    uint32_t buildVector(const std::vector<int32_t>& vec);
+    uint32_t buildVector(const std::vector<float>& vec);
     uint32_t buildTensor(OperandCode dtype, std::vector<int> dims);
     ErrorCode buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs);
+    int formatAxis(int axis);
     NNAPIBackend* mNNAPIBackend;
     const Op* mOp;
 };

@@ -73,13 +73,14 @@ The Architecture / Precision MNN supported is shown below:
 |  | x86/x64-AVX2 | S | B | B | A |
 |  | x86/x64-AVX512 | S | B | B | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
-|  | ARMv8 | S | S (ARMv8.2) | S | S |
+|  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
 | GPU | OpenCL | A | S | C | C |
 |  | Vulkan | A | A | C | C |
 |  | Metal | A | S | C | C |
 |  | CUDA | A | S | C | C |
-| NPU | CoreML | B | C | C | C |
+| NPU | CoreML | B | B | C | C |
 |  | HIAI | B | C | C | B |
+|  | NNAPI | B | B | C | C |
 
 
 
