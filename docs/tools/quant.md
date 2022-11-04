@@ -1,7 +1,7 @@
 # 单输入模型离线量化工具
 `./quantized.out origin.mnn quan.mnn imageInputConfig.json`
 
-多输入模型离线量化请看[说明](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html#id10)
+通用（任意输入个数、维度、类型）模型离线量化请看[说明](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html#id10)
 
 MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查看[文档](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html)选择使用
 
