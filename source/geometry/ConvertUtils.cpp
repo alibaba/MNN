@@ -73,6 +73,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
 }
 
 void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
+    
     auto outputDes        = TensorUtils::getDescribe(output);
     outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     if (TensorUtils::getRawSize(input) == TensorUtils::getRawSize(output)) {
@@ -106,14 +107,40 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
         reg.origin = input;
     }
     int32_t inputShape[MNN_MAX_TENSOR_DIM];
+    int32_t outputShape[MNN_MAX_TENSOR_DIM];
+
     auto outputDim = output->dimensions();
     for (int i=0; i<outputDim; ++i) {
         inputShape[i] = 1;
+        outputShape[i] = output->length(i);
     }
     int offset = outputDim - input->dimensions();
     for (int i = 0; i < input->dimensions(); ++i) {
         inputShape[i + offset] = input->length(i);
     }
+
+    // Squeeze consecutive 1 dimension
+    while(outputDim >= 2) {
+        bool canFuse = false;
+        for(int i=0; i<outputDim-1; ++i) {
+            if(inputShape[i] == 1 && inputShape[i+1] == 1) {
+                for(int j=i+1; j<outputDim; j++) {
+                    inputShape[j] = inputShape[j+1];
+                }
+                outputShape[i] *= outputShape[i+1];
+                for(int j=i+1; j<outputDim; j++) {
+                    outputShape[j] = outputShape[j+1];
+                }
+                outputDim--;
+                i--;
+                canFuse = true;
+            }
+        }
+        if(!canFuse) {
+            break;
+        }
+    }
+
     // Compute Strides
     int sepInputShapeSize = 0;
     int sepOutputShapeSize = 0;
@@ -122,18 +149,18 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
     int currentInput  = 1;
     int currentOutput = 1;
     for (int i = 0; i < outputDim; ++i) {
-        if (inputShape[i] != output->length(i)) {
+        if (inputShape[i] != outputShape[i]) {
             if (1 < currentOutput) {
                 sepInputShape[sepInputShapeSize++] = currentInput;
                 sepOutputShape[sepOutputShapeSize++] = currentOutput;
             }
             sepInputShape[sepInputShapeSize++] = (inputShape[i]);
-            sepOutputShape[sepOutputShapeSize++] = (output->length(i));
+            sepOutputShape[sepOutputShapeSize++] = (outputShape[i]);
             currentInput  = 1;
             currentOutput = 1;
         } else {
             currentInput *= inputShape[i];
-            currentOutput *= output->length(i);
+            currentOutput *= outputShape[i];
         }
     }
     if (currentOutput != 1 || currentInput != 1) {
@@ -174,6 +201,7 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
             reg.src.stride[3 - i - 1] = seperateInputStrides[match];
             reg.dst.stride[3 - i - 1] = seperateOutputStrides[match];
         }
+
     }
 }
 

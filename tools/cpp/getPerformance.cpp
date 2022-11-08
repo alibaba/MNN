@@ -16,8 +16,6 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#include "backend/cpu/CPURuntime.hpp"
-#include "backend/cpu/CPURuntime.cpp"
 
 class Timer {
 private:
@@ -203,15 +201,9 @@ void cpuFLOPSPerformance() {
     MNN_PRINT("CPU float gflops : %f\n", gflops);
 }
 
-void cpuFeatureSupport() {
-    cpuinfo_arm_isa gCPUInfo;
-    cpuinfo_arm_init(&gCPUInfo);
-}
-
 int main(int argc, const char* argv[]) {
     MNN_PRINT("Start PERFORMANCE !!! \n");
 
-    cpuFeatureSupport();
     cpuFLOPSPerformance();
 
     return 0;

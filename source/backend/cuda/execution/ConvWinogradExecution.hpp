@@ -10,8 +10,7 @@
 #define ConvWinogradExecution_hpp_
 
 #include "ConvSingleInputExecution.hpp"
-#include "TensorCoreGemmPacked.cuh"
-#include "CutlassGemmParam.hpp"
+#include "CutlassGemmBatchedParam.hpp"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
 
@@ -46,10 +45,12 @@ private:
     const Op* mOp = nullptr;
     __half* mBtdB_Buffer;
     void* mMatmul_Buffer;
-    MatMulParam mMatMulParam;
-    std::pair<void*, int> mGpuMatMulParam;
-    GemmBatched_F16_Linear_Sm75 mGemmBatchedF16LnSm75;
-    GemmBatched_F32_Linear_Sm75 mGemmBatchedF32LnSm75;
+
+    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16LnSm75;
+    GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF32LnSm75;
+
+    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16Ln;
+    GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32Ln;
 
     std::shared_ptr<Tensor> workspaceTensor;
     uint8_t* mWorkspace;
@@ -59,6 +60,8 @@ private:
     int mPadX;
     int mPadY;
     int mBlock2;
+    int mGpuComputeCap;
+    int mActivationType;
 };
 
 } // namespace CUDA

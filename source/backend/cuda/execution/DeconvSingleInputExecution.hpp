@@ -10,8 +10,9 @@
 #define DeconvSingleInputExecution_hpp
 
 #include "backend/cuda/core/CUDABackend.hpp"
-#include "core/Execution.hpp"
-#include "TensorCoreGemm.cuh"
+#include "MNNCUDADefine.hpp"
+#include "CutlassGemmParam.hpp"
+#include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -85,19 +86,35 @@ public:
 
 private:
     std::shared_ptr<Resource> mResource;
-
     const Op* mOp = nullptr;
-    MatMulParam mMatMulParam;
-    std::pair<void*, int> mGpuMatMulParam;
-
     Col2ImParameter mCol2ImParamter;
-    std::pair<void*, int> mGpuCol2ImParam;
 
-    InputReorderParameter mInpReorderParameter;
-    std::pair<void*, int> mGpuInpReorderParam;
+    CutlassGemmInfo mGemmInfo;
+    int mActivationType;
+    int mGpuComputeCap;
+    void* mIm2ColBuffer;
+    void* mInputBuffer;
+    void* mWorkspace;
+    void* mZeroPtr;
+    std::shared_ptr<Tensor> mZeroTensor;
 
-    float* mIm2ColBuffer;
-    __half* mInputBuffer;
+    GemmCuda_F16_F16_Linear_AlignCuda  mGemmCudaF16Ln;
+    GemmCuda_F16_F32_Linear_AlignCuda  mGemmCudaF32Ln;
+
+    GemmCuda_F16_F16_Relu_AlignCuda  mGemmCudaF16Relu;
+    GemmCuda_F16_F32_Relu_AlignCuda  mGemmCudaF32Relu;
+
+    GemmCuda_F16_F16_Relu6_AlignCuda  mGemmCudaF16Relu6;
+    GemmCuda_F16_F32_Relu6_AlignCuda  mGemmCudaF32Relu6;
+
+    GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16LnSm75;
+    GemmTensor_F16_F32_Linear_AlignCuda_Sm75 mGemmF32LnSm75;
+
+    GemmTensor_F16_F16_Relu_AlignCuda_Sm75 mGemmF16ReluSm75;
+    GemmTensor_F16_F32_Relu_AlignCuda_Sm75 mGemmF32ReluSm75;
+
+    GemmTensor_F16_F16_Relu6_AlignCuda_Sm75 mGemmF16Relu6Sm75;
+    GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 mGemmF32Relu6Sm75;
 };
 
 } // namespace CUDA

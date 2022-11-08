@@ -44,7 +44,7 @@ public:
         auto opExpr = values->expr().first;
         auto grad = OpGrad::get(opExpr->get()->type());
         const int len2 = shape[0] * shape[1] * shape[2] * kInt;
-        float outputDiff[len2] = {  0.6534, 0.3231, 0.9053, 0.3514, 0.0295, 0.6043, 0.4028, 0.0500, 0.0187,
+        const float outputDiff[] = {  0.6534, 0.3231, 0.9053, 0.3514, 0.0295, 0.6043, 0.4028, 0.0500, 0.0187,
                                     0.5509, 0.0573, 0.6394, 0.8483, 0.2786, 0.5789, 0.4515, 0.7059, 0.3444,
                                     0.2242, 0.1954, 0.2002, 0.2493, 0.1952, 0.1997};
         auto inputGrad = grad->onGrad(opExpr, {_Const(outputDiff, {shape[0], shape[1], shape[2], kInt})});

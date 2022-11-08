@@ -51,23 +51,29 @@ private:
     bool mIsBlock = false;
     int mBlockNum = 1;
 
-    Gemm_F16_Linear_Sm70 mGemmF16LnSm70;
-    Gemm_F32_Linear_Sm70 mGemmF32LnSm70;
+    GemmTensor_F16_F16_Linear_AlignTensor_Sm70 mGemmF16LnSm70;
+    GemmTensor_F16_F32_Linear_AlignTensor_Sm70 mGemmF32LnSm70;
+    GemmCuda_F16_F16_Linear_AlignCuda  mGemmCudaF16Ln;
+    GemmCuda_F16_F32_Linear_AlignCuda  mGemmCudaF32Ln;
 
-    Gemm_F16_Relu_Sm70 mGemmF16ReluSm70;
-    Gemm_F32_Relu_Sm70 mGemmF32ReluSm70;
+    GemmTensor_F16_F16_Relu_AlignTensor_Sm70 mGemmF16ReluSm70;
+    GemmTensor_F16_F32_Relu_AlignTensor_Sm70 mGemmF32ReluSm70;
+    GemmCuda_F16_F16_Relu_AlignCuda  mGemmCudaF16Relu;
+    GemmCuda_F16_F32_Relu_AlignCuda  mGemmCudaF32Relu;
 
-    Gemm_F16_Relu6_Sm70 mGemmF16Relu6Sm70;
-    Gemm_F32_Relu6_Sm70 mGemmF32Relu6Sm70;
+    GemmTensor_F16_F16_Relu6_AlignTensor_Sm70 mGemmF16Relu6Sm70;
+    GemmTensor_F16_F32_Relu6_AlignTensor_Sm70 mGemmF32Relu6Sm70;
+    GemmCuda_F16_F16_Relu6_AlignCuda  mGemmCudaF16Relu6;
+    GemmCuda_F16_F32_Relu6_AlignCuda  mGemmCudaF32Relu6;
 
-    Gemm_F16_Linear_Sm75 mGemmF16LnSm75;
-    Gemm_F32_Linear_Sm75 mGemmF32LnSm75;
+    GemmTensor_F16_F16_Linear_AlignTensor_Sm75 mGemmF16LnSm75;
+    GemmTensor_F16_F32_Linear_AlignTensor_Sm75 mGemmF32LnSm75;
 
-    Gemm_F16_Relu_Sm75 mGemmF16ReluSm75;
-    Gemm_F32_Relu_Sm75 mGemmF32ReluSm75;
+    GemmTensor_F16_F16_Relu_AlignTensor_Sm75 mGemmF16ReluSm75;
+    GemmTensor_F16_F32_Relu_AlignTensor_Sm75 mGemmF32ReluSm75;
 
-    Gemm_F16_Relu6_Sm75 mGemmF16Relu6Sm75;
-    Gemm_F32_Relu6_Sm75 mGemmF32Relu6Sm75;
+    GemmTensor_F16_F16_Relu6_AlignTensor_Sm75 mGemmF16Relu6Sm75;
+    GemmTensor_F16_F32_Relu6_AlignTensor_Sm75 mGemmF32Relu6Sm75;
 
     int mGpuComputeCap = 75;
     int mActivationType = 0;

@@ -40,6 +40,7 @@ ErrorCode NNAPIRaster::buildTile(const std::vector<Tensor *> &outputs) {
     for (int i = 0; i < ishape.size(); i++) {
         mDatas.back()[i] = oshape[i] / ishape[i];
     }
+    mNNAPIBackend->dimsFormat(mDatas.back(), TensorUtils::getDescribe(input)->dimensionFormat);
     std::vector<uint32_t> inputIdx(2);
     inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
     inputIdx[1] = buildVector(mDatas.back());
@@ -110,7 +111,7 @@ ErrorCode NNAPIRaster::buildConcat(const std::vector<Tensor *> &outputs, int axi
     for (int i = 0; i < regions.size(); i++) {
         inputIdx[i] = mNNAPIBackend->getTensorIdx(regions[i].origin);
     }
-    inputIdx[regions.size()] = buildScalar(formatAxis(axis));
+    inputIdx[regions.size()] = buildScalar(formatAxis(axis, outputs[0]));
     return buildOperation(ANEURALNETWORKS_CONCATENATION, inputIdx, getTensorIdxs(outputs));
 }
 
@@ -162,6 +163,11 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         // tile, broadcast
         if (inputSize < outputSize) {
             if (TensorUtils::isTileRegion(region)) {
+                // TODO: find the way to judge the case
+                if (region.origin->channel() < output->channel()) {
+                    // tile for bianry input can skip, because nnapi support bianry broadcast
+                    return mNNAPIBackend->replaceTensorWith(output, region.origin);
+                }
                 return buildTile(outputs);
             }
             return buildPad(outputs);

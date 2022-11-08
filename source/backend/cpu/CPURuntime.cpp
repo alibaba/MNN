@@ -1556,7 +1556,7 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             cpuinfo_isa->fp16arith = true;
         }
 
-        if (isa_features & HWCAP2_I8MM) {
+        if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
             cpuinfo_isa->i8mm = true;
         }
 

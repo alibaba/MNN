@@ -231,7 +231,7 @@ static void _test(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmiz
     }
 }
 
-static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, float basicRate, std::string inputName, std::vector<std::string> outputnames, std::string blockName) {
+static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, float basicRate, std::string inputName, std::vector<std::string> outputnames, const std::vector<std::string> blockName) {
     auto dataset = ImageNoLabelDataset::create(gImagePath, &gConfig);
     std::shared_ptr<SGD> sgd(new SGD(optmized));
     sgd->setGradBlockName(blockName);
@@ -342,12 +342,14 @@ public:
             is >> basicRate;
         }
         FUNC_PRINT(bits);
-        std::string blockName;
+        std::vector<std::string> blockName;
         if (argc > 5) {
             std::istringstream is(argv[5]);
-            is >> blockName;
+            std::string s;
+            is >> s;
+            blockName.push_back(s);
         }
-        FUNC_PRINT_ALL(blockName.c_str(), s);
+        FUNC_PRINT_ALL(blockName[0].c_str(), s);
         auto inputOutputs = Variable::getInputAndOutput(varMap);
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         MNN_ASSERT(inputs.size() == 1);

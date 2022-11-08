@@ -5,10 +5,12 @@
 //  Created by MNN on b'2021/04/20'.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#include <map>
-#include "MatMulExecution.hpp"
+
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "Raster.cuh"
+
+#include "MatMulExecution.hpp"
+
 namespace MNN {
 namespace CUDA {
 class CUDALoop : public Execution {
@@ -247,7 +249,7 @@ public:
                     auto srcStride0 = cmd->view()->GetAs<View>(1)->stride()->data();
                     auto srcStride1 = cmd->view()->GetAs<View>(2)->stride()->data();
                     auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
-
+                    //MNN_PRINT("Binary Loop in optype:%d\n", opType);
                     BinaryBlit((uint8_t*)dst, (const uint8_t*)src0, (const uint8_t*)src1,
                         cmd->size()->data(), srcStride0, srcStride1, dstStride, type, runtime, opType);
 

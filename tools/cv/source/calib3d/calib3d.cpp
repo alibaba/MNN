@@ -12,6 +12,7 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <cmath>
+#include <limits>
 #define DUMP(x)\
 {\
     printf(#x "\n");\

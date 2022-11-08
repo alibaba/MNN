@@ -30,7 +30,7 @@ ErrorCode NNAPIGather::onResize(const std::vector<Tensor *> &inputs, const std::
     }
     // gather: [input, axis, indices]
     auto inputIdx   = mNNAPIBackend->getTensorIdx(inputs[0]);
-    auto axisIdx    = buildScalar(formatAxis(axis));
+    auto axisIdx    = buildScalar(formatAxis(axis, input));
     auto indicesIdx = mNNAPIBackend->getTensorIdx(inputs[1]);
     return buildOperation(ANEURALNETWORKS_GATHER, {inputIdx, axisIdx, indicesIdx}, getTensorIdxs(outputs));
 }

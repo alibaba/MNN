@@ -83,12 +83,12 @@ __global__ void Float22Half2(const float* param,
     const size_t maxCount
 ) {
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        float2* srcPtr = (float2 *)(param + (index << 1));
-        half2* dstPtr = (half2*)(output + (index << 1));
+        float2* srcPtr = (float2 *)(param + (index << 2));
+        half2* dstPtr = (half2*)(output + (index << 2));
         dstPtr[0] = __float22half2_rn(srcPtr[0]);
+        dstPtr[1] = __float22half2_rn(srcPtr[1]);
     }
 }
-
 
 ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mBackend = bn;
@@ -141,7 +141,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
             mBias = (void *)biasTensor.get()->buffer().device;
             runtime->memset(mBias, 0, hp * sizeof(int16_t));
 
-            int maxCount = hp / 2;
+            int maxCount = hp / 4;
             int block_num = runtime->blocks_num(maxCount);
             int block_size = runtime->threads_num();
             Float22Half2<<<block_num, block_size>>>((float*)biasTemp, (half*)mBias, maxCount);
@@ -262,24 +262,175 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     int split_k_slices = 1;
     cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);// m n k
     //MNN_PRINT("Conv Gemm mnk:%d-%d-%d\n", mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
-    ElementInputA *inputA_ptr = mNeedIm2Col ? (ElementInputA *)mIm2ColBuffer : (ElementInputA *)input->deviceId();
+    ElementInput_F16 *inputA_ptr = mNeedIm2Col ? (ElementInput_F16 *)mIm2ColBuffer : (ElementInput_F16 *)input->deviceId();
 
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
-    if(mGpuComputeCap < 75) {
+    if(mGpuComputeCap < 70) {
 
         if(mActivationType == 1) {
             if(bytes == 2) {
                 // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
-                typename Gemm_F16_Relu_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmCuda_F16_F16_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                     {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                     {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F16_Relu_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmCuda_F16_F16_Relu_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                // Check the problem size is supported or not 
+                cutlass::Status status = mGemmCudaF16Relu.can_implement(arguments);
+                cutlass_check(status);
+            
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF16Relu.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            } else {
+                // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
+                // instantiated CUTLASS kernel
+                typename GemmCuda_F16_F32_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                    {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                    {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                    {alpha, beta},          // <- tuple of alpha and beta
+                                                    split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmCuda_F16_F32_Relu_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                // Check the problem size is supported or not 
+                cutlass::Status status = mGemmCudaF32Relu.can_implement(arguments);
+                cutlass_check(status);
+    
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF32Relu.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            }
+    
+        } else if(mActivationType == 2) {
+    
+            if(bytes == 2) {
+                // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
+                // instantiated CUTLASS kernel
+                typename GemmCuda_F16_F16_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                    {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                    {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                    {alpha, beta},          // <- tuple of alpha and beta
+                                                    split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmCuda_F16_F16_Relu6_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                // Check the problem size is supported or not 
+                cutlass::Status status = mGemmCudaF16Relu6.can_implement(arguments);
+                cutlass_check(status);
+            
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF16Relu6.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            } else {
+                // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
+                // instantiated CUTLASS kernel
+                typename GemmCuda_F16_F32_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                    {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                    {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                    {alpha, beta},          // <- tuple of alpha and beta
+                                                    split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmCuda_F16_F32_Relu6_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                // Check the problem size is supported or not 
+                cutlass::Status status = mGemmCudaF32Relu6.can_implement(arguments);
+                cutlass_check(status);
+    
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF32Relu6.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            }
+        } else {
+        
+            if(bytes == 2) {
+                typename GemmCuda_F16_F16_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                            {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                            {alpha, beta},          // <- tuple of alpha and beta
+                                            split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmCuda_F16_F16_Linear_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                cutlass::Status status = mGemmCudaF16Ln.can_implement(arguments);
+                cutlass_check(status);
+    
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF16Ln.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            } else {
+                typename GemmCuda_F16_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                    {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                    {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                    {alpha, beta},          // <- tuple of alpha and beta
+                                                    split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmCuda_F16_F32_Linear_AlignCuda::get_workspace_size(arguments);
+    
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+    
+                cutlass::Status status = mGemmCudaF32Ln.can_implement(arguments);
+                cutlass_check(status);
+    
+                // Initialize CUTLASS kernel with arguments and workspace pointer
+                status = mGemmCudaF32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+                cutlass_check(status);
+            }
+        }
+        return NO_ERROR;
+    } else if(mGpuComputeCap < 75) {
+
+        if(mActivationType == 1) {
+            if(bytes == 2) {
+                // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
+                // instantiated CUTLASS kernel
+                typename GemmTensor_F16_F16_Relu_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                    {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                    {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                    {alpha, beta},          // <- tuple of alpha and beta
+                                                    split_k_slices};        // <- k-dimension split factor
+                size_t workspace_size = GemmTensor_F16_F16_Relu_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -296,14 +447,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
             } else {
                 // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
-                typename Gemm_F32_Relu_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmTensor_F16_F32_Relu_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                     {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                     {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F32_Relu_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmTensor_F16_F32_Relu_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -324,14 +475,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
             if(bytes == 2) {
                 // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
-                typename Gemm_F16_Relu6_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmTensor_F16_F16_Relu6_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                     {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                     {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F16_Relu6_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmTensor_F16_F16_Relu6_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -348,14 +499,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
             } else {
                 // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
-                typename Gemm_F32_Relu6_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmTensor_F16_F32_Relu6_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                     {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                     {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F32_Relu6_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmTensor_F16_F32_Relu6_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -374,14 +525,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         } else {
         
             if(bytes == 2) {
-                typename Gemm_F16_Linear_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmTensor_F16_F16_Linear_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F16_Linear_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -395,14 +546,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                 status = mGemmF16LnSm70.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             } else {
-                typename Gemm_F32_Linear_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                typename GemmTensor_F16_F32_Linear_AlignTensor_Sm70::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                    {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                     {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                     {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     split_k_slices};        // <- k-dimension split factor
-                size_t workspace_size = Gemm_F32_Linear_Sm70::get_workspace_size(arguments);
+                size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Sm70::get_workspace_size(arguments);
     
                 auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
                 mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -424,14 +575,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         if(bytes == 2) {
             // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
-            typename Gemm_F16_Relu_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F16_Relu_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F16_Relu_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F16_Relu_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -448,14 +599,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         } else {
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
-            typename Gemm_F32_Relu_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F32_Relu_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F32_Relu_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F32_Relu_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -476,14 +627,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         if(bytes == 2) {
             // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
-            typename Gemm_F16_Relu6_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F16_Relu6_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F16_Relu6_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F16_Relu6_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -500,14 +651,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         } else {
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
-            typename Gemm_F32_Relu6_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F32_Relu6_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F32_Relu6_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F32_Relu6_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -526,14 +677,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     } else {
     
         if(bytes == 2) {
-            typename Gemm_F16_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F16_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                        {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                         {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                         {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                         {alpha, beta},          // <- tuple of alpha and beta
                                         split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F16_Linear_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -547,14 +698,14 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
             status = mGemmF16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
-            typename Gemm_F32_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+            typename GemmTensor_F16_F32_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
-            size_t workspace_size = Gemm_F32_Linear_Sm75::get_workspace_size(arguments);
+            size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
 
             auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
             mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -598,7 +749,7 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if(mIsConv1x1S1D1P0 && bytes == 4) {
-            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1] / 2;
+            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1] / 4;
             int block_num = runtime->blocks_num(maxCount);
             int block_size = runtime->threads_num();
             Float22Half2<<<block_num, block_size>>>((float*)input_addr, mIm2ColBuffer, maxCount);
@@ -626,7 +777,35 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
         }
     }
 
-    if(mGpuComputeCap < 75) {
+    if(mGpuComputeCap < 70) {
+        if(mActivationType == 1) {
+            if(bytes == 4) {
+                cutlass::Status status = mGemmCudaF32Relu();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmCudaF16Relu();
+                cutlass_check(status);
+            }
+        } else if(mActivationType == 2) {
+            if(bytes == 4) {
+                cutlass::Status status = mGemmCudaF32Relu6();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmCudaF16Relu6();
+                cutlass_check(status);
+            }
+        } else {
+            if(bytes == 4) {
+                cutlass::Status status = mGemmCudaF32Ln();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmCudaF16Ln();
+                cutlass_check(status);
+            }
+        }
+    
+        return NO_ERROR;
+    } else if(mGpuComputeCap < 75) {
         if(mActivationType == 1) {
             if(bytes == 4) {
                 cutlass::Status status = mGemmF32ReluSm70();

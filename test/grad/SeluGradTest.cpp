@@ -27,8 +27,8 @@ public:
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, inpudata, len * sizeof(float));
 
-        float scale = 1.0507009873554804934193349852946;
-        float alpha = 1.6732632423543772848170429916717;
+        float scale = 1.0507009873554804934193349852946f;
+        float alpha = 1.6732632423543772848170429916717f;
         auto output = _Selu(input, scale, alpha);
         auto opExpr = output->expr().first;
 

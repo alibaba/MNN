@@ -49,5 +49,3 @@ jobs:
             mkdir build_avx512 && cd build_avx512
             cmake -DMNN_BUILD_TEST=ON -DMNN_AVX512=ON -DMNN_AVX512_VNNI=ON ..
             make -j4
-      - name: test_avx512
-        run: cd build_avx512 && ./run_test.out
