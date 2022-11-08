@@ -41,10 +41,10 @@
 .endm
 
 .macro SET_BIAS s, d0, d1, d2, d3
-    mov \d0\().4s, \s\().4s
-    mov \d1\().4s, \s\().4s
-    mov \d2\().4s, \s\().4s
-    mov \d3\().4s, \s\().4s
+    mov \d0\().16b, \s\().16b
+    mov \d1\().16b, \s\().16b
+    mov \d2\().16b, \s\().16b
+    mov \d3\().16b, \s\().16b
 .endm
 
 // 12 * 8 * 4 MatMul
@@ -86,20 +86,20 @@ LoopH:
     ld1 {v0.4h, v1.4h}, [x5], #16 // 8 * sizeof(int16_t)
     shll v0.4s, v0.4h, #16
     shll v1.4s, v1.4h, #16
-    mov v2.4s, v0.4s
-    mov v3.4s, v1.4s
+    mov v2.16b, v0.16b
+    mov v3.16b, v1.16b
     uzp1 v18.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v19.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
     uzp1 v30.2d, v1.2d, v3.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v31.2d, v1.2d, v3.2d   // bias_2, bias_3, bias_2, bias_3
     SET_BIAS v18, v8, v10, v12, v14
-    mov v16.4s, v18.4s
+    mov v16.16b, v18.16b
     SET_BIAS v19, v9, v11, v13, v15
-    mov v17.4s, v19.4s
+    mov v17.16b, v19.16b
     SET_BIAS v30, v20, v22, v24, v26
-    mov v28.4s, v30.4s
+    mov v28.16b, v30.16b
     SET_BIAS v31, v21, v23, v25, v27
-    mov v29.4s, v31.4s
+    mov v29.16b, v31.16b
     b LoopL
     NoBiasH8:
         SET_ZERO v8, v9, v10, v11
@@ -210,13 +210,13 @@ LoopHR:
     cbz x5, NoBiasH4
     ld1 {v0.4h}, [x5], #8 // 8 * sizeof(int16_t)
     shll v0.4s, v0.4h, #16
-    mov v2.4s, v0.4s
+    mov v2.16b, v0.16b
     uzp1 v18.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v19.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
     SET_BIAS v18, v8, v10, v12, v14
-    mov v16.4s, v18.4s
+    mov v16.16b, v18.16b
     SET_BIAS v19, v9, v11, v13, v15
-    mov v17.4s, v19.4s
+    mov v17.16b, v19.16b
     b LoopLR
     NoBiasH4:
         SET_ZERO v8, v9, v10, v11

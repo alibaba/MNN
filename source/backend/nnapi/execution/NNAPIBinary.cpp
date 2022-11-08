@@ -20,7 +20,29 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
         {BinaryOpOperation_ADD, ANEURALNETWORKS_ADD},
         {BinaryOpOperation_SUB, ANEURALNETWORKS_SUB},
         {BinaryOpOperation_MUL, ANEURALNETWORKS_MUL},
-        {BinaryOpOperation_DIV, ANEURALNETWORKS_DIV}
+        {BinaryOpOperation_DIV, ANEURALNETWORKS_DIV},
+        {BinaryOpOperation_POW, ANEURALNETWORKS_POW},
+        {BinaryOpOperation_REALDIV, ANEURALNETWORKS_DIV},
+        {BinaryOpOperation_MINIMUM, ANEURALNETWORKS_MINIMUM},
+        {BinaryOpOperation_MAXIMUM, ANEURALNETWORKS_MAXIMUM},
+        {BinaryOpOperation_GREATER, ANEURALNETWORKS_GREATER},
+        {BinaryOpOperation_GREATER_EQUAL, ANEURALNETWORKS_GREATER_EQUAL},
+        {BinaryOpOperation_LESS, ANEURALNETWORKS_LESS},
+        {BinaryOpOperation_FLOORDIV, -1},
+        {BinaryOpOperation_SquaredDifference, -1},
+        {BinaryOpOperation_LESS_EQUAL, ANEURALNETWORKS_LESS_EQUAL},
+        {BinaryOpOperation_FLOORMOD, -1},
+        {BinaryOpOperation_EQUAL, ANEURALNETWORKS_EQUAL},
+        {BinaryOpOperation_MOD, -1},
+        {BinaryOpOperation_ATAN2, -1},
+        {BinaryOpOperation_LOGICALOR, ANEURALNETWORKS_LOGICAL_OR},
+        {BinaryOpOperation_NOTEQUAL, ANEURALNETWORKS_NOT_EQUAL},
+        {BinaryOpOperation_BITWISE_AND, -1},
+        {BinaryOpOperation_BITWISE_OR, -1},
+        {BinaryOpOperation_BITWISE_XOR, -1},
+        {BinaryOpOperation_LOGICALXOR, -1},
+        {BinaryOpOperation_LEFTSHIFT, -1},
+        {BinaryOpOperation_RIGHTSHIFT, -1}
     };
     BinaryOpOperation binaryType;
     if (mOp->type() == OpType_BinaryOp) {

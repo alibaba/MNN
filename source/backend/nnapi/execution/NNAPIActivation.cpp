@@ -34,7 +34,7 @@ ErrorCode NNAPIActivation::onResize(const std::vector<Tensor *> &inputs, const s
                 }
             }
             if (needAxis) {
-                inputIdxs.push_back(buildScalar(formatAxis(axis)));
+                inputIdxs.push_back(buildScalar(formatAxis(axis, inputs[0])));
             }
             break;
         }

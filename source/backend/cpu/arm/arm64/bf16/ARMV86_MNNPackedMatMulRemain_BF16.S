@@ -41,9 +41,9 @@
 .endm
 
 .macro SET_BIAS s, d0, d1, d2
-    mov \d0\().4s, \s\().4s
-    mov \d1\().4s, \s\().4s
-    mov \d2\().4s, \s\().4s
+    mov \d0\().16b, \s\().16b
+    mov \d1\().16b, \s\().16b
+    mov \d2\().16b, \s\().16b
 .endm
 
 // 12 * 8 * 4 MatMul
@@ -96,8 +96,8 @@ LoopE8: // e, TILE_BLOCK size is 8
         ld1 {v0.4h, v1.4h}, [x20], #16 // 8 * sizeof(int16_t)
         shll v0.4s, v0.4h, #16
         shll v1.4s, v1.4h, #16
-        mov v2.4s, v0.4s
-        mov v3.4s, v1.4s
+        mov v2.16b, v0.16b
+        mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         uzp1 v24.2d, v1.2d, v3.2d   // bias_0, bias_1, bias_0, bias_1
@@ -186,7 +186,7 @@ LoopE8: // e, TILE_BLOCK size is 8
         cbz x5, NoBiasHRemain
         ld1 {v0.4h}, [x20]
         shll v0.4s, v0.4h, #16
-        mov v2.4s, v0.4s
+        mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         SET_BIAS v16, v18, v20, v22
@@ -257,16 +257,16 @@ E4LH8:
         ld1 {v0.4h, v1.4h}, [x20], #16 // 8 * sizeof(int16_t)
         shll v0.4s, v0.4h, #16
         shll v1.4s, v1.4h, #16
-        mov v2.4s, v0.4s
-        mov v3.4s, v1.4s
+        mov v2.16b, v0.16b
+        mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         uzp1 v20.2d, v1.2d, v3.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v21.2d, v1.2d, v3.2d   // bias_2, bias_3, bias_2, bias_3
-        mov v18.4s, v16.4s
-        mov v19.4s, v17.4s
-        mov v22.4s, v20.4s
-        mov v23.4s, v21.4s
+        mov v18.16b, v16.16b
+        mov v19.16b, v17.16b
+        mov v22.16b, v20.16b
+        mov v23.16b, v21.16b
         b E4LoopL
         NoBiasE4:
             SET_ZERO v16, v17, v18, v19
@@ -318,11 +318,11 @@ E4LH8:
         cbz x5, NoBiasE4R
         ld1 {v0.4h}, [x20]
         shll v0.4s, v0.4h, #16
-        mov v2.4s, v0.4s
+        mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
-        mov v18.4s, v16.4s
-        mov v19.4s, v17.4s
+        mov v18.16b, v16.16b
+        mov v19.16b, v17.16b
         b E4LoopLR
         NoBiasE4R:
             SET_ZERO v16, v17, v18, v19
@@ -374,8 +374,8 @@ E2LH8:
         ld1 {v0.4h, v1.4h}, [x20], #16
         shll v0.4s, v0.4h, #16
         shll v1.4s, v1.4h, #16
-        mov v2.4s, v0.4s
-        mov v3.4s, v1.4s
+        mov v2.16b, v0.16b
+        mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         uzp1 v18.2d, v1.2d, v3.2d   // bias_0, bias_1, bias_0, bias_1
@@ -419,7 +419,7 @@ E2LH8:
         cbz x5, NoBiasE2R
         ld1 {v0.4h}, [x20]
         shll v0.4s, v0.4h, #16
-        mov v2.4s, v0.4s
+        mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         b E2LoopLR
@@ -475,8 +475,8 @@ LoopE1:
         ld1 {v0.4h, v1.4h}, [x20], #16
         shll v0.4s, v0.4h, #16
         shll v1.4s, v1.4h, #16
-        mov v2.4s, v0.4s
-        mov v3.4s, v1.4s
+        mov v2.16b, v0.16b
+        mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
         uzp1 v18.2d, v1.2d, v3.2d   // bias_0, bias_1, bias_0, bias_1
@@ -523,7 +523,7 @@ LoopE1:
     cbz x5, NoBiasE1R
     ld1 {v0.4h}, [x20]
     shll v0.4s, v0.4h, #16
-    mov v2.4s, v0.4s
+    mov v2.16b, v0.16b
     uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
     b E1LoopLR

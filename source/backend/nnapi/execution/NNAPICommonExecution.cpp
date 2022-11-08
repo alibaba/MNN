@@ -54,8 +54,11 @@ uint32_t NNAPICommonExecution::buildTensor(OperandCode dtype, std::vector<int> d
     return mNNAPIBackend->buildOperand(nullptr, 0, dtype, udims);
 }
 
-int NNAPICommonExecution::formatAxis(int axis) {
-    if (!mNCHW) {
+int NNAPICommonExecution::formatAxis(int axis, const Tensor* t) {
+    if (t->dimensions() < 4) {
+        return axis;
+    }
+    if (!mNCHW && TensorUtils::getDescribe(t)->dimensionFormat != MNN_DATA_FORMAT_NHWC) {
         // NCHW -> NHWC
         const int axisChange[4] = {0, 3, 1, 2};
         if (axis > 3) {

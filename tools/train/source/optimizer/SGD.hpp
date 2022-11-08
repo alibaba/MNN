@@ -43,8 +43,8 @@ public:
 
     float currentLearningRate();
 
-    void setGradBlockName(std::string block) {
-        mGradBlockExprName = std::move(block);
+    void setGradBlockName(std::vector<std::string> block) {
+        mGradBlockExprName = block;
     }
 
 protected:
@@ -57,7 +57,7 @@ protected:
     // For Cache
     const Express::Expr* mLoss = nullptr;
     int mLossFromIndex         = 0;
-    std::string mGradBlockExprName;
+    std::vector<std::string> mGradBlockExprName;
 };
 
 } // namespace Train

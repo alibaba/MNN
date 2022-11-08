@@ -61,7 +61,6 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
     mKernelInfo.strideY        = common->strideY();
     mKernelInfo.dilateX        = common->dilateX();
     mKernelInfo.dilateY        = common->dilateY();
-    mKernelInfo.activationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
 
     //weight host->device
     const float* filterDataPtr = nullptr;
@@ -119,12 +118,9 @@ ConvWinogradExecution::Resource::~Resource() {
 
 ConvWinogradExecution::ConvWinogradExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res)  : Execution(backend), mOp(op) {
     mResource = res;
-    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-    mGpuMatMulParam = staticPool->alloc(sizeof(MatMulParam));
 }
 ConvWinogradExecution::~ConvWinogradExecution() {
-    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
-    staticPool->free(mGpuMatMulParam);
+    // Nothing
 }
 
 bool ConvWinogradExecution::onClone(Backend* backend, const Op* op, Execution** dst) {
@@ -159,50 +155,28 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     int e = wUnit * hUnit * output->batch();
     int l = ic;
     int h = output->channel();
-    mMatMulParam.elh[0] = e;
-    mMatMulParam.elh[1] = l;
-    mMatMulParam.elh[2] = h;
-
-    int ePack = PACK_NUMBER;
-    int hPack = PACK_NUMBER;
-    mMatMulParam.elhPack[0] = UP_DIV(e, ePack);
-    mMatMulParam.elhPack[1] = UP_DIV(l, PACK_NUMBER);
-    mMatMulParam.elhPack[2] = UP_DIV(h, hPack);
-    // mMatMulParam.cStride[0] = mIm2ColParamter.ow * mIm2ColParamter.oh * h;
-    // mMatMulParam.cStride[1] = 1;
-    // mMatMulParam.cStride[2] = mIm2ColParamter.ow * mIm2ColParamter.oh;
-    mMatMulParam.minValue = -FLT_MAX;
-    mMatMulParam.maxValue = FLT_MAX;
-    if (convCommon->relu()) {
-        mMatMulParam.minValue = 0.0f;
-    }
-    if (convCommon->relu6()) {
-        mMatMulParam.minValue = 0.0f;
-        mMatMulParam.maxValue = 6.0f;
-    }
-    //MNN_PRINT("!!conv size:3-1, %d-%d-%d, %d-%d-%d\n", input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
-
-    runtime->memcpy((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second, &mMatMulParam, sizeof(MatMulParam), MNNMemcpyHostToDevice);
-
-    int block = UNIT + convCommon->kernelY() - 1;
-    mBlock2 = block * block;
-    auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto bufferData = pool->alloc((size_t)sizeof(__half) * mBlock2 * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[1] * (size_t)ePack * (size_t)PACK_NUMBER);
-    mBtdB_Buffer = (__half*)((uint8_t*)bufferData.first + bufferData.second);
-    
-    auto bufferMatmul = pool->alloc(bytes * mBlock2 * mMatMulParam.elh[0] * mMatMulParam.elhPack[2] * (size_t)hPack);
-    mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
-    
-    pool->free(bufferData);
-    pool->free(bufferMatmul);
-
 
     mGemmInfo.elh[0] = e;
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
-    mGemmInfo.elhPad[0] = UP_DIV(e, 8) * 8;
-    mGemmInfo.elhPad[1] = UP_DIV(l, 8) * 8;
-    mGemmInfo.elhPad[2] = UP_DIV(h, 8) * 8;
+    mGemmInfo.elhPad[0] = UP_DIV(e, PACK_NUMBER) * PACK_NUMBER;
+    mGemmInfo.elhPad[1] = UP_DIV(l, PACK_NUMBER) * PACK_NUMBER;
+    mGemmInfo.elhPad[2] = UP_DIV(h, PACK_NUMBER) * PACK_NUMBER;
+
+    mActivationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
+    //MNN_PRINT("!!conv size:3-1, %d-%d-%d, %d-%d-%d\n", input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
+
+    int block = UNIT + convCommon->kernelY() - 1;
+    mBlock2 = block * block;
+    auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
+    auto bufferData = pool->alloc((size_t)sizeof(__half) * mBlock2 * mGemmInfo.elhPad[0] * mGemmInfo.elhPad[1]);
+    mBtdB_Buffer = (__half*)((uint8_t*)bufferData.first + bufferData.second);
+    
+    auto bufferMatmul = pool->alloc(bytes * mBlock2 * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
+    mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
+    
+    pool->free(bufferData);
+    pool->free(bufferMatmul);
 
     ElementComputeEpilogue alpha = ElementComputeEpilogue(1);
     ElementComputeEpilogue beta = ElementComputeEpilogue(0);
@@ -210,12 +184,75 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     // Split K dimension into 1 partitions
     cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);// m n k
 
+    mGpuComputeCap = runtime->compute_capability();
+    //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
+
+    if(mGpuComputeCap < 75) {
+        if(bytes == 2) {
+            typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                                                {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                (int64_t)(0), // batch_stride_bias
+                                                {(ElementOutput_F16 *)mMatmul_Buffer, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                mBlock2};                // batch_count
+    
+            size_t workspace_size = GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
+    
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+            pool->free(bufferWs);
+    
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmBatchedCudaF16Ln.can_implement(arguments);
+            cutlass_check(status);
+    
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmBatchedCudaF16Ln.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+        } else {
+    
+            typename GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                                                {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                (int64_t)(0), // batch_stride_bias
+                                                {(ElementOutput_F32 *)mMatmul_Buffer, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                mBlock2};                // batch_count
+    
+            size_t workspace_size = GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
+    
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+            pool->free(bufferWs);
+    
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmBatchedCudaF32Ln.can_implement(arguments);
+            cutlass_check(status);
+    
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmBatchedCudaF32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+        }
+    
+        return NO_ERROR;
+    }
     //MNN_PRINT("Winograd BatchGemm batch:%d, MNK:%d-%d-%d\n", mBlock2, mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
     if(bytes == 2) {
-        typename GemmBatched_F16_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInputA *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+        typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
-                                            {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
                                             {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                             (int64_t)(0), // batch_stride_bias
@@ -224,7 +261,7 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             mBlock2};                // batch_count
 
-        size_t workspace_size = GemmBatched_F16_Linear_Sm75::get_workspace_size(arguments);
+        size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
         auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
         mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -240,10 +277,10 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
         cutlass_check(status);
     } else {
 
-        typename GemmBatched_F32_Linear_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInputA *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+        typename GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
-                                            {(ElementInputB *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
                                             {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                             (int64_t)(0), // batch_stride_bias
@@ -252,7 +289,7 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             mBlock2};                // batch_count
 
-        size_t workspace_size = GemmBatched_F32_Linear_Sm75::get_workspace_size(arguments);
+        size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
         auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
         mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
@@ -278,7 +315,6 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     auto& prop = runtime->prop();
     int cores = prop.multiProcessorCount;
     int threadNumbers = prop.maxThreadsPerBlock / 2;
-    auto gpuMatMul = (const MatMulParam*)((uint8_t*)mGpuMatMulParam.first + mGpuMatMulParam.second);
 
     int co_pack = UP_DIV(mResource->mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
     int ci_pack = UP_DIV(mResource->mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
@@ -300,41 +336,50 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     if(bytes == 4) {
         WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
                 (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
-                mMatMulParam.elh[0] * ci_pack, lD, whD, wD,
+                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else {
         WinoInputTrans<<<cores, threadNumbers>>>((const half*)input_addr, (half*)mBtdB_Buffer, UNIT,
                 (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
-                mMatMulParam.elh[0] * ci_pack, lD, whD, wD,
+                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     }
 
-    int maxThreadInWarp = UP_DIV(mBlock2 * mMatMulParam.elhPack[0] * mMatMulParam.elhPack[2], cores);
-    int threads_num = std::min(prop.maxThreadsPerBlock/2, maxThreadInWarp * prop.warpSize);
-    int basicMemory = 16 * 16 * sizeof(float) * prop.maxThreadsPerBlock / prop.warpSize;
-
     int iBlock = 0;
-    if (4 == bytes) {
-        cutlass::Status status = mGemmBatchedF32LnSm75();
-        cutlass_check(status);
+
+    if(mGpuComputeCap < 75) {
+        if (4 == bytes) {
+            cutlass::Status status = mGemmBatchedCudaF32Ln();
+            cutlass_check(status);
+        } else {
+            cutlass::Status status = mGemmBatchedCudaF16Ln();
+            cutlass_check(status);
+        }
     } else {
-        cutlass::Status status = mGemmBatchedF16LnSm75();
-        cutlass_check(status);
+        if (4 == bytes) {
+            cutlass::Status status = mGemmBatchedF32LnSm75();
+            cutlass_check(status);
+        } else {
+            cutlass::Status status = mGemmBatchedF16LnSm75();
+            cutlass_check(status);
+        }
     }
 
     if (4 == bytes) {
         WinoTrans2Output<<<cores, threadNumbers>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
-                gpuMatMul, UNIT, mBlock2, output->channel(), co_pack, 
-                mMatMulParam.elh[0] * co_pack, hD, whD, wD,
-                output->width(), output->height());
+                UNIT, mBlock2, output->channel(), co_pack, 
+                mGemmInfo.elh[0] * co_pack, hD, whD, wD,
+                output->width(), output->height(),
+                mActivationType);
         checkKernelErrors;
     } else {
         WinoTrans2Output<<<cores, threadNumbers>>>((const half*)mMatmul_Buffer, (const float*)bias_addr, (half*)output_addr,
-                gpuMatMul, UNIT, mBlock2, output->channel(), co_pack,
-                mMatMulParam.elh[0] * co_pack, hD, whD, wD,
-                output->width(), output->height());
+                UNIT, mBlock2, output->channel(), co_pack,
+                mGemmInfo.elh[0] * co_pack, hD, whD, wD,
+                output->width(), output->height(),
+                mActivationType);
         checkKernelErrors;
     }
 

@@ -1,13 +1,13 @@
 //
-//  ScatterNdExecution.hpp
+//  RangeExecution.hpp
 //  MNN
 //
-//  Created by MNN on 2019/01/31.
+//  Created by MNN on 2022/04/21.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef ScatterNdExecution_hpp
-#define ScatterNdExecution_hpp
+#ifndef RangeExecution_hpp
+#define RangeExecution_hpp
 
 #include "core/Execution.hpp"
 
@@ -16,25 +16,17 @@
 
 namespace MNN {
 namespace CUDA {
-
-class ScatterNdExecution : public Execution {
+class RangeExecution : public Execution {
 public:
-    ScatterNdExecution(Backend *backend);
-    virtual ~ScatterNdExecution();
+    RangeExecution(Backend *backend);
+    virtual ~RangeExecution() = default;
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    CUDARuntime *mRuntime;
-    int mIndicesLastDim;
-    int mIndexes;
-    int mAccNumber;
-    int mOutElementSize;
-    void *mDimsToCount;
-    std::shared_ptr<Tensor> dimsTensor;
 };
 
 } // namespace CUDA
 } // namespace MNN
-#endif /* ScatterNdExecution_hpp */
+#endif /* SelectExecution_hpp */

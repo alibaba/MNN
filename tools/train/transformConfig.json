@@ -6,6 +6,7 @@
     "Optimizor": {
         "OnlyUpdateOps":[],
         "NoUpdateOps":[],
+        "StopBackPropOps":[],
         "type": "SGD"
     },
     "Debug": {

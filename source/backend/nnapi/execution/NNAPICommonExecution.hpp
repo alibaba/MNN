@@ -30,7 +30,7 @@ protected:
     uint32_t buildVector(const std::vector<float>& vec);
     uint32_t buildTensor(OperandCode dtype, std::vector<int> dims);
     ErrorCode buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs);
-    int formatAxis(int axis);
+    int formatAxis(int axis, const Tensor* t);
     NNAPIBackend* mNNAPIBackend;
     const Op* mOp;
 };

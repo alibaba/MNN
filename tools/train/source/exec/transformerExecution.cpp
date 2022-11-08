@@ -51,6 +51,7 @@ int main(int argc, const char* argv[]) {
     auto configObject = document.GetObject();
     std::vector<std::string> noUpdateOps;
     std::vector<std::string> onlyUpdateOps;
+    std::vector<std::string> stopBackPropOps;
     std::string optimizerType = "SGD";
     if (configObject.HasMember("Optimizor")) {
         auto optimizor = configObject["Optimizor"].GetObject();
@@ -67,6 +68,13 @@ int main(int argc, const char* argv[]) {
                 noUpdateOps.emplace_back(vIter->GetString());
                 if (onlyUpdateOps.empty())
                     MNN_PRINT("will not update: %s \n", vIter->GetString());
+            }
+        }
+        if (optimizor.HasMember("StopBackPropOps")) {
+            auto limitArray = optimizor["StopBackPropOps"].GetArray();
+            for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
+                stopBackPropOps.emplace_back(vIter->GetString());
+                MNN_PRINT("will stop back prop from (also not update this op): %s \n", vIter->GetString());
             }
         }
         if (optimizor.HasMember("type")) {
@@ -166,7 +174,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     MNN_ASSERT(nullptr != loss);
-    auto gradMap = OpGrad::grad(loss, parameters);
+    auto gradMap = OpGrad::grad(loss, parameters, stopBackPropOps);
     // Make Update
     std::map<VARP, VARP> varUpdateMap;
     auto learningRate = _Input();

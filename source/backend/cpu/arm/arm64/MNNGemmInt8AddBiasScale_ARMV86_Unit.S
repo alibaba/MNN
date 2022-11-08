@@ -13,10 +13,10 @@
 .align 5
 
 .macro SET_BIAS s, d0, d1, d2, d3
-    mov \d0\().4s, \s\().4s
-    mov \d1\().4s, \s\().4s
-    mov \d2\().4s, \s\().4s
-    mov \d3\().4s, \s\().4s
+    mov \d0\().16b, \s\().16b
+    mov \d1\().16b, \s\().16b
+    mov \d2\().16b, \s\().16b
+    mov \d3\().16b, \s\().16b
 .endm
 .macro Int32ToFloat z0, z1, z2, z3
     scvtf \z0\().4s, \z0\().4s
@@ -96,11 +96,11 @@ LoopDz_TILE_20:
     mov x11, x1 // src
     mov x12, x2 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v12.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v13.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
-    mov v14.4s, v12.4s
-    mov v15.4s, v13.4s
+    mov v14.16b, v12.16b
+    mov v15.16b, v13.16b
     SET_BIAS v14, v16, v18, v20, v22
     SET_BIAS v14, v24, v26, v28, v30
     SET_BIAS v15, v17, v19, v21, v23
@@ -230,7 +230,7 @@ LoopDz_TILE_16:   // while (dz = dst_depth_quad)
     mov x11, x1 // src
     mov x12, x18 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v2.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v3.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
     SET_BIAS v2, v16, v18, v20, v22
@@ -340,7 +340,7 @@ LoopDz_TILE_8:
     mov x11, x1 // src
     mov x12, x18 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v2.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v3.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
     SET_BIAS v2, v24, v26, v28, v30
@@ -415,11 +415,11 @@ LoopDz_TILE_4:
     mov x11, x1 // src
     mov x12, x18 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v28.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v29.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
-    mov v30.4s, v28.4s
-    mov v31.4s, v29.4s
+    mov v30.16b, v28.16b
+    mov v31.16b, v29.16b
 LoopSz_TILE_4:
     // src    : 2 x [2 x 8] : v2-3
     // weight : 2 x [2 x 8] : v0-1
@@ -473,7 +473,7 @@ LoopDz_TILE_2:
     mov x11, x1 // src
     mov x12, x18 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v30.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v31.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
 LoopSz_TILE_2:
@@ -530,7 +530,7 @@ LoopDz_TILE_1:
     mov x11, x1 // src
     mov x12, x18 // weight
     mov x13, x3 // src_depth_quad
-    mov v1.4s, v0.4s
+    mov v1.16b, v0.16b
     uzp1 v30.2d, v0.2d, v1.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v31.2d, v0.2d, v1.2d   // bias_2, bias_3, bias_2, bias_3
 LoopSz_TILE_1:

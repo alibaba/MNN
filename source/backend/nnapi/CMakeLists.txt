@@ -8,7 +8,7 @@ file(GLOB MNN_NNAPI_SRCS
 
 add_library(
     MNN_NNAPI 
-    STATIC
+    OBJECT
     ${MNN_NNAPI_SRCS}
 )
 

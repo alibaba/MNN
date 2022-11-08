@@ -153,6 +153,7 @@ public:
                     auto stepOffset = builder.CreateVector(std::vector<int>{0, 0, 0});
                     auto indexesOffset = builder.CreateVector(std::vector<int>{2, 0, 1});
                     std::vector<flatbuffers::Offset<RegionCommand>> regionCommands;
+
                     for (int i=0; i<des->regions.size(); ++i) {
                         auto& reg = des->regions[i];
                         auto sizeOffset = builder.CreateVector(reg.size, 3);

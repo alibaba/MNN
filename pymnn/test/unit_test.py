@@ -38,7 +38,10 @@ class UnitTest(unittest.TestCase):
         failed  = len(cls.failures)
         passed  = cls.amount - blocked - failed
         skipped = len(cls.skipped)
-        print('\nTEST_NAME_PYMNN_UNIT: Pymnn单元测试\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
+        try:
+            print('\nTEST_NAME_PYMNN_UNIT: Pymnn单元测试\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
+        except:
+            print('\nTEST_NAME_PYMNN_UNIT: PymnnUnitTest\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
     def run(self, result=None):
         self.currentResult = result
         unittest.TestCase.run(self, result)
