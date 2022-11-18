@@ -29,23 +29,23 @@ private:
     bool mTransposeB;
 
     std::shared_ptr<Tensor> mBiasTensor;
-    GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16LnAlign1RCSm75;
+    GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F16LnAlign1RCSm75;
     GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF32F32LnAlign1RCSm75;
     GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F32LnAlign1RCSm75;
 
-    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16LnAlign8RCSm75;
+    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F16LnAlign8RCSm75;
     GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF32F32LnAlign8RCSm75;
     GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F32LnAlign8RCSm75;
 
-    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF16LnAlign8RRSm75;
+    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF16F16LnAlign8RRSm75;
     GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF32F32LnAlign8RRSm75;
     GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF16F32LnAlign8RRSm75;
 
-    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16LnAlign1RC;
+    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F16LnAlign1RC;
     GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32F32LnAlign1RC;
     GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F32LnAlign1RC;
 
-    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Row mGemmBatchedCudaF16LnAlign1RR;
+    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Row mGemmBatchedCudaF16F16LnAlign1RR;
     GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Row mGemmBatchedCudaF32F32LnAlign1RR;
     GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Row mGemmBatchedCudaF16F32LnAlign1RR;
 
@@ -62,6 +62,9 @@ private:
     CutlassGemmInfo mGemmInfo;
     int mBatch = 1;
     int mGpuComputeCap;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
 };
 } // namespace CUDA
 } // namespace MNN

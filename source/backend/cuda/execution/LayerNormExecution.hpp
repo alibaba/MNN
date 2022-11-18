@@ -35,6 +35,7 @@ private:
     int mOutside = 1;
 
     float mEps = 0.001;
+    int mGroup = 1;
 
     std::unique_ptr<Tensor> mGammaTensor;
     std::unique_ptr<Tensor> mBetaTensor;

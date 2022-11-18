@@ -565,7 +565,7 @@ __global__ void BinaryMid##Name(\
     int sizeZ, int sizeY, int sizeX,\
     int strideZ, int strideY, int strideX,\
     int strideZ1, int strideY1, int strideX1,\
-    int dstStrideZ, int dstStrideY, int dstStrideX, int activationType\
+    int dstStrideZ, int dstStrideY, int dstStrideX, int activationType, int bytes\
     ) { \
     int count = sizeZ * sizeY * sizeX;\
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
@@ -579,9 +579,13 @@ __global__ void BinaryMid##Name(\
         int dstOffset = iz * dstStrideZ + iy * dstStrideY + ix * dstStrideX;\
         float x = input0[srcOffset];\
         float y = input1[srcOffset1];\
-        TOut val = (TOut)(Func);\
+        float val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        if(bytes == 2) {\
+            val = min(val, 65504.0f);\
+            val = max(val, -65504.0f);\
         }\
         output[dstOffset] = val;\
     }\
@@ -593,7 +597,8 @@ __global__ void BinaryMidLinear##Name(\
     int strideZ,\
     int strideZ1,\
     int dstStrideZ,\
-    int activationType\
+    int activationType,\
+    int bytes\
     ) { \
     int count = sizeZ;\
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
@@ -603,11 +608,15 @@ __global__ void BinaryMidLinear##Name(\
         int dstOffset = iz * dstStrideZ;\
         float x = input0[srcOffset];\
         float y = input1[srcOffset1];\
-        TOut val = (TOut)(Func);\
+        float val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val < 0.0f ? 0.0f : val);\
         }\
-        output[dstOffset] = val;\
+        if(bytes == 2) {\
+            val = min(val, 65504.0f);\
+            val = max(val, -65504.0f);\
+        }\
+        output[dstOffset] = (TOut)val;\
     }\
 }\
 
@@ -668,34 +677,42 @@ __global__ void BinaryMidLinearHalf4_##Name(\
         half2 yy = ((half2 *)(input1+srcOffset1))[0];\
         float x = (float)xx.x;\
         float y = (float)yy.x;\
-        TOut val = (TOut)(Func);\
+        float val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val < 0.0f ? 0.0f : val);\
         }\
-        output[dstOffset] = val;\
+        val = min(val, 65504.0f);\
+        val = max(val, -65504.0f);\
+        output[dstOffset] = (TOut)val;\
         x = (float)xx.y;\
         y = (float)yy.y;\
-        val = (TOut)(Func);\
+        val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val < 0.0f ? 0.0f : val);\
         }\
-        output[dstOffset+1] = val;\
+        val = min(val, 65504.0f);\
+        val = max(val, -65504.0f);\
+        output[dstOffset+1] = (TOut)val;\
         xx = ((half2 *)(input0+srcOffset))[1];\
         yy = ((half2 *)(input1+srcOffset1))[1];\
         x = (float)xx.x;\
         y = (float)yy.x;\
-        val = (TOut)(Func);\
+        val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val <  0.0f ? 0.0f  : val);\
         }\
-        output[dstOffset+2] = val;\
+        val = min(val, 65504.0f);\
+        val = max(val, -65504.0f);\
+        output[dstOffset+2] = (TOut)val;\
         x = (float)xx.y;\
         y = (float)yy.y;\
-        val = (TOut)(Func);\
+        val = (float)(Func);\
         if(activationType == 1) {\
-            val = (val < (TOut)0 ? (TOut)0 : val);\
+            val = (val < 0.0f ? 0.0f : val);\
         }\
-        output[dstOffset+3] = val;\
+        val = min(val, 65504.0f);\
+        val = max(val, -65504.0f);\
+        output[dstOffset+3] = (TOut)val;\
     }\
 }\
 
@@ -788,14 +805,14 @@ void BinaryBlitTemplateFloat(T* output, const T* input, const T* input1, const i
                         srcStride[2],\
                         srcStride1[2],\
                         dstStride[2],\
-                        activationType);\
+                        activationType, bytes);\
                 }\
             } else {\
                 BinaryMid##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
                     size[0], size[1], size[2],\
                     srcStride[0], srcStride[1], srcStride[2],\
                     srcStride1[0], srcStride1[1], srcStride1[2],\
-                    dstStride[0], dstStride[1], dstStride[2], activationType);\
+                    dstStride[0], dstStride[1], dstStride[2], activationType, bytes);\
             }\
             return;\
         }\
