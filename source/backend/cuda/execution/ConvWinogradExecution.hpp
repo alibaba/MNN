@@ -43,14 +43,15 @@ public:
 private:
     std::shared_ptr<Resource> mResource;
     const Op* mOp = nullptr;
-    __half* mBtdB_Buffer;
+    void* mBtdB_Buffer;
     void* mMatmul_Buffer;
 
-    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16LnSm75;
-    GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF32LnSm75;
+    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F16LnSm75;
+    GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F32LnSm75;
 
-    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16Ln;
-    GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32Ln;
+    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F16Ln;
+    GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F32Ln;
+    GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32F32Ln;
 
     std::shared_ptr<Tensor> workspaceTensor;
     uint8_t* mWorkspace;
@@ -62,6 +63,9 @@ private:
     int mBlock2;
     int mGpuComputeCap;
     int mActivationType;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
 };
 
 } // namespace CUDA

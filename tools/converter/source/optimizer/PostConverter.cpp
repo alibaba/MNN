@@ -280,6 +280,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_MIDDLE));
 
     afterProgramConvert = {
+        "RemoveCopy",
         // Add tensor dimension format convert for NC4HW4 - NHWC / NC4HW4 - NCHW
         "AddTensorFormatConverter",
 

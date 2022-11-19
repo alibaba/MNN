@@ -593,8 +593,14 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
         auto& buffer = info.executeBuffer;
         for (auto iterP = buffer.command.begin(); iterP != buffer.command.end(); ++iterP) {
             auto& iter = **iterP;
-            // MNN_PRINT("before Resize: %d - %s\n", i, EnumNameOpType(iter.op->type()));
-            // MNN_PRINT("before Resize: %s\n", iter.name.c_str());
+#ifdef MNN_PIPELINE_DEBUG
+            auto memory = const_cast<Runtime*>(mRuntime)->onGetMemoryInMB();
+            if (iter.op->name() != nullptr) {
+                MNN_PRINT("%f, before Resize: %s - %s\n", memory, iter.op->name()->c_str(), EnumNameOpType(iter.op->type()));
+            } else {
+                MNN_PRINT("%f, before Resize: %s\n", memory, EnumNameOpType(iter.op->type()));
+            }
+#endif
 
             if (nullptr == iter.executionOrigin) {
                 bool cached    = false;

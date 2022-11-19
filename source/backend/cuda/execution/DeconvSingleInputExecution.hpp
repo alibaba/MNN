@@ -98,23 +98,30 @@ private:
     void* mZeroPtr;
     std::shared_ptr<Tensor> mZeroTensor;
 
-    GemmCuda_F16_F16_Linear_AlignCuda  mGemmCudaF16Ln;
-    GemmCuda_F16_F32_Linear_AlignCuda  mGemmCudaF32Ln;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
 
-    GemmCuda_F16_F16_Relu_AlignCuda  mGemmCudaF16Relu;
-    GemmCuda_F16_F32_Relu_AlignCuda  mGemmCudaF32Relu;
+    GemmCuda_F16_F16_Linear_AlignCuda mGemmCudaF16F16Ln;
+    GemmCuda_F16_F32_Linear_AlignCuda mGemmCudaF16F32Ln;
+    GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
 
-    GemmCuda_F16_F16_Relu6_AlignCuda  mGemmCudaF16Relu6;
-    GemmCuda_F16_F32_Relu6_AlignCuda  mGemmCudaF32Relu6;
+    GemmCuda_F16_F16_Relu_AlignCuda mGemmCudaF16F16Relu;
+    GemmCuda_F16_F32_Relu_AlignCuda mGemmCudaF16F32Relu;
+    GemmCuda_F32_F32_Relu_AlignCuda mGemmCudaF32F32Relu;
 
-    GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16LnSm75;
-    GemmTensor_F16_F32_Linear_AlignCuda_Sm75 mGemmF32LnSm75;
+    GemmCuda_F16_F16_Relu6_AlignCuda mGemmCudaF16F16Relu6;
+    GemmCuda_F16_F32_Relu6_AlignCuda mGemmCudaF16F32Relu6;
+    GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
 
-    GemmTensor_F16_F16_Relu_AlignCuda_Sm75 mGemmF16ReluSm75;
-    GemmTensor_F16_F32_Relu_AlignCuda_Sm75 mGemmF32ReluSm75;
+    GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16F16LnSm75;
+    GemmTensor_F16_F32_Linear_AlignCuda_Sm75 mGemmF16F32LnSm75;
 
-    GemmTensor_F16_F16_Relu6_AlignCuda_Sm75 mGemmF16Relu6Sm75;
-    GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 mGemmF32Relu6Sm75;
+    GemmTensor_F16_F16_Relu_AlignCuda_Sm75 mGemmF16F16ReluSm75;
+    GemmTensor_F16_F32_Relu_AlignCuda_Sm75 mGemmF16F32ReluSm75;
+
+    GemmTensor_F16_F16_Relu6_AlignCuda_Sm75 mGemmF16F16Relu6Sm75;
+    GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 mGemmF16F32Relu6Sm75;
 };
 
 } // namespace CUDA

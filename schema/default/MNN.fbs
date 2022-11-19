@@ -175,7 +175,7 @@ enum OpType : int {
     Broastcast,
     SetDiff1D,
     ReluGrad,
-    Relu6Grad,
+    Identity,
     PoolGrad,
     SoftmaxGrad,
     Conv2DBackPropFilter,

@@ -142,14 +142,30 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             // TODO(): Transpose?
             VARP weight = expr->inputs().at(1);
-            if (weight->expr().first->outputs().size() > 1) {
-                return false;
-            }
             if (weight->readMap<float>() == nullptr) {
                 // Not const
                 // Release compute cache for save memory
                 weight->expr().first->inside()->mCache = nullptr;
                 return false;
+            }
+            auto config = Global<modelConfig>::Get();
+            int limitNumber = 4;
+            if (config->optimizePrefer == 1) {
+                // Smallest
+                limitNumber = 1;
+            } else if (config->optimizePrefer == 2) {
+                // Fastest
+                limitNumber = 100;
+            }
+            if (weight->linkNumber() > limitNumber) {
+                return false;
+            }
+            if (weight->linkNumber() > 1) {
+                static bool gPrint = false;
+                if (!gPrint) {
+                    MNN_PRINT("Convert MatMul Convolution use shared const B inputs, may increase the model size\n");
+                    gPrint = true;
+                }
             }
             if (expr->inputs().size() == 3) {
                 auto bias = expr->inputs()[2];
@@ -170,8 +186,33 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
 
             VARP input  = expr->inputs().at(0);
             VARP weight = expr->inputs().at(1);
+            auto* info = weight->getInfo();
+            if (!info || info->dim.size() > 2) {
+                return false;
+            }
+            if (info->dim.size() == 0) {
+                return false;
+            }
+            bool needSqueezeB = false;
+            if (info->dim.size() == 1) {
+                weight = _Unsqueeze(weight, {1});
+                needSqueezeB = true;
+            }
             if (!transposeB) {
                 weight = _Transpose(weight, {1, 0});
+            }
+            // Recompute weight info
+            info = weight->getInfo();
+            bool needSqueezeA = false;
+            if (input->getInfo() != nullptr) {
+                if (input->getInfo()->dim.size() <= 1) {
+                    input = _Unsqueeze(input, {0});
+                    needSqueezeA = true;
+                }
+            }
+            if (needSqueezeA && needSqueezeB) {
+                MNN_ERROR("Invalid MatMul for one-dimension A and B\n");
+                return false;
             }
             auto config = Global<modelConfig>::Get();
             auto format = MNN::MNN_DATA_FORMAT_NCHW;
@@ -179,10 +220,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 format = MNN_DATA_FORMAT_NHWC;
             }
 
-            auto* info = weight->getInfo();
-            if (!info || info->dim.size() != 2) {
-                return false;
-            }
             int num_input  = info->dim[1];
             int num_output = info->dim[0];
 
@@ -214,7 +251,9 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             auto rank = _Rank(input);
             auto inputShape = _Shape(input, NCHW);
             auto inputL = _Unsqueeze(_Scalar<int>(num_input), {0});
+            inputL.fix(VARP::CONSTANT);
             auto outputH = _Unsqueeze(_Scalar<int>(num_output), {0});
+            outputH.fix(VARP::CONSTANT);
             VARP inputE;
             VARP inputRemain = _StridedSlice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}), 0, 0, 0, 0, 0);
             if (transposeA) {
@@ -238,6 +277,12 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             //MNN_PRINT("%d\n", output->getInfo()->order);
             output = _ConvertF(output, format);
             VARP reshapeVar = _ReshapeF(output, _Concat({inputRemain, inputE, outputH}, 0), format);
+            if (needSqueezeA) {
+                reshapeVar = _Squeeze(reshapeVar, {0});
+            }
+            if (needSqueezeB) {
+                reshapeVar = _Squeeze(reshapeVar, {1});
+            }
             reshapeVar->setName(expr->outputName(0));
             Expr::replace(expr, reshapeVar->expr().first);
 

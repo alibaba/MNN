@@ -137,6 +137,7 @@
   - `transformerDemo.out` Transformer模型示例
   - `rasterDemo.out` Raster示例
   - `nluDemo.out` nlu模型示例
+  - `mergeInplaceForCPU` 将模型中可以Inplace计算的算子改成Inplace计算，可以减少内存占用，但限定CPU后端运行
 ## 单元测试
 - 相关编译选项
   - `MNN_BUILD_TEST` 是否编译MNN单元测试

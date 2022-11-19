@@ -84,6 +84,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             if(mCLVersion > 1.99f && (false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isSvmError())) {
                 res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_SVM_CAPABILITIES, &mSvmCapabilities);
 
+                #ifdef LOG_VERBOSE
                 if (res != CL_SUCCESS || mSvmCapabilities == 0) {
                     MNN_PRINT("SVM capalibilties: NONE\n");
                 } else {
@@ -96,6 +97,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                         MNN_PRINT("SVM capalibilties: SVM_COARSE_GRAIN_BUFFER\n");
                     }
                 }
+                #endif
             }
         #endif
             

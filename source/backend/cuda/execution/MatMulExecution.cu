@@ -3,19 +3,17 @@
 namespace MNN {
 namespace CUDA {
 
-template<typename T>
+template<typename T0, typename T1>
 __global__ void PackPadFill(
-    const T* A, const T* B,
+    const T0* A, const T0* B,
     bool transA, bool transB,
-    half* tempA, half* tempB, const int batch,
+    T1* tempA, T1* tempB, const int batch,
     const int e, const int l, const int h,
     const int ep, const int lp, const int hp,
     DivModFast d_e, DivModFast d_l, DivModFast d_h,
     DivModFast d_lp, DivModFast d_lp2
 ) {
-    half2 zero;
-    zero.x = (half)0.0;
-    zero.y = (half)0.0;
+    T1 zero = (T1)0.0;
 
     if((char *)A != (char *)tempA) {
         if(transA) { // l * e , just transpose to e * lp
@@ -26,7 +24,7 @@ __global__ void PackPadFill(
                 d_e.divmod(tmp, bIndex, eIndex);
 
                 if(lpIndex >= l) {
-                    tempA[index] = (half)0.0f;
+                    tempA[index] = zero;
                     continue;
                 }
                 tempA[index] = A[bIndex * e * l + lpIndex * e + eIndex];
@@ -40,14 +38,12 @@ __global__ void PackPadFill(
                     d_e.divmod(tmp, bIndex, eIndex);
 
                     if(lp2Index + lp2Index >= l) {
-                        ((half2 *)tempA)[index] = zero;
+                        tempA[index+index] = zero;
+                        tempA[index+index+1] = zero;
                         continue;
                     }
-
-                    half2 res;
-                    res.x = A[bIndex * e * l + eIndex * l + lp2Index + lp2Index];
-                    res.y = A[bIndex * e * l + eIndex * l + lp2Index + lp2Index + 1];
-                    ((half2 *)tempA)[index] = res;
+                    tempA[index+index] =  A[bIndex * e * l + eIndex * l + lp2Index + lp2Index];
+                    tempA[index+index+1] = A[bIndex * e * l + eIndex * l + lp2Index + lp2Index + 1];
                 }
             } else {
                 const int maxCount = batch * e * lp;
@@ -56,7 +52,7 @@ __global__ void PackPadFill(
                     d_lp.divmod(index, tmp, lpIndex);
                     d_e.divmod(tmp, bIndex, eIndex);
                     if(lpIndex >= l || eIndex >= e) {
-                        tempA[index] = (half)0.0f;
+                        tempA[index] = zero;
                         continue;
                     }
                     tempA[index] = A[bIndex * e * l + eIndex * l + lpIndex];
@@ -74,7 +70,7 @@ __global__ void PackPadFill(
                     d_lp.divmod(tmp, bIndex, lpIndex);
 
                     if(lpIndex >= l || hpIndex >= h) {
-                        tempB[index] = (half)0.0f;
+                        tempB[index] = zero;
                         continue;
                     }
                     tempB[index] = B[bIndex * h * l + lpIndex * h + hpIndex];
@@ -86,7 +82,7 @@ __global__ void PackPadFill(
                     d_h.divmod(tmp, bIndex, hIndex);
 
                     if(lpIndex >= l || hIndex >= h) {
-                        tempB[index] = (half)0.0f;
+                        tempB[index] = zero;
                         continue;
                     }
                     tempB[index] = B[bIndex * h * l + lpIndex * h + hIndex];
@@ -101,13 +97,12 @@ __global__ void PackPadFill(
                     d_h.divmod(tmp, bIndex, hIndex);
 
                     if(lp2Index + lp2Index >= l) {
-                        ((half2 *)tempB)[index] = zero;
+                        tempB[index+index] = zero;
+                        tempB[index+index+1] = zero;
                         continue;
                     }
-                    half2 res;
-                    res.x = B[bIndex * h * l + hIndex * l + lp2Index + lp2Index];
-                    res.y = B[bIndex * h * l + hIndex * l + lp2Index + lp2Index + 1];
-                    ((half2 *)tempB)[index] = res;
+                    tempB[index+index] = B[bIndex * h * l + hIndex * l + lp2Index + lp2Index];
+                    tempB[index+index+1] = B[bIndex * h * l + hIndex * l + lp2Index + lp2Index + 1];
                 }
             } else {
                 const int maxCount = batch * h * lp;
@@ -117,7 +112,7 @@ __global__ void PackPadFill(
                     d_h.divmod(tmp, bIndex, hIndex);
 
                     if(lpIndex >= l || hIndex >= h) {
-                        tempB[index] = (half)0.0f;
+                        tempB[index] = zero;
                         continue;
                     }
                     tempB[index] = B[bIndex * h * l + hIndex * l + lpIndex];
@@ -131,6 +126,10 @@ __global__ void PackPadFill(
 MatMulExecution::MatMulExecution(bool transposeA, bool transposeB, Backend *backend) : Execution(backend) {
     mTransposeA = transposeA;
     mTransposeB = transposeB;
+    int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
+    mFp16Infer = (precisonLevel == 2);
+    mFp32Infer = (precisonLevel == 1);
+    mFp16Fp32MixInfer = (precisonLevel == 0);
 }
 MatMulExecution::~ MatMulExecution() {
     // do nothing
@@ -156,11 +155,72 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         mBiasPtr = (void*)inputs[2]->deviceId();
     }
 
+    if(mFp32Infer) {
+        if(mUseRRLayout) {
+            typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                                {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                                                {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                (int64_t)(0), // batch_stride_bias
+                                                {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                mBatch};                // batch_count
+
+            size_t workspace_size = GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Row::get_workspace_size(arguments);
+
+            if(workspace_size != 0) {
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+            }
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmBatchedCudaF32F32LnAlign1RR.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmBatchedCudaF32F32LnAlign1RR.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+        } else {
+            typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                                                {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                                {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                (int64_t)(0), // batch_stride_bias
+                                                {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                mBatch};                // batch_count
+
+            size_t workspace_size = GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
+
+            if(workspace_size != 0) {
+                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+                pool->free(bufferWs);
+            }
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmBatchedCudaF32F32LnAlign1RC.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmBatchedCudaF32F32LnAlign1RC.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status); 
+        }
+        return;
+    }
+
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
 
     if(mGpuComputeCap < 75) {
-        if(bytes == 2) {
+        if(mFp16Infer) {
             if(mUseRRLayout) {
                 typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
@@ -182,11 +242,11 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                     pool->free(bufferWs);
                 }
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedCudaF16LnAlign1RR.can_implement(arguments);
+                cutlass::Status status = mGemmBatchedCudaF16F16LnAlign1RR.can_implement(arguments);
                 cutlass_check(status);
     
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedCudaF16LnAlign1RR.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmBatchedCudaF16F16LnAlign1RR.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status); 
             } else {
                 typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -210,11 +270,11 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                     pool->free(bufferWs);
                 }
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedCudaF16LnAlign1RC.can_implement(arguments);
+                cutlass::Status status = mGemmBatchedCudaF16F16LnAlign1RC.can_implement(arguments);
                 cutlass_check(status);
 
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedCudaF16LnAlign1RC.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmBatchedCudaF16F16LnAlign1RC.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             }
     
@@ -340,7 +400,7 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         return;
     }
 
-    if(bytes == 2) {
+    if(mFp16Infer) {
         if(mUseRRLayout) {
             typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                 {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
@@ -362,11 +422,11 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 pool->free(bufferWs);
             }
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmBatchedF16LnAlign8RRSm75.can_implement(arguments);
+            cutlass::Status status = mGemmBatchedF16F16LnAlign8RRSm75.can_implement(arguments);
             cutlass_check(status);
 
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmBatchedF16LnAlign8RRSm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmBatchedF16F16LnAlign8RRSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status); 
         } else {
             if(hAlignment) {
@@ -391,11 +451,11 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                     pool->free(bufferWs);
                 }
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedF16LnAlign8RCSm75.can_implement(arguments);
+                cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75.can_implement(arguments);
                 cutlass_check(status);
 
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedF16LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmBatchedF16F16LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             } else {
                 typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -419,11 +479,11 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                     pool->free(bufferWs);
                 }
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedF16LnAlign1RCSm75.can_implement(arguments);
+                cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75.can_implement(arguments);
                 cutlass_check(status);
 
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedF16LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmBatchedF16F16LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             }
         }
@@ -652,10 +712,14 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     std::pair<void*, size_t> bufferAData, bufferBData;
     if(mNeedConvertMatAB) {
-        bufferAData = pool->alloc(sizeof(half) * mBatch * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
+        size_t convertBytes = 2;
+        if(mFp32Infer) {
+            convertBytes = 4;
+        }
+        bufferAData = pool->alloc(convertBytes * mBatch * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
         mTempMatA = (void*)((uint8_t*)bufferAData.first + bufferAData.second);
 
-        bufferBData = pool->alloc(sizeof(half) * mBatch * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
+        bufferBData = pool->alloc(convertBytes * mBatch * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
         mTempMatB = (void*)((uint8_t*)bufferBData.first + bufferBData.second);
 
         pool->free(bufferAData);
@@ -666,7 +730,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     }
 
     if(inputs.size() == 2) {
-        if(bytes == 4) {
+        if(mFp16Fp32MixInfer || mFp32Infer) {
             mBiasTensor.reset(Tensor::createDevice<uint32_t>({mGemmInfo.elh[2]}));
         } else {
             mBiasTensor.reset(Tensor::createDevice<uint16_t>({mGemmInfo.elh[2]}));
@@ -704,7 +768,14 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         auto& prop = runtime->prop();
         int block_num = prop.multiProcessorCount;
         int block_size = prop.maxThreadsPerBlock;
-        if(bytes == 4) {
+        if(mFp32Infer) {
+            PackPadFill<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(), \
+                    mTransposeA, mTransposeB, (float*)mTempMatA, (float*)mTempMatB,
+                    mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    mGemmInfo.elhPad[0], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2], \
+                    eD, lD, hD, lpD, lp2D);
+            checkKernelErrors;        
+        } else if(mFp16Fp32MixInfer) {
             PackPadFill<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(), \
                     mTransposeA, mTransposeB, (half*)mTempMatA, (half*)mTempMatB,
                     mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
@@ -732,8 +803,20 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         setArguments(inputs, outputs);
     }
 
+
+    if(mFp32Infer) {
+        if(mUseRRLayout) {
+            cutlass::Status status = mGemmBatchedCudaF32F32LnAlign1RR();
+            cutlass_check(status);
+        } else {
+            cutlass::Status status = mGemmBatchedCudaF32F32LnAlign1RC();
+            cutlass_check(status);
+        }
+        return NO_ERROR;
+    }
+
     if(mGpuComputeCap < 75) {
-        if (bytes == 4) {
+        if (mFp16Fp32MixInfer) {
             if(mUseRRLayout) {
                 if(mNeedConvertMatAB) {
                     cutlass::Status status = mGemmBatchedCudaF16F32LnAlign1RR();
@@ -754,10 +837,10 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     
         } else {
             if(mUseRRLayout) {
-                cutlass::Status status = mGemmBatchedCudaF16LnAlign1RR();
+                cutlass::Status status = mGemmBatchedCudaF16F16LnAlign1RR();
                 cutlass_check(status);
             } else {
-                cutlass::Status status = mGemmBatchedCudaF16LnAlign1RC();
+                cutlass::Status status = mGemmBatchedCudaF16F16LnAlign1RC();
                 cutlass_check(status);
             }
         }
@@ -765,7 +848,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         return NO_ERROR;
     }
 
-    if (bytes == 4) {
+    if (mFp16Fp32MixInfer) {
         if(mUseRRLayout) {
             if(mNeedConvertMatAB) {
                 cutlass::Status status = mGemmBatchedF16F32LnAlign8RRSm75();
@@ -796,14 +879,14 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 
     } else {
         if(mUseRRLayout) {
-            cutlass::Status status = mGemmBatchedF16LnAlign8RRSm75();
+            cutlass::Status status = mGemmBatchedF16F16LnAlign8RRSm75();
             cutlass_check(status);
         } else {
             if(hAlignment) {
-                cutlass::Status status = mGemmBatchedF16LnAlign8RCSm75();
+                cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75();
                 cutlass_check(status);
             } else {
-                cutlass::Status status = mGemmBatchedF16LnAlign1RCSm75();
+                cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75();
                 cutlass_check(status);
             }
         }

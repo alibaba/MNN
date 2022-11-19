@@ -13,8 +13,9 @@ namespace MNN {
 namespace CUDA {
 
 #define UNIT 2
+template<typename T>
 __global__ void WinoWeightReorder(const float* GgGt, 
-    half* GgGt_trans,
+    T* GgGt_trans,
     const int block,
     const int co_pack,
     const int ci_pack,
@@ -84,7 +85,11 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         auto tempCacheBuffer = static_cast<CUDABackend*>(backend)->getStaticBufferPool()->alloc(dstWeightSize*sizeof(float));
         float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, dstWeight->host<uint8_t>(), dstWeightSize * sizeof(float), MNNMemcpyHostToDevice);
-        weightTensor.reset(Tensor::createDevice<int16_t>({dstWeightSize}));
+        if(static_cast<CUDABackend*>(backend)->getPrecision() == 1) {
+            weightTensor.reset(Tensor::createDevice<int32_t>({dstWeightSize}));
+        } else {
+            weightTensor.reset(Tensor::createDevice<int16_t>({dstWeightSize}));
+        }
         backend->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
         mFilter = (void *)weightTensor.get()->buffer().device;
         auto& prop = runtime->prop();
@@ -94,9 +99,15 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int coPack = UP_DIV(mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
         int ciPack = UP_DIV(mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
 
-        WinoWeightReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+        if(static_cast<CUDABackend*>(backend)->getPrecision() == 1) {
+            WinoWeightReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (float*)mFilter,
                 (UNIT+kernel-1) * (UNIT+kernel-1), coPack, ciPack, PACK_NUMBER, PACK_NUMBER);
-
+            checkKernelErrors;
+        } else {
+            WinoWeightReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+                    (UNIT+kernel-1) * (UNIT+kernel-1), coPack, ciPack, PACK_NUMBER, PACK_NUMBER);
+            checkKernelErrors;
+        }
         static_cast<CUDABackend*>(backend)->getStaticBufferPool()->free(tempCacheBuffer);
     }
     
@@ -118,6 +129,10 @@ ConvWinogradExecution::Resource::~Resource() {
 
 ConvWinogradExecution::ConvWinogradExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res)  : Execution(backend), mOp(op) {
     mResource = res;
+    int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
+    mFp16Infer = (precisonLevel == 2);
+    mFp32Infer = (precisonLevel == 1);
+    mFp16Fp32MixInfer = (precisonLevel == 0);
 }
 ConvWinogradExecution::~ConvWinogradExecution() {
     // Nothing
@@ -169,8 +184,12 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     int block = UNIT + convCommon->kernelY() - 1;
     mBlock2 = block * block;
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    auto bufferData = pool->alloc((size_t)sizeof(__half) * mBlock2 * mGemmInfo.elhPad[0] * mGemmInfo.elhPad[1]);
-    mBtdB_Buffer = (__half*)((uint8_t*)bufferData.first + bufferData.second);
+    size_t BtdB_bytes = 2;
+    if(mFp32Infer) {
+        BtdB_bytes = 4;
+    }
+    auto bufferData = pool->alloc(BtdB_bytes * mBlock2 * mGemmInfo.elhPad[0] * mGemmInfo.elhPad[1]);
+    mBtdB_Buffer = (void*)((uint8_t*)bufferData.first + bufferData.second);
     
     auto bufferMatmul = pool->alloc(bytes * mBlock2 * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
     mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
@@ -184,11 +203,42 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     // Split K dimension into 1 partitions
     cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);// m n k
 
+    if(mFp32Infer) {
+        typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                    {(ElementInput_F32 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
+                    {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]), // batch_stride_B
+                    {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                    (int64_t)(0), // batch_stride_bias
+                    {(ElementOutput_F32 *)mMatmul_Buffer, mGemmInfo.elhPad[2]},  //  Ptr + ldm
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
+                    {alpha, beta},          // <- tuple of alpha and beta
+                    mBlock2};                // batch_count
+
+        size_t workspace_size = GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
+
+        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+        pool->free(bufferWs);
+
+        // Check the problem size is supported or not 
+        cutlass::Status status = mGemmBatchedCudaF32F32Ln.can_implement(arguments);
+        cutlass_check(status);
+
+        // Initialize CUTLASS kernel with arguments and workspace pointer
+        status = mGemmBatchedCudaF32F32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+        cutlass_check(status);
+
+        return NO_ERROR;
+    }
+
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
 
     if(mGpuComputeCap < 75) {
-        if(bytes == 2) {
+        if(mFp16Infer) {
             typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
@@ -209,11 +259,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
             pool->free(bufferWs);
     
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmBatchedCudaF16Ln.can_implement(arguments);
+            cutlass::Status status = mGemmBatchedCudaF16F16Ln.can_implement(arguments);
             cutlass_check(status);
     
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmBatchedCudaF16Ln.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmBatchedCudaF16F16Ln.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
     
@@ -237,18 +287,18 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
             pool->free(bufferWs);
     
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmBatchedCudaF32Ln.can_implement(arguments);
+            cutlass::Status status = mGemmBatchedCudaF16F32Ln.can_implement(arguments);
             cutlass_check(status);
     
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmBatchedCudaF32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmBatchedCudaF16F32Ln.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         }
     
         return NO_ERROR;
     }
     //MNN_PRINT("Winograd BatchGemm batch:%d, MNK:%d-%d-%d\n", mBlock2, mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
-    if(bytes == 2) {
+    if(mFp16Infer) {
         typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
@@ -269,11 +319,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
         pool->free(bufferWs);
 
         // Check the problem size is supported or not 
-        cutlass::Status status = mGemmBatchedF16LnSm75.can_implement(arguments);
+        cutlass::Status status = mGemmBatchedF16F16LnSm75.can_implement(arguments);
         cutlass_check(status);
 
         // Initialize CUTLASS kernel with arguments and workspace pointer
-        status = mGemmBatchedF16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+        status = mGemmBatchedF16F16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
         cutlass_check(status);
     } else {
 
@@ -297,11 +347,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
         pool->free(bufferWs);
 
         // Check the problem size is supported or not 
-        cutlass::Status status = mGemmBatchedF32LnSm75.can_implement(arguments);
+        cutlass::Status status = mGemmBatchedF16F32LnSm75.can_implement(arguments);
         cutlass_check(status);
 
         // Initialize CUTLASS kernel with arguments and workspace pointer
-        status = mGemmBatchedF32LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+        status = mGemmBatchedF16F32LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
         cutlass_check(status);
     }
 
@@ -333,7 +383,13 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     DivModFast whD(wUnit * hUnit);
     DivModFast wD(wUnit);
 
-    if(bytes == 4) {
+    if(mFp32Infer) {
+        WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (float*)mBtdB_Buffer, UNIT,
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
+                mPadX, mPadY, input->width(), input->height());
+        checkKernelErrors;
+    } else if(mFp16Fp32MixInfer) {
         WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
                 (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
                 mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
@@ -349,25 +405,30 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
 
     int iBlock = 0;
 
-    if(mGpuComputeCap < 75) {
-        if (4 == bytes) {
-            cutlass::Status status = mGemmBatchedCudaF32Ln();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmBatchedCudaF16Ln();
-            cutlass_check(status);
-        }
+    if(mFp32Infer) {
+        cutlass::Status status = mGemmBatchedCudaF32F32Ln();
+        cutlass_check(status);
     } else {
-        if (4 == bytes) {
-            cutlass::Status status = mGemmBatchedF32LnSm75();
-            cutlass_check(status);
+        if(mGpuComputeCap < 75) {
+            if (mFp16Fp32MixInfer) {
+                cutlass::Status status = mGemmBatchedCudaF16F32Ln();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmBatchedCudaF16F16Ln();
+                cutlass_check(status);
+            }
         } else {
-            cutlass::Status status = mGemmBatchedF16LnSm75();
-            cutlass_check(status);
+            if (mFp16Fp32MixInfer) {
+                cutlass::Status status = mGemmBatchedF16F32LnSm75();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmBatchedF16F16LnSm75();
+                cutlass_check(status);
+            }
         }
     }
 
-    if (4 == bytes) {
+    if (mFp16Fp32MixInfer || mFp32Infer) {
         WinoTrans2Output<<<cores, threadNumbers>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
                 UNIT, mBlock2, output->channel(), co_pack, 
                 mGemmInfo.elh[0] * co_pack, hD, whD, wD,

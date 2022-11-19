@@ -43,7 +43,7 @@ private:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     std::pair<void*, int> mGpuIm2ColParam;
 
-    __half* mIm2ColBuffer;
+    void* mIm2ColBuffer;
 
     bool mIsConv1x1S1D1P0 = false;
     bool mNeedIm2Col = true;
@@ -51,32 +51,39 @@ private:
     bool mIsBlock = false;
     int mBlockNum = 1;
 
-    GemmTensor_F16_F16_Linear_AlignTensor_Sm70 mGemmF16LnSm70;
-    GemmTensor_F16_F32_Linear_AlignTensor_Sm70 mGemmF32LnSm70;
-    GemmCuda_F16_F16_Linear_AlignCuda  mGemmCudaF16Ln;
-    GemmCuda_F16_F32_Linear_AlignCuda  mGemmCudaF32Ln;
+    GemmTensor_F16_F16_Linear_AlignTensor_Sm70 mGemmF16F16LnSm70;
+    GemmTensor_F16_F32_Linear_AlignTensor_Sm70 mGemmF16F32LnSm70;
+    GemmCuda_F16_F16_Linear_AlignCuda  mGemmCudaF16F16Ln;
+    GemmCuda_F16_F32_Linear_AlignCuda  mGemmCudaF16F32Ln;
 
-    GemmTensor_F16_F16_Relu_AlignTensor_Sm70 mGemmF16ReluSm70;
-    GemmTensor_F16_F32_Relu_AlignTensor_Sm70 mGemmF32ReluSm70;
-    GemmCuda_F16_F16_Relu_AlignCuda  mGemmCudaF16Relu;
-    GemmCuda_F16_F32_Relu_AlignCuda  mGemmCudaF32Relu;
+    GemmTensor_F16_F16_Relu_AlignTensor_Sm70 mGemmF16F16ReluSm70;
+    GemmTensor_F16_F32_Relu_AlignTensor_Sm70 mGemmF16F32ReluSm70;
+    GemmCuda_F16_F16_Relu_AlignCuda  mGemmCudaF16F16Relu;
+    GemmCuda_F16_F32_Relu_AlignCuda  mGemmCudaF16F32Relu;
 
-    GemmTensor_F16_F16_Relu6_AlignTensor_Sm70 mGemmF16Relu6Sm70;
-    GemmTensor_F16_F32_Relu6_AlignTensor_Sm70 mGemmF32Relu6Sm70;
-    GemmCuda_F16_F16_Relu6_AlignCuda  mGemmCudaF16Relu6;
-    GemmCuda_F16_F32_Relu6_AlignCuda  mGemmCudaF32Relu6;
+    GemmTensor_F16_F16_Relu6_AlignTensor_Sm70 mGemmF16F16Relu6Sm70;
+    GemmTensor_F16_F32_Relu6_AlignTensor_Sm70 mGemmF16F32Relu6Sm70;
+    GemmCuda_F16_F16_Relu6_AlignCuda  mGemmCudaF16F16Relu6;
+    GemmCuda_F16_F32_Relu6_AlignCuda  mGemmCudaF16F32Relu6;
 
-    GemmTensor_F16_F16_Linear_AlignTensor_Sm75 mGemmF16LnSm75;
-    GemmTensor_F16_F32_Linear_AlignTensor_Sm75 mGemmF32LnSm75;
+    GemmTensor_F16_F16_Linear_AlignTensor_Sm75 mGemmF16F16LnSm75;
+    GemmTensor_F16_F32_Linear_AlignTensor_Sm75 mGemmF16F32LnSm75;
 
-    GemmTensor_F16_F16_Relu_AlignTensor_Sm75 mGemmF16ReluSm75;
-    GemmTensor_F16_F32_Relu_AlignTensor_Sm75 mGemmF32ReluSm75;
+    GemmTensor_F16_F16_Relu_AlignTensor_Sm75 mGemmF16F16ReluSm75;
+    GemmTensor_F16_F32_Relu_AlignTensor_Sm75 mGemmF16F32ReluSm75;
 
-    GemmTensor_F16_F16_Relu6_AlignTensor_Sm75 mGemmF16Relu6Sm75;
-    GemmTensor_F16_F32_Relu6_AlignTensor_Sm75 mGemmF32Relu6Sm75;
+    GemmTensor_F16_F16_Relu6_AlignTensor_Sm75 mGemmF16F16Relu6Sm75;
+    GemmTensor_F16_F32_Relu6_AlignTensor_Sm75 mGemmF16F32Relu6Sm75;
+
+    GemmCuda_F32_F32_Relu_AlignCuda mGemmCudaF32F32Relu;
+    GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
+    GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
 
     int mGpuComputeCap = 75;
     int mActivationType = 0;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
     std::shared_ptr<Tensor> workspaceTensor;
     uint8_t* mWorkspace;
 };

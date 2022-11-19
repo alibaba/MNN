@@ -6,7 +6,9 @@ list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
 add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)
 list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 
-add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp)
+add_executable(mergeInplaceForCPU ${CMAKE_CURRENT_LIST_DIR}/mergeInplaceForCPU.cpp)
+
+add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
     target_compile_options(MNNV2Basic.out PRIVATE -DMNN_USE_SSE)

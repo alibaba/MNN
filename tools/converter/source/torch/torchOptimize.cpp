@@ -482,6 +482,29 @@ void FuseAsTensor(Graph* graph, Block* block) {
     }
 }
 
+/*
+fuse uniform, such as below:
+    d = aten::empty(shape);
+    c = aten::uniform_(a, low, hight);
+ -> c = aten::uniform_(shape, low, hight)
+*/
+void FuseUniform(Graph* graph, Block* block) {
+    for (auto it = block->nodes().begin(); it != block->nodes().end();) {
+        auto* node = *it;
+        it++;
+        for (Block* sub_block : node->blocks()) {
+            FuseUniform(graph, sub_block);
+        }
+        if (it->kind().toUnqualString() == std::string("uniform_")) {
+            auto input = it->input(0)->node();
+            if (input->kind() == aten::empty) {
+                it->replaceInput(0, input->input(0));
+                input->destroy();
+            }
+        }
+    }
+}
+
 std::shared_ptr<Graph> torchOptPass(Module& module) {
     module.eval();
     module = torch::jit::freeze_module(module);
@@ -521,6 +544,8 @@ std::shared_ptr<Graph> torchOptPass(Module& module) {
     OutputsUnpack(graph.get());
     // dtype + as_tensor -> type_as
     FuseAsTensor(graph.get(), graph->block());
+    // empty + uniform -> uniform
+    FuseUniform(graph.get(), graph->block());
 #ifdef MNN_DUMP_TORCHSCRIPT
     graph->dump();
 #endif

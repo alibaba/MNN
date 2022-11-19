@@ -10,7 +10,9 @@
 
 namespace MNN {
 namespace CUDA {
-__global__ void DeconvKernelReorder(const float* B, half* BP, int kw, int kh, int ic, int oc, int icPack) {
+
+template<typename T>
+__global__ void DeconvKernelReorder(const float* B, T* BP, int kw, int kh, int ic, int oc, int icPack) {
     int kernelCount = kw * kh;
     int e = oc * kernelCount;
     int l = ic;
@@ -23,10 +25,10 @@ __global__ void DeconvKernelReorder(const float* B, half* BP, int kw, int kh, in
         int e_idx = index / lAlign;
 
         if(lp_idx >= l) {
-            BP[index] = (half)0.0f;
+            BP[index] = (T)0.0f;
             continue;
         }
-        BP[index] = (half)(B[lp_idx * e + e_idx]);
+        BP[index] = (T)(B[lp_idx * e + e_idx]);
     }
 }
 
@@ -137,16 +139,26 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
     
     // Reorder weight
-    weightTensor.reset(Tensor::createDevice<int16_t>({param.elh[0] * param.elhPad[1]}));
+    if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
+        weightTensor.reset(Tensor::createDevice<int32_t>({param.elh[0] * param.elhPad[1]}));
+    } else {
+        weightTensor.reset(Tensor::createDevice<int16_t>({param.elh[0] * param.elhPad[1]}));
+    }
     bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
     mFilter = (void *)weightTensor.get()->buffer().device;    
     
     auto& prop = runtime->prop();
     int cores = prop.multiProcessorCount;
     int threadNumbers = prop.maxThreadsPerBlock;
-    DeconvKernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
-        mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, param.elhPad[1]);
-    
+    if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
+        DeconvKernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (float*)mFilter,
+            mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, param.elhPad[1]);
+        checkKernelErrors;
+    } else {
+        DeconvKernelReorder<<<cores, threadNumbers>>>((float*)cacheWeight, (half*)mFilter,
+            mKernelInfo.kernelX, mKernelInfo.kernelY, mKernelInfo.kernelC, mKernelInfo.kernelN, param.elhPad[1]);
+        checkKernelErrors;
+    }
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
 
     // Copy Bias
@@ -163,6 +175,10 @@ DeconvSingleInputExecution::Resource::~Resource() {
 }
 DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : Execution(backend), mOp(op) {
     mResource = res;
+    int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
+    mFp16Infer = (precisonLevel == 2);
+    mFp32Infer = (precisonLevel == 1);
+    mFp16Fp32MixInfer = (precisonLevel == 0);
 }
 
 DeconvSingleInputExecution::~DeconvSingleInputExecution() {
@@ -224,20 +240,20 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     // Alloc temp cuda memory
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     std::pair<void*, size_t> buffer_input, buffer_im2col;
-    if(bytes == 4) {
+    if(mFp16Fp32MixInfer) {
         buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elhPad[1] * mGemmInfo.elh[2]);
-        mInputBuffer = (__half*)((uint8_t*)buffer_input.first + buffer_input.second);
+        mInputBuffer = (void*)((uint8_t*)buffer_input.first + buffer_input.second);
     } else {
-        mInputBuffer = (__half*)input->deviceId();
+        mInputBuffer = (void*)input->deviceId();
     }
     buffer_im2col = pool->alloc(bytes * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
     mIm2ColBuffer = (__half*)((uint8_t*)buffer_im2col.first + buffer_im2col.second);
-    if(bytes == 4) {
+    if(mFp16Fp32MixInfer) {
         pool->free(buffer_input);
     }
     pool->free(buffer_im2col);
 
-    if(bytes == 4) {
+    if(mFp16Fp32MixInfer || mFp32Infer) {
         mZeroTensor.reset(Tensor::createDevice<uint32_t>({mGemmInfo.elhPad[2]}));
     } else {
         mZeroTensor.reset(Tensor::createDevice<uint16_t>({mGemmInfo.elhPad[2]}));
@@ -253,12 +269,89 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     // Split K dimension into 1 partitions
     int split_k_slices = 1;
     cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elh[2], mGemmInfo.elhPad[1]);// m n k
+
+    if(mFp32Infer) {
+        if(mActivationType == 1) {
+            // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
+            // instantiated CUTLASS kernel
+            typename GemmCuda_F32_F32_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                            {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
+                                            {alpha, beta},          // <- tuple of alpha and beta
+                                            split_k_slices};        // <- k-dimension split factor
+            size_t workspace_size = GemmCuda_F32_F32_Relu_AlignCuda::get_workspace_size(arguments);
+
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+            pool->free(bufferWs);
+
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmCudaF32F32Relu.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmCudaF32F32Relu.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+    
+        } else if(mActivationType == 2) {
+            // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
+            // instantiated CUTLASS kernel
+            typename GemmCuda_F32_F32_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                split_k_slices};        // <- k-dimension split factor
+            size_t workspace_size = GemmCuda_F32_F32_Relu6_AlignCuda::get_workspace_size(arguments);
+
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+            pool->free(bufferWs);
+
+            // Check the problem size is supported or not 
+            cutlass::Status status = mGemmCudaF32F32Relu6.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmCudaF32F32Relu6.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+    
+        } else {
+
+            typename GemmCuda_F32_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                split_k_slices};        // <- k-dimension split factor
+            size_t workspace_size = GemmCuda_F32_F32_Linear_AlignCuda::get_workspace_size(arguments);
+
+            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
+            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
+            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
+            pool->free(bufferWs);
+
+            cutlass::Status status = mGemmCudaF32F32Ln.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = mGemmCudaF32F32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+            cutlass_check(status);
+        }
+        return NO_ERROR;
+    }
     //MNN_PRINT("Conv Gemm mnk:%d-%d-%d\n", mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
     mGpuComputeCap = runtime->compute_capability();
 
     if(mGpuComputeCap < 75) {
         if(mActivationType == 1) {
-            if(bytes == 2) {
+            if(mFp16Infer) {
                 // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
                 typename GemmCuda_F16_F16_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -276,11 +369,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmCudaF16Relu.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F16Relu.can_implement(arguments);
                 cutlass_check(status);
             
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF16Relu.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F16Relu.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             } else {
                 // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
@@ -300,17 +393,17 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmCudaF32Relu.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F32Relu.can_implement(arguments);
                 cutlass_check(status);
     
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF32Relu.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F32Relu.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             }
     
         } else if(mActivationType == 2) {
     
-            if(bytes == 2) {
+            if(mFp16Infer) {
                 // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
                 // instantiated CUTLASS kernel
                 typename GemmCuda_F16_F16_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -328,11 +421,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmCudaF16Relu6.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F16Relu6.can_implement(arguments);
                 cutlass_check(status);
             
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF16Relu6.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F16Relu6.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             } else {
                 // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
@@ -352,17 +445,17 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 pool->free(bufferWs);
     
                 // Check the problem size is supported or not 
-                cutlass::Status status = mGemmCudaF32Relu6.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F32Relu6.can_implement(arguments);
                 cutlass_check(status);
     
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF32Relu6.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F32Relu6.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             }
     
         } else {
         
-            if(bytes == 2) {
+            if(mFp16Infer) {
                 typename GemmCuda_F16_F16_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
@@ -377,11 +470,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
                 pool->free(bufferWs);
     
-                cutlass::Status status = mGemmCudaF16Ln.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F16Ln.can_implement(arguments);
                 cutlass_check(status);
     
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF16Ln.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F16Ln.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             } else {
                 typename GemmCuda_F16_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -398,11 +491,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
                 runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
                 pool->free(bufferWs);
     
-                cutlass::Status status = mGemmCudaF32Ln.can_implement(arguments);
+                cutlass::Status status = mGemmCudaF16F32Ln.can_implement(arguments);
                 cutlass_check(status);
     
                 // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmCudaF32Ln.initialize(arguments, (uint8_t *)mWorkspace);
+                status = mGemmCudaF16F32Ln.initialize(arguments, (uint8_t *)mWorkspace);
                 cutlass_check(status);
             }
         }
@@ -411,7 +504,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     }
 
     if(mActivationType == 1) {
-        if(bytes == 2) {
+        if(mFp16Infer) {
             // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -429,11 +522,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             pool->free(bufferWs);
 
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmF16ReluSm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F16ReluSm75.can_implement(arguments);
             cutlass_check(status);
         
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF16ReluSm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F16ReluSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
@@ -453,17 +546,17 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             pool->free(bufferWs);
 
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmF32ReluSm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F32ReluSm75.can_implement(arguments);
             cutlass_check(status);
 
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF32ReluSm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F32ReluSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         }
 
     } else if(mActivationType == 2) {
 
-        if(bytes == 2) {
+        if(mFp16Infer) {
             // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu6_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -481,11 +574,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             pool->free(bufferWs);
 
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmF16Relu6Sm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F16Relu6Sm75.can_implement(arguments);
             cutlass_check(status);
         
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF16Relu6Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F16Relu6Sm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
@@ -505,17 +598,17 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             pool->free(bufferWs);
 
             // Check the problem size is supported or not 
-            cutlass::Status status = mGemmF32Relu6Sm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F32Relu6Sm75.can_implement(arguments);
             cutlass_check(status);
 
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF32Relu6Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F32Relu6Sm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         }
 
     } else {
     
-        if(bytes == 2) {
+        if(mFp16Infer) {
             typename GemmTensor_F16_F16_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                         {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
@@ -530,11 +623,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
             pool->free(bufferWs);
 
-            cutlass::Status status = mGemmF16LnSm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F16LnSm75.can_implement(arguments);
             cutlass_check(status);
 
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F16LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
             typename GemmTensor_F16_F32_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
@@ -551,11 +644,11 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
             runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
             pool->free(bufferWs);
 
-            cutlass::Status status = mGemmF32LnSm75.can_implement(arguments);
+            cutlass::Status status = mGemmF16F32LnSm75.can_implement(arguments);
             cutlass_check(status);
 
             // Initialize CUTLASS kernel with arguments and workspace pointer
-            status = mGemmF32LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
+            status = mGemmF16F32LnSm75.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         }
     }
@@ -581,67 +674,79 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
         int block_num = runtime->blocks_num(maxCount);
         int block_size = runtime->threads_num();
 
-        if(bytes == 4) {
+        if(mFp16Fp32MixInfer) {
             __Float22Half2<<<block_num, block_size>>>((const float*)input_addr, (half*)mInputBuffer, maxCount);
             checkKernelErrors;
         } 
     }
 
     // Do Gemm Compute
-    if(mGpuComputeCap < 75) {
+    if(mFp32Infer) {
         if(mActivationType == 1) {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmCudaF32Relu();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16Relu();
-                cutlass_check(status);
-            }
+            cutlass::Status status = mGemmCudaF32F32Relu();
+            cutlass_check(status);
         } else if(mActivationType == 2) {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmCudaF32Relu6();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16Relu6();
-                cutlass_check(status);
-            }
+            cutlass::Status status = mGemmCudaF32F32Relu6();
+            cutlass_check(status);
         } else {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmCudaF32Ln();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16Ln();
-                cutlass_check(status);
-            }
+            cutlass::Status status = mGemmCudaF32F32Ln();
+            cutlass_check(status);
         }
     } else {
-        if(mActivationType == 1) {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmF32ReluSm75();
-                cutlass_check(status);
+        if(mGpuComputeCap < 75) {
+            if(mActivationType == 1) {
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmCudaF16F32Relu();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmCudaF16F16Relu();
+                    cutlass_check(status);
+                }
+            } else if(mActivationType == 2) {
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmCudaF16F32Relu6();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmCudaF16F16Relu6();
+                    cutlass_check(status);
+                }
             } else {
-                cutlass::Status status = mGemmF16ReluSm75();
-                cutlass_check(status);
-            }
-        } else if(mActivationType == 2) {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmF32Relu6Sm75();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmF16Relu6Sm75();
-                cutlass_check(status);
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmCudaF16F32Ln();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmCudaF16F16Ln();
+                    cutlass_check(status);
+                }
             }
         } else {
-            if(bytes == 4) {
-                cutlass::Status status = mGemmF32LnSm75();
-                cutlass_check(status);
+            if(mActivationType == 1) {
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmF16F32ReluSm75();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmF16F16ReluSm75();
+                    cutlass_check(status);
+                }
+            } else if(mActivationType == 2) {
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmF16F32Relu6Sm75();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmF16F16Relu6Sm75();
+                    cutlass_check(status);
+                }
             } else {
-                cutlass::Status status = mGemmF16LnSm75();
-                cutlass_check(status);
+                if(mFp16Fp32MixInfer) {
+                    cutlass::Status status = mGemmF16F32LnSm75();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmF16F16LnSm75();
+                    cutlass_check(status);
+                }
             }
         }
     }
-
 
     // Do Col2Im trans
     int height_col = mCol2ImParamter.ih;
@@ -656,7 +761,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
     //     mCol2ImParamter.padX, mCol2ImParamter.padY, mCol2ImParamter.kernelX, mCol2ImParamter.kernelY, mCol2ImParamter.strideX, mCol2ImParamter.strideY, \
     //     col2im_block_num, col2im_thread_num);
     
-    if(bytes == 4) {
+    if(mFp16Fp32MixInfer || mFp32Infer) {
         Col2Im<float><<<col2im_block_num, col2im_thread_num>>>(
             num_kernels, (const float*)mIm2ColBuffer, mCol2ImParamter.ob, mCol2ImParamter.oh, mCol2ImParamter.ow, mCol2ImParamter.oc, 
             mCol2ImParamter.kernelY, mCol2ImParamter.kernelX, mCol2ImParamter.padY, mCol2ImParamter.padX, 
