@@ -73,13 +73,13 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
 #endif
 #ifdef MNN_USE_THREAD_POOL
     mThreadNumber = ThreadPool::init(mThreadNumber);
-    if (mThreadNumber > 1) {
+    if (mThreadNumber > 1 && mPower == BackendConfig::Power_High) {
         mTaskIndex = ThreadPool::acquireWorkIndex();
+        if (mTaskIndex >= 0 ) {
+            ThreadPool::active();
+        }
     } else {
         mTaskIndex = -1;
-    }
-    if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
-        ThreadPool::active();
     }
 #endif
 #ifdef LOG_VERBOSE
@@ -90,8 +90,8 @@ CPURuntime:: ~ CPURuntime() {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
         ThreadPool::deactive();
+        ThreadPool::releaseWorkIndex(mTaskIndex);
     }
-    ThreadPool::releaseWorkIndex(mTaskIndex);
 #endif
 }
 float CPURuntime::onGetMemoryInMB() {
