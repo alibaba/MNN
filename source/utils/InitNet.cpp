@@ -226,6 +226,9 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
         if (des->usage == Tensor::InsideDescribe::CONSTANT) {
             continue;
         }
+        if (des->usage == Tensor::InsideDescribe::TRAINABLE) {
+            continue;
+        }
         des->usage = Tensor::InsideDescribe::INPUT;
     }
     for (auto index : output) {

@@ -70,7 +70,7 @@ Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad)
 
 Express::VARP SGD::onComputeUpdateValue(Express::VARP param, Express::VARP grad) {
     auto lr         = _Const(mLearningRate, {}, NCHW);
-    mHistory[param] = lr * grad + _Const(mMomentum, {}, NCHW) * mHistory[param];
+    mHistory[param] = lr * (grad + _Const(mMomentum, {}, NCHW) * mHistory[param]);
     mHistory[param].fix(Express::VARP::CONSTANT);
     //FUNC_PRINT_ALL(_ReduceMax(grad)->readMap<float>()[0], f);
     return mHistory[param];

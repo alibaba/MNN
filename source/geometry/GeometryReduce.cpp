@@ -19,14 +19,23 @@ public:
         auto reduct          = op->main_as_ReductionParam();
         auto reductOp        = reduct->operation();
         // prod([]) = 1
-        if (inputs[0]->elementSize() == 0 && reductOp == ReductionType_PROD) {
+        if (inputs[0]->elementSize() == 0) {
             if(!context.allocTensor(outputs[0])) {
                 return false;
             }
+            float res;
+            switch (reductOp) {
+                case ReductionType_PROD:
+                    res = 1.0f;
+                    break;
+                default:
+                    res = 0.0f;
+                    break;
+            }
             if (outputs[0]->getType() == halide_type_of<float>()) {
-                outputs[0]->host<float>()[0] = 1.f;
+                outputs[0]->host<float>()[0] = (float)res;
             } else {
-                outputs[0]->host<int>()[0] = 1;
+                outputs[0]->host<int>()[0] = (int)res;
             }
             return true;
         }

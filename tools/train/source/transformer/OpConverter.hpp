@@ -16,7 +16,7 @@ class MNN_PUBLIC OpConverter {
 public:
     OpConverter() = default;
 
-    static MNN::Express::EXPRP convert(MNN::Express::EXPRP source);
+    static MNN::Express::EXPRP convert(MNN::Express::EXPRP source, std::map<std::string, MNN::Express::VARP>& helpInfo);
 
     virtual ~OpConverter() = default;
     static OpConverter* get(MNN::OpType type);
