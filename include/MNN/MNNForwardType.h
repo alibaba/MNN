@@ -31,7 +31,7 @@ typedef enum {
     MNN_FORWARD_OPENGL = 6,
     MNN_FORWARD_VULKAN = 7,
 
-    /*Android 8.1's NNAPI, Not Support yet. CoreML Now*/
+    /*Android 8.1's NNAPI or CoreML for ios*/
     MNN_FORWARD_NN = 5,
 
     /*User can use API from Backend.hpp to add or search Backend*/

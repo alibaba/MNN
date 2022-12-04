@@ -37,7 +37,7 @@ target_compile_definitions(MNNTrain PRIVATE STB_IMAGE_STATIC STB_IMAGE_IMPLEMENT
 
 # executables
 set(MNN_TRAIN_TOOLS "")
-add_executable(transformer.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/transformerExecution.cpp)
+add_executable(transformer.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/transformerExecution.cpp ${TRANSFORMER})
 add_executable(train.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/train.cpp ${SCHEMA} ${BASIC_INCLUDE})
 add_executable(rawDataTransform.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/rawDataTransform.cpp ${SCHEMA} ${BASIC_INCLUDE})
 add_executable(dataTransformer.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/dataTransformer.cpp ${SCHEMA} ${BASIC_INCLUDE})

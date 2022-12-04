@@ -41,7 +41,6 @@ class WhereSizeComputer : public SizeComputer {
         }
         // For zeroshape input
         if (nullptr == inputs[0]->host<void>()) {
-            ob.dimensions = 1;
             ob.dim[0].extent = 0;
             return true;
         }

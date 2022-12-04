@@ -21,15 +21,14 @@ MNN::OpParameter IfOnnx::type() {
 void IfOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                    OnnxScope* scope) {
     auto param = new MNN::IfParamT;
-    dstOp->name += "/If";
-    param->then_graph = dstOp->name + "/then";
-    param->else_graph = dstOp->name + "/else";
     const ::onnx::GraphProto *thenG = nullptr, *elseG = nullptr;
     for (const auto& attr : onnxNode->attribute()) {
         if (attr.name() == "then_branch") {
             thenG = &attr.g();
+            param->then_graph = thenG->name();
         } else if (attr.name() == "else_branch") {
             elseG = &attr.g();
+            param->else_graph = elseG->name();
         }
     }
     if (thenG == nullptr || elseG == nullptr) {
@@ -50,8 +49,21 @@ void IfOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         std::transform(graph->output().begin(), graph->output().end(), outputs.begin(), [](const ::onnx::ValueInfoProto& p) { return p.name(); });
         return std::make_pair(inputs, outputs);
     };
-    auto thenInOuts = dealWithSubGraph(thenG, param->then_graph);
-    auto elseInOuts = dealWithSubGraph(elseG, param->else_graph);
+    std::pair<std::vector<std::string>, std::vector<std::string>> thenInOuts, elseInOuts;
+    MNN_ASSERT(thenG->node_size() > 0 || elseG->node_size() > 0);
+    if (thenG->node_size() > 0) {
+        thenInOuts = dealWithSubGraph(thenG, param->then_graph);
+    }
+    if (elseG->node_size() > 0) {
+        elseInOuts = dealWithSubGraph(elseG, param->else_graph);
+    }
+    if (thenG->node_size() == 0) {
+        thenInOuts = elseInOuts;
+        param->then_graph = param->else_graph;
+    } else if (elseG->node_size() == 0) {
+        elseInOuts = thenInOuts;
+        param->else_graph = param->then_graph;
+    }
     auto thenInputs = thenInOuts.first, thenOutputs = thenInOuts.second;
     auto elseInputs = elseInOuts.first, elseOutputs = elseInOuts.second;
     
