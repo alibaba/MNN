@@ -349,9 +349,6 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             if (nullptr != inside->mCache) {
                 inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
             }
-            auto srcDes = TensorUtils::getDescribe(inputTensor);
-            auto des = TensorUtils::getDescribe(mInputTensors[i]);
-            des->dimensionFormat = srcDes->dimensionFormat;
             mInputTensors[i]->buffer().type = inputTensor->buffer().type;
             _resizeTensor(mInputTensors[i], inputTensor, mSession.get());
         }
