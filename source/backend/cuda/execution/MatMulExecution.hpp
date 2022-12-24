@@ -27,6 +27,7 @@ public:
 private:
     bool mTransposeA;
     bool mTransposeB;
+    Backend* mBackend = nullptr;
 
     std::shared_ptr<Tensor> mBiasTensor;
     GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F16LnAlign1RCSm75;
@@ -50,7 +51,7 @@ private:
     GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Row mGemmBatchedCudaF16F32LnAlign1RR;
 
     std::shared_ptr<Tensor> workspaceTensor;
-    uint8_t* mWorkspace;
+    void* mWorkspace;
     void* mTempMatA;
     void* mTempMatB;
     void* mBiasPtr = nullptr;

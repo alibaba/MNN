@@ -262,7 +262,7 @@ bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const
         }
         return false;
     }
-    if (TensorUtils::isDepthToSpaceRegions) {
+    if (TensorUtils::isDepthToSpaceRegions(outputs[0])) {
         return buildDepthToSpace(mLayer_, region.origin, outputs[0]);
     }
     // region_size > 1: concat

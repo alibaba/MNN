@@ -2646,7 +2646,8 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 #ifdef PYMNN_NUMPY_USABLE
     gNumpyValid = true;
     if(_import_array() < 0) {
-        PyErr_SetString(PyExc_Exception, "initMNN: init numpy failed");
+        MNN_PRINT("[Warnning] import numpy failed, please reinstall numpy!\n");
+        PyErr_Clear();
         gNumpyValid = false;
     }
 #endif

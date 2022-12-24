@@ -218,8 +218,7 @@ public:
         auto glo = ExecutorScope::Current();
         glo->getDebugTools()->flops = 0.0f;
 #endif
-        CPURuntime* runtime = static_cast<CPURuntime*>(mRuntime.get());
-        runtime->clearReuseCopyTensorMap();
+
         auto outputs = mModule->onForward(inputs);
 #ifdef MNN_INTERNAL_ENABLED
         do {
@@ -383,15 +382,21 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
             }
         }
     }
-    std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
     if (info->inputNames.empty()) {
         for (auto index : realInput) {
             info->inputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
         }
     }
     if (info->outputNames.empty()) {
-        for (auto index : realOutput) {
-            info->outputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
+        if (nullptr != net->outputName()) {
+            for (int i=0; i<net->outputName()->size(); ++i) {
+                info->outputNames.emplace_back(net->outputName()->GetAsString(i)->str());
+            }
+        } else {
+            std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
+            for (auto index : realOutput) {
+                info->outputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
+            }
         }
     }
     std::shared_ptr<Module> m(PipelineModule::load(info->inputNames, info->outputNames, buffer, length, rtMgr, config));

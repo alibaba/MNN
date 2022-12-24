@@ -89,54 +89,6 @@ Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<T
     return nullptr;
 }
 
-Tensor* WrapExecution::getReuseTensor(Tensor* t, Backend* cacheBackend, Backend* curBackend) {
-    // return nullptr;
-    auto inputDes   = TensorUtils::getDescribe(t);
-    auto srcBackend = inputDes->backend;
-    auto srcBackendType = MNN_FORWARD_CPU;
-    auto usage = inputDes->usage;
-
-    if (TensorUsage::CONSTANT != usage && TensorUsage::INPUT != usage) {
-        return nullptr;
-    }
-
-
-    if (nullptr != srcBackend) {
-        srcBackendType = srcBackend->type();
-    }
-    MNN_ASSERT(inputDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
-    // CPU -> CPU or XPU -> XPU
-
-    if (srcBackendType == curBackend->type()) {
-
-        return nullptr; // no need to copy or reuse
-    }
-
-    auto& reuseCopyTensorMap = static_cast<CPUBackend*>(cacheBackend)->getReuseCopyTensorMap();
-    auto tensorAddr = t->host<void*>();
-    auto tensorSize = t->size();
-
-    auto iter = reuseCopyTensorMap.find(std::make_pair(tensorAddr, tensorSize));
-
-    if (tensorAddr && iter != reuseCopyTensorMap.end() && std::get<2>(iter->second) != t) {
-#ifdef LOG_VERBOSE
-        MNN_PRINT("getReuseTensor match cpu to gpu or gpu to cpu, input:%p, host:%p, size:%d, mapsize:%d, usage is input:%d, reused:%p, shape:", t, tensorAddr, tensorSize, reuseCopyTensorMap.size(), (TensorUsage::CONSTANT == usage || TensorUsage::INPUT == usage), std::get<2>(iter->second));
-        t->printShape();
-        MNN_PRINT("\n");
-#endif
-        return std::get<2>(iter->second);
-    } else {
-#ifdef LOG_VERBOSE
-        MNN_PRINT("getReuseTensor cannot find reusable cpu to gpu or gpu to cpu, input:%p, host:%p, size:%d, mapsize:%d, usage:%d, shape:", t, tensorAddr, tensorSize, reuseCopyTensorMap.size(), (TensorUsage::CONSTANT == usage || TensorUsage::INPUT == usage));
-        t->printShape();
-        MNN_PRINT("\n");
-#endif
-        return nullptr;
-    }
-
-}
-
-
 Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor, Tensor* outsideInput) {
     auto dstBackend = mExecution->backend();
     auto inputDes   = TensorUtils::getDescribe(inputTensor);
@@ -157,7 +109,6 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor, Tensor* outsideInput)
         return std::get<2>(iter->second).get();
     }
 
-    auto& reuseCopyTensorMap = static_cast<CPUBackend*>(mCPUBackend)->getReuseCopyTensorMap();
     auto tensorAddr = inputTensor->host<void*>();
     auto tensorSize = inputTensor->size();
 
@@ -174,7 +125,6 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor, Tensor* outsideInput)
         MNN_PRINT("match cpu to gpu, input:%p, host:%p, wrap:%p, host:%p. dst bn type:%d. outsideInput:%p, refcount:%d\n", inputTensor, inputTensor->host<void*>(), wrapTensor.get(), wrapTensor->host<void*>(), dstBackend->type(), outsideInput, TensorUtils::getDescribe(outsideInput)->useCount);
 #endif
         TensorUtils::getDescribe(outsideInput)->useCount++;
-        reuseCopyTensorMap.insert(std::make_pair(std::make_pair(tensorAddr, tensorSize), std::make_tuple(dstBackend, dstBackend, outsideInput)));
         return wrapTensor.get();
     }
     // XPU -> CPU
@@ -189,7 +139,6 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor, Tensor* outsideInput)
 #ifdef LOG_VERBOSE
         MNN_PRINT("match gpu to cpu, input:%p, host:%p, wrap:%p, host:%p. src bn type:%d, outsideInput:%p, refcount:%d\n", inputTensor, inputTensor->host<void*>(), wrapTensor.get(), wrapTensor->host<void*>(), srcBackend->type(), outsideInput, TensorUtils::getDescribe(outsideInput)->useCount);
 #endif
-        reuseCopyTensorMap.insert(std::make_pair(std::make_pair(tensorAddr, tensorSize), std::make_tuple(mCPUBackend, srcBackend, outsideInput)));
         return wrapTensor.get();
     }
     // XPU -> CPU -> XPU'

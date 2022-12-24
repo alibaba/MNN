@@ -7,10 +7,15 @@
 //
 
 #include "../PostTreatUtils.hpp"
-
+#include "config.hpp"
+#include "../Global.hpp"
 class RemoveCopy : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
+        auto config = Global<modelConfig>::Get();
+        if (config->optimizeLevel < 1) {
+            return true;
+        }
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
             if (op->type != MNN::OpType_Identity) {

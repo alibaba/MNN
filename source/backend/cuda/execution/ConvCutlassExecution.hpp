@@ -85,7 +85,7 @@ private:
     bool mFp32Infer = false;
     bool mFp16Fp32MixInfer = false;
     std::shared_ptr<Tensor> workspaceTensor;
-    uint8_t* mWorkspace;
+    void* mWorkspace;
 };
 
 } // namespace CUDA

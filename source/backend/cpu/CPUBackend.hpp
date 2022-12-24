@@ -29,9 +29,7 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
-    MNN_PUBLIC ReuseCopyTensorMap& getReuseCopyTensorMap();
 
-    MNN_PUBLIC void clearReuseCopyTensorMap();
     void onConcurrencyBegin() const;
     void onConcurrencyEnd() const;
 
@@ -42,7 +40,6 @@ private:
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
-    ReuseCopyTensorMap mReuseCopyTensorMap;
 
     // Backend features
     // CPU features
@@ -111,11 +108,6 @@ public:
     }
 
     virtual const Runtime* getRuntime() override;
-
-    ReuseCopyTensorMap& getReuseCopyTensorMap();
-
-    void clearReuseCopyTensorMap();
-
 
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}

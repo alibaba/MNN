@@ -449,9 +449,6 @@ void Interpreter::resizeSession(Session* session, int needRelloc) {
         session->setNeedMalloc(true);
     }
 
-    CPURuntime* runtime = static_cast<CPURuntime*>(session->getCPURuntime());
-    runtime->clearReuseCopyTensorMap();
-
     session->resize();
 }
 

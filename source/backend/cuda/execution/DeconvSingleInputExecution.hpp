@@ -94,6 +94,7 @@ private:
     int mGpuComputeCap;
     void* mIm2ColBuffer;
     void* mInputBuffer;
+    std::shared_ptr<Tensor> workspaceTensor;
     void* mWorkspace;
     void* mZeroPtr;
     std::shared_ptr<Tensor> mZeroTensor;

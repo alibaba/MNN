@@ -40,24 +40,6 @@ static VARP _ConvertF(VARP input, MNN::MNN_DATA_FORMAT format) {
     convert->main.AsTensorConvertInfo()->dest   = format;
     return (Variable::create(Expr::create(convert.get(), {input})));
 }
-static bool checkInputInfo(const std::string& exprName, const Variable::Info* info, const modelConfig* config) {
-    if (nullptr == info) {
-        if (config->optimizeLevel < 1) {
-            return false;
-        }
-        if (config->optimizeLevel == 1) {
-            // Namely dense op can be treat
-            if (exprName.find("dense") == std::string::npos) {
-                return false;
-            }
-        }
-    } else {
-        if (info->dim.size() != 2) {
-            return false;
-        }
-    }
-    return true;
-}
 
 ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
     // Fuse MatMul + Bias

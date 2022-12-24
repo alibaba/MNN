@@ -218,10 +218,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
 
         size_t workspace_size = GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
 
-        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-        pool->free(bufferWs);
+        if(workspace_size != 0) {
+            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+        }
 
         // Check the problem size is supported or not 
         cutlass::Status status = mGemmBatchedCudaF32F32Ln.can_implement(arguments);
@@ -253,10 +254,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     
             size_t workspace_size = GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
     
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
     
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmBatchedCudaF16F16Ln.can_implement(arguments);
@@ -281,10 +283,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     
             size_t workspace_size = GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
     
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
     
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmBatchedCudaF16F32Ln.can_implement(arguments);
@@ -313,10 +316,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
 
         size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
-        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-        pool->free(bufferWs);
+        if(workspace_size != 0) {
+            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+        }
 
         // Check the problem size is supported or not 
         cutlass::Status status = mGemmBatchedF16F16LnSm75.can_implement(arguments);
@@ -341,10 +345,11 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
 
         size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
-        auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-        mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-        runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-        pool->free(bufferWs);
+        if(workspace_size != 0) {
+            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+        }
 
         // Check the problem size is supported or not 
         cutlass::Status status = mGemmBatchedF16F32LnSm75.can_implement(arguments);

@@ -15,7 +15,16 @@ namespace MNN {
 namespace CUDA {
 
 template<typename T0, typename T1>
-__global__ void Im2Col_packC(const ConvolutionCommon::Im2ColParameter* param,
+__global__ void Im2Col_packC(
+    const int sw,
+    const int sh,
+    const int dw,
+    const int dh,
+    const int pw,
+    const int ph,
+    const int icDiv4,
+    const int iw,
+    const int ih,
     const size_t maxCount,
     const int iBlock,
     const int pack,
@@ -29,6 +38,7 @@ __global__ void Im2Col_packC(const ConvolutionCommon::Im2ColParameter* param,
     DivModFast d_fxy,
     DivModFast d_fx
 ) {
+
     for (size_t indexO = blockIdx.x * blockDim.x + threadIdx.x; indexO < maxCount; indexO += blockDim.x * gridDim.x) {
         int eIndex, lpIndex;
         d_lp.divmod(indexO, eIndex, lpIndex);
@@ -44,13 +54,13 @@ __global__ void Im2Col_packC(const ConvolutionCommon::Im2ColParameter* param,
         d_fxy.divmod(lpIndex, ic, kI);
         d_fx.divmod(kI, ksy, ksx);
 
-        size_t sx = ox * param->strideX + ksx * param->dilateX - param->padX;
-        size_t sy = oy * param->strideY + ksy * param->dilateY - param->padY;
+        size_t sx = ox * sw + ksx * dw - pw;
+        size_t sy = oy * sh + ksy * dh- ph;
 
-        const int ic_p = (param->icDiv4) * pack;
-        if (sx >= 0 && sx < param->iw) {
-            if (sy >=0 && sy < param->ih) {
-                size_t offset = ((ob * param->ih + sy) * param->iw + sx) * ic_p + ic;
+        const int ic_p = icDiv4 * pack;
+        if (sx >= 0 && sx < iw) {
+            if (sy >=0 && sy < ih) {
+                size_t offset = ((ob * ih + sy) * iw + sx) * ic_p + ic;
                 *(AP + indexO) = (T1)(*(A + offset));
                 continue;
             }
@@ -177,8 +187,6 @@ ConvCutlassExecution::Resource::~Resource() {
 ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : Execution(backend), mOp(op) {
     mResource = res;
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
-    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-    mGpuIm2ColParam = staticPool->alloc(sizeof(ConvolutionCommon::Im2ColParameter));
     int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
     mFp16Infer = (precisonLevel == 2);
     mFp32Infer = (precisonLevel == 1);
@@ -186,8 +194,6 @@ ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, 
 }
 
 ConvCutlassExecution::~ConvCutlassExecution() {
-    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
-    staticPool->free(mGpuIm2ColParam);
 
 }
 bool ConvCutlassExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
@@ -231,8 +237,6 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     mIm2ColParamter.packCUnit = UNIT;
 
     mActivationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
-
-    runtime->memcpy((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second, &mIm2ColParamter, sizeof(ConvolutionCommon::Im2ColParameter), MNNMemcpyHostToDevice);
 
     //MNN_PRINT("conv size:%d-%d, %d-%d-%d, %d-%d-%d\n", mIm2ColParamter.kernelX, mIm2ColParamter.strideX, input->height(), input->width(), input->channel(), output->height(), output->width(), output->channel());
     int e = output->height() * output->width() * output->batch();
@@ -296,10 +300,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmCuda_F32_F32_Relu_AlignCuda::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmCudaF32F32Relu.can_implement(arguments);
@@ -321,10 +326,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmCuda_F32_F32_Relu6_AlignCuda::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmCudaF32F32Relu6.can_implement(arguments);
@@ -344,11 +350,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmCuda_F32_F32_Linear_AlignCuda::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
-
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
             cutlass::Status status = mGemmCudaF32F32Ln.can_implement(arguments);
             cutlass_check(status);
 
@@ -379,10 +385,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F16_Relu_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmCudaF16F16Relu.can_implement(arguments);
@@ -403,10 +410,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F32_Relu_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmCudaF16F32Relu.can_implement(arguments);
@@ -431,10 +439,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F16_Relu6_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmCudaF16F16Relu6.can_implement(arguments);
@@ -455,10 +464,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F32_Relu6_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmCudaF16F32Relu6.can_implement(arguments);
@@ -480,10 +490,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                             split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F16_Linear_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 cutlass::Status status = mGemmCudaF16F16Ln.can_implement(arguments);
                 cutlass_check(status);
@@ -501,10 +512,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmCuda_F16_F32_Linear_AlignCuda::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 cutlass::Status status = mGemmCudaF16F32Ln.can_implement(arguments);
                 cutlass_check(status);
@@ -530,10 +542,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F16_Relu_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16F16ReluSm70.can_implement(arguments);
@@ -554,10 +567,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F32_Relu_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16F32ReluSm70.can_implement(arguments);
@@ -582,10 +596,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F16_Relu6_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16F16Relu6Sm70.can_implement(arguments);
@@ -606,10 +621,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F32_Relu6_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 // Check the problem size is supported or not 
                 cutlass::Status status = mGemmF16F32Relu6Sm70.can_implement(arguments);
@@ -632,10 +648,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                             split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 cutlass::Status status = mGemmF16F16LnSm70.can_implement(arguments);
                 cutlass_check(status);
@@ -653,10 +670,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                     split_k_slices};        // <- k-dimension split factor
                 size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Sm70::get_workspace_size(arguments);
     
-                auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-                mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-                runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-                pool->free(bufferWs);
+                if(workspace_size != 0) {
+                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                    mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                }
     
                 cutlass::Status status = mGemmF16F32LnSm70.can_implement(arguments);
                 cutlass_check(status);
@@ -682,10 +700,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F16_Relu_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16F16ReluSm75.can_implement(arguments);
@@ -706,10 +725,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F32_Relu_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16F32ReluSm75.can_implement(arguments);
@@ -734,10 +754,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F16_Relu6_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16F16Relu6Sm75.can_implement(arguments);
@@ -758,10 +779,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F32_Relu6_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             // Check the problem size is supported or not 
             cutlass::Status status = mGemmF16F32Relu6Sm75.can_implement(arguments);
@@ -784,10 +806,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                         split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             cutlass::Status status = mGemmF16F16LnSm75.can_implement(arguments);
             cutlass_check(status);
@@ -805,10 +828,11 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
                                                 split_k_slices};        // <- k-dimension split factor
             size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
 
-            auto bufferWs = pool->alloc(workspace_size * sizeof(uint8_t));
-            mWorkspace = (uint8_t*)bufferWs.first + bufferWs.second;
-            runtime->memset(mWorkspace, 0, workspace_size * sizeof(uint8_t));
-            pool->free(bufferWs);
+            if(workspace_size != 0) {
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+            }
 
             cutlass::Status status = mGemmF16F32LnSm75.can_implement(arguments);
             cutlass_check(status);
@@ -838,7 +862,15 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
     auto bn = backend();
     void *output_addr = (void*)outputs[0]->deviceId();
 
-    auto gpuIm2Col = (const ConvolutionCommon::Im2ColParameter*)((uint8_t*)mGpuIm2ColParam.first + mGpuIm2ColParam.second);
+    const int sw = mIm2ColParamter.strideX;
+    const int sh = mIm2ColParamter.strideY;
+    const int dw = mIm2ColParamter.dilateX;
+    const int dh = mIm2ColParamter.dilateY;
+    const int pw = mIm2ColParamter.padX;
+    const int ph = mIm2ColParamter.padY;
+    const int icDiv4 = mIm2ColParamter.icDiv4;
+    const int iw = mIm2ColParamter.iw;
+    const int ih = mIm2ColParamter.ih;
 
     //printf("%d-%d-%d-%d-%d, %d-%d\n", cpuIm2Col->icDiv4, cpuIm2Col->ih, cpuIm2Col->iw, cpuIm2Col->oh, cpuIm2Col->ow, eAlign, lAlign);
     // Im2col in Block
@@ -861,15 +893,18 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
             size_t block_size = runtime->threads_num();
 
             if(mFp32Infer) {
-                Im2Col_packC<<<block_num, block_size>>>(gpuIm2Col, maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (float *)mIm2ColBuffer, \
+                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih,
+                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (float *)mIm2ColBuffer, \
                     lpD, owD, ohD, fxyD, fxD);
                 checkKernelErrors;
             } else if(mFp16Fp32MixInfer) {
-                Im2Col_packC<<<block_num, block_size>>>(gpuIm2Col, maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (half *)mIm2ColBuffer, \
+                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
+                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (half *)mIm2ColBuffer, \
                     lpD, owD, ohD, fxyD, fxD);
                 checkKernelErrors;
             } else {
-                Im2Col_packC<<<block_num, block_size>>>(gpuIm2Col, maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const half*)input_addr, (half *)mIm2ColBuffer, \
+                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
+                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const half*)input_addr, (half *)mIm2ColBuffer, \
                     lpD, owD, ohD, fxyD, fxD);
                 checkKernelErrors;
             }

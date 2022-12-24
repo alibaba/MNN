@@ -54,7 +54,7 @@ private:
     GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32F32Ln;
 
     std::shared_ptr<Tensor> workspaceTensor;
-    uint8_t* mWorkspace;
+    void* mWorkspace;
 
     CutlassGemmInfo mGemmInfo;
 
