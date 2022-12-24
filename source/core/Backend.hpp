@@ -23,7 +23,6 @@ class Execution;
 
 class Runtime;
 class Backend;
-using ReuseCopyTensorMap = std::map<std::pair<void *, size_t>, std::tuple<Backend *, Backend *, Tensor*>>;
 /** abstract backend */
 class Backend : public NonCopyable {
 

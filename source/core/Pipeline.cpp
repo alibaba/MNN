@@ -680,9 +680,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
                             if (nullptr != newTensor) {
                                 r.origin = newTensor;
                                 skipExecution = false && skipExecution;
-                            } else if ((reuseTensor = WrapExecution::getReuseTensor(origin, mBackupBackend.get(), curBackend))) {
-                                r.origin = reuseTensor;
-                                replacedTensor = t;
                             } else {
                                 wrap = true;
                                 skipExecution = false && skipExecution;
@@ -697,11 +694,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
                         if (nullptr != newTensor) {
                             iter.inputs[v] = newTensor;
                             skipExecution = false && skipExecution;
-                        } else if ((reuseTensor = WrapExecution::getReuseTensor(t, mBackupBackend.get(), curBackend))) {
-                            iter.inputs[v] = reuseTensor;
-                            replacedTensor = t;
-                            skipExecution = false && skipExecution;
-                            wrap = false;
                         } else {
                             wrap = true;
                             skipExecution = false && skipExecution;

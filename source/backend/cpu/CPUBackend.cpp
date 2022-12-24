@@ -160,20 +160,6 @@ void CPURuntime::onGabageCollect(int level) {
 }
 
 
-ReuseCopyTensorMap& CPURuntime::getReuseCopyTensorMap() {
-    return mReuseCopyTensorMap;
-}
-
-void CPURuntime::clearReuseCopyTensorMap() {
-    for (auto& iter : mReuseCopyTensorMap) {
-        Tensor* tensor = std::get<2>(iter.second);
-        if (TensorUtils::getDescribe(tensor)->useCount > 0) {
-            TensorUtils::getDescribe(tensor)->useCount--;
-        }
-    }
-    mReuseCopyTensorMap.clear();
-}
-
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mThreadNumber > 1 && mPower != BackendConfig::Power_High) {
@@ -597,15 +583,6 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
         MNN_ERROR("Error in CPUBackend::onCopyBuffer:convert\n");
     }
 }
-
-ReuseCopyTensorMap& CPUBackend::getReuseCopyTensorMap() {
-    return mRuntime->getReuseCopyTensorMap();
-}
-
-void CPUBackend::clearReuseCopyTensorMap() {
-    mRuntime->clearReuseCopyTensorMap();
-}
-
 
 class CPURuntimeCreator : public RuntimeCreator {
 public:

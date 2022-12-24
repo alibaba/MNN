@@ -14,7 +14,6 @@ namespace MNN {
 class RandomUniformComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
         auto param = op->main_as_RandomUniform();
         outputs[0]->setType(param->type());

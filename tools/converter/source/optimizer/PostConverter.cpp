@@ -237,6 +237,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
+    newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FRONT));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_HIGH));
 
     std::vector<std::string> afterProgramConvert = {

@@ -213,7 +213,11 @@ static MNNBinaryExecute selectForInt(int type) {
         case BinaryOpOperation_BITWISE_XOR:
             return execute<int32_t, int32_t, BinaryBitwiseXor<int32_t, int32_t, int32_t>>;
             break;
+        case BinaryOpOperation_POW:
+            return execute<int32_t, int32_t, BinaryPow<int32_t, int32_t, int32_t>>;
+            break;
         default:
+            MNN_ERROR("Don't support binary - int compute for type %d\n", type);
             MNN_ASSERT(false);
             break;
     }
