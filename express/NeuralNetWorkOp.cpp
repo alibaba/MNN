@@ -1488,11 +1488,6 @@ std::vector<VARP> _DetectionPostProcess(VARP encode_boxes, VARP class_prediction
 }
 
 VARP _Interp(VARPS xs, float widthScale, float heightScale, int outputWidth, int outputHeight, int resizeType, bool alignCorners) {
-    if (xs.size() == 1) {
-        float scales[] = {1.0, 1.0, heightScale, widthScale};
-        auto scaleVar = _Const((void*)scales, {4}, NCHW);
-        xs.push_back(scaleVar);
-    }
     std::unique_ptr<OpT> interp(new OpT);
     interp->type        = OpType_Interp;
     auto param          = new InterpT;
