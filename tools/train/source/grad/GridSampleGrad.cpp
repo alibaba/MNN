@@ -75,10 +75,10 @@ public:
                     auto mask = wMask1 * wMask2 * hMask1 * hMask2;
                     outputDiff = outputDiff * _Cast<float>(mask);
                 }
-                wCord = _Maximum(wCord, zero);
-                wCord = _Minimum(wCord, wVar - one);
-                hCord = _Maximum(hCord, zero);
-                hCord = _Minimum(hCord, hVar - one);
+                wCord = Express::_Maximum(wCord, zero);
+                wCord = Express::_Minimum(wCord, wVar - one);
+                hCord = Express::_Maximum(hCord, zero);
+                hCord = Express::_Minimum(hCord, hVar - one);
                 indices = _Concat({wCord, hCord}, -1);
             }
 
@@ -150,14 +150,14 @@ public:
                     u10 = u10 * _Cast<float>(mask10);
                     u11 = u11 * _Cast<float>(mask11);
                 }
-                w0 = _Maximum(w0, zero);
-                w0 = _Minimum(w0, wVar - one);
-                w1 = _Maximum(w1, zero);
-                w1 = _Minimum(w1, wVar - one);
-                h0 = _Maximum(h0, zero);
-                h0 = _Minimum(h0, hVar - one);
-                h1 = _Maximum(h1, zero);
-                h1 = _Minimum(h1, hVar - one);
+                w0 = Express::_Maximum(w0, zero);
+                w0 = Express::_Minimum(w0, wVar - one);
+                w1 = Express::_Maximum(w1, zero);
+                w1 = Express::_Minimum(w1, wVar - one);
+                h0 = Express::_Maximum(h0, zero);
+                h0 = Express::_Minimum(h0, hVar - one);
+                h1 = Express::_Maximum(h1, zero);
+                h1 = Express::_Minimum(h1, hVar - one);
             }
 
             std::vector<int> bIndices;
