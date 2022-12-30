@@ -140,7 +140,9 @@ public:
         auto common = op->main_as_Convolution2D()->common();
         if (common->outputCount() > 0) {
             // FIXME: Remove this logical in future
-            if (context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CPU_EXTENSION || context.forwardType() == MNN_FORWARD_OPENCL) {
+            if (context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CPU_EXTENSION || context.forwardType() == MNN_FORWARD_OPENCL ||
+                context.forwardType() == MNN_FORWARD_VULKAN
+                ) {
                 auto inputDes     = TensorUtils::getDescribe(inputs[0]);
                 auto format       = inputDes->dimensionFormat;
                 if (MNN_DATA_FORMAT_NC4HW4 == format) {
@@ -383,13 +385,8 @@ public:
         auto des = TensorUtils::getDescribe(output);
         // build cmd
         flatbuffers::FlatBufferBuilder builder;
-        BinaryOpBuilder binaryParam(builder);
-        binaryParam.add_opType(BinaryOpOperation_ADD);
-        auto binaryParamOffset = binaryParam.Finish();
         OpBuilder bianryOp(builder);
-        bianryOp.add_type(OpType_BinaryOp);
-        bianryOp.add_main(binaryParamOffset.Union());
-        bianryOp.add_main_type(OpParameter_BinaryOp);
+        bianryOp.add_type(OpType_UnaryOp);
         auto bianryOpOffset = bianryOp.Finish();
         auto iterIndexesOffset = builder.CreateVector(std::vector<int>{-1, -1});
         auto stepOffset = builder.CreateVector(std::vector<int>{ic*iw*ih, ickhkw*ohow});
@@ -421,7 +418,7 @@ public:
             rcmdBuild.add_iterIndexes(iterIndexesOffset);
             rcmdBuild.add_steps(stepOffset);
             rcmdBuild.add_size(sizeOffset);
-            rcmdBuild.add_fuse(0); // reduce add
+            rcmdBuild.add_fuse(BinaryOpOperation_ADD); // zreduce add
             rcmdAllOffset.push_back(rcmdBuild.Finish());
         }
         auto rcmdAllOffsets = builder.CreateVector<flatbuffers::Offset<RegionCommand>>(rcmdAllOffset);
@@ -429,9 +426,13 @@ public:
         auto outputIndexesOffset = builder.CreateVector(std::vector<int>{1});
         // view0 and view1 is the same
         RegionCommandBuilder initrcmdBuild(builder);
+        initrcmdBuild.add_indexes(outputIndexesOffset);
         auto initrcmdOffset = initrcmdBuild.Finish();
+        auto initrcmdOffsetMulti = builder.CreateVector<flatbuffers::Offset<RegionCommand>>({initrcmdOffset});
+        std::vector<flatbuffers::Offset<RegionCommand>> initCommandOffsets;
+        initCommandOffsets.emplace_back(initrcmdOffset);
         LoopParamBuilder loopBuilder(builder);
-        loopBuilder.add_initCommand(initrcmdOffset);
+        loopBuilder.add_initCommand(initrcmdOffsetMulti);
         loopBuilder.add_commands(rcmdAllOffsets);
         loopBuilder.add_loopNumber(batch);
         loopBuilder.add_tensorNumber(2);

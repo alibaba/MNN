@@ -10,6 +10,7 @@
 #include "backend/cpu/CPUPool.hpp"
 #include "compute/CommonOptFunction.h"
 #include "math/Vec.hpp"
+#include "core/TensorUtils.hpp"
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 using Vec16 = MNN::Math::Vec<int8_t, 16>;
@@ -30,6 +31,7 @@ public:
         int padWidth     = layer->padX();
         int padHeight    = layer->padY();
         auto core   = static_cast<CPUBackend*>(backend())->functions();
+        MNN_ASSERT(DataType_DT_INT8 != TensorUtils::getDescribe(inputs[0])->type);
         
         // edit const if global
         auto input       = inputs[0];

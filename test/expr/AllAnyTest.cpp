@@ -8,12 +8,13 @@
 
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
+#include <MNN/expr/ExecutorScope.hpp>
 
 using namespace MNN::Express;
 
 class AllAnyTest : public MNNTestCase {
 public:
-    virtual bool run(int precision) {
+    bool _run(int precision, bool lazy) {
         auto y                = _Input({4}, NHWC, halide_type_of<int32_t>());
         std::vector<int> seq0 = {1, 0, 0, 1};
         std::vector<int> seq1 = {1, 1, 1, 1};
@@ -30,6 +31,9 @@ public:
         if (zAll->readMap<int32_t>()[0] != 0) {
             FUNC_PRINT(1);
             return false;
+        }
+        if (!lazy) {
+            return true;
         }
         // Call WriteMap to Refresh Compute
         yPtr = y->writeMap<int32_t>();
@@ -54,6 +58,17 @@ public:
             return false;
         }
         return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = false;
+        auto res = _run(precision, false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->lazyEval = true;
+        res = _run(precision, true);
+        return res;
     }
 };
 MNNTestSuiteRegister(AllAnyTest, "expr/AllAny");

@@ -1,0 +1,58 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set = 0, binding = 0) writeonly buffer outputBuffer{
+    vec4 data[];
+}uOutput;
+
+layout(set = 0, binding = 1) readonly buffer inputBuffer{
+    vec4 data[];
+}uInput;
+
+layout(set = 0, binding = 2) uniform reluBuffer{
+    ivec4 inImgSize;
+    ivec4 outImgSize;
+    vec4 scale;
+}uResizeParam;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#define BUFFER_LOADDATA(X, P, index) \
+	X.data[P.z * uResizeParam.inImgSize.x * uResizeParam.inImgSize.y + P.y * uResizeParam.inImgSize.x + P.x]
+
+#define BUFFER_STORE_DATA(Y, P, C) \
+	Y.data[P.z * uResizeParam.outImgSize.x * uResizeParam.outImgSize.y + P.y * uResizeParam.outImgSize.x + P.x] = C
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	// input output layout is NC4HW4
+
+	ivec3 inputImgSize = uResizeParam.inImgSize.xyz;
+	ivec3 outputImgSize = uResizeParam.outImgSize.xyz;
+
+    if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
+	{
+		float srcX = float(pos.x) * uResizeParam.scale.x + uResizeParam.scale.y;
+		int x1 = int(floor(srcX));
+		int x11 = clamp(x1, 0, inputImgSize.x - 1);
+		int x12 = clamp(x1 + 1, 0, inputImgSize.x - 1);
+		vec4 factorX = vec4(srcX - float(x1));
+
+		float srcY = float(pos.y) * uResizeParam.scale.z + uResizeParam.scale.w;
+		int y1 = int(floor(srcY));
+		int y11 = clamp(y1, 0, inputImgSize.y - 1);
+		int y12 = clamp(y1 + 1, 0, inputImgSize.y - 1);
+		vec4 factorY = vec4(srcY - float(y1));
+
+		vec4 res1 = BUFFER_LOADDATA(uInput, ivec3(x11, y12, pos.z), 0);
+		vec4 res2 = BUFFER_LOADDATA(uInput, ivec3(x12, y12, pos.z), 0);
+		vec4 res3 = BUFFER_LOADDATA(uInput, ivec3(x11, y11, pos.z), 0);
+		vec4 res4 = BUFFER_LOADDATA(uInput, ivec3(x12, y11, pos.z), 0);
+		vec4 res11 = (vec4(1.0) - factorX) * res1 + factorX * res2;
+		vec4 res12 = (vec4(1.0) - factorX) * res3 + factorX * res4;
+		
+		BUFFER_STORE_DATA(uOutput, pos, factorY * res11 + (vec4(1.0) - factorY) * res12);
+	}
+
+}

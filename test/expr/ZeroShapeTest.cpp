@@ -56,6 +56,7 @@ public:
         auto output = Variable::create(expr, 0);
         auto info   = output->getInfo();
         if (nullptr != info) {
+            FUNC_PRINT(1);
             return false;
         }
         auto sliceOutput = _Split(input, {4}, 2);
@@ -63,10 +64,12 @@ public:
         for (auto s : sliceOutput) {
             auto info = s->getInfo();
             if (info->dim != dstDims) {
+                FUNC_PRINT(1);
                 return false;
             }
             auto ptr = s->readMap<float>();
             if (nullptr != ptr) {
+                FUNC_PRINT(1);
                 return false;
             }
         }
@@ -75,12 +78,18 @@ public:
         auto padOutput = _Pad(input, paddings);
         auto padinfo = padOutput->getInfo();
         if (padinfo->dim != std::vector<int>{1, 1, 4, 1}) {
+            FUNC_PRINT(1);
             return false;
         }
         input->writeMap<float>();
         auto ptr = padOutput->readMap<float>();
+        if (nullptr == ptr) {
+            FUNC_PRINT(1);
+            return false;
+        }
         for (int i = 0; i < padinfo->size; ++i) {
             if (ptr[i] > 0.000001f) {
+                FUNC_PRINT(1);
                 return false;
             }
         }

@@ -308,6 +308,7 @@ table LayerNorm {
     gamma: [float];
     beta: [float];
     group: int = 1;
+    external:[int64]; // [offset, gamma_bytes_size, beta_bytes_size]
 }
 table RandomUniform {
     seed:int = 0;

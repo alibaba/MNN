@@ -171,6 +171,21 @@ void setCacheFile(const char* cacheFile, size_t keySize = 128);
 返回：`void`
 
 ---
+### setExternalFile
+```cpp
+void setExternalFile(const char* file, size_t flag = 128);
+```
+设置额外文件，额外文件是指存储了模型中权重，常量等数据的文件，在创建`Session`时会从该文件中加载权重等数据。
+
+*该函数需在`createSession`前调用*
+
+参数：
+- `file` 额外文件名
+- `flag` 保留参数，现在未使用
+
+返回：`void`
+
+---
 ### updateCacheFile
 ```cpp
 ErrorCode updateCacheFile(Session *session, int flag = 0);

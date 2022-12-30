@@ -34,6 +34,20 @@ RuntimeManager持有运行时资源，在CPU时持有线程池，内存池等资
 返回类型：`None`
 
 ---
+### `set_external(path)`
+
+设置额外数据文件路径，使用该文件中的数据作为权重或常量
+
+参考：[Interpreter.setExternalFile](Interpreter.html#setexternalfile-path)
+
+参数：
+- `path:str`
+
+返回：`None`
+
+返回类型：`None`
+
+---
 ### `update_cache()`
 
 在执行推理之后，更新GPU的kernel信息到缓存文件；应该在每次推理结束后指定该函数

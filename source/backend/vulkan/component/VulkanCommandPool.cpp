@@ -59,6 +59,9 @@ VulkanCommandPool::Buffer::Buffer(const VulkanCommandPool* pool) : mPool(pool) {
 VulkanCommandPool::Buffer::~Buffer() {
     mPool->mFreeBuffers.emplace_back(mBuffer);
 }
+void VulkanCommandPool::Buffer::barrierSource(std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> fuse, BarrierType type) const {
+    barrierSource(std::get<0>(fuse), std::get<2>(fuse), std::get<1>(fuse), type);
+}
 
 void VulkanCommandPool::Buffer::barrierSource(VkBuffer source, size_t start, size_t size, BarrierType type) const {
     VkBufferMemoryBarrier barrier;

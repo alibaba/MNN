@@ -20,7 +20,6 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, const CPUDepthwiseConvInt8& exe);
     int mThreadNumber;
     std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
     std::shared_ptr<Tensor> mInputPad;
@@ -29,6 +28,7 @@ private:
     std::pair<int, int> mStrides;
     std::pair<int, int> mDilates;
     std::pair<int, int> mKernels;
+    MutableResourceInt8 mMutableResource;
 };
 
 } // namespace MNN

@@ -69,7 +69,6 @@ private:
     const float* mFilterDataPtr = nullptr;
     std::set<std::string> mBuildOptions;
     std::shared_ptr<Execution> mRasterExe;
-    std::shared_ptr<Tensor> mVirtualFilter;
 };
 
 } // namespace OpenCL

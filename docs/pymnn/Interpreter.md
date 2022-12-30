@@ -65,6 +65,18 @@ Interpreter是MNN V2接口中模型数据的持有者。使用MNN推理时，有
 返回类型：`None`
 
 ---
+### `setExternalFile(path)`
+
+设置额外数据文件路径，使用该文件中的数据作为权重或常量
+
+参数：
+- `path:str` 额外数据文件的路径
+
+返回：`None`
+
+返回类型：`None`
+
+---
 ### `updateCacheFile(session, flag)`
 
 在执行推理之后，更新GPU的kernel信息到缓存文件；应该在每次推理结束后指定该函数

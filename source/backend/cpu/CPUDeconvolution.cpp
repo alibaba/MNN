@@ -11,6 +11,7 @@
 #include "CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
+#include "core/OpCommonUtils.hpp"
 #include "core/AutoStorage.h"
 #include "math/Matrix.hpp"
 #include "core/TensorUtils.hpp"
@@ -49,10 +50,29 @@ CPUDeconvolutionCommon::CPUDeconvolutionCommon(const Tensor* input, const Op* co
         return;
     }
     ::memset(mBias->host<float>(), 0, mBias->length(0) * core->bytes);
-    if (core->bytes == 4) {
-        ::memcpy(mBias->host<float>(), conv2D->bias()->data(), conv2D->bias()->size() * sizeof(float));
+    if (USE_EXTERNAL_DATA(conv2D)) {
+        auto external = conv2D->external();
+        auto offset = external->Get(0) + external->Get(1);
+        auto bytes = external->Get(2);
+        if (core->bytes == 4) {
+            OpCommonUtils::loadExternalData(backend(), mBias->host<char>(), offset, bytes);
+        } else {
+            int biasSize = static_cast<int>(bytes / sizeof(float));
+            std::unique_ptr<Tensor> externalBiasTensor(Tensor::createDevice<float>({biasSize}));
+            auto status = backend()->onAcquireBuffer(externalBiasTensor.get(), Backend::STATIC);
+            if (!status) {
+                MNN_ERROR("Out of memory when externalBiasTensor is acquired in CPUDeconvolutionCommon.\n");
+                return;
+            }
+            OpCommonUtils::loadExternalData(backend(), externalBiasTensor->host<char>(), offset, bytes);
+            core->MNNFp32ToLowp(externalBiasTensor->host<float>(), mBias->host<int16_t>(), biasSize);
+        }
     } else {
-        core->MNNFp32ToLowp(conv2D->bias()->data(), mBias->host<int16_t>(), conv2D->bias()->size());
+        if (core->bytes == 4) {
+            ::memcpy(mBias->host<float>(), conv2D->bias()->data(), conv2D->bias()->size() * sizeof(float));
+        } else {
+            core->MNNFp32ToLowp(conv2D->bias()->data(), mBias->host<int16_t>(), conv2D->bias()->size());
+        }
     }
 }
 
@@ -84,8 +104,23 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
 
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
+    std::unique_ptr<Tensor> externalWeightTensor;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, convOp->main_as_Convolution2D(), &tempWeight, &tempWeightSize);
+    auto conv2d = convOp->main_as_Convolution2D();
+    if (USE_EXTERNAL_DATA(conv2d)) {
+        auto bytes = conv2d->external()->Get(1);
+        tempWeightSize = static_cast<int>(bytes / sizeof(float));
+        externalWeightTensor.reset(Tensor::createDevice<float>({tempWeightSize}));
+        auto status = backend->onAcquireBuffer(externalWeightTensor.get(), Backend::STATIC);
+        if (!status) {
+            MNN_ERROR("Out of memory when externalWeightTensor is acquired in CPUDeconvolution.\n");
+            return;
+        }
+        OpCommonUtils::loadExternalData(backend, externalWeightTensor->host<char>(), conv2d->external()->Get(0), bytes);
+        tempWeight = externalWeightTensor->host<float>();
+    } else {
+        ConvolutionCommon::getConvParameters(&quanCommon, conv2d, &tempWeight, &tempWeightSize);
+    }
 
     int fw                  = layer->kernelX();
     int fh                  = layer->kernelY();

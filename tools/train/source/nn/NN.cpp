@@ -352,7 +352,7 @@ static std::tuple<VARP, VARP, int> _initParameters(const NN::ConvOption& option,
 Module* NN::ConvTranspose(const ConvOption& option, bool hasBias,
                                           std::shared_ptr<Initializer> weightInit,
                                           std::shared_ptr<Initializer> biasInit) {
-    VARP input  = _Input({1, option.channel[0], 1, 1}, NC4HW4);
+    VARP input  = _Input({1, option.channel[0], -1, -1}, NC4HW4);
     auto tuple  = _initParameters(option, hasBias, weightInit, biasInit);
     auto weight = std::get<0>(tuple);
     if (nullptr == weight) {
@@ -524,15 +524,6 @@ Module* NN::Utils::ExtractNotRunableOp(Express::EXPRP expr, const std::map<std::
     }
     if (expr->get()->type() == OpType_Dropout) {
         return new DropoutModule(0.3f);
-    }
-    if (expr->get()->type() == OpType_While) {
-        return WhileModule::create(expr->get(), subgraphs, nullptr);
-    }
-    if (expr->get()->type() == OpType_If) {
-        return IfModule::create(expr->get(), subgraphs, nullptr);
-    }
-    if (expr->get()->type() == OpType_NonMaxSuppressionV2) {
-        return NMSModule::create(expr->get(), nullptr);
     }
     return nullptr;
 }

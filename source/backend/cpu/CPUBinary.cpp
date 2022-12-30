@@ -146,7 +146,7 @@ MNNBinaryExecute CPUBinary::selectForFloat(int type) {
     return nullptr;
 }
 
-static MNNBinaryExecute selectForInt(int type) {
+MNNBinaryExecute CPUBinary::selectForInt(int type) {
     switch (type) {
         case BinaryOpOperation_MUL:
             return execute<int32_t, int32_t, BinaryMul<int32_t, int32_t, int32_t>>;
@@ -233,7 +233,7 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {
-                auto func = selectForInt(type);
+                auto func = CPUBinary::selectForInt(type);
                 if (nullptr == func) {
                     return nullptr;
                 }

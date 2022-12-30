@@ -14,10 +14,11 @@
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
+
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, bool permitVirtual, MNNForwardType type) {
+GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type) {
     mBackend       = allocBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
@@ -122,16 +123,16 @@ void GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuffer&
         auto& cmd = *cmdP;
         cmd.op = flatbuffers::GetRoot<Op>(mRasterOp->buffer());
         cmd.buffer = mRasterOp;
-        cmd.inputs = {src};
         cmd.outputs = {src};
+        TensorUtils::setRasterInputs(cmdP.get());
         cmdBuffer.command.emplace_back(std::move(cmdP));
         return;
     }
     auto iter = mRasterCmdCache.begin() + ((int)mRasterCmdCache.size() - 1);
     auto cmdP = *iter;
     mRasterCmdCache.erase(iter);
-    cmdP->inputs[0] = src;
     cmdP->outputs[0] = src;
+    TensorUtils::setRasterInputs(cmdP.get());
     cmdBuffer.command.emplace_back(std::move(cmdP));
 }
 

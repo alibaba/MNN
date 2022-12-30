@@ -20,31 +20,35 @@ struct BufferStorage;
 namespace Express {
 class StaticModule : public Module {
 public:
-    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
+    StaticModule(std::vector<int> inputs, std::vector<int> outputs, std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode, RuntimeInfo&& rt, const Module::Config& config);
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
+    virtual void onClearCache() override;
 private:
     StaticModule() = default;
+    void resetInputOutputs();
 
     Module* clone(CloneContext* ctx) const override;
     struct Resource {
-        std::vector<std::string> mInputs;
-        std::vector<std::string> mOutputs;
+        std::vector<int> mInputs;
+        std::vector<int> mOutputs;
         int mOutputNumbers;
+        Backend::Info mBnInfo;
+        BackendConfig mBnConfig;
         // First: outputIndex, Second: outputTensor Index
         std::vector<int> mOutputFromTensor;
         // First: outputIndex, Second: input var index
         std::vector<std::pair<int, int>> mOutputFromInput;
         bool mUseContentInputs = false;
-        std::shared_ptr<BufferStorage> mNetStorage;
-        ScheduleConfig mConfig;
         std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
         Session::ModeGroup mModes;
+        std::vector<std::shared_ptr<BufferStorage>> mBuffer;
+        std::vector<bool> mInputNeedCPU;
     };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
+    std::vector<Tensor*> mPrevInputTensor;
     std::vector<Tensor*> mOutputTensors;
-    std::shared_ptr<Backend> mResourceBackend, mBackupResourceBackend;
     std::shared_ptr<Resource> mResource;
 };
 }

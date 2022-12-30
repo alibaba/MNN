@@ -58,6 +58,7 @@ public:
     float testThredhold = 0.01;
     bool mnn2json = false;
     bool dumpInfo = false;
+    bool saveExternalData = false;
 };
 
 #endif // CONFIG_HPP

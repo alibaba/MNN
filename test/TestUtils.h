@@ -19,6 +19,7 @@
 #include <iostream>
 #include "core/Backend.hpp"
 #include <MNN/expr/Executor.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #include "MNN_generated.h"
 /**
  * @brief dispatch payload on all available backends

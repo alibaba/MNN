@@ -26,6 +26,13 @@ public:
                 return false;
             }
             {
+                auto ptr = y->readMap<float>();
+                if (nullptr != ptr) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+            }
+            {
                 x->writeMap<float>();
                 auto ptr = y->readMap<float>();
                 if (nullptr == ptr) {

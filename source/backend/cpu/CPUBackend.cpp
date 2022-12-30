@@ -42,6 +42,12 @@
 #define MNN_CPU_USE_DEFAULT_BACKEND 4
 namespace MNN {
 void registerCPUOps();
+ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto convertType = mRunType == DataType_DT_INT8 ? CPUCastCreator::FlOAT_TO_INT8 : CPUCastCreator::INT8_TO_FlOAT;
+    auto cpuBackend = ((CPUBackend*)backend());
+    CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
+    return NO_ERROR;
+}
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
     mStaticAllocator.reset(new BufferAllocator(BufferAllocator::Allocator::createDefault()));
@@ -257,7 +263,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_PRINT("Acquire buffer size = %d\n", size);
-       // MNN_ASSERT(false);
+        MNN_ASSERT(false);
         return nullptr;
     }
     // if (size > LARGE_MEMORY) {
@@ -294,7 +300,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
         res = new CPUMemObj(mDynamicAllocator.get(), points, size);
     }
     buffer.host = (uint8_t*)points.first + points.second;
-    des->extra.offset = points.second;
+    des->extra.offset = 0;
     return res;
 }
 
@@ -306,54 +312,6 @@ Backend::MemObj* CPUBackend::onAcquire(const MNN::Tensor* nativeTensorConst, Sto
     auto nativeTensor = (Tensor*)nativeTensorConst;
     auto size = getTensorSize(nativeTensor, true);
     return allocBuffer(size, nativeTensor, storageType);
-}
-
-static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto otype = op->type();
-    switch (otype) {
-        case OpType_Convolution:
-        case OpType_ConvolutionDepthwise:
-            if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
-                return false;
-            } else {
-                return true;
-            }
-        case OpType_ConvInt8:
-        case OpType_DepthwiseConvInt8:
-            return true;
-        // case OpType_Eltwise:
-        case OpType_Raster:
-        {
-            for (auto& r : TensorUtils::getDescribe(inputs[0])->regions) {
-                if (TensorUtils::getDescribe(r.origin)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        case OpType_ReLU:
-            if (TensorUtils::getDescribe(inputs[0])->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
-                return false;
-            }
-            // now just relu without slope support quant
-            if ((op->main_as_Relu() == nullptr) || op->main_as_Relu()->slope() == 0.f) {
-                return true;
-            } else {
-                return false;
-            }
-        /*
-        case OpType_Pooling:
-            // now just maxpool support quant
-            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL) {
-                return qtype;
-            } else {
-                return defaultType;
-            }
-        */
-        default:
-            return false;
-    }
-    return false;
 }
 
 static OpType _getRealOpType(OpType opType) {
@@ -429,38 +387,13 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     if (op->type() == OpType_BatchNorm) {
         return nullptr;
     }
-    // Check if need use quant op
-    DataType runType = DataType_DT_FLOAT;
-    bool useQuant = false;
-    if (outputs.size() == 1) {
-        // Quant: output and all input has quantAttr and op support
-        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
-            useQuant = _supportQuant(op, inputs, outputs);
-        }
-        if (useQuant) {
-            if (op->type() == OpType_Raster) {
-                for (auto& t : TensorUtils::getDescribe(inputs[0])->regions) {
-                    if (TensorUtils::getDescribe(t.origin)->quantAttr == nullptr || TensorUtils::getDescribe(t.origin)->type == DataType_DT_FLOAT) {
-                        useQuant = false;
-                        break;
-                    }
-                }
-            } else {
-                for (auto t : inputs) {
-                    if (TensorUtils::getDescribe(t)->quantAttr == nullptr) {
-                        useQuant = false;
-                        break;
-                    }
-                }
-            }
-        }
-    }
     auto opType = op->type();
-    if (useQuant) {
-        opType = _getRealOpType(opType);
-        runType = DataType_DT_INT8;
-        TensorUtils::getDescribe(outputs[0])->type = DataType_DT_INT8;
+    if (outputs.size() > 0) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+            opType = _getRealOpType(opType);
+        }
     }
+
     // TODO: rm this convert when merge diff datatyoe of op
     auto map  = gCreator;
     auto iter = map->find(opType);
@@ -470,33 +403,8 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     }
     Execution* exe = nullptr;
     bool needCast = false;
-    // judge is it need CastWrap
-    if (OpType_Raster == opType) {
-        TensorUtils::getDescribe(inputs[0])->quantAttr = TensorUtils::getDescribe(outputs[0])->quantAttr;
-        for (const auto& r : TensorUtils::getDescribe(inputs[0])->regions) {
-            needCast |= getDataType(r.origin) != runType;
-        }
-    } else {
-        for (int i = 0; i < inputs.size(); i++) {
-            if (OpCommonUtils::opNeedContent(opType, i) && inputs[i]->getType() != halide_type_of<int>()) {
-                needCast |= getDataType(inputs[i]) != runType;
-            }
-        }
-    }
-    if (needCast) {
-        exe = new CastWrapExecution(iter->second, op, this, inputs, outputs, runType);
-    }
     if (exe == nullptr) {
         exe = iter->second->onCreate(inputs, outputs, op, this);
-    }
-    for (auto o : outputs) {
-        auto quan = TensorUtils::getDescribe(o)->quantAttr;
-        if (nullptr != quan) {
-            TensorUtils::getDescribe(o)->type = runType;
-        }
-    }
-    if (nullptr == exe) {
-        return nullptr;
     }
     return exe;
 }
@@ -507,7 +415,6 @@ const Runtime* CPUBackend::getRuntime() {
 bool CPUBackend::onClearBuffer() {
     mCache->reset();
     mDynamicAllocator->release(true);
-    mCachedCastTensor.clear();
     return true;
 }
 

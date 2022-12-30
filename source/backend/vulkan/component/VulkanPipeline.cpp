@@ -143,6 +143,9 @@ VulkanPipeline::DescriptorSet* VulkanPipeline::createSet() const {
 VulkanPipeline::DescriptorSet::~DescriptorSet() {
     mPipeline->mFreeSets.emplace_back(std::make_pair(mSet, mPool));
 }
+void VulkanPipeline::DescriptorSet::writeBuffer(std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> fuseBuffer, int bindIndex) {
+    writeBuffer(std::get<0>(fuseBuffer), bindIndex, std::get<1>(fuseBuffer), std::get<2>(fuseBuffer));
+}
 
 void VulkanPipeline::DescriptorSet::writeBuffer(VkBuffer buffer, int bindIndex, size_t size, VkDeviceSize offset) {
     VkWriteDescriptorSet writeSet;
@@ -193,13 +196,13 @@ const VulkanPipeline* VulkanPipelineFactory::getPipeline(const std::string& key,
         MNN_ERROR("Don't find shader for %s\n", key.c_str());
         return nullptr;
     }
-    auto pipeline = VulkanPipeline::create(mDevice, content.first, content.second, types, mCache, localSize);
-    if (nullptr != pipeline) {
-        mPipelines.insert(std::make_pair(key, std::shared_ptr<VulkanPipeline>(pipeline)));
+    SharedPtr<VulkanPipeline> pipeline = VulkanPipeline::create(mDevice, content.first, content.second, types, mCache, localSize);
+    if (nullptr != pipeline.get()) {
+        mPipelines.insert(std::make_pair(key, pipeline));
     } else {
         MNN_ERROR("Error for create pipeline %s\n", key.c_str());
     }
-    return pipeline;
+    return pipeline.get();
 }
 
 } // namespace MNN

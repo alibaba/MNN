@@ -34,7 +34,7 @@ public:
         NOT_SEPERATE
     };
     /** pipeline info */
-    struct PipelineInfo {
+    struct OpCacheInfo {
         /** op */
         const Op* op;
         /** input tensors */
@@ -49,12 +49,26 @@ public:
 
         /**Command buffer for execute*/
         CommandBuffer executeBuffer;
+        
+        std::map<const Op*, std::shared_ptr<Execution>> executionCache;
     };
+
+    // Backend, Tensor, shape-dirty, content-dirty
+    typedef std::tuple<Tensor*, std::shared_ptr<Tensor>, bool, bool> TENSORCACHE;
+    struct BackendCache {
+        Backend::Info info;
+        BackendConfig config;
+        std::pair<std::shared_ptr<Backend>, std::shared_ptr<Backend>> cache;
+        bool needComputeShape = true;
+        bool needComputeGeometry = true;
+        std::map<Tensor*, TENSORCACHE> inputTensorCopyCache;
+    };
+    typedef std::pair<BackendCache, std::vector<OpCacheInfo>> PipelineInfo;
 
     /** schedule info */
     struct ScheduleInfo {
         /** pipelines with backend info */
-        std::vector<std::pair<Backend::Info, std::vector<PipelineInfo>>> pipelineInfo;
+        std::vector<PipelineInfo> pipelineInfo;
         /** input tensors map */
         std::map<std::string, Tensor*> inputTensors;
         /** output tensors map */

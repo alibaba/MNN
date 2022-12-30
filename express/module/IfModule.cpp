@@ -45,9 +45,8 @@ std::vector<Express::VARP> IfModule::onForward(const std::vector<Express::VARP>&
     }
     return outputs;
 }
-IfModule* IfModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+IfModule* IfModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
     auto module = new IfModule;
-    module->mSharedConst = sharedConst;
     module->setType("IfModule");
     auto ifParam = op->main_as_IfParam();
     auto& thenG = subGraph.find(ifParam->then_graph()->str())->second;
@@ -121,7 +120,6 @@ Module* IfModule::clone(CloneContext* ctx) const {
     module->mOutputFromElse = mOutputFromElse;
     module->mThen.reset(mThen->clone(ctx));
     module->mElse.reset(mElse->clone(ctx));
-    module->mSharedConst = mSharedConst;
     return this->cloneBaseTo(ctx, module);
 }
 

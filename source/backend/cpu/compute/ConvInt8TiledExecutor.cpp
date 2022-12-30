@@ -17,13 +17,8 @@
 #include <math.h>
 namespace MNN {
 
-ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res): CPUConvolution(convOp->common(), backend), mResource(res) {
-}
-
-ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const ConvInt8TiledExecutor& exe)
-    : CPUConvolution(common, backend),
-    mResource(exe.mResource) {
-
+ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* convOp, std::shared_ptr<ResourceInt8> res): CPUConvolution(convOp, backend), mResource(res), mMutableResource(res, backend) {
+    mValid = mMutableResource.mValid;
 }
 
 ConvInt8TiledExecutor::~ConvInt8TiledExecutor() {
@@ -35,11 +30,10 @@ bool ConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) 
 }
 
 ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    mResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+    mMutableResource.updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
     CPUConvolution::onResize(inputs, outputs);
     auto input  = inputs[0];
     auto output = outputs[0];
-
     int UNIT = static_cast<CPUBackend*>(backend())->functions()->pack;
     auto convCommon = mCommon;
     const auto kernelCount = convCommon->kernelX() * convCommon->kernelY();
@@ -49,8 +43,6 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     mIm2ColParamter.dilateY         = convCommon->dilateY();
     mIm2ColParamter.strideX         = convCommon->strideX();
     mIm2ColParamter.strideY         = convCommon->strideY();
-    mIm2ColParamter.padX            = convCommon->padX();
-    mIm2ColParamter.padY            = convCommon->padY();
     mIm2ColParamter.icDiv4          = srcCountUnit;
     mIm2ColParamter.kernelX         = convCommon->kernelX();
     mIm2ColParamter.kernelY         = convCommon->kernelY();
@@ -117,7 +109,7 @@ static bool reorderWeight(Backend* bn, const Convolution2DCommon* common,
     return true;
 }
 
-DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp, res) {
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp->common(), res) {
     std::shared_ptr<Tensor> weightOrigin = mResource->mWeightInt8;
     mValid = reorderWeight(backend, convOp->common(), weightOrigin, mResource->mWeightInt8);
     if(!mValid) {
@@ -139,7 +131,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const C
 }
 
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const DenseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, common, exe), mGemmKernel(exe.mGemmKernel) {
+    : ConvInt8TiledExecutor(backend, common, exe.mResource), mGemmKernel(exe.mGemmKernel) {
 
 }
 
@@ -214,13 +206,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
     auto outputDataPtr       = output->host<int8_t>();
     QuanPostTreatParameters quanParam;
-    quanParam.bias = mResource->mBiasInt32->host<int32_t>();
-    quanParam.scale = mResource->mScaleFloat->host<float>();
-    quanParam.maxValue = mResource->mClampMax;
+    quanParam.bias = mMutableResource.mBiasInt32->host<int32_t>();
+    quanParam.scale = mMutableResource.mScaleFloat->host<float>();
+    quanParam.maxValue = mMutableResource.mClampMax;
     if (mResource->mRelu) {
-        quanParam.minValue = mResource->mOutputZeroPoint;
+        quanParam.minValue = mMutableResource.mOutputZeroPoint;
     } else {
-        quanParam.minValue = mResource->mClampMin;
+        quanParam.minValue = mMutableResource.mClampMin;
     }
     //MNN_PRINT("max: %d, min: %d\n", quanParam.maxValue, quanParam.minValue);
 
@@ -236,9 +228,9 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 const int realDstCount = ALIMIN(outputPlaneLen - xIndexStart, DST_XUNIT);
                 // im2col
 #ifdef MNN_USE_SSE
-                im2ColProcess(colAddr, srcPtr, mResource->mInputZeroPoint + 128, &mIm2ColParamter, xIndexStart, realDstCount);
+                im2ColProcess(colAddr, srcPtr, mMutableResource.mInputZeroPoint + 128, &mIm2ColParamter, xIndexStart, realDstCount);
 #else
-                im2ColProcess(colAddr, srcPtr, mResource->mInputZeroPoint, &mIm2ColParamter, xIndexStart, realDstCount);
+                im2ColProcess(colAddr, srcPtr, mMutableResource.mInputZeroPoint, &mIm2ColParamter, xIndexStart, realDstCount);
 #endif
                 auto outputInTilePtr = dstPtr + xIndexStart * UNIT;
                 mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnitDouble, dstZStep, ocDiv4, &quanParam, realDstCount);

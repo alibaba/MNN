@@ -195,7 +195,7 @@ public:
                 }
             }
 
-            std::vector<InterpolationMethod> modes({BILINEAR});
+            std::vector<InterpolationMethod> modes({NEAREST, BILINEAR});
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS});
             std::vector<bool> alignCornersVec({false});
 

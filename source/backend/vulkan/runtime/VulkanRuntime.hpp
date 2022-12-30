@@ -8,7 +8,7 @@
 
 #ifndef VulkanRuntime_hpp
 #define VulkanRuntime_hpp
-
+#include <queue>
 #include "VulkanBuffer.hpp"
 #include "VulkanCommandPool.hpp"
 #include "VulkanDevice.hpp"
@@ -31,8 +31,11 @@ public:
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
+    std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
+    void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
 private:
     Backend::Info mInfo;
+    std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;
     std::shared_ptr<VulkanCommandPool> mCmdPool;
     std::shared_ptr<VulkanMemoryPool> mMemoryPool;
@@ -40,6 +43,10 @@ private:
     std::shared_ptr<VulkanSampler> mClampSampler;
     std::shared_ptr<VulkanInstance> mInstance;
     std::shared_ptr<VulkanDevice> mDevice;
+    std::queue<std::shared_ptr<VulkanBuffer>> mUniformCache;
+    // Limit Uniform cache size = mUniformSize * mCacheUniformLimitSize B
+    int mUniformSize = 512;
+    int mCacheUniformLimitSize = 1024;
     float mFlops = 0.0f;
     friend class VulkanBackend;
     GPUType mGpuType = OTHER;

@@ -10,6 +10,8 @@
 #define PipelineModule_hpp
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include "core/AutoStorage.h"
+#include "utils/InitNet.hpp"
 
 namespace MNN {
 struct Net;
@@ -48,7 +50,7 @@ public:
     MNN_PUBLIC PipelineModule(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs,
                    const Transformer& transformFunction = {});
 private:
-    static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce = false);
+    static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap);
     static void _createSubGraph(const MNN::Net* net, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap);
 
     PipelineModule(){}
@@ -56,11 +58,12 @@ private:
     Module* clone(CloneContext* ctx) const override;
 
     std::vector<std::tuple<std::shared_ptr<Module>, std::vector<int>, std::vector<int>>> mSubModules;
-    std::vector<int> mInputIndexes;
-    std::vector<int> mOutputIndexes;
     int mStackSize = 0;
+    int mInputSize = 0;
+    std::vector<int> mOutputIndex;
     friend class NN;
     std::vector<VARP> mInitVars;
+    std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
 };
 } // namespace Express
 } // namespace MNN

@@ -251,6 +251,9 @@ ConfigFile::ConfigFile(std::string filename, std::string delimiter, std::string 
     // Construct a ConfigFile, getting keys and values from given file
 
     std::ifstream in(filename.c_str());
+    if (in.fail()) {
+        MNN_ERROR("Can't open %s\n", filename.c_str());
+    }
     in >> (*this);
 }
 

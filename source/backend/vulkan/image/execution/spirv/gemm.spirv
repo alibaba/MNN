@@ -1,0 +1,160 @@
+; SPIR-V
+; Version: 1.0
+; Generator: Khronos SPIR-V Tools Assembler; 0
+; Bound: 110
+; Schema: 0
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gl_GlobalInvocationID
+               OpExecutionMode %main LocalSize 8 8 1
+               OpSource GLSL 440
+               OpName %main "main"
+               OpName %gl_GlobalInvocationID "gl_GlobalInvocationID"
+               OpName %constBuffer "constBuffer"
+               OpMemberName %constBuffer 0 "outputSize"
+               OpMemberName %constBuffer 1 "multiLength"
+               OpName %uConst "uConst"
+               OpName %uKernel "uKernel"
+               OpName %uInput "uInput"
+               OpName %uOutput "uOutput"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpMemberDecorate %constBuffer 0 Offset 0
+               OpMemberDecorate %constBuffer 1 Offset 16
+               OpDecorate %constBuffer Block
+               OpDecorate %uConst DescriptorSet 0
+               OpDecorate %uConst Binding 3
+               OpDecorate %uKernel DescriptorSet 0
+               OpDecorate %uKernel Binding 2
+               OpDecorate %uKernel NonWritable
+               OpDecorate %uInput DescriptorSet 0
+               OpDecorate %uInput Binding 1
+               OpDecorate %uInput NonWritable
+               OpDecorate %uOutput DescriptorSet 0
+               OpDecorate %uOutput Binding 0
+               OpDecorate %uOutput NonReadable
+               OpDecorate %gl_WorkGroupSize BuiltIn WorkgroupSize
+       %void = OpTypeVoid
+         %11 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+      %v3int = OpTypeVector %int 3
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+       %bool = OpTypeBool
+     %uint_0 = OpConstant %uint 0
+      %v4int = OpTypeVector %int 4
+%constBuffer = OpTypeStruct %v4int %int
+%_ptr_Uniform_constBuffer = OpTypePointer Uniform %constBuffer
+     %uConst = OpVariable %_ptr_Uniform_constBuffer Uniform
+      %int_0 = OpConstant %int 0
+%_ptr_Uniform_int = OpTypePointer Uniform %int
+     %uint_1 = OpConstant %uint 1
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+    %float_0 = OpConstant %float 0
+         %27 = OpConstantComposite %v4float %float_0 %float_0 %float_0 %float_0
+      %int_1 = OpConstant %int 1
+         %29 = OpTypeImage %float 2D 0 0 0 2 Rgba16f
+%_ptr_UniformConstant_29 = OpTypePointer UniformConstant %29
+    %uKernel = OpVariable %_ptr_UniformConstant_29 UniformConstant
+      %int_4 = OpConstant %int 4
+      %v2int = OpTypeVector %int 2
+      %int_2 = OpConstant %int 2
+      %int_3 = OpConstant %int 3
+     %uInput = OpVariable %_ptr_UniformConstant_29 UniformConstant
+%mat4v4float = OpTypeMatrix %v4float 4
+    %uOutput = OpVariable %_ptr_UniformConstant_29 UniformConstant
+     %uint_8 = OpConstant %uint 8
+%gl_WorkGroupSize = OpConstantComposite %v3uint %uint_8 %uint_8 %uint_1
+       %main = OpFunction %void None %11
+         %37 = OpLabel
+         %38 = OpLoad %v3uint %gl_GlobalInvocationID
+         %39 = OpBitcast %v3int %38
+         %40 = OpCompositeExtract %int %39 0
+         %41 = OpAccessChain %_ptr_Uniform_int %uConst %int_0 %uint_0
+         %42 = OpLoad %int %41
+         %43 = OpSLessThan %bool %40 %42
+               OpSelectionMerge %44 None
+               OpBranchConditional %43 %45 %44
+         %45 = OpLabel
+         %46 = OpCompositeExtract %int %39 1
+         %47 = OpAccessChain %_ptr_Uniform_int %uConst %int_0 %uint_1
+         %48 = OpLoad %int %47
+         %49 = OpSLessThan %bool %46 %48
+               OpBranch %44
+         %44 = OpLabel
+         %50 = OpPhi %bool %43 %37 %49 %45
+               OpSelectionMerge %51 None
+               OpBranchConditional %50 %52 %51
+         %52 = OpLabel
+               OpBranch %53
+         %53 = OpLabel
+         %54 = OpPhi %v4float %27 %52 %55 %56
+         %57 = OpPhi %v4float %27 %52 %58 %56
+         %59 = OpPhi %v4float %27 %52 %60 %56
+         %61 = OpPhi %v4float %27 %52 %62 %56
+         %63 = OpPhi %int %int_0 %52 %64 %56
+         %65 = OpLoad %29 %uInput
+         %66 = OpLoad %29 %uKernel
+         %67 = OpAccessChain %_ptr_Uniform_int %uConst %int_1
+         %68 = OpLoad %int %67
+         %69 = OpSLessThan %bool %63 %68
+               OpLoopMerge %70 %56 None
+               OpBranchConditional %69 %56 %70
+         %56 = OpLabel
+         %71 = OpIMul %int %int_4 %63
+         %72 = OpCompositeExtract %int %39 1
+         %73 = OpCompositeConstruct %v2int %71 %72
+         %74 = OpImageRead %v4float %66 %73
+         %75 = OpIAdd %int %71 %int_1
+         %76 = OpCompositeConstruct %v2int %75 %72
+         %77 = OpImageRead %v4float %66 %76
+         %78 = OpIAdd %int %71 %int_2
+         %79 = OpCompositeConstruct %v2int %78 %72
+         %80 = OpImageRead %v4float %66 %79
+         %81 = OpIAdd %int %71 %int_3
+         %82 = OpCompositeConstruct %v2int %81 %72
+         %83 = OpImageRead %v4float %66 %82
+         %84 = OpCompositeConstruct %v2int %71 %40
+         %85 = OpCompositeConstruct %mat4v4float %74 %77 %80 %83
+         %86 = OpImageRead %v4float %65 %84
+         %87 = OpCompositeConstruct %v2int %75 %40
+         %88 = OpMatrixTimesVector %v4float %85 %86
+         %89 = OpImageRead %v4float %65 %87
+         %90 = OpCompositeConstruct %v2int %78 %40
+         %62 = OpFAdd %v4float %61 %88
+         %91 = OpMatrixTimesVector %v4float %85 %89
+         %92 = OpImageRead %v4float %65 %90
+         %93 = OpCompositeConstruct %v2int %81 %40
+         %60 = OpFAdd %v4float %59 %91
+         %94 = OpMatrixTimesVector %v4float %85 %92
+         %95 = OpImageRead %v4float %65 %93
+         %58 = OpFAdd %v4float %57 %94
+         %96 = OpMatrixTimesVector %v4float %85 %95
+         %55 = OpFAdd %v4float %54 %96
+         %64 = OpIAdd %int %63 %int_1
+               OpBranch %53
+         %70 = OpLabel
+         %97 = OpLoad %29 %uOutput
+         %98 = OpCompositeExtract %int %39 1
+         %99 = OpIMul %int %int_4 %98
+        %100 = OpCompositeConstruct %v2int %40 %99
+               OpImageWrite %97 %100 %61
+        %101 = OpLoad %29 %uOutput
+        %102 = OpIAdd %int %99 %int_1
+        %103 = OpCompositeConstruct %v2int %40 %102
+               OpImageWrite %101 %103 %59
+        %104 = OpLoad %29 %uOutput
+        %105 = OpIAdd %int %99 %int_2
+        %106 = OpCompositeConstruct %v2int %40 %105
+               OpImageWrite %104 %106 %57
+        %107 = OpLoad %29 %uOutput
+        %108 = OpIAdd %int %99 %int_3
+        %109 = OpCompositeConstruct %v2int %40 %108
+               OpImageWrite %107 %109 %54
+               OpBranch %51
+         %51 = OpLabel
+               OpReturn
+               OpFunctionEnd

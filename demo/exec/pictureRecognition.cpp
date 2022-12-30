@@ -30,6 +30,9 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]), Interpreter::destroy);
+    net->setCacheFile(".cachefile");
+    net->setSessionMode(Interpreter::Session_Backend_Auto);
+    net->setSessionHint(Interpreter::MAX_TUNING_NUMBER, 5);
     ScheduleConfig config;
     config.type  = MNN_FORWARD_AUTO;
     // BackendConfig bnconfig;
@@ -154,5 +157,6 @@ int main(int argc, const char* argv[]) {
             MNN_PRINT("%d, %f\n", tempValues[i].first, tempValues[i].second);
         }
     }
+    net->updateCacheFile(session);
     return 0;
 }

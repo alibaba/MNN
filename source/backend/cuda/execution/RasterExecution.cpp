@@ -198,11 +198,12 @@ static void _turnToNewRegion(const Tensor::InsideDescribe::Region& region, Tenso
     newRegion.dst.offset = region.dst.offset / region.size[2];
 }
 
-ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1);
+ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(outputs.size() == 1);
-    auto input = inputs[0];
+    auto input = outputs[0];
     auto output = outputs[0];
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+
     auto des = TensorUtils::getDescribe(input);
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(input);
@@ -367,7 +368,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const s
 
 void RasterExecution::executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const {
     auto bn = static_cast<CUDABackend*>(backend());
-    auto input = inputs[0];
+    auto input = outputs[0];
     auto output = outputs[0];
     auto bytes = bn->getBytes(output);
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
@@ -389,7 +390,7 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         return NO_ERROR;
     }
     auto bn = static_cast<CUDABackend*>(backend());
-    auto input = inputs[0];
+    auto input = outputs[0];
     auto output = outputs[0];
     auto bytes = bn->getBytes(output);
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();

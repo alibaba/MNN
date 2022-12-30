@@ -22,17 +22,12 @@ class Runtime;
 struct Op;
 namespace Express {
 struct RuntimeAttr;
+struct ExecutorAttr;
 class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
-    struct Unit;
     struct DebugTools;
     /**Internal Usage Begin*/
-    static void setShapeDirty(ComputeCache* cache);
-    static void setContentDirty(ComputeCache* cache);
-    static Tensor* getOutput(ComputeCache* cache, int offset);
-    static std::pair<std::shared_ptr<Backend>, std::shared_ptr<Backend>> getBackends(ComputeCache* cache);
-    static void* mapOutput(ComputeCache* cache, int offset, Tensor* dest);
     struct Requirement {
         std::vector<bool> contentNeedContent;
         std::vector<bool> shapeNeedContent;
@@ -41,10 +36,20 @@ public:
     Requirement getRequirement(Expr* expr) const;
     ErrorCode computeInfo(Expr* expr);
     void makeCache(const std::vector<EXPRP>& expr, bool forceCPU = false);
-    ErrorCode runCache(std::shared_ptr<ComputeCache> cache);
-    bool lazyEval = true;
     /**Internal Usage End*/
 
+    bool lazyEval = true;
+    enum LazyMode {
+        // Don't compute at all until user needed.
+        LAZY_FULL,
+        
+        // Don't compute content until user needed.
+        LAZY_CONTENT
+    };
+    LazyMode getLazyMode() const {
+        return mLazyMode;
+    }
+    void setLazyComputeMode(LazyMode mode);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
     enum GCFlag {
@@ -59,17 +64,21 @@ public:
                                                  int numberThread);
     void resetProfile();
     void dumpProfile();
+
+    struct SubGraph;
+    bool registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs);
+    std::shared_ptr<SubGraph> findSubGraph(const std::string& submoduleName);
     /**Internal Usage Begin*/
     void addOpCostTime(int op, float costTime);
     void addOpCostTime(const std::string& type, float costTime);
     void addOpFlops(const std::string& type, float flops);
-    class Profiler;
     /**Internal Usage End*/
     static RuntimeInfo getRuntime();
     void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
     const DebugTools* getDebugTools() const {
         return mDebug.get();
     }
+    ExecutorAttr* getAttr() const;
     class MNN_PUBLIC RuntimeManager {
     public:
         ~RuntimeManager();
@@ -99,6 +108,11 @@ public:
         void setCache(std::string cacheName);
         
         /**
+         * @brief set external file.
+         */
+        void setExternalFile(std::string fileName);
+
+        /**
          * @brief update cache file
          * When should use   : Together with setCache API. calling for first inference and when input shape is changed.
          * Calling Position  : calling after inference done.
@@ -119,18 +133,14 @@ public:
         RuntimeManager();
     };
 private:
-    void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
-    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::set<std::shared_ptr<Expr::Inside>>&& inputNode, bool forceCPU);
-
-    void _visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::set<std::shared_ptr<Expr::Inside>>& inputNode);
-    std::map<std::pair<MNNForwardType, int>, std::shared_ptr<Runtime>> mRuntimes;
-
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
-    std::mutex mMutex;
-    std::shared_ptr<Profiler> mProfiler;
-    std::shared_ptr<DebugTools> mDebug;
+    void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
 
-    std::pair<MNNForwardType, int> mFirstType;
+    std::map<std::pair<MNNForwardType, int>, std::shared_ptr<Runtime>> mRuntimes;
+    std::shared_ptr<DebugTools> mDebug;
+    std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;
+    LazyMode mLazyMode = LAZY_FULL;
+    std::shared_ptr<ExecutorAttr> mAttr;
 };
 } // namespace Express
 } // namespace MNN

@@ -57,41 +57,46 @@ public:
     struct ResourceInt8 {
         std::vector<int> mInt8WeightKernelSum;
         std::shared_ptr<Tensor> mWeightInt8;
-        std::shared_ptr<Tensor> mBiasInt32;
-        std::shared_ptr<Tensor> mScaleFloat;
+        std::shared_ptr<Tensor> mOriginBias;
+        std::shared_ptr<Tensor> mOriginScale;
         // relu or relu6
         bool mRelu;
         int mActBits;
 
+        int mOutputCount;
+        bool mUseConvQuan = true;
+#ifdef MNN_USE_SSE
+        std::vector<int> offsets;
+#endif
+        // Origin Attributes from net
+        float mInputScale = 0.0f;
+        float mOutputScale = 0.0f;
         int32_t mInputZeroPoint;
         int32_t mOutputZeroPoint;
         int8_t mClampMin;
         int8_t mClampMax;
-        Backend* backend;
-        float mInputScale;
-        float mOutputScale;
-        int mOutputCount;
-#ifdef MNN_USE_SSE
-        std::vector<int> offsets;
-#endif
-        std::once_flag flag;
-        void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
-        ~ ResourceInt8();
     };
-    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp,
-                                                          std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
+    struct MutableResourceInt8 {
+        MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend);
+        void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
+        std::shared_ptr<ResourceInt8> mResource;
+        float mInputScale = 0.0f;
+        float mOutputScale = 0.0f;
+        int32_t mInputZeroPoint;
+        int32_t mOutputZeroPoint;
+        int8_t mClampMin;
+        int8_t mClampMax;
+        std::shared_ptr<Tensor> mBiasInt32;
+        std::shared_ptr<Tensor> mScaleFloat;
+        bool mValid;
+    };
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC);
-    // Inefficient but need not cache, use it when speed insensitive (init, onResize)
-    // source shape: [outputCount, depth, kernelSize]
-    // dest shape:
-    // transpose=false: [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitDepth, unitOC]
-    // transpose=true:  [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitOC, unitDepth]
-    template<typename T> static void reorderWeightSlow(T* dest, const T* source, size_t depth, size_t outputCount, size_t kernelSize,
-                                                       size_t unitDepth, size_t unitOC, bool transpose = false);
+
     /* Inefficient because of not use memcpy to support different type copy (T -> U), use it when speed insensitive (init, onResize)
        return: False if acquire failed
      */

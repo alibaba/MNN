@@ -93,13 +93,17 @@ void TensorUtils::setupTensorInfo(const Tensor* tensor, Tensor* wrapTensor, MNN_
     wrapTensor->buffer().type = tensor->getType();
 }
 
-void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat) {
+void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat, bool copyRef) {
     auto& ob      = dest->buffer();
     auto& ib      = source->buffer();
     ob.dimensions = ib.dimensions;
     ::memcpy(ob.dim, ib.dim, ib.dimensions * sizeof(halide_dimension_t));
     if (copyFormat) {
         getDescribe(dest)->dimensionFormat = getDescribe(source)->dimensionFormat;
+    }
+    if (copyRef) {
+        getDescribe(dest)->regions = getDescribe(source)->regions;
+        dest->buffer().type = source->getType();
     }
     adjustTensorForCompability(dest);
 }
@@ -446,6 +450,17 @@ static inline bool expandStrideSize(int* src, int* dst, int* size, int& num, int
 #undef MNN_3_INT_INSERT
 }
 
+bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
+    auto des = TensorUtils::getDescribe(dst);
+    auto srcDes = TensorUtils::getDescribe(src);
+    bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || des->extra.offset != srcDes->extra.offset;
+    des->backend = srcDes->backend;
+    dst->buffer().host = src->buffer().host;
+    dst->buffer().device = src->buffer().device;
+    des->extra.offset = srcDes->extra.offset;
+    return needMalloc;
+}
+
 // fuse srcRegion and dstRegion to dstRegion if return true
 bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
     // src data isnot full data of dst
@@ -747,6 +762,13 @@ size_t TensorUtils::getRawSize(const Tensor* t) {
         len *= (size_t)t->length(i);
     }
     return len;
+}
+void TensorUtils::setRasterInputs(Command* cmd) {
+    auto& regions = TensorUtils::getDescribe(cmd->outputs[0])->regions;
+    cmd->inputs.resize(regions.size());
+    for (int i=0; i<regions.size(); ++i) {
+        cmd->inputs[i] = regions[i].origin;
+    }
 }
 
 } // namespace MNN

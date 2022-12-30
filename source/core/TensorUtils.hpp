@@ -46,7 +46,6 @@ struct Tensor::InsideDescribe {
         View dst;
         int32_t size[3] = {1, 1, 1};
         Tensor* origin;
-        int mask = 0;
     };
     enum MemoryType {
         /** The tensor's memory come from Backend */
@@ -122,7 +121,7 @@ public:
      * @param dest          shape consumer tensor.
      * @param copyFormat    copy data format or not.
      */
-    static void copyShape(const Tensor* source, Tensor* dest, bool copyFormat = false);
+    static void copyShape(const Tensor* source, Tensor* dest, bool copyFormat = false, bool copyRef = false);
 
     /**
      * @brief set shape for dest tensor from a common int vector.
@@ -169,6 +168,10 @@ public:
     static std::vector<float> getQuantInfo(const Tensor* t);
     
     static size_t getRawSize(const Tensor* t);
+    static void setRasterInputs(Command* cmd);
+    
+    static bool refTensorContent(Tensor* dst, const Tensor* src);
+
 };
 } // namespace MNN
 

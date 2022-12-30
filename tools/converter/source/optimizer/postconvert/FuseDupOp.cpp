@@ -52,6 +52,15 @@ public:
             if (DataType_DT_INT32 == v0->dataType) {
                 return v0->int32s == v1->int32s;
             }
+            if (DataType_DT_FLOAT == v0->dataType) {
+                return v0->float32s == v1->float32s;
+            }
+            if (DataType_DT_UINT8 == v0->dataType) {
+                return v0->uint8s == v1->uint8s;
+            }
+            if (DataType_DT_INT8 == v0->dataType) {
+                return v0->int8s == v1->int8s;
+            }
         }
         if (op0->main.type == OpParameter_UnaryOp) {
             return op0->main.AsUnaryOp()->opType == op1->main.AsUnaryOp()->opType;

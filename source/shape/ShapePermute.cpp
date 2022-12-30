@@ -19,12 +19,19 @@ public:
 
         auto input  = inputs[0];
         auto output = outputs[0];
-        auto shape  = op->main_as_Permute()->dims();
-        MNN_ASSERT(shape->size() == input->buffer().dimensions);
-        output->buffer().dimensions = shape->size();
+        int dimSize = input->dimensions();
+        output->buffer().dimensions = dimSize;
 
-        for (int i = 0; i < shape->size(); ++i) {
-            output->buffer().dim[i].extent = input->buffer().dim[shape->data()[i]].extent;
+        if (nullptr != op->main_as_Permute()->dims()) {
+            auto shape  = op->main_as_Permute()->dims();
+            MNN_ASSERT(shape->size() == input->buffer().dimensions);
+            for (int i = 0; i < dimSize; ++i) {
+                output->buffer().dim[i].extent = input->buffer().dim[shape->data()[i]].extent;
+            }
+        } else {
+            for (int i = 0; i < dimSize; ++i) {
+                output->buffer().dim[i].extent = input->buffer().dim[dimSize-i-1].extent;
+            }
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         output->buffer().type = input->buffer().type;

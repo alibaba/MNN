@@ -24,6 +24,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     static MNNBinaryExecute selectForFloat(int opType);
+    static MNNBinaryExecute selectForInt(int opType);
 private:
     MNNBinaryExecute mProc;
     int mNeedBroadcastIndex = -1;

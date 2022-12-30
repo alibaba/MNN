@@ -37,10 +37,24 @@ public:
             if (layer->padMode() == PadMode_SAME) {
                 outputLength =inputLength * stride;
             } else {
-                const int pad = (*layer->pads())[i], kernel = (*layer->kernels())[i], dialate = (*layer->dilates())[i];
+                int padL = 0;
+                int padR = 0;
+                int kernel = layer->kernels()->data()[i];
+                int dialate = 1;
+                if (nullptr != layer->pads()) {
+                    padL = layer->pads()->data()[i];
+                    if (layer->pads()->size() == 6) {
+                        padR = layer->pads()->data()[i + 3];
+                    } else {
+                        padR = padL;
+                    }
+                }
+                if (nullptr != layer->dilates()) {
+                    dialate = layer->dilates()->data()[i];
+                }
                 const int dialatedKernel = (kernel - 1) * dialate + 1;
 //                    outputLength = (inputLength + 2 * pad - dialatedKernel) / stride + 1;
-                outputLength = (inputLength - 1) * stride + dialatedKernel - 2*pad;
+                outputLength = (inputLength - 1) * stride + dialatedKernel - padR - padL;
                 if (layer->outPads() != nullptr) {
                     outputLength = outputLength + layer->outPads()->data()[i];
                 }

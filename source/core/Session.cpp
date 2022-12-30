@@ -15,56 +15,66 @@
 #include "core/AutoStorage.h"
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
-#include "core/WrapExecution.hpp"
+#include "utils/InitNet.hpp"
 
 using namespace std;
 
 namespace MNN {
+static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+    if (iter.first.cache.first != nullptr) {
+        return;
+    }
+    auto rt    = runtime.first.find(iter.first.info.type)->second.get();
+    auto cpuRuntime = runtime.second;
+    bool specialUsage = false;
+    if (iter.first.info.user != nullptr) {
+        specialUsage = iter.first.info.user->flags > 0;
+    }
+    iter.first.cache.first.reset(rt->onCreate(iter.first.info.user));
+    std::shared_ptr<Backend> second;
+    if (iter.first.cache.first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
+        iter.first.cache.second = iter.first.cache.first;
+    } else {
+        // Const Backend shouldn't be used as default backend
+        // The session may be schedule multi-thread but const backend is the same
+        // We need create a new backend to do size compute / not support op compute
+        BackendConfig defaultConfig;
+        defaultConfig.flags = 4;
+        iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig));
+    }
+}
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
+    mMode = mode;
     mRuntime = std::move(runtime);
     if (info.pipelineInfo.empty()) {
         mValid = false;
         return;
     }
-    mTensors       = std::move(info.allTensors);
-    auto defaultBn = std::move(info.defaultBackend);
-    for (auto& iter : info.pipelineInfo) {
-        auto rt    = mRuntime.first.find(iter.first.type)->second.get();
-        auto cpuRuntime = mRuntime.second;
-        bool specialUsage = false;
-        if (iter.first.user != nullptr) {
-            specialUsage = iter.first.user->flags > 0;
-        }
-        std::shared_ptr<Backend> first(rt->onCreate(iter.first.user));
-        std::shared_ptr<Backend> second;
-        if (first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
-            second = first;
-        } else {
-            // Const Backend shouldn't be used as default backend
-            // The session may be schedule multi-thread but const backend is the same
-            // We need create a new backend to do size compute / not support op compute
-            BackendConfig defaultConfig;
-            defaultConfig.flags = 4;
-            second.reset(cpuRuntime->onCreate(&defaultConfig));
-        }
+    mInfo = std::move(info);
+    for (auto& iter : mInfo.pipelineInfo) {
+        _createPipelineBackend(iter, mRuntime);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), mOriginExecutions));
+        auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
+        auto cpuRuntime = mRuntime.second;
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
         mPipelines.emplace_back(std::move(newPipeline));
     }
-    mInputs       = std::move(info.inputTensors);
-    mOutputs      = std::move(info.outputTensor);
     mCallBackMode = mode.callBackMode;
 }
 
 Session::~Session() {
     waitAsyncResize();
-    mOriginExecutions.clear();
-    mTensors.clear();
+    mInfo.allTensors.clear();
     mPipelines.clear();
     mRuntime.first.clear();
     mRuntime.second = nullptr;
+}
+Schedule::PipelineInfo& Session::getPipelineInfo(int index) const {
+    MNN_ASSERT(index >= 0);
+    MNN_ASSERT(index < mPipelines.size());
+    return mPipelines[index]->getPipelineInfo();
 }
 
 bool Session::loadCache(const void* buffer, size_t size) {
@@ -93,51 +103,11 @@ std::pair<const void*, size_t> Session::getCache() {
     return std::make_pair(nullptr, 0);
 }
 
-void Session::cloneExecution(const CacheExecutionMap& cache) {
-    Execution* dst;
-    std::map<MNNForwardType, Backend*> allBackends;
-    for (auto& p : mPipelines) {
-        auto t = p->mBackend->type();
-        if (allBackends.find(t) == allBackends.end()) {
-            allBackends.insert(std::make_pair(t, p->mBackend.get()));
-        }
-        t = p->mBackupBackend->type();
-        if (allBackends.find(t) == allBackends.end()) {
-            allBackends.insert(std::make_pair(t, p->mBackupBackend.get()));
-        }
-    }
-    for (auto& iter : cache) {
-        dst = nullptr;
-        for (auto& bnIter : allBackends) {
-            auto backend = bnIter.second;
-            if (iter.second.first->backend()->type() != bnIter.first) {
-                continue;
-            }
-            bool res = iter.second.first->onClone(backend, iter.first, &dst);
-            if (!res) {
-                continue;
-            }
-            MNN_ASSERT(nullptr != dst);
-            mOriginExecutions.insert(std::make_pair(iter.first, std::make_pair(std::shared_ptr<Execution>(dst), iter.second.second)));
-        }
-    }
-}
-
 ErrorCode Session::run() const {
     if (mNeedResize) {
         MNN_ERROR("Can't run session because not resized\n");
         return COMPUTE_SIZE_ERROR;
     }
-
-#ifdef LOG_VERBOSE
-    for (auto& iter : mInputs) {
-        auto& inputTensor = iter.second;
-        MNN_PRINT("before run, input name:%s, ptr:%p, shape:", iter.first.c_str(), inputTensor);
-        inputTensor->printShape();
-        MNN_PRINT("\n");
-    }
-#endif
-
     for (auto& iter : mPipelines) {
         auto error = iter->execute();
         if (NO_ERROR != error) {
@@ -163,7 +133,7 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
 }
 
 void Session::_clearCache() {
-    for (auto& t : mTensors) {
+    for (auto& t : mInfo.allTensors) {
         auto describe = TensorUtils::getDescribe(t.get());
         if (describe->usage == Tensor::InsideDescribe::TRAINABLE || describe->usage == Tensor::InsideDescribe::CONSTANT) {
             continue;
@@ -172,8 +142,7 @@ void Session::_clearCache() {
     }
 }
 
-ErrorCode Session::resize(bool isStatic) {
-
+ErrorCode Session::resize() {
 #ifdef LOG_VERBOSE
     for (auto& iter : mInputs) {
         auto& inputTensor = iter.second;
@@ -184,12 +153,9 @@ ErrorCode Session::resize(bool isStatic) {
 #endif
     bool firstMalloc = false;
     if (mNeedResize) {
-        if (!isStatic) {
-            _clearCache();
-        }
         bool debug = mCallBackMode == Interpreter::Session_Debug;
         for (auto& iter : mPipelines) {
-            auto error = iter->encode(isStatic, debug);
+            auto error = iter->encode(debug);
             if (NO_ERROR != error) {
                 return error;
             }
@@ -209,9 +175,18 @@ ErrorCode Session::resize(bool isStatic) {
                 return error;
             }
         }
+#ifdef LOG_VERBOSE
+        float memory = 0.0f;
+#endif
         for (auto& iter : mRuntime.first) {
             iter.second->onGabageCollect(0);
+#ifdef LOG_VERBOSE
+            memory += iter.second->onGetMemoryInMB();
+#endif
         }
+#ifdef LOG_VERBOSE
+        FUNC_PRINT_ALL(memory, f);
+#endif
         mNeedMalloc = false;
         mNeedResize = false;
     }
@@ -282,24 +257,27 @@ const Backend* Session::getBackEnd(const Tensor* tensor) const {
 Tensor* Session::getInput(const char* name) const {
     //MNN_ASSERT(!mInputs.empty());
     if (nullptr == name) {
-        return mInputs.begin()->second;
+        return mInfo.inputTensors.begin()->second;
     }
-    auto iter = mInputs.find(name);
-    if (iter == mInputs.end()) {
+    auto iter = mInfo.inputTensors.find(name);
+    if (iter == mInfo.inputTensors.end()) {
         MNN_PRINT("Error: can't find input: %s\n", name);
         return nullptr;
     }
     return iter->second;
 }
+Tensor* Session::getTensor(int index) const {
+    return mInfo.allTensors[index].get();
+}
 
 Tensor* Session::getOutput(const char* name) const {
-    MNN_ASSERT(!mOutputs.empty());
+    MNN_ASSERT(!mInfo.outputTensor.empty());
     if (nullptr == name) {
-        return mOutputs.begin()->second;
+        return mInfo.outputTensor.begin()->second;
     }
 
-    auto iter = mOutputs.find(name);
-    if (iter == mOutputs.end()) {
+    auto iter = mInfo.outputTensor.find(name);
+    if (iter == mInfo.outputTensor.end()) {
         MNN_PRINT("Error: can't find output: %s\n", name);
         return nullptr;
     }
@@ -307,11 +285,11 @@ Tensor* Session::getOutput(const char* name) const {
 }
 
 const std::map<std::string, Tensor*>& Session::getInputAll() const {
-    return mInputs;
+    return mInfo.inputTensors;
 }
 
 const std::map<std::string, Tensor*>& Session::getOutputAll() const {
-    return mOutputs;
+    return mInfo.outputTensor;
 }
 
 ErrorCode Session::updateToModel(Net* net) const {
@@ -335,7 +313,7 @@ ErrorCode Session::updateToModel(Net* net) const {
         if (blob->dataType() != DataType_DT_FLOAT) {
             continue;
         }
-        std::shared_ptr<Tensor> tensor = mTensors[index];
+        std::shared_ptr<Tensor> tensor = mInfo.allTensors[index];
         if (tensor->host<void>() == nullptr && tensor->deviceId() != 0) {
             tensor.reset(Tensor::createHostTensorFromDevice(tensor.get(), true));
             if (tensor.get() == nullptr) {
@@ -348,5 +326,88 @@ ErrorCode Session::updateToModel(Net* net) const {
 
     return NO_ERROR;
 }
+
+static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std::vector<std::shared_ptr<Tensor>>& tensorSrc) {
+    for (int i=0; i<tensors.size(); ++i) {
+        // Init all tensor except for const
+        if (tensors[i].get() == nullptr) {
+            tensors[i].reset(new Tensor);
+            TensorUtils::getDescribe(tensors[i].get())->index = i;
+        }
+    }
+    for (int i = 0; i < tensors.size(); ++i) {
+        auto srcDes = TensorUtils::getDescribe(tensorSrc[i].get());
+        if (srcDes->quantAttr != nullptr) {
+            TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
+            *TensorUtils::getDescribe(tensors[i].get())->quantAttr = *srcDes->quantAttr;
+        }
+        TensorUtils::copyShape(tensorSrc[i].get(), tensors[i].get(), true);
+    }
+}
+
+Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+    // TODO: Currently only valid for Module api's onClone
+    Schedule::ScheduleInfo scheduleInfo;
+    scheduleInfo.defaultBackend = mInfo.defaultBackend;
+    scheduleInfo.pipelineInfo.resize(1);
+    Session::ModeGroup modes;
+    scheduleInfo.defaultBackend = sharedConst->defaultBackend;
+    scheduleInfo.allTensors = sharedConst->allTensors;
+    initTensors(scheduleInfo.allTensors, mInfo.allTensors);
+    MNN_ASSERT(1 == mPipelines.size());
+    auto& srcPipelineInfo = mPipelines[0]->getPipelineInfo();
+    auto& opCaches = srcPipelineInfo.second;
+    auto& pipelineInfo = scheduleInfo.pipelineInfo[0];
+    pipelineInfo.first.info = srcPipelineInfo.first.info;
+    pipelineInfo.first.config = srcPipelineInfo.first.config;
+    pipelineInfo.first.info.user = &pipelineInfo.first.config;
+    auto& oplists = pipelineInfo.second;
+    oplists.resize(opCaches.size());
+    _createPipelineBackend(pipelineInfo, runtime);
+    auto first = pipelineInfo.first.cache.first;
+    auto second = pipelineInfo.first.cache.second;
+    for (int i=0; i<opCaches.size(); ++i) {
+        auto& srcOpInfo = opCaches[i];
+        auto& opInfo = oplists[i];
+        opInfo.op = opCaches[i].op;
+        opInfo.type = srcOpInfo.type;
+        auto op = opInfo.op;
+        if (nullptr != op->outputIndexes()) {
+            auto data = op->outputIndexes()->data();
+            for (int j = 0; j < op->outputIndexes()->size(); ++j) {
+                opInfo.outputs.push_back(scheduleInfo.allTensors[data[j]].get());
+            }
+        }
+        if (nullptr != op->inputIndexes()) {
+            auto data = op->inputIndexes()->data();
+            for (int j = 0; j < op->inputIndexes()->size(); ++j) {
+                opInfo.inputs.push_back(scheduleInfo.allTensors[data[j]].get());
+            }
+        }
+        for (int j=0; j<opInfo.inputs.size(); ++j) {
+            TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+        }
+        for (int j=0; j<opInfo.outputs.size(); ++j) {
+            TensorUtils::getDescribe(opInfo.outputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.outputs[j])->usage;
+        }
+        // Clone cache
+        for (auto& iter : srcOpInfo.executionCache) {
+            Execution* copyExecution = nullptr;
+            bool valid = false;
+            if (first->type() == iter.second->backend()->type()) {
+                valid = iter.second->onClone(first.get(), iter.first, &copyExecution);
+            } else {
+                valid = iter.second->onClone(second.get(), iter.first, &copyExecution);
+            }
+            if (valid) {
+                std::shared_ptr<Execution> copyExeWrap(copyExecution);
+                opInfo.executionCache.insert(std::make_pair(iter.first, copyExeWrap));
+            }
+        }
+    }
+    auto dst = new Session(std::move(scheduleInfo), mMode, std::move(runtime));
+    return dst;
+}
+
 
 } // namespace MNN

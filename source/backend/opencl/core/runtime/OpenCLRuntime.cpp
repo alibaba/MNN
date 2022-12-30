@@ -121,7 +121,9 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 mGpuType = OTHER;
             }
             const std::string extensions = platforms[0].getInfo<CL_PLATFORM_EXTENSIONS>();
-            if(mGpuType == ADRENO && " " != extensions){
+            bool isPriorityHint = (extensions.find("cl_khr_priority_hints") != std::string::npos);
+
+            if(mGpuType == ADRENO && !isPriorityHint){
                 std::vector<cl_context_properties> context_properties;
                 context_properties.reserve(5);
                 context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
@@ -130,15 +132,42 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
                 context_properties.push_back(0);
                 mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, context_properties.data(), nullptr, nullptr, &res));
+                mIsDeviceSupportedLowPower = true;
             }else{
                 mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &res));
             }
 
             MNN_CHECK_CL_SUCCESS(res, "context");
+            if (res != CL_SUCCESS) {
+                mIsCreateError = true;
+                return;
+            }
+            
+            mIsDeviceSupportedLowPower = (mIsDeviceSupportedLowPower || isPriorityHint);
+            
+            #ifdef MNN_USE_LIB_WRAPPER
+            if(isPriorityHint)
+            {
+                if(true == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isPropError())
+                {
+                    mIsCreateError = true;
+                    return;
+                }
 
-            mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &res);
+                cl_queue_properties prop[] = {CL_QUEUE_PRIORITY_KHR, CL_QUEUE_PRIORITY_LOW_KHR, 0};
+                mCommandQueuePtr.reset(new cl::CommandQueue(clCreateCommandQueueWithProperties((*mContext).get(), (*mFirstGPUDevicePtr).get(), prop, &res)));
+            }
+            else
+            #endif
+            {
+                mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &res);
+            }
             MNN_CHECK_CL_SUCCESS(res, "commandQueue");
-
+            if (res != CL_SUCCESS) {
+                mIsCreateError = true;
+                return;
+            }
+            
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, &mGPUGlobalMemeryCacheSize);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
@@ -294,6 +323,10 @@ bool OpenCLRuntime::isWeightCpuTransHalf() const {
 
 bool OpenCLRuntime::isDeviceSupportedFP16() const {
     return mIsDeviceSupportedFP16;
+}
+
+bool OpenCLRuntime::isDeviceSupportedLowPower() const {
+    return mIsDeviceSupportedLowPower;
 }
 
 bool OpenCLRuntime::isSupportedDotInt8() const {

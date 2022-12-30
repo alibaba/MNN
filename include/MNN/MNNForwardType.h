@@ -99,6 +99,10 @@ struct BackendConfig {
          */
         STATUS_SUPPORT_DOT_PRODUCT,
         /**
+         * get status whether this runtime support power-low (means low priority for opencl)
+         */
+        STATUS_SUPPORT_POWER_LOW,
+        /**
          * emum total number
          */
         STATUS_COUNT

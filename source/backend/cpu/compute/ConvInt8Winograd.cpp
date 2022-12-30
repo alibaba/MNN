@@ -136,7 +136,7 @@ ConvInt8Winograd::ConvInt8Winograd(Backend *b, const Convolution2D *convOp, std:
             return;
         }
         std::shared_ptr<Tensor> tempInput, tempOutput;
-        auto winoRes = makeWinoResource(weightData + kyStart * kernelY + kxStart, mResource->mScaleFloat, attr, b, oc, ic, kernelY, kernelX);
+        auto winoRes = makeWinoResource(weightData + kyStart * kernelY + kxStart, mResource->mOriginScale, attr, b, oc, ic, kernelY, kernelX);
         attr += unitSize;
         std::shared_ptr<WinoExecution> exe(new WinoExecution(winoRes, kySize, kxSize, unitY, unitX, oc, ic));
         mUnits.push_back({kyStart, kxStart, tempInput, tempOutput, exe});
@@ -273,10 +273,25 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
     auto core = bn->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
-    std::vector<float> scale(UNIT, mResource->mInputScale);
+    // scale, zero, min, max
+    auto inputQuant = TensorUtils::getQuantInfo(inputs[0]);
+    auto outputQuant = TensorUtils::getQuantInfo(outputs[0]);
+    if (TensorUtils::getDescribe(inputs[0])->quantAttr.get() == nullptr) {
+        inputQuant = {(float)mResource->mInputScale,
+            (float)mResource->mInputZeroPoint,
+            (float)mResource->mClampMin,
+            (float)mResource->mClampMax,
+        };
+        outputQuant = {(float)mResource->mOutputScale,
+            (float)mResource->mOutputZeroPoint,
+            (float)mResource->mClampMin,
+            (float)mResource->mClampMax,
+        };
+    }
+
+    std::vector<float> scale(UNIT, inputQuant[0]);
     int size = bn->getTensorSize(mInputFloat.get());
-    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), scale.data(), size / UNIT, mResource->mInputZeroPoint);
+    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), scale.data(), size / UNIT, inputQuant[1]);
     std::vector<Tensor*> tmp_outputs;
     for (auto& unit : mUnits) {
         auto ret = unit.runner->onExecute({unit.input.get()}, {unit.output.get()});
@@ -286,16 +301,16 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
         tmp_outputs.push_back(unit.output.get());
     }
     QuanPostTreatParameters quanParam;
-    scale.assign(UNIT, 1.0 / mResource->mOutputScale);
+    scale.assign(UNIT, 1.0 / outputQuant[0]);
     quanParam.scale = scale.data();
-    quanParam.bias = mResource->mBiasInt32->host<int32_t>();
-    quanParam.maxValue = mResource->mClampMax;
+    quanParam.bias = mResource->mOriginBias->host<int32_t>();
+    quanParam.maxValue = outputQuant[3];
     if (mResource->mRelu) {
-        quanParam.minValue = mResource->mOutputZeroPoint;
+        quanParam.minValue = outputQuant[1];
     } else {
-        quanParam.minValue = mResource->mClampMin;
+        quanParam.minValue = outputQuant[2];
     }
-    mergeAddBiasScaleQuantize(tmp_outputs, outputs[0], &quanParam, bn, mResource->mOutputZeroPoint);
+    mergeAddBiasScaleQuantize(tmp_outputs, outputs[0], &quanParam, bn,  outputQuant[1]);
     return NO_ERROR;
 };
 

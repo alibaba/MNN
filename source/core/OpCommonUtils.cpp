@@ -7,16 +7,22 @@
 //
 
 #include "OpCommonUtils.hpp"
+#include "FileLoader.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
 #include <random>
+#include <fstream>
 
 namespace MNN {
-void* OpCommonUtils::blobData(const Op* op) {
+void OpCommonUtils::loadBlobData(Backend* backend, const Op* op, char* ptr, int size) {
     if (OpParameter_Blob != op->main_type()) {
-        return nullptr;
+        return;
     }
     auto b       = op->main_as_Blob();
+    if (USE_EXTERNAL_DATA(b)) {
+        loadExternalDatas(backend, { ptr }, b->external()->data());
+        return;
+    }
     void* result = nullptr;
     switch (b->dataType()) {
         case DataType_DT_FLOAT:
@@ -27,16 +33,16 @@ void* OpCommonUtils::blobData(const Op* op) {
             break;
         case DataType_DT_QUINT8:
         case DataType_DT_UINT8:
-            return (void*)b->uint8s()->Data();
+            result = (void*)b->uint8s()->Data();
             break;
         case DataType_DT_INT8:
-            return (void*)b->int8s()->Data();
+            result = (void*)b->int8s()->Data();
             break;
         default:
             MNN_ASSERT(false);
             break;
     }
-    return result;
+    ::memcpy(ptr, result, size);
 }
 
 static std::tuple<int, int, int> _split(int offset, int axisL, int area) {
@@ -508,5 +514,46 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
     }
     return false;
 }
+void OpCommonUtils::rasterInputReset(const std::vector<Tensor *> &inputs, Tensor *output) {
+    auto outputDes = TensorUtils::getDescribe(output);
+    MNN_ASSERT(outputDes->regions.size() == inputs.size());
+    for (int i=0; i<outputDes->regions.size(); ++i) {
+        outputDes->regions[i].origin = inputs[i];
+    }
+}
 
+void OpCommonUtils::loadExternalData(Backend* backend, char* addr, int64_t offset, int64_t size) {
+    FileLoader fileloader(backend->externalFile().c_str());
+    fileloader.offset(offset);
+    fileloader.read(addr, size);
+}
+
+void OpCommonUtils::loadExternalDatas(Backend* backend, std::vector<char*> addrs,  const int64_t* external) {
+    FileLoader fileloader(backend->externalFile().c_str());
+    fileloader.offset(external[0]);
+    for (int i = 0; i < addrs.size(); i++) {
+        fileloader.read(addrs[i], external[i+1]);
+    }
+}
+
+bool OpCommonUtils::loadConvData(Backend* backend, const Op* op, std::unique_ptr<Tensor>& weight, std::unique_ptr<Tensor>& bias, int& weightSize, int& biasSize) {
+    auto conv2d = op->main_as_Convolution2D();
+    auto offset = conv2d->external()->Get(0);
+    auto weightBytes = conv2d->external()->Get(1);
+    auto biasBytes = conv2d->external()->Get(2);
+    weightSize = static_cast<int>(weightBytes / sizeof(float));
+    biasSize = static_cast<int>(biasBytes / sizeof(float));
+    weight.reset(Tensor::createDevice<float>({weightSize}));
+    bias.reset(Tensor::createDevice<float>({biasSize}));
+    bool res = backend->onAcquire(weight.get(), Backend::STATIC);
+    if (!res) {
+        return res;
+    }
+    res = backend->onAcquire(bias.get(), Backend::STATIC);
+    if (!res) {
+        return res;
+    }
+    loadExternalDatas(backend, {weight->host<char>(), bias->host<char>()}, conv2d->external()->data());
+    return true;
+}
 } // namespace MNN

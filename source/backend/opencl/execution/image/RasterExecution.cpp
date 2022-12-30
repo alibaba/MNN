@@ -23,19 +23,19 @@ RasterExecution::RasterExecution(const std::vector<Tensor *> &inputs, const MNN:
     //nothing to do
 }
 
-ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start RasterExecution onResize !\n");
 #endif
     mTempInput.clear();
     mTempOutput = nullptr;
-    MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
-    auto input = inputs[0];
     auto output = outputs[0];
-    auto des = TensorUtils::getDescribe(input);
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+
+    auto des = TensorUtils::getDescribe(output);
     auto outputDes = TensorUtils::getDescribe(output);
-    mNeedZero = !TensorUtils::regionIsFull(input);
+    mNeedZero = !TensorUtils::regionIsFull(output);
     auto regionNum = des->regions.size();
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
     

@@ -194,6 +194,7 @@ static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyO
 static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_setExternalFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setSessionMode(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObject *args);
@@ -213,6 +214,7 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"createRuntime", (PyCFunction)PyMNNInterpreter_createRuntime, METH_VARARGS | METH_STATIC, "create runtime"},
     {"createSession", (PyCFunction)PyMNNInterpreter_createSession, METH_VARARGS, "create session"},
     {"setCacheFile", (PyCFunction)PyMNNInterpreter_setCacheFile, METH_VARARGS, "set cache file for create session"},
+    {"setExternalFile", (PyCFunction)PyMNNInterpreter_setExternalFile, METH_VARARGS, "set external data file for create session"},
     {"updateCacheFile", (PyCFunction)PyMNNInterpreter_updateCacheFile, METH_VARARGS, "update cache file after resize session"},
     {"setSessionMode", (PyCFunction)PyMNNInterpreter_setSessionMode, METH_VARARGS, "set session mode before create session"},
     {"setSessionHint", (PyCFunction)PyMNNInterpreter_setSessionHint, METH_VARARGS, "set session hint before create session"},
@@ -863,6 +865,18 @@ static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject 
     }
     Py_BEGIN_ALLOW_THREADS
     self->interpreter->setCacheFile(path);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNInterpreter_setExternalFile(PyMNNInterpreter *self, PyObject *args) {
+    char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setExternalFile: Not string input");
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    self->interpreter->setExternalFile(path);
     Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
