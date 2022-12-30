@@ -8,8 +8,8 @@
 
 #include "OpGrad.hpp"
 #include "../source/geometry/ConvertUtils.hpp"
-#include<vector>
-#include<math.h>
+#include <vector>
+#include <math.h>
 
 using namespace std;
 using namespace MNN;
@@ -138,10 +138,10 @@ public:
                 varH = _Cast<int>(_Round(_Scalar<float>(scaleH) * (_Cast<float>(varH) + _Scalar<float>(0.5f)) - _Scalar<float>(0.5f)));
                 varW = _Cast<int>(_Round(_Scalar<float>(scaleW) * (_Cast<float>(varW) + _Scalar<float>(0.5f)) - _Scalar<float>(0.5f)));
             }
-            varH = _Maximum(varH, _Scalar<int>(0));
-            varH = _Minimum(varH, _Scalar<int>(inH - 1));
-            varW = _Maximum(varW, _Scalar<int>(0));
-            varW = _Minimum(varW, _Scalar<int>(inW - 1));
+            varH = Express::_Maximum(varH, _Scalar<int>(0));
+            varH = Express::_Minimum(varH, _Scalar<int>(inH - 1));
+            varW = Express::_Maximum(varW, _Scalar<int>(0));
+            varW = Express::_Minimum(varW, _Scalar<int>(inW - 1));
 
             auto expandH = varH * _Cast<int>(_Const(1.0f, {1, outW, 1}));
             auto expandW = varW * _Cast<int>(_Const(1.0f, {outH, 1, 1}));
@@ -174,19 +174,19 @@ public:
             // shape: outH * 1 * 1
             auto realH = _Cast<float>(varH) * _Scalar<float>(scaleH) + _Scalar<float>(offsetH);
             auto topH = _Cast<int>(_Floor(realH));
-            auto h0 = _Maximum(topH, _Scalar<int>(0));
-            h0 = _Minimum(h0, _Scalar<int>(inH-1));
-            auto h1 = _Maximum(topH+_Scalar<int>(1), _Scalar<int>(0));
-            h1 = _Minimum(h1, _Scalar<int>(inH-1));
+            auto h0 = Express::_Maximum(topH, _Scalar<int>(0));
+            h0 = Express::_Minimum(h0, _Scalar<int>(inH-1));
+            auto h1 = Express::_Maximum(topH+_Scalar<int>(1), _Scalar<int>(0));
+            h1 = Express::_Minimum(h1, _Scalar<int>(inH-1));
             auto factorH = realH - _Cast<float>(topH);
 
             // shape: 1 * outW * 1
             auto realW = _Cast<float>(varW) * _Scalar<float>(scaleW) + _Scalar<float>(offsetW);
             auto leftW = _Cast<int>(_Floor(realW));
-            auto w0 = _Maximum(leftW, _Scalar<int>(0));
-            w0 = _Minimum(w0, _Scalar<int>(inW-1));
-            auto w1 = _Maximum(leftW+_Scalar<int>(1), _Scalar<int>(0));
-            w1 = _Minimum(w1, _Scalar<int>(inW-1));
+            auto w0 = Express::_Maximum(leftW, _Scalar<int>(0));
+            w0 = Express::_Minimum(w0, _Scalar<int>(inW-1));
+            auto w1 = Express::_Maximum(leftW+_Scalar<int>(1), _Scalar<int>(0));
+            w1 = Express::_Minimum(w1, _Scalar<int>(inW-1));
             auto factorW = realW - _Cast<float>(leftW);
 
             auto one = _Scalar<float>(1.0f);
@@ -248,27 +248,27 @@ public:
             // shape: outH * 1 * 1
             auto realH = _Cast<float>(varH) * _Scalar<float>(scaleH) + _Scalar<float>(offsetH);
             auto topH = _Cast<int>(realH);
-            auto h0 = _Maximum(topH-_Scalar<int>(1), _Scalar<int>(0));
-            h0 = _Minimum(h0, _Scalar<int>(inH-1));
-            auto h1 = _Maximum(topH, _Scalar<int>(0));
-            h1 = _Minimum(h1, _Scalar<int>(inH-1));
-            auto h2 = _Maximum(topH+_Scalar<int>(1), _Scalar<int>(0));
-            h2 = _Minimum(h2, _Scalar<int>(inH-1));
-            auto h3 = _Maximum(topH+_Scalar<int>(2), _Scalar<int>(0));
-            h3 = _Minimum(h3, _Scalar<int>(inH-1));
+            auto h0 = Express::_Maximum(topH-_Scalar<int>(1), _Scalar<int>(0));
+            h0 = Express::_Minimum(h0, _Scalar<int>(inH-1));
+            auto h1 = Express::_Maximum(topH, _Scalar<int>(0));
+            h1 = Express::_Minimum(h1, _Scalar<int>(inH-1));
+            auto h2 = Express::_Maximum(topH+_Scalar<int>(1), _Scalar<int>(0));
+            h2 = Express::_Minimum(h2, _Scalar<int>(inH-1));
+            auto h3 = Express::_Maximum(topH+_Scalar<int>(2), _Scalar<int>(0));
+            h3 = Express::_Minimum(h3, _Scalar<int>(inH-1));
             auto factorH = realH - _Floor(_Cast<float>(realH));
 
             // shape: 1 * outW * 1
             auto realW = _Cast<float>(varW) * _Scalar<float>(scaleW) + _Scalar<float>(offsetW);
             auto leftW = _Cast<int>(realW);
-            auto w0 = _Maximum(leftW-_Scalar<int>(1), _Scalar<int>(0));
-            w0 = _Minimum(w0, _Scalar<int>(inW-1));
-            auto w1 = _Maximum(leftW, _Scalar<int>(0));
-            w1 = _Minimum(w1, _Scalar<int>(inW-1));
-            auto w2 = _Maximum(leftW+_Scalar<int>(1), _Scalar<int>(0));
-            w2 = _Minimum(w2, _Scalar<int>(inW-1));
-            auto w3 = _Maximum(leftW+_Scalar<int>(2), _Scalar<int>(0));
-            w3 = _Minimum(w3, _Scalar<int>(inW-1));
+            auto w0 = Express::_Maximum(leftW-_Scalar<int>(1), _Scalar<int>(0));
+            w0 = Express::_Minimum(w0, _Scalar<int>(inW-1));
+            auto w1 = Express::_Maximum(leftW, _Scalar<int>(0));
+            w1 = Express::_Minimum(w1, _Scalar<int>(inW-1));
+            auto w2 = Express::_Maximum(leftW+_Scalar<int>(1), _Scalar<int>(0));
+            w2 = Express::_Minimum(w2, _Scalar<int>(inW-1));
+            auto w3 = Express::_Maximum(leftW+_Scalar<int>(2), _Scalar<int>(0));
+            w3 = Express::_Minimum(w3, _Scalar<int>(inW-1));
             auto factorW = realW - _Floor(_Cast<float>(realW));
 
             auto sevenFive = _Scalar<float>(0.75f);
