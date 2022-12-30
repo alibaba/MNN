@@ -21,42 +21,9 @@
 #endif
 namespace MNN {
 
-CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res): CPUConvolution(common, backend), mResource(res) {
-    auto core = static_cast<CPUBackend*>(backend)->int8Functions();
-    int UNIT, SRC_UNIT, DST_XUNIT;
-    core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-
-    const int kernelSize      = common->kernelX() * common->kernelY();
-    const int outputCount     = common->outputCount();
-    const int ocDivUnit       = UP_DIV(outputCount, UNIT);
-    const int weightSizeAlign = ocDivUnit * UNIT * kernelSize;
-
-    std::shared_ptr<Tensor> weight(Tensor::createDevice<BASIC_TYPE>({weightSizeAlign}));
-    auto allocRes = backend->onAcquireBuffer(weight.get(), Backend::STATIC);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-    auto originWeight = mResource->mWeightInt8->host<int8_t>();
-    auto weightPtr = weight->host<BASIC_TYPE>();
-    memset(weightPtr, 0, weightSizeAlign * sizeof(BASIC_TYPE));
-    
-    for (int dz = 0; dz < outputCount; ++dz) {
-        const int dzDivUnit = dz / UNIT;
-        const int my        = dz % UNIT;
-        auto dstDz          = weightPtr + dzDivUnit * kernelSize * UNIT;
-        for (int i = 0; i < kernelSize; ++i) {
-            dstDz[i * UNIT + my] = (BASIC_TYPE)(originWeight[dz * kernelSize + i]);
-        }
-    }
-    mResource->mWeightInt8.swap(weight);
-    backend->onReleaseBuffer(weight.get(), Backend::STATIC);
+CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res): CPUConvolution(common, backend), mResource(res), mMutableResource(res, backend) {
+    mValid = mMutableResource.mValid;
 }
-
-CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, const CPUDepthwiseConvInt8& exe) : CPUConvolution(common, backend), mResource(exe.mResource) {
-
-}
-
 CPUDepthwiseConvInt8::~CPUDepthwiseConvInt8() {
     // Do nothing
 }
@@ -65,7 +32,7 @@ bool CPUDepthwiseConvInt8::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    auto exe = new CPUDepthwiseConvInt8(bn, op->main_as_Convolution2D()->common(), *this);
+    auto exe = new CPUDepthwiseConvInt8(bn, op->main_as_Convolution2D()->common(), mResource);
     *dst = exe;
     return true;
 }
@@ -75,7 +42,7 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
     auto output = outputs[0];
     std::vector<float> inputQuantInfo = TensorUtils::getQuantInfo(input);
     std::vector<float> outputQuantInfo = TensorUtils::getQuantInfo(output);
-    mResource->updateInputOutputScale(inputQuantInfo, outputQuantInfo);
+    mMutableResource.updateInputOutputScale(inputQuantInfo, outputQuantInfo);
     auto pads = ConvolutionCommon::convolutionPadFull(input, output, mCommon);
 
     int padX = std::get<0>(pads);
@@ -136,19 +103,19 @@ ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, co
     const int dst_z_step     = dst_width * dst_height * UNIT;
     const int src_z_step     = src_width * src_height * UNIT;
     const auto weightPtr   = mResource->mWeightInt8->host<BASIC_TYPE>();
-    const auto biasPtr     = mResource->mBiasInt32->host<int32_t>();
-    const auto scalePtr    = mResource->mScaleFloat->host<float>();
+    const auto biasPtr     = mMutableResource.mBiasInt32->host<int32_t>();
+    const auto scalePtr    = mMutableResource.mScaleFloat->host<float>();
     auto totalCount = batch * dst_depth_quad;
 
     MNN_CONCURRENCY_BEGIN(tId, mThreadNumber) {
         const auto inputPadPtr = mInputPad->host<BASIC_TYPE>() + mInputPad->stride(0) * tId;
         QuanPostTreatParameters quanParameters;
         if (mResource->mRelu) {
-            quanParameters.maxValue = mResource->mClampMax;
-            quanParameters.minValue = mResource->mOutputZeroPoint;
+            quanParameters.maxValue = mMutableResource.mClampMax;
+            quanParameters.minValue = mMutableResource.mOutputZeroPoint;
         } else {
-            quanParameters.maxValue = mResource->mClampMax;
-            quanParameters.minValue = mResource->mClampMin;
+            quanParameters.maxValue = mMutableResource.mClampMax;
+            quanParameters.minValue = mMutableResource.mClampMin;
         }
         for (int index = tId; index < totalCount; index += mThreadNumber) {
             int dz = index / batch;
@@ -156,10 +123,10 @@ ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, co
             auto dstOrigin       = outputPtr + index * dst_z_step;
 #ifdef MNN_USE_SSE
             auto inputPadPtrCopy = (int8_t*)inputPadPtr + mInputPad->stride(0);
-            ::memset(inputPadPtrCopy, mResource->mInputZeroPoint + 128, mInputPad->stride(0) * sizeof(int8_t));
+            ::memset(inputPadPtrCopy, mMutableResource.mInputZeroPoint + 128, mInputPad->stride(0) * sizeof(int8_t));
 #else
             auto inputPadPtrCopy = inputPadPtr;
-            ::memset(inputPadPtrCopy, mResource->mInputZeroPoint, mInputPad->stride(0) * sizeof(int8_t));
+            ::memset(inputPadPtrCopy, mMutableResource.mInputZeroPoint, mInputPad->stride(0) * sizeof(int8_t));
 #endif
             // Pad inputs
             for (int y = 0; y < src_height; ++y) {
@@ -193,14 +160,38 @@ class CPUDepthwiseConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        std::vector<float> inputQuantInfo;
-        std::vector<float> outputQuantInfo;
-        if (inputs.size() > 0) {
-            inputQuantInfo = TensorUtils::getQuantInfo(inputs[0]);
-            outputQuantInfo = TensorUtils::getQuantInfo(outputs[0]);
-        }
         auto convOp = op->main_as_Convolution2D();
-        auto res = CPUConvolution::makeResourceInt8(backend, convOp, inputQuantInfo, outputQuantInfo);
+        auto res = CPUConvolution::makeResourceInt8(backend, convOp);
+        auto core = static_cast<CPUBackend*>(backend)->int8Functions();
+        int UNIT, SRC_UNIT, DST_XUNIT;
+        core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+        auto common = convOp->common();
+
+        const int kernelSize      = common->kernelX() * common->kernelY();
+        const int outputCount     = common->outputCount();
+        const int ocDivUnit       = UP_DIV(outputCount, UNIT);
+        const int weightSizeAlign = ocDivUnit * UNIT * kernelSize;
+
+        std::shared_ptr<Tensor> weight(Tensor::createDevice<BASIC_TYPE>({weightSizeAlign}));
+        auto allocRes = backend->onAcquireBuffer(weight.get(), Backend::STATIC);
+        if (!allocRes) {
+            return nullptr;
+        }
+        // Reorder the weight
+        auto originWeight = res->mWeightInt8->host<int8_t>();
+        auto weightPtr = weight->host<BASIC_TYPE>();
+        memset(weightPtr, 0, weightSizeAlign * sizeof(BASIC_TYPE));
+        
+        for (int dz = 0; dz < outputCount; ++dz) {
+            const int dzDivUnit = dz / UNIT;
+            const int my        = dz % UNIT;
+            auto dstDz          = weightPtr + dzDivUnit * kernelSize * UNIT;
+            for (int i = 0; i < kernelSize; ++i) {
+                dstDz[i * UNIT + my] = (BASIC_TYPE)(originWeight[dz * kernelSize + i]);
+            }
+        }
+        res->mWeightInt8.swap(weight);
+        backend->onReleaseBuffer(weight.get(), Backend::STATIC);
         return new CPUDepthwiseConvInt8(backend, convOp->common(), res);
     }
 };

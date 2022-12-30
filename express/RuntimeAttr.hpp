@@ -21,6 +21,11 @@ struct RuntimeAttr {
     int mNumberThread;
     // Use for static module to compute flops
     float mFlops;
+    std::string mExternalFile;
+};
+struct ExecutorAttr {
+    std::shared_ptr<Backend> constantBackend;
+    std::pair<MNNForwardType, int> firstType;
 };
 };
 };

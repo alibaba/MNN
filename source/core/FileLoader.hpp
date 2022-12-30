@@ -29,6 +29,9 @@ public:
 
     bool merge(AutoStorage<uint8_t>& buffer);
 
+    int offset(int64_t offset);
+
+    bool read(char* buffer, int64_t size);
 private:
     std::vector<std::pair<size_t, void*>> mBlocks;
     FILE* mFile                 = nullptr;

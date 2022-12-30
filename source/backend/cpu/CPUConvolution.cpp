@@ -48,111 +48,95 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
     }
     return true;
 }
-
-void CPUConvolution::ResourceInt8::updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
-    std::call_once(flag, [&](){
-        // new scales and zero points
-        float inputScale = inputQuantInfo[0];
-        float outputScale = outputQuantInfo[0];
-        float inputZeroPoint = inputQuantInfo[1];
-        float outputZeroPoint = outputQuantInfo[1];
-
-        if (inputScale == 0.f || outputScale == 0.f) {
-            return;
-        }
-        if (mInputScale == inputScale && mOutputScale == outputScale) {
-            return;
-        }
-        auto scalePtr = mScaleFloat->host<float>();
-        auto biasPtr = mBiasInt32->host<int>();
-        int size = mOutputCount;
-        float is = mInputScale / inputScale;
-        float os = mOutputScale / outputScale;
-
-        const int kernelNum = mInt8WeightKernelSum.size();
-
-        // compute remains used in asymmetric quant
-        std::vector<int> remainsCorrection;
-        for (int i = 0; i < kernelNum; i++) {
-            int temp = (int(inputZeroPoint) - mInputZeroPoint) * mInt8WeightKernelSum[i];
-            remainsCorrection.emplace_back(temp);
-        }
-
-        for (int i = kernelNum; i < size; i++) {
-            remainsCorrection.emplace_back(0);
-        }
-
-        for (int i = 0; i < size; i++) {
-            // compute outputZeroPointFused in asymmetric quant
-            int correction1 = static_cast<int32_t>(mOutputZeroPoint / scalePtr[i]);
-            scalePtr[i] = scalePtr[i] * os / is;
-            int correction2 = static_cast<int32_t>(outputZeroPoint / scalePtr[i]);
-            int outputZeroPointFusedCorrection = correction2 - correction1;
-#ifdef MNN_USE_SSE
-            if (offsets.empty()) {
-                biasPtr[i] = biasPtr[i] - remainsCorrection[i] + outputZeroPointFusedCorrection;
-                biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is);
-            } else {
-                biasPtr[i] = biasPtr[i] - offsets[i];
-                biasPtr[i] = biasPtr[i] - remainsCorrection[i] + outputZeroPointFusedCorrection;
-                biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is + offsets[i]);
-            }
-#else
-            biasPtr[i] = biasPtr[i] - remainsCorrection[i] + outputZeroPointFusedCorrection;
-            biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is);
-#endif
-        }
-        mInputScale = inputScale;
-        mOutputScale = outputScale;
-        mInputZeroPoint = int8_t(inputZeroPoint);
-        mOutputZeroPoint = int8_t(outputZeroPoint);
-        mClampMin = int8_t(outputQuantInfo[2]);
-        mClampMax = int8_t(outputQuantInfo[3]);
-    });
-}
-CPUConvolution::ResourceInt8::~ResourceInt8() {
-    // Do nothing
-}
-std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam,
-                                                                               std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
-    if (inputQuantInfo.empty() && outputQuantInfo.empty()) {
-        inputQuantInfo = {0.f, 0.f, -127, 127};
-        outputQuantInfo = {0.f, 0.f, -127, 127};
+CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend) : mResource(res) {
+    if (res->mUseConvQuan) {
+        mBiasInt32 = res->mOriginBias;
+        mScaleFloat = res->mOriginScale;
+        mValid = true;
+        mInputScale = res->mInputScale;
+        mOutputScale = res->mOutputScale;
+        mInputZeroPoint = res->mInputZeroPoint;
+        mOutputZeroPoint = res->mOutputZeroPoint;
+        mClampMax = res->mClampMax;
+        mClampMin = res->mClampMin;
+        return;
     }
+    auto outputChannleUp4 = res->mOriginBias->length(0);
+    mBiasInt32.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
+    mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    mValid = backend->onAcquireBuffer(mBiasInt32.get(), Backend::STATIC);
+    if (mValid) {
+        mValid = backend->onAcquireBuffer(mScaleFloat.get(), Backend::STATIC);
+    }
+}
+
+void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
+    if (mResource->mUseConvQuan) {
+        return;
+    }
+    // new scales and zero points
+    float inputScale = inputQuantInfo[0];
+    float outputScale = outputQuantInfo[0];
+    float inputZeroPoint = inputQuantInfo[1];
+    float outputZeroPoint = outputQuantInfo[1];
+    mClampMin = int8_t(outputQuantInfo[2]);
+    mClampMax = int8_t(outputQuantInfo[3]);
+    if (inputScale == 0.f || outputScale == 0.f) {
+        return;
+    }
+    if (mInputScale == inputScale && mOutputScale == outputScale) {
+        return;
+    }
+    mInputScale = inputScale;
+    mOutputScale = outputScale;
+    mInputZeroPoint = int8_t(inputZeroPoint);
+    mOutputZeroPoint = int8_t(outputZeroPoint);
+    auto scalePtr = mScaleFloat->host<float>();
+    auto biasPtr = mBiasInt32->host<int>();
+    int size = mResource->mOutputCount;
+    const int kernelNum = static_cast<int>(mResource->mInt8WeightKernelSum.size());
+    auto biasData    = mResource->mOriginBias->host<float>();
+    auto alphaData   = mResource->mOriginScale->host<float>();
+    auto alphaScale  = inputScale / outputScale;
+    auto scale = mScaleFloat->host<float>();
+    auto bias = mBiasInt32->host<int32_t>();
+#ifdef MNN_USE_SSE
+    inputZeroPoint += 128.0f;
+#endif
+    for (int i = 0; i < kernelNum; i++) {
+        auto alphaValue = alphaData[i];
+        if (fabs(alphaValue) < 1e-6) {
+            alphaValue = 1e-6;
+        }
+        scale[i] = alphaValue * alphaScale;
+        // compute outputZeroPointFused in asymmetric quant
+        int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
+        bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaValue)) - mResource->mInt8WeightKernelSum[i] * inputZeroPoint + outputZeroPointFused;
+    }
+}
+std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam) {
     auto core = static_cast<CPUBackend*>(backend)->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
     std::shared_ptr<CPUConvolution::ResourceInt8> resource(new ResourceInt8);
-    resource->backend = backend;
-    auto inputScale = inputQuantInfo[0], outputScale = outputQuantInfo[0];
     // TODO: ConvInt8Winograd need in/out scale, which isn't exist in quantinfo when model construct by V3 API
-    if (convParam->quanParameter() != nullptr) {
-        if (inputScale == 0) {
-            inputScale = convParam->quanParameter()->scaleIn();
-        }
-        if (outputScale == 0) {
-            outputScale = convParam->quanParameter()->scaleOut();
-        }
-    }
-    resource->mInputScale = inputScale;
-    resource->mOutputScale = outputScale;
     const auto convCommon  = convParam->common();
     const auto group = convParam->common()->group();
     const auto outputCount = convCommon->outputCount();
     const auto outputChannleUp4 = UP_DIV(outputCount, UNIT) * UNIT;
 
-    resource->mBiasInt32.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
-    resource->mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto allocRes = backend->onAcquireBuffer(resource->mBiasInt32.get(), Backend::STATIC);
-    allocRes &= backend->onAcquireBuffer(resource->mScaleFloat.get(), Backend::STATIC);
+    resource->mOriginBias.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
+    resource->mOriginScale.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    auto allocRes = backend->onAcquireBuffer(resource->mOriginBias.get(), Backend::STATIC);
+    allocRes &= backend->onAcquireBuffer(resource->mOriginScale.get(), Backend::STATIC);
     if (!allocRes) {
         return nullptr;
     }
 
-    auto biasPtr = resource->mBiasInt32->host<int32_t>();
+    auto biasPtr = resource->mOriginBias->host<int32_t>();
     memset(biasPtr, 0, outputChannleUp4 * sizeof(int32_t));
-    auto scalePtr = resource->mScaleFloat->host<float>();
+    auto scalePtr = resource->mOriginScale->host<float>();
     memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
 
     resource->mActBits = convParam->symmetricQuan()->nbits();
@@ -160,13 +144,12 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     resource->mOutputCount = outputCount;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr,
-                                                  inputScale, outputScale,
-                                                  convParam->symmetricQuan()->zeroPoint(),
-                                                  convParam->symmetricQuan()->outputZeroPoint())) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr)) {
         return nullptr;
     }
-
+    if (convParam->bias() && convParam->quanParameter()->alpha()) {
+        resource->mUseConvQuan = false;
+    }
     resource->mWeightInt8.reset(Tensor::createDevice<int8_t>({weightSize}));
     allocRes = backend->onAcquireBuffer(resource->mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
@@ -174,32 +157,30 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     }
     const int kernelNum = outputCount;
     const int kernelSize = weightSize / kernelNum;
+    resource->mInt8WeightKernelSum.resize(kernelNum);
     for (int i = 0; i < kernelNum; i++) {
         int temp = 0;
         int offset = i * kernelSize;
         for (int j = 0; j < kernelSize; j++) {
             temp += int(weightSrc[offset + j]);
         }
-        resource->mInt8WeightKernelSum.emplace_back(temp);
-    }
-
+        resource->mInt8WeightKernelSum[i] = temp;
 #ifdef MNN_USE_SSE
-    resource->offsets.resize(outputCount);
-    // For SSE use uint8_t, int8_t -> uint8_t, x + 128 -> x', x * w + b = (x' - 128) * w + b = x' * w + (-128 * w) + b
-    for (int x = 0; x < outputCount; ++x) {
-        int offset = resource->mInt8WeightKernelSum[x] * (-128);
-        resource->offsets[x] = offset;
-        if (convParam->symmetricQuan()->winogradAttr() == nullptr) {
-            biasPtr[x] = biasPtr[x] + offset;
+        if (resource->mUseConvQuan) {
+            resource->mOriginBias->host<int32_t>()[i] -= 128 * temp;
         }
-    }
 #endif
-    auto weightDst = resource->mWeightInt8->host<int8_t>();
-    memcpy(weightDst, weightSrc, resource->mWeightInt8->size());
+    }
     resource->mInputZeroPoint = convParam->symmetricQuan()->zeroPoint();
     resource->mOutputZeroPoint = convParam->symmetricQuan()->outputZeroPoint();
     resource->mClampMin = convParam->symmetricQuan()->clampMin();
     resource->mClampMax = convParam->symmetricQuan()->clampMax();
+    if (convParam->quanParameter() != nullptr) {
+        resource->mInputScale = convParam->quanParameter()->scaleIn();
+        resource->mOutputScale = convParam->quanParameter()->scaleOut();
+    }
+    auto weightDst = resource->mWeightInt8->host<int8_t>();
+    memcpy(weightDst, weightSrc, resource->mWeightInt8->size());
     resource->mRelu = convCommon->relu() || convCommon->relu6();
     return resource;
 }
@@ -228,32 +209,6 @@ int CPUConvolution::reorderWeightSize(int depth, int outputCount, int kernelSize
     return UP_DIV(outputCount, unitOC) * UP_DIV(depth, unitDepth) * kernelSize * unitDepth * unitOC;
 }
 
-template<typename T>
-void CPUConvolution::reorderWeightSlow(T* dest, const T* source, size_t depth, size_t outputCount, size_t kernelSize,
-                                       size_t unitDepth, size_t unitOC, bool transpose) {
-    memset(dest, 0, reorderWeightSize(depth, outputCount, kernelSize, unitDepth, unitOC) * sizeof(T));
-    for (int dz = 0; dz < outputCount; ++dz) {
-        auto dz_unit = dz / unitOC;
-        auto mx      = dz % unitOC;
-        auto dst_dz = dest + dz_unit * UP_DIV(depth, unitDepth) * kernelSize * unitDepth * unitOC;
-        for (int sz = 0; sz < depth; ++sz) {
-            auto sz_unit = sz / unitDepth;
-            auto my      = sz % unitDepth;
-            auto dst_sz = dst_dz + sz_unit * kernelSize * unitDepth * unitOC;
-            auto src    = source + kernelSize * (sz + dz * depth);
-            for (int ki = 0; ki < kernelSize; ++ki) {
-                auto dst_i         = dst_sz + ki * unitDepth * unitOC;
-                if (transpose) {
-                    dst_i[unitDepth * mx + my] = src[ki];
-                } else {
-                    dst_i[unitOC * my + mx] = src[ki];
-                }
-            }
-        }
-    }
-}
-
-template void CPUConvolution::reorderWeightSlow<int8_t>(int8_t*, const int8_t*, size_t, size_t, size_t, size_t, size_t, bool);
 
 
 ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -277,17 +232,11 @@ class CPUConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        std::vector<float> inputQuantInfo;
-        std::vector<float> outputQuantInfo;
-        if (inputs.size() > 0) {
-            inputQuantInfo = TensorUtils::getQuantInfo(inputs[0]);
-            outputQuantInfo = TensorUtils::getQuantInfo(outputs[0]);
-        }
         auto convOp = op->main_as_Convolution2D();
 #ifdef MNN_USE_ONEDNN
         return OneDNNConvInt8::create(backend, convOp, inputs, outputs);
 #endif
-        auto res = CPUConvolution::makeResourceInt8(backend, convOp, inputQuantInfo, outputQuantInfo);
+        auto res = CPUConvolution::makeResourceInt8(backend, convOp);
 #ifdef MNN_USE_SPARSE_COMPUTE
         auto core = static_cast<CPUBackend*>(backend)->int8Functions();
         if (static_cast<CPUBackend*>(backend)->functions()->pack == 4 && convOp->sparseParameter() && SparseConvInt8TiledExecutor::shouldUseSparse(convOp)) {

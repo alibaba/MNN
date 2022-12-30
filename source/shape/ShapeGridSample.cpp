@@ -20,7 +20,9 @@ class GridSampleSizeComputer : public SizeComputer {
         int input_dim = inputs[0]->buffer().dimensions;
         int grid_dim = inputs[1]->buffer().dimensions;
         MNN_ASSERT((4 == input_dim && 4 == grid_dim) || (5 == input_dim && 5 == grid_dim));
-        MNN_ASSERT(inputs[0]->buffer().dim[0].extent == inputs[1]->buffer().dim[0].extent);
+        if (inputs[0]->buffer().dim[0].extent != inputs[1]->buffer().dim[0].extent) {
+            return false;
+        }
         MNN_ASSERT(grid_dim - 2 == inputs[1]->buffer().dim[grid_dim - 1].extent);
 
         auto &ibInput0 = inputs[0]->buffer();

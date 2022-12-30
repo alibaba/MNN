@@ -202,11 +202,13 @@ public:
         for (int i = 0; i < 1000; ++i) {
             auto input    = _Input({1, ic, ih, iw}, NCHW);
             auto inputPtr = input->writeMap<float>();
+            input = _Convert(input, NC4HW4);
             ::memcpy(inputPtr, randomInputs.data(), randomInputs.size() * sizeof(float));
 
-            auto targetValue  = _Deconv(weightTarget, biasTarget, _Convert(input, NC4HW4), convOption.padMode,
+            auto targetValue  = _Deconv(weightTarget, biasTarget, input, convOption.padMode,
                                        convOption.stride, convOption.dilate);
             auto predictValue = convModule->forward(input);
+
             targetValue       = _Deconv(weightTarget2, nullptr, targetValue, convOption.padMode, convOption.stride,
                                   convOption.dilate, oc);
             predictValue      = convModule2->forward(predictValue);
@@ -289,7 +291,7 @@ public:
                 randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
             }
 
-            for (int i = 0; i < 10000; ++i) {
+            for (int i = 0; i < 1000; ++i) {
                 auto input    = _Input({b, e, l}, NCHW);
                 auto inputPtr = input->writeMap<float>();
                 ::memcpy(inputPtr, randomInputs.data(), randomInputs.size() * sizeof(float));
@@ -299,7 +301,44 @@ public:
                 targetValue       = _Relu6(targetValue);
                 predictValue      = _Relu6(predictValue);
                 auto loss         = _ReduceMean(_Square(_Subtract(targetValue, predictValue)), {});
-                if (i % 1000 == 0) {
+                if (i % 100 == 0) {
+                    MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
+                }
+                sgd->step(loss);
+            }
+        }
+        MNN_PRINT("Test for BroadCastMatMul\n");
+        {
+            int e          = 13;
+            int l          = 11;
+            int h          = 30;
+            int b          = 5;
+            int weightSize = 1 * l * h;
+            std::vector<float> targetVecs(weightSize);
+            for (int i = 0; i < weightSize; ++i) {
+                auto v        = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
+                targetVecs[i] = v;
+            }
+            auto weightTarget = _Const(targetVecs.data(), {1, l, h}, NCHW);
+            auto weightOrigin = _TrainableParam(0.01f, {1, l, h}, NCHW);
+            std::shared_ptr<Module> _m(Module::createEmpty({weightOrigin}));
+            std::shared_ptr<ADAM> sgd(new ADAM(_m));
+            sgd->setLearningRate(0.01f);
+            std::vector<float> randomInputs(b * e * l);
+            for (int i = 0; i < randomInputs.size(); ++i) {
+                randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
+            }
+            for (int i = 0; i < 1000; ++i) {
+                auto input    = _Input({b, e, l}, NCHW);
+                auto inputPtr = input->writeMap<float>();
+                ::memcpy(inputPtr, randomInputs.data(), randomInputs.size() * sizeof(float));
+
+                auto targetValue  = _MatMul(input, weightTarget);
+                auto predictValue = _MatMul(input, weightOrigin);
+                targetValue       = _Relu6(targetValue);
+                predictValue      = _Relu6(predictValue);
+                auto loss         = _ReduceMean(_Square(_Subtract(targetValue, predictValue)), {});
+                if (i % 100 == 0) {
                     MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
                 }
                 sgd->step(loss);
@@ -308,9 +347,52 @@ public:
         return 0;
     }
 };
-class GatherGradTest : public DemoUnit {
+class LoopGradTest : public DemoUnit {
 public:
     virtual int run(int argc, const char* argv[]) override {
+        MNN_PRINT("Test grad for Loop Binary\n");
+        {
+            int w = 4;
+            int h = 5;
+            auto input = _Input({w, h}, NHWC);
+            auto target = _Input({w, h}, NHWC);
+            auto targetAdd = _Input({w, h}, NHWC);
+            auto inputPtr = input->writeMap<float>();
+            auto targetPtr = target->writeMap<float>();
+            auto targetPtrAdd = targetAdd->writeMap<float>();
+            for (int y=0; y<h; ++y) {
+                for (int x=0; x<w; ++x) {
+                    auto value = ((float) (y * w) + (float)x) * 0.1f;
+                    inputPtr[x + y * w] = value;
+                    targetPtr[x + y * w] = value * (float) (y + 1) * 0.1f;
+                    targetPtrAdd[x + y * w] = value + (float) (y + 1) * 0.1f;
+                }
+            }
+            
+            auto weight = _TrainableParam(0.0f, {1, h}, NHWC);
+            auto weightAdd = _TrainableParam(0.0f, {1, h}, NHWC);
+            std::shared_ptr<Module> _m(Module::createEmpty({weight, weightAdd}));
+            std::shared_ptr<SGD> sgd(new SGD(_m));
+            sgd->setLearningRate(0.01f);
+            MNN_PRINT("Test grad for Binary Mul Loop\n");
+            for (int i = 0; i < 1000; ++i) {
+                auto compute = input * weight;
+                auto loss = _ReduceMean(_Square(_Subtract(compute, target)), {});
+                if (i % 100 == 0) {
+                    MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
+                }
+                sgd->step(loss);
+            }
+            MNN_PRINT("Test grad for Binary Add Loop\n");
+            for (int i = 0; i < 1000; ++i) {
+                auto compute = input + weightAdd;
+                auto loss = _ReduceMean(_Square(_Subtract(compute, target)), {});
+                if (i % 100 == 0) {
+                    MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
+                }
+                sgd->step(loss);
+            }
+        }
         MNN_PRINT("Test grad for Gather\n");
         {
             // set input data
@@ -344,4 +426,4 @@ DemoUnitSetRegister(NNGrad, "NNGrad");
 DemoUnitSetRegister(NNGradV2, "NNGradV2");
 DemoUnitSetRegister(NNGradV3, "NNGradV3");
 DemoUnitSetRegister(MatMulGradTest, "MatMulGradTest");
-DemoUnitSetRegister(GatherGradTest, "GatherGradTest");
+DemoUnitSetRegister(LoopGradTest, "LoopGradTest");

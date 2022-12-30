@@ -15,6 +15,7 @@
 #include "compute/ConvOpt.h"
 #include "CPUMatMul.hpp"
 #include "CPUUnary.hpp"
+#include "CPUBinary.hpp"
 #include "core/BufferAllocator.hpp"
 #include "CPUResizeCache.hpp"
 
@@ -183,14 +184,13 @@ static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Te
     return 1;
 }
 
-ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1);
+ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(outputs.size() == 1);
-    auto input = inputs[0];
     auto output = outputs[0];
-    auto des = TensorUtils::getDescribe(input);
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+    auto des = TensorUtils::getDescribe(output);
     auto outputDes = TensorUtils::getDescribe(output);
-    mNeedZero = !TensorUtils::regionIsFull(input);
+    mNeedZero = !TensorUtils::regionIsFull(output);
     mZeroPoint = 0;
     if (outputDes->quantAttr != nullptr && outputDes->type == DataType_DT_INT8) {
 #ifdef MNN_USE_SSE
@@ -264,10 +264,6 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
         if (nullptr == origin || nullptr == origin->host<void>()) {
             continue;
         }
-        if (slice.mask != 0) {
-            mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), &slice));
-            continue;
-        }
         // if tensor is not NC4HW4 or has been merged, don't need deal
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
             mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), &slice));
@@ -294,20 +290,24 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
             regionTmp.size[1] = core->pack;
             regionTmp.size[2] = area;
             regionTmp.origin = slice.origin;
-            bool merge = TensorUtils::fuseRegion(regionTmp, slice);
+            std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+            *newSlice = slice;
+            bool merge = TensorUtils::fuseRegion(regionTmp, *newSlice);
             if (merge) {
                 // cache the merged tensor
-                slice.mask = 1;
-                mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), &slice));
+                mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), newSlice.get()));
+                mCacheRegions.emplace_back(newSlice);
                 continue;
             }
         }
         auto cache = static_cast<CPUBackend*>(backend())->getCache();
         auto tempTensor = cache->findCacheTensor(origin, midFormat);
+        //MNN_ASSERT(CPUBackend::getBytes(backend(), origin) == 4);
         if (nullptr == tempTensor) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(origin, newTensor.get());
             TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
+            TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
             newTensor->buffer().type = origin->getType();
             TensorUtils::setLinearLayout(newTensor.get());
             mTempInput.insert(std::make_pair(origin, newTensor.get()));
@@ -352,8 +352,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
         }
         mTempInputCopy.clear();
         int divSize = UP_DIV(region->size[pos], threadNumber);
-        mCacheRegions.resize(threadNumber);
         for (int i=0; i<threadNumber; ++i) {
+            std::shared_ptr<Tensor::InsideDescribe::Region> cacheRegPtr(new Tensor::InsideDescribe::Region);
+            auto& cacheReg = *cacheRegPtr;
             int sta = i * divSize;
             int fin = sta + divSize;
             fin = std::min(fin, region->size[pos]);
@@ -361,20 +362,21 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
                 break;
             }
             for (int v=0; v<3; ++v) {
-                mCacheRegions[i].src.stride[v] = region->src.stride[v];
-                mCacheRegions[i].dst.stride[v] = region->dst.stride[v];
+                cacheReg.src.stride[v] = region->src.stride[v];
+                cacheReg.dst.stride[v] = region->dst.stride[v];
             }
             int curSize = fin - sta;
             for (int v=0; v<pos; ++v) {
-                mCacheRegions[i].size[v] = region->size[v];
+                cacheReg.size[v] = region->size[v];
             }
-            mCacheRegions[i].size[pos] = curSize;
-            mCacheRegions[i].src.offset = region->src.offset + sta * region->src.stride[pos];
-            mCacheRegions[i].dst.offset = region->dst.offset + sta * region->dst.stride[pos];
+            cacheReg.size[pos] = curSize;
+            cacheReg.src.offset = region->src.offset + sta * region->src.stride[pos];
+            cacheReg.dst.offset = region->dst.offset + sta * region->dst.stride[pos];
             for (int v=pos+1; v<3; ++v) {
-                mCacheRegions[i].size[v] = region->size[v];
+                cacheReg.size[v] = region->size[v];
             }
-            mTempInputCopy.emplace_back(std::make_pair(ptr, mCacheRegions.data() + i));
+            mTempInputCopy.emplace_back(std::make_pair(ptr, cacheRegPtr.get()));
+            mCacheRegions.emplace_back(cacheRegPtr);
         }
     }
     return NO_ERROR;
@@ -542,11 +544,115 @@ static void _zero(const Tensor::InsideDescribe::Region& slice, int bytes, uint8_
         }
     }
 }
+static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr) {
+    int reduceMask[3] = {0, 0, 0};
+    int reduceNum = 0;
+    int reduceIndex[3];
+    int normalIndex[3];
+    int normalNum = 0;
+    for (int i=0; i<3; ++i) {
+        if (slice.size[i] > 1 && slice.dst.stride[i] == 0) {
+            reduceMask[i] = 1;
+            reduceIndex[reduceNum] = i;
+            reduceNum ++;
+        } else {
+            normalIndex[normalNum] = i;
+            normalNum++;
+        }
+    }
+    if (0 == reduceNum) {
+        return false;
+    }
+    switch (reduceNum) {
+        case 3:
+        {
+            float summer = 0.0f;
+            for (int z=0; z<slice.size[0]; ++z) {
+                auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
+                for (int y=0; y<slice.size[1]; ++y) {
+                    auto srcY = srcZ + y * slice.src.stride[1] * bytes;
+                    auto S = (float*)srcY;
+                    for (int x=0; x<slice.size[2]; ++x) {
+                        summer += S[slice.src.stride[2] * x];
+                    }
+                }
+            }
+            ((float*)dstPtr)[0] = summer;
+            return true;
+        }
+        case 2:
+        {
+            int sizeZ = slice.size[normalIndex[0]];
+            int srcStrideZ = slice.src.stride[normalIndex[0]];
+            int dstStrideZ = slice.dst.stride[normalIndex[0]];
+            int sizeY = slice.size[reduceIndex[0]];
+            int srcStrideY = slice.src.stride[reduceIndex[0]];
+            int dstStrideY = slice.dst.stride[reduceIndex[0]];
+            int sizeX = slice.size[reduceIndex[1]];
+            int srcStrideX = slice.src.stride[reduceIndex[1]];
+            int dstStrideX = slice.dst.stride[reduceIndex[1]];
+            for (int z=0; z<sizeZ; ++z) {
+                float summer = 0.0f;
+                auto srcZ = srcPtr + z * srcStrideZ * bytes;
+                auto dstZ = dstPtr + z * dstStrideZ * bytes;
+                for (int y=0; y<sizeY; ++y) {
+                    auto srcY = srcZ + y * srcStrideY * bytes;
+                    auto S = (float*)srcY;
+                    for (int x=0; x<sizeX; ++x) {
+                        summer += S[srcStrideX * x];
+                    }
+                }
+                ((float*)dstZ)[0] = summer;
+            }
+            return true;
+        }
+        case 1:
+        {
+            int sizeZ = slice.size[normalIndex[0]];
+            int srcStrideZ = slice.src.stride[normalIndex[0]];
+            int dstStrideZ = slice.dst.stride[normalIndex[0]];
+            int sizeY = slice.size[normalIndex[1]];
+            int srcStrideY = slice.src.stride[normalIndex[1]];
+            int dstStrideY = slice.dst.stride[normalIndex[1]];
+            int sizeX = slice.size[reduceIndex[0]];
+            int srcStrideX = slice.src.stride[reduceIndex[0]];
+            int dstStrideX = slice.dst.stride[reduceIndex[0]];
+            for (int z=0; z<sizeZ; ++z) {
+                auto srcZ = srcPtr + z * srcStrideZ * bytes;
+                auto dstZ = dstPtr + z * dstStrideZ * bytes;
+                for (int y=0; y<sizeY; ++y) {
+                    float summer = 0.0f;
+                    auto srcY = srcZ + y * srcStrideY * bytes;
+                    auto dstY = dstZ + y * dstStrideY * bytes;
+                    auto S = (float*)srcY;
+                    for (int x=0; x<sizeX; ++x) {
+                        summer += S[srcStrideX * x];
+                    }
+                    ((float*)dstY)[0] = summer;
+                }
+            }
+            return true;
+        }
+        default:
+            break;
+    }
+    return false;
+}
+
 static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, void(*proc)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds)) {
+#define MNN_BLIT_SUPPORT_REDUCE
+#ifdef MNN_BLIT_SUPPORT_REDUCE
+    if (_reduceblit(slice, bytes, srcPtr, dstPtr)) {
+        return;
+    }
+#endif
     if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
         for (int z=0; z<slice.size[0]; ++z) {
             auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
             auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
+#ifdef DEBUG
+            ::memset(dstZ, 0, slice.size[1] * slice.src.stride[1] * bytes);
+#endif
             ::memcpy(dstZ, srcZ, slice.size[1] * slice.src.stride[1] * bytes);
         }
         return;
@@ -598,19 +704,18 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
 }
 
 
-ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     if (mFast) {
-        executeFaster(inputs, outputs);
+        executeFaster(____inputs, outputs);
         return NO_ERROR;
     }
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    auto input = inputs[0];
     auto output = outputs[0];
     auto bytes = CPUBackend::getBytes(backend(), output);
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mSingleConvert > 0) {
-        auto realInput = TensorUtils::getDescribe(input)->regions[0].origin;
+        auto realInput = TensorUtils::getDescribe(output)->regions[0].origin;
         int srcBatch = 1, srcChannel = 1, srcArea = 1;
         getBatchChannelArea(realInput, srcBatch, srcChannel, srcArea);
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
@@ -706,14 +811,24 @@ public:
         int numberThread = mLoop->parallel() ? static_cast<CPUBackend*>(backend())->threadNumber() : 1;
         mMaxCacheSize = 0;
         auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
+        mMaxFuseBufferSize = 0;
         for (int i=0; i<mLoop->commands()->size(); ++i) {
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(i);
             auto op = cmd->op();
+            if (cmd->fuse() >= 0) {
+                // Make Temp output buffer
+                auto size = cmd->size()->data();
+                if (cmd->op()->type() == OpType_MatMul) {
+                    mMaxFuseBufferSize = std::max(mMaxFuseBufferSize, bytes * size[0] * size[2]);
+                } else {
+                    mMaxFuseBufferSize = std::max(mMaxFuseBufferSize, bytes * size[0] * size[1] * size[2]);
+                }
+            }
             if (OpType_UnaryOp == op->type()) {
                 if (nullptr != op->main_as_UnaryOp()) {
                     auto view0 = cmd->view()->GetAs<View>(0);
                     auto view1 = cmd->view()->GetAs<View>(1);
-                    MNN_ASSERT(view0->stride()->data()[2] == 1);
+                    MNN_ASSERT(view0->stride()->data()[2] == 1 || cmd->fuse() >= 0);
                     if (view1->stride()->data()[2] != 1) {
                         mMaxCacheSize = std::max(mMaxCacheSize, cmd->size()->data()[2] * bytes);
                     }
@@ -723,14 +838,8 @@ public:
             if (OpType_BinaryOp == op->type()) {
                 auto view0 = cmd->view()->GetAs<View>(0);
                 auto view1 = cmd->view()->GetAs<View>(1);
-                if (cmd->fuse() >= 0) {
-                    if (view1->stride()->data()[2] != 1 || view0->stride()->data()[2] != 1) {
-                        mMaxCacheSize = std::max(mMaxCacheSize, cmd->size()->data()[2] * bytes);
-                    }
-                    continue;
-                }
                 auto view2 = cmd->view()->GetAs<View>(2);
-                MNN_ASSERT(view0->stride()->data()[2] == 1);
+                MNN_ASSERT(view0->stride()->data()[2] == 1 || cmd->fuse() >= 0);
                 if (view1->stride()->data()[2] != 1 || view2->stride()->data()[2] != 1) {
                     mMaxCacheSize = std::max(mMaxCacheSize, 2 * cmd->size()->data()[2] * bytes);
                 }
@@ -801,12 +910,13 @@ public:
             }
         }
         auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
-        if (mMaxCacheSize > 0) {
-            auto buffer = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(threadNumber * mMaxCacheSize);
+        if (mMaxCacheSize > 0 || mMaxFuseBufferSize > 0) {
+            auto buffer = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(threadNumber * (mMaxCacheSize + mMaxFuseBufferSize));
             if (nullptr == buffer.first) {
                 return OUT_OF_MEMORY;
             }
             mCacheBuffer = (uint8_t*)buffer.first + buffer.second;
+            mFuseBuffer = mCacheBuffer + threadNumber * mMaxCacheSize;
             static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(buffer);
         }
         return NO_ERROR;
@@ -817,31 +927,35 @@ public:
         auto precision = cpubackend->precisionMode();
         auto threadNumber = cpubackend->threadNumber();
         if (mLoop->initCommand() != nullptr) {
-            auto cmd = mLoop->initCommand();
-            if (cmd->op() == nullptr) {
-                ::memset(originOutputs[0]->host<void>(), 0, cpubackend->getTensorSize(originOutputs[0]) * cpubackend->functions()->bytes);
-            } else {
-                Tensor::InsideDescribe::Region reg;
-                auto srcView = cmd->view()->GetAs<View>(1);
-                auto dstView = cmd->view()->GetAs<View>(0);
-                ::memcpy(reg.size, cmd->size()->data(), 3 * sizeof(int32_t));
-                ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
-                ::memcpy(reg.dst.stride, dstView->stride()->data(), 3 * sizeof(int32_t));
-                auto input = mStack[cmd->indexes()->data()[1]];
-                auto inputSize = input->elementSize();
-                auto output = mStack[cmd->indexes()->data()[0]];
-                auto bytes = input->getType().bytes();
-                if (halide_type_float == input->getType().code) {
-                    bytes = cpubackend->functions()->bytes;
+            for (int i=0; i<mLoop->initCommand()->size(); ++i) {
+                auto cmd = mLoop->initCommand()->GetAs<RegionCommand>(i);
+                if (cmd->op() == nullptr) {
+                    auto output = mStack[cmd->indexes()->data()[0]];
+                    ::memset(output->host<void>(), 0, cpubackend->getTensorSize(output) * cpubackend->functions()->bytes);
+                } else {
+                    Tensor::InsideDescribe::Region reg;
+                    auto srcView = cmd->view()->GetAs<View>(1);
+                    auto dstView = cmd->view()->GetAs<View>(0);
+                    ::memcpy(reg.size, cmd->size()->data(), 3 * sizeof(int32_t));
+                    ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
+                    ::memcpy(reg.dst.stride, dstView->stride()->data(), 3 * sizeof(int32_t));
+                    auto input = mStack[cmd->indexes()->data()[1]];
+                    auto inputSize = input->elementSize();
+                    auto output = mStack[cmd->indexes()->data()[0]];
+                    auto bytes = input->getType().bytes();
+                    if (halide_type_float == input->getType().code) {
+                        bytes = cpubackend->functions()->bytes;
+                    }
+                    auto proc = _selectUnitProc(bytes);
+                    _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>(), proc);
                 }
-                auto proc = _selectUnitProc(bytes);
-                _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>(), proc);
+
             }
         }
         if (1 == mLoop->commands()->size()) {
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
             auto op = cmd->op();
-            if (OpType_UnaryOp == op->type() && nullptr == op->main()) {
+            if (OpType_UnaryOp == op->type() && nullptr == op->main() && cmd->fuse() < 0) {
                 // For Gather / Single Unary
                 auto index0 = cmd->iterIndexes()->data()[0];
                 auto index1 = cmd->iterIndexes()->data()[1];
@@ -892,15 +1006,33 @@ public:
         auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
         auto func = [&](int iter, int tId) {
             auto blit = _selectUnitProc(bytes);
+            int fuseOutputStride[3];
+            const int32_t* outputStride = nullptr;
+            auto fuseBuffer = mFuseBuffer + mMaxFuseBufferSize * tId;
             for (int index=0; index<mLoop->commands()->size(); ++index) {
                 auto cmd = mLoop->commands()->GetAs<RegionCommand>(index);
                 auto op = cmd->op();
-                int size = cmd->iterIndexes()->size();
-                for (int v=0; v<size; ++v) {
+                int iterIndexsize = cmd->iterIndexes()->size();
+                
+                if (cmd->fuse() >= 0) {
+                    outputStride = fuseOutputStride;
+                    auto cmdSize = cmd->size()->data();
+                    fuseOutputStride[0] = cmdSize[1] * cmdSize[2];
+                    fuseOutputStride[1] = cmdSize[2];
+                    fuseOutputStride[2] = 1;
+                } else {
+                    // Loop Op's command's first index must be output
+                    outputStride = cmd->view()->GetAs<View>(0)->stride()->data();
+                }
+                halide_type_t outputType;
+                for (int v=0; v<iterIndexsize; ++v) {
                     auto tensorIndex = cmd->indexes()->data()[v];
                     auto tensor = mStack[tensorIndex];
                     auto iterIndex = cmd->iterIndexes()->data()[v];
                     auto offset = iter;
+                    if (0 == v) {
+                        outputType = tensor->getType();
+                    }
                     if (iterIndex >= 0) {
                         offset = mStack[iterIndex]->host<int32_t>()[iter];
                     }
@@ -909,113 +1041,84 @@ public:
                     mContainer[tId].stackPtr[tensorIndex] = tensor->host<uint8_t>() + offset * bytes;
                     MNN_ASSERT(nullptr != tensor->host<uint8_t>());
                 }
-                if (OpType_UnaryOp == op->type()) {
-                    auto src = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
-                    auto dst = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
-                    if (nullptr == op->main()) {
-                        // Copy
-                        Tensor::InsideDescribe::Region reg;
-                        auto srcView = cmd->view()->GetAs<View>(1);
-                        auto dstView = cmd->view()->GetAs<View>(0);
-                        ::memcpy(reg.size, cmd->size()->data(), 3 * sizeof(int32_t));
-                        ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
-                        ::memcpy(reg.dst.stride, dstView->stride()->data(), 3 * sizeof(int32_t));
-                        auto proc = _selectUnitProc(bytes);
-                        auto step0 = cmd->steps()->data()[0];
-                        auto step1 = cmd->steps()->data()[1];
-                        auto loopNumber = mLoop->loopNumber();
-                        _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst, proc);
-                        continue;
-                    }
-                    auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend())->precisionMode());
-                    auto lastS = cmd->size()->data()[2];
-                    if (lastS == 1 || cmd->view()->GetAs<View>(1)->stride()->data()[2] == 1) {
-                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                            auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
-                            auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0] * bytes;
-                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
-                                auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1] * bytes;
-                                proc(dstY, srcY, lastS);
-                            }
-                        }
-                    } else {
-                        // Blit to cache
-                        auto srcCache = mCacheBuffer + mMaxCacheSize * tId;
-                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                            auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
-                            auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0] * bytes;
-                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
-                                auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1] * bytes;
-                                blit(srcCache, srcY, lastS, cmd->view()->GetAs<View>(1)->stride()->data()[2], 1);
-                                proc(dstY, srcCache, lastS);
-                            }
-                        }
-                    }
-                    continue;
+                auto dstOrigin = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
+                auto dst = dstOrigin;
+                if (cmd->fuse() >= 0) {
+                    dst = fuseBuffer;
                 }
-                if (OpType_MatMul == op->type()) {
-                    const float* APtr = nullptr;
-                    const float* BPtr = nullptr;
-                    const float* BiasPtr = nullptr;
-                    float* CPtr = nullptr;
-                    auto exe = static_cast<CPUMatMul*>(mContainer[tId].exe[index].get());
-                    APtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
-                    BPtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
-                    CPtr = (float*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
-                    if (size > 3) {
-                        BiasPtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[3]];
-                    }
-                    exe->execute(APtr, BPtr, CPtr, BiasPtr);
-                    continue;
-                }
-                if (OpType_BinaryOp == op->type()) {
-                    auto src0 = mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
-                    auto dst = mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
-                    auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
-                    auto lastS = cmd->size()->data()[2];
-                    auto stride0 = cmd->view()->GetAs<View>(0)->stride()->data();
-                    auto stride1 = cmd->view()->GetAs<View>(1)->stride()->data();
-                    if (cmd->fuse() >= 0) {
-                        if (stride0[2] != 1) {
+                do {
+                    if (OpType_UnaryOp == op->type()) {
+                        auto src = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
+                        if (nullptr == op->main()) {
+                            // Copy
+                            Tensor::InsideDescribe::Region reg;
+                            auto srcView = cmd->view()->GetAs<View>(1);
+                            auto dstView = cmd->view()->GetAs<View>(0);
+                            ::memcpy(reg.size, cmd->size()->data(), 3 * sizeof(int32_t));
+                            ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
+                            ::memcpy(reg.dst.stride, outputStride, 3 * sizeof(int32_t));
+                            auto proc = _selectUnitProc(bytes);
+                            auto step0 = cmd->steps()->data()[0];
+                            auto step1 = cmd->steps()->data()[1];
+                            auto loopNumber = mLoop->loopNumber();
+                            _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst, proc);
+                            break;
+                        }
+                        auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend())->precisionMode());
+                        auto lastS = cmd->size()->data()[2];
+                        if (lastS == 1 || cmd->view()->GetAs<View>(1)->stride()->data()[2] == 1) {
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                                auto src0Z = src0 + z * stride1[0] * bytes;
-                                auto dstZ = dst + z * stride0[0] * bytes;
+                                auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
+                                auto dstZ = dst + z * outputStride[0] * bytes;
                                 for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                    auto src0Y = src0Z + y * stride1[1] * bytes;
-                                    auto dstY = dstZ + y * stride0[1] * bytes;
-                                    for (int x=0; x<cmd->size()->data()[2]; ++x) {
-                                        auto src0X = src0Y + x * stride1[2] * bytes;
-                                        auto dstX = dstY + x * stride0[2] * bytes;
-                                        proc(dstX, dstX, src0X, 1, -1);
-                                    }
-                                }
-                            }
-                        } else if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride0[2] == 1)) {
-                            for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                                auto src0Z = src0 + z * stride1[0] * bytes;
-                                auto dstZ = dst + z * stride0[0] * bytes;
-                                for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                    auto src0Y = src0Z + y * stride1[1] * bytes;
-                                    auto dstY = dstZ + y * stride0[1] * bytes;
-                                    proc(dstY, dstY, src0Y, cmd->size()->data()[2], -1);
+                                    auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
+                                    auto dstY = dstZ + y * outputStride[1] * bytes;
+                                    proc(dstY, srcY, lastS);
                                 }
                             }
                         } else {
-                            auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
+                            // Blit to cache
+                            auto srcCache = mCacheBuffer + mMaxCacheSize * tId;
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                                auto src0Z = src0 + z * stride1[0] * bytes;
-                                auto dstZ = dst + z * stride0[0] * bytes;
+                                auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
+                                auto dstZ = dst + z * outputStride[0] * bytes;
                                 for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                                    auto src0Y = src0Z + y * stride1[1] * bytes;
-                                    auto dstY = dstZ + y * stride0[1] * bytes;
-                                    blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
-                                    proc(dstY, dstY, cache0, cmd->size()->data()[2], -1);
+                                    auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
+                                    auto dstY = dstZ + y * outputStride[1] * bytes;
+                                    blit(srcCache, srcY, lastS, cmd->view()->GetAs<View>(1)->stride()->data()[2], 1);
+                                    proc(dstY, srcCache, lastS);
                                 }
                             }
                         }
-                    } else {
+                        continue;
+                    }
+                    if (OpType_MatMul == op->type()) {
+                        // TODO: Don't support fuse for matmul currently
+                        const float* APtr = nullptr;
+                        const float* BPtr = nullptr;
+                        const float* BiasPtr = nullptr;
+                        float* CPtr = (float*)dst;
+                        auto exe = static_cast<CPUMatMul*>(mContainer[tId].exe[index].get());
+                        APtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
+                        BPtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
+                        if (iterIndexsize > 3) {
+                            BiasPtr = (const float*)mContainer[tId].stackPtr[cmd->indexes()->data()[3]];
+                        }
+                        exe->execute(APtr, BPtr, CPtr, BiasPtr);
+                        break;
+                    }
+                    if (OpType_BinaryOp == op->type()) {
+                        auto src0 = mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
+                        MNNBinaryExecute proc;
+                        if (outputType.code == halide_type_float) {
+                            proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
+                        } else {
+                            MNN_ASSERT(outputType.code == halide_type_int);
+                            proc = CPUBinary::selectForInt(op->main_as_BinaryOp()->opType());
+                        }
+                        auto lastS = cmd->size()->data()[2];
+                        auto stride0 = outputStride;
+                        auto stride1 = cmd->view()->GetAs<View>(1)->stride()->data();
                         MNN_ASSERT(stride0[2] == 1);
                         auto src1 = mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
                         auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
@@ -1048,6 +1151,70 @@ public:
                                 }
                             }
                         }
+                        break;
+                    }
+                } while(false);
+                if (dst != dstOrigin) {
+                    MNN_ASSERT(bytes == 4);
+                    // Currently only support add and float32
+                    auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
+                    auto srcF = (const float*)dst;
+                    auto dstF = (float*)dstOrigin;
+                    int sizeZ = cmd->size()->data()[0];
+                    int sizeY = cmd->size()->data()[1];
+                    int sizeX = cmd->size()->data()[2];
+                    if (cmd->op()->type() == OpType_MatMul) {
+                        auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(cmd->fuse());
+                        proc(dstF, dstF, srcF, sizeZ * sizeX, -1);
+                        continue;
+                    }
+                    switch (cmd->fuse()) {
+                        case BinaryOpOperation_ADD:
+                            for (int z=0; z<sizeZ; ++z) {
+                                auto srcZ = srcF + z * outputStride[0];
+                                auto dstZ = dstF + z * dstStride[0];
+                                for (int y=0; y<sizeY; ++y) {
+                                    auto srcY = srcZ + y * outputStride[1];
+                                    auto dstY = dstZ + y * dstStride[1];
+                                    for (int x=0; x<sizeX; ++x) {
+                                        auto dstOffset = x * dstStride[2];
+                                        dstY[dstOffset] = dstY[dstOffset] + srcY[x];
+                                    }
+                                }
+                            }
+                            break;
+                        case BinaryOpOperation_MUL:
+                            for (int z=0; z<sizeZ; ++z) {
+                                auto srcZ = srcF + z * dstStride[0];
+                                auto dstZ = dstF + z * outputStride[0];
+                                for (int y=0; y<sizeY; ++y) {
+                                    auto srcY = srcZ + z * dstStride[1];
+                                    auto dstY = dstZ + z * outputStride[1];
+                                    for (int x=0; x<sizeX; ++x) {
+                                        auto dstOffset = x * dstStride[2];
+                                        dstY[dstOffset] = dstY[dstOffset] * srcY[x];
+                                    }
+                                }
+                            }
+                            break;
+                        case BinaryOpOperation_SUB:
+                            for (int z=0; z<sizeZ; ++z) {
+                                auto srcZ = srcF + z * dstStride[0];
+                                auto dstZ = dstF + z * outputStride[0];
+                                for (int y=0; y<sizeY; ++y) {
+                                    auto srcY = srcZ + z * dstStride[1];
+                                    auto dstY = dstZ + z * outputStride[1];
+                                    for (int x=0; x<sizeX; ++x) {
+                                        auto dstOffset = x * dstStride[2];
+                                        auto D = dstY[dstOffset];
+                                        auto S = srcY[x];
+                                        dstY[dstOffset] = D - S;
+                                    }
+                                }
+                            }
+                            break;
+                        default:
+                            break;
                     }
                 }
             }
@@ -1072,6 +1239,8 @@ private:
     std::vector<ThreadContainer> mContainer;
     uint8_t* mCacheBuffer = nullptr;
     int mMaxCacheSize = 0;
+    uint8_t* mFuseBuffer = nullptr;
+    int mMaxFuseBufferSize = 0;
 };
 
 class CPURasterFactory : public CPUBackend::Creator {

@@ -8,6 +8,7 @@
 
 #include "CoreMLRaster.hpp"
 #include <cmath>
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 
@@ -320,9 +321,10 @@ static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
     printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
     printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
-ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
-    if (!rasterOptimization(inputs, outputs)) {
+ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+    MNN_ASSERT(outputs.size() == 1);
+    if (!rasterOptimization(outputs, outputs)) {
         /*
         printf(">>> start\n");
         for (const auto& reg : TensorUtils::getDescribe(inputs[0])->regions) {
@@ -336,7 +338,7 @@ ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &inputs, const std:
         mLayer_->custom = mCoreMLBackend->create<CoreML__Specification__CustomLayerParams>();
         core_ml__specification__custom_layer_params__init(mLayer_->custom);
         mCoreMLBackend->copyName(&(mLayer_->custom->classname), "RasterLayer");
-        const auto& regions = TensorUtils::getDescribe(inputs[0])->regions;
+        const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
         mLayer_->custom->n_weights = regions.size() + 1;
         mLayer_->custom->weights = mCoreMLBackend->create<CoreML__Specification__WeightParams*>(mLayer_->custom->n_weights);
         std::vector<std::string> inputNames;

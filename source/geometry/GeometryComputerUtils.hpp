@@ -25,11 +25,11 @@ public:
 
     static Tensor::InsideDescribe::Region makeRawAddressRef(Tensor* src, int srcOffset, int size, int dstOffset = 0);
     static void makeRawAddressRef(Tensor* dst, Tensor* src, int srcOffset, int size, int dstOffset = 0);
-    MNN_PUBLIC static int buildConstantTensors(std::vector<Schedule::PipelineInfo>& infos);
-    MNN_PUBLIC static ErrorCode shapeComputeAndGeometryTransform(std::vector<Schedule::PipelineInfo>& infos,
+    MNN_PUBLIC static int buildConstantTensors(std::vector<Schedule::OpCacheInfo>& infos);
+    MNN_PUBLIC static ErrorCode shapeComputeAndGeometryTransform(std::vector<Schedule::OpCacheInfo>& infos,
                                                       GeometryComputer::Context& geoContext,
                                                       std::shared_ptr<Backend> backupBackend,
-                                                                 Runtime::CompilerType compileType);
+                                                                 Runtime::CompilerType compileType, bool skipShapeCompute = false);
 };
 }; // namespace MNN
 

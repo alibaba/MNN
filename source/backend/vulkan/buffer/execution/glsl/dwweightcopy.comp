@@ -1,0 +1,31 @@
+#version 440 core
+
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    float data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    float data[];
+} uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size; // kw, kh, height, kw*kh*c/4
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w)
+    {
+        ivec2 pos;
+        int kernelSize = uConstant.size.x * uConstant.size.y;
+        pos.x = posTmp.x % kernelSize;
+        pos.y = posTmp.x / kernelSize;
+        int outputPos = pos.x * 4 + (pos.y / 4) * kernelSize * 4 + (pos.y % 4);
+        uOutput.data[outputPos] = uInput.data[posTmp.x];
+    }
+}

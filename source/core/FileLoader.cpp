@@ -114,4 +114,12 @@ bool FileLoader::merge(AutoStorage<uint8_t>& buffer) {
     return true;
 }
 
+int FileLoader::offset(int64_t offset) {
+    return fseek(mFile, offset, SEEK_SET);
+}
+
+bool FileLoader::read(char* buffer, int64_t size) {
+    return fread(buffer, 1, size, mFile) == size;
+}
+
 } // namespace MNN

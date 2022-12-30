@@ -23,6 +23,7 @@
 #include <map>
 #include <iostream>
 #include <sstream>
+#include "ExprDebug.hpp"
 #define NONE "\e[0m"
 #define RED "\e[0;31m"
 #define GREEN "\e[0;32m"
@@ -93,6 +94,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./testModel_expr.out model.mnn input.mnn output.mnn [type] [tolerance] [precision]\n");
         return 0;
     }
+    //_initDebug();
     // check given & expect
     const char* modelPath  = argv[1];
     const char* inputName  = argv[2];
@@ -132,7 +134,7 @@ int main(int argc, const char* argv[]) {
     }
     Module::Config config;
     config.rearrange = true;
-    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath), [](void* net) {
+    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath, &config), [](void* net) {
         MNN::Express::Module::destroy((MNN::Express::Module*)net);
     });
     if (nullptr == m) {

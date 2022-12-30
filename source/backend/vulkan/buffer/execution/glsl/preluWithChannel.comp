@@ -1,0 +1,44 @@
+#version 450 core
+layout(std430) buffer;
+#ifdef FP16
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#define MAT4 f16mat4
+#extension GL_AMD_gpu_shader_half_float: enable
+#else
+#define FLOAT4 vec4
+#define MAT4 mat4
+#endif
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+}uOutput;
+
+layout(set=0, binding=1) readonly buffer inputBuffer {
+    FLOAT4 data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer KernelBuffer{
+    FLOAT4 data[];
+} uSlope;
+
+layout(set = 0, binding = 3) uniform reluBuffer{
+    ivec4 imgSize; // plane, 1, channelC4, plane * channelC4
+}uPreluParam;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	int index = int(gl_GlobalInvocationID.x);
+	int oz = index / uPreluParam.imgSize.x;
+    if(index < uPreluParam.imgSize.w)
+	{
+		vec4 slope = uSlope.data[oz];
+		vec4 dataIn = uInput.data[index];
+		vec4 dataTemp = dataIn * slope;
+		bvec4 lessZero = bvec4(lessThan(dataIn, vec4(0.0)));
+		uOutput.data[index] = mix(dataIn, dataTemp, lessZero);
+	}
+
+}

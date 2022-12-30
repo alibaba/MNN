@@ -79,6 +79,9 @@ class CPUInt8ToFloatCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        if (nullptr == op->main_as_QuantizedFloatParam()) {
+            return new CastWrapExecution(backend, DataType_DT_FLOAT);
+        }
         return new CPUInt8ToFloat(backend, op);
     }
 };

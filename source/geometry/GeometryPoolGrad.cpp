@@ -29,6 +29,7 @@ public:
         auto ih = origin->height();
         auto oc = inputDiff->channel();
         auto ob = inputDiff->batch();
+        MNN_ASSERT(TensorUtils::getDescribe(inputDiff)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
 
         auto parameter = op->main_as_Pool();
         auto stride_w  = parameter->strideX();

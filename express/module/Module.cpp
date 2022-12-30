@@ -202,23 +202,16 @@ public:
             }
         }
 #endif // MNN_INTERNAL_ENABLED
-    if (nullptr == mInfo->runTimeManager.get()) {
-        mRuntime = Executor::getRuntime().second;
-    } else {
-        mRuntime = mInfo->runTimeManager->getInside()->mRuntime.first.begin()->second;
-    }
-
     }
     virtual ~ NetModule(){}
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
 
 #ifdef MNN_INTERNAL_ENABLED
-        Timer _time;
         auto glo = ExecutorScope::Current();
+        Timer _time;
         glo->getDebugTools()->flops = 0.0f;
 #endif
-
         auto outputs = mModule->onForward(inputs);
 #ifdef MNN_INTERNAL_ENABLED
         do {
@@ -244,19 +237,13 @@ public:
             logAsync(metrics);
         } while(false);
 #endif
+        mModule->clearCache();
         return outputs;
-
     }
-    void setRuntime(std::shared_ptr<Runtime> runtime) {
-        mRuntime = runtime;
-    }
-
     virtual Module* clone(CloneContext* ctx) const override {
         std::shared_ptr<Module> submodule(mModule->clone(ctx));
 
         NetModule* module(new NetModule(submodule, mInfo, nullptr, 0, 0.0f));
-        module->setRuntime(Executor::getRuntime().second);
-
 #ifdef MNN_INTERNAL_ENABLED
         module->mLogInfo = mLogInfo;
 #endif
@@ -269,7 +256,6 @@ public:
 private:
     std::shared_ptr<Module> mModule;
     std::shared_ptr<Module::Info> mInfo;
-    std::shared_ptr<Runtime> mRuntime = nullptr;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> mLogInfo;
 #endif

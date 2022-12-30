@@ -123,6 +123,14 @@ public:
 
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, int precision) {
+        {
+            bool succ = MatMulCommonTest::test(MNN_FORWARD_CPU, "device_name", "MatMul", 6, 1, 1,
+                                               6, true, true, precision, false);
+            if (!succ) {
+                return false;
+            }
+        }
+
         for (int height_c = 1; height_c <= 20; ++height_c) {
             for (int width_c = 1; width_c <= 20; ++width_c) {
                 for (int length = 1; length <= 20; ++length) {

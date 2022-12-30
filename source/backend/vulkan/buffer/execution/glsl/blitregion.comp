@@ -1,0 +1,73 @@
+#version 440 core
+#ifdef C4
+#define FLOAT vec4
+#else
+#define FLOAT float
+#endif
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer sourceBuffer{
+    FLOAT data[];
+} uOutput;
+
+
+layout(set=0, binding=1) readonly buffer s0{
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer s1{
+    FLOAT data[];
+} uSrcOffset;
+
+layout(set=0, binding=3) readonly buffer s2{
+    FLOAT data[];
+} uDstOffset;
+
+layout(set=0, binding=4) uniform constBuffer{
+    ivec4 stride;
+    ivec4 size;
+    ivec4 extent;
+    ivec4 step;
+    ivec4 iter;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.step.w)
+    {
+        ivec3 pos;
+        int regionInsideIndex = posTmp.x % uConstant.size.w;
+        int regionOutsideIndex = posTmp.x / uConstant.size.w;
+        pos.x = regionInsideIndex / (uConstant.size.y * uConstant.size.z);
+        int subIndex = regionInsideIndex % (uConstant.size.y * uConstant.size.z);
+        pos.z = subIndex % uConstant.size.z;
+        pos.y = subIndex / uConstant.size.z;
+        int srcBasicOffset, dstBasicOffset;
+        if (uConstant.iter.y > 0) {
+            srcBasicOffset = uConstant.step.y * int(uSrcOffset.data[regionOutsideIndex]);
+        } else {
+            srcBasicOffset = uConstant.step.y * regionOutsideIndex;;
+        }
+        if (uConstant.iter.x > 0) {
+            dstBasicOffset = uConstant.step.x * int(uDstOffset.data[regionOutsideIndex]);
+        } else {
+            dstBasicOffset = uConstant.step.x * regionOutsideIndex;;
+        }
+        int srcOffset = srcBasicOffset
+            + uConstant.stride.w
+            + uConstant.stride.z * pos.z
+            + uConstant.stride.y * pos.y
+            + uConstant.stride.x * pos.x
+            ;
+        
+        int dstOffset = dstBasicOffset
+            + uConstant.extent.w
+            + pos.x * uConstant.extent.x
+            + pos.y * uConstant.extent.y
+            + pos.z * uConstant.extent.z
+            ;
+        uOutput.data[dstOffset] = uInput.data[srcOffset];
+    }
+}

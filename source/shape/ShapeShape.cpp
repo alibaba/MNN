@@ -39,22 +39,42 @@ REGISTER_SHAPE(ShapeSizeComputer, OpType_Shape);
 class ShapeRasterComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 <= inputs.size());
         MNN_ASSERT(1 == outputs.size());
-        outputs[0]->buffer().type = inputs[0]->buffer().type;
         auto extra  = op->main_as_Extra();
         if (!extra) {
             // copy dims
+            MNN_ASSERT(1 <= inputs.size());
+            outputs[0]->buffer().type = inputs[0]->buffer().type;
             TensorUtils::copyShape(inputs[0], outputs[0], true);
         } else {
+            if (inputs.size() > 0) {
+                outputs[0]->buffer().type = inputs[0]->buffer().type;
+                TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            }
             for (int i = 0; i < extra->attr()->size(); i++) {
                 auto attr = extra->attr()->Get(i);
                 if (attr->key()->str() == "shape") {
-                    int len = attr->list()->i()->size();
-                    outputs[0]->buffer().dimensions = len;
-                    for (int j = 0; j < len; j++) {
-                        outputs[0]->setLength(j, attr->list()->i()->Get(j));
+                    outputs[0]->buffer().dimensions = 0;
+                    if (attr->list()->i() != nullptr) {
+                        int len = attr->list()->i()->size();
+                        outputs[0]->buffer().dimensions = len;
+                        for (int j = 0; j < len; j++) {
+                            outputs[0]->setLength(j, attr->list()->i()->Get(j));
+                        }
                     }
+                    continue;
+                }
+                if (attr->key()->str() == "code") {
+                    outputs[0]->buffer().type.code = (halide_type_code_t)attr->i();
+                    continue;
+                }
+                if (attr->key()->str() == "bits") {
+                    outputs[0]->buffer().type.bits = attr->i();
+                    continue;
+                }
+                if (attr->key()->str() == "format") {
+                    TensorUtils::getDescribe(outputs[0])->dimensionFormat = (MNN_DATA_FORMAT)attr->i();
+                    continue;
                 }
             }
         }

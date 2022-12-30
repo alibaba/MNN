@@ -30,7 +30,6 @@ public:
     void setIsTraining(const bool isTraining);
     bool getIsTraining();
     void clearCache();
-
     const std::string& name() const {
         return mName;
     };

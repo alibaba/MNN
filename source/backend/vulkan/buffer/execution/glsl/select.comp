@@ -1,0 +1,43 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    float data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    float data[];
+} uSelect;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    float data[];
+} uInput0;
+
+layout(set=0, binding=3) readonly buffer sourceBuffer2{
+    float data[];
+} uInput1;
+
+layout(set = 0, binding = 4) uniform constBuffer {
+    ivec4 size;
+} uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+
+    if(i < uConst.size.w) {
+        if (uSelect.data[i] > 0) {
+            if (uConst.size.y == 1) {
+                uOutput.data[i] = uInput0.data[0];
+            } else {
+                uOutput.data[i] = uInput0.data[i];
+            }
+        } else {
+            if (uConst.size.z == 1) {
+                uOutput.data[i] = uInput1.data[0];
+            } else {
+                uOutput.data[i] = uInput1.data[i];
+            }
+        }
+    }
+}

@@ -74,25 +74,16 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
     auto conv2d = op->main_as_Convolution2D();
-    if (inputs.empty()) {
-        // Create Default Inputs and Outputs
-        std::shared_ptr<Tensor> tempInput;
-        std::shared_ptr<Tensor> tempOutput;
-        auto common = conv2d->common();
-        int ow = 2, oh = 2;
-        int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
-        int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
-        tempInput.reset(Tensor::createDevice<float>({1, conv2d->common()->inputCount(), ih, iw}, Tensor::CAFFE_C4));
-        tempOutput.reset(Tensor::createDevice<float>({1, conv2d->common()->outputCount(), oh, ow}, Tensor::CAFFE_C4));
-        return create({tempInput.get()}, {tempOutput.get()}, op, backend);
-    }
     if (inputs.size() > 1) {
         // Multi Input
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
     const float* originWeight = nullptr;
-    size_t originWeightSize   = 0;
+    const float* originBias   = nullptr;
+    int originWeightSize   = 0;
+    int originBiasSize     = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
     if (nullptr != conv2d->quanParameter()) {
         quanCommon = ConvolutionCommon::load(conv2d->quanParameter());
         if (nullptr == quanCommon) {
@@ -110,6 +101,14 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         // Back to float
         originWeight     = quanCommon->weightFloat.get();
         originWeightSize = quanCommon->weightFloat.size();
+    } else if (USE_EXTERNAL_DATA(conv2d)) {
+        bool res = OpCommonUtils::loadConvData(backend, op, externalWeightTensor, externalBiasTensor, originWeightSize, originBiasSize);
+        if (!res) {
+            MNN_ERROR("%s load external weight or bias failed.", op->name()->c_str());
+            return nullptr;
+        }
+        originWeight = externalWeightTensor->host<float>();
+        originBias = externalBiasTensor->host<float>();
     } else if (nullptr == conv2d->weight() || nullptr == conv2d->bias()) {
         MNN_ERROR("%s has no weight or bias. The model may be benchmark model, please revert the weight/bias firstly\n", op->name()->c_str());
         return nullptr;
@@ -119,14 +118,19 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         originWeight     = op->main_as_Convolution2D()->weight()->data();
         originWeightSize = op->main_as_Convolution2D()->weight()->size();
     }
+    if (nullptr == originBias) {
+        originBias     = op->main_as_Convolution2D()->bias()->data();
+        originBiasSize = op->main_as_Convolution2D()->bias()->size();
+    }
 
     int group            = common->group();
     if (common->inputCount() != inputs[0]->channel() && common->inputCount() > 0) {
         group = inputs[0]->channel()/ conv2d->common()->inputCount();
     }
+    MNN_ASSERT(group > 0);
     if (1 == group) {
         return _createUnit(inputs[0], outputs[0], backend, conv2d, originWeight, originWeightSize,
-                           conv2d->bias()->data(), conv2d->bias()->size());
+                           originBias, originBiasSize);
     }
     // TODO: Use Geometry to split
     // Split

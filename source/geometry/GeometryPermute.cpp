@@ -25,8 +25,14 @@ public:
         int shape[MNN_MAX_TENSOR_DIM];
         if (op->type() == OpType_Permute) {
             auto shapeValue = op->main_as_Permute()->dims();
-            for (int i = 0; i < input->buffer().dimensions; ++i) {
-                shape[i] = shapeValue->data()[i];
+            if (nullptr != shapeValue) {
+                for (int i = 0; i < input->buffer().dimensions; ++i) {
+                    shape[i] = shapeValue->data()[i];
+                }
+            } else {
+                for (int i = 0; i < input->buffer().dimensions; ++i) {
+                    shape[i] = input->buffer().dimensions - i - 1;
+                }
             }
         } else if (op->type() == OpType_Transpose) {
             auto shapeValue = inputs[1]->host<int32_t>();

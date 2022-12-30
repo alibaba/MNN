@@ -14,16 +14,17 @@
 
 #if MNN_METAL_ENABLED
 namespace MNN {
-
+struct matP {
+    int size[4];
+    int stride[4];
+};
 MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : Execution(backend) {
     mTransposeA = matmul->transposeA();
     mTransposeB = matmul->transposeB();
+    auto mkbn = static_cast<MetalBackend *>(backend);
+    mConstBuffer = mkbn->getConstBuffer(sizeof(matP));
 }
 ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    struct matP {
-        int size[4];
-        int stride[4];
-    };
     Tensor* C       = outputs[0];
     auto w0         = inputs[0]->length(1);
     auto h0         = inputs[0]->length(0);
@@ -52,8 +53,6 @@ ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::
         buffer.stride[3] = h;
     }
     
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    mConstBuffer = backend->getConstBuffer(sizeof(matP));
     ::memcpy(mConstBuffer.contents, &buffer, sizeof(matP));
     return NO_ERROR;
 }

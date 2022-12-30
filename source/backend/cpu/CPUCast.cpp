@@ -183,7 +183,7 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {
         return new CastDataType<int8_t, int32_t>(backend);
     }
-    MNN_PRINT("Don't support cast form %d to %d\n", cast->srcT(), cast->dstT());
+    MNN_PRINT("Don't support cast form %d, %d to %d\n", inputDataType.code, inputDataType.bits, cast->dstT());
     return nullptr;
 }
 

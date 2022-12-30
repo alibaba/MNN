@@ -17,7 +17,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    MNN_PUBLIC static WhileModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
+    static WhileModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
 
     struct Info {
         int mCondInputNumber = 0;
@@ -47,7 +47,6 @@ private:
 
     std::shared_ptr<Module> mCond;
     std::shared_ptr<Module> mBody;
-    std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
 };
 }
 }

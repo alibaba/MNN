@@ -42,6 +42,7 @@ def run_cmd(args):
     cmd = args[0]
     for i in range(1, len(args)):
         cmd += ' ' + args[i]
+    print(cmd)
     stdout = os.popen(cmd).read()
     global total_num
     total_num += 1
@@ -56,7 +57,9 @@ for name in os.listdir(root_dir):
     print(modelName)
 
     if runStatic:
-        message = os.popen(convert + modelName + ' ' + ' --MNNModel ' + tmpModel).read()
+        cmd = convert + modelName + ' ' + ' --MNNModel ' + tmpModel
+        print(cmd)
+        message = os.popen(cmd).read()
         if (message.find('Converted Success') == -1):
             gWrong.append(modelName)
             continue
@@ -84,7 +87,9 @@ for name in os.listdir(root_dir):
     print(modelName)
 
     if runStatic:
-        message = os.popen(convert + modelName + ' ' + ' --MNNModel ' + tmpModel).read()
+        cmd = convert + modelName + ' ' + ' --MNNModel ' + tmpModel
+        print(cmd)
+        message = os.popen(cmd).read()
         if (message.find('Converted Success') == -1):
             gWrong.append(modelName)
             continue
@@ -115,7 +120,9 @@ for name in os.listdir(root_dir):
     config = os.path.join(root_dir, name, 'config.txt')
 
     if runStatic:
-        message = os.popen(convert + modelName + ' ' + ' --MNNModel ' + tmpModel + ' --inputConfigFile ' + config).read()
+        cmd = convert + modelName + ' ' + ' --MNNModel ' + tmpModel + ' --inputConfigFile ' + config
+        print(cmd)
+        message = os.popen(cmd).read()
         if (message.find('Converted Success') == -1):
             gWrong.append(modelName)
             continue

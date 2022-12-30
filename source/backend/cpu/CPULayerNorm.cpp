@@ -10,6 +10,7 @@
 
 #include "core/Execution.hpp"
 #include "core/Concurrency.h"
+#include "core/OpCommonUtils.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "MNN_generated.h"
@@ -27,7 +28,8 @@ public:
 
     ErrorCode onResize(const std::vector<Tensor*> &inputs,  // NOLINT
                        const std::vector<Tensor*> &outputs) override;
-
+private:
+    bool allocGammaBeta(int size);
 private:
     int axis_size = 0;
     int inner_size_ = 1;
@@ -40,6 +42,23 @@ private:
     bool has_gamma_beta_ = false;
 };
 
+bool CPULayerNorm::allocGammaBeta(int size) {
+    has_gamma_beta_ = true;
+    gamma_.reset(Tensor::createDevice<float>({size}));
+    auto status = backend()->onAcquireBuffer(gamma_.get(), Backend::STATIC);
+    if (!status) {
+        MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
+        return false;
+    }
+    beta_.reset(Tensor::createDevice<float>({size}));
+    status = backend()->onAcquireBuffer(beta_.get(), Backend::STATIC);
+    if (!status) {
+        MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
+        return false;
+    }
+    return true;
+}
+
 CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend)
         : Execution(backend) {
     const auto* layer_norm_param = op->main_as_LayerNorm();
@@ -47,25 +66,21 @@ CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend)
     group_ = layer_norm_param->group();
     epsilon_ = layer_norm_param->epsilon();
 
-    if (layer_norm_param->gamma() && layer_norm_param->beta()) {
-        has_gamma_beta_ = true;
-        int size = layer_norm_param->gamma()->size();
-        gamma_.reset(Tensor::createDevice<float>({size}));
-        auto status = backend->onAcquireBuffer(gamma_.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
-        }
-        const float* gamma_data = layer_norm_param->gamma()->data();
-        memcpy(gamma_->host<float>(), gamma_data, size * sizeof(float));
+    if (USE_EXTERNAL_DATA(layer_norm_param)) {
+        auto size = layer_norm_param->external()->Get(1);
+        allocGammaBeta(size);
+        OpCommonUtils::loadExternalDatas(backend, {gamma_->host<char>(), beta_->host<char>()}, layer_norm_param->external()->data());
+        return;
+    }
 
+    if (layer_norm_param->gamma() && layer_norm_param->beta()) {
+        int size = layer_norm_param->gamma()->size();
         if (layer_norm_param->beta()->size() != size) {
             MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
         }
-        beta_.reset(Tensor::createDevice<float>({size}));
-        status = backend->onAcquireBuffer(beta_.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
-        }
+        allocGammaBeta(size);
+        const float* gamma_data = layer_norm_param->gamma()->data();
+        memcpy(gamma_->host<float>(), gamma_data, size * sizeof(float));
         const float* beta_data = layer_norm_param->beta()->data();
         memcpy(beta_->host<float>(), beta_data, size * sizeof(float));
     }

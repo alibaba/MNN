@@ -7,6 +7,8 @@
 //
 
 #include "NNAPIRaster.hpp"
+#include "core/OpCommonUtils.hpp"
+
 
 namespace MNN {
 
@@ -122,7 +124,8 @@ static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
     printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
     printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
-ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const std::vector<Tensor *> &outputs) {
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
     const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
     if (regions.empty()) {
         return INVALID_VALUE;

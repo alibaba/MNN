@@ -9,6 +9,8 @@
 #include "WhileModule.hpp"
 #include "StaticModule.hpp"
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
+#include "RuntimeAttr.hpp"
 #include "MNN_generated.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -22,10 +24,9 @@ static int _findPos(const std::vector<std::string>& names, const std::string& ke
     }
     return -1;
 }
-WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
     auto module = new WhileModule;
     module->setType("WhileModule");
-    module->mSharedConst = sharedConst;
     std::shared_ptr<WhileModule::Info> info(new WhileModule::Info);
     module->mInfo = info;
     if (nullptr != op->name()) {
@@ -34,23 +35,16 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
     auto whileParam = op->main_as_WhileParam();
     auto& body = subGraph.find(whileParam->body_graph()->str())->second;
     module->mBody = body.m;
+    module->registerModel({body.m});
     if (whileParam->cond_graph() == nullptr) {
         // From onnx's loop, use easy way to init
         info->mOutputNumber = op->outputIndexes()->size();
         info->mBodyInputNumber = op->inputIndexes()->size();
-        // Body Input: 2 + N, Body Output: 1 + N + K, Op output: N + K
-        int N = info->mBodyInputNumber - 2;
-        int K = info->mOutputNumber - N;
-        for (int i=0; i<info->mBodyInputNumber; ++i) {
-            info->mInputForBody.emplace_back(std::make_pair(i, i));
-        }
-        for (int i=0; i<N; ++i) {
-            info->mUpdateForBody.emplace_back(std::make_pair(i+2, i+1));
-        }
         return module;
     }
     auto& cond = subGraph.find(whileParam->cond_graph()->str())->second;
     module->mCond = cond.m;
+    module->registerModel({cond.m});
     /** Compute map index
      int mCondInputNumber;
      int mBodyInputNumber;
@@ -169,9 +163,50 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
 }
 
 std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VARP>& inputsI) {
-    std::vector<Express::VARP> condInputs(mInfo->mCondInputNumber);
     std::vector<Express::VARP> bodyInputs(mInfo->mBodyInputNumber);
     auto& inputs = inputsI;
+    int step = 0;
+    std::vector<Express::VARP> outputs(mInfo->mOutputNumber);
+    if (mCond == nullptr) {
+        auto limit = inputs[0]->readMap<int>()[0];
+        int cond = inputs[1]->readMap<int>()[0];
+        // Body Input: 2 + N, Body Output: 1 + N + K, Op output: N + K
+        int N = mInfo->mBodyInputNumber - 2;
+        int K = mInfo->mOutputNumber - N;
+        std::vector<std::vector<VARP>> spans(K);
+        std::vector<VARP> bodyOutputs;
+        for (int i=0; i<N; ++i) {
+            outputs[i] = inputs[i+2];
+        }
+        if (limit > 0 && cond > 0) {
+            bodyInputs = inputs;
+            bodyInputs[0] = _Input({}, NCHW, halide_type_of<int>());
+            while (step < limit && cond > 0) {
+                bodyInputs[0]->writeMap<int>()[0] = step;
+                bodyOutputs = mBody->onForward(bodyInputs);
+                if (bodyOutputs.empty()) {
+                    // Has Error
+                    return {};
+                }
+                for (int i=0; i<N; ++i) {
+                    bodyInputs[i + 2] = bodyOutputs[i + 1];
+                }
+                for (int i=0; i<K; ++i) {
+                    spans[i].emplace_back(bodyOutputs[1+N+i]);
+                }
+                step++;
+                cond = bodyOutputs[0]->readMap<int>()[0];
+            }
+            for (int i=0; i<N; ++i) {
+                outputs[i] = bodyOutputs[i+1];
+            }
+        }
+        for (int i=0; i<K; ++i) {
+            outputs[i+N] = _Stack(spans[i]);
+        }
+        return outputs;
+    }
+    std::vector<Express::VARP> condInputs(mInfo->mCondInputNumber);
     for (auto& p : mInfo->mInputForCond) {
         condInputs[p.first] = inputs[p.second];
     }
@@ -179,42 +214,18 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
         bodyInputs[p.first] = inputs[p.second];
     }
 
-    std::vector<Express::VARP> outputs(mInfo->mOutputNumber);
     for (int i = 0; i < mInfo->mOutputFromInput.size(); ++i) {
         outputs[i] = inputs[mInfo->mOutputFromInput[i]];
     }
-    int step = 0;
-    if (mCond == nullptr) {
-        bodyInputs[0] = _Input({}, NCHW, halide_type_of<int>());
-        auto limit = inputs[0]->readMap<int>()[0];
-        int cond = inputs[1]->readMap<int>()[0];
-        int N = mInfo->mBodyInputNumber - 2;
-        int K = mInfo->mOutputNumber - N;
-        std::vector<std::vector<VARP>> spans(K);
-        std::vector<VARP> bodyOutputs;
-
-        while (step < limit && cond > 0) {
-            bodyInputs[0]->writeMap<int>()[0] = step;
-            bodyOutputs = mBody->onForward(bodyInputs);
-            for (auto& p : mInfo->mUpdateForBody) {
-                bodyInputs[p.first] = bodyOutputs[p.second];
-            }
-            for (int i=0; i<K; ++i) {
-                spans[i].emplace_back(bodyOutputs[1+N+i]);
-            }
-            step++;
-            cond = bodyOutputs[0]->readMap<int>()[0];
-        }
-        for (int i=0; i<N; ++i) {
-            outputs[i] = bodyOutputs[i+1];
-        }
-        for (int i=0; i<K; ++i) {
-            outputs[i+N] = _Stack(spans[i]);
-        }
-        return outputs;
-    }
     while (true) {
-        auto res = mCond->onForward(condInputs)[0];
+        VARP res;
+        {
+            auto condOutputs = mCond->onForward(condInputs);
+            if (condOutputs.empty()) {
+                return {};
+            }
+            res = condOutputs[0];
+        }
         auto resPtr = res->readMap<int>();
         if (resPtr[0] <= 0) {
             break;
@@ -222,6 +233,9 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
         step++;
         // MNN_PRINT("before while op name: %s, step:%d\n", name().c_str(), step);
         auto bodyOutputs = mBody->onForward(bodyInputs);
+        if (bodyOutputs.empty()) {
+            return {};
+        }
         for (auto& p : mInfo->mUpdateForCond) {
             condInputs[p.first] = bodyOutputs[p.second];
         }
@@ -250,9 +264,12 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
 Module* WhileModule::clone(CloneContext* ctx) const {
     WhileModule* module(new WhileModule);
     module->mInfo = mInfo;
-    module->mSharedConst = mSharedConst;
-    module->mCond.reset(mCond->clone(ctx));
+    if (nullptr != mCond.get()) {
+        module->mCond.reset(mCond->clone(ctx));
+        module->registerModel({module->mCond});
+    }
     module->mBody.reset(mBody->clone(ctx));
+    module->registerModel({module->mBody});
     return this->cloneBaseTo(ctx, module);
 }
 

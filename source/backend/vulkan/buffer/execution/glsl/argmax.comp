@@ -1,0 +1,47 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) buffer destbuffer{
+    float data[];
+}uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer{
+    float data[];
+}uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer {
+    ivec4 size;//inside, axis, outside, inside * outside
+}uConst;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int index = int(gl_GlobalInvocationID.x);
+    // y: index in outside, x: index in inside
+    int x = index % uConst.size.x;
+    int y = index / uConst.size.x;
+    if(index < uConst.size.w)
+    {
+        int W = uConst.size.x;
+        int H = uConst.size.y;
+        int C = uConst.size.z;
+        int offset = y * H * W + x;
+        float maxValue = uInput.data[offset];
+        int maxIndex = 0;
+        for(int i = 1; i < H; ++i)
+        {
+#ifndef ARGMIN
+            if (uInput.data[offset + i * W] > maxValue) {
+                maxValue = uInput.data[offset + i * W];
+                maxIndex = i;
+            }
+#else
+            if (uInput.data[offset + i * W] < maxValue) {
+                maxValue = uInput.data[offset + i * W];
+                maxIndex = i;
+            }
+#endif
+        }
+        uOutput.data[index] = maxIndex;
+    }
+}

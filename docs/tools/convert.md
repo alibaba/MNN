@@ -47,7 +47,7 @@ Usage:
                                 arg 为测试数据的文件夹，生成方式参考 "正确性校验" 一节
       --thredhold arg           当启用 --testdir 后，设置正确性校验的误差允可范围
                                 若不设置，默认是 0.01
-      
+      --saveExternalData        将权重，常量等数据存储在额外文件中，默认为`false`
 ```
 **说明1: 选项benchmarkModel将模型中例如卷积的weight，BN的mean、var等参数移除，减小转换后模型文件大小，在运行时随机初始化参数，以方便测试模型的性能。**
 

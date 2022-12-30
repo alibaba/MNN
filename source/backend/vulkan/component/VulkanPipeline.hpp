@@ -13,11 +13,11 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "core/NonCopyable.hpp"
 #include "VulkanDevice.hpp"
 #include "VulkanShaderMap.hpp"
+#include "core/AutoStorage.h"
 namespace MNN {
-class VulkanPipeline : public NonCopyable {
+class VulkanPipeline : public RefCount {
 public:
     static VulkanPipeline* create(const VulkanDevice& dev, const uint8_t* data, size_t length,
                                   const std::vector<VkDescriptorType>& bufferTypes, VkPipelineCache cache,
@@ -44,6 +44,8 @@ public:
         virtual ~DescriptorSet();
 
         void writeBuffer(VkBuffer buffer, int bindIndex, size_t size, VkDeviceSize offset = 0);
+        void writeBuffer(std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> fuseBuffer, int bindIndex);
+
         void writeImage(VkImageView view, VkSampler sampler, VkImageLayout layout, int bind);
 
         VkDescriptorSet get() const {
@@ -82,7 +84,7 @@ public:
     void reset();
 private:
     const VulkanDevice& mDevice;
-    mutable std::map<std::string, std::shared_ptr<VulkanPipeline>> mPipelines;
+    mutable std::map<std::string, SharedPtr<VulkanPipeline>> mPipelines;
     VkPipelineCache mCache;
 
     std::shared_ptr<VulkanShaderMap> mStorage;

@@ -19,7 +19,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    MNN_PUBLIC static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
+    static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
 
 private:
     IfModule(){}
@@ -36,9 +36,7 @@ private:
     std::vector<int> mOutputFromElse;
 
     std::shared_ptr<Module> mThen;
-    std::shared_ptr<Module> mElse;
-    
-    std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
+    std::shared_ptr<Module> mElse;    
 };
 }
 }

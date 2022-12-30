@@ -87,6 +87,10 @@ bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
     return true;
 }
+const std::string Backend::externalFile() {
+    return this->getRuntime()->getExternalFile();
+}
+
 bool Runtime::hasAsyncWork() const {
     return mFuture.valid();
 }

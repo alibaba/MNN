@@ -69,20 +69,9 @@ static bool buildScatterND(const Op* op, Tensor* indices, Tensor* updates, Tenso
     flatbuffers::FlatBufferBuilder builder;
     {
         flatbuffers::Offset<Op> loopOpOffset;
-        if (reduction >= 0) {
-            BinaryOpBuilder binaryOpParamBuilder(builder);
-            binaryOpParamBuilder.add_opType(static_cast<BinaryOpOperation>(reduction));
-            auto binaryOpParamOffset = binaryOpParamBuilder.Finish();
-            OpBuilder cmdOpBuilder(builder);
-            cmdOpBuilder.add_type(OpType_BinaryOp);
-            cmdOpBuilder.add_main(binaryOpParamOffset.Union());
-            cmdOpBuilder.add_main_type(OpParameter_BinaryOp);
-            loopOpOffset = cmdOpBuilder.Finish();
-        } else {
-            OpBuilder unaryOp(builder);
-            unaryOp.add_type(OpType_UnaryOp);
-            loopOpOffset = unaryOp.Finish();
-        }
+        OpBuilder unaryOp(builder);
+        unaryOp.add_type(OpType_UnaryOp);
+        loopOpOffset = unaryOp.Finish();
         auto iterIndexesOffset = builder.CreateVector(std::vector<int>{1, -1});
         auto stepOffset = builder.CreateVector(std::vector<int>{1, S});
         auto indexesOffset = builder.CreateVector(std::vector<int>{3, 0});
@@ -94,9 +83,6 @@ static bool buildScatterND(const Op* op, Tensor* indices, Tensor* updates, Tenso
         view0Builder.add_stride(view0Stride);
         auto view0Offset = view0Builder.Finish();
         std::vector<flatbuffers::Offset<View>> views {view0Offset, view0Offset};
-        if (reduction >= 0) {
-            views.push_back(view0Offset);
-        }
         // view0 and view1 is the same
         auto viewAllOffset = builder.CreateVector<flatbuffers::Offset<View>>(views);
         RegionCommandBuilder rcmdBuild(builder);
@@ -106,7 +92,7 @@ static bool buildScatterND(const Op* op, Tensor* indices, Tensor* updates, Tenso
         rcmdBuild.add_iterIndexes(iterIndexesOffset);
         rcmdBuild.add_steps(stepOffset);
         rcmdBuild.add_size(sizeOffset);
-        rcmdBuild.add_fuse(1);
+        rcmdBuild.add_fuse(reduction);
         auto rcmdOffset = rcmdBuild.Finish();
         auto rcmdAllOffset = builder.CreateVector<flatbuffers::Offset<RegionCommand>>({rcmdOffset});
         auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0, 1, 2});
@@ -136,8 +122,9 @@ static bool buildScatterND(const Op* op, Tensor* indices, Tensor* updates, Tenso
         initrcmdBuild.add_indexes(initindexesOffset);
         initrcmdBuild.add_size(initsizeOffset);
         auto initrcmdOffset = initrcmdBuild.Finish();
+        auto initrcmdOffsetMulti = builder.CreateVector<flatbuffers::Offset<RegionCommand>>({initrcmdOffset});
         LoopParamBuilder loopBuilder(builder);
-        loopBuilder.add_initCommand(initrcmdOffset);
+        loopBuilder.add_initCommand(initrcmdOffsetMulti);
         loopBuilder.add_commands(rcmdAllOffset);
         loopBuilder.add_parallel(false);
         loopBuilder.add_loopNumber(N);

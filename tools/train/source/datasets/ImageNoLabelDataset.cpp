@@ -1,3 +1,11 @@
+//
+//  ImageNoLabelDataset.cpp
+//  MNN
+//
+//  Created by MNN on 2020/02/16.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #if defined(_MSC_VER)
 #include <Windows.h>
 #undef min

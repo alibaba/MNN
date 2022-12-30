@@ -79,6 +79,7 @@ struct BlobT : public flatbuffers::NativeTable {
   std::vector<int64_t> int64s;
   std::vector<float> float32s;
   std::vector<std::string> strings;
+  std::vector<int64_t> external;
   BlobT()
       : dataFormat(MNN_DATA_FORMAT_NCHW),
         dataType(DataType_DT_FLOAT) {
@@ -117,6 +118,9 @@ struct Blob FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *strings() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *>(20);
   }
+  const flatbuffers::Vector<int64_t> *external() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(22);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -136,6 +140,8 @@ struct Blob FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 20) &&
            verifier.VerifyVector(strings()) &&
            verifier.VerifyVectorOfStrings(strings()) &&
+           VerifyOffset(verifier, 22) &&
+           verifier.VerifyVector(external()) &&
            verifier.EndTable();
   }
   BlobT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -173,6 +179,9 @@ struct BlobBuilder {
   void add_strings(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> strings) {
     fbb_.AddOffset(20, strings);
   }
+  void add_external(flatbuffers::Offset<flatbuffers::Vector<int64_t>> external) {
+    fbb_.AddOffset(22, external);
+  }
   explicit BlobBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -195,8 +204,10 @@ inline flatbuffers::Offset<Blob> CreateBlob(
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> int32s = 0,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> int64s = 0,
     flatbuffers::Offset<flatbuffers::Vector<float>> float32s = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> strings = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> strings = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> external = 0) {
   BlobBuilder builder_(_fbb);
+  builder_.add_external(external);
   builder_.add_strings(strings);
   builder_.add_float32s(float32s);
   builder_.add_int64s(int64s);
@@ -543,6 +554,7 @@ inline void Blob::UnPackTo(BlobT *_o, const flatbuffers::resolver_function_t *_r
   { auto _e = int64s(); if (_e) { _o->int64s.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->int64s[_i] = _e->Get(_i); } } };
   { auto _e = float32s(); if (_e) { _o->float32s.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->float32s[_i] = _e->Get(_i); } } };
   { auto _e = strings(); if (_e) { _o->strings.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->strings[_i] = _e->Get(_i)->str(); } } };
+  { auto _e = external(); if (_e) { _o->external.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->external[_i] = _e->Get(_i); } } };
 }
 
 inline flatbuffers::Offset<Blob> Blob::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BlobT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -562,6 +574,7 @@ inline flatbuffers::Offset<Blob> CreateBlob(flatbuffers::FlatBufferBuilder &_fbb
   auto _int64s = _o->int64s.size() ? _fbb.CreateVector(_o->int64s) : 0;
   auto _float32s = _o->float32s.size() ? _fbb.CreateVector(_o->float32s) : 0;
   auto _strings = _o->strings.size() ? _fbb.CreateVectorOfStrings(_o->strings) : 0;
+  auto _external = _o->external.size() ? _fbb.CreateVector(_o->external) : 0;
   return MNN::CreateBlob(
       _fbb,
       _dims,
@@ -572,7 +585,8 @@ inline flatbuffers::Offset<Blob> CreateBlob(flatbuffers::FlatBufferBuilder &_fbb
       _int32s,
       _int64s,
       _float32s,
-      _strings);
+      _strings,
+      _external);
 }
 
 inline ListValueT *ListValue::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -726,7 +740,8 @@ inline const flatbuffers::TypeTable *BlobTypeTable() {
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_LONG, 1, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
-    { flatbuffers::ET_STRING, 1, -1 }
+    { flatbuffers::ET_STRING, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     MNN_DATA_FORMATTypeTable,
@@ -741,10 +756,11 @@ inline const flatbuffers::TypeTable *BlobTypeTable() {
     "int32s",
     "int64s",
     "float32s",
-    "strings"
+    "strings",
+    "external"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 9, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 10, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -46,6 +46,10 @@ public:
                            const MNN::Op* op, OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
+    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
+    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
+    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
+
 private:
     Backend::Info mInfo;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
@@ -56,6 +60,21 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
+    cl::Kernel mImageToNCHWBufferFloat;
+    cl::Kernel mImageToNC4HW4BufferFloat;
+    cl::Kernel mImageToNHWCBufferFloat;
+    cl::Kernel mNC4HW4BufferToImageFloat;
+    cl::Kernel mNCHWBufferToImageFloat;
+    cl::Kernel mNHWCBufferToImageFloat;
+    cl::Kernel mNHWCBufferToImageInt8;
+
+    cl::Kernel mNC4HW4BufferToNCHWBufferOut;
+    cl::Kernel mNC4HW4BufferToNHWCBufferOut;
+    cl::Kernel mNC4HW4BufferToNC4HW4BufferOut;
+    cl::Kernel mNC4HW4BufferToNC4HW4BufferInp;
+    cl::Kernel mNCHWBufferToNC4HW4BufferInp;
+    cl::Kernel mNHWCBufferToNC4HW4BufferInp;
+    cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
 };
 
 
@@ -104,26 +123,10 @@ public:
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
-    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
     void _allocHostBuffer(int length) const;
-    cl::Kernel mImageToNCHWBufferFloat;
-    cl::Kernel mImageToNC4HW4BufferFloat;
-    cl::Kernel mImageToNHWCBufferFloat;
-    cl::Kernel mNC4HW4BufferToImageFloat;
-    cl::Kernel mNCHWBufferToImageFloat;
-    cl::Kernel mNHWCBufferToImageFloat;
-    cl::Kernel mNHWCBufferToImageInt8;
-
-    cl::Kernel mNC4HW4BufferToNCHWBufferOut;
-    cl::Kernel mNC4HW4BufferToNHWCBufferOut;
-    cl::Kernel mNC4HW4BufferToNC4HW4BufferOut;
-    cl::Kernel mNC4HW4BufferToNC4HW4BufferInp;
-    cl::Kernel mNCHWBufferToNC4HW4BufferInp;
-    cl::Kernel mNHWCBufferToNC4HW4BufferInp;
-    cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
 
     const CLRuntime* mCLRuntime;
 
@@ -139,9 +142,6 @@ private:
     bool mIsCreateError{false};
 
 private:
-
-    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
-    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
 
     void* svmPtr = nullptr;
     std::pair<int, void *> mMapMem;

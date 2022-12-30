@@ -52,6 +52,7 @@ public:
     bool isSupportedFP16() const;
     bool isWeightCpuTransHalf() const;
     bool isDeviceSupportedFP16() const;
+    bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
     ::cl::Context &context();
@@ -129,7 +130,8 @@ private:
     uint32_t mMaxMemAllocSize;
     uint64_t mMaxLocalMemSize;
     bool mIsSupportedFP16     = false;
-    bool mIsDeviceSupportedFP16     = false;
+    bool mIsDeviceSupportedFP16 = false;
+    bool mIsDeviceSupportedLowPower = false;
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;

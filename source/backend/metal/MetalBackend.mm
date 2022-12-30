@@ -53,6 +53,7 @@ MetalBackend::MetalBackend(std::shared_ptr<BufferAllocator> staticMem, const Met
     mStaticBufferPool = staticMem;
     mShapeH2D = getConstBuffer(4 * sizeof(int));
     mShapeD2H = getConstBuffer(4 * sizeof(int));
+    mOpFullSupport = true;
 }
 MetalBackend::~MetalBackend() {
     // Do nothing
@@ -323,7 +324,6 @@ static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_
 }
 
 void MetalBackend::onResizeBegin() {
-    mOpFullSupport = true;
     mFrameEncodeCache = false;
     mOpEncoderSet = false;
     mOpEncoders.clear();

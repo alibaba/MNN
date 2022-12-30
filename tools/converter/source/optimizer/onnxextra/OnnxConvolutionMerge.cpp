@@ -32,14 +32,14 @@ static EXPRP _transformConv3D(EXPRP expr) {
         return nullptr;
     }
     auto weight = inputs[1];
-
+    
     auto weightInfo = weight->getInfo();
     if (nullptr == weightInfo) {
         MNN_ERROR("Convolution3D should know weight shape infromation!\n");
         return nullptr;
     }
     auto& weightShape = weightInfo->dim;
-
+    
     auto extraParam = expr->get()->main_as_Extra();
     std::string originalOpType(extraParam->type()->c_str());
     bool isDeconv = originalOpType == "ConvTranspose";
@@ -62,9 +62,13 @@ static EXPRP _transformConv3D(EXPRP expr) {
         auto biasDataPtr = inputs[2]->readMap<float>();
         ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
     }
-
+    
     conv3d->common.reset(new MNN::Convolution3DCommonT);
     auto common = conv3d->common.get();
+    common->pads = {0, 0, 0, 0, 0, 0};
+    common->dilates = {1, 1, 1};
+    common->kernels = {1, 1, 1};
+    common->strides = {1, 1, 1};
     const int attrSize = extraParam->attr()->size();
     std::vector<int> outputPadding;
     for (int i = 0; i < attrSize; ++i) {
@@ -81,7 +85,11 @@ static EXPRP _transformConv3D(EXPRP expr) {
         } else if (key == "pads") {
             auto values     = attr->list()->i()->data();
             common->padMode = MNN::PadMode_CAFFE;
-            common->pads    = std::vector<int>({values[0], values[1], values[2]});
+            const int size = attr->list()->i()->size();
+            MNN_ASSERT(size == 6);
+            for (int k = 0; k < size; ++k) {
+                common->pads[k] = values[k];
+            }
         } else if (key == "output_padding") {
             // only valid in ConvTranspose
             auto dataList  = attr->list();

@@ -1,0 +1,63 @@
+#version 440 core
+layout(std430) buffer;
+#ifdef FP16
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#define MAT4 f16mat4
+#extension GL_AMD_gpu_shader_half_float: enable
+#else
+#define FLOAT4 vec4
+#define MAT4 mat4
+#endif
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT4 data[];
+} uInput;
+
+
+layout(set=0, binding=2) uniform constBuffer {
+    ivec4 inputSize;
+    ivec4 outputSize;
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+} uConstant;
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 outputSize = uConstant.outputSize.xyz;
+    ivec2 spos = pos.xy*uConstant.stride-uConstant.pad;
+
+    if (all(lessThan(pos, outputSize)))
+    {
+        ivec2 inputSizeXY = uConstant.inputSize.xy;
+        FLOAT4 color = FLOAT4(-100000.0);
+        ivec2 sfxy = max(ivec2(0), -spos);
+        ivec2 efxy = min(uConstant.kernelSize, inputSizeXY-spos);
+
+        for (int fy=sfxy.y; fy<efxy.y; ++fy)
+        {
+            for (int fx=sfxy.x; fx<efxy.x; ++fx)
+            {
+                ivec2 spos_ = spos + ivec2(fx, fy);
+                FLOAT4 inputColor = uInput.data[0
+                + pos.z * uConstant.inputSize.y * uConstant.inputSize.x
+                + spos_.y * uConstant.inputSize.x
+                + spos_.x
+                ];
+                color = max(inputColor, color);
+            }
+        }
+        uOutput.data[0
+            + pos.z * uConstant.outputSize.x * uConstant.outputSize.y
+            + pos.y * uConstant.outputSize.x
+            + pos.x
+            ] = color;
+    }
+}

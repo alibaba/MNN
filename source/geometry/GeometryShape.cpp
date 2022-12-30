@@ -233,9 +233,13 @@ public:
         auto outputDes  = TensorUtils::getDescribe(output);
         outputDes->regions.resize(inputs.size());
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+
         for (int i = 0; i < extra->attr()->size(); i++) {
             auto attr = extra->attr()->Get(i);
             if (attr->key()->str() == "region") {
+                if (attr->list()->i() == nullptr) {
+                    break;
+                }
                 int len = attr->list()->i()->size();
                 MNN_ASSERT(inputs.size() * 11 == len);
 
@@ -256,6 +260,7 @@ public:
                     region.origin = inputs[j];
 #undef _GET
                 }
+                break;
             }
         }
         return true;

@@ -142,8 +142,8 @@ void log_result(bool correct) {
 int main(int argc, const char* argv[]) {
     // modelName is xxx/xxx/temp.bin ===> xxx/xxx is the root path
     const char* modelName = argv[1];
-    std::string modelDir  = modelName;
-    modelDir              = modelDir.substr(0, modelDir.find("temp.bin"));
+    std::string modelDir  = argv[2];
+    modelDir              = modelDir.substr(0, modelDir.find("config.txt"));
     std::cout << "model dir: " << modelDir << std::endl;
 
     // read args

@@ -124,7 +124,7 @@ public:
     virtual const Runtime* getRuntime() {
         return nullptr;
     }
-
+    const std::string externalFile();
 public:
     /**
      * @brief allocate buffer of tensor for given storage type.
@@ -211,6 +211,14 @@ public:
         Compiler_Loop = 2,
     };
 
+    void setExternalFile(std::string file) {
+        mExternalFile = file;
+    }
+
+    std::string getExternalFile() const {
+        return mExternalFile;
+    }
+
     virtual CompilerType onGetCompilerType() const {
         return Compiler_Loop;
     }
@@ -277,6 +285,7 @@ public:
 
 private:
     std::future<int> mFuture;
+    std::string mExternalFile;
 };
 
 /** abstract Runtime register */

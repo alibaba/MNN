@@ -30,6 +30,7 @@ def_class_smart_end(_Module, Module)
 def_class_smart_start(RuntimeManager, Executor::RuntimeManager)
 def_class_methods(RuntimeManager,
     set_cache, "set cache",
+    set_external, "set external",
     update_cache, "update cache",
     set_mode, "set mode",
     set_hint, "set hint"
@@ -268,6 +269,19 @@ static PyObject* PyMNNRuntimeManager_set_cache(PyMNNRuntimeManager *self, PyObje
     Py_BEGIN_ALLOW_THREADS
     std::string cachePath = path;
     (*(self->ptr))->setCache(cachePath);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNRuntimeManager_set_external(PyMNNRuntimeManager *self, PyObject *args) {
+    char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNRuntimeManager_set_external: Not string input");
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    std::string externalPath = path;
+    (*(self->ptr))->setExternalFile(externalPath);
     Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }

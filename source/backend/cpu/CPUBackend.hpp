@@ -29,7 +29,6 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
-
     void onConcurrencyBegin() const;
     void onConcurrencyEnd() const;
 
@@ -100,9 +99,6 @@ public:
     BackendConfig::PrecisionMode precisionMode() const {
         return mPrecisionMode;
     }
-    std::map<const Tensor*, const Tensor*>& getCachedCastTensor() {
-        return mCachedCastTensor;
-    }
     CPUResizeCache* getCache() const {
         return mCache;
     }
@@ -127,9 +123,18 @@ private:
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
-    std::map<const Tensor*, const Tensor*> mCachedCastTensor;
     CPUResizeCache* mCache;
 };
+/** execution cast wrapper. insert tensor cast dynamic. */
+class CastWrapExecution : public Execution {
+public:
+    CastWrapExecution(Backend* backend, DataType runT)
+                    : Execution(backend), mRunType(runT) {}
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+private:
+    DataType mRunType;
+};
+
 
 #define REGISTER_CPU_OP_CREATOR(name, opType)     \
     void ___##name##__##opType##__() {            \

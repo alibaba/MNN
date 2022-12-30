@@ -1,0 +1,106 @@
+#version 440 core
+layout(std430) buffer;
+#ifdef FP16
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#define MAT4 f16mat4
+#extension GL_AMD_gpu_shader_half_float: enable
+#else
+#define FLOAT4 vec4
+#define MAT4 mat4
+#endif
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+}uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT4 data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    FLOAT4 data[];
+} uKernel;
+
+layout(set=0, binding=3) readonly buffer sourceBuffer2{
+    FLOAT4 data[];
+} uBias;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    int batch;
+    int group;
+} uConstant;
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    int workIndex = int(gl_GlobalInvocationID.x);
+    if (workIndex < uConstant.outputSize.x * uConstant.outputSize.y * uConstant.outputSize.z * uConstant.outputSize.w)
+    {
+        ivec3 pos;
+        pos.x = workIndex % uConstant.outputSize.x;
+        int temp = workIndex / uConstant.outputSize.x;
+        pos.y = temp % uConstant.outputSize.y;
+        pos.z = temp / uConstant.outputSize.y;
+        ivec3 inputSize = uConstant.inputSize.xyz;
+        ivec3 outputSize = uConstant.outputSize.xyz;
+
+        ivec2 oxy = pos.xy + uConstant.pad;
+        int oz = pos.z / uConstant.outputSize.w;
+        int sb = pos.z % uConstant.outputSize.w;
+
+        vec4 color = uBias.data[oz];
+        for (int fy=0; fy<uConstant.kernelSize.y; ++fy)
+        {
+            int sy = oxy.y - fy*uConstant.dilate.y;
+            int y = sy / uConstant.stride.y;
+            if (sy % uConstant.stride.y == 0 && y == clamp(y, 0, inputSize.y-1))
+            {
+                for (int fx=0; fx<uConstant.kernelSize.x; ++fx)
+                {
+                    int sx = oxy.x - fx*uConstant.dilate.x;
+                    int x = sx / uConstant.stride.x;
+                    if (sx % uConstant.stride.x == 0 && x == clamp(x, 0, inputSize.x-1))
+                    {
+                        int sBegin = x
+                             + y * uConstant.inputSize.x
+                             + sb * uConstant.inputSize.x * uConstant.inputSize.y;
+                        int kBegin = fx
+                            + fy * uConstant.kernelSize.x
+                            + oz * uConstant.kernelSize.x * uConstant.kernelSize.y;
+                        for (int fz=0; fz<uConstant.inputSize.z; ++fz)
+                        {
+                            vec4 S = uInput.data[sBegin
+                             + fz * uConstant.inputSize.x * uConstant.inputSize.y * uConstant.inputSize.w
+                            ];
+                            int kOffst = 4 * (kBegin * uConstant.inputSize.z + fz);
+                            vec4 K0 = uKernel.data[kOffst + 0];
+                            vec4 K1 = uKernel.data[kOffst + 1];
+                            vec4 K2 = uKernel.data[kOffst + 2];
+                            vec4 K3 = uKernel.data[kOffst + 3];
+                            color += K0 * S.x;
+                            color += K1 * S.y;
+                            color += K2 * S.z;
+                            color += K3 * S.w;
+                        }
+                    }
+                }
+            }
+        }
+#ifdef RELU
+        color = max(color, vec4(0));
+#endif
+#ifdef RELU6
+        color = clamp(color, vec4(0), vec4(6));
+#endif
+        uOutput.data[pos.x + pos.y * uConstant.outputSize.x + pos.z * uConstant.outputSize.x * uConstant.outputSize.y] = color;
+    }
+}

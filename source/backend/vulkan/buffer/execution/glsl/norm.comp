@@ -1,0 +1,60 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer s0{
+    float data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1{
+    float data[];
+} uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size; // inside, outside, 1, outside
+    vec4 eps; // eps, 1, 1, 1
+} uConstant;
+
+#ifdef LAYERNORM_SCALE
+layout(set=0, binding=3) readonly buffer s2{
+    float data[];
+} uGamman;
+
+layout(set=0, binding=4) readonly buffer s3{
+    float data[];
+} uBeta;
+#endif
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    int y = int(gl_GlobalInvocationID.x);
+    if (y < uConstant.size.w)
+    {
+        float scale = 1.0 / float(uConstant.size.x); 
+        float mean = 0.0;
+        for (int j=0; j<uConstant.size.x; ++j)
+        {
+            mean = mean + (uInput.data[j + y * uConstant.size.x] * scale);
+        }
+        float squaremean = 0.0f;
+        for (int j=0; j<uConstant.size.x; ++j)
+        {
+            float v = uInput.data[j + y * uConstant.size.x] - mean;
+            squaremean = squaremean + (v * v * scale);
+        }
+        squaremean = 1.0f / sqrt(squaremean + uConstant.eps.x);
+        for (int j=0; j<uConstant.size.x; ++j)
+        {
+            float v = uInput.data[j + y * uConstant.size.x];
+#ifdef LAYERNORM_SCALE
+            float dst = (v - mean) * squaremean * uGamman.data[j] + uBeta.data[j];
+#else
+            float dst = (v - mean) * squaremean;
+#endif
+            uOutput.data[j + y * uConstant.size.x] = dst;
+        }
+    }
+}
