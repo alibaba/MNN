@@ -961,7 +961,7 @@ ErrorCode Pipeline::execute() {
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
     mBackend->onExecuteBegin();
-    for (auto& cmd : command_cached) {
+    for (auto& cmdP : command_cached) {
         auto& cmd = *cmdP;
         auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);
         if (NO_ERROR != code) {
