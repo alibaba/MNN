@@ -248,8 +248,22 @@ StaticModule::StaticModule(std::vector<int> inputs,
         }
     }
     mResource->mOutputs = std::move(outputs);
-
+   
     bool needResize = scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside;
+    
+    bool isStaticModel = false;
+    if (mResource->mBuffer.size() > 0) {
+        auto net = flatbuffers::GetRoot<Net>(mResource->mBuffer[0]->buffer());
+        isStaticModel = net->usage() == Usage_INFERENCE_STATIC;
+    }
+
+    if (isStaticModel) {
+        for (auto &pipInfo : scheduleInfo.pipelineInfo) {
+            pipInfo.first.needComputeGeometry = false;
+            pipInfo.first.needComputeShape = false;
+        }
+    }
+   
     mSession.reset(new Session(std::move(scheduleInfo), mResource->mModes, std::move(rt)));
     resetInputOutputs();
     if (needResize) {
