@@ -49,16 +49,6 @@ typedef enum {
         cuda_check(cudaGetLastError()); \
     } while (0)
 
-#define cutlass_check(status)                                                                    \
-  {                                                                                              \
-    cutlass::Status error = status;                                                              \
-    if (error != cutlass::Status::kSuccess) {                                                    \
-        printf("File:%s Line %d: failed: %s\n", __FILE__, __LINE__,\
-            cutlassGetStatusString(error)); \
-        abort();                                              \
-    }                                                                                            \
-  }
-
 #ifdef DEBUG
 #define checkKernelErrors\
   do {                                                      \
@@ -70,8 +60,20 @@ typedef enum {
       abort();                                              \
     }                                                       \
   } while (0)
+
+
+#define cutlass_check(status)                                                                    \
+  {                                                                                              \
+    cutlass::Status error = status;                                                              \
+    if (error != cutlass::Status::kSuccess) {                                                    \
+        printf("File:%s Line %d: failed: %s\n", __FILE__, __LINE__,\
+            cutlassGetStatusString(error)); \
+        abort();                                              \
+    }                                                                                            \
+  }
 #else
 #define checkKernelErrors
+#define cutlass_check
 #endif
 
 namespace MNN {

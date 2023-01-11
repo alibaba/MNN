@@ -398,6 +398,13 @@ void Executor::RuntimeManager::setExternalFile(std::string fileName) {
 }
 
 void Executor::RuntimeManager::updateCache() {
+    // Backend_Auto and no Async work, then don't need updateCache
+    if(mInside->modes.backendMode == Interpreter::Session_Backend_Auto && !(mInside->mInfo->hasAsyncWork())) {
+        return;
+    }
+
+    // Set mCancelled for quickly ending
+    mInside->mInfo->mCancelled = true;
     mInside->mInfo->waitAsyncWork();
     auto buffer = getCache(mInside->mInfo);
 

@@ -15,6 +15,7 @@
 #include "Command.hpp"
 #include "NonCopyable.hpp"
 #include <future>
+#include <atomic>
 
 namespace MNN {
 
@@ -279,10 +280,10 @@ public:
         // Do nothing
     }
     // FIXME: Temply used, in future will refract
-    bool hasAsyncWork() const;
+    std::atomic_bool mCancelled = ATOMIC_VAR_INIT(false);
+    MNN_PUBLIC bool hasAsyncWork() const;
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
-
 private:
     std::future<int> mFuture;
     std::string mExternalFile;

@@ -492,12 +492,17 @@ void Pipeline::_pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos) {
         }
     }
     // Make async task for tuning
-    auto future = std::async(std::launch::async, [&, this](std::vector<Schedule::OpCacheInfo>&& infos, std::map<Tensor*, std::shared_ptr<Tensor>>&& tensors, std::shared_ptr<Backend> backend) {
+    const_cast<Runtime*>(mRuntime)->mCancelled = false;
+    auto future = std::async(std::launch::async, [&, this](std::vector<Schedule::OpCacheInfo>&& infos, std::map<Tensor*, std::shared_ptr<Tensor>>&& tensors, std::shared_ptr<Backend> backend, const std::atomic_bool& cancelled) {
+
         backend->onClearBuffer();
         backend->onResizeBegin();
         for (auto& info : infos) {
             auto& buffer = info.executeBuffer;
             for (auto& iterP : buffer.command) {
+                if(cancelled) {
+                    return -1;
+                }
                 auto& iter = *iterP;
                 // FIXME: Remove onMaskOpReady in future
                 const_cast<Runtime*>(mRuntime)->onMaskOpReady(iter.inputs, iter.outputs, iter.op);
@@ -537,7 +542,7 @@ void Pipeline::_pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos) {
         }
         backend->onResizeEnd();
         return 0;
-    }, std::move(initInfos), std::move(holdTensors), mBackend);
+    }, std::move(initInfos), std::move(holdTensors), mBackend, std::ref(const_cast<Runtime*>(mRuntime)->mCancelled));
     const_cast<Runtime*>(mRuntime)->setAsyncWork(std::move(future));
 }
 

@@ -2,13 +2,27 @@
 # Created by ruhuan on 2019.08.31
 """ setup tool """
 from __future__ import print_function
+import os
+
+def get_version():
+    root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
+    version_header = os.path.join(root_dir, 'include/MNN/MNNDefine.h')
+    version_major = version_minor = version_patch = 'x'
+    for line in open(version_header, 'rt').readlines():
+        if '#define MNN_VERSION_MAJOR' in line:
+            version_major = int(line.strip().split(' ')[-1])
+        if '#define MNN_VERSION_MINOR' in line:
+            version_minor = int(line.strip().split(' ')[-1])
+        if '#define MNN_VERSION_PATCH' in line:
+            version_patch = int(line.strip().split(' ')[-1])
+    return '{}.{}.{}'.format(version_major, version_minor, version_patch)
 
 import sys
 import argparse
 parser = argparse.ArgumentParser(description='build pymnn wheel')
 parser.add_argument('--x86', dest='x86', action='store_true', default=False,
                     help='build wheel for 32bit arch, only usable on windows')
-parser.add_argument('--version', dest='version', type=str, required=True,
+parser.add_argument('--version', dest='version', type=str, default=get_version(),
                     help='MNN dist version')
 parser.add_argument('--serving', dest='serving', action='store_true', default=False,
                     help='build for internal serving, default False')
@@ -17,7 +31,6 @@ parser.add_argument('--env', dest='env', type=str, required=False,
 args, unknown = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + unknown
 
-import os
 import platform
 try:
    import numpy as np
@@ -51,7 +64,7 @@ IS_INTERNAL_BUILD = False
 print ("USE_TRT ", USE_TRT)
 
 if os.path.isdir('../../schema/private'):
-    IS_INTERNAL_BUILD = True
+    IS_INTERNAL_BUILD = args.serving
     if USE_TRT:
         print("Build Internal NNN with TRT")
         package_name = 'MNN_Internal_TRT'
@@ -125,7 +138,7 @@ def configure_extension_build():
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
     extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
-    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+    if IS_LINUX and IS_INTERNAL_BUILD:
         extra_compile_args += ['-DPYMNN_INTERNAL_SERVING']
         if args.env == 'daily':
             extra_compile_args += ['-DPYMNN_INTERNAL_SERVING_DAILY']
@@ -147,7 +160,7 @@ def configure_extension_build():
     print(engine_library_dirs)
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
-    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+    if IS_LINUX and IS_INTERNAL_BUILD:
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "monitor_service.cc")]
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "verify_service.cc")]
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "http_util.cc")]
@@ -167,7 +180,7 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
-    if IS_LINUX and IS_INTERNAL_BUILD and args.serving:
+    if IS_LINUX and IS_INTERNAL_BUILD:
         engine_include_dirs += [os.path.join(root_dir, "3rd_party", "rapidjson")]
     # cv include
     engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
@@ -208,7 +221,12 @@ def configure_extension_build():
             tools_library_dirs += [torch_lib]
             lib_files = [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
                                   os.path.join(torch_lib, 'libc10.dylib')]),
+                         ('.dylibs', [os.path.join(torch_lib, 'libiomp5.dylib')])]
+            '''
+            lib_files = [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
+                                  os.path.join(torch_lib, 'libc10.dylib')]),
                          ('.dylibs', [os.path.join(torch_path, '.dylibs', 'libiomp5.dylib')])]
+            '''
     if USE_TRT:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         tools_library_dirs += ['/usr/local/cuda/lib64/']

@@ -131,10 +131,10 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
                 context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
                 context_properties.push_back(0);
-                mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, context_properties.data(), nullptr, nullptr, &res));
+                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
                 mIsDeviceSupportedLowPower = true;
             }else{
-                mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &res));
+                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
             }
 
             MNN_CHECK_CL_SUCCESS(res, "context");
