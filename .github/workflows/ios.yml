@@ -30,7 +30,26 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - name: build_ios
+        with:
+          submodules: true
+
+      - uses: wangzhaode/xcodebuild@1.2
+        with:
+          platform: iOS
+          action: build
+          configuration: release
+          working-directory: project/ios
+          scheme: MNN
+          symroot: ./build
+          verbosity: verbose
+
+      - name: package-framework
         run: |
-            cd project/ios
-            ./buildiOS.sh
+            ls project/ios/build
+            echo '--------------------'
+            zip -9 -y -r framework.zip project/ios/build
+
+      - name: upload-framework
+        uses: actions/upload-artifact@v3
+        with:
+          path: framework.zip
