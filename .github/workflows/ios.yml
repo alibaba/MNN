@@ -30,7 +30,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - name: build_ios
+        with:
+          submodules: true
+
+      - name: build-framework
         run: |
-            cd project/ios
-            ./buildiOS.sh
+          brew install coreutils
+          ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
+        shell: bash
+
+      - name: show-framework
+        run: |
+            ls -lh ios_build
