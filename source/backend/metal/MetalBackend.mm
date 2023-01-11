@@ -554,6 +554,7 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
         [ctx wait];
     }
     mFrameEncodeCache = false;
+    mOpEncoderSet = false;
     return 0;
 }
 
