@@ -200,6 +200,12 @@ void Interpreter::setExternalFile(const char* file, size_t flag) {
 }
 
 ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
+    // Backend_Auto and no Async work, then don't need updateCache
+    if(mNet->modes.backendMode == Session_Backend_Auto && !(session->hasAsyncWork())) {
+        return NO_ERROR;
+    }
+    
+    // Get cache and write to file
     auto buffer = session->getCache();
 
     //When current cacheSize bigger than previous, update

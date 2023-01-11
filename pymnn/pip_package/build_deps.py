@@ -26,9 +26,11 @@ if len(sys.argv) > 1 and sys.argv[1] == '-trt':
 def build_deps():
     if os.path.isdir('../../schema/private'):
         IS_INTERNAL_BUILD = args.internal
+        # public not build torch
+        IS_BUILD_TORCH = args.torch
     else:
         IS_INTERNAL_BUILD = False
-    IS_BUILD_TORCH = args.torch
+        IS_BUILD_TORCH = False
 
     """ build depency """
     root_dir = os.path.dirname(os.path.dirname(os.getcwd()))

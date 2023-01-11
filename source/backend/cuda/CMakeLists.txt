@@ -1,4 +1,4 @@
-set(CUDA_MIN_VERSION "9.0")
+set(CUDA_MIN_VERSION "7.0")
 find_package(CUDA ${CUDA_MIN_VERSION})
 
 set (EXTRA_LIBS "")
@@ -29,6 +29,7 @@ if(CUDA_FOUND)
     
     IF ((CUDA_VERSION VERSION_GREATER "9.0") OR (CUDA_VERSION VERSION_EQUAL "9.0"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_70,code=sm_70")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_72,code=sm_72")
     ENDIF()
 
     IF ((CUDA_VERSION VERSION_GREATER "10.0") OR (CUDA_VERSION VERSION_EQUAL "10.0"))
@@ -39,13 +40,16 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_80,code=sm_80")
     ENDIF()
 
+    IF ((CUDA_VERSION VERSION_GREATER "11.2") OR (CUDA_VERSION VERSION_EQUAL "11.2"))
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_86,code=sm_86")
+    ENDIF()
     message(STATUS "Enabling CUDA support (version: ${CUDA_VERSION_STRING},"
                     " archs: ${CUDA_ARCH_FLAGS_readable})")
 else()
     message(FATAL_ERROR "CUDA not found >= ${CUDA_MIN_VERSION} required)")
 endif()
 
-file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)
+file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/cutlass/*)
 message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
 
 

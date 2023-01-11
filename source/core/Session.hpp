@@ -123,6 +123,7 @@ public:
     ErrorCode updateToModel(Net* net) const;
 
     void waitAsyncResize();
+    bool hasAsyncWork();
     bool loadCache(const void* buffer, size_t size);
     std::pair<const void*, size_t> getCache();
 

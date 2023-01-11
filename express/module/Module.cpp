@@ -203,7 +203,10 @@ public:
         }
 #endif // MNN_INTERNAL_ENABLED
     }
-    virtual ~ NetModule(){}
+    virtual ~ NetModule(){
+        auto exe = ExecutorScope::Current();
+        exe->gc(Executor::FULL);
+    }
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
 

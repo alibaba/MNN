@@ -65,6 +65,9 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
 }
 
 Session::~Session() {
+    for (auto& iter : mRuntime.first) {
+        iter.second->mCancelled = true;
+    }
     waitAsyncResize();
     mInfo.allTensors.clear();
     mPipelines.clear();
@@ -92,8 +95,24 @@ void Session::waitAsyncResize() {
     }
 }
 
+bool Session::hasAsyncWork() {
+    for (auto& iter : mRuntime.first) {
+        auto res = iter.second->hasAsyncWork();
+        if (res) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
 std::pair<const void*, size_t> Session::getCache() {
+    // Set cancelled for quickly ending
+    for (auto& iter : mRuntime.first) {
+        iter.second->mCancelled = true;
+    }
     waitAsyncResize();
+    
     for (auto iter : mRuntime.first) {
         auto res = iter.second->onGetCache();
         if (res.first != nullptr) {
