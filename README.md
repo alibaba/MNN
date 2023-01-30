@@ -104,7 +104,9 @@ Group #1 (Full): 23329087
 
 Group #2 (Full): 23350225
 
-Group #3: https://qr.dingtalk.com/action/joingroup?code=v1,k1,T5fBQEaWEye7LN4yP9+edyEsS+6Wmj2bqxI695+kkPk=&_dt_no_comment=1&origin=11
+Group #3: QR code:
+
+![MNN-3](doc/dingdingmnn3.png)
 
 ## Historical Paper
 

@@ -103,7 +103,10 @@ MNN适配的硬件架构与精度详见下表：
 
 - 钉钉群1:23329087 
 - 钉钉群2:23350225
-- 钉钉群3:https://qr.dingtalk.com/action/joingroup?code=v1,k1,T5fBQEaWEye7LN4yP9+edyEsS+6Wmj2bqxI695+kkPk=&_dt_no_comment=1&origin=11
+- 钉钉群3:扫描二维码加入
+
+![MNN-3](doc/dingdingmnn3.png)
+
 
 ## 历史论文
 
