@@ -127,6 +127,7 @@ typedef struct {
         threadsPerGroup:(MTLSize)threadsPerGroup
               bandwidth:(MNN::MetalBandwidth)bandwidth;
 - (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name;
+- (id<MTLComputePipelineState>)pipelineWithSource:(NSString *)source name:(NSString *)name;
 - (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) pipeline threads:(MTLSize)threads;
 
 - (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t;

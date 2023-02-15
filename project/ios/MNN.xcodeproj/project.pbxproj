@@ -290,6 +290,8 @@
 		4D4CF46A2760946500A36D9F /* color.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4652760946500A36D9F /* color.cpp */; };
 		4D4CF46B2760946500A36D9F /* draw.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D4CF4662760946500A36D9F /* draw.cpp */; };
 		4D4DAE68263905390060D37E /* CoreMLDefine.h in Headers */ = {isa = PBXBuildFile; fileRef = 4D4DAE67263905390060D37E /* CoreMLDefine.h */; };
+		4D56629A299341270031C1A1 /* MetalFuse.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4D566298299341270031C1A1 /* MetalFuse.hpp */; };
+		4D56629B299341270031C1A1 /* MetalFuse.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4D566299299341270031C1A1 /* MetalFuse.mm */; };
 		4D6D7FC9265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S in Sources */ = {isa = PBXBuildFile; fileRef = 4D6D7FC8265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S */; };
 		4D6D7FCB265688F600F80814 /* MNNPackedSparseMatMulEpx4.S in Sources */ = {isa = PBXBuildFile; fileRef = 4D6D7FCA265688F600F80814 /* MNNPackedSparseMatMulEpx4.S */; };
 		4D6D7FCF2656890C00F80814 /* MNNPackedSparseMatMulEpx1.S in Sources */ = {isa = PBXBuildFile; fileRef = 4D6D7FCE2656890C00F80814 /* MNNPackedSparseMatMulEpx1.S */; };
@@ -762,7 +764,7 @@
 		EB8D2ABE246A4975009948D1 /* Arm82OpRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */; };
 		EBD4842A2485FF650083CE95 /* Arm82Interp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EBD484242485FF640083CE95 /* Arm82Interp.hpp */; };
 		EBD4842F2485FF660083CE95 /* Arm82Interp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBD484292485FF650083CE95 /* Arm82Interp.cpp */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
-		EBECA37B24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = EBECA37A24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+dotprod"; }; };
+		EBECA37B24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = EBECA37A24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S */; };
 		EBECA39524643D320062C7A3 /* Arm82Backend.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EBECA38324643D310062C7A3 /* Arm82Backend.hpp */; };
 		EBECA39824643D320062C7A3 /* Arm82Relu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBECA38624643D310062C7A3 /* Arm82Relu.cpp */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
 		EBECA39924643D320062C7A3 /* Arm82Relu.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EBECA38724643D310062C7A3 /* Arm82Relu.hpp */; };
@@ -1068,6 +1070,8 @@
 		4D4CF4652760946500A36D9F /* color.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = color.cpp; sourceTree = "<group>"; };
 		4D4CF4662760946500A36D9F /* draw.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = draw.cpp; sourceTree = "<group>"; };
 		4D4DAE67263905390060D37E /* CoreMLDefine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreMLDefine.h; sourceTree = "<group>"; };
+		4D566298299341270031C1A1 /* MetalFuse.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetalFuse.hpp; sourceTree = "<group>"; };
+		4D566299299341270031C1A1 /* MetalFuse.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalFuse.mm; sourceTree = "<group>"; };
 		4D6D7FC8265688EA00F80814 /* MNNPackedSparseMatMulEpx1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseMatMulEpx1.S; sourceTree = "<group>"; };
 		4D6D7FCA265688F600F80814 /* MNNPackedSparseMatMulEpx4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseMatMulEpx4.S; sourceTree = "<group>"; };
 		4D6D7FCE2656890C00F80814 /* MNNPackedSparseMatMulEpx1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPackedSparseMatMulEpx1.S; sourceTree = "<group>"; };
@@ -2002,6 +2006,8 @@
 		489D7A152550FDC800AD896A /* metal */ = {
 			isa = PBXGroup;
 			children = (
+				4D566298299341270031C1A1 /* MetalFuse.hpp */,
+				4D566299299341270031C1A1 /* MetalFuse.mm */,
 				19D0FE73285C66F200B74B1A /* MetalLayerNorm.hpp */,
 				19D0FE74285C66F200B74B1A /* MetalLayerNorm.mm */,
 				19D0FE6E28534C4500B74B1A /* MetalSoftmax.hpp */,
@@ -2882,6 +2888,7 @@
 				4837147325A599EC004DBDED /* Arm82Binary.hpp in Headers */,
 				92FF03BD23AA0B5A00AC97F6 /* Int8FunctionsOpt.h in Headers */,
 				92FF036623AA0B5A00AC97F6 /* CPUDetectionOutput.hpp in Headers */,
+				4D56629A299341270031C1A1 /* MetalFuse.hpp in Headers */,
 				92FF04BC23AA0BFB00AC97F6 /* NonCopyable.hpp in Headers */,
 				CE9AFED728E54E3300566949 /* CPUInterp3D.hpp in Headers */,
 				48FA474B23AA127B00172C3B /* Utils.hpp in Headers */,
@@ -3240,6 +3247,7 @@
 				92FF03A723AA0B5A00AC97F6 /* ConvolutionIntFactory.cpp in Sources */,
 				48FB9DC224A8445A008E1A2D /* MNNPackedMatMulRemain.S in Sources */,
 				4836CEE5257744120068F6CE /* ShapePlugin.cpp in Sources */,
+				4D56629B299341270031C1A1 /* MetalFuse.mm in Sources */,
 				92FF027523AA0B5A00AC97F6 /* CPUConvolution.cpp in Sources */,
 				48958783268EBA7C00EA01A7 /* ShapeSegmentMean.cpp in Sources */,
 				48747D61245D9E33000B9709 /* ConvertUtils.cpp in Sources */,
@@ -3858,7 +3866,6 @@
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
-					"*/source/backend/cpu/arm/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S",
 					"*/source/backend/arm82/*",
 					"*/source/backend/arm82/asm/arm64/*",
 				);
@@ -3924,7 +3931,6 @@
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
 					"*/source/backend/arm82/asm/arm64/*",
 					"*/source/backend/arm82/*",
-					"*/source/backend/cpu/arm/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S",
 				);
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;

@@ -34,6 +34,9 @@ private:
     : ConvolutionWinogradImpl(convOp, b) {
         mResource = resource;
     }
+    std::pair<int, std::function<void(int tId, const uint8_t*, uint8_t*)>> mMainFunction;
+    std::pair<int, std::function<void(int, uint8_t*)>> mPostFunction;
+
 };
 } // namespace MNN
 #endif /* ConvolutionPackWinograd_hpp */

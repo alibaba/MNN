@@ -22,6 +22,10 @@ void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope
 
 void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);
 
+//void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx);
+
+//void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor);
+
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 void MNNHardSwish(float* dst, const float* src, size_t size);
@@ -31,12 +35,18 @@ void MNNGelu(float* dst, const float* src, size_t size);
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
+void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
+void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
+
 void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset);
 
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
+
+void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
+void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
 
 void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 

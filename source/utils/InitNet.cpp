@@ -55,8 +55,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                 TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::TRAINABLE;
             }
             TensorUtils::setLinearLayout(output);
-            // Don't need set backend for const tensor
-            TensorUtils::getDescribe(output)->backend = nullptr;
+            TensorUtils::getDescribe(output)->backend = defaultBackend;
             //MNN_PRINT("Const tensor %p is %p bn\n", output, defaultBackend);
             if (zeroShape) {
                 continue;

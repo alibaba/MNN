@@ -56,7 +56,9 @@ def opencl_codegen():
     opencl_source_map = "#include <map> \n"
     opencl_source_map += "#include <string> \n"
     opencl_source_map += "#include <vector> \n"
+    opencl_source_map += "#include <mutex> \n"
     opencl_source_map += "namespace MNN { \n"
+    opencl_source_map += "std::mutex gCLMutex;\n"
     opencl_source_map += "extern const std::map<std::string, std::vector<unsigned char>> OpenCLProgramMap = \n { \n"
 
     if major_py_ver == 2:

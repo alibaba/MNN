@@ -21,6 +21,7 @@ using namespace CLCache;
 namespace MNN {
 
 extern const std::map<std::string, std::vector<unsigned char>> OpenCLProgramMap;
+extern std::mutex gCLMutex;
 
 bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const char *extensionName) {
     std::string extensions = device.getInfo<CL_DEVICE_EXTENSIONS>();
@@ -363,6 +364,7 @@ uint64_t OpenCLRuntime::maxAllocSize() const {
 }
 
 bool OpenCLRuntime::loadProgram(const std::string &programName, cl::Program *program) {
+    std::lock_guard<std::mutex> lck(gCLMutex);
     auto it_source = OpenCLProgramMap.find(programName);
     if (it_source != OpenCLProgramMap.end()) {
         cl::Program::Sources sources;
@@ -428,6 +430,41 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
     MNN_CHECK_CL_SUCCESS(res, "getKernel");
     return kernel;
 }
+
+cl::Kernel OpenCLRuntime::buildKernelFromSource(const std::string& source, const std::string &kernelName,
+                                                const std::set<std::string> &buildOptions) {
+    std::string buildOptionsStr;
+    if (mIsSupportedFP16) {
+        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
+    } else {
+        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
+    }
+    
+    if(isSetWorkGroupAttribute) {
+        buildOptionsStr += " -DSET_ATTRIBUTE=true";
+    } else {
+        buildOptionsStr += " -DSET_ATTRIBUTE=false";
+    }
+    for (auto &option : buildOptions) {
+        buildOptionsStr += " " + option;
+    }
+    buildOptionsStr += mDefaultBuildParams;
+    
+    cl::Program::Sources sources;
+    sources.push_back(source);
+    cl::Program program = cl::Program(context(), sources);
+    auto status = this->buildProgram(buildOptionsStr, &program);
+    if (!status) {
+        FUNC_PRINT_ALL(kernelName.c_str(), s);
+    }
+    // mBuildProgramMap.emplace(key, program);
+
+    cl_int res;
+    cl::Kernel kernel = cl::Kernel(program, kernelName.c_str(), &res);
+    MNN_CHECK_CL_SUCCESS(res, "getKernel");
+    return kernel;
+}
+
 
 uint64_t OpenCLRuntime::getMaxWorkGroupSize(const cl::Kernel &kernel) {
     uint64_t maxWorkGroupSize = 0;

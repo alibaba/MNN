@@ -387,7 +387,7 @@ void _AVX_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int
 }
 
 void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * PACK_UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec8 res = Vec8(-FLT_MAX);
@@ -413,7 +413,7 @@ void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::ve
 
 void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
     float invSamplingCnt = 1.f / samplingRatioArea;
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * PACK_UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * PACK_UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec8 res = Vec8(0.f);

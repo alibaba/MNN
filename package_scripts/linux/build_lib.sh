@@ -52,7 +52,7 @@ mkdir -p $path/Release
 
 PACKAGE_PATH=$(realpath $path)
 
-CMAKE_ARGS="-DMNN_SEP_BUILD=OFF"
+CMAKE_ARGS="-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TOOLS=OFF"
 if [ "$backends" ]; then
     for backend in $backends; do
         case $backend in

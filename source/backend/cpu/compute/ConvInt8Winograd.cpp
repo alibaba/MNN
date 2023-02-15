@@ -53,8 +53,9 @@ std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResour
     auto inputPointData = (const int32_t*)attr; attr += alpha2;
     auto weightScaleData = (const float*)attr; attr += alpha2 * oc;
     for (int i = 0; i < alpha2; ++i) {
+        auto scale = 1.0f / inputScaleData[i];
         for (int u = 0; u < UNIT; ++u) {
-            inputScales->host<float>()[i * UNIT + u] = inputScaleData[i];
+            inputScales->host<float>()[i * UNIT + u] = scale;
         }
     }
     
@@ -124,6 +125,7 @@ ConvInt8Winograd::ConvInt8Winograd(Backend *b, const Convolution2D *convOp, std:
         mValid = false;
         return;
     }
+    //FUNC_PRINT(convOp->symmetricQuan()->winogradAttr()->size());
     auto weightData = res->mWeightInt8->host<int8_t>();
     for (int i = 0; i < unitNum; ++i) {
         int unitSize = *(attr++);
@@ -303,6 +305,7 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
     QuanPostTreatParameters quanParam;
     scale.assign(UNIT, 1.0 / outputQuant[0]);
     quanParam.scale = scale.data();
+    // For winograd Int8, will not treat origin bias to int32, use float directly
     quanParam.bias = mResource->mOriginBias->host<int32_t>();
     quanParam.maxValue = outputQuant[3];
     if (mResource->mRelu) {
@@ -487,9 +490,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                 for (int i = 0; i < alpha2; ++i) {
                     auto _srcInt8Ptr = _srcOrigin + i * mTempInputBuffer->stride(1);
                     
-                    std::vector<float> scaleVec(UNIT, 1 / mWinoResource->transInputScales->host<float>()[i]);
+                    auto scaleVec = mWinoResource->transInputScales->host<float>() + i * UNIT;
                     int zeroPoint = mWinoResource->transInputZeroPoints[i];
-                    coreInt8->MNNFloat2Int8(buffer2 + i * DST_XUNIT * ic_4 * UNIT, (UNIT == SRC_UNIT ? _srcInt8Ptr: (int8_t*)buffer0), ic_4 * DST_XUNIT, scaleVec.data(), -127, 127, zeroPoint);
+                    coreInt8->MNNFloat2Int8(buffer2 + i * DST_XUNIT * ic_4 * UNIT, (UNIT == SRC_UNIT ? _srcInt8Ptr: (int8_t*)buffer0), ic_4 * DST_XUNIT, scaleVec, -127, 127, zeroPoint);
                     if (UNIT != SRC_UNIT) {
                         int areaOffset[] = {DST_XUNIT, DST_XUNIT}, byte = sizeof(float);
                         _reorderCommon((float*)_srcInt8Ptr, buffer0, DST_XUNIT, UP_DIV(ic, byte), areaOffset, UNIT / byte, SRC_UNIT / byte);
@@ -499,9 +502,12 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     auto _weightInt8Ptr = weight + i * mWinoResource->weight->stride(0);
                     QuanPostTreatParameters quanParam;
                     quanParam.bias = mWinoResource->offsets->host<int32_t>() + i * mWinoResource->offsets->stride(0);
+                    // If scale is nullptr, the gemm will return float value
                     quanParam.scale = nullptr;
                     gemmFunc((int8_t*)buffer0, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
                     core->MNNScaleAndAddBias(_dstFloatPtr, buffer0, buffer1, mWinoResource->scales->host<float>() + i * dc_4 * UNIT, xC, dc_4);
+//                    auto scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
+//                    printf("i:%d, dc_4:%d, scale:%f - %f - %f - %f * %f, %f, %f, %f -> %f - %f - %f - %f\n", i, dc_4, buffer0[0], buffer0[1], buffer0[2], buffer0[3], scale[0], scale[1], scale[2], scale[3], _dstFloatPtr[0], _dstFloatPtr[1], _dstFloatPtr[2], _dstFloatPtr[3]);
                 }
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {

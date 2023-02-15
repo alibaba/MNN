@@ -854,7 +854,7 @@ void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
     if (sizeRemain > 0) {
         int8_t srcTemp[256];
         ::memcpy(srcTemp, src, sizeRemain * 8);
-        auto s = *(__m256i*)srcTemp;
+        auto s = _mm256_castps_si256(_mm256_loadu_ps((const float*)(srcTemp)));
         auto s0_16 = _mm256_permute4x64_epi64(_mm256_unpacklo_epi8(s, zero), 0XD8);
         auto s1_16 = _mm256_permute4x64_epi64(_mm256_unpackhi_epi8(s, zero), 0xD8);
         auto s0_32 = _mm256_unpacklo_epi16(s0_16, zero);

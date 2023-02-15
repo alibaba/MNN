@@ -8,60 +8,54 @@
 
 #include "OpFuse.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
-#include "PluginModule.hpp"
+#include "SourceModule.hpp"
+#include "opencl/OpenCLTarget.hpp"
+#include "metal/MetalTarget.hpp"
 #include <queue>
 #include <unordered_map>
-#include "cpu/CPUAst.hpp"
-#include "jit/LLVMJit.hpp"
 
-#if !defined(_MSC_VER)
-#include <dlfcn.h>
-#endif
-/**
-    OpFuse
- */
 namespace MNN {
 static void dumpOp(const Op* op) {
-    if (op->name()) printf("name: %s, ", op->name()->c_str());
-    printf("Type: %s,\n", MNN::EnumNameOpType(op->type()));
+    if (op->name()) MNN_PRINT("name: %s, ", op->name()->c_str());
+    MNN_PRINT("Type: %s,\n", MNN::EnumNameOpType(op->type()));
     if (op->type() == OpType_BinaryOp)  {
         auto binary = op->main_as_BinaryOp();
         auto type = binary->opType();
-        printf("Op: %s\n", MNN::EnumNamesBinaryOpOperation()[type]);
+        MNN_PRINT("Op: %s\n", MNN::EnumNamesBinaryOpOperation()[type]);
     } else if (op->type() == OpType_UnaryOp){
         auto unary = op->main_as_UnaryOp();
         auto type = unary->opType();
-        printf("Op: %s\n", MNN::EnumNamesUnaryOpOperation()[type]);
+        MNN_PRINT("Op: %s\n", MNN::EnumNamesUnaryOpOperation()[type]);
     }
 }
 static void dumpRegion(Tensor::InsideDescribe::Region& reg) {
-    printf("\n{\nsize: [%d, %d, %d], origin: %p\n", reg.size[0], reg.size[1], reg.size[2], reg.origin);
-    printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
-    printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
+    MNN_PRINT("\n{\nsize: [%d, %d, %d], origin: %p\n", reg.size[0], reg.size[1], reg.size[2], reg.origin);
+    MNN_PRINT("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
+    MNN_PRINT("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
 static void dumpTensor(const Tensor* t) {
-    printf("\t%p [", t);
+    MNN_PRINT("\t%p [", t);
     for (int d : t->shape())
-        printf("%d,", d);
-    printf("],\n");
+        MNN_PRINT("%d,", d);
+    MNN_PRINT("],\n");
     auto des = TensorUtils::getDescribe(t);
     if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-        printf("Regions:");
+        MNN_PRINT("Regions:");
         for (auto reg : des->regions) {
             dumpRegion(reg);
         }
     }
 }
 static void dumpCmd(const Command* cmd) {
-    printf("\n{\n");
+    MNN_PRINT("\n{\n");
     dumpOp(cmd->op);
-    printf("output: \n");
+    MNN_PRINT("output: \n");
     dumpTensor(cmd->outputs[0]);
-    printf("input: \n");
+    MNN_PRINT("input: \n");
     for (auto input : cmd->inputs) {
         dumpTensor(input);
     }
-    printf("}\n");
+    MNN_PRINT("}\n");
 }
 
 // is legal fused type
@@ -73,9 +67,21 @@ bool isLegal(const Command* cmd) {
            || type == OpType_ReLU6
            || type == OpType_Eltwise;
     if (elemWise) {
+        for (auto t : cmd->inputs) {
+            if (t->width() * UP_DIV(t->channel(), 4) > 16384) {
+                return false;
+            }
+            auto des = TensorUtils::getDescribe(t)->regions;
+            for(auto region : des)
+            {
+                auto tensor = region.origin;
+                if (tensor->width() * UP_DIV(tensor->channel(), 4) > 16384) {
+                    return false;
+                }
+            }
+        }
         return true;
     }
-#define fuse_raster
 #ifdef fuse_raster
     if (type == OpType_Raster) {
         auto outputFormat = TensorUtils::getDescribe(cmd->outputs[0])->dimensionFormat;
@@ -87,7 +93,7 @@ bool isLegal(const Command* cmd) {
         return legalFormat;
     }
 #endif
-    return false;
+    return false;	
 }
 
 Node* LCA(Node* x, Node* y) {
@@ -138,136 +144,84 @@ std::vector<Node*> fuseNode(Node* root, std::vector<Node*>& edges) {
     return fuseSet;
 }
 
-void codegen(CommandBuffer& cmd, std::vector<std::vector<Node*>>& fuseSets) {
+bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<Node*>>& fuseSets, MNNForwardType type) {
     // generate Kernel
-    CPUPluginModule plugin("codegen_demo");
-    for (auto compSet : fuseSets) {
-        // printf("set size: %lu \n", compSet.size());
-        InOutTensors tensors = plugin.addFunction(compSet);
-        auto inputs = tensors.first;
-        auto outputs = tensors.second;
-        // build Plugin Op
-        Command cmdPlugin;
-        {
-            std::unique_ptr<OpT> pluginOp(new OpT);
-            pluginOp->type = OpType_Plugin;
-            pluginOp->name = "PluginWrapper";
-            PluginT* plugin_param = new PluginT;
-            plugin_param->type    = "PluginWrapper";
-            plugin_param->attr.resize(1);
-            plugin_param->attr[0].reset(new AttributeT);
-            plugin_param->attr[0]->key = "kernel";
-            plugin_param->attr[0]->i = plugin.getFunctionNum()-1;
-            pluginOp->main.type  = OpParameter_Plugin;
-            pluginOp->main.value = plugin_param;
-            flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, pluginOp.get());
-            builder.Finish(lastOffset);
-            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
-        }
-        for (int i = 0; i < compSet.size(); i++) {
-            auto cmd = const_cast<Command*>(compSet[i]->cmd);
-            if (i == compSet.size()-1) {
-                cmd->op = cmdPlugin.op;
-                cmd->inputs = cmdPlugin.inputs;
-                cmd->outputs = cmdPlugin.outputs;
-                cmd->buffer = cmdPlugin.buffer;
-            } else {
-                cmd->op = nullptr;
-                cmd->buffer.clear();
-            }
-        }
-    }
-    // printf("total: %d\n", idx);
-    plugin.codegen();
-    // printf("cmd num: %lu \n", cmd.command.size());
-    for (auto iter = cmd.command.begin(); iter != cmd.command.end();) {
-        if (iter->op == nullptr) {
-            iter = cmd.command.erase(iter);
-        } else {
-            ++iter;
-        }
-    }
-#if !defined(_MSC_VER)
-    // printf("cmd num: %lu \n", cmd.command.size());
-    dlopen("./libplugin_fuse.so", RTLD_NOW | RTLD_LOCAL);
+    std::unique_ptr<Target> target;
+    switch (type) {
+#ifdef MNN_CODEGEN_OPENCL
+        case MNN_FORWARD_OPENCL:
+            target.reset(new OpenCLTarget);
+            break;
 #endif
-}
-
-void jit(CommandBuffer& cmd, std::vector<std::vector<Node*>>& fuseSets) {
-    LLVMJIT* theJit = LLVMJIT::createLLVMJIT();
-    CPUPluginModule plugin("jit_demo");
-    std::string kernelStr;
-    for (auto compSet : fuseSets) {
+#ifdef MNN_CODEGEN_METAL
+        case MNN_FORWARD_METAL:
+            target.reset(new MetalTarget);
+            break;
+#endif
+        default:
+            return false;
+    }
+#if 0
+    if (fuseSets.size() > 0) {
+        MNN_PRINT(">>>>>>>>>>>>> fuseSets.size = %lu\n", fuseSets.size());
+    }
+#endif
+    for (int i = 0; i < fuseSets.size(); i++) {
+        auto& compSet = fuseSets[i];
         /*
-        // printf("set size: %lu \n", compSet.size());
-        if (true) {
-            for (auto com : compSet) {
-                // json :
-                // { fusedOps: [ { idx:int, srcOps: [name: string], inputs:[name:string], outputs:[name:string] } ], dynlib:string, jitObj:string, module:string }
-                dumpCmd(com->cmd);
-            }
+        for (auto comp : compSet) {
+            dumpCmd(comp->cmd);
         }
         */
-        kernelStr += "[";
-        for (auto com : compSet) {
-            kernelStr += com->cmd->op->name()->str();
-        }
-        kernelStr += "]";
-        InOutTensors tensors = plugin.addFunction(compSet);
+        SourceModule fuseModule(target.get());
+        InOutTensors tensors = fuseModule.buildKernel(compSet, i);
         auto inputs = tensors.first;
         auto outputs = tensors.second;
         // build Plugin Op
-        Command cmdPlugin;
+        SharedPtr<Command> cmdPlugin;
         {
-            std::unique_ptr<OpT> pluginOp(new OpT);
-            pluginOp->type = OpType_Plugin;
-            pluginOp->name = "JitPluginWrapper";
-            PluginT* plugin_param = new PluginT;
-            plugin_param->type    = "JitPluginWrapper";
-            plugin_param->attr.resize(1);
-            plugin_param->attr[0].reset(new AttributeT);
-            plugin_param->attr[0]->key = "kernel";
-            plugin_param->attr[0]->i = plugin.getFunctionNum() - 1;
-            pluginOp->main.type  = OpParameter_Plugin;
-            pluginOp->main.value = plugin_param;
+            auto sourceCode = fuseModule.codegen();
+            std::unique_ptr<OpT> fuseOp(new OpT);
+            fuseOp->type = OpType_Extra;
+            fuseOp->name = fuseModule.opName();
+            ExtraT* extra_param = new ExtraT;
+            extra_param->type = fuseModule.kernelName();
+            extra_param->info.resize(sourceCode.size() + 1);
+            memcpy(extra_param->info.data(), sourceCode.data(), sourceCode.size() + 1);
+            fuseOp->main.type  = OpParameter_Extra;
+            fuseOp->main.value = extra_param;
             flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, pluginOp.get());
+            auto lastOffset = Op::Pack(builder, fuseOp.get());
             builder.Finish(lastOffset);
             cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
         }
         for (int i = 0; i < compSet.size(); i++) {
             auto cmd = const_cast<Command*>(compSet[i]->cmd);
             if (i == compSet.size()-1) {
-                cmd->op = cmdPlugin.op;
-                cmd->inputs = cmdPlugin.inputs;
-                cmd->outputs = cmdPlugin.outputs;
-                cmd->buffer = cmdPlugin.buffer;
+                cmd->op = cmdPlugin->op;
+                cmd->inputs = cmdPlugin->inputs;
+                cmd->outputs = cmdPlugin->outputs;
+                cmd->buffer = cmdPlugin->buffer;
             } else {
                 cmd->op = nullptr;
-                cmd->buffer.clear();
+                cmd->buffer.reset();
             }
         }
     }
-    for (auto iter = cmd.command.begin(); iter != cmd.command.end();) {
-        if (iter->op == nullptr) {
-            iter = cmd.command.erase(iter);
-        } else {
-            ++iter;
+    // printf(">>> fuse Kernel num: %lu\n", fuseSets.size());
+    for (auto& info : infos) {
+        for (auto iter = info.executeBuffer.command.begin(); iter != info.executeBuffer.command.end();) {
+            if (iter->get()->op == nullptr) {
+                iter = info.executeBuffer.command.erase(iter);
+            } else {
+                ++iter;
+            }
         }
     }
-    size_t id = std::hash<std::string>()(kernelStr);
-    std::unique_ptr<LLVMTarget> target(new LLVMTarget("jit-kenerl-" + std::to_string(id)));
-    target->getModule()->setDataLayout(theJit->getDataLayout());
-    plugin.codegen(target.get());
-    // add module to JIT and compile
-    auto m = target->getThreadSafeModule();
-    auto resourceTracker = theJit->getMainJITDylib().createResourceTracker();
-    theJit->addModule(std::move(m), resourceTracker);
-    theJit->compileAllFunction(plugin.getFunctionNum());
+    return true;
 }
 
-bool opFuse(CommandBuffer& cmd) {
+bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
     std::unordered_map<const Tensor*, Node*> outputTensor;
     // build graph
     std::vector<std::unique_ptr<Node>> graph;
@@ -278,31 +232,37 @@ bool opFuse(CommandBuffer& cmd) {
             preNode->succ.push_back(succNode);
         }
     };
-    for (int i = 0; i < cmd.command.size(); i++) {
-        auto& iter = cmd.command[i];
-        if (!iter.buffer.empty()) {
-            iter.op = flatbuffers::GetMutableRoot<Op>((void*)iter.buffer.data());
-        }
-        std::unique_ptr<Node> node(new Node);
-        node->cmd = &iter;
-        node->topoIndex = i;
-        for (auto input : iter.inputs) {
-            if (TensorUtils::getDescribe(input)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                for (auto& region : TensorUtils::getDescribe(input)->regions) {
-                    insertEdge(region.origin, node.get());
-                }
-            } else {
-                insertEdge(input, node.get());
+    for (int i = 0; i < infos.size(); i++) {
+        auto& info = infos[i];
+        auto& cmdBuffer = info.executeBuffer;
+        for (int j = 0; j < cmdBuffer.command.size(); j++) {
+            auto iter = cmdBuffer.command[j];
+            /*
+            if (iter->buffer.get()) {
+                iter->op = flatbuffers::GetMutableRoot<Op>((void*)iter->buffer);
             }
+            */
+            std::unique_ptr<Node> node(new Node);
+            node->cmd = iter.get();
+            node->topoIndex = i;
+            for (auto input : iter->inputs) {
+                if (!TensorUtils::getDescribe(input)->regions.empty()) {
+                    for (auto& region : TensorUtils::getDescribe(input)->regions) {
+                        insertEdge(region.origin, node.get());
+                    }
+                } else {
+                    insertEdge(input, node.get());
+                }
+            }
+            for (auto output : iter->outputs) {
+                outputTensor[output] = node.get();
+            }
+            graph.push_back(std::move(node));
         }
-        for (auto output : iter.outputs) {
-            outputTensor[output] = node.get();
-        }
-        graph.push_back(std::move(node));
     }
     std::queue<Node*> postDominateNodeQueue;
     // build dominate tree
-    for (int i = graph.size()-1; i >= 0; i--) {
+    for (int i = static_cast<int>(graph.size()) - 1; i >= 0; i--) {
         auto node = graph[i].get();
         if (!node->succ.empty()) {
             auto parent = node->succ[0];
@@ -341,8 +301,19 @@ bool opFuse(CommandBuffer& cmd) {
             postDominateNodeQueue.push(child);
         }
     }
-    jit(cmd, fuseSets);
-    return true;
+#if 0
+    for (auto compSet : fuseSets) {
+        MNN_PRINT("set size: %lu \n", compSet.size());
+        if (true) {
+            for (auto com : compSet) {
+                // json :
+                // { fusedOps: [ { idx:int, srcOps: [name: string], inputs:[name:string], outputs:[name:string] } ], dynlib:string, jitObj:string, module:string }
+                dumpCmd(com->cmd);
+            }
+        }
+    }
+#endif
+    return codegen(infos, fuseSets, type);
 }
 } // namespace MNN
 

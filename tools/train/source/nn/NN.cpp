@@ -750,7 +750,8 @@ public:
         xx = _Im2Col(xx, {alphaW, alphaH}, {1, 1}, {0, 0}, {unitW, unitH});
         // [N * h_unit_num * w_unit_num, ic, alphaH, alphaW]
         xx = _Transpose(_Reshape(xx, {inChannel, alphaH, alphaW, -1}), {3, 0, 1, 2});
-        Math::WinogradGenerater genH(unitH, kernelH), genW(unitW, kernelW);
+        // Must be the same as ConvInt8Winograd.cpp
+        Math::WinogradGenerater genH(unitH, kernelH,  1, true), genW(unitW, kernelW,  1, true);
         auto srcTransH = _Const(genH.B()->host<void>(), {alphaH, alphaH}, NCHW);
         auto srcTransW = _Const(genW.B()->host<void>(), {alphaW, alphaW}, NCHW);
         xx = _MatMul(_MatMul(_Transpose(srcTransH, {1, 0}), xx), srcTransW);
@@ -769,9 +770,10 @@ public:
         auto ww = _MatMul(_MatMul(wTransH, weight), _Transpose(wTransW, {1, 0}));
         // [alphaH * alphaW, oc, ic]
         ww = _Transpose(_Reshape(ww, {outChannel, inChannel, -1}), {2, 0, 1});
+        auto wwInfo = ww->getInfo();
         
         // simulate weight quant
-        auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {1, 2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
+        auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
 //        ww = clamp(_Round(ww * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
         setParameter(weightScale, mWinogradTransWeightScalePos);
         
@@ -813,6 +815,13 @@ public:
             // simulate output quant to get original output scale
             if (mWinogradAttr != nullptr && bestWinogradUnit(x)) {
                 res = _winogradConv(x, weightTemp);
+#ifdef MNN_WINOGRAD_DEBUG
+                VARP res2 = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
+                            mOption.dilate, mGroup, mOption.pads);
+                auto diff = res2 - res;
+                diff = diff * diff;
+                FUNC_PRINT_ALL(_ReduceMax(diff)->readMap<float>()[0], f);
+#endif
             } else {
                 res = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
                             mOption.dilate, mGroup, mOption.pads);

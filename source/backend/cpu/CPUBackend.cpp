@@ -320,10 +320,10 @@ static OpType _getRealOpType(OpType opType) {
             return OpType_ConvInt8;
         case OpType_ConvolutionDepthwise:
             return OpType_DepthwiseConvInt8;
-        /*
+        
         case OpType_Pooling:
             return OpType_PoolInt8;
-        */
+        
         // case OpType_Eltwise:
         //     // TODO: just support EltwiseAdd
         //     return OpType_EltwiseInt8;

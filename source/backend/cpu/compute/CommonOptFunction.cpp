@@ -103,6 +103,77 @@ void MNNUnpackC4Common(T* dst, const T* src, size_t area, size_t depth, int* are
     }
 }
 
+template<typename T>
+void MNNPackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC2     = depth / 2;
+    int depthRemain = depthC2 * 2;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[2];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC2; ++z) {
+        auto dstZ = dst + z * areaOffset[1] * 2;
+        for(y = 0; y < 2; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < 2; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+        }
+        srcOffset += areaOffset[0] * 2;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC2 * areaOffset[1] * 2;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+            for(y = remain; y < 2; ++y) {
+                dstZ[0] = 0;
+                dstZ++;
+            }
+        }
+    }
+}
+
+template<typename T>
+void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC2     = depth / 2;
+    int depthRemain = depthC2 * 2;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[2];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC2; ++z) {
+        for(y = 0; y < 2; ++y) {
+            auto dstZ = dst + (z * 2 + y) * areaOffset[1];
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 2;
+            }
+        }
+        srcOffset += areaOffset[0] * 2;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC2 * areaOffset[1] * 2;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 2;
+            }
+            dstZ += areaOffset[1];
+        }
+    }
+}
+
 /*
     source: source matrix is h x l
     transpose: if false, export compressed matrix as h x l, other export as l x h.
@@ -1675,10 +1746,10 @@ void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) 
         }
     }
     Vec4::save(dst, max);
- }
+}
 
 void MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec4 res = Vec4(-FLT_MAX);
@@ -1704,7 +1775,7 @@ void MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<
 
 void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
     float invSamplingCnt = 1.f / samplingRatioArea;
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec4 res = Vec4(0.f);
@@ -2901,4 +2972,27 @@ void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, in
         areaOffset,
     };
     MNNPackC4(dst, src, area, depth, offset);
+}
+
+void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset) {
+    MNNPackC2Common<double>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset) {
+    MNNUnpackC2Common<double>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNUnpackC2(dst, src, area, depth, offset);
+}
+void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNPackC2(dst, src, area, depth, offset);
 }

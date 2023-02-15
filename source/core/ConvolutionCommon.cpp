@@ -496,6 +496,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         return false;
     }
     if (conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
+        // Compability for old model
         MNN_ASSERT(conv2d->symmetricQuan()->bias()->size() == outputCount && conv2d->symmetricQuan()->scale()->size() == outputCount);
         ::memcpy(bias, conv2d->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
         ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));

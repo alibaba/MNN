@@ -1,8 +1,8 @@
 //
-//  OpenCLPluginModule.cpp
-//  MNNCodegen
+//  OpenCLTarget.cpp
+//  MNN
 //
-//  Created by MNN on 2020/12/29.
+//  Created by MNN on 2022/11/14.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #include <string>
@@ -13,13 +13,12 @@
 
 #include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
-#include "PluginModule.hpp"
 
 using namespace MNN;
 
-class OpenCLPluginModule::OpenCLPluginFunction {
+class OpenCLTarget {
 public:
-    OpenCLPluginFunction(std::vector<Node*>& nodes, int idx) : nodes(nodes) {
+    OpenCLTarget(std::vector<Node*>& nodes, int idx) : nodes(nodes) {
         sort(nodes.begin(), nodes.end(), [](Node* x, Node* y) { return x->topoIndex < y->topoIndex; });
         // 1. gen kernel body
         std::stringstream kernelBody;
@@ -33,6 +32,9 @@ public:
         kernelBody << getIndent() << "GET_CHECK\n";
         // now just deal elemwise
         kernelBody << addElemwiseOp(nodes);
+        //addElemwiseOp(nodes);
+        //kernelBody << "\twrite_imagef(output_0, pos, read_imagef(input_0, SAMPLER, pos));\n";
+        // kernelBody << "write_imagef(output_0, pos, (float4)(1.0, 1.0, 1.0, 1.0));\n";
         up();
         kernelBody << "}\n";
         // 2. gen kernel prototype
@@ -47,7 +49,7 @@ public:
             kernelProto << "__write_only image2d_t " << varMap[output] << ", ";
         }
         // c) dims info
-        kernelProto << "__private const int h, __private const int w)";
+        kernelProto << "__private const int global_size_dim0, __private const int global_size_dim1, __private const int global_size_dim2)";
         // 3. append to kernel
         kernelCode.append(kernelProto.str());
         kernelCode.append(kernelBody.str());
@@ -65,7 +67,14 @@ private:
             std::vector<std::string> inputs(cmd->inputs.size());
             for (int i = 0; i < cmd->inputs.size(); i++) {
                 if (cacheMap.find(cmd->inputs[i]) == cacheMap.end()) {
-                    inputs[i] = readPixel(getNameByTensor(cmd->inputs[i], true), pos);
+                    if (cmd->inputs[i]->shape().empty() && TensorUtils::getDescribe(cmd->inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
+                        float val = cmd->inputs[i]->host<float>()[0];
+                        std::stringstream ssval;
+                        ssval << "((float4)(" << val << "))";
+                        inputs[i] = ssval.str();
+                    } else {
+                        inputs[i] = readPixel(getNameByTensor(cmd->inputs[i], true), pos);
+                    }
                 } else {
                     inputs[i] = cacheMap[cmd->inputs[i]];
                     cacheMap.erase(cmd->inputs[i]);
@@ -280,19 +289,17 @@ private:
     int indent = 0;
 };
 
-void OpenCLPluginModule::codegen() {
-    std::ofstream sourceFile("./kernel.cl");
-    if (!sourceFile.is_open()) {
-        return;
-    }
-    sourceFile << "#define GET_CHECK\\\n\
-        const int x = get_global_id(0), y = get_global_id(1);\\\n\
-        if (x >= h || y >= w) { return; }\\\n\
-        const int2 pos = (int2)(x, y);\n";
-    sourceFile << "__constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;\n";
+std::string OpenCLPluginModule::codegen() {
+    std::stringstream sourceCode;
+    sourceCode << "#define GET_CHECK\\\n\
+        const int c = get_global_id(0), w = get_global_id(1), hb = get_global_id(2);\\\n\
+        if (c >= global_size_dim0 || w >= global_size_dim1 || hb >= global_size_dim2) { return; }\\\n\
+        const int2 pos = (int2)(mad24(c, global_size_dim1, w), hb);\n";
+    sourceCode << "__constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;\n";
     for (int i = 0; i < getFunctionNum(); i++) {
-        sourceFile << functions[i]->codegen();
+        sourceCode << functions[i]->codegen();
     }
+    return sourceCode.str();
 }
 
 InOutTensors OpenCLPluginModule::addFunction(std::vector<Node*> nodes) {
@@ -301,8 +308,3 @@ InOutTensors OpenCLPluginModule::addFunction(std::vector<Node*> nodes) {
     functions.emplace_back(std::move(func));
     return res;
 }
-
-OpenCLPluginModule::OpenCLPluginModule() {}
-OpenCLPluginModule::~OpenCLPluginModule() = default;
-OpenCLPluginModule::OpenCLPluginModule(OpenCLPluginModule&& m) = default;
-OpenCLPluginModule& OpenCLPluginModule::operator=(OpenCLPluginModule&& m) = default;

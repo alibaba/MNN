@@ -128,6 +128,7 @@ public:
             return mInside;
         }
     private:
+        std::mutex mLock;
         RuntimeAttr* mInside;
         friend class StaticModule;
         RuntimeManager();

@@ -45,7 +45,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     auto context = (__bridge MNNMetalContext *)backend->context();
 
     // create const buffer
-    int constants[] = {is, ic_4, ow, oh, os, oc_4, ob, mActivationType};
+    int constants[] = {is, ic_4, ow, oh, os, oc_4, oc, ob, mActivationType};
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
@@ -91,7 +91,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         int itemW[total_kernel] = {4, 2, 2, 2, 4};
         int itemH[total_kernel] = {2, 2, 1, 2, 4};
         int itemC[total_kernel] = {4, 4, 8, 8, 4};
-     
+        
         int actual_kernel = 5;
         std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         

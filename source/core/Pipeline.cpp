@@ -60,15 +60,14 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             } else {
                 return false;
             }
-        /*
         case OpType_Pooling:
-            // now just maxpool support quant
-            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL) {
-                return qtype;
+            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL ) {
+                return true;
+            } else if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_AVEPOOL) {
+                return true;
             } else {
-                return defaultType;
+                return false;
             }
-        */
         default:
             return false;
     }
@@ -256,7 +255,7 @@ ErrorCode Pipeline::encode(bool supportDebug) {
                 propagateMap[s].insert(t);
             }
         };
-        std::set<OpType> propagateOpTypes = { OpType_Raster, OpType_ReLU, OpType_ReLU6,
+        std::set<OpType> propagateOpTypes = { OpType_Raster, OpType_ReLU, OpType_ReLU6, OpType_Pooling,
                                               OpType_Interp, OpType_CropAndResize, OpType_ROIPooling, OpType_Gather,
                                               OpType_GatherV2, OpType_GatherV2, OpType_ScatterNd };
         for (auto& info : mInfo.second) {

@@ -28,7 +28,7 @@ std::string FunctionAST::codegen(SourceTarget* target) {
     return ss.str();
 }
 
-std::string ListExprAST::codegen(SourceTarget* target) {
+std::string ListExpr::codegen(SourceTarget* target) {
     std::stringstream ss;
     for (auto& expr : exprs) {
         ss << expr->codegen(target);
@@ -36,10 +36,10 @@ std::string ListExprAST::codegen(SourceTarget* target) {
     return ss.str();
 }
 
-std::string VarExprAST::codegen(SourceTarget* target) {
+std::string VarExpr::codegen(SourceTarget* target) {
 }
 
-std::string ForExprAST::codegen(SourceTarget* target) {
+std::string ForExpr::codegen(SourceTarget* target) {
     std::stringstream ss;
     ss << target->getIndent() << "for (int ";
     ss << VarName << " = " << Start->codegen(target) << "; ";
@@ -52,19 +52,19 @@ std::string ForExprAST::codegen(SourceTarget* target) {
     return ss.str();
 }
 
-std::string IfExprAST::codegen(SourceTarget* target) {
+std::string IfExpr::codegen(SourceTarget* target) {
 }
 
-std::string CallExprAST::codegen(SourceTarget* target) {
+std::string CallExpr::codegen(SourceTarget* target) {
 }
 
-std::string AssignExprAST::codegen(SourceTarget* target) {
+std::string AssignExpr::codegen(SourceTarget* target) {
     std::stringstream ss;
     ss << target->getIndent() << LHS->codegen(target) << " = " << RHS->codegen(target) << ";\n";
     return ss.str();
 }
 
-std::string BinaryExprAST::codegen(SourceTarget *target) {
+std::string BinaryExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     auto l = LHS->codegen(target);
     auto r = RHS->codegen(target);
@@ -115,7 +115,7 @@ std::string BinaryExprAST::codegen(SourceTarget *target) {
     return ss.str();
 }
 
-std::string ReluExprAST::codegen(SourceTarget *target) {
+std::string ReluExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     auto x = Operand->codegen(target);
     if (maxVal == 0.f) {
@@ -129,7 +129,7 @@ std::string ReluExprAST::codegen(SourceTarget *target) {
     return ss.str();
 }
 
-std::string UnaryExprAST::codegen(SourceTarget *target) {
+std::string UnaryExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     auto x = Operand->codegen(target);
     switch (Op) {
@@ -184,19 +184,19 @@ std::string UnaryExprAST::codegen(SourceTarget *target) {
     return ss.str();
 }
 
-std::string SubscriptExprAST::codegen(SourceTarget *target) {
+std::string SubscriptExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     ss << Base->codegen(target) << "[" << Offset->codegen(target) << "]";
     return ss.str();
 }
 
-std::string VariableExprAST::codegen(SourceTarget *target) {
+std::string VariableExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     ss << Name;
     return ss.str();
 }
 
-std::string NumberExprAST::codegen(SourceTarget *target) {
+std::string NumberExpr::codegen(SourceTarget *target) {
     std::stringstream ss;
     switch (mType) {
         case FP32:

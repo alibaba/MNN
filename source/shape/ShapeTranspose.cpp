@@ -25,6 +25,9 @@ class TransposeComputer : public SizeComputer {
         outputs[0]->buffer().type = input->getType();
         for (int i = 0; i < dims; ++i) {
             const int32_t d                    = permutation[i];
+            if (d < 0 || d >= dims) {
+                return false;
+            }
             outputs[0]->buffer().dim[i].extent = input->buffer().dim[d].extent;
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

@@ -1,7 +1,9 @@
 #include <map> 
 #include <string> 
 #include <vector> 
+#include <mutex> 
 namespace MNN { 
+std::mutex gCLMutex;
 extern const std::map<std::string, std::vector<unsigned char>> OpenCLProgramMap = 
  { 
 {
