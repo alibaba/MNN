@@ -4,8 +4,6 @@ namespace CUDA {
 
 #define CUDA_KERNEL_LOOP(i, n) for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
-
-
 #define FINAL_MASK 0xffffffff
 
 template <typename T>
@@ -73,6 +71,53 @@ void input_layernorm(T* out, const T* input, const float* gamma, const float* be
         res = res * (float)(__ldg(&gamma[idx*256 + tid])) + (float)(__ldg(&beta[idx*256 + tid]));
     }
     out[blockIdx.x * n + idx*256+tid] = (T)res;
+  }
+}
+
+template <typename T>
+__global__ 
+void input_layernorm_320(T* out, const T* input, const float* gamma, const float* beta, int m, int n, const float epsilon)
+{
+  int tid = threadIdx.x;
+
+  __shared__ float s_mean;
+  __shared__ float s_variance;
+  float mean =  0.0f;
+  float variance = 0.0f;
+
+  float local_out = 0.0f;
+
+  float value_tmp[5];
+  value_tmp[0] = input[blockIdx.x * n + 0*64 + tid];
+  value_tmp[1] = input[blockIdx.x * n + 1*64 + tid];
+  value_tmp[2] = input[blockIdx.x * n + 2*64 + tid];
+  value_tmp[3] = input[blockIdx.x * n + 3*64 + tid];
+  value_tmp[4] = input[blockIdx.x * n + 4*64 + tid];
+
+  for(int idx=0; idx<5; idx++) {
+    local_out += value_tmp[idx];
+  }
+
+  mean = blockReduceSum<float>(local_out);
+  if(threadIdx.x == 0)
+    s_mean = mean / n;
+  __syncthreads();
+
+  float var_tmp = 0.0f;
+  for(int idx=0; idx<5; idx++) {
+    var_tmp += ((value_tmp[idx] - s_mean) * (value_tmp[idx] - s_mean));
+  }
+  variance += blockReduceSum<float>(var_tmp);
+  if(threadIdx.x == 0)
+    s_variance = variance / n + epsilon;
+  __syncthreads();
+
+  for(int idx=0; idx<5; idx++) {
+    float res = ((value_tmp[idx] - s_mean) * rsqrtf(s_variance));
+    if(gamma != nullptr && beta != nullptr) {
+        res = res * (float)(__ldg(&gamma[idx*64 + tid])) + (float)(__ldg(&beta[idx*64 + tid]));
+    }
+    out[blockIdx.x * n + idx*64+tid] = (T)res;
   }
 }
 
@@ -338,6 +383,8 @@ ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, con
     int threads_num = runtime->threads_num();
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
+
+    //printf("ln:%d-%d\n", mOutside, mInside);
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         if(mInside < 128) {
             LAYERNORM<<<block_num, threads_num>>>(mOutside*mInside, mOutside, mInside, mEps, (const half *)input_addr, (half *)output_addr,
@@ -351,6 +398,9 @@ ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, con
                     (const float *)mDeviceBeta, mOutside, mInside, mEps);
             } else if(mInside == 512) {
                 input_layernorm_512<<<mOutside, 256>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
+                    (const float *)mDeviceBeta, mOutside, mInside, mEps);
+            } else if(mInside == 320) {
+                input_layernorm_320<<<mOutside, 64>>>((half *)output_addr, (const half *)input_addr, (const float *)mDeviceGamma, 
                     (const float *)mDeviceBeta, mOutside, mInside, mEps);
             } else {
                 int sumPerKnl = (mInside+255) / 256;
@@ -373,6 +423,9 @@ ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, con
                 (const float *)mDeviceBeta, mOutside, mInside, mEps);
         } else if(mInside == 512) {
             input_layernorm_512<<<mOutside, 256>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
+                (const float *)mDeviceBeta, mOutside, mInside, mEps);
+        } else if(mInside == 320) {
+            input_layernorm_320<<<mOutside, 64>>>((float *)output_addr, (const float *)input_addr, (const float *)mDeviceGamma, 
                 (const float *)mDeviceBeta, mOutside, mInside, mEps);
         } else {
             int sumPerKnl = (mInside+255) / 256;

@@ -170,6 +170,23 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     return result;
 }
 
+- (id<MTLComputePipelineState>)pipelineWithSource:(NSString *)source name:(NSString *)name {
+    NSError *err = nil;
+    auto library = [_device newLibraryWithSource:source options:nil error:&err];
+    if (nil == library) {
+        if (err) {
+            NSLog(@"Warning: pipelineWithSource error: %@", err);
+        }
+        return nil;
+    }
+    id<MTLFunction> function = [library newFunctionWithName:name];
+    NSError *error = nil;
+    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&error];
+    if (result)
+        _caches[name] = result;
+    return result;
+}
+
 - (id<MTLComputeCommandEncoder>)encoder {
     id<MTLComputeCommandEncoder> result = [_commandBuffer computeCommandEncoder];
 #if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK

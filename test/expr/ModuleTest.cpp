@@ -428,6 +428,7 @@ public:
             sconfig.numThread = 4;
             std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
             std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+            rtMgr->setHint(Interpreter::STRICT_CHECK_MODEL, 0);
             interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
         }
         auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
@@ -453,6 +454,57 @@ public:
     }
 };
 MNNTestSuiteRegister(ModuleTestSpeed, "expr/ModuleTestSpeed");
+
+class SpecialSessionTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        {
+            int expect = 5;
+            auto x = _Input({10}, NHWC, halide_type_of<int>());
+            auto y = _Scalar<int>(expect);
+            auto z = x * x + y;
+            z->setName("test");
+            auto res = z + y;
+            auto buffer = Variable::save({res});
+            std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)buffer.data(), buffer.size()), Interpreter::destroy);
+            ScheduleConfig config;
+            config.numThread = 1;
+            net->setSessionMode(Interpreter::Session_Debug);
+            auto session = net->createSession(config);
+            
+            int directValue = -1;
+            int copyValue = -1;
+            MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+                auto origin = ntensors[1];
+                if (opName == "test") {
+                    directValue = origin->host<int>()[0];
+                    std::shared_ptr<MNN::Tensor> copyTensor(new MNN::Tensor(origin, MNN::Tensor::TENSORFLOW));
+                    origin->copyToHostTensor(copyTensor.get());
+                    copyValue = copyTensor->host<int>()[0];
+                }
+                return true;
+            };
+            MNN::TensorCallBack afterCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+                if (opName == "test") {
+                    return false;
+                }
+                return true;
+            };
+            net->runSessionWithCallBack(session, beforeCallBack, afterCallBack);
+            if (expect != directValue) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            if (expect != copyValue) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        return true;
+    }
+
+};
+MNNTestSuiteRegister(SpecialSessionTest, "expr/SpecialSessionTest");
 
 class SessionTest : public MNNTestCase {
 public:

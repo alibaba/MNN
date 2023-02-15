@@ -118,7 +118,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
                     info.type = Schedule::CONSTANT;
                     hasConst  = true;
                 }
-            }
+              }
         }
     }
     for (auto& info : infos) {
@@ -287,14 +287,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
         }
     }
+
+    
 #ifdef MNN_BUILD_CODEGEN
-    // fuse op and codegen
-    // TODO: Merge CommandBuffer and then Fuse
-    {
-        for (auto& buf : buffer) {
-            opFuse(buf);
-        }
-    }
+    opFuse(infos, geoContext.forwardType());
 #endif
     return NO_ERROR;
 }

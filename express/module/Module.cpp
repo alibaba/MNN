@@ -320,6 +320,17 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         MNN_ERROR("Invalid runtime\n");
         return nullptr;
     }
+    bool checkMNNBuffer = true;
+    if (nullptr != _rtMgr) {
+        checkMNNBuffer = _rtMgr->getInside()->checkNetBuffer;
+    }
+    if (checkMNNBuffer) {
+        flatbuffers::Verifier verify(buffer, length);
+        if (false == VerifyNetBuffer(verify)) {
+            MNN_PRINT("Invalidate buffer to create MNN Module\n");
+            return nullptr;
+        }
+    }
     // Check Auto Inputs and Outputs
     auto net = GetNet(buffer);
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {

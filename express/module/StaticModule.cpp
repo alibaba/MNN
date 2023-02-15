@@ -40,29 +40,32 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 auto tempInput = info.inputs[0];
                 auto tempOutput = info.outputs[0];
                 auto common = conv2d->common();
-                int ow = 2, oh = 2;
-                int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
-                int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
-                TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
-                tempInput->setLength(0, 1);
-                tempInput->setLength(1, conv2d->common()->inputCount());
-                tempInput->setLength(2, ih);
-                tempInput->setLength(3, iw);
-                TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
-                tempOutput->setLength(0, 1);
-                tempOutput->setLength(1, conv2d->common()->outputCount());
-                tempOutput->setLength(2, oh);
-                tempOutput->setLength(3, ow);
-                if (op->main_as_Convolution2D()->quanParameter()) {
-                    type = DataType_DT_INT8;
-                    int inputIdx = op->inputIndexes()->Get(0);
-                    auto& inputQuantAttr = TensorUtils::getDescribe(tempInput)->quantAttr;
-                    if (nullptr != inputQuantAttr.get()) {
-                        TensorUtils::getDescribe(tempInput)->type = DataType_DT_INT8;
-                    }
-                    auto& outputQuantAttr = TensorUtils::getDescribe(tempOutput)->quantAttr;
-                    if (nullptr != outputQuantAttr.get()) {
-                        TensorUtils::getDescribe(tempOutput)->type = DataType_DT_INT8;
+                if (scheduleInfo.pipelineInfo[0].first.needComputeGeometry) {
+                    // Set default shape to create execution
+                    int ow = 2, oh = 2;
+                    int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
+                    int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
+                    TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                    tempInput->setLength(0, 1);
+                    tempInput->setLength(1, conv2d->common()->inputCount());
+                    tempInput->setLength(2, ih);
+                    tempInput->setLength(3, iw);
+                    TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                    tempOutput->setLength(0, 1);
+                    tempOutput->setLength(1, conv2d->common()->outputCount());
+                    tempOutput->setLength(2, oh);
+                    tempOutput->setLength(3, ow);
+                    if (op->main_as_Convolution2D()->quanParameter()) {
+                        type = DataType_DT_INT8;
+                        int inputIdx = op->inputIndexes()->Get(0);
+                        auto& inputQuantAttr = TensorUtils::getDescribe(tempInput)->quantAttr;
+                        if (nullptr != inputQuantAttr.get()) {
+                            TensorUtils::getDescribe(tempInput)->type = DataType_DT_INT8;
+                        }
+                        auto& outputQuantAttr = TensorUtils::getDescribe(tempOutput)->quantAttr;
+                        if (nullptr != outputQuantAttr.get()) {
+                            TensorUtils::getDescribe(tempOutput)->type = DataType_DT_INT8;
+                        }
                     }
                 }
                 exe.reset(backend->onCreate(info.inputs, info.outputs, op));
@@ -101,6 +104,7 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
         buf->storage = opBuilder.ReleaseRaw(buf->allocated_size, buf->offset);
         info.op = flatbuffers::GetRoot<Op>(buf->buffer());
         if (nullptr != exe) {
+            // Clone Execution to reset op info
             Execution* dstExe;
             exe->onClone(exe->backend(), info.op, &dstExe);
             std::shared_ptr<Execution> dstExeP(dstExe);
@@ -425,6 +429,8 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
         } else if (backend == pipelineInfo.first.cache.second.get()) {
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
+        } else if (backend == mResource->mSharedConst->defaultBackend.get()) {
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = mResource->mSharedConst->defaultBackend;
         }
     }
 

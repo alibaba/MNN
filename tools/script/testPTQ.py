@@ -28,11 +28,11 @@ def parseRes(res):
     avgp /= len(items) 
     return idxs, avgp
 
-def compare(origin, quant):
+def compare(origin, quant, jsonFile):
     img_dir = '../resource/images'
     for name in os.listdir(img_dir):
-        origin_res = run_cmd(['./pictureRecognition_module.out', origin, img_dir + '/' + name])
-        quant_res = run_cmd(['./pictureRecognition_module.out', quant, img_dir + '/' + name])
+        origin_res = run_cmd(['./pictureRecognition_module.out', origin, jsonFile, img_dir + '/' + name])
+        quant_res = run_cmd(['./pictureRecognition_module.out', quant, jsonFile, img_dir + '/' + name])
         # print(origin_res, quant_res)
         originIdx, originPoint = parseRes(origin_res)
         quantIdx, quantPoint = parseRes(quant_res)
@@ -56,7 +56,7 @@ def test(modelpath, path):
     message = run_cmd(['./quantized.out', originModel, quantModel, path + '/test.json'])
     res = True
     try:
-        res = compare(originModel, quantModel)
+        res = compare(originModel, quantModel, jsonFile)
     except:
         print('Quant Error!')
         res = False

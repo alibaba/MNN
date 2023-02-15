@@ -264,7 +264,16 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
     }
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
-    mInside->modes.maxTuningNumber = value;
+    switch (mode) {
+        case Interpreter::MAX_TUNING_NUMBER:
+            mInside->modes.maxTuningNumber = value;
+            break;
+        case Interpreter::STRICT_CHECK_MODEL:
+            mInside->checkNetBuffer = value > 0;
+            break;
+        default:
+            break;
+    }
 }
 bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
     // Only support get memory
@@ -355,6 +364,8 @@ BackendConfig* Executor::RuntimeManager::getBnConfig() {
 
 
 void Executor::RuntimeManager::setCache(std::string cacheName) {
+    std::lock_guard<std::mutex> _l(mLock);
+
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
     if (nullptr == mInside->mCache->cacheFile.c_str()) {
@@ -398,6 +409,8 @@ void Executor::RuntimeManager::setExternalFile(std::string fileName) {
 }
 
 void Executor::RuntimeManager::updateCache() {
+    std::lock_guard<std::mutex> _l(mLock);
+
     // Backend_Auto and no Async work, then don't need updateCache
     if(mInside->modes.backendMode == Interpreter::Session_Backend_Auto && !(mInside->mInfo->hasAsyncWork())) {
         return;

@@ -323,7 +323,11 @@ static void _computeTensorMask(SubModuleInfo& m, const Net* net) {
 }
 
 static bool isBreakOp(const Op* op) {
-    if (op->type() == OpType_If || op->type() == OpType_While || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
+    bool isWhileControlflow = false;
+    if (op->type() == OpType_While && op->main_as_WhileParam() != nullptr) {
+        isWhileControlflow = true;
+    }
+    if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
         return true;
     }
     return false;
@@ -505,7 +509,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferSto
     return submodule;
 }
 
-static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, bool needGeometry) {
     auto net = flatbuffers::GetRoot<Net>(bufferStorage->buffer());
     if (1 == info.opList.size()) {
         auto op = net->oplists()->GetAs<Op>(info.opList[0]);
@@ -564,8 +568,8 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
         compute.user      = nullptr;
     }
     bnCache.info = std::move(compute);
+    bnCache.needComputeGeometry = needGeometry;
     scheduleInfo.pipelineInfo.emplace_back(std::make_pair(std::move(bnCache), std::move(oplists)));
-    //std::vector<int>&& inputs, std::vector<int>&& outputs, std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo, bool prearrange, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode, RuntimeInfo&& rt
 
     std::vector<std::shared_ptr<BufferStorage>> buffers = {bufferStorage};
 
@@ -599,6 +603,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto buffer = bufferStorage->buffer();
     auto length = bufferStorage->size();
     auto net = GetNet(buffer);
+    bool needGeometry = net->usage() != Usage_INFERENCE_STATIC;
     // Extra Const Tensors
     sharedConst.reset(new Schedule::ScheduleInfo);
     auto curExe = ExecutorScope::Current();
@@ -660,7 +665,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto subModulesInfo = _createSubModuleInfo(bufferStorage, inputIndexes, outputIndexes, noneedComputeIndexes, sharedConst);
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
-        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, rtMgr, *config, sharedConst));
+        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, rtMgr, *config, sharedConst, needGeometry));
     }
     auto result = new PipelineModule;
     result->mInputSize = inputs.size();

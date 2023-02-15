@@ -6,6 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #import "backend/metal/MetalBackend.hpp"
+#define MNN_METAL
+#import <MNN/MNNSharedContext.h>
+
 #if MNN_METAL_ENABLED
 #import <mutex>
 #import "backend/metal/MNNMetalContext.h"
@@ -329,10 +332,12 @@ void MetalBackend::onResizeBegin() {
     mOpEncoders.clear();
     
     // Finish last inference task if needed
-    flushEncoder();
-    auto ctx = (__bridge MNNMetalContext *)context();
-    [ctx commit_net];
-    [ctx wait];
+    if(mComputeEncoder != nil) {
+        flushEncoder();
+        auto ctx = (__bridge MNNMetalContext *)context();
+        [ctx commit_net];
+        [ctx wait];
+    }
 }
 
 void MetalBackend::onResizeEnd() {
@@ -885,4 +890,8 @@ namespace MNN {
 void registerMetalRuntimeCreator() {
 }
 };
+int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
+    return -1;
+}
+
 #endif

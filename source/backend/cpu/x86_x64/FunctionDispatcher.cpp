@@ -66,9 +66,61 @@ void MNNFunctionInit() {
     }
 }
 
+void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor) {
+    int pack = 16;
+    uint32_t f = static_cast<uint32_t>(factor);
+    uint8_t* dstPtr = reinterpret_cast<uint8_t*>(dst);
+    const uint8_t* srcPtr = reinterpret_cast<uint8_t*>(src);
+    for (int ox = 0; ox < outputWidth; ++ox) {
+        std::vector<uint32_t> sum_(pack, 0);
+        for (int y = 0; y < kernely; ++y) {
+            for (int x = 0; x < kernelx; ++x) {
+                const uint8_t *inputPtr = srcPtr + pack* (inputWidth* y + x);
+                for (int idx = 0; idx < pack; ++idx) {
+                    sum_[idx] += *(inputPtr + idx);
+                }
+            }
+        }
+        for (int idx = 0; idx < pack; ++idx) {
+            *(dstPtr + idx) = static_cast<uint8_t>((sum_[idx] * f)>>24);
+        }
+        dstPtr = dstPtr + pack;
+        srcPtr = srcPtr + pack* stridesx;
+    }
+}
+
+void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx) {
+    int pack = 16;
+    for (int ox = 0; ox < outputWidth; ++ox){
+        int ix = ox * stridesx - paddingx;
+        const int kernelx_ = std::min(kernelx, ix + kernelx);
+        ix = std::max(ix, 0);
+        std::vector<int8_t> results(pack, INT8_MIN);
+        // const int indexOutput = 16 * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
+        // const int indexInput = idx + 16 * ((ix + x) + inputWidth * ((iy + y) + inputHeight * (ob + batchsize * oc)));
+        int8_t* dstPtr = dst + pack * ox;
+        const int8_t* srcPtr = src + pack* ix;
+        for (int y = 0; y < kernely; ++y) {
+            for (int x = 0; x < kernelx_; ++x) {
+                const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
+                for (int idx = 0; idx < pack; ++idx)
+                {   
+                    results[idx] = std::max(results[idx], *(inputPtr + idx));
+                }
+            }
+        }
+
+        for (int idx = 0; idx < pack;++idx) {
+            *(dstPtr + idx) = results[idx];
+        }
+    }
+}
+
 void MNNInt8FunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
     auto core = MNN::MNNGetInt8CoreFunctions();
+    core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
+    core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
         core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;

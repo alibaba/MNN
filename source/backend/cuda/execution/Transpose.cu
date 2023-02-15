@@ -23,9 +23,9 @@ __global__ void UNPACKCOMMON_4(const T0 *input, T1 *output,
         int tmp, x, y, z;
         cs.divmod(i, tmp, y);
         is.divmod(tmp, z, x);
-        int srcOffset = (z * inside + x) * axisAlign + y;// NHWC8 , inside <-> HW, ouside <-> N
-        int dstOffset = x * insideStride + y * axisStride + z * inside * axis;
         if (y < axis) {
+            int srcOffset = (z * inside + x) * axisAlign + y;// NHWC8 , inside <-> HW, ouside <-> N
+            int dstOffset = x * insideStride + y * axisStride + z * inside * axis;
             output[dstOffset] = input[srcOffset];
         }
     }

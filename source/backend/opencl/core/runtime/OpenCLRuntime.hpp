@@ -97,6 +97,8 @@ public:
     
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
+    ::cl::Kernel buildKernelFromSource(const std::string&, const std::string &kernelName,
+                                       const std::set<std::string> &buildOptions);
 
     std::vector<size_t> getMaxImage2DSize();
     bool isCreateError() const {

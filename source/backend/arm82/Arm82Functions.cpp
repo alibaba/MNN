@@ -222,7 +222,7 @@ static void MNNRoiPoolingMaxFP16(FLOAT16* dst, const FLOAT16* src, int hLen, int
 }
 
 static void MNNRoiAlignMaxFP16(FLOAT16* dst, const FLOAT16* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * 8) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * 8) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec res = Vec(-65504.0f);
@@ -248,7 +248,7 @@ static void MNNRoiAlignMaxFP16(FLOAT16* dst, const FLOAT16* src, const std::vect
 
 static void MNNRoiAlignAvgFP16(FLOAT16* dst, const FLOAT16* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
     float invSamplingCnt = 1.f / samplingRatioArea;
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * 8) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * 8) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec res = Vec(0.f);

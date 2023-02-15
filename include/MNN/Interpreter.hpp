@@ -185,6 +185,8 @@ public:
     enum HintMode {
         // Max Op number for async tuning
         MAX_TUNING_NUMBER = 0,
+        // Strictly check model file or not, default 1. if set 0, will not check model file valid/invalid
+        STRICT_CHECK_MODEL = 1,
     };
     /**
      * @brief The API shoud be called before create session.
