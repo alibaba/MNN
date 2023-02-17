@@ -381,7 +381,7 @@ int main(int argc, const char* argv[]) {
     int precision = 2;
     float sparsity = 0.0f;
     int sparseBlockOC = 1;
-    if (argc <= 2) {
+    if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity]" << std::endl;
         return 1;
     }
@@ -413,7 +413,7 @@ int main(int argc, const char* argv[]) {
     std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
-    std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
+    std::cout << "--------> Benchmarking... loop = " << loop << ", warmup = " << warmup << std::endl;
 
     /* not called yet */
     // set_cpu_affinity();
