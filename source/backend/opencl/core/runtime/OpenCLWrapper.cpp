@@ -32,6 +32,8 @@ bool OpenCLSymbols::LoadOpenCLLibrary() {
         "libOpenCL.so",
         "libGLES_mali.so",
         "libmali.so",
+        // Google pixel
+        "libOpenCL-pixel.so",
     #if defined(__aarch64__)
         // Qualcomm Adreno
         "/system/vendor/lib64/libOpenCL.so",
@@ -136,17 +138,36 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if (handle_ == nullptr) {
         return false;
     }
+
+    typedef void* (*loadOpenCLPointer_t)(const char* name);
+    typedef void (*enableOpenCL_t)();
+    loadOpenCLPointer_t loadOpenCLPointer = nullptr;
+    enableOpenCL_t enableOpenCL = reinterpret_cast<enableOpenCL_t>(dlsym(handle_, "enableOpenCL"));
+    if (enableOpenCL != nullptr) {
+        enableOpenCL();
+        loadOpenCLPointer = reinterpret_cast<loadOpenCLPointer_t>(dlsym(handle_, "loadOpenCLPointer"));
+    }
+
 #define MNN_LOAD_FUNCTION_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
+        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
+    } \
     if(func_name == nullptr){ \
         mIsError = true; \
     }
     
 #define MNN_LOAD_SVM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
+        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
+    } \
     if(func_name == nullptr){ \
         mSvmError = true; \
     }
     
 #define MNN_LOAD_PROP_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
+        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
+    } \
     if(func_name == nullptr){ \
         mPropError = true; \
     }
