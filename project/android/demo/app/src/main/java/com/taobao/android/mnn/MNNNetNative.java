@@ -25,6 +25,8 @@ public class MNNNetNative {
     //Net
     protected static native long nativeCreateNetFromFile(String modelName);
 
+    protected static native long nativeCreateNetFromBuffer(byte[] buffer);
+
     protected static native long nativeReleaseNet(long netPtr);
 
 

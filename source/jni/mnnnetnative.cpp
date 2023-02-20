@@ -23,6 +23,20 @@ Java_com_taobao_android_mnn_MNNNetNative_nativeCreateNetFromFile(JNIEnv *env, jc
     return (jlong)interpreter;
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_taobao_android_mnn_MNNNetNative_nativeCreateNetFromBuffer(JNIEnv *env, jclass type, jbyteArray jbuffer) {
+    if (nullptr == jbuffer) {
+        return 0;
+    }
+
+    auto length = env->GetArrayLength(jbuffer);
+    auto destBuffer = env->GetByteArrayElements(jbuffer, nullptr);
+    auto interpreter      = MNN::Interpreter::createFromBuffer(destBuffer, length);
+    env->ReleaseByteArrayElements(jbuffer, destBuffer, 0);
+
+    return (jlong)interpreter;
+}
+
 extern "C" JNIEXPORT jlong JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativeReleaseNet(JNIEnv *env, jclass type,
                                                                                              jlong netPtr) {
     if (0 == netPtr) {
