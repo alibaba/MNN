@@ -39,7 +39,7 @@ MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), wh
 - Support FP16 / Int8 qunatize, can reduce model size 50%-70%
 
 ### Versatility
-- Supports `Tensorflow`, `Caffe`, `ONNX`,`Torchscripts` and supports common neural networks such as `CNN`, `RNN`, `GAN`, `Transformork`.
+- Supports `Tensorflow`, `Caffe`, `ONNX`,`Torchscripts` and supports common neural networks such as `CNN`, `RNN`, `GAN`, `Transformer`.
 - Supports AI model with multi-inputs or multi-outputs, every kind of dimenstion format, dynamic inputs, controlflow.
 - MNN supports approximate full OPs used for AI Model. The converter supports 178 `Tensorflow` OPs, 52 `Caffe` OPs, 163 `Torchscripts` OPs, 158 `ONNX` OPs.
 - Supports iOS 8.0+, Android 4.3+ and embedded devices with POSIX interface.
