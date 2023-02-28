@@ -224,8 +224,8 @@ void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* sourceO, size_t count) {
     }
 }
 
-void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
-    auto zero = _mm_set1_epi8(-128);// uint8 128
+void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) {
+    auto zero = _mm_set1_epi8(zeroPoint - 128);// uint8 128
     for (int i = 0; i < size; i+=16) {
         auto x = _mm_castps_si128(_mm_loadu_ps((const float*)(src + i)));
         _mm_storeu_ps((float*)(dst + i), _mm_castsi128_ps(_mm_max_epu8(x, zero)));

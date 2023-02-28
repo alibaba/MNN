@@ -74,6 +74,7 @@ mMaps.insert(std::make_pair("glsl_unary_ROUND_comp", std::make_pair(glsl_unary_R
 mMaps.insert(std::make_pair("glsl_unary_RELU_comp", std::make_pair(glsl_unary_RELU_comp,glsl_unary_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_CLAMP_comp", std::make_pair(glsl_unary_CLAMP_comp,glsl_unary_CLAMP_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_HARDSWISH_comp", std::make_pair(glsl_unary_HARDSWISH_comp,glsl_unary_HARDSWISH_comp_len)));
+mMaps.insert(std::make_pair("glsl_unary_GELU_comp", std::make_pair(glsl_unary_GELU_comp,glsl_unary_GELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_comp", std::make_pair(glsl_reduce_comp,glsl_reduce_comp_len)));

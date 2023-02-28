@@ -9,6 +9,7 @@
 #include "ConvSingleInputExecution.hpp"
 #include "ConvWinogradExecution.hpp"
 #include "ConvCutlassExecution.hpp"
+#include "int8/ConvInt8CutlassExecution.hpp"
 #include "backend/cuda/core/CUDATools.hpp"
 
 namespace MNN {
@@ -49,7 +50,18 @@ public:
     }
 };
 
+
+class CUDAConvolutionInt8Creator : public CUDABackend::Creator {
+public:
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+            const MNN::Op* op, Backend* backend) const override {
+        std::shared_ptr<ConvInt8CutlassExecution::Resource> resource(new ConvInt8CutlassExecution::Resource(backend, op));
+        return new ConvInt8CutlassExecution(backend, op, resource);
+    }
+};
+
 CUDACreatorRegister<CUDAConvolutionCreator> __ConvExecution(OpType_Convolution);
+CUDACreatorRegister<CUDAConvolutionInt8Creator> __ConvInt8Execution(OpType_ConvInt8);
 
 }// namespace CUDA
 }// namespace MNN

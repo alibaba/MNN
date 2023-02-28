@@ -476,76 +476,78 @@ public:
     }
     static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pads, INTS alphas, bool speed, std::string title, bool relu = true) {
         int ic = channel[0], oc = channel[1], iw = inputShape[0], ih = inputShape[1], kx = kernel[0], ky = kernel[1], alpha2 = alphas[0] * alphas[1];
-        
-        VARP x = _Input({1, ic, ih, iw}, NCHW);
-        auto xPtr  = x->writeMap<float>();
-        float xMin = std::numeric_limits<float>::max(), xMax = std::numeric_limits<float>::lowest();
-        for (int i = 0; i < x->getInfo()->size; ++i) {
-            xPtr[i] = i % 128; // x in [0, 127], same as relu output, test asym quant
-            xMin = std::min(xMin, xPtr[i]);
-            xMax = std::max(xMax, xPtr[i]);
-        }
-        float xScale = (xMax - xMin) / (2.0 * 127), yScale = 0.5;
-        int8_t xZeroPoint = roundf((0 - xMin) / xScale - 127), yZeroPoint = 1;
+        for (int batchSize = 1; batchSize <= 3; ++batchSize) {
+            VARP x = _Input({batchSize, ic, ih, iw}, NCHW);
+            auto xPtr  = x->writeMap<float>();
+            float xMin = std::numeric_limits<float>::max(), xMax = std::numeric_limits<float>::lowest();
+            for (int i = 0; i < x->getInfo()->size; ++i) {
+                xPtr[i] = i % 128; // x in [0, 127], same as relu output, test asym quant
+                xMin = std::min(xMin, xPtr[i]);
+                xMax = std::max(xMax, xPtr[i]);
+            }
+            float xScale = (xMax - xMin) / (2.0 * 127), yScale = 0.5;
+            int8_t xZeroPoint = roundf((0 - xMin) / xScale - 127), yZeroPoint = 1;
 
-        int wMin = -3, wMax = 3;
-        std::vector<float> wScale(oc), bias(oc);
-        std::vector<int8_t> weight(oc * ic * ky * kx);
-        for (int oz = 0; oz < oc; ++oz) {
-            wScale[oz] = (oz % 11) * 0.1 + 0.5; // wScale in [0.5, 1.5]
-            bias[oz] = (oz % 5) * 0.5 - 1; // bias in [-1, 1]
-            for (int sz = 0; sz < ic; ++sz) {
-                for (int k = 0; k < ky * kx; ++k) {
-                    weight[(oz * ic + sz) * ky * kx + k] = ((oz * ic + sz) * ky * kx + k) % (wMax - wMin + 1) + wMin;
-                    //weight[(oz * ic + sz) * ky * kx + k] = (oz * oz + sz * sz + k * k) % (wMax - wMin + 1) + wMin; // w in [wMin, wMax]
+            int wMin = -3, wMax = 3;
+            std::vector<float> wScale(oc), bias(oc);
+            std::vector<int8_t> weight(oc * ic * ky * kx);
+            for (int oz = 0; oz < oc; ++oz) {
+                wScale[oz] = (oz % 11) * 0.1 + 0.5; // wScale in [0.5, 1.5]
+                bias[oz] = (oz % 5) * 0.5 - 1; // bias in [-1, 1]
+                for (int sz = 0; sz < ic; ++sz) {
+                    for (int k = 0; k < ky * kx; ++k) {
+                        weight[(oz * ic + sz) * ky * kx + k] = ((oz * ic + sz) * ky * kx + k) % (wMax - wMin + 1) + wMin;
+                        //weight[(oz * ic + sz) * ky * kx + k] = (oz * oz + sz * sz + k * k) % (wMax - wMin + 1) + wMin; // w in [wMin, wMax]
+                    }
                 }
             }
-        }
-        
-        x = _Convert(x, NC4HW4);
-        // For sse we use uint8 instead of int8, use FloatToInt8 to hidden detail
-        x = _FloatToInt8(x, _Scalar<float>(1.0 / xScale), -127, 127, xZeroPoint);
-        
-        WinogradInt8Attr attrs;
-        std::vector<float> transInputScales(alpha2, 0.9), transWeightScales(alpha2 * oc, 1.1);
-        std::vector<int> transInputZeroPoint(alpha2, 1);
-        attrs.add(0, 0, ky, kx, alphas[1] - ky + 1, alphas[0] - kx + 1, transInputScales, transWeightScales, transInputZeroPoint);
-        auto yTarget = referenceWinograd(x, weight, wScale, bias, kernel, channel, pads, attrs.attrs[0], xScale, yScale, xZeroPoint, yZeroPoint, relu);
-        auto y = _Conv(std::move(weight), std::move(bias), std::move(wScale), x, channel,
-                       kernel, CAFFE, {1, 1}, {1, 1}, 1, pads, relu, xScale, yScale, xZeroPoint, yZeroPoint,
-                       -127, 127, 127, false);
-        y = attrs.turnToWinogradConv(y);
-        
-        yTarget = _Convert(_Cast<int>(_Int8ToFloat(yTarget, _Scalar<float>(1.0))), NCHW);
-        y = _Convert(_Cast<int>(_Int8ToFloat(y, _Scalar<float>(1.0))), NCHW);
-        auto yTargetInfo = yTarget->getInfo(), yInfo = y->getInfo();
-        if (yTargetInfo == nullptr || yInfo == nullptr || yTargetInfo->size != yInfo->size) {
-            MNN_ERROR("[ConvInt8WinogradTestCommon] getInfo not match\n");
-            return false;
-        }
-        auto yTargetPtr = yTarget->readMap<int>(), yPtr = y->readMap<int>();
-        if (yTargetPtr == nullptr || yPtr == nullptr) {
-            MNN_ERROR("[ConvInt8WinogradTestCommon] result is nullptr\n");
-            return false;
-        }
-        if (!checkVector<int>(yPtr, yTargetPtr, yInfo->size, 1)) {
-            return false;
-        }
-        if (speed) {
-            x.fix(VARP::INPUT);
-            // warm up, do onResize first for shapeDirty
-            x->writeMap<float>();
-            y->readMap<float>();
             
-            MNN::Timer _t;
-            const int LOOP = 20;
-            for (int i = 0; i < LOOP; ++i) {
+            x = _Convert(x, NC4HW4);
+            // For sse we use uint8 instead of int8, use FloatToInt8 to hidden detail
+            x = _FloatToInt8(x, _Scalar<float>(1.0 / xScale), -127, 127, xZeroPoint);
+            
+            WinogradInt8Attr attrs;
+            std::vector<float> transInputScales(alpha2, 0.9), transWeightScales(alpha2 * oc, 1.1);
+            std::vector<int> transInputZeroPoint(alpha2, 1);
+            attrs.add(0, 0, ky, kx, alphas[1] - ky + 1, alphas[0] - kx + 1, transInputScales, transWeightScales, transInputZeroPoint);
+            auto yTarget = referenceWinograd(x, weight, wScale, bias, kernel, channel, pads, attrs.attrs[0], xScale, yScale, xZeroPoint, yZeroPoint, relu);
+            auto y = _Conv(std::move(weight), std::move(bias), std::move(wScale), x, channel,
+                           kernel, CAFFE, {1, 1}, {1, 1}, 1, pads, relu, xScale, yScale, xZeroPoint, yZeroPoint,
+                           -127, 127, 127, false);
+            y = attrs.turnToWinogradConv(y);
+            
+            yTarget = _Convert(_Cast<int>(_Int8ToFloat(yTarget, _Scalar<float>(1.0))), NCHW);
+            y = _Convert(_Cast<int>(_Int8ToFloat(y, _Scalar<float>(1.0))), NCHW);
+            auto yTargetInfo = yTarget->getInfo(), yInfo = y->getInfo();
+            if (yTargetInfo == nullptr || yInfo == nullptr || yTargetInfo->size != yInfo->size) {
+                MNN_ERROR("[ConvInt8WinogradTestCommon] getInfo not match\n");
+                return false;
+            }
+            auto yTargetPtr = yTarget->readMap<int>(), yPtr = y->readMap<int>();
+            if (yTargetPtr == nullptr || yPtr == nullptr) {
+                MNN_ERROR("[ConvInt8WinogradTestCommon] result is nullptr\n");
+                return false;
+            }
+            if (!checkVector<int>(yPtr, yTargetPtr, yInfo->size, 1)) {
+                MNN_ERROR("[ConvInt8WinogradTestCommon] result error for batchSize = %d\n", batchSize);
+                return false;
+            }
+            if (speed) {
+                x.fix(VARP::INPUT);
+                // warm up, do onResize first for shapeDirty
                 x->writeMap<float>();
                 y->readMap<float>();
+                
+                MNN::Timer _t;
+                const int LOOP = 20;
+                for (int i = 0; i < LOOP; ++i) {
+                    x->writeMap<float>();
+                    y->readMap<float>();
+                }
+                auto time = (float)_t.durationInUs() / 1000.0f;
+                MNN_PRINT("ConvInt8 Winograd %s input=(1x%dx%dx%d) kernel=(%dx%dx%dx%d) avg time = %f\n",
+                          title.c_str(), ic, ih, iw, oc, ic, ky, kx, 1.0 * time / LOOP);
             }
-            auto time = (float)_t.durationInUs() / 1000.0f;
-            MNN_PRINT("ConvInt8 Winograd %s input=(1x%dx%dx%d) kernel=(%dx%dx%dx%d) avg time = %f\n",
-                      title.c_str(), ic, ih, iw, oc, ic, ky, kx, 1.0 * time / LOOP);
         }
         return true;
     }

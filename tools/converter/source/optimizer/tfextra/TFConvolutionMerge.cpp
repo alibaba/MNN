@@ -98,6 +98,9 @@ public:
         if (0 != weight_input) {
             common->group   = num_input / weight_input;
         }
+        if (common->group < 1) {
+            common->group = 1;
+        }
         weight           = _Transpose(weight, {3, 2, 0, 1});
         weightInfo       = weight->getInfo();
         weightTensorData = weight->readMap<float>();

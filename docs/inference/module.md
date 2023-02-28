@@ -124,5 +124,6 @@ std::vector<VARP> outputs  = user_module->onForward(inputs);
 ## 示例代码
 完整的示例代码可以参考`demo/exec/`文件夹中的以下源码文件：
 - `pictureRecognition_module.cpp` 使用`Module`执行图像分类，使用`ImageProcess`进行前处理，`Expr`进行后处理
+- `pictureRecognition_batch.cpp` 使用`Module`执行图像分类，使用`ImageProcess`进行前处理，`Expr`进行后处理
 - `multithread_imgrecog.cpp` 使用`Module`多线程并发执行图像分类，使用`ImageProcess`进行前处理，`Expr`进行后处理
 - `transformerDemo.cpp` 使用`Module`执行Transformer模型推理

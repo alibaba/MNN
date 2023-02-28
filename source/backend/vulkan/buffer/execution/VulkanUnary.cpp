@@ -63,6 +63,7 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_SQRT, "SQRT");
             SETTYPE(UnaryOpOperation_SQUARE, "SQUARE");
             SETTYPE(UnaryOpOperation_LOG, "LOG");
+            SETTYPE(UnaryOpOperation_GELU, "GELU");
 
             SETTYPE(UnaryOpOperation_TAN, "TAN");
             SETTYPE(UnaryOpOperation_COS, "COS");

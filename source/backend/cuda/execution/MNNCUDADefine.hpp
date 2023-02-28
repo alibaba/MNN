@@ -2,6 +2,7 @@
 #define MNNCUDADEFINE_HPP
 
 #define PACK_NUMBER 8
+#define INT8_PACK_NUMBER 16
 
 #define MNN_CUDA_HALF2_MAX(a, b)                     \
     do {                                             \

@@ -999,8 +999,15 @@ void MNNSamplerNV21Copy(const unsigned char* source, unsigned char* dest, MNN::C
     float yMax      = ih - 1;
     int y           = (int)roundf(__clamp(curPoints.fY, 0, yMax));
     int x           = (int)roundf(__clamp(curPoints.fX, 0, xMax));
-    int sourcePosY  = y * (int)iw + x;
-    int sourcePosUV = (int)iw * (int)ih + (y / 2) * (((int)iw + 1) / 2) * 2 + (x / 2) * 2;
+    int stride = (int)yStride;
+    int hstride = (int)yStride;
+    if (yStride == 0) {
+        stride = (int)iw;
+        hstride = (((int)iw + 1) / 2) * 2;
+    }
+
+    int sourcePosY  = y * stride + x;
+    int sourcePosUV = (int)stride * (int)ih + (y / 2) * hstride + (x / 2) * 2;
 
     ::memcpy(dest + sta, source + sourcePosY, count);
     ::memcpy(dest + (capacity) + (sta / 2) * 2, source + sourcePosUV, ((count + 1) / 2) * 2);

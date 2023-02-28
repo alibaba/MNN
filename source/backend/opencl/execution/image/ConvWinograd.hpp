@@ -25,7 +25,7 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    static bool valid(const Convolution2DCommon* common, const Tensor* input, int limit = 8192);
+    static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth, int maxHeight, int limit = 8192);
 
 private:
     OpenCLBackend* mOpenCLBackend;

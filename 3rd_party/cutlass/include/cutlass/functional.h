@@ -82,6 +82,15 @@ struct multiplies {
   }
 };
 
+template <typename T0, typename T1, typename T2>
+struct multiplies_cast {
+  CUTLASS_HOST_DEVICE
+  T2 operator()(T0 lhs, T1 rhs) const {
+    T2 res = (T2)((T1)lhs * (T1)rhs);
+    return res;
+  }
+};
+
 template <typename T>
 struct multiplies<Quaternion<T>> {
   CUTLASS_HOST_DEVICE

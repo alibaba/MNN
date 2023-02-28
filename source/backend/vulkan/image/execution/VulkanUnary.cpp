@@ -73,6 +73,7 @@ static std::string _getMidType(const Op* op) {
             
             SETTYPE(UnaryOpOperation_ROUND, "ROUND");
             SETTYPE(UnaryOpOperation_HARDSWISH, "HARDSWISH");
+            SETTYPE(UnaryOpOperation_GELU, "GELU");
         } while(false);
 #undef SETTYPE
     }

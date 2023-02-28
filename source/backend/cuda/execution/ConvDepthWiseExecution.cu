@@ -663,7 +663,7 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
 
             CONV_DW3x3_HALF2_OPT<<<block_num, threads_num>>>((const half2*)inputs[0]->deviceId(), (const half2*)mResource->mFilter,
                 (const half2*)mResource->mBias, (half2*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p/2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
                 d_oc, d_ow2, d_oh);
             checkKernelErrors;
             return NO_ERROR;
@@ -680,7 +680,7 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
             } else {
                 CONV_DW_HALF2_OPT<<<block_num, threads_num>>>((const half2*)inputs[0]->deviceId(), (const half2*)mResource->mFilter,
                     (const half2*)mResource->mBias, (half2*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p/2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
                     d_oc, d_ow, d_oh);//_HALF_OPT
                 checkKernelErrors;
             }

@@ -105,7 +105,7 @@ for name in os.listdir(root_dir):
         gWrong.append(modelName)
 
 # total model test
-command = 'testModelWithDescrisbe.out.exe' if os.name == 'nt' else './testModelWithDescrisbe.out'
+command = 'testModelWithDescribe.out.exe' if os.name == 'nt' else './testModelWithDescribe.out'
 root_dir = os.path.join(model_root_dir, 'TestWithDescribe')
 print('Model Root Path: ' + root_dir + '\n')
 

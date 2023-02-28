@@ -1,7 +1,5 @@
 IF(MNN_BUILD_CONVERTER)
   SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
-  option(TF_CONVERT_ORIGIN "Fall Back to Origin Model Converter" OFF)
-  option(TFMODEL_OPTIMIZE "Enable tensorflow model optimizer" OFF)
   option(MNN_BUILD_TORCH "Build Converter support TorchScript." OFF)
   IF(MNN_BUILD_PROTOBUFFER)
       SET(Protobuf_LIBRARIES libprotobuf)

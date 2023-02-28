@@ -14,7 +14,7 @@
 
 asm_function MNNAvgPoolInt8
 // void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,
-//                  size_t stridesx, size_t paddingx, size_t factor);
+//                  size_t stridesx, ssize_t paddingx, ssize_t factor);
 // Auto load: x0: dst, x1: src, x2: outputWidth, x3: inputWidth, x4: kernelx, x5: kernely, x6: stridesx, x7: paddingx
 
 // Load from sp:
@@ -27,15 +27,16 @@ str x19, [sp, #0]
 str x20, [sp, #8]
 str x21, [sp, #16]
 
+cmp x4, #0
+ble END
+cmp x5, #0
+ble END
+
 mov x8, #16
 mul x8, x8, x6      // x8: 16*stridesx
 
 mov x9, #16
 mul x9, x9, x3        // x9: 16*inputWidth
-
-cmp x7, #0            // x7: -paddingx<0
-blt LM
-
 cmp x2, #2
 blt L1Loop
 
@@ -203,59 +204,6 @@ bge L1Loop
 
 cmp x2, #0
 beq END
-
-/*minusLoop */
-LM:
-movi v0.4s, #0
-movi v1.4s, #0
-movi v2.4s, #0
-movi v3.4s, #0
-
-mov x15, x5             // x5: kernely_
-mov x11, x1
-
-LMLoopY:
-mov x10, x4            // x4: kernelx_
-mov x3, x11              // r6: src
-
-LMLoopX:
-ld1 {v4.4s}, [x3], #16
-sxtl v5.8h, v4.8b
-sxtl2 v6.8h, v4.16b
-
-saddw v0.4s, v0.4s, v5.4h
-saddw2 v1.4s, v1.4s, v5.8h
-saddw v2.4s, v2.4s, v6.4h
-saddw2 v3.4s, v3.4s, v6.8h
-
-sub x10, x10, #1
-cmp x10, #0
-bne LMLoopX
-
-add x11, x11, x9
-sub x15, x15, #1
-cmp x15, #0
-bne LMLoopY
-
-mul v0.4s, v0.4s, v24.4s
-mul v1.4s, v1.4s, v24.4s
-mul v2.4s, v2.4s, v24.4s
-mul v3.4s, v3.4s, v24.4s
-
-sshr v0.4s, v0.4s, #24       // shift right
-sshr v1.4s, v1.4s, #24
-sshr v2.4s, v2.4s, #24
-sshr v3.4s, v3.4s, #24
-
-sqxtn v0.4h, v0.4s
-sqxtn2 v0.8h, v1.4s
-sqxtn v1.4h, v2.4s
-sqxtn2 v1.8h, v3.4s
-
-sqxtn v0.8b, v0.8h
-sqxtn v1.8b, v1.8h
-
-st1 {v0.8b, v1.8b}, [x0], #16
 
 END:
 ldr x19, [sp, #0]

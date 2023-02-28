@@ -1510,11 +1510,10 @@ void MNNSoftmax(float* dest, const float* source, size_t size) {
     }
 }
 
-void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
-    int i;
-    for (i = 0; i < size; ++i) {
-        if (src[i] < 0) {
-            dst[i] = 0;
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) {
+    for (int i = 0; i < size; ++i) {
+        if (src[i] < zeroPoint) {
+            dst[i] = zeroPoint;
         } else {
             dst[i] = src[i];
         }

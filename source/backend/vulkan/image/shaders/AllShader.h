@@ -70,6 +70,8 @@ extern const unsigned char glsl_unaryImage_ROUND_comp[];
 extern unsigned int glsl_unaryImage_ROUND_comp_len;
 extern const unsigned char glsl_unaryImage_HARDSWISH_comp[];
 extern unsigned int glsl_unaryImage_HARDSWISH_comp_len;
+extern const unsigned char glsl_unaryImage_GELU_comp[];
+extern unsigned int glsl_unaryImage_GELU_comp_len;
 extern const unsigned char glsl_im2col_comp[];
 extern unsigned int glsl_im2col_comp_len;
 extern const unsigned char glsl_convolutionDepthwise_comp[];

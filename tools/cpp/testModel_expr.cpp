@@ -52,8 +52,8 @@ inline T stringConvert(const char* number) {
 
 template <typename T>
 static bool compareImpl(MNN::Express::VARP x, MNN::Express::VARP y, int size, double tolerance) {
-#define _ABS(a) (a < 0 ? -a : a)
-#define _MAX(a, b) (a > b ? a : b)
+#define _ABS(a) ((a) < 0 ? -(a) : (a))
+#define _MAX(a, b) ((a) > (b) ? (a) : (b))
     auto px = x->readMap<T>();
     auto py = y->readMap<T>();
     // get max if using overall torelance

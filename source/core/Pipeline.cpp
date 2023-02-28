@@ -244,7 +244,7 @@ ErrorCode Pipeline::encode(bool supportDebug) {
 #endif
     }
     // Propagate Scale and insert new command
-    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION)) {
+    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION || mBackend->type() == MNN_FORWARD_CUDA)) {
         // get propagate map
         using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
         PropagateMap forwardMap, backwardMap;
@@ -735,8 +735,7 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
 #ifdef DEBUG
             for (int v=0; v<iter.outputs.size(); ++v) {
                 auto t = iter.outputs[v];
-                auto des = TensorUtils::getDescribe(t);
-                MNN_ASSERT(des->backend == curBackend);
+                MNN_ASSERT(!WrapExecution::needWrap(t, curBackend));
             }
 #endif
         }
@@ -959,8 +958,7 @@ ErrorCode Pipeline::execute() {
         auto& buffer = info.executeBuffer;
         for (auto& cmdP : buffer.command) {
             auto& cmd = *cmdP;
-            // MNN_PRINT("before run: %p \n", cmd.info.get());
-            // MNN_PRINT("before run: %s \n", cmd.info->name().c_str());
+
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);
             if (NO_ERROR != code) {
                 mBackend->onExecuteEnd();

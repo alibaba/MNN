@@ -762,6 +762,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         tensorConvert(iter.first, iter.second, bytes);
     }
     auto proc = _selectUnitProc(bytes);
+    threadNum = ALIMIN(threadNum, (int)mTempInputCopy.size());
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];

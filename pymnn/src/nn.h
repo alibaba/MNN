@@ -317,79 +317,6 @@ static PyObject* PyMNNRuntimeManager_set_hint(PyMNNRuntimeManager *self, PyObjec
     Py_RETURN_NONE;
 }
 
-static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> getScheduleConfig(PyObject* dict) {
-    std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> result;
-    result.first = false;
-    auto& config = result.second.first;
-    auto& backendConfig = result.second.second;
-    backendConfig.reset(new BackendConfig);
-    config.backendConfig = backendConfig.get();
-
-    if (dict) {
-        PyObject *backend = PyDict_GetItemString(dict, "backend");
-        config.type = MNN_FORWARD_CPU;
-        if (backend && checkString(backend)) {
-            auto backend_name = object2String(backend);
-            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
-            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
-            std::unordered_map<std::string, MNNForwardType> backend_map = {
-                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
-                // which make MNN.whl setup.py easy
-                {"CPU", MNN_FORWARD_CPU},
-                {"OPENCL", MNN_FORWARD_OPENCL},
-                {"OPENGL", MNN_FORWARD_OPENGL},
-                {"VULKAN", MNN_FORWARD_VULKAN},
-                {"METAL", MNN_FORWARD_METAL},
-                {"TRT", MNN_FORWARD_USER_1},
-                {"CUDA", MNN_FORWARD_CUDA},
-                {"HIAI", MNN_FORWARD_USER_0},
-                {"AUTO", MNN_FORWARD_AUTO}
-            };
-            auto iter = backend_map.find(backend_name);
-            if (iter == backend_map.end()) {
-                // backend not support, issue on python level when development
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: backend not support");
-                return result;
-            }
-            config.type = iter->second;
-        } else if (backend && PyLong_Check(backend)) {
-            config.type = (MNNForwardType)PyLong_AsLong(backend); // {'backend': 1L} for example
-        }
-        PyObject *numThread = PyDict_GetItemString(dict, "numThread");
-        if (numThread) {
-            if (!PyLong_Check(numThread)) {
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: numThread must be a integer");
-                return result;
-            }
-            config.numThread = (int)PyLong_AsLong(numThread);
-        }
-
-        {
-            //precision
-            PyObject *obj = PyDict_GetItemString(dict, "precision");
-            if (obj) {
-                auto obj_name = object2String(obj);
-                if (!obj_name.compare("low")) {
-                    MNN_PRINT("MNN use low precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
-                }
-                if (!obj_name.compare("Low_BF16")) {
-                    MNN_PRINT("MNN use lowBF precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
-                }
-                if (!obj_name.compare("high")) {
-                    MNN_PRINT("MNN use high precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_High;
-                }
-            }
-        }
-    }
-    result.first = true;
-    return result;
-}
-
 static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) {
     PyObject* dicts = NULL;
     if (!PyArg_ParseTuple(args, "O", &dicts)) {
@@ -404,21 +331,28 @@ static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) 
     }
     // BackendConfig lifetime management
     std::vector<ScheduleConfig> configs;
+    ScheduleConfig config[MAX_CONFIG_SIZE];
+    BackendConfig backendConfig[MAX_CONFIG_SIZE];
+
+    if(PySequence_Size(dicts) > MAX_CONFIG_SIZE) {
+        MNN_PRINT("Error: MNN support max ScheduleConfig size is %d\n", MAX_CONFIG_SIZE);
+        return Py_None;
+    }
     for (auto i = 0; i < PySequence_Size(dicts); ++i) {
-        auto config = getScheduleConfig(PySequence_GetItem(dicts, i));
-        if (!config.first) {
+        config[i].backendConfig = &backendConfig[i];
+        bool ret = getScheduleConfig(PySequence_GetItem(dicts, i), config[i]);
+        if (!ret) {
             return Py_None;
         }
-        configs.push_back(config.second.first);
+        configs.push_back(config[i]);
     }
-
     Executor::RuntimeManager* m_ptr;
     if(configs.size() == 1) {
         m_ptr = Executor::RuntimeManager::createRuntimeManager(configs[0]);
     } else {
         m_ptr = Executor::RuntimeManager::createRuntimeManager(configs);
     }
-
+    
     if (m_ptr == nullptr) {
         printf("config size:%d\n", configs.size());
         std::string mnn_errno = "create_runtime_manager failed ";
@@ -524,7 +458,7 @@ static PyObject* PyMNNNN_linear(PyObject *self, PyObject *args, PyObject* kwargs
 static PyObject* PyMNNNN_batch_norm(PyObject *self, PyObject *args, PyObject* kwargs) {
     int channels, dims = 4;
     float momentum = 0.99, epsilon = 1e-5;
-    static char *kwlist[] = { "channels", "dims", "momentum", NULL };
+    static char *kwlist[] = { "channels", "dims", "momentum", "epsilon", NULL };
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "i|iff", kwlist, &channels, &dims, &momentum, &epsilon)) {
         PyMNN_ERROR("batch_norm require args: int, |int, float, float)");
     }

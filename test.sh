@@ -481,7 +481,7 @@ android_model_test() {
     models=`ls ~/AliNNModel/TestWithDescribe/`
     for model in $models
     do
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescrisbe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 0 0.002"
+        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 0 0.002"
         if [ $? -ne 0 ]; then
             fail_num=$[$fail_num+1]
         else

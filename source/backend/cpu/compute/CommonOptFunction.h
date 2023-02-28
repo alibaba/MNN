@@ -20,11 +20,7 @@ extern "C" {
 
 void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope);
 
-void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);
-
-//void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx);
-
-//void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor);
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
 
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 

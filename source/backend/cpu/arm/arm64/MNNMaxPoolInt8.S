@@ -14,13 +14,18 @@
 
 asm_function MNNMaxPoolInt8
 // void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,
-//                  size_t stridesx, size_t paddingx);
-// Auto load: x0: dst, x1: src, x2: outputWidth, x3: inputWidth, x4: kernelx, x5: kernely, x6: stridesx, x7: paddingx
+//                  size_t stridesx);
+// Auto load: x0: dst, x1: src, x2: outputWidth, x3: inputWidth, x4: kernelx, x5: kernely, x6: stridesx
 
 sub sp, sp, #32
 str x19, [sp, #0]
 str x20, [sp, #8]
 str x21, [sp, #16]
+
+cmp x4, #0
+ble END
+cmp x5, #0
+ble END
 
 mov x9, #16
 mul x9, x9, x3        // x9: 16*inputWidth
@@ -28,8 +33,6 @@ mul x9, x9, x3        // x9: 16*inputWidth
 mov x8, #16
 mul x8, x8, x6      // x8: 16*stridesx
 
-cmp x7, #0            // x7: -paddingx<0
-blt LM
 
 cmp x2, #4
 blt L1Loop
@@ -198,44 +201,6 @@ sub x2, x2, #1         // x2: OutputWidth
 cmp x2, #0
 bgt L1Loop
 beq END
-
-/*minusLoop */
-LM:
-mov w15, #-0x80
-dup v0.16b, w15
-mov x15, x5             // x12: kernely
-mov x11, x1
-add x14, x4, x7         // x7: -paddingx
-
-LMLoopY:
-mov x10, x14            // x14: kernelx
-mov x3, x11              // r6: src
-
-LMLoopX:
-ld1 {v1.16b}, [x3], #16
-smax v0.16b, v0.16b, v1.16b
-sub x10, x10, #1
-cmp x10, #0
-bne LMLoopX
-
-add x11, x11, x9
-sub x15, x15, #1
-cmp x15, #0
-bne LMLoopY
-
-st1 {v0.16b}, [x0], #16
-sub x2, x2, #1
-
-add x7, x7, x6
-cmp x7, #0
-blt LM
-
-cmp x2, #8
-bge L8Loop
-cmp x2, #4
-bge L4Loop
-cmp x2, #1
-bge L1Loop
 
 
 END:

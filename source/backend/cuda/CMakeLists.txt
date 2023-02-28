@@ -49,9 +49,8 @@ else()
     message(FATAL_ERROR "CUDA not found >= ${CUDA_MIN_VERSION} required)")
 endif()
 
-file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/cutlass/*)
+file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/cutlass/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/int8/*)
 message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
-
 
 if(WIN32)
     cuda_add_library(MNN_CUDA STATIC Register.cpp ${MNN_CUDA_SRC})

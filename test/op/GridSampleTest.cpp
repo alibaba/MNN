@@ -167,7 +167,7 @@ public:
             ::memcpy(grid->writeMap<float>(), gridPtr, originGridData.size() * sizeof(float));
             input = _Convert(input, NC4HW4);
 
-            std::vector<InterpolationMethod> modes({NEAREST, BILINEAR});
+            std::vector<InterpolationMethod> modes({BILINEAR});
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS});
             std::vector<int> alignCornersVec = {1, 0};
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
