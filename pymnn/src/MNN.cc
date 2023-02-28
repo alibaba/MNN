@@ -822,7 +822,7 @@ static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObje
         return NULL;
     }
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     r = self->interpreter->updateCacheFile(session->session, flag);
     return PyLong_FromLong(r);
 }
@@ -867,7 +867,7 @@ static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *a
                         "PyMNNInterpreter_runSession: First argument is not a MNN.Session instance");
         return NULL;
     }
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     Py_BEGIN_ALLOW_THREADS
 
 #ifdef PYMNN_INTERNAL_SERVING
@@ -970,7 +970,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         return ret;
     };
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     //Py_BEGIN_ALLOW_THREADS
     r = self->interpreter->runSessionWithCallBack(session->session, begin, end);
     //Py_END_ALLOW_THREADS
@@ -1097,7 +1097,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
         return ret;
     };
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     //Py_BEGIN_ALLOW_THREADS
     r = self->interpreter->runSessionWithCallBackInfo(session->session, begin, end);
     //Py_END_ALLOW_THREADS
