@@ -106,7 +106,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
     auto gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
 
     //select opt conv method
-    std::string kernelName = "conv_2d";
+    std::string kernelName = "conv_2d_c4h1w4";
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 &&
         mPaddings[1] == 0) {
         mConv1x1Opt = (mStrides[0] == 1 && mStrides[1] == 1 && gpuType == GpuType::MALI);
@@ -235,16 +235,18 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
     }
 
     // Create Kernel
-    std::set<std::string> buildOptions;
-    buildOptions.emplace("-DBIAS");
+    if (mStrides[0] == 1 && mStrides[1] == 1 && mDilations[0] == 1 && mDilations[1] == 1) {
+        mBuildOptions.emplace("-DMNN_CONV_S1D1");
+    }
+    mBuildOptions.emplace("-DBIAS");
     if (mConv2dCommonParams->relu()) {
-        buildOptions.emplace("-DRELU");
+        mBuildOptions.emplace("-DRELU");
     } else if (mConv2dCommonParams->relu6()) {
-        buildOptions.emplace("-DRELU6");
+        mBuildOptions.emplace("-DRELU6");
     }
 
 
-    mKernel           = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName, buildOptions);
+    mKernel           = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName, mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mKernel));
 
 #ifdef LOG_VERBOSE
@@ -281,7 +283,8 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
     auto pad = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
     mPaddings[0] = pad.second;
     mPaddings[1] = pad.first;
-
+    
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(kernelHeight) + "_" + std::to_string(kernelWidth) + "_" + std::to_string(mStrides[0]) + "_" + std::to_string(mStrides[1]) + "_" + std::to_string(mDilations[0]) + "_" + std::to_string(mDilations[1]);
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0) {
         if(mConv1x1Opt){
 
@@ -346,35 +349,81 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
             std::string kernelName = "conv_2d_1x1";
             mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
         }
-    } else {
-        mGlobalWorkSize         = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
-                           static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-
+    }else {
         int inputImageShape[2]  = {inputHeight, inputWidth};
         int outputImageShape[2] = {height, width};
         int kernelShape[2]      = {kernelHeight, kernelWidth};
         int strideShape[2]      = {mStrides[0], mStrides[1]};
         int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
-        uint32_t idx            = 0;
-        auto kernel             = &mKernel;
-        kernel->setArg(idx++, mGlobalWorkSize[0]);
-        kernel->setArg(idx++, mGlobalWorkSize[1]);
-        kernel->setArg(idx++, openCLImage(input));
-        kernel->setArg(idx++, openCLImage(mFilter.get()));
-        kernel->setArg(idx++, openCLImage(mBias.get()));
-        kernel->setArg(idx++, openCLImage(output));
-        kernel->setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        kernel->setArg(idx++, inputChannelBlocks);
-        kernel->setArg(idx++, sizeof(outputImageShape), outputImageShape);
-        kernel->setArg(idx++, sizeof(kernelShape), kernelShape);
-        kernel->setArg(idx++, sizeof(strideShape), strideShape);
-        kernel->setArg(idx++, sizeof(paddingShape), paddingShape);
-        kernel->setArg(idx++, sizeof(dilationShape), dilationShape);
-        kernel->setArg(idx++, UP_DIV(width, 4));
+
+        const int total_kernel = 3;
+        std::string kernelName[total_kernel] = {"conv_2d_c4h1w4", "conv_2d_c4h4w1", "conv_2d_c8h4w1" };
+        int itemC[total_kernel] = {4, 4, 8};
+        int itemH[total_kernel] = {1, 4, 4};
+        int itemW[total_kernel] = {4, 1, 1};
+
+
+        int actual_kernel = total_kernel;
+
+        cl::Kernel kernel[total_kernel];
+        std::vector<uint32_t> globalWorkSize[total_kernel];
+        std::vector<uint32_t> localWorkSize[total_kernel];
+        std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         
-        std::string kernelName = "conv_2d";
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+        for(int knl_idx = 0; knl_idx < total_kernel; knl_idx++) {
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], mBuildOptions);
+            uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
+
+            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
+            uint32_t idx            = 0;
+            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
+            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
+            kernel[knl_idx].setArg(idx++, openCLImage(input));
+            kernel[knl_idx].setArg(idx++, openCLImage(mFilter.get()));
+            kernel[knl_idx].setArg(idx++, openCLImage(mBias.get()));
+            kernel[knl_idx].setArg(idx++, openCLImage(output));
+            kernel[knl_idx].setArg(idx++, sizeof(inputImageShape), inputImageShape);
+            kernel[knl_idx].setArg(idx++, inputChannelBlocks);
+            kernel[knl_idx].setArg(idx++, sizeof(outputImageShape), outputImageShape);
+            kernel[knl_idx].setArg(idx++, sizeof(kernelShape), kernelShape);
+            kernel[knl_idx].setArg(idx++, sizeof(strideShape), strideShape);
+            kernel[knl_idx].setArg(idx++, sizeof(paddingShape), paddingShape);
+            kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
+            kernel[knl_idx].setArg(idx++, UP_DIV(width, itemW[knl_idx]));
+            kernel[knl_idx].setArg(idx++, UP_DIV(outputShape.at(3), 4));
+            kernel[knl_idx].setArg(idx++, UP_DIV(height, itemH[knl_idx]));
+
+            std::pair<std::vector<uint32_t>, uint32_t> retTune;
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
+            
+            if(min_cost.first > retTune.second) {
+                min_cost.first = retTune.second;
+                min_cost.second = knl_idx;
+                mLocalWorkSize = {retTune.first[0], retTune.first[1]};
+            }
+        }
+        int min_index  = min_cost.second;
+        mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
+        mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], mBuildOptions);
+
+        uint32_t idx            = 0;
+        mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        mKernel.setArg(idx++, openCLImage(input));
+        mKernel.setArg(idx++, openCLImage(mFilter.get()));
+        mKernel.setArg(idx++, openCLImage(mBias.get()));
+        mKernel.setArg(idx++, openCLImage(output));
+        mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+        mKernel.setArg(idx++, inputChannelBlocks);
+        mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+        mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        mKernel.setArg(idx++, sizeof(strideShape), strideShape);
+        mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+        mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
+        mKernel.setArg(idx++, UP_DIV(width, itemW[min_index]));
+        mKernel.setArg(idx++, UP_DIV(outputShape.at(3), 4));
+        mKernel.setArg(idx++, UP_DIV(height, itemH[min_index]));
     }
 
 #ifdef LOG_VERBOSE
@@ -438,7 +487,9 @@ public:
         }
 
         auto conv2D = op->main_as_Convolution2D();
-        if (ConvWinograd::valid(conv2D->common(), inputs[0])) {
+        int maxWidth  = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[0];
+        int maxHeight = static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getMaxImage2DSize()[1];
+        if (ConvWinograd::valid(conv2D->common(), inputs[0], outputs[0], maxWidth, maxHeight)) {
             return new ConvWinograd(conv2D, backend);
         }
 

@@ -354,11 +354,11 @@ Testing model mobilenet.mnn, input: input.mnn, output: output.mnn
 Correct!
 ```
 
-## testModelWithDescrisbe.out
+## testModelWithDescribe.out
 ### 功能
 功能与`testModel.out`相同，输入输出通过配置文件来描述，支持多输入与多输出的对比，同时支持指定输入形状
 ### 参数
-`./testModelWithDescrisbe.out model confg`
+`./testModelWithDescribe.out model confg`
 - `model:str` 模型文件路径
 - `confg:str` 配置文件路径，配置文件如下：
     ```
@@ -373,7 +373,7 @@ Correct!
     ```
 ### 示例
 ```bash
-./testModelWithDescrisbe.out mobilenet.mnn config.txt
+./testModelWithDescribe.out mobilenet.mnn config.txt
 model dir: mobilenet.mnn
 Testing Model ====> mobilenet.mnn
 First Time Pass

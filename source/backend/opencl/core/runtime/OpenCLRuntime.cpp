@@ -155,7 +155,11 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     return;
                 }
 
-                cl_queue_properties prop[] = {CL_QUEUE_PRIORITY_KHR, CL_QUEUE_PRIORITY_LOW_KHR, 0};
+                cl_queue_properties prop[] = {CL_QUEUE_PRIORITY_KHR, CL_QUEUE_PRIORITY_LOW_KHR,
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+                    CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE,
+#endif
+                    0};
                 mCommandQueuePtr.reset(new cl::CommandQueue(clCreateCommandQueueWithProperties((*mContext).get(), (*mFirstGPUDevicePtr).get(), prop, &res)));
             }
             else

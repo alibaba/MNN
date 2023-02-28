@@ -142,6 +142,8 @@ extern const unsigned char glsl_unary_CLAMP_comp[];
 extern unsigned int glsl_unary_CLAMP_comp_len;
 extern const unsigned char glsl_unary_HARDSWISH_comp[];
 extern unsigned int glsl_unary_HARDSWISH_comp_len;
+extern const unsigned char glsl_unary_GELU_comp[];
+extern unsigned int glsl_unary_GELU_comp_len;
 extern const unsigned char glsl_softmaxHeight_NHWC_comp[];
 extern unsigned int glsl_softmaxHeight_NHWC_comp_len;
 extern const unsigned char glsl_resizeNearest_comp[];

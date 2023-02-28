@@ -3,8 +3,11 @@
 #include <memory>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <algorithm>
 #include <MNN/HalideRuntime.h>
+#include <MNN/MNNForwardType.h>
+#include <MNN/Interpreter.hpp>
 #if defined(_MSC_VER) && PY_MAJOR_VERSION >= 3
 #include <Windows.h>
 #include <stringapiset.h>
@@ -12,6 +15,7 @@
 #include "common.h"
 
 #define PARSE(obj, default, func) ((obj) == nullptr ? (default) : func(obj))
+#define MAX_CONFIG_SIZE 5
 
 using namespace std;
 typedef vector<int> INTS;
@@ -573,6 +577,75 @@ static void* toPtr(PyObject *obj, DType dtype, int64_t& total_length, void* data
     }
     return data;
 }
+
+inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
+    auto backendConfig = config.backendConfig;
+    if (dict) {
+        PyObject *backend = PyDict_GetItemString(dict, "backend");
+        config.type = MNN_FORWARD_CPU;
+        if (backend && checkString(backend)) {
+            auto backend_name = object2String(backend);
+            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
+            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
+            std::unordered_map<std::string, MNNForwardType> backend_map = {
+                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+                // which make MNN.whl setup.py easy
+                {"CPU", MNN_FORWARD_CPU},
+                {"OPENCL", MNN_FORWARD_OPENCL},
+                {"OPENGL", MNN_FORWARD_OPENGL},
+                {"VULKAN", MNN_FORWARD_VULKAN},
+                {"METAL", MNN_FORWARD_METAL},
+                {"TRT", MNN_FORWARD_USER_1},
+                {"CUDA", MNN_FORWARD_CUDA},
+                {"HIAI", MNN_FORWARD_USER_0},
+                {"NN", MNN_FORWARD_NN},
+                {"AUTO", MNN_FORWARD_AUTO}
+            };
+            auto iter = backend_map.find(backend_name);
+            if (iter == backend_map.end()) {
+                // backend not support, issue on python level when development
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: backend not support");
+                return false;
+            }
+            config.type = iter->second;
+        } else if (backend && isInt(backend)) {
+            config.type = (MNNForwardType)toInt(backend); // {'backend': 1L} for example
+        }
+        PyObject *numThread = PyDict_GetItemString(dict, "numThread");
+        if (numThread) {
+            if (!isInt(numThread)) {
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: numThread must be a integer");
+                return false;
+            }
+            config.numThread = (int)toInt(numThread);
+        }
+
+        {
+            //precision
+            PyObject *obj = PyDict_GetItemString(dict, "precision");
+            if (obj) {
+                auto obj_name = object2String(obj);
+                if (!obj_name.compare("low")) {
+                    MNN_PRINT("MNN use low precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
+                }
+                if (!obj_name.compare("Low_BF16")) {
+                    MNN_PRINT("MNN use lowBF precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
+                }
+                if (!obj_name.compare("high")) {
+                    MNN_PRINT("MNN use high precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_High;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+
 //------------------------ macro_utils start -------------------------
 #define arg_half_size(...) \
          arg_half_size_(__VA_ARGS__, arg_half_rseq_n())

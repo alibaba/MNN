@@ -55,6 +55,7 @@ private:
     bool mUseLocalMem{false};
     std::shared_ptr<cl::Buffer> mKernelBuffer;
     std::shared_ptr<cl::Buffer> mBiasBuffer;
+    std::set<std::string> mBuildOptions;
 };
 
 } // namespace OpenCL

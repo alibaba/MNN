@@ -68,7 +68,7 @@ def test(model_root_dir, parameters):
         print(run_cmd(['adb', serial, 'push', modelDir, '/data/local/tmp/MNN/']))
         print(modelDir)
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Running...")
-        message = run_cmd(['adb', serial, 'shell', '\"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModelWithDescrisbe.out %s/temp.bin %s/config.txt %s\"' %(name, name, parameters)])
+        message = run_cmd(['adb', serial, 'shell', '\"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModelWithDescribe.out %s/temp.bin %s/config.txt %s\"' %(name, name, parameters)])
         run_cmd(['adb', serial, 'shell', 'rm -rf /data/local/tmp/MNN/%s'%(name)])
         if (message.find('Correct') == -1):
             gWrong.append(modelDir)

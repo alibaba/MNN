@@ -146,6 +146,8 @@ public:
                     return new UnaryExecution("tanh(convert_float4(in))", backend);
                 case UnaryOpOperation_HARDSWISH:
                     return new UnaryExecution("convert_float4(in)>(float4)(-3.0f)?(convert_float4(in)<(float4)(3.0f)?((convert_float4(in)*(convert_float4(in)+(float4)3.0f))/(float4)6.0f):convert_float4(in)):(float4)(0.0f)", backend);
+                case UnaryOpOperation_GELU:
+                    return new UnaryExecution("gelu(convert_float4(in))", backend);
 		default:
                     break;
             }

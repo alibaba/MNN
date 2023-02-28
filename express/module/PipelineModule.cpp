@@ -88,40 +88,21 @@ Module* ExprModule::clone(CloneContext* ctx) const {
 
 PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
     setType(PIPELINE_MODULE);
-    std::vector<EXPRP> executeOrder;
-    std::set<EXPRP> inputExpr;
-    for (auto v : inputs) {
-        inputExpr.insert(v->expr().first);
+    std::map<EXPRP, int> inputExpr;
+    for (int i=0; i<inputs.size(); ++i) {
+        auto expr = inputs[i]->expr().first;
+        inputExpr.insert(std::make_pair(expr, i));
     }
-    for (auto output : outputs) {
-        Expr::visit(output->expr().first,
-        [&executeOrder, &inputExpr](EXPRP expr) {
-            if (expr->visited()) {
-                return false;
-            }
-            if (inputExpr.find(expr)!= inputExpr.end()) {
-                expr->setVisited(true);
-                return false;
-            }
-            return true;
-        },
-        [&executeOrder](EXPRP expr) {
-            //FUNC_PRINT_ALL(var->name().c_str(), s);
-            if (!expr->visited()) {
-                executeOrder.emplace_back(expr);
-                expr->setVisited(true);
-            }
-            return true;
-        });
-    }
-    for (auto expr : executeOrder) {
-        expr->setVisited(false);
-    }
+    std::vector<EXPRP> executeOrder = Variable::getExecuteOrder(outputs);
     // Set Indexes
     std::map<EXPRP, int> indexes;
     mInputSize = inputs.size();
     int currentIndexes = inputs.size();
     for (auto expr : executeOrder) {
+        if (inputExpr.find(expr) != inputExpr.end()) {
+            indexes[expr] = inputExpr[expr];
+            continue;
+        }
         indexes[expr] = currentIndexes;
         currentIndexes += expr->outputSize();
     }

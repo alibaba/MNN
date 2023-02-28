@@ -102,7 +102,7 @@ public:
         bool isRadeonGpu = (static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime()->getGpuType() == RADEON);
 
         if (op->type() == OpType_ReLU6) {
-            char storage[128];
+            char storage[256];
             float minValue = 0.0f;
             float maxValue = 6.0f;
             if (nullptr != op->main_as_Relu6()) {

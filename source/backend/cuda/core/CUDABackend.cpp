@@ -195,6 +195,9 @@ size_t CUDABackend::realSize(const Tensor* tensor) {
     int pack = 1;
     if (dim == MNN_DATA_FORMAT_NC4HW4) {
         pack = PACK_NUMBER;
+        if (tensor->getType().code == halide_type_int  && tensor->getType().bits == 8) {
+            pack = INT8_PACK_NUMBER;
+        }
     }
     size_t res = 1;
     for (int i = 0; i < tensor->dimensions(); ++i) {
@@ -207,18 +210,37 @@ size_t CUDABackend::realSize(const Tensor* tensor) {
     return res;
 }
 
+static OpType _getRealOpType(OpType opType) {
+    switch (opType) {
+        case OpType_Convolution:
+            return OpType_ConvInt8;
+        case OpType_ConvolutionDepthwise:
+            return OpType_DepthwiseConvInt8;
+
+        default:
+            return opType;
+    }
+}
+
 Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                  const MNN::Op* op) {
 // #ifdef LOG_VERBOSE
     // MNN_PRINT("Start CUDABackend::onCreate useFp16:%d\n", useFp16());
 // #endif
+    auto opType = op->type();
+    if (outputs.size() > 0) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+            opType = _getRealOpType(opType);
+        }
+    }
+
     auto creators = gCreator();
-    auto iter     = creators->find(op->type());
+    auto iter     = creators->find(opType);
     if (iter == creators->end()) {
         if (nullptr != op->name()) {
-            MNN_PRINT("CUDABackend Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
+            MNN_PRINT("CUDABackend Don't support type %s, %s\n", EnumNameOpType(opType), op->name()->c_str());
         } else {
-            MNN_PRINT("CUDABackend Don't support type %s\n", EnumNameOpType(op->type()));
+            MNN_PRINT("CUDABackend Don't support type %s\n", EnumNameOpType(opType));
         }
         return NULL;
     }
@@ -226,15 +248,16 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
         if (nullptr != op->name()) {
-            MNN_PRINT("CUDABackend The Creator Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
+            MNN_PRINT("CUDABackend The Creator Don't support type %s, %s\n", EnumNameOpType(opType), op->name()->c_str());
         } else {
-            MNN_PRINT("CUDABackend The Creator Don't support type %s\n", EnumNameOpType(op->type()));
+            MNN_PRINT("CUDABackend The Creator Don't support type %s\n", EnumNameOpType(opType));
         }
         return NULL;
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("End CUDABackend::onCreate \n");
 #endif
+
     return exe;
 }
 

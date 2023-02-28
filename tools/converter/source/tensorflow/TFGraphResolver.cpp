@@ -15,7 +15,6 @@
 #include <unordered_set>
 
 #include "graph.pb.h"
-#include "TmpGraph.hpp"
 #include "tfOpConverter.hpp"
 #include "MNN_generated.h"
 #include "../compression/quantization.hpp"

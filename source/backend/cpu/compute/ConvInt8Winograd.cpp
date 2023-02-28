@@ -219,7 +219,7 @@ static void mergeAddBiasScaleQuantize(const std::vector<Tensor*>& inputs, Tensor
     int UNIT, SRC_UNIT, DST_XUNIT;
     coreInt8->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
     
-    int countC4 = UP_DIV(output->channel(), UNIT), plane = output->height() * output->width();
+    int countC4 = UP_DIV(output->channel(), UNIT), plane = output->height() * output->width() * output->batch();
     auto mergeFloat = inputs[0]->host<float>();
     for (int i = 1; i < inputs.size(); ++i) {
         core->MNNMatrixAdd(mergeFloat, mergeFloat, inputs[i]->host<float>(), plane * countC4, 0, 0, 0, 1);
@@ -388,21 +388,26 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
 
     int padY = mPadY, padX = mPadX;
     auto wUnit = UP_DIV(ow, mUnitX), hUnit = UP_DIV(oh, mUnitY);
+    int batch = output->batch();
 
-    auto totalCount   = wUnit * hUnit;
+    auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int tileCount    = UP_DIV(totalCount, DST_XUNIT);
     threadNumber     = std::min(threadNumber, tileCount);
-        
+
     auto src_trans_func = [&](float* dstOrigin, const float* srcOrigin, float* buffer, int xIndex, int xC) {
         int bufSize = mTransformMidBuffer->stride(1);
         auto midBuffer0 = buffer, midBuffer1 = midBuffer0 + bufSize;
-        int oyBegin = xIndex / wUnit;
+        int oybBegin = xIndex / wUnit;
         int oxBegin = xIndex % wUnit;
-        int oyEnd = (xIndex + xC-1) / wUnit;
+        int oybEnd = (xIndex + xC-1) / wUnit;
         int remain = xC;
-        for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
+        for (int hbIndex=oybBegin; hbIndex <= oybEnd; ++hbIndex) {
+            auto hIndex = hbIndex % hUnit;
+            auto bIndex = hbIndex / hUnit;
+            auto bOffset = iw * ih * UNIT * bIndex;
+            auto srcBatch = srcOrigin + bOffset;
             int dstZStep = DST_XUNIT * UNIT, unitStep = dstZStep * ic_4;
             int step = std::min(wUnit - oxBegin, remain);
             int srcY  = hIndex * mUnitY - padY;
@@ -432,8 +437,8 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                 int ex    = ALIMIN(srcX + alphaX, iw) - srcX;
                 auto dst_x = dstOrigin + si * UNIT;
                 
-                int sourceZStep = input->stride(1) * UNIT, sourceYStep = input->stride(2) * UNIT;
-                auto srcStart = srcOrigin + srcY * sourceYStep + srcX * UNIT;
+                int sourceZStep = iw * ih * UNIT * batch, sourceYStep = iw * UNIT;
+                auto srcStart = srcBatch + srcY * sourceYStep + srcX * UNIT;
                 // when input window exceed limit (so need pad value), copy from src to midbuffer0
                 if (ex - sx != alphaX || ey - sy != alphaY) {
                     ::memset(midBuffer0, 0, alpha2 * ic_4 * UNIT * sizeof(float));
@@ -466,9 +471,8 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
         
     };
     
-    for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-        auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
-        auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
+        auto srcOrigin = input->host<float>();
+        auto dstOrigin = output->host<float>();
 
         auto weight    = mWinoResource->weight->host<int8_t>();
         auto tFunction = [&](int tId) {
@@ -482,9 +486,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                 int bufSize = mTransformMidBuffer->stride(1);
                 auto buffer0 = mTransformMidBuffer->host<float>() + tId * mTransformMidBuffer->stride(0);
                 auto buffer1 = buffer0 + bufSize, buffer2 = buffer1 + bufSize;
-#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
+    #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 src_trans_func(buffer2, srcOrigin, buffer0, xIndex, xC);
-#endif
+    #endif
                 ::memset(buffer1, 0, dc_4 * UNIT * sizeof(float));
                 // Multi
                 for (int i = 0; i < alpha2; ++i) {
@@ -506,21 +510,23 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     quanParam.scale = nullptr;
                     gemmFunc((int8_t*)buffer0, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
                     core->MNNScaleAndAddBias(_dstFloatPtr, buffer0, buffer1, mWinoResource->scales->host<float>() + i * dc_4 * UNIT, xC, dc_4);
-//                    auto scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
-//                    printf("i:%d, dc_4:%d, scale:%f - %f - %f - %f * %f, %f, %f, %f -> %f - %f - %f - %f\n", i, dc_4, buffer0[0], buffer0[1], buffer0[2], buffer0[3], scale[0], scale[1], scale[2], scale[3], _dstFloatPtr[0], _dstFloatPtr[1], _dstFloatPtr[2], _dstFloatPtr[3]);
+    //                    auto scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
+    //                    printf("i:%d, dc_4:%d, scale:%f - %f - %f - %f * %f, %f, %f, %f -> %f - %f - %f - %f\n", i, dc_4, buffer0[0], buffer0[1], buffer0[2], buffer0[3], scale[0], scale[1], scale[2], scale[3], _dstFloatPtr[0], _dstFloatPtr[1], _dstFloatPtr[2], _dstFloatPtr[3]);
                 }
-#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
+    #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {
                     auto midBuffer0 = buffer0;
                     auto midBuffer1 = (float*)((int8_t*)midBuffer0 + mTransformMidBuffer->stride(1));
                     int srcZStep = xC * UNIT;
                     int unitStep = dc_4 * xC * UNIT;
-                    int oyBegin = xIndex / wUnit;
+                    int oybBegin = xIndex / wUnit;
                     int oxBegin = xIndex % wUnit;
-                    int oyEnd = (xIndex + xC-1) / wUnit;
+                    int oybEnd = (xIndex + xC-1) / wUnit;
                     int remain = xC;
                     auto dstS = _dstOrigin;
-                    for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
+                    for (int hbIndex=oybBegin; hbIndex <= oybEnd; ++hbIndex) {
+                        int hIndex = hbIndex % hUnit;
+                        int bIndex = hbIndex / hUnit;
                         int step = std::min(wUnit - oxBegin, remain);
                         int dstY = hIndex * mUnitY;
                         int ey = ALIMIN(dstY + mUnitY, oh) - dstY;
@@ -544,12 +550,12 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                             auto wIndex = si + oxBegin;
                             auto srcXi = dstS + UNIT * si;
                             int dstX = wIndex * mUnitX;
-                            auto dstStart = dstOrigin + (dstX + dstY * ow) * UNIT;
+                            auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * UNIT;
                             int ex = ALIMIN(dstX + mUnitX, ow) - dstX;
                             int count = ex * UNIT;
                             
                             auto _dstStart = dstStart;
-                            int dstZStep = oh * ow * UNIT, dstYStep = ow * UNIT;
+                            int dstZStep = oh * ow * batch * UNIT, dstYStep = ow * UNIT;
                             if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
                                 dstZStep = mUnitY * mUnitX * UNIT;
                                 dstYStep = mUnitX * UNIT;
@@ -567,7 +573,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                                 for (int z = 0; z < dc_4; ++z) {
                                     for (int yy = 0; yy < ey; ++yy) {
                                         auto srcYAddr = _dstStart + (z * mUnitY + yy) * mUnitX * UNIT;
-                                        auto dstYAddr = dstStart + (z * oh + yy) * ow * UNIT;
+                                        auto dstYAddr = dstStart + z * ow * oh * batch * UNIT + yy * ow * UNIT;
                                         ::memcpy(dstYAddr, srcYAddr, count * sizeof(float));
                                     }
                                 }
@@ -580,14 +586,13 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     }
                 }
 #endif
-            }
-        };
-
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            tFunction((int)tId);
         }
-        MNN_CONCURRENCY_END();
+    };
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        tFunction((int)tId);
     }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

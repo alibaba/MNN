@@ -21,6 +21,11 @@
 // fraction length difference is 16bit. calculate the real value, it's about 0.00781
 #define F32_BF16_MAX_LOSS ((0xffff * 1.0f ) / ( 1 << 23 ))
 
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 
 #ifndef MNN_USE_NEON
 #if (__arm__ || __aarch64__) && (defined(__ARM_NEON__) || defined(__ARM_NEON))

@@ -33,7 +33,7 @@ def compare(origin, quant, jsonFile):
     for name in os.listdir(img_dir):
         origin_res = run_cmd(['./pictureRecognition_module.out', origin, jsonFile, img_dir + '/' + name])
         quant_res = run_cmd(['./pictureRecognition_module.out', quant, jsonFile, img_dir + '/' + name])
-        # print(origin_res, quant_res)
+
         originIdx, originPoint = parseRes(origin_res)
         quantIdx, quantPoint = parseRes(quant_res)
         idxRate = len(originIdx & quantIdx) / max(len(originIdx), len(quantIdx))    
@@ -42,6 +42,27 @@ def compare(origin, quant, jsonFile):
         if idxRate < 0.5 or pointRate < 0.5 or pointRate > 2.0:
             print('False')
             return False
+    return True
+
+def compareAcc(origin, quant, imagepath, labelpath, quantized_json):
+    # img_dir = '../resource/batchimgs'
+    img_dir = imagepath
+    groundtruth = labelpath
+
+    batchsize, totalimgs = "5", "50"
+
+    origin_res = run_cmd(['./pictureRecognition_batch.out', origin, img_dir + '/', groundtruth, quantized_json, batchsize, totalimgs])
+    quant_res = run_cmd(['./pictureRecognition_batch.out', quant, img_dir + '/', groundtruth, quantized_json, batchsize, totalimgs])
+
+    pattern = re.compile(r"\d+\.?\d*")
+    acc_origin = float(pattern.findall(origin_res.split("acc: ")[1])[0])
+    acc_quant = float(pattern.findall(quant_res.split("acc: ")[1])[0])
+    print("Original model accuracy: ", acc_origin)
+    print("Quantized model accuracy: ", acc_quant)
+
+    if acc_origin - acc_quant > 10.0:
+        print("Accuracy lose too much...")
+        return False
     return True
 
 def test(modelpath, path):
@@ -60,27 +81,61 @@ def test(modelpath, path):
     except:
         print('Quant Error!')
         res = False
+
     message = run_cmd(['rm -f ' + quantModel])
-    return res 
-    
+    return res
+
+def testacc(modelpath, imagepath, path, labelpath):
+    res = True
+    jsonFile = path + '/quantized.json'
+    jsonObj = {}
+    with open(jsonFile) as f:
+        jsonObj = json.loads(f.read())
+    originModel = modelpath + jsonObj['model']
+    quantModel  = './__quantModel.mnn'
+    message = run_cmd(['./quantized.out', originModel, quantModel, jsonFile])
+    res = True
+    try:
+        res = compareAcc(originModel, quantModel, imagepath, labelpath, jsonFile)
+    except:
+        print('Quant Error!')
+        res = False
+
+    message = run_cmd(['rm -f ' + quantModel])
+    return res
+
 if __name__ == '__main__':
     model_root_dir = sys.argv[1]
     root_dir = os.path.join(model_root_dir, 'TestPTQ')
     print('root: ' + root_dir + '\n')
+    
     gWrong = []
     for name in os.listdir(root_dir + '/json'):
-        if name == '.DS_Store':
+        if '.DS_Store' in name:
             continue
         print(name)
-        # TODO: fix scale propagate bug
-        if name == 'shuffernet_ema':
-            continue
         res = test(root_dir + '/model/', root_dir + '/json/' + name)
         if not res:
             gWrong.append(name)
-    print('Wrong: %d' %len(gWrong))
+    print('Single picture test wrong: %d' %len(gWrong))
     for w in gWrong:
         print(w)
     print('TEST_NAME_PTQ: PTQ测试\nTEST_CASE_AMOUNT_PTQ: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(gWrong), total_num - len(gWrong)))
+    if len(gWrong) > 0:
+        exit(1)
+
+    gWrong = []
+    print("Batch pictures test...")
+    for name in os.listdir(root_dir + '/json'):
+        if '.DS_Store' in name:
+            continue
+        print(name)
+        res = testacc(root_dir + '/model/', root_dir + '/batchimgs', root_dir + '/json/' + name, root_dir + '/trueval.txt')
+        if not res:
+            gWrong.append(name)
+    print('Batch pictures test wrong: %d' %len(gWrong))
+    for w in gWrong:
+        print(w)
+    print('BATCH_TEST_NAME_PTQ: PTQ测试\nTEST_CASE_AMOUNT_PTQ: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(gWrong), total_num - len(gWrong)))
     if len(gWrong) > 0:
         exit(1)

@@ -47,6 +47,12 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
 
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
         const int8_t* srcO = (const int8_t*)ib.host;
+        auto inInfo = TensorUtils::getQuantInfo(inputs[0]);
+        auto outInfo = TensorUtils::getQuantInfo(outputs[0]);
+        if (inInfo != outInfo) {
+            MNN_PRINT("this relu int8 implementation has error when input output quant info mismatch\n");
+        }
+        int8_t zeroPoint = int8_t(outInfo[1]);
         int8_t* dstO       = (int8_t*)ob.host;
         auto size         = mRealSize;
         auto numberThread = ((CPUBackend*)backend())->threadNumber();
@@ -59,12 +65,12 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
                 if (tId == numberThread - 1) {
                     number = sizeQuad - tId * sizeDivide;
                 }
-                MNNReluInt8(dstO + 16 * tId * sizeDivide, srcO + 16 * tId * sizeDivide, number * 16);
+                MNNReluInt8(dstO + 16 * tId * sizeDivide, srcO + 16 * tId * sizeDivide, number * 16, zeroPoint);
             }
             MNN_CONCURRENCY_END();
         }
         for (int i = remain; i < size; i++) {
-            dstO[i] = srcO[i] > 0 ? srcO[i] : 0;
+            dstO[i] = srcO[i] > zeroPoint ? srcO[i] : zeroPoint;
         }
         return NO_ERROR;
     }

@@ -29,6 +29,7 @@
 using namespace MNN::CV;
 using namespace MNN;
 
+
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -132,7 +133,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./pictureRecognition_module.out model.mnn config.json input0.jpg input1.jpg input2.jpg ... \n");
         return 0;
     }
-    
+
     rapidjson::Document document;
     {
         auto configPath = argv[2];

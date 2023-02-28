@@ -96,7 +96,7 @@ ErrorCode CoreMLPool::onResize(const std::vector<Tensor *> &inputs, const std::v
             core_ml__specification__valid_padding__init(mLayer_->pooling->valid);
             break;
         case PoolPadType_CAFFE:
-            if (pool->pads()->size() > 0 || pool->padX() > 0) {
+            if ((pool->pads() && pool->pads()->size() > 0) || pool->padX() > 0) {
                 addPadLayer(inputs[0], pool);
                 mLayer_->pooling->pooling_padding_type_case = CORE_ML__SPECIFICATION__POOLING_LAYER_PARAMS__POOLING_PADDING_TYPE_VALID;
                 mLayer_->pooling->valid = mCoreMLBackend->create<CoreML__Specification__ValidPadding>();

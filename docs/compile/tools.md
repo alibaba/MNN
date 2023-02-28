@@ -52,7 +52,7 @@
   - `modelCompare.out` 原始模型与量化模型推理结果比较
   - `testModel.out` 给定输入输出测试模型推理正确性
   - `testModel_expr.out` 给定输入输出测试模型推理正确性
-  - `testModelWithDescrisbe.out` 给定输入输出和shape描述测试模型推理正确性
+  - `testModelWithDescribe.out` 给定输入输出和shape描述测试模型推理正确性
   - `getPerformance.out`  获取当前设备的CPU性能
   - `checkInvalidValue.out` 检测输出目录里的数据
   - `timeProfile.out` 测试模型在指定后端上执行的时间，并获取每层的执行时间占比
@@ -128,6 +128,7 @@
 - 编译产物
   - `pictureRecognition.out` V2接口(Session)图片识别示例
   - `pictureRecognition_module.out` V3接口(Module)图片识别示例
+   - `pictureRecognition_batch.out` 自定义batchsize图片识别示例
   - `multithread_imgrecog.out` 多线程图片识别示例
   - `pictureRotate.out` 图片旋转示例
   - `multiPose.out` 姿态检测示例

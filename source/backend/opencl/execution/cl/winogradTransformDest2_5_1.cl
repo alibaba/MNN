@@ -7,61 +7,53 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                                     __private const int unitWidth, // 3
                                     __private const int unitHeight, __private const int dstWidth,
                                     __private const int dstHeight, // 6
-                                    __private const int dstChannelC4, __private const int offsetX,
-                                    __private const int offsetY, __private const int batchOffset) {
+                                    __private const int dstChannelC4, __private const int batchOffset) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); 
     if (pos.x < unitWidth*unitHeight && pos.y < dstChannelC4) {
         int unitWidth_idx = pos.x % unitWidth;
         int unitHeight_idx = pos.x / unitWidth;
-        int2 realPos   = (int2)(unitWidth_idx + offsetX, unitHeight_idx + offsetY);
-        int srcWidth   = (unitWidth * unitHeight + 3) / 4;
-        int dstXOrigin = unitWidth * unitHeight_idx + unitWidth_idx;
-        int dstX       = dstXOrigin / 4;
-        int dstY       = 4 * pos.y + dstXOrigin % 4;
-        int oz         = pos.y % dstChannelC4;
-        FLOAT4 bias    = RI_F(uBias, SAMPLER, (int2)(oz, 0));
-        int batchIndex = pos.y / dstChannelC4;
-
-        batchIndex = batchOffset;
+        int srcY       = pos.y * unitHeight + unitHeight_idx;
+        FLOAT4 bias    = RI_F(uBias, SAMPLER, (int2)(pos.y, 0));
+        
         {
-            int oyStart = realPos.y * 2;
-            int oxStart = realPos.x * 2;
-            FLOAT4 S00  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 0, dstY));
-            FLOAT4 S10  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 1, dstY));
-            FLOAT4 S20  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 2, dstY));
-            FLOAT4 S30  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 3, dstY));
-            FLOAT4 S40  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 4, dstY));
-            FLOAT4 S50  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 5, dstY));
-            FLOAT4 S01  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 6, dstY));
-            FLOAT4 S11  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 7, dstY));
-            FLOAT4 S21  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 8, dstY));
-            FLOAT4 S31  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 9, dstY));
-            FLOAT4 S41  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 10, dstY));
-            FLOAT4 S51  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 11, dstY));
-            FLOAT4 S02  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 12, dstY));
-            FLOAT4 S12  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 13, dstY));
-            FLOAT4 S22  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 14, dstY));
-            FLOAT4 S32  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 15, dstY));
-            FLOAT4 S42  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 16, dstY));
-            FLOAT4 S52  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 17, dstY));
-            FLOAT4 S03  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 18, dstY));
-            FLOAT4 S13  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 19, dstY));
-            FLOAT4 S23  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 20, dstY));
-            FLOAT4 S33  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 21, dstY));
-            FLOAT4 S43  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 22, dstY));
-            FLOAT4 S53  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 23, dstY));
-            FLOAT4 S04  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 24, dstY));
-            FLOAT4 S14  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 25, dstY));
-            FLOAT4 S24  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 26, dstY));
-            FLOAT4 S34  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 27, dstY));
-            FLOAT4 S44  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 28, dstY));
-            FLOAT4 S54  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 29, dstY));
-            FLOAT4 S05  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 30, dstY));
-            FLOAT4 S15  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 31, dstY));
-            FLOAT4 S25  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 32, dstY));
-            FLOAT4 S35  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 33, dstY));
-            FLOAT4 S45  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 34, dstY));
-            FLOAT4 S55  = RI_F(uInput, SAMPLER, (int2)(dstX + srcWidth * 35, dstY));
+            int oyStart = unitHeight_idx * 2;
+            int oxStart = unitWidth_idx * 2;
+            FLOAT4 S00  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 0, srcY));
+            FLOAT4 S10  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 1, srcY));
+            FLOAT4 S20  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 2, srcY));
+            FLOAT4 S30  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 3, srcY));
+            FLOAT4 S40  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 4, srcY));
+            FLOAT4 S50  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 5, srcY));
+            FLOAT4 S01  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 6, srcY));
+            FLOAT4 S11  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 7, srcY));
+            FLOAT4 S21  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 8, srcY));
+            FLOAT4 S31  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 9, srcY));
+            FLOAT4 S41  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 10, srcY));
+            FLOAT4 S51  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 11, srcY));
+            FLOAT4 S02  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 12, srcY));
+            FLOAT4 S12  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 13, srcY));
+            FLOAT4 S22  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 14, srcY));
+            FLOAT4 S32  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 15, srcY));
+            FLOAT4 S42  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 16, srcY));
+            FLOAT4 S52  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 17, srcY));
+            FLOAT4 S03  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 18, srcY));
+            FLOAT4 S13  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 19, srcY));
+            FLOAT4 S23  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 20, srcY));
+            FLOAT4 S33  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 21, srcY));
+            FLOAT4 S43  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 22, srcY));
+            FLOAT4 S53  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 23, srcY));
+            FLOAT4 S04  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 24, srcY));
+            FLOAT4 S14  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 25, srcY));
+            FLOAT4 S24  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 26, srcY));
+            FLOAT4 S34  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 27, srcY));
+            FLOAT4 S44  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 28, srcY));
+            FLOAT4 S54  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 29, srcY));
+            FLOAT4 S05  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 30, srcY));
+            FLOAT4 S15  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 31, srcY));
+            FLOAT4 S25  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 32, srcY));
+            FLOAT4 S35  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 33, srcY));
+            FLOAT4 S45  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 34, srcY));
+            FLOAT4 S55  = RI_F(uInput, SAMPLER, (int2)(unitWidth_idx + unitWidth * 35, srcY));
             FLOAT4 m00  = +S00 + S01 + S02 + S03 + S04;
             FLOAT4 m10  = +S10 + S11 + S12 + S13 + S14;
             FLOAT4 m20  = +S20 + S21 + S22 + S23 + S24;
@@ -78,8 +70,8 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                 int ox = oxStart + 0;
                 int oy = oyStart + 0;
                 if (ox < dstWidth && oy < dstHeight) {
-                    int imageOx = ox + oz * dstWidth;
-                    int imageOy = oy + batchIndex * dstHeight;
+                    int imageOx = ox + pos.y * dstWidth;
+                    int imageOy = oy + batchOffset * dstHeight;
                     FLOAT4 res  = bias + m00 + m10 + m20 + m30 + m40;
 #ifdef RELU
                     res = max(res, (FLOAT4)(0));
@@ -94,8 +86,8 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                 int ox = oxStart + 1;
                 int oy = oyStart + 0;
                 if (ox < dstWidth && oy < dstHeight) {
-                    int imageOx = ox + oz * dstWidth;
-                    int imageOy = oy + batchIndex * dstHeight;
+                    int imageOx = ox + pos.y * dstWidth;
+                    int imageOy = oy + batchOffset * dstHeight;
                     FLOAT4 res  = bias + m10 - m20 + (FLOAT)2.0 * m30 - (FLOAT)2.0 * m40 + m50;
 #ifdef RELU
                     res = max(res, (FLOAT4)(0));
@@ -110,8 +102,8 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                 int ox = oxStart + 0;
                 int oy = oyStart + 1;
                 if (ox < dstWidth && oy < dstHeight) {
-                    int imageOx = ox + oz * dstWidth;
-                    int imageOy = oy + batchIndex * dstHeight;
+                    int imageOx = ox + pos.y * dstWidth;
+                    int imageOy = oy + batchOffset * dstHeight;
                     FLOAT4 res  = bias + m01 + m11 + m21 + m31 + m41;
 #ifdef RELU
                     res = max(res, (FLOAT4)(0));
@@ -126,8 +118,8 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                 int ox = oxStart + 1;
                 int oy = oyStart + 1;
                 if (ox < dstWidth && oy < dstHeight) {
-                    int imageOx = ox + oz * dstWidth;
-                    int imageOy = oy + batchIndex * dstHeight;
+                    int imageOx = ox + pos.y * dstWidth;
+                    int imageOy = oy + batchOffset * dstHeight;
                     FLOAT4 res  = bias + m11 - m21 + (FLOAT4)2.0 * m31 - (FLOAT4)2.0 * m41 + m51;
 #ifdef RELU
                     res = max(res, (FLOAT4)(0));

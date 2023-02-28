@@ -12,7 +12,8 @@ endif()
 
 if(NOT MNN_BUILD_TRAIN)
   file(GLOB_RECURSE GradTestFiles ${CMAKE_CURRENT_LIST_DIR}/grad/*.cpp)
-  list(REMOVE_ITEM Files ${GradTestFiles})
+  file(GLOB_RECURSE NNTestFiles ${CMAKE_CURRENT_LIST_DIR}/nn/*.cpp)
+  list(REMOVE_ITEM Files ${GradTestFiles} ${NNTestFiles})
 endif()
 
 add_executable(run_test.out ${Files})

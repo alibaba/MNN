@@ -164,3 +164,4 @@ void demo() {
 - `expressMakeModel.cpp` 使用`Expr`构建模型
 - `segment.cpp` 使用`Session`进行图像分割，使用`Expr`进行后处理
 - `pictureRecognition_module.cpp` 使用`Module`执行图像分类，使用`Expr`进行后处理
+- `pictureRecognition_batch.cpp` 使用`Module`执行图像分类，使用`Expr`进行后处理

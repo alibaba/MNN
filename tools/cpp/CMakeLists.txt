@@ -30,8 +30,8 @@ list(APPEND MNN_CPP_TOOLS testModel.out)
 add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
 list(APPEND MNN_CPP_TOOLS testModel_expr.out)
 
-add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp)
-list(APPEND MNN_CPP_TOOLS testModelWithDescrisbe.out)
+add_executable(testModelWithDescribe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescribe.cpp)
+list(APPEND MNN_CPP_TOOLS testModelWithDescribe.out)
 
 add_executable(getPerformance.out ${CMAKE_CURRENT_LIST_DIR}/getPerformance.cpp)
 list(APPEND MNN_CPP_TOOLS getPerformance.out)

@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "1.2.0"
+  s.version      = "2.2.0"
   s.summary      = "MNN"
 
   s.description  = <<-DESC
@@ -34,13 +34,16 @@ Pod::Spec.new do |s|
 
   #s.source =  { :git => "git@github.com:alibaba/MNN.git", :branch => 'master' }
   s.source = {:git => "/Users/zhang/Development/AliNNPrivate/",:branch=> 'head'}
-  s.frameworks = 'Metal', 'Accelerate'
+  s.frameworks = 'Metal', 'Accelerate', 'CoreML'
   s.library = 'c++'
   s.source_files = \
   'include/MNN/*.{h,hpp}',\
   'include/MNN/expr/*.{h,hpp}',\
   'schema/current/*.{h}',\
   '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
+  'source/internal/logging/*.{hpp,cpp}',\
+  'source/internal/logging/ios/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/internal/logging/aliyun-log-c-sdk/src/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/common/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/utils/**/*.{h,c,m,mm,cc,hpp,cpp}',\
@@ -48,14 +51,29 @@ Pod::Spec.new do |s|
   'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
   'source/shape/*.{h,c,m,mm,cc,hpp,cpp}',\
+  #'source/backend/arm82/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+  #'source/backend/arm82/asm/**/*.{h,c,m,mm,cc,S,hpp,cpp}',\
   'source/backend/cpu/*.{h,c,m,mm,cc,S,hpp,cpp}',\
   'source/backend/cpu/bf16/*.{h,c,m,mm,cc,S,hpp,cpp}',\
   'source/backend/cpu/arm/**/*.{h,c,m,mm,cc,S,hpp,cpp}',\
   'source/backend/cpu/compute/*.{h,c,m,mm,cc,S,hpp,cpp}',\
   'source/backend/metal/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
-  'express/**/*.{hpp,cpp}'
-  s.header_mappings_dir = 'include'
+  'source/backend/coreml/backend/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'source/backend/coreml/execution/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'source/backend/coreml/mlmodel/src/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'express/**/*.{hpp,cpp}',\
+  'tools/cv/include/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'tools/cv/source/imgproc/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'tools/cv/source/calib3d/*.{h,c,m,mm,cc,hpp,cpp,metal}'
 
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1'}
+  s.header_mappings_dir = 'include'
+  s.subspec 'cv' do |sp|
+    sp.source_files = 'tools/cv/include/**/*.hpp'
+    sp.header_mappings_dir = 'tools/cv/include'
+    sp.xcconfig = { 'ALWAYS_SEARCH_USER_PATHS' => 'NO' }
+  end
+
+  s.compiler_flags = '-arch arm64 -march=armv8.2-a+simd+fp16'
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half" "$(PODS_TARGET_SRCROOT)/source/backend/coreml/mlmodel/include" "$(PODS_TARGET_SRCROOT)/tools/cv/include"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1 MNN_COREML_ENABLED=1 USE_LZ4_FLAG=1 MNN_INTERNAL_ENABLED=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include"' }
 end

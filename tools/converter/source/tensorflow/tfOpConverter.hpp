@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 #include "MNN_generated.h"
-
 #include "TmpGraph.hpp"
 #include "graph.pb.h"
 

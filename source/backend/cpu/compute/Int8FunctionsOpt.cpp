@@ -23,9 +23,9 @@ void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, cons
                                             const QuanPostTreatParameters* post, size_t realCount);
 void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                           size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
-void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx);
+void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
-void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor);
+void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                          const QuanPostTreatParameters* post, size_t realDstCount);
@@ -1527,17 +1527,15 @@ void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size
     }
 }
 
-void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor) {
+void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
     int pack = 16;
     int8_t* dstPtr = dst;
     const int8_t* srcPtr = src;
-    // const int indexOutput = 16 * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
-    // const int indexInput = idx + 16 * ((ix + x) + inputWidth * ((iy + y) + inputHeight * (ob + batchsize * oc)));
     for (int ox = 0; ox < outputWidth; ++ox) {
         std::vector<int> sum_(pack, 0);
         for (int y = 0; y < kernely; ++y) {
             for (int x = 0; x < kernelx; ++x) {
-                const int8_t *inputPtr = srcPtr + pack* (inputWidth* y + x);
+                const int8_t *inputPtr = srcPtr + pack* (x + inputWidth* y);
                 for (int idx = 0; idx < pack; ++idx) {
                     sum_[idx] += *(inputPtr + idx);
                 }
@@ -1551,22 +1549,16 @@ void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
     }
 }
 
-void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx) {
+void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx) {
     int pack = 16;
+    int8_t* dstPtr = dst;
+    const int8_t* srcPtr = src;
     for (int ox = 0; ox < outputWidth; ++ox){
-        int ix = ox * stridesx - paddingx;
-        const int kernelx_ = std::min(kernelx, ix + kernelx);
-        ix = std::max(ix, 0);
         std::vector<int8_t> results(pack, INT8_MIN);
-        // const int indexOutput = 16 * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
-        // const int indexInput = idx + 16 * ((ix + x) + inputWidth * ((iy + y) + inputHeight * (ob + batchsize * oc)));
-        int8_t* dstPtr = dst + pack * ox;
-        const int8_t* srcPtr = src + pack* ix;
         for (int y = 0; y < kernely; ++y) {
-            for (int x = 0; x < kernelx_; ++x) {
+            for (int x = 0; x < kernelx; ++x) {
                 const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
-                for (int idx = 0; idx < pack; ++idx)
-                {   
+                for (int idx = 0; idx < pack; ++idx) {   
                     results[idx] = std::max(results[idx], *(inputPtr + idx));
                 }
             }
@@ -1575,6 +1567,8 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
         for (int idx = 0; idx < pack;++idx) {
             *(dstPtr + idx) = results[idx];
         }
+        dstPtr = dstPtr + pack;
+        srcPtr = srcPtr + pack* stridesx;
     }
 }
 

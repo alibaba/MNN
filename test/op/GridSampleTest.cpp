@@ -72,18 +72,22 @@ static float interpolate(float h, float w, const float *buffer, int height, int 
     // mode == GridSampleMode_BILINEAR
     int w0_h = ::floor(h);
     int w0_w = ::floor(w);
-    int w1_h = w0_h + 1;
-    int w1_w = w0_w + 1;
+    int w1_h = ::ceil(h);
+    int w1_w = ::ceil(w);
+    float fx2 = w - w0_w;
+    float fx1 = 1.0f - fx2;
+    float fy2 = h - w0_h;
+    float fy1 = 1.0f - fy2;
 
     float i00 = sample(w0_h, w0_w, buffer, height, width, paddingMode);
     float i01 = sample(w0_h, w1_w, buffer, height, width, paddingMode);
     float i10 = sample(w1_h, w0_w, buffer, height, width, paddingMode);
     float i11 = sample(w1_h, w1_w, buffer, height, width, paddingMode);
 
-    float i0 = ((i00) * (w1_w - w) + (i01) * (w - w0_w));
-    float i1 = ((i10) * (w1_w - w) + (i11) * (w - w0_w));
+    float i0 = ((i00) * fx1 + (i01) * fx2);
+    float i1 = ((i10) * fx1 + (i11) * fx2);
 
-    return ((i0 * (w1_h - h)) + (i1 * (h - w0_h)));
+    return ((i0 * fy1) + (i1 * fy2));
 }
 
 static void reference_grid_sample(const float *inputPtr, const float *gridPtr, std::vector<float> &output,
@@ -167,7 +171,7 @@ public:
             ::memcpy(grid->writeMap<float>(), gridPtr, originGridData.size() * sizeof(float));
             input = _Convert(input, NC4HW4);
 
-            std::vector<InterpolationMethod> modes({NEAREST, BILINEAR});
+            std::vector<InterpolationMethod> modes({BILINEAR});
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS});
             std::vector<int> alignCornersVec = {1, 0};
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);

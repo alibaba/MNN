@@ -117,8 +117,8 @@ namespace MNN {
             MNN_ASSERT(iter != mInputIdxMap.end());
             memcpy((void*)&mInputTensors[iter->second], &srcTensor, sizeof(void*));
         } else if (isOutputCopy) {
-            MNN_ASSERT(mOutputIdxMap.find(srcTensor) != mOutputIdxMap.end());
-            memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min(srcTensor->size(), dstTensor->size()));
+            // MNN_ASSERT(mOutputIdxMap.find(srcTensor) != mOutputIdxMap.end());
+            memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min((int)TensorUtils::getRawSize(srcTensor), dstTensor->size()));
         }
     }
 
@@ -136,7 +136,7 @@ namespace MNN {
             //printf("tensorName: %d\n", iter->second);
             return std::to_string(iter->second);
         }
-        int idx = mTensorIdxMap.size();
+        int idx = static_cast<int>(mTensorIdxMap.size());
         mTensorIdxMap.insert(std::make_pair(t, idx));
         auto idName = std::to_string(idx);
         if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::CONSTANT) {

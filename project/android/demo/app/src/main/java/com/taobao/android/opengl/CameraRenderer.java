@@ -71,21 +71,35 @@ public class CameraRenderer extends GLSurfaceView implements
     private MNNNetInstance.Session.Tensor mInputTensor;
     private MNNNetInstance.Session.Tensor mOutputTensor;
 
+    private String mMobileModelFileName;
+    private String mMobileModelPath;
+
+    public void prepareModels() {
+        mMobileModelFileName = "Portrait/Portrait.tflite.mnn";
+        mMobileModelPath = mContext.getCacheDir() + "/Portrait.tflite.mnn";
+
+        try {
+            Common.copyAssetResource2File(mContext, mMobileModelFileName, mMobileModelPath);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
     public void prepareNet() {
         if (mNetInstance != null) {
-            mNetInstance.release();
+            return;
+            // mNetInstance.release();
         }
-
+        prepareModels();
         // create net instance
-        mNetInstance = MNNNetInstance.createFromFile("/data/local/tmp/TestResource/Portrait.tflite.mnn");
+        mNetInstance = MNNNetInstance.createFromFile(mMobileModelPath);
 
         // create session
         mConfig = new MNNNetInstance.Config();
         mConfig.numThread = 4;
         mConfig.forwardType = MNNForwardType.FORWARD_OPENGL.type;
 
-        mConfig.outputTensors = new String[1];
-        mConfig.outputTensors[0] = "ResizeBilinear_2";
+        // mConfig.outputTensors = new String[1];
+        // mConfig.outputTensors[0] = "ResizeBilinear_3";
 
         mSession = mNetInstance.createSession(mConfig);
 

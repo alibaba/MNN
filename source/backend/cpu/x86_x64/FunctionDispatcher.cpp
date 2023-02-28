@@ -30,7 +30,7 @@ struct FunctionGroup {
     int hP                                                                                       = 4;
     void (*MNNExpC8)(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
     void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
-    void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size) = _SSE_MNNReluInt8;
+    void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size) = _SSE_MNNGelu;
     void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) = _SSE_MNNNorm;
@@ -66,7 +66,7 @@ void MNNFunctionInit() {
     }
 }
 
-void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx, size_t factor) {
+void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
     int pack = 16;
     uint32_t f = static_cast<uint32_t>(factor);
     uint8_t* dstPtr = reinterpret_cast<uint8_t*>(dst);
@@ -89,22 +89,16 @@ void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputW
     }
 }
 
-void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, size_t paddingx) {
+void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx) {
     int pack = 16;
+    int8_t* dstPtr = dst;
+    const int8_t* srcPtr = src;
     for (int ox = 0; ox < outputWidth; ++ox){
-        int ix = ox * stridesx - paddingx;
-        const int kernelx_ = std::min(kernelx, ix + kernelx);
-        ix = std::max(ix, 0);
         std::vector<int8_t> results(pack, INT8_MIN);
-        // const int indexOutput = 16 * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
-        // const int indexInput = idx + 16 * ((ix + x) + inputWidth * ((iy + y) + inputHeight * (ob + batchsize * oc)));
-        int8_t* dstPtr = dst + pack * ox;
-        const int8_t* srcPtr = src + pack* ix;
         for (int y = 0; y < kernely; ++y) {
-            for (int x = 0; x < kernelx_; ++x) {
+            for (int x = 0; x < kernelx; ++x) {
                 const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
-                for (int idx = 0; idx < pack; ++idx)
-                {   
+                for (int idx = 0; idx < pack; ++idx) {   
                     results[idx] = std::max(results[idx], *(inputPtr + idx));
                 }
             }
@@ -113,6 +107,8 @@ void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputW
         for (int idx = 0; idx < pack;++idx) {
             *(dstPtr + idx) = results[idx];
         }
+        dstPtr = dstPtr + pack;
+        srcPtr = srcPtr + pack* stridesx;
     }
 }
 
@@ -144,8 +140,8 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
-void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
-    return gFunc.MNNReluInt8(dst, src, size);
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) {
+    return gFunc.MNNReluInt8(dst, src, size, zeroPoint);
 }
 
 void MNNHardSwish(float* dst, const float* src, size_t size) {

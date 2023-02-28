@@ -14,14 +14,14 @@
 .align 5
 
 asm_function MNNReluInt8
-// void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size)
+// void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, size_t zeroPoint)
 // Auto
-// x0: dst, x1: src, x2: size
+// x0: dst, x1: src, x2: size, x3: zeroPoint
 
 cmp x2, #0
 beq ReluEnd
 
-movi v7.4s, #0
+dup v7.16b, w3
 
 L16:
 cmp x2, #16

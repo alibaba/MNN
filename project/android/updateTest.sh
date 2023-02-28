@@ -12,7 +12,7 @@ adb shell "cd /data/local/tmp/$DIR && rm -r output"
 adb shell "cd /data/local/tmp/$DIR && mkdir output"
 adb push ./unitTest.out /data/local/tmp/$DIR/unitTest.out
 adb push ./testModel.out /data/local/tmp/$DIR/testModel.out
-adb push ./testModelWithDescrisbe.out /data/local/tmp/$DIR/testModelWithDescrisbe.out
+adb push ./testModelWithDescribe.out /data/local/tmp/$DIR/testModelWithDescribe.out
 adb push ./backendTest.out /data/local/tmp/$DIR/backendTest.out
 adb push ./timeProfile.out /data/local/tmp/$DIR/timeProfile.out
 

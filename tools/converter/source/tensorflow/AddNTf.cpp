@@ -10,7 +10,6 @@
 #include "tfOpConverter.hpp"
 #include <map>
 #include <string>
-#include "graph.pb.h"
 
 using namespace MNN;
 

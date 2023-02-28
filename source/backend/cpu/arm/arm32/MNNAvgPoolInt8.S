@@ -15,7 +15,7 @@
 
 asm_function MNNAvgPoolInt8
 // void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,
-//                  size_t stridesx, size_t paddingx, size_t factor);
+//                  size_t stridesx, ssize_t paddingx, ssize_t factor);
 // Auto load: r0: dst, r1: src, r2: outputWidth, r3: inputWidth
 // r4: kernelx, r5: kernely, r7: stridesx, r8: paddingx, lr: factor
 
@@ -30,14 +30,16 @@ ldr lr, [sp, #52]       // lr: factor
 vpush {q4-q6}
 vdup.32 q4, lr
 
+cmp r4, #0
+ble END
+cmp r5, #0
+ble END
+
 mov r11, #16
 mul r11, r11, r7      // r11: 16*stridesx
 
 mov lr, #16
 mul lr, lr, r3        // lr: 16*inputWidth (16: channel pack)
-
-cmp r8, #0            // r8: -paddingx<0
-blt LM
 
 L1:
 /*L1Loop */
@@ -95,47 +97,16 @@ vqmovn.s16 d1, q1
 
 vst1.8 {q0}, [r0]!
 
-mov r3, #1               // 1: Computer #1 width_points each time.
-mul r3, r3, r11         // r3: 16* stridesx
+mov r3, #1               // #1: Computer only one width_point each time.
+mul r3, r3, r11          // r3: 16* stridesx
 add r1, r1, r3
 
-sub r2, r2, #1          // r2: OutputWidth
+sub r2, r2, #1           // r2: OutputWidth
 
 cmp r2, #0
 beq END
 cmp r2, #1
 bge L1Loop
-
-
-/*minusLoop */
-LM:
-vmov.i32 q0, #0
-mov r12, r5             // r12: kernely_
-mov r10, r4         // r11: kernelx_
-
-LMLoopY:
-mov r6, r1              // r6: src
-
-LMLoopX:
-vld1.32 {d24[0]}, [r6]!
-vmovl.s8 q12, d24
-
-vaddw.s16 q0, q0, d24
-sub r10, r10, #1
-cmp r10, #0
-bne LMLoopX
-
-add r1, r1, lr
-sub r12, r12, #1
-cmp r12, #0
-bne LMLoopY
-
-vmul.s32 q0, q0, q4
-vshr.s32 q0, q0, #24
-vqmovn.s32 d0, q0
-vqmovn.s16 d0, q0
-
-vst1.32 {d0[0]}, [r0]!
 
 END:
 vpop {q4-q6}
