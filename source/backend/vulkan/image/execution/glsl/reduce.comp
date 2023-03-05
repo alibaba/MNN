@@ -1,0 +1,61 @@
+#version 440 core
+#define FLOAT float
+
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=2) uniform constBuffer {
+    int w;//inside
+    int h;//axis
+    int c;//outside
+    float k;//For mean
+}uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec2 pos;
+    pos.x = posTmp.x / uConst.w;
+    pos.y = posTmp.x % uConst.w;
+    // x: index in outside, y: index in inside
+    if(pos.y < uConst.w && pos.x < uConst.c)
+    {
+        int h = uConst.h;
+        int W = uConst.w;
+        int H = uConst.h;
+        int C = uConst.c;
+        int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
+        FLOAT res = uInput.data[basicOffset];
+        for(int i = 1; i < uConst.h; ++i)
+        {
+            FLOAT next = uInput.data[basicOffset + i * uConst.w];
+#ifdef VMAX
+            res = max(res, next);
+#endif
+#ifdef VMIN
+            res = min(res, next);
+#endif
+#ifdef SUM
+            res = res + next;
+#endif
+#ifdef PROD
+            res = res * next;
+#endif
+#ifdef MEAN
+            res = res + next;
+#endif
+        }
+#ifdef MEAN
+        res = res * uConst.k;
+#endif
+        uOutput.data[posTmp.x] = res;
+    }
+}

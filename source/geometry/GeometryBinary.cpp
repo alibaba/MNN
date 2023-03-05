@@ -10,6 +10,7 @@
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "shape/SizeComputer.hpp"
+#define MNN_BINARY_LOOP_OPT
 namespace MNN {
 class GeometryBinary : public GeometryComputer {
 public:
@@ -122,8 +123,9 @@ public:
                 (output->dimensions() != input1->dimensions() && MNN_DATA_FORMAT_NC4HW4 == outFormat)) {
             input1Broadcast = true;
         }
+#ifdef MNN_BINARY_LOOP_OPT
         if (input0Broadcast || input1Broadcast) {
-            if ((context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CUDA || context.forwardType() == MNN_FORWARD_CPU_EXTENSION) && inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float) {
+            if ((context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CUDA || context.forwardType() == MNN_FORWARD_CPU_EXTENSION) && inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float && op->main_as_BinaryOp()->activationType() == 0) {
                 if (!(input0Broadcast && input1Broadcast)) {
 //                if (false) {
                     // Use Loop instead of broadcast
@@ -153,6 +155,7 @@ public:
                     auto stepOffset = builder.CreateVector(std::vector<int>{0, 0, 0});
                     auto indexesOffset = builder.CreateVector(std::vector<int>{2, 0, 1});
                     std::vector<flatbuffers::Offset<RegionCommand>> regionCommands;
+
                     for (int i=0; i<des->regions.size(); ++i) {
                         auto& reg = des->regions[i];
                         auto sizeOffset = builder.CreateVector(reg.size, 3);
@@ -209,6 +212,7 @@ public:
                 }
             }
         }
+#endif
         if (input0Broadcast) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(output, newTensor.get(), true);

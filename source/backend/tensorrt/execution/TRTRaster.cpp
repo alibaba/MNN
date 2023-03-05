@@ -10,6 +10,7 @@
 #include <core/TensorUtils.hpp>
 #include "TRTBackend.hpp"
 #include "schema/current/MNNPlugin_generated.h"
+#include "core/OpCommonUtils.hpp"
 
 using namespace std;
 
@@ -26,9 +27,10 @@ std::vector<ITensor *> TRTRaster::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
     MNN_PRINT("TRTRaster in\n");
 #endif
+    OpCommonUtils::rasterInputReset(mInputs, mOutputs[0]);
     std::vector<ITensor *> inputTensors;
     std::map<const Tensor *, int> tensorMap;
-    auto des = TensorUtils::getDescribe(mInputs[0]);
+    auto des = TensorUtils::getDescribe(mOutputs[0]);
     for (auto &reg : des->regions) {
         if (tensorMap.find(reg.origin) == tensorMap.end()) {
             tensorMap.insert(std::make_pair(reg.origin, tensorMap.size()));
@@ -57,7 +59,7 @@ std::vector<ITensor *> TRTRaster::onEncode(const std::vector<ITensor *> &xOp) {
         dst->dst->stride = {src.dst.stride[0], src.dst.stride[1], src.dst.stride[2]};
     }
     raster->extra = MNNTRTPlugin::ExtraType_Normal;
-    if (!TensorUtils::regionIsFull(mInputs[0])) {
+    if (!TensorUtils::regionIsFull(mOutputs[0])) {
         raster->extra = MNNTRTPlugin::ExtraType_Fill;
     }
     auto preluPlugin               = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());

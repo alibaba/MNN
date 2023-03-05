@@ -16,9 +16,6 @@
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
 #include "common/MemoryFormater.h"
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
 
 constexpr int FULSE_THRESHHOLD_NUMERATOR = 10;
 constexpr int FULSE_THRESHHOLD_DENOMINATOR = 10;
@@ -126,6 +123,92 @@ bool ConvolutionPackWinograd::onClone(Backend* bn, const Op* op, Execution** dst
 }
 
 ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    MNN_CONCURRENCY_BEGIN(tId, mMainFunction.first) {
+        mMainFunction.second(tId, inputs[0]->host<uint8_t>(), outputs[0]->host<uint8_t>());
+    };
+    MNN_CONCURRENCY_END();
+
+    MNN_CONCURRENCY_BEGIN(tId, mPostFunction.first) {
+        mPostFunction.second(tId, outputs[0]->host<uint8_t>());
+    };
+    MNN_CONCURRENCY_END();
+    return NO_ERROR;
+}
+
+WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DCommon *common, const Tensor *inputTensor,
+                                          const Tensor *outputTensor, int threadNumber, Backend* b, const PerfConfig& denseConfig) {
+
+    // compare cost value
+    WinogradConfig wconfig;
+
+
+    auto core = static_cast<CPUBackend*>(b)->functions();
+    int ow      = outputTensor->width();
+    int oh      = outputTensor->height();
+    int oc      = outputTensor->channel();
+    int ePack, hPack, lPack;
+    core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
+    int unit2   = UP_DIV(ow * oh, ePack * threadNumber);
+    int maxUnit = (int)::sqrtf((float)unit2);
+    maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
+    maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);
+
+    int ic           = inputTensor->channel();
+    auto kernelSize  = common->kernelY();
+    int unit         = 0;
+    float maxRate    = 0.0f;
+    float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
+    std::set<int> supportSu{4, 6, 8};
+    CoreFunctions::WinoUnrollDestTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
+    for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
+        auto sui = u + kernelSize - 1;
+        auto su = (float)sui;
+        if (supportSu.find(sui) == supportSu.end()) {
+            continue;
+        }
+        core->chooseWinoDestUnrollTransform(destTransform, CONVOLUTION_WINOGRAD_MAX_UNIT + 1, sui, u);
+            if (nullptr == destTransform[sui]) {
+            continue;
+        }
+        // /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
+
+        // float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
+        // float winogradCost =
+        //     (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * 2 * (UP_DIV(ow, u) * UP_DIV(oh, u));
+        // float reduceRate = originCost / winogradCost - penalty;
+
+        // new metrics for winograd, only need to calculate absolute compute complexity.
+        // add instructions are about (n - 2), multiply operations are (n - 4). as a result operations are (2n - 6).
+        float winogradCost =
+            ( (2 * su) * su * su * ic + 2 * su * su * ic * oc + ((su + u) * u * (2 * su) * oc)) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+        float reduceRate = originCost / winogradCost;
+
+        // MNN_PRINT("ow=%d, oh=%d, winogradCost:%f, reduceRate:%f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
+        if (reduceRate > maxRate) {
+            maxRate = reduceRate;
+            unit    = u;
+        }
+    }
+    if (maxRate < 1.0f) {
+        wconfig.unit = 0;
+        return wconfig;
+    }
+    wconfig.unit = unit;
+    return wconfig;
+}
+
+ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    CPUConvolution::onResize(inputs, outputs);
+    // FUNC_PRINT(mA->length(1));
+    bool success = backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
+    success      = success && backend()->onAcquireBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
+    success      = success && (backend()->onAcquireBuffer(mTransformMidBuffer.get(), Backend::DYNAMIC));
+    backend()->onReleaseBuffer(mTempBuffer.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mTransformMidBuffer.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
+    if (!success) {
+        return OUT_OF_MEMORY;
+    }
     auto core = static_cast<CPUBackend*>(backend())->functions();
     int pack = core->pack, bytes = core->bytes;
 
@@ -171,13 +254,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
 
     std::vector<size_t> parametersRemain = parameters;
     parametersRemain[3] = eRemain * pack * bytes;
-
-    auto inputOrigin = input->host<uint8_t>();
-    auto outputOrigin = output->host<uint8_t>();
-    auto srcOrigin = inputOrigin;
-    auto dstOrigin = outputOrigin;
     auto midBuffer0Bytes = srcUnit2 * pack * bytes;
-
     bool allow_x86_bf16_winograd = true;
 #ifdef MNN_USE_SSE
     allow_x86_bf16_winograd = bytes != 2; // only bf16 has length of 2 byte on x86. fp16 dosnot exist.
@@ -185,18 +262,21 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
 
     auto weight    = mResource->mWeight->host<uint8_t>();
     auto bias      = mResource->mBias->host<uint8_t>();
-
-    auto tFunction = [&](int tId) {
+    mMainFunction.first = threadNumber;
+    mMainFunction.second = [=](int tId, const uint8_t* inputOrigin, uint8_t* dstOrigin) {
+        auto srcOrigin = inputOrigin;
         auto _srcOrigin = mTempBuffer->host<uint8_t>() + tId * mTempBuffer->stride(0);
         auto gemmBuffer = (mGemmMidBuffer->host<uint8_t>() + tId * mGemmMidBuffer->stride(0));
         auto midBuffer0 = mTransformMidBuffer->host<uint8_t>() + tId * mTransformMidBuffer->stride(0);
+        auto midBufferStride1 = mTransformMidBuffer->stride(1);
+        auto weightStride = mResource->mWeight->stride(0);
         auto midBuffer1 = midBuffer0 + midBuffer0Bytes;
         for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
             int xIndex  = (int)tIndex * ePack;
             int xReamin = totalCount - xIndex;
             int xC      = xReamin > ePack ? ePack : xReamin;
 
-            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR > FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack;
+            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR >= FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack;
             /*Source Transform Begin*/
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
             {
@@ -210,10 +290,12 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                     for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
                         int hIndex = hbIndex % hUnit;
                         int bIndex = hbIndex / hUnit;
-                        int step = std::min(wUnit - oxBegin, remain);
+                        int step = ALIMIN(wUnit - oxBegin, remain);
                         int srcY  = hIndex * dstUnit - padY;
                         int ey    = ALIMIN(srcY + srcUnit, ih) - srcY;
                         int sy    = ALIMAX(0, srcY) - srcY;
+                        auto srcStartY = srcOrigin + (srcY * iw + bIndex * iw * ih) * pack * bytes;
+
                         for (int si=0; si<step; ++si) {
                             auto wIndex = si + oxBegin;
                             int srcX  = wIndex * dstUnit - padX;
@@ -221,7 +303,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                             int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
                             int count = pack * (ex - sx);
 
-                            auto srcStart = srcOrigin + (srcX + srcY * iw + bIndex * iw * ih) * pack * bytes;
+                            auto srcStart = srcStartY + srcX * pack * bytes;
                             auto midBuffer1Offset = midBuffer1 + destSOffset;
 
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
@@ -259,10 +341,11 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                     for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
                         int hIndex = hbIndex % hUnit;
                         int bIndex = hbIndex / hUnit;
-                        int step = std::min(wUnit - oxBegin, remain);
+                        int step = ALIMIN(wUnit - oxBegin, remain);
                         int srcY  = hIndex * dstUnit - padY;
                         int ey    = ALIMIN(srcY + srcUnit, ih) - srcY; //h dim pack element length
                         int sy    = ALIMAX(0, srcY) - srcY;  // first y element
+                        auto srcStartY = srcOrigin + (srcY * iw + bIndex * iw * ih) * pack * bytes;
                         for (int si=0; si<step; ++si) {
                             auto wIndex = si + oxBegin;
                             int srcX  = wIndex * dstUnit - padX;
@@ -270,7 +353,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                             int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
                             int count = pack * (ex - sx);
 
-                            auto srcStart = srcOrigin + (srcX + srcY * iw + bIndex * iw * ih) * pack * bytes;
+                            auto srcStart = srcStartY + srcX * pack * bytes;
                             auto dst_x = _srcOrigin + destSOffset;
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
                                 for (int z = 0; z < ic_4; ++z) {
@@ -285,7 +368,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                                 for (int z = 0; z < ic_4; ++z) {
                                     // Extract
                                     auto srcZ = srcStart + z * sourceZStep * bytes;
-                                    ::memset(midBuffer0, 0, mTransformMidBuffer->stride(1));
+                                    ::memset(midBuffer0, 0, midBufferStride1);
                                     if (count > 0) {
                                         for (int yy = sy; yy < ey; ++yy) {
                                             auto dst_yy = midBuffer0 + (yy * srcUnit + sx) * pack * bytes;
@@ -332,7 +415,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                     for (int iNh = 0; iNh < srcUnit; ++iNh) { // i_Nh, gemm
                         auto unitsGemmbuffer = gemmBuffer + iNh * ic_4 * pack * ePack * bytes;
                         auto _dstFloatPtr = (float*)(_dstOrigin + (iNh * srcUnit + iNw) * dc_4 * pack * ePack * bytes);
-                        auto _weightFloatPtr = (const float*)(weight + (iNh * srcUnit + iNw) * mResource->mWeight->stride(0));
+                        auto _weightFloatPtr = (const float*)(weight + (iNh * srcUnit + iNw) * weightStride);
                         core->MNNPackedMatMul(_dstFloatPtr, (float*)unitsGemmbuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
                     }
                 }
@@ -355,7 +438,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                     for (int i = 0; i < srcUnit2; ++i) {
                         auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
-                        auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
+                        auto _weightFloatPtr = (const float*)(weight + i * weightStride);
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
 
                         core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
@@ -364,7 +447,7 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
                     for (int i = 0; i < srcUnit2; ++i) {
                         auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
-                        auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
+                        auto _weightFloatPtr = (const float*)(weight + i * weightStride);
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
                         core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
                     }
@@ -432,96 +515,15 @@ ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs
         }
     };
 
-    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-        tFunction((int)tId);
-    }
-    MNN_CONCURRENCY_END();
-    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+    mPostFunction.first = threadNumber;
+    mPostFunction.second = [=](int tId, uint8_t* outputOrigin) {
+        auto dstOrigin = outputOrigin;
         for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
             auto dataFloatPtr = (float*)(dstOrigin + ow * oh * batch * dy * pack * bytes);
             auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);
             core->MNNAxByClampBroadcastUnit(dataFloatPtr, dataFloatPtr, biasFloatPtr, ow * oh * batch, 0, 0, 1,  mPostParameters.data());
         }
-    }
-    MNN_CONCURRENCY_END();
-    return NO_ERROR;
-}
-
-WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DCommon *common, const Tensor *inputTensor,
-                                          const Tensor *outputTensor, int threadNumber, Backend* b, const PerfConfig& denseConfig) {
-
-    // compare cost value
-    WinogradConfig wconfig;
-
-
-    auto core = static_cast<CPUBackend*>(b)->functions();
-    int ow      = outputTensor->width();
-    int oh      = outputTensor->height();
-    int oc      = outputTensor->channel();
-    int ePack, hPack, lPack;
-    core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    int unit2   = UP_DIV(ow * oh, ePack * threadNumber);
-    int maxUnit = (int)::sqrtf((float)unit2);
-    maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
-    maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);
-
-    int ic           = inputTensor->channel();
-    auto kernelSize  = common->kernelY();
-    int unit         = 0;
-    float maxRate    = 0.0f;
-    float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
-    std::set<int> supportSu{4, 6, 8};
-    CoreFunctions::WinoUnrollDestTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
-    for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
-        auto sui = u + kernelSize - 1;
-        auto su = (float)sui;
-        if (supportSu.find(sui) == supportSu.end()) {
-            continue;
-        }
-        core->chooseWinoDestUnrollTransform(destTransform, CONVOLUTION_WINOGRAD_MAX_UNIT + 1, sui, u);
-            if (nullptr == destTransform[sui]) {
-            continue;
-        }
-        // /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
-
-        // float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
-        // float winogradCost =
-        //     (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * 2 * (UP_DIV(ow, u) * UP_DIV(oh, u));
-        // float reduceRate = originCost / winogradCost - penalty;
-
-        // new metrics for winograd, only need to calculate absolute compute complexity.
-        // add instructions are about (n - 2), multiply operations are (n - 4). as a result operations are (2n - 6).
-        float winogradCost =
-            ( (2 * su - 6) * su * su * ic + 2 * su * su * ic * oc + ((su + u) * u * (2 * su - 6) * oc)) * (UP_DIV(ow, u) * UP_DIV(oh, u));
-        float reduceRate = originCost / winogradCost;
-
-        // MNN_PRINT("ow=%d, oh=%d, winogradCost:%f, reduceRate:%f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
-        if (reduceRate > maxRate) {
-            maxRate = reduceRate;
-            unit    = u;
-        }
-    }
-    if (maxRate < 1.0f) {
-        wconfig.unit = 0;
-        return wconfig;
-    }
-    wconfig.unit = unit;
-    return wconfig;
-}
-
-ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    CPUConvolution::onResize(inputs, outputs);
-    // FUNC_PRINT(mA->length(1));
-    bool success = backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
-    success      = success && backend()->onAcquireBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
-    success      = success && (backend()->onAcquireBuffer(mTransformMidBuffer.get(), Backend::DYNAMIC));
-    backend()->onReleaseBuffer(mTempBuffer.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTransformMidBuffer.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
-    if (!success) {
-        return OUT_OF_MEMORY;
-    }
-
+    };
     return NO_ERROR;
 }
 } // namespace MNN

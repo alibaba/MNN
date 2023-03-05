@@ -43,6 +43,10 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
     int fullCount[2] = {1, 1};
     
+    int activationType = 0;
+    if(mOp->type() == OpType_BinaryOp) {
+        activationType = mOp->main_as_BinaryOp()->activationType();
+    }
     auto &unit = mUnits[0];
     unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
@@ -60,6 +64,7 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     unit.kernel.setArg(index++, openCLBuffer(output));
     unit.kernel.setArg(index++, shape);
     unit.kernel.setArg(index++, fullCount);
+    unit.kernel.setArg(index++, activationType);
 
     std::string name = "binary_buf";
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
@@ -80,6 +85,7 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         unit.kernel.setArg(index++, openCLBuffer(output));
         unit.kernel.setArg(index++, shape);
         unit.kernel.setArg(index++, fullCount);
+        unit.kernel.setArg(index++, activationType);
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};

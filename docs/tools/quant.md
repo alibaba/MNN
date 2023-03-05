@@ -1,9 +1,9 @@
-# 模型量化工具
+# 单输入模型离线量化工具
 `./quantized.out origin.mnn quan.mnn imageInputConfig.json`
 
-**注意：本工具为“离线量化”工具，即训练之后的量化。 训练量化请看[这里](https://www.yuque.com/mnn/cn/bhz5eu)**
+通用（任意输入个数、维度、类型）模型离线量化请看[说明](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html#id10)
 
-**由于MNN训练框架不太成熟，如果你的模型用MNN训练框架训练不起来，可以试试**[MNNPythonOfflineQuant工具](https://github.com/alibaba/MNN/tree/master/tools/MNNPythonOfflineQuant)
+MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查看[文档](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html)选择使用
 
 ## 参数
   - 第一个参数为原始模型文件路径，即待量化的浮点模

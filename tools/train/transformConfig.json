@@ -6,7 +6,11 @@
     "Optimizor": {
         "OnlyUpdateOps":[],
         "NoUpdateOps":[],
+        "StopBackPropOps":[],
         "type": "SGD"
+    },
+    "BatchNorm": {
+        "momentum":0.99
     },
     "Debug": {
         "L2Norm": []

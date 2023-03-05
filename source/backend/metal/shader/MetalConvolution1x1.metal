@@ -8,6 +8,7 @@ struct conv1x1_constants {
     int output_height;
     int output_size;
     int output_slice;
+    int output_channel;
     int batch;
     conv_activation_type activation;
 };
@@ -19,11 +20,10 @@ kernel void conv1x1_w1h1(const device ftype4 *in         [[buffer(0)]],
                     const device ftype4 *biasTerms  [[buffer(4)]],
                     uint3 gid                       [[thread_position_in_grid]]) {
     if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.batch * cst.output_slice) return;
-
     int idx_w = gid.x;
     int idx_h = gid.y;
-    int idx_c = gid.z / cst.batch;
-    int idx_b = gid.z % cst.batch;
+    int idx_c = gid.z % cst.output_slice;
+    int idx_b = gid.z / cst.output_slice;
 
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
@@ -144,8 +144,8 @@ kernel void conv1x1_w4h2(const device ftype4 *in            [[buffer(0)]],
 
     int idx_w = gid.x << 2;
     int idx_h = gid.y << 1;
-    int idx_c = gid.z / cst.batch;
-    int idx_b = gid.z % cst.batch;
+    int idx_c = gid.z % cst.output_slice;
+    int idx_b = gid.z / cst.output_slice;
 
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
@@ -204,8 +204,8 @@ kernel void conv1x1_w4h4(const device ftype4 *in            [[buffer(0)]],
 
     int idx_w = gid.x << 2;
     int idx_h = gid.y << 2;
-    int idx_c = gid.z / cst.batch;
-    int idx_b = gid.z % cst.batch;
+    int idx_c = gid.z % cst.output_slice;
+    int idx_b = gid.z / cst.output_slice;
 
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
@@ -294,13 +294,15 @@ kernel void conv1x1_w2c2(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z * 2 >= cst.batch * cst.output_slice) return;
+    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y >= cst.output_height) return;
 
+    int channel_pack = (cst.output_channel + 7) >> 3;
     int idx_w = gid.x << 1;
     int idx_h = gid.y;
-    int idx_c = (gid.z / cst.batch) << 1;
-    int idx_b = gid.z % cst.batch;
-
+    int idx_c = (gid.z % channel_pack) << 1;
+    int idx_b = gid.z / channel_pack;
+    
+    if(idx_b >=  cst.batch || idx_c >= cst.output_slice) return;
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
 
@@ -347,8 +349,8 @@ kernel void conv1x1_w2h2(const device ftype4 *in            [[buffer(0)]],
 
     int idx_w = gid.x << 1;
     int idx_h = gid.y << 1;
-    int idx_c = gid.z / cst.batch;
-    int idx_b = gid.z % cst.batch;
+    int idx_c = gid.z % cst.output_slice;
+    int idx_b = gid.z / cst.output_slice;
 
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
@@ -391,13 +393,15 @@ kernel void conv1x1_w2h2c2(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y * 2 >= cst.output_height || (int)gid.z*2 >= cst.batch * cst.output_slice) return;
+    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y * 2 >= cst.output_height) return;
 
+    int channel_pack = (cst.output_channel + 7) >> 3;
     int idx_w = gid.x << 1;
     int idx_h = gid.y << 1;
-    int idx_c = (gid.z / cst.batch) << 1;
-    int idx_b = gid.z % cst.batch;
+    int idx_c = (gid.z % channel_pack) << 1;
+    int idx_b = gid.z / channel_pack;
 
+    if(idx_b >=  cst.batch || idx_c >= cst.output_slice) return;
     auto xy_wt = wt + idx_c * cst.input_slice;
     auto xy_in0  = in  + (int)idx_b * cst.input_slice * cst.input_size + idx_h * cst.output_width + idx_w;
 

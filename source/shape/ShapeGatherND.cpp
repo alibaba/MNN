@@ -24,6 +24,10 @@ public:
             MNN_ERROR("params->dimensions() < 1 || indices->dimensions() < 1\n");
             return false;
         }
+        int batchDim = 0;
+        if (nullptr != op->main_as_Axis()) {
+            batchDim = op->main_as_Axis()->axis();
+        }
         if (indices->elementSize() == 0) {
             outputs[0]->buffer().type = params->buffer().type;
             TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
@@ -38,13 +42,13 @@ public:
             return false;
         }
         outputs[0]->buffer().type = params->buffer().type;
-        outputs[0]->buffer().dimensions = params->dimensions() + indices->dimensions() - indiceNd -1;
+        outputs[0]->buffer().dimensions = params->dimensions() + indices->dimensions() - indiceNd - 1 - batchDim;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         int outputIndex = 0;
         for (int i=0; i<indices->dimensions()-1; ++i) {
             outputs[0]->setLength(outputIndex++, indices->length(i));
         }
-        for (int i=indiceNd; i<params->dimensions(); ++i) {
+        for (int i=indiceNd + batchDim; i<params->dimensions(); ++i) {
             outputs[0]->setLength(outputIndex++, params->length(i));
         }
         return true;

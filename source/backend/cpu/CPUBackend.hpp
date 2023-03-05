@@ -29,10 +29,13 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
+    void onConcurrencyBegin() const;
+    void onConcurrencyEnd() const;
+
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     int mThreadNumber;
-    int mTaskIndex;
+    mutable int mTaskIndex;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
@@ -68,7 +71,6 @@ public:
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
-
     // Return element size for Tensor, conside pack
     int getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
@@ -97,18 +99,20 @@ public:
     BackendConfig::PrecisionMode precisionMode() const {
         return mPrecisionMode;
     }
-    std::map<const Tensor*, const Tensor*>& getCachedCastTensor() {
-        return mCachedCastTensor;
-    }
     CPUResizeCache* getCache() const {
         return mCache;
     }
+
+    virtual const Runtime* getRuntime() override;
+
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
 #endif
     static void initCreatorMap();
     static int getBytes(const Backend* backend, const Tensor* output);
     static DataType getDataType(const Tensor* tensor);
+
+
 protected:
     MemObj* allocBuffer(int size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
@@ -116,12 +120,21 @@ protected:
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
-    const CPURuntime* mRuntime;
+    CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
-    std::map<const Tensor*, const Tensor*> mCachedCastTensor;
     CPUResizeCache* mCache;
 };
+/** execution cast wrapper. insert tensor cast dynamic. */
+class CastWrapExecution : public Execution {
+public:
+    CastWrapExecution(Backend* backend, DataType runT)
+                    : Execution(backend), mRunType(runT) {}
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+private:
+    DataType mRunType;
+};
+
 
 #define REGISTER_CPU_OP_CREATOR(name, opType)     \
     void ___##name##__##opType##__() {            \

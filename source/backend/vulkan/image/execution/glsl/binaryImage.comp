@@ -1,0 +1,63 @@
+#version 440 core
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput0;
+layout(set=0, binding=2) uniform sampler2D uInput1;
+
+layout(set=0, binding=3) uniform constBuffer{
+    ivec4 stride00;//WHC, LIMIT
+    ivec4 posLimit;
+    int activationType;
+} uConstant;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec3 inSize = uConstant.stride00.xyz;
+    if(posTmp.x < uConstant.stride00.w)
+    {
+        ivec2 pos;
+        pos.y = posTmp.x / inSize.x;
+        pos.x = posTmp.x % inSize.x;
+        vec4 x0 = texelFetch(uInput0, pos.xy * ivec2(uConstant.posLimit.x), 0);
+        if (uConstant.posLimit.x == 0) {
+            x0 = vec4(x0.r);
+        }
+        vec4 x1 = texelFetch(uInput1, pos.xy * ivec2(uConstant.posLimit.y), 0);
+        if (uConstant.posLimit.y == 0) {
+            x1 = vec4(x1.r);
+        }
+        vec4 value = x0;
+#ifdef ADD
+        value = x0 + x1;
+#endif
+#ifdef SUB
+        value = x0 - x1;
+#endif
+#ifdef MUL
+        value = x0 * x1;
+#endif
+#ifdef DIV
+        value = sign(x1) * x0 / max(abs(x1), 0.0000001);
+#endif
+#ifdef POW
+        value = pow(x0, x1);
+#endif
+#ifdef VMAX
+        value = max(x0, x1);
+#endif
+#ifdef VMIN
+        value = min(x0, x1);
+#endif
+#ifdef SQUDIFF
+        value = (x0 - x1) * (x0 - x1);
+#endif
+        if(uConstant.activationType == 1) {
+            value = max(value, vec4(0));
+        }
+        imageStore(uOutput, pos.xy, value);
+    }
+
+}

@@ -22,6 +22,7 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
+#include <algorithm>
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -51,6 +52,7 @@ int main(int argc, const char* argv[]) {
     auto configObject = document.GetObject();
     std::vector<std::string> noUpdateOps;
     std::vector<std::string> onlyUpdateOps;
+    std::vector<std::string> stopBackPropOps;
     std::string optimizerType = "SGD";
     if (configObject.HasMember("Optimizor")) {
         auto optimizor = configObject["Optimizor"].GetObject();
@@ -69,9 +71,24 @@ int main(int argc, const char* argv[]) {
                     MNN_PRINT("will not update: %s \n", vIter->GetString());
             }
         }
+        if (optimizor.HasMember("StopBackPropOps")) {
+            auto limitArray = optimizor["StopBackPropOps"].GetArray();
+            for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
+                stopBackPropOps.emplace_back(vIter->GetString());
+                MNN_PRINT("will stop back prop from (also not update this op): %s \n", vIter->GetString());
+            }
+        }
         if (optimizor.HasMember("type")) {
             optimizerType = std::string(optimizor["type"].GetString());
             MNN_PRINT("optimizer type: %s\n", optimizerType.c_str());
+        }
+    }
+    auto bnMomentum = new MNN::AttributeT;
+    bnMomentum->f = 0.99;
+    if (configObject.HasMember("BatchNorm")) {
+        auto bnConfig = configObject["BatchNorm"].GetObject();
+        if (bnConfig.HasMember("momentum")) {
+            bnMomentum->f = bnConfig["momentum"].GetFloat();
         }
     }
     const char* inputModeFileName = argv[1];
@@ -86,7 +103,10 @@ int main(int argc, const char* argv[]) {
     Transformer::TrainConfig trainConfig;
     trainConfig.noUpdateOps = std::move(noUpdateOps);
     trainConfig.onlyUpdateOps = std::move(onlyUpdateOps);
-    Transformer::turnModelToTrainable(trainConfig)->onExecute(Variable::mapToSequence(outputVars));
+    trainConfig.extraParams["BatchNorm"]["momentum"] = bnMomentum;
+    auto turnTrainable = Train::TurnTrainable(trainConfig);
+    turnTrainable.onExecute(Variable::mapToSequence(outputVars));
+    auto trainInfo = turnTrainable.trainInfo;
     if (configObject.HasMember("Shape")) {
         auto shapeArray = configObject["Shape"].GetObject();
         for (auto shapeIter = shapeArray.begin(); shapeIter != shapeArray.end(); shapeIter++) {
@@ -166,7 +186,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     MNN_ASSERT(nullptr != loss);
-    auto gradMap = OpGrad::grad(loss, parameters);
+    auto gradMap = OpGrad::grad(loss, parameters, stopBackPropOps);
     // Make Update
     std::map<VARP, VARP> varUpdateMap;
     auto learningRate = _Input();
@@ -181,16 +201,35 @@ int main(int argc, const char* argv[]) {
     stepPlus1->setName("optimize_step+1");
     varUpdateMap[step] = stepPlus1;
 
+    std::map<std::string, std::string> extraInputs;
+    extraInputs["LearningRate"] = "float";
+    extraInputs["WeightDecay"] = "float";
+    if (trainInfo["is_training_float"]->linkNumber() > 0) {
+        extraInputs["is_training"] = "int, 0 or 1";
+    }
+
     if (optimizerType == "SGD") {
         auto momentum = _Input();
         momentum->setName("Momentum");
-        MNN_PRINT(">>>\nextra input tensors for SGD: LearningRate, WeightDecay, Momentum\n<<<\n");
+        extraInputs["Momentum"] = "float";
 
         for (auto iter : gradMap) {
             auto p = iter.first;
             p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
+
+            if (p->name().find("_BN_RunningMean_Weight") != string::npos) {
+                varUpdateMap[p] = trainInfo[p->name()];
+                continue; // not update running stats
+            }
+            if (p->name().find("_BN_RunningVariance_Weight") != string::npos) {
+                varUpdateMap[p] = trainInfo[p->name()];
+                continue; // not update running stats
+            }
+            if (p->name().find("_BN_Eps_Weight") != string::npos) {
+                continue; // not update eps
+            }
 
             auto pInfo = p->getInfo();
             auto pDims = pInfo->dim;
@@ -208,10 +247,14 @@ int main(int argc, const char* argv[]) {
             VARP history = _Const(0.0f, pDims, pInfo->order);
             history->setName(p->name() + "_momentum");
             history.fix(VARP::TRAINABLE);
-            auto newHistory = _Multiply(learningRate, gradWithDecay) + momentum * history;
+
+            auto newHistory = gradWithDecay + momentum * history;
             newHistory->setName("update_" + history->name());
 
-            auto updateValue = _Subtract(p, history);
+            auto finalGrad = learningRate * history;
+            finalGrad->setName(p->name() + "_final_grad");
+
+            auto updateValue = _Subtract(p, finalGrad);
             updateValue->setName("update_" + p->name());
             varUpdateMap[p] = updateValue;
             varUpdateMap[history] = newHistory;
@@ -223,7 +266,10 @@ int main(int argc, const char* argv[]) {
         beta2->setName("Beta2");
         auto eps = _Input();
         eps->setName("Eps");
-        MNN_PRINT(">>>\nextra input tensors for ADAM: LearningRate, WeightDecay, Beta1, Beta2, Eps\n<<<\n");
+
+        extraInputs["Beta1"] = "float";
+        extraInputs["Beta2"] = "float";
+        extraInputs["Eps"] = "float";
 
         auto correction = _Sqrt(_Const(1.0f, {}, NCHW) - _Pow(beta2, step)) / (_Const(1.0f, {}, NCHW) - _Pow(beta1, step));
         correction->setName("correction");
@@ -233,6 +279,18 @@ int main(int argc, const char* argv[]) {
             p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
+
+            if (p->name().find("_BN_RunningMean_Weight") != string::npos) {
+                varUpdateMap[p] = trainInfo[p->name()];
+                continue; // not update running stats
+            }
+            if (p->name().find("_BN_RunningVariance_Weight") != string::npos) {
+                varUpdateMap[p] = trainInfo[p->name()];
+                continue; // not update running stats
+            }
+            if (p->name().find("_BN_Eps_Weight") != string::npos) {
+                continue; // not update eps
+            }
 
             auto pInfo = p->getInfo();
             auto pDims = pInfo->dim;
@@ -272,6 +330,12 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("error: don't support optimizer type: %s\n", optimizerType.c_str());
     }
 
+    MNN_PRINT(">>>\nextra input tensors for %s:\n\n", optimizerType.c_str());
+    for (auto& input : extraInputs) {
+        MNN_PRINT("name: %s, \ttype: %s\n", input.first.c_str(), input.second.c_str());
+    }
+    MNN_PRINT("<<<\n");
+
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
     std::vector<VARP> resultOutputs;
     for (auto output : outputVars) {
@@ -290,7 +354,21 @@ int main(int argc, const char* argv[]) {
                 for (int j = 0; j < netStruct->oplists.size(); ++j) {
                     auto& opSub = netStruct->oplists[j];
                     if (opSub->name == iter.first->name()) {
+                        auto indexOri = op->outputIndexes;
                         op->outputIndexes = opSub->outputIndexes;
+
+                        if ((opSub->name.find("_BN_RunningMean_Weight") != string::npos) || (opSub->name.find("_BN_RunningVariance_Weight") != string::npos)) {
+                            for (int k = 0; k < netStruct->oplists.size(); ++k) {
+                                auto& opSubSub = netStruct->oplists[k];
+                                if (opSubSub->inputIndexes.size() > 0) {
+                                    for (int kk = 0; kk < opSubSub->inputIndexes.size(); kk++) {
+                                        if (opSubSub->inputIndexes[kk] == indexOri[0]) {
+                                            opSubSub->inputIndexes[kk] = opSub->outputIndexes[0];
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

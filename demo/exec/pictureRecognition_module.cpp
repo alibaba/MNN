@@ -23,9 +23,12 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
+#include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
 
 using namespace MNN::CV;
 using namespace MNN;
+
 
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
@@ -126,70 +129,116 @@ static void _initDebug() {
 }
 
 int main(int argc, const char* argv[]) {
-    if (argc < 3) {
-        MNN_PRINT("Usage: ./pictureRecognition_module.out model.mnn input0.jpg input1.jpg input2.jpg ... \n");
+    if (argc < 4) {
+        MNN_PRINT("Usage: ./pictureRecognition_module.out model.mnn config.json input0.jpg input1.jpg input2.jpg ... \n");
         return 0;
     }
-    if (false) {
-        _initDebug();
+
+    rapidjson::Document document;
+    {
+        auto configPath = argv[2];
+        FUNC_PRINT_ALL(configPath, s);
+        std::ifstream fileNames(configPath);
+        std::ostringstream output;
+        output << fileNames.rdbuf();
+        auto outputStr = output.str();
+        document.Parse(outputStr.c_str());
+        if (document.HasParseError()) {
+            MNN_ERROR("Invalid json\n");
+            return 0;
+        }
     }
-    // Load module with Config
-    /*
-    MNN::Express::Module::BackendInfo bnInfo;
-    bnInfo.type = MNN_FORWARD_CPU;
-    MNN::Express::Module::Config configs;
-    configs.backend = &bnInfo;
-    std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, argv[1], &configs));
-    */
-    
+    auto picObj = document.GetObject();
+    ImageProcess::Config _imageProcessConfig;
+    _imageProcessConfig.filterType = BILINEAR;
+    _imageProcessConfig.sourceFormat = RGBA;
+    _imageProcessConfig.destFormat   = BGR;
+
+    {
+        if (picObj.HasMember("format")) {
+            auto format = picObj["format"].GetString();
+            static std::map<std::string, ImageFormat> formatMap{{"BGR", BGR}, {"RGB", RGB}, {"GRAY", GRAY}, {"RGBA", RGBA}, {"BGRA", BGRA}};
+            if (formatMap.find(format) != formatMap.end()) {
+                _imageProcessConfig.destFormat = formatMap.find(format)->second;
+            }
+        }
+    }
+
+    _imageProcessConfig.sourceFormat = RGBA;
+    int width = 224;
+    int height = 224;
+    {
+        if (picObj.HasMember("width")) {
+            width = picObj["width"].GetInt();
+        }
+        if (picObj.HasMember("height")) {
+            height = picObj["height"].GetInt();
+        }
+        if (picObj.HasMember("mean")) {
+            auto mean = picObj["mean"].GetArray();
+            int cur   = 0;
+            for (auto iter = mean.begin(); iter != mean.end(); iter++) {
+                _imageProcessConfig.mean[cur++] = iter->GetFloat();
+            }
+        }
+        if (picObj.HasMember("normal")) {
+            auto normal = picObj["normal"].GetArray();
+            int cur     = 0;
+            for (auto iter = normal.begin(); iter != normal.end(); iter++) {
+                _imageProcessConfig.normal[cur++] = iter->GetFloat();
+            }
+        }
+    }
+
     // Load module with Runtime
     MNN::ScheduleConfig sConfig;
     sConfig.type = MNN_FORWARD_AUTO;
+    if (picObj.HasMember("CPU")) {
+        if (picObj["CPU"].GetBool()) {
+            sConfig.type = MNN_FORWARD_CPU;
+        }
+    }
+
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr = std::shared_ptr<MNN::Express::Executor::RuntimeManager>(MNN::Express::Executor::RuntimeManager::createRuntimeManager(sConfig));
     if(rtmgr == nullptr) {
         MNN_ERROR("Empty RuntimeManger\n");
         return 0;
+    }
+
+    if (false) {
+        _initDebug();
+        rtmgr->setMode(Interpreter::Session_Debug);
     }
     
     // Give cache full path which must be Readable and writable
     rtmgr->setCache(".cachefile");
     
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, argv[1], rtmgr));
-    
+
     // Create Input
-    int batchSize = argc - 2;
-    auto input = MNN::Express::_Input({batchSize, 3, 224, 224}, MNN::Express::NC4HW4);
+    int batchSize = argc - 3;
+    auto input = MNN::Express::_Input({batchSize, 3, width, height}, MNN::Express::NC4HW4);
     for (int batch = 0; batch < batchSize; ++batch) {
-        int size_w   = 224;
-        int size_h   = 224;
+        int size_w   = width;
+        int size_h   = height;
         int bpp      = 3;
 
-        auto inputPatch = argv[batch + 2];
-        int width, height, channel;
-        auto inputImage = stbi_load(inputPatch, &width, &height, &channel, 4);
+        auto inputPatch = argv[batch + 3];
+        int inputWidth, inputHeight, channel;
+        auto inputImage = stbi_load(inputPatch, &inputWidth, &inputHeight, &channel, 4);
         if (nullptr == inputImage) {
             MNN_ERROR("Can't open %s\n", inputPatch);
             return 0;
         }
-        MNN_PRINT("origin size: %d, %d\n", width, height);
+        MNN_PRINT("origin size: %d, %d -> %d, %d\n", inputWidth, inputHeight, width, height);
         Matrix trans;
         // Set transform, from dst scale to src, the ways below are both ok
-        trans.setScale((float)(width-1) / (size_w-1), (float)(height-1) / (size_h-1));
-        ImageProcess::Config config;
-        config.filterType = BILINEAR;
-        float mean[3]     = {103.94f, 116.78f, 123.68f};
-        float normals[3] = {0.017f, 0.017f, 0.017f};
-        // float mean[3]     = {127.5f, 127.5f, 127.5f};
-        // float normals[3] = {0.00785f, 0.00785f, 0.00785f};
-        ::memcpy(config.mean, mean, sizeof(mean));
-        ::memcpy(config.normal, normals, sizeof(normals));
-        config.sourceFormat = RGBA;
-        config.destFormat   = BGR;
+        trans.setScale((float)(inputWidth-1) / (size_w-1), (float)(inputHeight-1) / (size_h-1));
 
-        std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
+        std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(_imageProcessConfig));
         pretreat->setMatrix(trans);
         // for NC4HW4, UP_DIV(3, 4) * 4 = 4
-        pretreat->convert((uint8_t*)inputImage, width, height, 0, input->writeMap<float>() + batch * 4 * 224 * 224, 224, 224, 4, 0,  halide_type_of<float>());
+        pretreat->convert((uint8_t*)inputImage, inputWidth, inputHeight, 0, input->writeMap<float>() + batch * 4 * width * height, width, height, 4, 0,  halide_type_of<float>());
         stbi_image_free(inputImage);
     }
     auto outputs = net->onForward({input});
@@ -200,7 +249,7 @@ int main(int argc, const char* argv[]) {
     auto value = topKV[0]->readMap<float>();
     auto indice = topKV[1]->readMap<int>();
     for (int batch = 0; batch < batchSize; ++batch) {
-        MNN_PRINT("For Input: %s \n", argv[batch+2]);
+        MNN_PRINT("For Input: %s \n", argv[batch+3]);
         for (int i=0; i<topK; ++i) {
             MNN_PRINT("%d, %f\n", indice[batch * topK + i], value[batch * topK + i]);
         }

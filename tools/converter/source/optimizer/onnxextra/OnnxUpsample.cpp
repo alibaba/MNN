@@ -105,7 +105,6 @@ public:
         // input, roi, scales, sizes
         // for more information, please reference from https://github.com/onnx/onnx/blob/master/docs/Operators.md#Resize
         MNN_THROW_CHECK((inputs.size() >= 2), "Onnx Resize should have 2/3/4 inputs!");
-
         std::string resizeMode  = "";
         std::string coordMode   = "half_pixel"; // detect align_corner attribute
         std::string nearestMode = "round_prefer_floor";
@@ -198,47 +197,16 @@ public:
 
         VARP output;
         if (inputs.size() == 2) {
-            auto info = inputs[1]->getInfo();
-            auto ptr = inputs[1]->readMap<float>();
-            if (!ptr) {
-                mergeredResize->main.value = resizeParam.release();
-                auto output = Variable::create(Expr::create(mergeredResize.get(), {inputs[0], inputs[1]}));
-                return output->expr().first;
-            }
-            MNN_ASSERT((ptr[0] == 1) && (ptr[1] == 1));
-            if (info->size > 2) {
-                resizeParam->heightScale   = ptr[2];
-            }
-            if (info->size > 3) {
-                resizeParam->widthScale    = ptr[3];
-            }
             mergeredResize->main.value = resizeParam.release();
-            auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0]});
-            resizeExpr->setName(expr->name());
-            output = Variable::create(resizeExpr);
+            auto output = Variable::create(Expr::create(mergeredResize.get(), {inputs[0], inputs[1]}));
+            output->setName(expr->name());
             return output->expr().first;
         }
         if (inputs.size() == 3) {
             auto scaleT = inputs[2];
-            auto info = inputs[2]->getInfo();
-            auto scale  = scaleT->readMap<float>();
-            if (nullptr == scale) {
-                // Compute shape dynamic
-                mergeredResize->main.value = resizeParam.release();
-                auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0], {inputs[2]}});
-                resizeExpr->setName(expr->name());
-                output = Variable::create(resizeExpr);
-                return output->expr().first;
-            }
-            MNN_THROW_CHECK(nullptr != scale, "Onnx resize's scale must be const");
-            if (info->size > 2) {
-                resizeParam->heightScale   = scale[2];
-            }
-            if (info->size > 3) {
-                resizeParam->widthScale    = scale[3];
-            }
+            // Compute shape dynamic
             mergeredResize->main.value = resizeParam.release();
-            auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0]});
+            auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0], {inputs[2]}});
             resizeExpr->setName(expr->name());
             output = Variable::create(resizeExpr);
             return output->expr().first;

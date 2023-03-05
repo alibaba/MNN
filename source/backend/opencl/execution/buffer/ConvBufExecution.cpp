@@ -258,7 +258,6 @@ void ConvBufExecution::setConv1x1WeightBuffer(int packCout, int packCin, const f
 
 void ConvBufExecution::_generateFilterConvertRegion(Tensor* virtualFilter, Tensor* originBuffer) const {
     auto filterDes = TensorUtils::getDescribe(virtualFilter);
-    filterDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     filterDes->regions.clear();
     for (int so=0; so<4; ++so) {
         int oSize = (mOutputChannel - so + 3) / 4;
@@ -310,10 +309,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
     if (inputs.size() != 1) {
         // Multi - Input
         mConv1x1Opt = false;
-        std::shared_ptr<Tensor> virtualFilter(
-            Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 4) * ROUND_UP(mInputChannel, 4) * mKernelWidth * mKernelHeight}));
-        mVirtualFilter = virtualFilter;
-        mRasterExe.reset(new RasterBufExecution({virtualFilter.get()}, op, mOpenCLBackend));
+        mRasterExe.reset(new RasterBufExecution({mFilter.get()}, op, mOpenCLBackend));
     } else {
         int weightSize   = 0;
         ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &mFilterDataPtr, &weightSize);
@@ -344,13 +340,11 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
                 return;
             }
             mOpenCLBackend->onCopyBuffer(originBufferHost.get(), originBuffer.get());
-            std::shared_ptr<Tensor> virtualFilter(
-                Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 4) * ROUND_UP(mInputChannel, 4) * mKernelWidth * mKernelHeight}));
-            _generateFilterConvertRegion(virtualFilter.get(), originBuffer.get());
-            std::shared_ptr<Execution> raster(new RasterBufExecution({virtualFilter.get()}, op, mOpenCLBackend));
-            raster->onResize({virtualFilter.get()}, {mFilter.get()});
-            raster->onExecute({virtualFilter.get()}, {mFilter.get()});
-            mOpenCLBackend->onReleaseBuffer(originBuffer.get(), Backend::STATIC);
+            _generateFilterConvertRegion(mFilter.get(), originBuffer.get());
+            std::shared_ptr<Execution> raster(new RasterBufExecution({}, op, mOpenCLBackend));
+            raster->onResize({}, {mFilter.get()});
+            raster->onExecute({}, {mFilter.get()});
+            // STATIC mode's buffer will be released by tensor free
         }
     }
     // Create Kernel
@@ -370,11 +364,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
 }
 
 ConvBufExecution::~ConvBufExecution() {
-    if(!mConv1x1Opt){
-        if (mVirtualFilter == nullptr) {
-            mOpenCLBackend->onReleaseBuffer(mFilter.get(), Backend::STATIC);
-        }
-    }
+    // Do nothing
 }
 
 ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -385,12 +375,12 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     auto output = outputs[0];
     if (inputs.size() > 1) {
         // Multi Input, need pretreat
-        _generateFilterConvertRegion(mVirtualFilter.get(), inputs[1]);
+        _generateFilterConvertRegion(mFilter.get(), inputs[1]);
         bool res = backend()->onAcquireBuffer(mFilter.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
         }
-        mRasterExe->onResize({mVirtualFilter.get()}, {mFilter.get()});
+        mRasterExe->onResize({}, {mFilter.get()});
     }
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -603,7 +593,16 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
     MNN_PRINT("Start ConvExecution onExecute !\n");
 #endif
     if (inputs.size() > 1) {
-        mRasterExe->onExecute({mVirtualFilter.get()}, {mFilter.get()});
+        mRasterExe->onExecute({}, {mFilter.get()});
+        if (inputs.size() > 2) {
+            auto buffer_size = inputs[2]->elementSize();
+            if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+                buffer_size *= sizeof(half_float::half);
+            } else {
+                buffer_size *= sizeof(float);
+            }
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueCopyBuffer(openCLBuffer(inputs[2]), openCLBuffer(mBias.get()), 0, 0, buffer_size);
+        }
     }
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
@@ -639,10 +638,6 @@ public:
             }
         }
         
-        if (inputs.size() == 3) {
-            MNN_PRINT("multi input conv for opencl buffer not supoort!\n");
-            return nullptr;
-        }
         if (inputs.size() > 1) {
             // Multi inputs
             return new ConvBufExecution(inputs, outputs, op, backend);

@@ -1,3 +1,11 @@
+//
+//  ImageNoLabelDataset.hpp
+//  MNN
+//
+//  Created by MNN on 2020/02/16.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef ImageNoLabelDataset_hpp
 #define ImageNoLabelDataset_hpp
 #include <MNN/expr/Expr.hpp>

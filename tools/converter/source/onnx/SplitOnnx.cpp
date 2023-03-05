@@ -22,7 +22,8 @@ MNN::OpParameter SplitOnnx::type() {
 void SplitOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                     OnnxScope* scope) {
     auto param = new MNN::SliceT;
-    int axis   = 1;
+    // Default axis = 0: https://github.com/onnx/onnx/blob/main/docs/Operators.md#Split
+    int axis   = 0;
     std::vector<int> slicePoints;
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {

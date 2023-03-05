@@ -103,6 +103,77 @@ void MNNUnpackC4Common(T* dst, const T* src, size_t area, size_t depth, int* are
     }
 }
 
+template<typename T>
+void MNNPackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC2     = depth / 2;
+    int depthRemain = depthC2 * 2;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[2];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC2; ++z) {
+        auto dstZ = dst + z * areaOffset[1] * 2;
+        for(y = 0; y < 2; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < 2; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+        }
+        srcOffset += areaOffset[0] * 2;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC2 * areaOffset[1] * 2;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+            for(y = remain; y < 2; ++y) {
+                dstZ[0] = 0;
+                dstZ++;
+            }
+        }
+    }
+}
+
+template<typename T>
+void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC2     = depth / 2;
+    int depthRemain = depthC2 * 2;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[2];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC2; ++z) {
+        for(y = 0; y < 2; ++y) {
+            auto dstZ = dst + (z * 2 + y) * areaOffset[1];
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 2;
+            }
+        }
+        srcOffset += areaOffset[0] * 2;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC2 * areaOffset[1] * 2;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 2;
+            }
+            dstZ += areaOffset[1];
+        }
+    }
+}
+
 /*
     source: source matrix is h x l
     transpose: if false, export compressed matrix as h x l, other export as l x h.
@@ -1439,11 +1510,10 @@ void MNNSoftmax(float* dest, const float* source, size_t size) {
     }
 }
 
-void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
-    int i;
-    for (i = 0; i < size; ++i) {
-        if (src[i] < 0) {
-            dst[i] = 0;
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) {
+    for (int i = 0; i < size; ++i) {
+        if (src[i] < zeroPoint) {
+            dst[i] = zeroPoint;
         } else {
             dst[i] = src[i];
         }
@@ -1675,10 +1745,10 @@ void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) 
         }
     }
     Vec4::save(dst, max);
- }
+}
 
 void MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec4 res = Vec4(-FLT_MAX);
@@ -1704,7 +1774,7 @@ void MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<
 
 void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth) {
     float invSamplingCnt = 1.f / samplingRatioArea;
-    for (int h = 0; h < pooledHeight; ++h, dst += pooledHeight * UNIT) {
+    for (int h = 0; h < pooledHeight; ++h, dst += pooledWidth * UNIT) {
         int preCalcIdx = h * pooledWidth * samplingRatioArea;
         for (int w = 0; w < pooledWidth; ++w) {
             Vec4 res = Vec4(0.f);
@@ -2030,6 +2100,40 @@ void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t 
 }
 
 void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+#if defined(MNN_USE_NEON)
+    if (3 == depth) {
+        int areaC4     = (int)area / 4;
+        int remain     = areaC4 * 4;
+        for (int i = 0; i < areaC4; ++i) {
+            auto srcCur   = src + 16 * i;
+            auto dstCur   = dst + 12 * i;
+            auto srcValue = vld4q_f32(srcCur);
+            float32x4x3_t dstValue;
+            dstValue.val[0] = srcValue.val[0];
+            dstValue.val[1] = srcValue.val[1];
+            dstValue.val[2] = srcValue.val[2];
+            vst3q_f32(dstCur, dstValue);
+        }
+        for (int i = remain; i < area; ++i) {
+            dst[3 * i + 0] = src[4 * i + 0];
+            dst[3 * i + 1] = src[4 * i + 1];
+            dst[3 * i + 2] = src[4 * i + 2];
+        }
+        return;
+    }
+#elif defined(MNN_USE_SSE)
+    if (3 == depth) {
+        if (area < 1) return;
+        for (int i = 0; i < area - 1; ++i) {
+            auto srcValue = Vec4::load(src + 4 * i);
+            Vec4::save(dst + 3 * i, srcValue);
+        }
+        for (int i = 0; i < 3; ++i) {
+            dst[3 * (area - 1) + i] = src[4 * (area - 1) + i];
+        }
+        return;
+    }
+#endif
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
@@ -2841,12 +2945,11 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNC3ToFloatC3 = MNNC3ToFloatC3;
     gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
 
-#ifdef MNN_USE_ARMV82
     cpuinfo_arm_isa gCPUInfo;
     cpuinfo_arm_init(&gCPUInfo);
     gCoreFunction->supportFp16arith = gCPUInfo.fp16arith;
     gCoreFunction->supportSDot = gCPUInfo.dot;
-#endif
+    gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     MNNCoreInt8FunctionInit();
     MNNFunctionInit();
 }
@@ -2868,4 +2971,27 @@ void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, in
         areaOffset,
     };
     MNNPackC4(dst, src, area, depth, offset);
+}
+
+void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset) {
+    MNNPackC2Common<double>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset) {
+    MNNUnpackC2Common<double>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNUnpackC2(dst, src, area, depth, offset);
+}
+void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNPackC2(dst, src, area, depth, offset);
 }

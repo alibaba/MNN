@@ -6,7 +6,10 @@ list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
 add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)
 list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 
-add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp)
+add_executable(mergeInplaceForCPU ${CMAKE_CURRENT_LIST_DIR}/mergeInplaceForCPU.cpp)
+list(APPEND MNN_CPP_TOOLS mergeInplaceForCPU)
+
+add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
     target_compile_options(MNNV2Basic.out PRIVATE -DMNN_USE_SSE)
@@ -27,8 +30,8 @@ list(APPEND MNN_CPP_TOOLS testModel.out)
 add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
 list(APPEND MNN_CPP_TOOLS testModel_expr.out)
 
-add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp)
-list(APPEND MNN_CPP_TOOLS testModelWithDescrisbe.out)
+add_executable(testModelWithDescribe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescribe.cpp)
+list(APPEND MNN_CPP_TOOLS testModelWithDescribe.out)
 
 add_executable(getPerformance.out ${CMAKE_CURRENT_LIST_DIR}/getPerformance.cpp)
 list(APPEND MNN_CPP_TOOLS getPerformance.out)

@@ -8,153 +8,177 @@
 
 #include "backend/cpu/CPUPoolInt8.hpp"
 #include "core/Macro.h"
-
+#include <math.h>
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#include "compute/Int8FunctionsOpt.h"
 #include "core/Concurrency.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 
 #define DST_TILE 16
 #define CACHE_SIZE 128
 
 namespace MNN {
 
-static void poolingMaxNHWCInt8(const Tensor *src, Tensor *dst, int sx, int sy, int kx, int ky, int px, int py) {
-    const int inputHeight  = src->length(1);
-    const int inputWidth   = src->length(2);
-    const int outputHeight = dst->length(1);
-    const int outputWidth  = dst->length(2);
-    const int channel      = dst->length(3);
-    int8_t result[CACHE_SIZE];
+static void poolingAvgNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_t, size_t, size_t, size_t, ssize_t, ssize_t), const Tensor *src, Tensor *dst,
+                                   int stridesx, int stridesy, int kernelx, int kernely, int paddingx, int paddingy)
+{
+    const int inputHeight = src->height();
+    const int inputWidth = src->width();
+    const int outputHeight = dst->height();
+    const int outputWidth = dst->width();
+    const int channel = dst->channel();
+    const int batchsize = src->batch();
 
     const auto srcPtr = src->host<int8_t>();
     auto dstPtr       = dst->host<int8_t>();
+    int pack = 16;
+    int thred0 = UP_DIV(paddingx, stridesx);
+    int thred1 = inputWidth + paddingx - kernelx;
+    thred1 = UP_DIV(thred1, stridesx);     // ix + kernelx >= inputWidth;
+    // int factor = static_cast<int>((1 << 24)/(kernelx * kernely));
 
-    for (int oc = 0; oc < channel; oc += CACHE_SIZE) {
-        const int realChannel = std::min(channel - oc, CACHE_SIZE);
+    const int channel_ = UP_DIV(channel, pack);
+    for (int oc = 0; oc < channel_; ++oc) {
+        for(int ob = 0; ob < batchsize; ++ob) {
+            for (int oy = 0; oy < outputHeight; ++oy) {
+                int iy = oy * stridesy - paddingy;
+                const int kernely_ = std::min(iy + kernely, inputHeight) - std::max(iy, 0);
+                iy = std::max(iy, 0);
+                int ox = 0;
+                for (ox = 0; ox < thred0; ++ox) { // ix < 0;
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
 
-        for (int oy = 0; oy < outputHeight; ++oy) {
-            for (int ox = 0; ox < outputWidth; ++ox) {
-                const int srcOriginX = ox * sx - px;
-                const int srcOriginY = oy * sy - py;
-                const int kxs        = std::max(0, -srcOriginX);
-                const int kxe        = std::min(kx, inputWidth - srcOriginX);
-                const int kys        = std::max(0, -srcOriginY);
-                const int kye        = std::min(ky, inputHeight - srcOriginY);
+                    int mul = static_cast<int>((1 << 24)/(kernelx_ * kernely_));
 
-                const int8_t *srcCurPtr = srcPtr + oc + (srcOriginX + srcOriginY * inputWidth) * channel;
-                memset(result, INT8_MIN, sizeof(int8_t) * realChannel);
-                for (int y = kys; y < kye; ++y) {
-                    const int8_t *srcCurRowPtr = srcCurPtr + (y * inputWidth + kxs) * channel;
-                    for (int x = kxs; x < kxe; ++x) {
-                        const int8_t *srcCurChannlePtr = srcCurRowPtr;
-                        int index                      = 0;
-#ifdef MNN_USE_NEON
-                        for (; index <= realChannel - 16; index += 16) {
-                            int8x16_t maxValue   = vld1q_s8(result + index);
-                            int8x16_t inputValue = vld1q_s8(srcCurChannlePtr);
-                            srcCurChannlePtr += 16;
-                            maxValue = vmaxq_s8(maxValue, inputValue);
-                            vst1q_s8(result + index, maxValue);
-                        }
-                        for (; index <= realChannel - 8; index += 8) {
-                            int8x8_t maxValue   = vld1_s8(result + index);
-                            int8x8_t inputValue = vld1_s8(srcCurChannlePtr);
-                            srcCurChannlePtr += 8;
-                            maxValue = vmax_s8(maxValue, inputValue);
-                            vst1_s8(result + index, maxValue);
-                        }
-#endif
-                        for (; index < realChannel; ++index) {
-                            result[index] = std::max(result[index], *srcCurChannlePtr++);
-                        }
-                        srcCurRowPtr += channel;
-                    }
+                    const int indexOutput = pack* (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
+
+                    poolfunc(dstCur, srcCur, 1, inputWidth, kernelx_, kernely_, stridesx, paddingx, mul);
+
+                } // ix < 0;
+
+                // ix > 0 && ix + kernelx < inputWidth;
+                if (thred1 - thred0 > 0) {
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
+                    int mul = static_cast<int>((1 << 24)/(kernelx_ * kernely_));
+
+                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));    
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
+
+                    poolfunc(dstCur, srcCur, thred1 - thred0, inputWidth, kernelx_, kernely_, stridesx, 0, mul);
                 }
 
-                int8_t *dstCurPtr = dstPtr + oc + (ox + oy * outputWidth) * channel;
-                memcpy(dstCurPtr, result, sizeof(int8_t) * realChannel);
+                for (ox = thred1; ox < outputWidth; ++ox) { // ix + kernelx > inputWidth;
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
+
+                    int mul = static_cast<int>((1 << 24)/(kernelx_ * kernely_));
+
+                    const int indexOutput = pack* (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
+
+                    poolfunc(dstCur, srcCur, 1, inputWidth, kernelx_, kernely_, stridesx, paddingx, mul);
+
+                } 
             }
         }
     }
 }
 
-static void poolingAvgNHWCInt8(const Tensor *src, Tensor *dst, int sx, int sy, int kx, int ky, int px, int py) {
-    const int inputHeight  = src->length(1);
-    const int inputWidth   = src->length(2);
-    const int outputHeight = dst->length(1);
-    const int outputWidth  = dst->length(2);
-    const int channel      = dst->length(3);
-    int16_t result[CACHE_SIZE];
+static void poolingMaxNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_t, size_t, size_t, size_t), const Tensor *src, Tensor *dst, int stridesx, int stridesy, int kernelx, int kernely, int paddingx, int paddingy)
+{
+    const int inputHeight = src->height();
+    const int inputWidth = src->width();
+    const int outputHeight = dst->height();
+    const int outputWidth = dst->width();
+    const int channel = dst->channel();
+    const int batchsize = src->batch();
+    int pack = 16;
+    int thred0 = UP_DIV(paddingx, stridesx);
+    int thred1 = inputWidth + paddingx - kernelx;
+    thred1 = UP_DIV(thred1, stridesx);     // ix + kernelx >= inputWidth;
 
     const auto srcPtr = src->host<int8_t>();
     auto dstPtr       = dst->host<int8_t>();
 
-    for (int oc = 0; oc < channel; oc += CACHE_SIZE) {
-        const int realChannel = std::min(channel - oc, CACHE_SIZE);
+    const int channel16 = UP_DIV(channel, pack);
+    for (int oc = 0; oc < channel16; ++oc){
+        for(int ob = 0; ob < batchsize; ++ob){
+            for (int oy = 0; oy < outputHeight; ++oy) {
+                
+                int iy = oy * stridesy - paddingy;
+                const int kernely_ = std::min(iy + kernely, inputHeight) - std::max(iy, 0);
+                iy = std::max(iy, 0);
+                int ox = 0;
+                for (ox = 0; ox < thred0; ++ox) { // ix < 0;
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
 
-        for (int oy = 0; oy < outputHeight; ++oy) {
-            for (int ox = 0; ox < outputWidth; ++ox) {
-                const int srcOriginX  = ox * sx - px;
-                const int srcOriginY  = oy * sy - py;
-                const int kxs         = std::max(0, -srcOriginX);
-                const int kxe         = std::min(kx, inputWidth - srcOriginX);
-                const int kys         = std::max(0, -srcOriginY);
-                const int kye         = std::min(ky, inputHeight - srcOriginY);
-                const int kernelCount = (kxe - kxs) * (kye - kys);
+                    const int indexOutput = pack* (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
 
-                const int8_t *srcCurPtr = srcPtr + oc + (srcOriginX + srcOriginY * inputWidth) * channel;
-                memset(result, 0, sizeof(int16_t) * realChannel);
-                for (int y = kys; y < kye; ++y) {
-                    const int8_t *srcCurRowPtr = srcCurPtr + (y * inputWidth + kxs) * channel;
-                    for (int x = kxs; x < kxe; ++x) {
-                        const int8_t *srcCurChannlePtr = srcCurRowPtr;
-                        int index                      = 0;
-#ifdef MNN_USE_NEON
-                        for (; index <= realChannel - 16; index += 16) {
-                            int16x8_t accResult[2];
-                            accResult[0]         = vld1q_s16(result + index);
-                            accResult[1]         = vld1q_s16(result + index + 8);
-                            int8x16_t inputValue = vld1q_s8(srcCurChannlePtr);
-                            srcCurChannlePtr += 16;
-                            accResult[0] = vaddw_s8(accResult[0], vget_low_s8(inputValue));
-                            accResult[1] = vaddw_s8(accResult[1], vget_high_s8(inputValue));
-                            vst1q_s16(result + index, accResult[0]);
-                            vst1q_s16(result + index + 8, accResult[1]);
-                        }
-                        for (; index <= realChannel - 8; index += 8) {
-                            int16x8_t accResult = vld1q_s16(result + index);
-                            int8x8_t inputValue = vld1_s8(srcCurChannlePtr);
-                            srcCurChannlePtr += 8;
-                            accResult = vaddw_s8(accResult, inputValue);
-                            vst1q_s16(result + index, accResult);
-                        }
-#endif
-                        for (; index < realChannel; ++index) {
-                            result[index] += *srcCurChannlePtr++;
-                        }
-                        srcCurRowPtr += channel;
-                    }
+                    poolfunc(dstCur, srcCur, 1, inputWidth, kernelx_, kernely_, stridesx);
+
+                } // ix < 0;
+
+                // ix > 0 && ix + kernelx < inputWidth;
+                if (thred1 - thred0 > 0) {
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
+
+                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));    
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
+
+                    poolfunc(dstCur, srcCur, thred1 - thred0, inputWidth, kernelx_, kernely_, stridesx);
                 }
 
-                int8_t *dstCurPtr = dstPtr + oc + (ox + oy * outputWidth) * channel;
-                int index         = 0;
-                for (; index < realChannel; ++index) {
-                    int16_t a = result[index] > 0 ? (result[index] + kernelCount / 2) / kernelCount
-                                                  : (result[index] - kernelCount / 2) / kernelCount;
-                    dstCurPtr[index] = static_cast<int8_t>(a);
+                for (ox = thred1; ox < outputWidth; ++ox) { // ix + kernelx > inputWidth;
+                    int ix = ox * stridesx - paddingx;
+                    const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
+                    ix = std::max(ix, 0);
+
+                    const int indexOutput = pack* (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
+                    const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
+                    int8_t* dstCur = dstPtr + indexOutput;
+                    int8_t* srcCur = srcPtr + indexInput;
+
+                    poolfunc(dstCur, srcCur, 1, inputWidth, kernelx_, kernely_, stridesx);
+
                 }
             }
         }
     }
 }
 
-CPUPoolInt8::CPUPoolInt8(Backend *b, const Pool *parameter) : Execution(b), mParameter(parameter) {
+CPUPoolInt8::CPUPoolInt8(Backend *backend, const Pool *parameter) : Execution(backend), mParameter(parameter) {
 }
 
 ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     const auto input = inputs[0];
     auto output      = outputs[0];
+
+    auto core = static_cast<CPUBackend*>(backend())->int8Functions();
 
     int strideWidth  = mParameter->strideX();
     int strideHeight = mParameter->strideY();
@@ -186,22 +210,24 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
     }
 
     const int channel = input->channel();
-    auto poolFunc     = poolingMaxNHWCInt8;
+    
+    mThreadFunction = [=](const Tensor *src, Tensor *dst) {
+        poolingMaxNC16HW16Int8(core->MNNMaxPoolInt8, src, dst, strideWidth, strideHeight, kernelWidth, kernelHeight, padWidth, padHeight);
+    };
     if (mParameter->type() == MNN::PoolType_AVEPOOL) {
-        poolFunc = poolingAvgNHWCInt8;
+        mThreadFunction = [=](const Tensor *src, Tensor *dst) {
+            poolingAvgNC16HW16Int8(core->MNNAvgPoolInt8, src, dst, strideWidth, strideHeight, kernelWidth, kernelHeight, padWidth, padHeight);
+        };
     }
-    mInputTemp.reset(Tensor::createDevice<int8_t>({input->batch(), inputHeight, inputWidth, channel}));
-    mOutputTemp.reset(Tensor::createDevice<int8_t>({output->batch(), outputHeight, outputWidth, channel}));
+
+    mInputTemp.reset(Tensor::createDevice<int8_t>({input->batch(), inputHeight, inputWidth, UP_DIV(channel, 16) * 16}));
+    mOutputTemp.reset(Tensor::createDevice<int8_t>({output->batch(), outputHeight, outputWidth, UP_DIV(channel, 16) * 16}));
 
     bool allocSucc = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC);
     allocSucc      = allocSucc && backend()->onAcquireBuffer(mOutputTemp.get(), Backend::DYNAMIC);
     if (!allocSucc) {
         return OUT_OF_MEMORY;
     }
-
-    mThreadFunction = [=](const Tensor *src, Tensor *dst) {
-        poolFunc(src, dst, strideWidth, strideHeight, kernelWidth, kernelHeight, padWidth, padHeight);
-    };
 
     backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
@@ -211,9 +237,25 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
 ErrorCode CPUPoolInt8::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    backend()->onCopyBuffer(input, mInputTemp.get());
-    mThreadFunction(mInputTemp.get(), mOutputTemp.get());
-    backend()->onCopyBuffer(mOutputTemp.get(), output);
+    auto channel_input = input->channel();
+    auto plane_in = input->width() * input->height() * input->batch();
+    auto plane_out = output->width() * output->height() * output->batch();
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    auto depth = UP_DIV(channel_input, core->pack);
+    
+    if (core->pack == 8) {
+        MNNPackC2Origin(mInputTemp.get()->host<double>(), input->host<double>(), plane_in, depth, plane_in);
+        mThreadFunction(mInputTemp.get(), mOutputTemp.get());
+        MNNUnpackC2Origin(output->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
+    }
+    else if (core->pack == 4) {
+        MNNPackC4Origin(mInputTemp.get()->host<float>(), input->host<float>(), plane_in, depth, plane_in);
+        mThreadFunction(mInputTemp.get(), mOutputTemp.get());
+        MNNUnpackC4Origin(output->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
+    }
+    else if (core->pack == 16) {
+        mThreadFunction(input, output);
+    }
     return NO_ERROR;
 }
 

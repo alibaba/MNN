@@ -35,6 +35,9 @@ enum BinaryOpOperation : byte {
 table BinaryOp {
     opType:int;
     T:DataType=DT_FLOAT;
+    // 0 -> No Activation
+    // 1 -> Relu
+    activationType:int=0;
 }
 
 table PackParam {
@@ -305,6 +308,7 @@ table LayerNorm {
     gamma: [float];
     beta: [float];
     group: int = 1;
+    external:[int64]; // [offset, gamma_bytes_size, beta_bytes_size]
 }
 table RandomUniform {
     seed:int = 0;

@@ -586,9 +586,11 @@ struct BinaryOpT : public flatbuffers::NativeTable {
   typedef BinaryOp TableType;
   int32_t opType;
   DataType T;
+  int32_t activationType;
   BinaryOpT()
       : opType(0),
-        T(DataType_DT_FLOAT) {
+        T(DataType_DT_FLOAT),
+        activationType(0) {
   }
 };
 
@@ -603,10 +605,14 @@ struct BinaryOp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   DataType T() const {
     return static_cast<DataType>(GetField<int32_t>(6, 1));
   }
+  int32_t activationType() const {
+    return GetField<int32_t>(8, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
            VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
            verifier.EndTable();
   }
   BinaryOpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -623,6 +629,9 @@ struct BinaryOpBuilder {
   void add_T(DataType T) {
     fbb_.AddElement<int32_t>(6, static_cast<int32_t>(T), 1);
   }
+  void add_activationType(int32_t activationType) {
+    fbb_.AddElement<int32_t>(8, activationType, 0);
+  }
   explicit BinaryOpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -638,8 +647,10 @@ struct BinaryOpBuilder {
 inline flatbuffers::Offset<BinaryOp> CreateBinaryOp(
     flatbuffers::FlatBufferBuilder &_fbb,
     int32_t opType = 0,
-    DataType T = DataType_DT_FLOAT) {
+    DataType T = DataType_DT_FLOAT,
+    int32_t activationType = 0) {
   BinaryOpBuilder builder_(_fbb);
+  builder_.add_activationType(activationType);
   builder_.add_T(T);
   builder_.add_opType(opType);
   return builder_.Finish();
@@ -3085,6 +3096,7 @@ struct LayerNormT : public flatbuffers::NativeTable {
   std::vector<float> gamma;
   std::vector<float> beta;
   int32_t group;
+  std::vector<int64_t> external;
   LayerNormT()
       : epsilon(0.0f),
         group(1) {
@@ -3111,6 +3123,9 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t group() const {
     return GetField<int32_t>(12, 1);
   }
+  const flatbuffers::Vector<int64_t> *external() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(14);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3121,6 +3136,8 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(beta()) &&
            VerifyField<int32_t>(verifier, 12) &&
+           VerifyOffset(verifier, 14) &&
+           verifier.VerifyVector(external()) &&
            verifier.EndTable();
   }
   LayerNormT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3146,6 +3163,9 @@ struct LayerNormBuilder {
   void add_group(int32_t group) {
     fbb_.AddElement<int32_t>(12, group, 1);
   }
+  void add_external(flatbuffers::Offset<flatbuffers::Vector<int64_t>> external) {
+    fbb_.AddOffset(14, external);
+  }
   explicit LayerNormBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3164,8 +3184,10 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(
     float epsilon = 0.0f,
     flatbuffers::Offset<flatbuffers::Vector<float>> gamma = 0,
     flatbuffers::Offset<flatbuffers::Vector<float>> beta = 0,
-    int32_t group = 1) {
+    int32_t group = 1,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> external = 0) {
   LayerNormBuilder builder_(_fbb);
+  builder_.add_external(external);
   builder_.add_group(group);
   builder_.add_beta(beta);
   builder_.add_gamma(gamma);
@@ -3481,6 +3503,7 @@ inline void BinaryOp::UnPackTo(BinaryOpT *_o, const flatbuffers::resolver_functi
   (void)_resolver;
   { auto _e = opType(); _o->opType = _e; };
   { auto _e = T(); _o->T = _e; };
+  { auto _e = activationType(); _o->activationType = _e; };
 }
 
 inline flatbuffers::Offset<BinaryOp> BinaryOp::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BinaryOpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -3493,10 +3516,12 @@ inline flatbuffers::Offset<BinaryOp> CreateBinaryOp(flatbuffers::FlatBufferBuild
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BinaryOpT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _opType = _o->opType;
   auto _T = _o->T;
+  auto _activationType = _o->activationType;
   return MNN::CreateBinaryOp(
       _fbb,
       _opType,
-      _T);
+      _T,
+      _activationType);
 }
 
 inline PackParamT *PackParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4548,6 +4573,7 @@ inline void LayerNorm::UnPackTo(LayerNormT *_o, const flatbuffers::resolver_func
   { auto _e = gamma(); if (_e) { _o->gamma.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gamma[_i] = _e->Get(_i); } } };
   { auto _e = beta(); if (_e) { _o->beta.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->beta[_i] = _e->Get(_i); } } };
   { auto _e = group(); _o->group = _e; };
+  { auto _e = external(); if (_e) { _o->external.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->external[_i] = _e->Get(_i); } } };
 }
 
 inline flatbuffers::Offset<LayerNorm> LayerNorm::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LayerNormT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4563,13 +4589,15 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(flatbuffers::FlatBufferBui
   auto _gamma = _o->gamma.size() ? _fbb.CreateVector(_o->gamma) : 0;
   auto _beta = _o->beta.size() ? _fbb.CreateVector(_o->beta) : 0;
   auto _group = _o->group;
+  auto _external = _o->external.size() ? _fbb.CreateVector(_o->external) : 0;
   return MNN::CreateLayerNorm(
       _fbb,
       _axis,
       _epsilon,
       _gamma,
       _beta,
-      _group);
+      _group,
+      _external);
 }
 
 inline RandomUniformT *RandomUniform::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4932,17 +4960,19 @@ inline const flatbuffers::TypeTable *PadValueModeTypeTable() {
 inline const flatbuffers::TypeTable *BinaryOpTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, 0 }
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     DataTypeTypeTable
   };
   static const char * const names[] = {
     "opType",
-    "T"
+    "T",
+    "activationType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -5559,17 +5589,19 @@ inline const flatbuffers::TypeTable *LayerNormTypeTable() {
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 }
   };
   static const char * const names[] = {
     "axis",
     "epsilon",
     "gamma",
     "beta",
-    "group"
+    "group",
+    "external"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

@@ -1,0 +1,38 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    float data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    float data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    float data[];
+} uOn;
+layout(set=0, binding=3) readonly buffer sourceBuffer2{
+    float data[];
+} uOff;
+
+layout(set=0, binding=4) uniform constBuffer{
+    ivec4 size; // x: outside, depth, inside, total
+} uConstant;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w) {
+        int inside = posTmp.x % uConstant.size.z;
+        int tmp = posTmp.x / uConstant.size.z;
+        int depth = tmp % uConstant.size.y;
+        int outside = tmp / uConstant.size.y;
+
+        float depthF = float(depth);
+        float indice = uInput.data[inside + outside * uConstant.size.z];
+        float value = (abs(indice - depthF) < 0.5) ? uOn.data[0] : uOff.data[0];
+        uOutput.data[posTmp.x] = value;
+    }
+}

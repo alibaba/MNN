@@ -56,6 +56,9 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
                 printf("Error Key = %s\n", iter.first.c_str());
                 NSLog(@"Warning: Metallib Library error: %@", err);
             }
+            [libraryMap removeAllObjects];
+            libraryMap = nil;
+            return;
         }
         auto functionNames = [library functionNames];
         for(int i=0; i<functionNames.count ; i++) {
@@ -102,7 +105,8 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     _caches   = [NSMutableDictionary dictionary];
     _waitings = [NSMutableArray array];
     _isCommitEachShader = self.class.commit_frequent;
-    return nil != _library;
+    
+    return (0 != [_library count]);
 }
 
 - (instancetype)init {
@@ -161,6 +165,23 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     if (error)
         printf("[METAL] create pipeline error: %s\n", error.localizedDescription.UTF8String);
 #endif
+    if (result)
+        _caches[name] = result;
+    return result;
+}
+
+- (id<MTLComputePipelineState>)pipelineWithSource:(NSString *)source name:(NSString *)name {
+    NSError *err = nil;
+    auto library = [_device newLibraryWithSource:source options:nil error:&err];
+    if (nil == library) {
+        if (err) {
+            NSLog(@"Warning: pipelineWithSource error: %@", err);
+        }
+        return nil;
+    }
+    id<MTLFunction> function = [library newFunctionWithName:name];
+    NSError *error = nil;
+    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&error];
     if (result)
         _caches[name] = result;
     return result;

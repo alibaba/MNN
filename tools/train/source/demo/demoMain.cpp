@@ -8,7 +8,9 @@
 
 #include <MNN/MNNDefine.h>
 #include "DemoUnit.hpp"
+#include <MNN/expr/ExecutorScope.hpp>
 int main(int argc, const char* argv[]) {
+    ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
     if (argc < 2) {
         MNN_ERROR("Usage: ./runTrainDemo.out CASENAME [ARGS]\n");
         auto& list = DemoUnitSet::get()->list();

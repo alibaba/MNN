@@ -21,7 +21,7 @@ enum OpType : int {
     AsString,
     InstanceNorm,
     BatchToSpaceND,
-    Bias,
+    Copy,
     BinaryOp,
     Bnll,
     Cast,
@@ -138,6 +138,7 @@ enum OpType : int {
     OneHot,
     BroadcastTo,
     Dilation2D,
+    Interp3D,
     Raster = 128,
     ConvertTensor = 129,
     ArgMin = 130,
@@ -174,13 +175,13 @@ enum OpType : int {
     Broastcast,
     SetDiff1D,
     ReluGrad,
-    Relu6Grad,
+    Identity,
     PoolGrad,
     SoftmaxGrad,
     Conv2DBackPropFilter,
     TrainableParam,
     BatchNorm,
-
+    ConvTranspose3D,
     // Use for self defined grad
     ZeroGrad,
 
@@ -278,7 +279,7 @@ table LoopParam {
     tensorNumber:int;
     outputIndexes:[int];
     inputIndexes:[int];
-    midTensors:[TensorDescribe];
+    extraTensorInfos:[TensorDescribe];
     // The loop can be parallel executed
     parallel:bool = true;
     // The number of loop (for i = 0; i<loopNumber; ++i)
@@ -289,7 +290,7 @@ table LoopParam {
     // 1. nullptr mean no init;
     // 2. RegionCommand whiout any param mean all zero init;
     // 3. Execute RegionCommand to init output;
-    initCommand:RegionCommand;
+    initCommand:[RegionCommand];
 }
 
 union OpParameter {

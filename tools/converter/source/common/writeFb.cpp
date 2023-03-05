@@ -126,6 +126,12 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
 
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
+    if (config.saveExternalData) {
+        bool res = saveExternalData(netT, MNNModelFile + ".weight");
+        if (!res) {
+            LOG(FATAL) << "Write Weight to External Data Failed.";
+        }
+    }
     auto len = MNN::Net::Pack(builderOutput, netT.get());
     builderOutput.Finish(len);
     int sizeOutput    = builderOutput.GetSize();

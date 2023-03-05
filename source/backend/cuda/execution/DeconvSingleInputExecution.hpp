@@ -10,8 +10,9 @@
 #define DeconvSingleInputExecution_hpp
 
 #include "backend/cuda/core/CUDABackend.hpp"
-#include "core/Execution.hpp"
-#include "TensorCoreGemm.cuh"
+#include "MNNCUDADefine.hpp"
+#include "CutlassGemmParam.hpp"
+#include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -85,19 +86,43 @@ public:
 
 private:
     std::shared_ptr<Resource> mResource;
-
     const Op* mOp = nullptr;
-    MatMulParam mMatMulParam;
-    std::pair<void*, int> mGpuMatMulParam;
-
     Col2ImParameter mCol2ImParamter;
-    std::pair<void*, int> mGpuCol2ImParam;
 
-    InputReorderParameter mInpReorderParameter;
-    std::pair<void*, int> mGpuInpReorderParam;
+    CutlassGemmInfo mGemmInfo;
+    int mActivationType;
+    int mGpuComputeCap;
+    void* mIm2ColBuffer;
+    void* mInputBuffer;
+    std::shared_ptr<Tensor> workspaceTensor;
+    void* mWorkspace;
+    void* mZeroPtr;
+    std::shared_ptr<Tensor> mZeroTensor;
 
-    float* mIm2ColBuffer;
-    __half* mInputBuffer;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
+
+    GemmCuda_F16_F16_Linear_AlignCuda mGemmCudaF16F16Ln;
+    GemmCuda_F16_F32_Linear_AlignCuda mGemmCudaF16F32Ln;
+    GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
+
+    GemmCuda_F16_F16_Relu_AlignCuda mGemmCudaF16F16Relu;
+    GemmCuda_F16_F32_Relu_AlignCuda mGemmCudaF16F32Relu;
+    GemmCuda_F32_F32_Relu_AlignCuda mGemmCudaF32F32Relu;
+
+    GemmCuda_F16_F16_Relu6_AlignCuda mGemmCudaF16F16Relu6;
+    GemmCuda_F16_F32_Relu6_AlignCuda mGemmCudaF16F32Relu6;
+    GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
+
+    GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16F16LnSm75;
+    GemmTensor_F16_F32_Linear_AlignCuda_Sm75 mGemmF16F32LnSm75;
+
+    GemmTensor_F16_F16_Relu_AlignCuda_Sm75 mGemmF16F16ReluSm75;
+    GemmTensor_F16_F32_Relu_AlignCuda_Sm75 mGemmF16F32ReluSm75;
+
+    GemmTensor_F16_F16_Relu6_AlignCuda_Sm75 mGemmF16F16Relu6Sm75;
+    GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 mGemmF16F32Relu6Sm75;
 };
 
 } // namespace CUDA

@@ -1,0 +1,116 @@
+#version 440
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
+} uConstant;
+#define FLOAT4 vec4
+//for dynamic change threads counts from outside
+// from vkCreateComputePipelines->VkComputePipelineCreateInfo->VkPipelineShaderStageCreateInfo->VkSpecializationInfo->VkSpecializationMapEntry
+// layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.x) {
+        ivec2 pos;
+        pos.x = posTmp.x % uConstant.size.w;
+        pos.y = posTmp.x / uConstant.size.w;
+        vec4 value = texelFetch(uInput, pos, 0);
+#ifdef NEG
+        value = -value;
+#endif
+#ifdef EXP
+        value = exp(value);
+#endif
+#ifdef SIGN
+        value = sign(value);
+#endif
+#ifdef SQRT
+        value = sqrt(value);
+#endif
+#ifdef RSQRT
+        value = inversesqrt(value);
+#endif
+#ifdef ABS
+        value = abs(value);
+#endif
+#ifdef TANH
+        value = tanh(value);
+#endif
+#ifdef SQUARE
+        value = value * value;
+#endif
+#ifdef LOG
+        value = log(max(value,vec4(0.0000001)));
+#endif
+#ifdef SIGMOID
+        value = 1.f / (1.f + exp(-value));
+#endif
+#ifdef TAN
+        value = tan(value);
+#endif
+#ifdef COS
+        value = cos(value);
+#endif
+#ifdef SIN
+        value = sin(value);
+#endif
+#ifdef CEIL
+        value = ceil(value);
+#endif
+#ifdef FLOOR
+        value = floor(value);
+#endif
+#ifdef EXPM1
+        value = exp(value) - FLOAT4(1);
+#endif
+#ifdef RECIPROCAL
+        value = FLOAT4(1) / value;
+#endif
+
+#ifdef SINH
+        value = sinh(value);
+#endif
+#ifdef ASINH
+        value = asinh(value);
+#endif
+#ifdef ASIN
+        value = asin(value);
+#endif
+#ifdef COSH
+        value = cosh(value);
+#endif
+#ifdef ACOSH
+        value = acosh(value);
+#endif
+#ifdef ACOS
+        value = acos(value);
+#endif
+#ifdef ATAN
+        value = atan(value);
+#endif
+#ifdef ATANH
+        value = atanh(value);
+#endif
+#ifdef LOG1P
+        value = log(FLOAT4(1) + value);
+#endif
+#ifdef ROUND
+        value = round(value);
+#endif
+#ifdef HARDSWISH
+        const vec4 leftMask = vec4(greaterThan(value, vec4(-3.0f)));
+        const vec4 rightMask = vec4(lessThan(value, vec4(3.0f)));
+        value = leftMask*value*(rightMask*((value+3.0f)/6.0f) + 1.0f - rightMask);
+#endif
+#ifdef GELU
+        vec4 temp = vec4(0.044715) * value * value * value;
+        temp = vec4(0.79788458) * (temp + value);
+        value = (vec4(1.0) + tanh(temp)) * value * vec4(0.5);
+#endif
+        imageStore(uOutput, pos, value);
+    }
+}

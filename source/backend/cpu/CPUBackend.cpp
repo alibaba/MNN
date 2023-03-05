@@ -42,6 +42,12 @@
 #define MNN_CPU_USE_DEFAULT_BACKEND 4
 namespace MNN {
 void registerCPUOps();
+ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto convertType = mRunType == DataType_DT_INT8 ? CPUCastCreator::FlOAT_TO_INT8 : CPUCastCreator::INT8_TO_FlOAT;
+    auto cpuBackend = ((CPUBackend*)backend());
+    CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
+    return NO_ERROR;
+}
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
     mStaticAllocator.reset(new BufferAllocator(BufferAllocator::Allocator::createDefault()));
@@ -82,6 +88,9 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
         ThreadPool::active();
     }
 #endif
+#ifdef LOG_VERBOSE
+    MNN_PRINT("create CPURuntime:%p\n", this);
+#endif
 }
 CPURuntime:: ~ CPURuntime() {
 #ifdef MNN_USE_THREAD_POOL
@@ -96,6 +105,9 @@ float CPURuntime::onGetMemoryInMB() {
     return staticMemoryInMB;
 }
 
+
+
+
 Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     auto precision = mPrecision;
     size_t flags = mFlags;
@@ -103,6 +115,10 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
         precision = config->precision;
         flags = config->flags;
     }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("cpu backend was created by runtime:%p\n", this);
+#endif
+
 #ifdef MNN_USE_ARMV82
     auto core = MNNGetCoreFunctions();
     if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
@@ -110,7 +126,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     }
 #endif
 #ifdef MNN_SUPPORT_BF16
-    if (precision == BackendConfig::Precision_Low && BF16Functions::get()) {
+    if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
         return new BF16Backend(this);
     }
 #endif
@@ -122,6 +138,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
         return new AVX2Backend(this, flags);
     }
 #endif
+
     return new CPUBackend(this, precision, MNN_FORWARD_CPU, flags);
 }
 
@@ -147,6 +164,33 @@ int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
 void CPURuntime::onGabageCollect(int level) {
     mStaticAllocator->release(false);
 }
+
+
+void CPURuntime::onConcurrencyBegin() const {
+#ifdef MNN_USE_THREAD_POOL
+    if (mThreadNumber > 1 && mPower != BackendConfig::Power_High) {
+        mTaskIndex = ThreadPool::acquireWorkIndex();
+        if (mTaskIndex >= 0 ) {
+            ThreadPool::active();
+        }
+    }
+#else
+#ifdef _OPENMP
+    omp_set_dynamic(0);
+    omp_set_num_threads(mThreadNumber);
+#endif
+#endif
+}
+
+void CPURuntime::onConcurrencyEnd() const {
+#ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
+        ThreadPool::deactive();
+        ThreadPool::releaseWorkIndex(mTaskIndex);
+    }
+#endif
+}
+
 std::map<OpType, CPUBackend::Creator*>* CPUBackend::gCreator = nullptr;
 void CPUBackend::initCreatorMap() {
     gCreator = new std::map<OpType, CPUBackend::Creator*>;
@@ -163,7 +207,10 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
 }
 
 CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type, size_t flags) : Backend(type) {
-    mRuntime = runtime;
+#ifdef LOG_VERBOSE
+    MNN_PRINT("cpu backend create\n");
+#endif
+    mRuntime = const_cast<CPURuntime*>(runtime);
     std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
     mDynamicAllocator.reset(new BufferAllocator(defaultAlloc));
     mStaticAllocator = runtime->mStaticAllocator;
@@ -178,24 +225,13 @@ CPUBackend::~CPUBackend() {
 }
 
 void CPUBackend::onExecuteBegin() const {
-#ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::active();
-    }
-#else
-#ifdef _OPENMP
-    omp_set_dynamic(0);
-    omp_set_num_threads(threadNumber());
-#endif
-#endif
+    mRuntime->onConcurrencyBegin();
 }
+
 void CPUBackend::onExecuteEnd() const {
-#ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::deactive();
-    }
-#endif
+    mRuntime->onConcurrencyEnd();
 }
+
 class CPUMemObj : public Backend::MemObj {
 public:
     CPUMemObj(BufferAllocator* allocator, std::pair<void*, int> points, int size) {
@@ -227,7 +263,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_PRINT("Acquire buffer size = %d\n", size);
-       // MNN_ASSERT(false);
+        MNN_ASSERT(false);
         return nullptr;
     }
     // if (size > LARGE_MEMORY) {
@@ -264,7 +300,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
         res = new CPUMemObj(mDynamicAllocator.get(), points, size);
     }
     buffer.host = (uint8_t*)points.first + points.second;
-    des->extra.offset = points.second;
+    des->extra.offset = 0;
     return res;
 }
 
@@ -278,64 +314,16 @@ Backend::MemObj* CPUBackend::onAcquire(const MNN::Tensor* nativeTensorConst, Sto
     return allocBuffer(size, nativeTensor, storageType);
 }
 
-static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto otype = op->type();
-    switch (otype) {
-        case OpType_Convolution:
-        case OpType_ConvolutionDepthwise:
-            if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
-                return false;
-            } else {
-                return true;
-            }
-        case OpType_ConvInt8:
-        case OpType_DepthwiseConvInt8:
-            return true;
-        // case OpType_Eltwise:
-        case OpType_Raster:
-        {
-            for (auto& r : TensorUtils::getDescribe(inputs[0])->regions) {
-                if (TensorUtils::getDescribe(r.origin)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        case OpType_ReLU:
-            if (TensorUtils::getDescribe(inputs[0])->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
-                return false;
-            }
-            // now just relu without slope support quant
-            if ((op->main_as_Relu() == nullptr) || op->main_as_Relu()->slope() == 0.f) {
-                return true;
-            } else {
-                return false;
-            }
-        /*
-        case OpType_Pooling:
-            // now just maxpool support quant
-            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL) {
-                return qtype;
-            } else {
-                return defaultType;
-            }
-        */
-        default:
-            return false;
-    }
-    return false;
-}
-
 static OpType _getRealOpType(OpType opType) {
     switch (opType) {
         case OpType_Convolution:
             return OpType_ConvInt8;
         case OpType_ConvolutionDepthwise:
             return OpType_DepthwiseConvInt8;
-        /*
+        
         case OpType_Pooling:
             return OpType_PoolInt8;
-        */
+        
         // case OpType_Eltwise:
         //     // TODO: just support EltwiseAdd
         //     return OpType_EltwiseInt8;
@@ -399,38 +387,13 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     if (op->type() == OpType_BatchNorm) {
         return nullptr;
     }
-    // Check if need use quant op
-    DataType runType = DataType_DT_FLOAT;
-    bool useQuant = false;
-    if (outputs.size() == 1) {
-        // Quant: output and all input has quantAttr and op support
-        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
-            useQuant = _supportQuant(op, inputs, outputs);
-        }
-        if (useQuant) {
-            if (op->type() == OpType_Raster) {
-                for (auto& t : TensorUtils::getDescribe(inputs[0])->regions) {
-                    if (TensorUtils::getDescribe(t.origin)->quantAttr == nullptr || TensorUtils::getDescribe(t.origin)->type == DataType_DT_FLOAT) {
-                        useQuant = false;
-                        break;
-                    }
-                }
-            } else {
-                for (auto t : inputs) {
-                    if (TensorUtils::getDescribe(t)->quantAttr == nullptr) {
-                        useQuant = false;
-                        break;
-                    }
-                }
-            }
-        }
-    }
     auto opType = op->type();
-    if (useQuant) {
-        opType = _getRealOpType(opType);
-        runType = DataType_DT_INT8;
-        TensorUtils::getDescribe(outputs[0])->type = DataType_DT_INT8;
+    if (outputs.size() > 0) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+            opType = _getRealOpType(opType);
+        }
     }
+
     // TODO: rm this convert when merge diff datatyoe of op
     auto map  = gCreator;
     auto iter = map->find(opType);
@@ -440,41 +403,18 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     }
     Execution* exe = nullptr;
     bool needCast = false;
-    // judge is it need CastWrap
-    if (OpType_Raster == opType) {
-        TensorUtils::getDescribe(inputs[0])->quantAttr = TensorUtils::getDescribe(outputs[0])->quantAttr;
-        for (const auto& r : TensorUtils::getDescribe(inputs[0])->regions) {
-            needCast |= getDataType(r.origin) != runType;
-        }
-    } else {
-        for (int i = 0; i < inputs.size(); i++) {
-            if (OpCommonUtils::opNeedContent(opType, i) && inputs[i]->getType() != halide_type_of<int>()) {
-                needCast |= getDataType(inputs[i]) != runType;
-            }
-        }
-    }
-    if (needCast) {
-        exe = new CastWrapExecution(iter->second, op, this, inputs, outputs, runType);
-    }
     if (exe == nullptr) {
         exe = iter->second->onCreate(inputs, outputs, op, this);
     }
-    for (auto o : outputs) {
-        auto quan = TensorUtils::getDescribe(o)->quantAttr;
-        if (nullptr != quan) {
-            TensorUtils::getDescribe(o)->type = runType;
-        }
-    }
-    if (nullptr == exe) {
-        return nullptr;
-    }
     return exe;
+}
+const Runtime* CPUBackend::getRuntime() {
+    return mRuntime;
 }
 
 bool CPUBackend::onClearBuffer() {
     mCache->reset();
     mDynamicAllocator->release(true);
-    mCachedCastTensor.clear();
     return true;
 }
 
@@ -525,6 +465,16 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
             wrapTensor->setType(dstType);
         }
         wrapTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(getTensorSize(wrapTensor.get()) * wrapTensor->getType().bytes(), MNN_MEMORY_ALIGN_DEFAULT);
+
+#ifdef LOG_VERBOSE
+        MNN_PRINT("CPU backend copy tensor ptr:%p -> ptr:%p hostPtr:%p -> %p, format %d -> %d, dims: [",
+        srcTensor, dstTensor, srcTensor->host<void>(), dstTensor->host<void>(), TensorUtils::getDescribe(srcTensor)->dimensionFormat, TensorUtils::getDescribe(dstTensor)->dimensionFormat);
+        for (int i=0; i<srcTensor->dimensions(); ++i) {
+            MNN_PRINT("%d ", srcTensor->length(i));
+        }
+        MNN_PRINT("]\n");
+#endif
+
         TensorUtils::getDescribe(wrapTensor.get())->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
         auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get(), this, convertType);
         if (NO_ERROR != code) {

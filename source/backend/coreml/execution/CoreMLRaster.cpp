@@ -8,61 +8,12 @@
 
 #include "CoreMLRaster.hpp"
 #include <cmath>
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 
 CoreMLRaster::CoreMLRaster(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
     initLayer();
-}
-
-static bool isTranspose(const Tensor::InsideDescribe::Region& region) {
-    int srcOne = -1, dstOne = -1;
-    for (int i = 0; i < 3; i++) {
-        if (region.src.stride[i] == 1 && region.size[i] != 1) {
-            if (srcOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            srcOne = i;
-        }
-        if (region.dst.stride[i] == 1 && region.size[i] != 1) {
-            if (dstOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            dstOne = i;
-        }
-    }
-    return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
-}
-
-static bool isDepthToSpace(const Tensor* output) {
-    const auto& regions = TensorUtils::getDescribe(output)->regions;
-    auto input = regions[0].origin;
-    for (const auto region : regions) {
-        if (region.origin != input) {
-            return false;
-        }
-    }
-    auto ic = input->channel();
-    auto ih = input->height();
-    auto iw = input->width();
-    auto oc = output->channel();
-    auto oh = output->height();
-    auto ow = output->width();
-    if (ic * ih * iw != oc * oh * ow) {
-        return false;
-    }
-    int hblock = oh / ih;
-    int wblock = ow / iw;
-    if (hblock != wblock) {
-        return false;
-    }
-    if (hblock * wblock * oc != ic) {
-        return false;
-    }
-    if (regions.size() != hblock * wblock) {
-        return false;
-    }
-    return true;
 }
 
 bool CoreMLRaster::buildReshape(CoreML__Specification__NeuralNetworkLayer* layer, const Tensor* input, const Tensor* output) {
@@ -295,7 +246,7 @@ bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const
                 return buildReshape(mLayer_, region.origin, outputs[0]);
             }
             // transpose
-            if (isTranspose(region)) {
+            if (TensorUtils::isTransposeRegion(region)) {
                 return buildPermute(mLayer_, region.origin, outputs[0]);
             }
         }
@@ -312,7 +263,7 @@ bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const
         }
         return false;
     }
-    if (isDepthToSpace(outputs[0])) {
+    if (TensorUtils::isDepthToSpaceRegions(outputs[0])) {
         return buildDepthToSpace(mLayer_, region.origin, outputs[0]);
     }
     // region_size > 1: concat
@@ -370,9 +321,10 @@ static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
     printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
     printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
-ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
-    if (!rasterOptimization(inputs, outputs)) {
+ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+    MNN_ASSERT(outputs.size() == 1);
+    if (!rasterOptimization(outputs, outputs)) {
         /*
         printf(">>> start\n");
         for (const auto& reg : TensorUtils::getDescribe(inputs[0])->regions) {
@@ -386,7 +338,7 @@ ErrorCode CoreMLRaster::onResize(const std::vector<Tensor *> &inputs, const std:
         mLayer_->custom = mCoreMLBackend->create<CoreML__Specification__CustomLayerParams>();
         core_ml__specification__custom_layer_params__init(mLayer_->custom);
         mCoreMLBackend->copyName(&(mLayer_->custom->classname), "RasterLayer");
-        const auto& regions = TensorUtils::getDescribe(inputs[0])->regions;
+        const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
         mLayer_->custom->n_weights = regions.size() + 1;
         mLayer_->custom->weights = mCoreMLBackend->create<CoreML__Specification__WeightParams*>(mLayer_->custom->n_weights);
         std::vector<std::string> inputNames;

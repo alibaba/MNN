@@ -31,7 +31,7 @@ typedef enum {
     MNN_FORWARD_OPENGL = 6,
     MNN_FORWARD_VULKAN = 7,
 
-    /*Android 8.1's NNAPI, Not Support yet. CoreML Now*/
+    /*Android 8.1's NNAPI or CoreML for ios*/
     MNN_FORWARD_NN = 5,
 
     /*User can use API from Backend.hpp to add or search Backend*/
@@ -76,7 +76,7 @@ struct BackendConfig {
 
     PowerMode power = Power_Normal;
 
-    enum PrecisionMode { Precision_Normal = 0, Precision_High, Precision_Low };
+    enum PrecisionMode { Precision_Normal = 0, Precision_High, Precision_Low, Precision_Low_BF16 };
 
     PrecisionMode precision = Precision_Normal;
 
@@ -98,6 +98,10 @@ struct BackendConfig {
          * get status whether this runtime support dot-product arithmetic
          */
         STATUS_SUPPORT_DOT_PRODUCT,
+        /**
+         * get status whether this runtime support power-low (means low priority for opencl)
+         */
+        STATUS_SUPPORT_POWER_LOW,
         /**
          * emum total number
          */

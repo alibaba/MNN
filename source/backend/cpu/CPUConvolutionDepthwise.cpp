@@ -15,6 +15,7 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
@@ -256,27 +257,43 @@ public:
             return new CPUConvolutionDepthwise::MultiInputFloatExecution(conv, backend);
         }
         const float* originWeight = nullptr;
-        size_t originWeightSize   = 0;
+        const float* originBias = nullptr;
+        int originWeightSize   = 0;
+        int originBiasSize   = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+        std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter()) {
             quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();
         }
+        if (USE_EXTERNAL_DATA(conv2d)) {
+            bool res = OpCommonUtils::loadConvData(backend, op, externalWeightTensor, externalBiasTensor, originWeightSize, originBiasSize);
+            if (!res) {
+                MNN_ERROR("%s load external weight or bias failed.", op->name()->c_str());
+                return nullptr;
+            }
+            originWeight = externalWeightTensor->host<float>();
+            originBias = externalBiasTensor->host<float>();
+        }
         if (nullptr == originWeight) {
             originWeight     = conv2d->weight()->data();
             originWeightSize = conv2d->weight()->size();
         }
+        if (nullptr == originBias) {
+            originBias     = op->main_as_Convolution2D()->bias()->data();
+            originBiasSize = op->main_as_Convolution2D()->bias()->size();
+        }
         if (inputs.empty()) {
-            return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
+            return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
         }
         auto core = static_cast<CPUBackend*>(backend)->functions();
         if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
             conv->kernelX() == 3 && conv->kernelY() == 3 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2 && core->MNNMultiAndDestTransformCommon23 != nullptr) {
-            return new ConvolutionDepthwise3x3(conv, backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
+            return new ConvolutionDepthwise3x3(conv, backend, originWeight, originWeightSize, originBias, originBiasSize);
         }
-        return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
+        return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
     }
 };
 

@@ -186,6 +186,24 @@ $ python test_save.py
 ```bash
 $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_train_withBN.mnn --val_image_path quant_demo/quant_imgs --val_txt quant_demo/val.txt
 ```
+## Android Demo
+代码位置：`project/android/demo`
+
+按照`project/android/demo/READNE.md`的步骤，首先安装开发所需工具；然后下载并转换模型；之后就可以编译成Android APP执行测试。
+
+效果示例：
+
+![android_demo.png](../_static/images/start/android_demo.jpg)
+
+## iOS Demo
+代码位置：`project/ios`
+
+使用`xcode`打开`project/ios/MNN.xcodeproj`, `target`选择`demo`,既可编译运行。
+
+效果示例：
+
+![ios_demo.png](../_static/images/start/ios_demo.jpg)
+
 
 ## Github Demo
 
@@ -202,3 +220,4 @@ $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_trai
 - [视频抠图](https://github.com/DefTruth/RobustVideoMatting.lite.ai.toolkit)
 - [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
 - [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)
+- [stable-diffusion](https://github.com/wangzhaode/stable-diffusion-mnn)

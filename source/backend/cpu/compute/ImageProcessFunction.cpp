@@ -962,8 +962,8 @@ void MNNSamplerI420Nearest(const unsigned char* source, unsigned char* dest, MNN
     MNN::CV::Point uvPoints[2];
     uvPoints[0].fX = (points[0].fX - 0.01f) / 2.0f;
     uvPoints[0].fY = (points[0].fY - 0.01f) / 2.0f;
-    uvPoints[1].fX = points[1].fX;
-    uvPoints[1].fY = points[1].fY;
+    uvPoints[1].fX = points[1].fX / 2.0f;
+    uvPoints[1].fY = points[1].fY / 2.0f;
     if (yStride == 0) {
         stride =  ((iw + 1) / 2);
     }
@@ -975,8 +975,8 @@ void MNNSamplerI420Nearest(const unsigned char* source, unsigned char* dest, MNN
         curPoints.fY = uvPoints[0].fY;
         float dy     = uvPoints[1].fY;
         float dx     = uvPoints[1].fX;
-        float xMax   = (iw + 1 / 2) - 1;
-        float yMax   = (ih + 1 / 2) - 1;
+        float xMax   = ((iw + 1) / 2) - 1;
+        float yMax   = ((ih + 1) / 2) - 1;
 
         for (int i = 0; i < uvCount; ++i) {
             int y = (int)roundf(__clamp(curPoints.fY, 0, yMax));
@@ -999,8 +999,15 @@ void MNNSamplerNV21Copy(const unsigned char* source, unsigned char* dest, MNN::C
     float yMax      = ih - 1;
     int y           = (int)roundf(__clamp(curPoints.fY, 0, yMax));
     int x           = (int)roundf(__clamp(curPoints.fX, 0, xMax));
-    int sourcePosY  = y * (int)iw + x;
-    int sourcePosUV = (int)iw * (int)ih + (y / 2) * (((int)iw + 1) / 2) * 2 + (x / 2) * 2;
+    int stride = (int)yStride;
+    int hstride = (int)yStride;
+    if (yStride == 0) {
+        stride = (int)iw;
+        hstride = (((int)iw + 1) / 2) * 2;
+    }
+
+    int sourcePosY  = y * stride + x;
+    int sourcePosUV = (int)stride * (int)ih + (y / 2) * hstride + (x / 2) * 2;
 
     ::memcpy(dest + sta, source + sourcePosY, count);
     ::memcpy(dest + (capacity) + (sta / 2) * 2, source + sourcePosUV, ((count + 1) / 2) * 2);

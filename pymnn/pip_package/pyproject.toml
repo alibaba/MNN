@@ -1,0 +1,66 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel",
+    "ninja; sys_platform == 'windows'",
+    "numpy==1.13.3; python_version<'3.5'",
+    "oldest-supported-numpy; python_version>='3.5'",
+]
+
+build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+test-skip = [
+    "cp36-*",
+    "*-macosx_arm64"
+]
+test-requires = [
+    "opencv-python==4.6.0.66",
+    "numpy",
+    "torch"
+]
+test-command = [
+  "cd {project}/pymnn/test",
+  "ls",
+  "python unit_test.py",
+  "cd ../.."
+]
+
+[tool.cibuildwheel.macos]
+archs = ["native"]
+build = "cp*-macosx_*"
+before-all = [
+    "pip3 install torch",
+    "pushd pymnn/pip_package",
+    "python3 build_deps.py --torch",
+    "popd"
+]
+repair-wheel-command = ""
+
+[tool.cibuildwheel.linux]
+build = "cp*-manylinux*"
+skip = "pp*"
+before-all = [
+    "yum install -y wget",
+    "pushd pymnn/pip_package",
+    "python3 build_deps.py --torch",
+    "popd"
+]
+archs = ["native"]
+repair-wheel-command = [
+    "export LD_LIBRARY_PATH=$(pwd)/pymnn_build/tools/converter/libtorch/lib:$LD_LIBRARY_PATH",
+    "echo $LD_LIBRARY_PATH",
+    "auditwheel repair --plat manylinux2014_x86_64 -w {dest_dir} {wheel}"
+]
+
+[tool.cibuildwheel.windows]
+before-all = [
+    "cd pymnn/pip_package",
+    "python3 build_deps.py",
+    "cd ../.."
+]
+test-command = [
+  "cd /d {project}/pymnn/test",
+  "python unit_test.py",
+  "cd ../.."
+]

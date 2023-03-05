@@ -47,7 +47,7 @@ Usage:
                                 arg 为测试数据的文件夹，生成方式参考 "正确性校验" 一节
       --thredhold arg           当启用 --testdir 后，设置正确性校验的误差允可范围
                                 若不设置，默认是 0.01
-      
+      --saveExternalData        将权重，常量等数据存储在额外文件中，默认为`false`
 ```
 **说明1: 选项benchmarkModel将模型中例如卷积的weight，BN的mean、var等参数移除，减小转换后模型文件大小，在运行时随机初始化参数，以方便测试模型的性能。**
 
@@ -108,26 +108,26 @@ model_script.save('model_script.pt')
 为了便于开发者排查问题，对于 PB / Tflite / Onnx ，MNN 提供了正确性校验工具（位于 tools/scripts 目录），以检查 MNN 推理结果是否与 原始模型一致。
 相关脚本为：
 
-- fastTestTf.py ：适用 pb
-- fastTestTflite.py ：适用 tflite
-- fastTestOnnx.py ：适用 onnx
-- fastTestTorch.py ：适用 pt (torchscript)
+- testMNNFromTf.py ：适用 pb
+- testMNNFromTflite.py ：适用 tflite
+- testMNNFromOnnx.py ：适用 onnx
+- testMNNFromTorch.py ：适用 pt (torchscript)
 
-注意：对于由Torchscript转换的模型，需要自行修改`fastTestTorch.py`中的的输入信息来测试
+注意：对于由Torchscript转换的模型，需要自行修改`testMNNFromTorch.py`中的的输入信息来测试
 ### 前置
 - 测试 pb / tflite ：安装`tensorflow`(`pip install tensorflow`）
 - 测试 onnx : 安装`onnxruntime`(`pip install onnxruntime`）
 - 测试 torchscript：安装`torch`(`pip install torch`)
 - MNN模型转换工具编译完成（编译完成产生`TestConvertResult`可执行文件）
 ### 使用
-- 使用：在MNN的`build`目录下（包含`TestConvertResult`）运行`python3 fastTestTf.py SRC.pb`（Onnx为`python3 fastTestOnnx.py SRC.onnx`，Tflite 类似），若最终结果为`TEST_SUCCESS`则表示 MNN 的模型转换与运行结果正确
-- 由于 MNN 图优化会去除 Identity ，有可能出现 find var error ，这个时候可以打开原始模型文件，找到 identity 之前的一层（假设为 LAYER_NAME ）校验，示例：`python3 ../tools/script/fastTestTF.py SRC.pb LAYER_NAME`；
+- 使用：在MNN的`build`目录下（包含`TestConvertResult`）运行`python3 testMNNFromTf.py SRC.pb`（Onnx为`python3 testMNNFromOnnx.py SRC.onnx`，Tflite 类似），若最终结果为`TEST_SUCCESS`则表示 MNN 的模型转换与运行结果正确
+- 由于 MNN 图优化会去除 Identity ，有可能出现 find var error ，这个时候可以打开原始模型文件，找到 identity 之前的一层（假设为 LAYER_NAME ）校验，示例：`python3 ../tools/script/testMNNFromTF.py SRC.pb LAYER_NAME`；
 - 完整实例如下（以onnx为例）：
   - 成功执行，当结果中显示`TEST_SUCCESS`时，就表示模型转换与推理没有错误
       ```bash
       cd build
       cmake -DMNN_BUILD_CONVERTER=ON .. && make -j4
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx # 模型转换后推理并与ONNXRuntime结果对比
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx # 模型转换后推理并与ONNXRuntime结果对比
       Dir exist
       onnx/test.onnx
       tensor(float)
@@ -159,12 +159,12 @@ model_script.save('model_script.pt')
 - 默认只支持限定数值范围的输入随机生成，如需修改，请自己修改脚本
 ### 出错及解决
 - 出现 Test Error 或者 MNN 的 crash 可直接反馈（提 github issue 或者钉钉群反馈）
-- 如需自查，fastTestOnnx.py 提供 debug 功能，可方便定位出错的 layer / op ，示例：
-   - python3 fastTestOnnx.py SRC.onnx DEBUG
+- 如需自查，testMNNFromOnnx.py 提供 debug 功能，可方便定位出错的 layer / op ，示例：
+   - python3 testMNNFromOnnx.py SRC.onnx DEBUG
 - 示例，以ONNX为例：
    - 假设存在错误；此处为实验将MNN的Binary_ADD实现修改为错误实现；执行上述测试脚本，效果如下，显示`TESTERROR`表明可以转换但是推理结果有错误：
       ```bash
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx      
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx      
       Dir exist
       onnx/test.onnx
       tensor(float)
@@ -198,7 +198,7 @@ model_script.save('model_script.pt')
    - 对于推理出错的情况，可以使用`可视化工具`查看模型结果，测试每一层的输出，直至发现错误层：
       ```bash
       # test layer output 365: ERROR
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx 365
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 365
       ...
       365: (1, 32, 28, 28, )
       TESTERROR 365 value error : absMaxV:3.305553 - DiffMax 5.069034
@@ -206,7 +206,7 @@ model_script.save('model_script.pt')
       Save mnn result to  .error director
       # binary search test layers ...
       # test layer output 339: ERROR, 339's inputs is [489, 498]
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx 339 
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 339 
       ...
       output: 339
       339: (1, 24, 56, 56, )
@@ -214,13 +214,13 @@ model_script.save('model_script.pt')
       Error for output 339
       Save mnn result to  .error director
       # test layer output 489: SUCCESS
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx 489
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 489
       ...
       output: 489
       489: (1, 24, 56, 56, )
       TEST_SUCCESS
       # test layer output 498: SUCCESS
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx 498
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 498
       ...
       output: 498
       498: (1, 24, 56, 56, )
@@ -229,7 +229,7 @@ model_script.save('model_script.pt')
       ```
   - 对于ONNX的模型可以使用自动定位功能，在模型后输入`DEBUG`，便会执行基于支配树的二分查找，直至找到错误层：
       ```bash
-      python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx DEBUG
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx DEBUG
       ...
       Test Node : Conv_14 True
       ### First Error Node is :  Add_15

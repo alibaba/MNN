@@ -50,6 +50,8 @@ public:
     bool UnLoadOpenCLLibrary();
     bool isError();
     bool isSvmError();
+    bool isPropError();
+    
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
     using clBuildProgramFunc          = cl_int (CL_API_CALL *)(cl_program, cl_uint, const cl_device_id *, const char *,
@@ -75,6 +77,15 @@ public:
                        cl_uint,
                        const cl_event*,
                        cl_event*);
+    using clEnqueueCopyBufferFunc = cl_int (CL_API_CALL*)(cl_command_queue    /* command_queue */,
+                        cl_mem              /* src_buffer */,
+                        cl_mem              /* dst_buffer */,
+                        size_t              /* src_offset */,
+                        size_t              /* dst_offset */,
+                        size_t              /* size */,
+                        cl_uint             /* num_events_in_wait_list */,
+                        const cl_event *    /* event_wait_list */,
+                        cl_event *          /* event */);
 
     using clCreateContextFromTypeFunc = cl_context (CL_API_CALL *)(const cl_context_properties *, cl_device_type,
                                                        void(CL_CALLBACK *)( // NOLINT(readability/casting)
@@ -134,10 +145,9 @@ public:
                                                    size_t *param_value_size_ret);
     using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
 
-#if 1//CL_TARGET_OPENCL_VERSION >= 200
     // opencl 2.0 get sub group info and wave size.
-//    using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (*)(cl_context, cl_device_id,
-//                                                    const cl_queue_properties *, cl_int *);
+    using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (*)(cl_context, cl_device_id,
+                                                    const cl_queue_properties *, cl_int *);
     using clSVMAllocFunc = void *(*)(cl_context, cl_mem_flags, size_t size, cl_uint);
     using clSVMFreeFunc = void (*)(cl_context, void *);
     using clEnqueueSVMMapFunc = cl_int (*)(cl_command_queue, cl_bool, cl_map_flags,
@@ -145,7 +155,6 @@ public:
     using clEnqueueSVMUnmapFunc = cl_int (*)(cl_command_queue, void *, cl_uint,
                                              const cl_event *, cl_event *);
     using clSetKernelArgSVMPointerFunc = cl_int (*)(cl_kernel, cl_uint, const void *);
-#endif
 
 #define MNN_CL_DEFINE_FUNC_PTR(func) func##Func func = nullptr
 
@@ -169,6 +178,7 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clCreateProgramWithBinary);
     MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueue);
     MNN_CL_DEFINE_FUNC_PTR(clReleaseCommandQueue);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueCopyBuffer);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueMapBuffer);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueMapImage);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueCopyImage);
@@ -196,14 +206,12 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueReadImage);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueWriteImage);
     
-#if 1//CL_TARGET_OPENCL_VERSION >= 200
-    //MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueueWithProperties);
+    MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueueWithProperties);
     MNN_CL_DEFINE_FUNC_PTR(clSVMAlloc);
     MNN_CL_DEFINE_FUNC_PTR(clSVMFree);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMMap);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMUnmap);
     MNN_CL_DEFINE_FUNC_PTR(clSetKernelArgSVMPointer);
-#endif
 
 #undef MNN_CL_DEFINE_FUNC_PTR
 
@@ -216,6 +224,7 @@ private:
 #endif
     bool mIsError{false};
     bool mSvmError{false};
+    bool mPropError{false};
 };
 
 class OpenCLSymbolsOperator {

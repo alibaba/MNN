@@ -35,7 +35,7 @@ static std::vector<uint8_t> genSourceData(int h, int w, int bpp) {
 // format in {YUV_NV21, YUV_NV12, YUV_I420}
 // dstFormat in {RGBA, BGRA, RGB, BGR, GRAY}
 static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
-                      std::vector<uint8_t>& source, std::vector<uint8_t>& dest) {
+                      std::vector<uint8_t>& source, std::vector<uint8_t>& dest, int extraOffset = 0) {
     // https://www.jianshu.com/p/e67f79f10c65
     if (format != YUV_NV21 && format != YUV_NV12 && /* YUV420sp(bi-planer): NV12, NV21 */
         format != YUV_I420                          /* YUV420p(planer): I420 or YV12 */) {
@@ -57,13 +57,14 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
 
     // YUV420, Y: h*w, UV: (h/2)*(w/2)*2
     int ySize = h * w, uvSize = (h/2)*(w/2)*2;
-    source.resize(ySize + uvSize);
+    source.resize(h * (w + extraOffset) + (h/2)*(w+extraOffset));
+    ::memset(source.data(), 0, source.size());
     dest.resize(h * w * bpp);
 
     auto dstData = dest.data();
     for (int y = 0; y < h; ++y) {
-        auto pixelY  = source.data() + w * y;
-        auto pixelUV = source.data() + w * h + (y / 2) * (yuv420p ? w / 2 : w);
+        auto pixelY  = source.data() + (w + extraOffset) * y;
+        auto pixelUV = source.data() + (w + extraOffset) * h + (y / 2) * (yuv420p ? w / 2 : (w + extraOffset));
         int magicY   = ((h - y) * (h - y)) % 79;
         for (int x = 0; x < w; ++x) {
             int magicX  = ((x % 113) * (x % 113)) % 113, xx = x / 2;
@@ -636,11 +637,15 @@ protected:
         //Matrix tr;
         //process->setMatrix(tr);
         std::vector<uint8_t> src, dst;
-        genYUVData(sh, sw, sourceFormat, destFormat, src, dst);
-
+        int extraOffset = 0;
+        if (sourceFormat != YUV_I420) {
+            extraOffset = 16;
+        }
+        int stride = sw + extraOffset;
+        genYUVData(sh, sw, sourceFormat, destFormat, src, dst, extraOffset);
         std::shared_ptr<Tensor> tensor(
             Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, bpp}, nullptr, Tensor::TENSORFLOW));
-        process->convert(src.data(), sw, sh, 0, tensor.get());
+        process->convert(src.data(), sw, sh, stride, tensor.get());
         for (int y = 0; y < sh; ++y) {
             auto srcY_Y  = src.data() + y * sw;
             auto srcY_UV = src.data() + (y / 2) * (sw / 2) * 2 + sw * sh;

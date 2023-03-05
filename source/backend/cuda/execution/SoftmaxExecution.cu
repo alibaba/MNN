@@ -4,11 +4,12 @@ namespace MNN {
 namespace CUDA {
 
 template <typename T>
-__global__ void SOFTMAX(const T *input, T *output, const ReduceParam* param) {
-    int inside = param->inside;
-    int axis = param->axis;
-    int outside = param->outside;
-    int count = inside * outside;
+__global__ void SOFTMAX(const T *input, T *output,
+    const int inside,
+    const int axis,
+    const int outside,
+    const int count
+) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
         int y = i / inside;
         int x = i % inside;
@@ -30,56 +31,76 @@ __global__ void SOFTMAX(const T *input, T *output, const ReduceParam* param) {
 }
 
 template <typename T>
-__global__ void EXPSUB(const T *input, const T* maxV, T *output, const ReduceParam* param) {
-    int inside = param->inside;
-    int axis = param->axis;
-    int outside = param->outside;
-    int count = inside * axis * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int tmp = i / inside;
-        int x = i % inside;
-        int y = tmp / axis;
-        int c = tmp % axis;
-        float sumValue = 0.0;
-        const float basicInput = input[i];
-        const float maxValue = maxV[x + y * inside];
-        output[i] = (T)(exp(basicInput - maxValue));
-    }
-    return;
+__inline__ __device__
+T warpReduceSum(T val)
+{
+  for(int mask = 16; mask > 0; mask >>= 1)
+    val += __shfl_xor_sync(0xffffffff, val, mask, 32);
+  return val;
 }
 
 template <typename T>
-__global__ void DIVSUM(const T *input, const T* maxV, T *output, const ReduceParam* param) {
-    int inside = param->inside;
-    int axis = param->axis;
-    int outside = param->outside;
-    int count = inside * axis * outside;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int tmp = i / inside;
-        int x = i % inside;
-        int y = tmp / axis;
-        int c = tmp % axis;
-        float sumValue = 0.0;
-        const float basicInput = input[i];
-        const float value = maxV[x + y * inside];
-        output[i] = (T)(basicInput / value);
-    }
-    return;
+__inline__ __device__
+T warpReduceMax(T val)
+{
+  for(int mask = 16; mask > 0; mask >>= 1)
+    val = max(val, __shfl_xor_sync(0xffffffff, val, mask, 32));
+  return val;
 }
+
+template <typename T>
+__global__ void SOFTMAX_WARP_32(const T *input, T *output,
+    const int inside,
+    const int axis,
+    const int outside,
+    const int count
+) {
+    int idx_outside = blockIdx.x / inside;
+    int idx_inside = blockIdx.x -  idx_outside * inside;
+
+    auto src = input + idx_outside * axis * inside + idx_inside;
+    float local_src = -FLT_MAX;
+    __shared__ float maxValue;
+    __shared__ float sumValue;
+    int tid = threadIdx.x;
+    if(tid < axis) {
+        local_src = (float)(src[tid * inside]);
+    }
+    float maxRes = warpReduceMax<float>(local_src);
+    if(tid == 0)
+        maxValue = maxRes;
+    __syncthreads();
+
+
+    float local_exp = 0.0f;
+    if(tid < axis) {
+        local_exp = exp(local_src - maxValue);
+    }
+
+    float sumRes = warpReduceSum<float>(local_exp);
+    if(tid == 0)
+        sumValue = sumRes;
+    __syncthreads();
+
+    sumValue = 1.0 / sumValue;
+
+    if(tid < axis) {
+        output[(idx_outside * axis + tid) * inside + idx_inside] = (T)(local_exp * sumValue);
+    }
+}
+
 SoftmaxExecution::SoftmaxExecution(int axis, Backend *backend) : Execution(backend) {
     mAxis = axis;
-    auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-    mParam = staticPool->alloc(sizeof(ReduceParam));
 }
 
 SoftmaxExecution::~SoftmaxExecution() {
-    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
-    staticPool->free(mParam);
+    //
 }
 
 ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input           = inputs[0];
     const int dimensions = input->buffer().dimensions;
+    auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int axis = mAxis;
     if (axis < 0) {
         axis += dimensions;
@@ -112,9 +133,8 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mCpuParam.inside = inside;
     mCpuParam.outside = outside;
     mCpuParam.axis = input->length(axis);
-    cuda_check(cudaMemcpy((uint8_t*)mParam.first + mParam.second, &mCpuParam, sizeof(ReduceParam), cudaMemcpyHostToDevice));
-    //MNN_PRINT("Softmax unpack:%d, outside:%d, axis:%d, inside:%d\n", mNeedUnpackC4, mCpuParam.outside, mCpuParam.axis, mCpuParam.inside);
 
+    // printf("\nsoftmax:%d-%d-%d, %d-%d\n", mCpuParam.inside, mCpuParam.outside, mCpuParam.axis, mNeedUnpackC4, axis);
     return NO_ERROR;
 }
 
@@ -122,7 +142,7 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     auto input = (void*)inputs[0]->deviceId();
     auto output = (void*)outputs[0]->deviceId();
     auto dst = output;
-    auto param = (ReduceParam*)((uint8_t*)mParam.first + mParam.second);
+
     if (mNeedUnpackC4) {
         backend()->onCopyBuffer(inputs[0], &mStorage);
         input = (void*)mStorage.deviceId();
@@ -140,9 +160,21 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        SOFTMAX<<<block_num, threads_num>>>((const half*)input, (half*)dst, param);
+        if(axis <= 32) {
+            threads_num = 32;
+            block_num = count;
+            SOFTMAX_WARP_32<<<block_num, threads_num>>>((const half*)input, (half*)dst, inside, axis, outside, count);
+        } else {
+            SOFTMAX<<<block_num, threads_num>>>((const half*)input, (half*)dst, inside, axis, outside, count);
+        }
     } else {
-        SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, param);
+        if(axis <= 32) {
+            threads_num = 32;
+            block_num = count;
+            SOFTMAX_WARP_32<<<block_num, threads_num>>>((const float*)input, (float*)dst, inside, axis, outside, count);
+        } else {
+            SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, inside, axis, outside, count);
+        }
     }
     if (mNeedUnpackC4) {
         backend()->onCopyBuffer(&mStorage, outputs[0]);

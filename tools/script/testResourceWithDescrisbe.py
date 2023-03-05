@@ -17,4 +17,4 @@ for name in os.listdir(root_dir):
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Running...")
     print(modelName)
     config = os.path.join(root_dir, name, 'config.txt')
-    print(run_cmd(['./testModelWithDescrisbe.out', modelName, config, '0', '0.0001']))
+    print(run_cmd(['./testModelWithDescribe.out', modelName, config, '0', '0.0001']))

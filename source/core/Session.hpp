@@ -37,6 +37,7 @@ public:
             RuntimeInfo&& runtime);
     ~Session();
 
+    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
 public:
     /**
      * @brief infer.
@@ -55,16 +56,12 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
-    void cloneExecution(const CacheExecutionMap& cache);
-    const CacheExecutionMap& getExecution() {
-        return mOriginExecutions;
-    }
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.
      * @return result code.
      */
-    ErrorCode resize(bool isStatic = false);
+    ErrorCode resize();
 
     /**
      * @brief set if needs resize.
@@ -76,6 +73,10 @@ public:
 
     void setNeedMalloc(bool flag = true) {
         mNeedMalloc = flag;
+    }
+
+    Runtime* getCPURuntime() {
+        return mRuntime.second.get();
     }
 
 public:
@@ -122,12 +123,12 @@ public:
     ErrorCode updateToModel(Net* net) const;
 
     void waitAsyncResize();
+    bool hasAsyncWork();
     bool loadCache(const void* buffer, size_t size);
     std::pair<const void*, size_t> getCache();
 
-    RuntimeInfo& runtime() {
-        return mRuntime;
-    }
+    Tensor* getTensor(int index) const;
+    Schedule::PipelineInfo& getPipelineInfo(int index) const;
 protected:
     const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const {
         return this->mPipelines;
@@ -140,14 +141,12 @@ private:
 private:
     RuntimeInfo mRuntime;
     std::vector<std::shared_ptr<Pipeline>> mPipelines;
-    std::vector<std::shared_ptr<Tensor>> mTensors;
-    std::map<std::string, Tensor*> mInputs;
-    std::map<std::string, Tensor*> mOutputs;
     bool mNeedResize = true;
     bool mValid      = true;
     bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
-    CacheExecutionMap mOriginExecutions;
+    Schedule::ScheduleInfo mInfo;
+    ModeGroup mMode;
 };
 } // namespace MNN
 

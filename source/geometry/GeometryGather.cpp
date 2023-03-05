@@ -167,8 +167,11 @@ public:
         P_MAX
     };
     static bool buildGatherND(const Op* op, Tensor* params, Tensor* indice, Tensor* output,
-                              int N, int D, int S, Context& context, CommandBuffer& res) {
-        auto paramSize = params->elementSize();
+                              int N, int D, int S, Context& context, CommandBuffer& res, int B) {
+        int paramSize = 1;
+        for (int i=B; i<params->dimensions(); ++i) {
+            paramSize *= params->length(i);
+        }
         std::array<std::shared_ptr<Tensor>, 5> midTensors;
         std::shared_ptr<Tensor> constStride(Tensor::createDevice<int>({D}));
         if (!context.allocTensor(constStride.get())) {
@@ -176,7 +179,7 @@ public:
         }
         midTensors[P_constStride] = constStride;
         for (int i=0; i<D; ++i) {
-            int dimCount = paramSize / params->length(i);
+            int dimCount = paramSize / params->length(i + B);
             constStride->host<int>()[i] = dimCount;
             paramSize = dimCount;
         }
@@ -284,14 +287,22 @@ public:
         auto output = outputs[0];
         int mSliceN    = 1;
         int mSliceSize = 1;
+        int batchDim = 0;
+        if (nullptr != op->main_as_Axis()) {
+            batchDim = op->main_as_Axis()->axis();
+        }
+
         for (int i = 0; i < indice->dimensions() - 1; ++i) {
             mSliceN *= indice->length(i);
         }
         auto indiceNd = indice->length(indice->dimensions() - 1);
-        for (int i = indiceNd; i < params->dimensions(); ++i) {
+        for (int i = indiceNd + batchDim; i < params->dimensions(); ++i) {
             mSliceSize *= params->length(i);
         }
-        auto paramSize = params->elementSize();
+        int paramSize = 1;
+        for (int i=batchDim; i<params->dimensions(); ++i) {
+            paramSize *= params->length(i);
+        }
         auto constStride = cmd.extras[P_constStride];
         auto reshapeIndice = cmd.extras[P_reshapeIndice];
         auto broadcastStride = cmd.extras[P_broadcastStride];
@@ -315,7 +326,7 @@ public:
             }
         }
         for (int i=0; i<indiceNd; ++i) {
-            int dimCount = paramSize / params->length(i);
+            int dimCount = paramSize / params->length(i + batchDim);
             constStride->host<int>()[i] = dimCount;
             paramSize = dimCount;
         }
@@ -367,6 +378,10 @@ public:
         auto params = inputs[0];
         auto indice = inputs[1];
         auto output = outputs[0];
+        int batchDim = 0;
+        if (nullptr != op->main_as_Axis()) {
+            batchDim = op->main_as_Axis()->axis();
+        }
 
         int N = 1;
         int S = 1;
@@ -374,10 +389,10 @@ public:
             N *= indice->length(i);
         }
         auto D = indice->length(indice->dimensions() - 1);
-        for (int i = D; i < params->dimensions(); ++i) {
+        for (int i = D + batchDim; i < params->dimensions(); ++i) {
             S *= params->length(i);
         }
-        return buildGatherND(op, params, indice, output, N, D, S, context, res);
+        return buildGatherND(op, params, indice, output, N, D, S, context, res, batchDim);
     }
 };
 
@@ -438,7 +453,7 @@ public:
             }
             res.extras.emplace_back(newIndice);
         }
-        return GeometryGatherND::buildGatherND(op, data, newIndice.get(), output, N, D, 1, context, res);
+        return GeometryGatherND::buildGatherND(op, data, newIndice.get(), output, N, D, 1, context, res, 0);
     }
 };
 

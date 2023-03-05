@@ -32,6 +32,7 @@ table Blob {
     int64s: [long];
     float32s: [float];
     strings: [string];
+    external:[int64]; // [offset, bytes_size]
 }
 
 table ListValue {

@@ -187,7 +187,7 @@ ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, void* dest,
 - `oh` 输出高度
 - `outputBpp` 如果是0，设置为保存和config.destFormat，默认为0
 - `outputStride` 如果为0，设置为ow * outputBpp，默认为0
-- `type` 只支持halide_type_of和halide_type_of，默认为halide_type_of<float>
+- `type` 支持`halide_type_of<uint8_t>`和`halide_type_of<float>`，默认为`halide_type_of<float>`
 
 返回：结果code
 

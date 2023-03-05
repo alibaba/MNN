@@ -11,6 +11,7 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <cmath>
+#include <limits>
 
 namespace MNN {
 namespace CV {

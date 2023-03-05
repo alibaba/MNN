@@ -1,0 +1,93 @@
+#version 440 core
+#ifdef FP16
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#define MAT4 f16mat4
+#extension GL_AMD_gpu_shader_half_float: enable
+#else
+#define FLOAT4 vec4
+#define MAT4 mat4
+#endif
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT4 data[];
+} uInput0;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    FLOAT4 data[];
+} uInput1;
+
+layout(set=0, binding=3) uniform constBuffer{
+    ivec4 stride00;//WHC, LIMIT
+    int activationType;
+} uConstant;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec3 inSize = uConstant.stride00.xyz;
+    if(posTmp.x < uConstant.stride00.w)
+    {
+        vec4 x0 = uInput0.data[uConstant.stride00.x * posTmp.x];
+        if (uConstant.stride00.x == 0) {
+            x0 = vec4(x0.r);
+        }
+        vec4 x1 = uInput1.data[uConstant.stride00.y * posTmp.x];
+        if (uConstant.stride00.y == 0) {
+            x1 = vec4(x1.r);
+        }
+        vec4 value = x0;
+#ifdef ADD
+        value = x0 + x1;
+#endif
+#ifdef SUB
+        value = x0 - x1;
+#endif
+#ifdef MUL
+        value = x0 * x1;
+#endif
+#ifdef DIV
+        value = x0 / x1;
+#endif
+#ifdef POW
+        value = pow(x0, x1);
+#endif
+#ifdef VMAX
+        value = max(x0, x1);
+#endif
+#ifdef VMIN
+        value = min(x0, x1);
+#endif
+#ifdef SQUDIFF
+        value = (x0 - x1) * (x0 - x1);
+#endif
+#ifdef LESS
+        value = FLOAT4(lessThan(x0, x1));
+#endif
+#ifdef LESSEQUAL
+        value = FLOAT4(lessThanEqual(x0, x1));
+#endif
+#ifdef GREATER
+        value = FLOAT4(greaterThan(x0, x1));
+#endif
+#ifdef GREATEREQUAL
+        value = FLOAT4(greaterThanEqual(x0, x1));
+#endif
+#ifdef EQUAL
+        value = FLOAT4(equal(x0, x1));
+#endif
+#ifdef NOTEQUAL
+        value = FLOAT4(notEqual(x0, x1));
+#endif
+        if(uConstant.activationType == 1) {
+            value = max(value, vec4(0));
+        }
+        uOutput.data[posTmp.x] = value;
+    }
+}

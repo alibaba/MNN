@@ -93,6 +93,12 @@ struct VecHalf {
         }
     }
 
+    VecHalf(float v0, float v1, float v2, float v3) {
+        value[0] = v0;
+        value[1] = v1;
+        value[2] = v2;
+        value[3] = v3;
+    }
     VecHalf(std::array<float, N>&& v) {
         value = std::move(v);
     }

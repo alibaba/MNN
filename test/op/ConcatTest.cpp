@@ -67,7 +67,6 @@ public:
         auto input2 = _Input({2, 0}, NCHW);
         input2->setName("input2");
         // set input data
-        const float input2_data[] = {};
         auto input2Ptr            = input2->writeMap<float>();
         input2->unMap();
         auto output                             = _Concat({input1, input2}, 1);

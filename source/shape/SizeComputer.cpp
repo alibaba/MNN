@@ -63,13 +63,16 @@ float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& 
     if (op->type() == OpType_While && op->main_type() == OpParameter_LoopParam) {
         auto sumFlops = 0.0f;
         auto loop = op->main_as_LoopParam();
-        auto cmdSize = loop->commands()->size();
-        for (int i=0; i<cmdSize; ++i) {
-            auto cmd = loop->commands()->GetAs<RegionCommand>(i);
-            auto size = cmd->size()->data();
-            sumFlops += (float)size[0] * (float)size[1] * (float)size[2] / 1024.0f / 1024.0f;
+        if (nullptr != loop->commands()) {
+            auto cmdSize = loop->commands()->size();
+            for (int i=0; i<cmdSize; ++i) {
+                auto cmd = loop->commands()->GetAs<RegionCommand>(i);
+                auto size = cmd->size()->data();
+                sumFlops += (float)size[0] * (float)size[1] * (float)size[2];
+            }
         }
-        return sumFlops * (float)loop->loopNumber();
+        sumFlops *= (float)loop->loopNumber();
+        return sumFlops / 1024.0f / 1024.0f;
     }
     auto sumFlops = 0.0f;
     for (auto output : outputs) {
@@ -77,12 +80,73 @@ float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& 
     }
     return sumFlops;
 }
+#ifdef MNN_DEBUG_TENSOR_SIZE
+static void _printShape(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                        const std::vector<Tensor*>& outputs) {
+    if (op->name() != nullptr) {
+        MNN_PRINT("===> compute shape: %s, [%s]\n", op->name()->c_str(), MNN::EnumNameOpType(op->type()));
+    } else {
+        MNN_PRINT("===> compute shape:[%s]\n", MNN::EnumNameOpType(op->type()));
+    }
+    if (inputs.size()) {
+        MNN_PRINT("\tInputs:\n");
+        for (auto o : inputs) {
+            MNN_PRINT("\tptr=%p, format=%s, datatype=%d;\t", o, EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
+            if (o->dimensions() == 0) {
+                MNN_PRINT("\t*Scalar*");
+            }
+            for (int i = 0; i < o->dimensions(); ++i) {
+                MNN_PRINT("%d, ", o->length(i));
+            }
+            MNN_PRINT("\n");
+        }
+    }
+    MNN_PRINT("\tOutputs:\n");
+    for (auto o : outputs) {
+        MNN_PRINT("\tptr=:%p, format=%s, datatype=%d;\t",o, EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
+        if (o->dimensions() == 0) {
+            MNN_PRINT("\t*Scalar*");
+        }
+        for (int i = 0; i < o->dimensions(); ++i) {
+            MNN_PRINT("%d, ", o->length(i));
+        }
+        MNN_PRINT("\n");
+    }
+}
+#endif
+
 
 bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                      const std::vector<Tensor*>& outputs) {
     auto computeFactory = SizeComputerSuite::get();
     // When op is nullptr, it means a copy op
     if (nullptr != op) {
+        // For Loop Op
+        if (op->type() == OpType_While && op->main_type() == OpParameter_LoopParam) {
+            auto loop = op->main_as_LoopParam();
+            if (loop->extraTensorInfos() == nullptr) {
+                return false;
+            }
+            MNN_ASSERT(loop->extraTensorInfos()->size() == outputs.size());
+            for (int i=0; i<outputs.size(); ++i) {
+                auto des = loop->extraTensorInfos()->GetAs<TensorDescribe>(i);
+                MNN_ASSERT(des->blob() != nullptr);
+                auto blob = des->blob();
+                TensorUtils::getDescribe(outputs[i])->dimensionFormat = blob->dataFormat();
+                outputs[i]->setType(blob->dataType());
+                if (blob->dims() != nullptr) {
+                    auto dims = blob->dims()->data();
+                    outputs[i]->buffer().dimensions = blob->dims()->size();
+                    for (int j=0; j<blob->dims()->size(); ++j) {
+                        outputs[i]->setLength(j, dims[j]);
+                    }
+                } else {
+                    outputs[i]->buffer().dimensions = 0;
+                }
+            }
+            return true;
+        }
+
         // Don't support compute shape for control flow op
         if (op->type() == OpType_While || op->type() == OpType_If) {
             return false;
@@ -99,52 +163,28 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
         if (nullptr != computer) {
             bool ret = computer->onComputeSize(op, inputs, outputs);
 #ifdef MNN_DEBUG_TENSOR_SIZE
-            if (op->name() != nullptr) {
-                MNN_PRINT("===> compute shape: %s, [%s]\n", op->name()->c_str(), MNN::EnumNameOpType(op->type()));
-            } else {
-                MNN_PRINT("===> compute shape:[%s]\n", MNN::EnumNameOpType(op->type()));
-            }
-            if (inputs.size()) {
-                MNN_PRINT("\tInputs:\n");
-                for (auto o : inputs) {
-                    MNN_PRINT("\tformat=%s, datatype=%d;\t", EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
-                    if (o->dimensions() == 0) {
-                        MNN_PRINT("\t*Scalar*");
-                    }
-                    for (int i = 0; i < o->dimensions(); ++i) {
-                        MNN_PRINT("%d, ", o->length(i));
-                    }
-                    MNN_PRINT("\n");
-                }
-            }
-            MNN_PRINT("\tOutputs:\n");
-            for (auto o : outputs) {
-                MNN_PRINT("\tformat=%s, datatype=%d;\t", EnumNameMNN_DATA_FORMAT(TensorUtils::getDescribe(o)->dimensionFormat), o->getType().code);
-                if (o->dimensions() == 0) {
-                    MNN_PRINT("\t*Scalar*");
-                }
-                for (int i = 0; i < o->dimensions(); ++i) {
-                    MNN_PRINT("%d, ", o->length(i));
-                }
-                MNN_PRINT("\n");
-            }
+            _printShape(op, inputs, outputs);
 #endif
             return ret;
         }
     }
 
     // Default Set to the same
-    if (inputs.size() >= 1 && outputs.size() == 1) {
+    if (inputs.size() >= 1 && (outputs.size() == 1 || outputs.size() == inputs.size())) {
         if (inputs[0] == outputs[0]) {
             return true;
         }
-        const auto& ib = inputs[0]->buffer();
-        auto& ob       = outputs[0]->buffer();
-        memcpy(ob.dim, ib.dim, sizeof(halide_dimension_t) * ib.dimensions);
-        ob.dimensions                                         = ib.dimensions;
-        ob.type                                               = ib.type;
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-
+        for (int i=0; i<outputs.size(); ++i) {
+            const auto& ib = inputs[i]->buffer();
+            auto& ob       = outputs[i]->buffer();
+            memcpy(ob.dim, ib.dim, sizeof(halide_dimension_t) * ib.dimensions);
+            ob.dimensions                                         = ib.dimensions;
+            ob.type                                               = ib.type;
+            TensorUtils::getDescribe(outputs[i])->dimensionFormat = TensorUtils::getDescribe(inputs[i])->dimensionFormat;
+        }
+#ifdef MNN_DEBUG_TENSOR_SIZE
+        _printShape(op, inputs, outputs);
+#endif
         return true;
     }
     // Not Support

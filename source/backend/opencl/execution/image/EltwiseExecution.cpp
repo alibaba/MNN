@@ -27,9 +27,8 @@ static string swapComputeIn0In1(const string& computeOrigin) {
     return compute;
 }
 
-EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend,
-                                   float operatorData, bool broadCast)
-    : CommonExecution(backend), mCompute(compute), mBroadCast(broadCast), mOperatorData(operatorData) {
+EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend)
+    : CommonExecution(backend), mCompute(compute) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
     mOp = op;
 
@@ -56,6 +55,10 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
     int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
     int fullCount[2] = {1, 1};
+    int activationType = 0;
+    if(mOp->type() == OpType_BinaryOp) {
+        activationType = mOp->main_as_BinaryOp()->activationType();
+    }
     
     auto &unit = mUnits[0];
     unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
@@ -76,6 +79,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.kernel.setArg(index++, openCLImage(output));
         unit.kernel.setArg(index++, shape);
         unit.kernel.setArg(index++, fullCount);
+        unit.kernel.setArg(index++, activationType);
 
         std::string name = "binary";
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
@@ -127,6 +131,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.kernel.setArg(index++, openCLImage(output));
         unit.kernel.setArg(index++, shape);
         unit.kernel.setArg(index++, fullCount);
+        unit.kernel.setArg(index++, activationType);
 
         if(i == 0) {
             std::string name = "binary";

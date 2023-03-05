@@ -147,7 +147,7 @@ public:
     static void save(const std::vector<VARP>& vars, const char* fileName);
     static std::vector<int8_t> save(const std::vector<VARP>& vars);
     static void save(const std::vector<VARP>& vars, NetT* dest);
-    
+
     // Pack a few Variable to compute in one pipeline
     static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
     static void compute(const std::vector<VARP>& vars, bool forceCPU = false);
@@ -158,6 +158,9 @@ public:
         mFrom = expr;
         mFromIndex = index;
     }
+
+    // Can't modify the tensor from this interface
+    const Tensor* getTensor() const;
 private:
     Variable(EXPRP expr, int index) {
         mFrom      = expr;
@@ -209,12 +212,6 @@ public:
     }
     ~Expr();
 
-    bool visited() const {
-        return mVisited;
-    }
-    void setVisited(bool visited) {
-        mVisited = visited;
-    }
     const std::string& name() const {
         return mName;
     }
@@ -223,6 +220,7 @@ public:
     }
 
     VARP::InputType inputType() const {return mType;}
+    /** Internal Usage Begin */
     Variable::Info* outputInfo(int index) const;
     std::shared_ptr<BufferStorage> extra() const {
         return mStorage;
@@ -234,6 +232,15 @@ public:
     bool valid() const {
         return mValid;
     }
+    bool visited() const {
+        return mVisited;
+    }
+    void setVisited(bool visited) {
+        mVisited = visited;
+    }
+
+    /** Internal Usage End */
+
 
 private:
     static void _addLinkForInputs(EXPRP expr);
@@ -254,6 +261,7 @@ private:
     std::shared_ptr<Inside> mInside = nullptr;
     bool mVisited                   = false;
     std::vector<WeakEXPRP> mTo;
+    bool mCanDecompose = true;
 
 };
 } // namespace Express

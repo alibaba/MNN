@@ -38,7 +38,10 @@ class UnitTest(unittest.TestCase):
         failed  = len(cls.failures)
         passed  = cls.amount - blocked - failed
         skipped = len(cls.skipped)
-        print('\nTEST_NAME_PYMNN_UNIT: Pymnn单元测试\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
+        try:
+            print('\nTEST_NAME_PYMNN_UNIT: Pymnn单元测试\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
+        except:
+            print('\nTEST_NAME_PYMNN_UNIT: PymnnUnitTest\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
     def run(self, result=None):
         self.currentResult = result
         unittest.TestCase.run(self, result)
@@ -76,6 +79,8 @@ class UnitTest(unittest.TestCase):
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data, MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data.tobytes(), MNN.Tensor_DimensionType_Tensorflow)
+        self.assertEqualArray(x.getNumpyData(), data)
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data.__array_interface__['data'][0], MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, mp.array([[1., 2.], [3., 4.]]).ptr, MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
@@ -274,6 +279,8 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.const(list_data, [2, 2]), data)
         self.assertEqualVar(expr.const(tuple_data, [2, 2]), data)
         self.assertEqualVar(expr.const(data, [2, 2]), data)
+        self.assertEqualVar(expr.const(data.tobytes(), [2, 2]), data)
+        self.assertEqualVar(expr.const(data.__array_interface__['data'][0], [2, 2]), data)
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, (1., 2., 3., 4.), MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualVar(expr.const(x.getHost(), [2, 2]), data)
     def test_conv2d(self):

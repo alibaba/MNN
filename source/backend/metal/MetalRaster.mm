@@ -38,14 +38,13 @@ static void writeSamplerInfo(SamplerInfo& info, const Tensor::InsideDescribe::Re
 MetalRaster::MetalRaster(Backend *backend) : Execution(backend) {
     // Do nothing
 }
-ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(inputs.size() == 1);
+ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(outputs.size() == 1);
-    auto input = inputs[0];
+    OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
     auto output = outputs[0];
-    auto des = TensorUtils::getDescribe(input);
     auto outputDes = TensorUtils::getDescribe(output);
-    mNeedZero = !TensorUtils::regionIsFull(input);
+    auto des = outputDes;
+    mNeedZero = !TensorUtils::regionIsFull(output);
     auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
     auto bytes = outputs[0]->getType().bytes();
 
@@ -197,7 +196,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     

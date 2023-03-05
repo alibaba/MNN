@@ -89,3 +89,46 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
     
     vstore4(value, out_offset, output);
 }
+
+__kernel void nearest3D_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
+        __global FLOAT* output,
+        __private const float depth_scale,
+        __private const float height_scale,
+        __private const float width_scale,
+        __private const float depth_offset,
+        __private const float height_offset,
+        __private const float width_offset,
+        __private const int input_depth,
+        __private const int input_height,
+        __private const int input_width,
+        __private const int out_depth,
+        __private const int out_height,
+        __private const int out_width,
+        __private const int channelBlocks) {
+    const int output_channel_block_idx      = get_global_id(0);
+    const int output_height_width_block_idx = get_global_id(1);
+    const int output_batch_depth_block_idx  = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(output_channel_block_idx, output_height_width_block_idx, output_batch_depth_block_idx);
+
+
+    const int output_batch_idx  = output_batch_depth_block_idx / out_depth;
+    const int output_depth_idx  = output_batch_depth_block_idx % out_depth;
+    const int output_height_idx = output_height_width_block_idx / out_height;
+    const int output_width_idx  = output_height_width_block_idx % out_height;
+
+    const float in_d_idx = output_depth_idx * depth_scale + depth_offset;
+    const float in_h_idx = output_height_idx * height_scale + height_offset;
+    const float in_w_idx = output_width_idx * width_scale + width_offset;
+    const int in_d_index      = min(max(0, (int)floor(in_d_idx)), input_depth-1);
+    const int in_h_index      = min(max(0, (int)floor(in_h_idx)), input_height-1);
+    const int in_w_index       = min(max(0, (int)floor(in_w_idx)), input_width-1);
+
+    const int inp_offset = (((output_batch_idx * channelBlocks + output_channel_block_idx)
+            * input_depth + in_d_index) * input_height + in_h_index) * input_width + in_w_index;
+
+    const int out_offset = (((output_batch_idx * channelBlocks + output_channel_block_idx)
+            * out_depth + output_depth_idx) * out_height + output_height_idx) * out_width + output_width_idx;
+    FLOAT4 value = vload4(inp_offset, input);
+    vstore4(value, out_offset, output);
+}

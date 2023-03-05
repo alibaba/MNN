@@ -32,8 +32,9 @@ __global__ void LOGICALOR(const T *input0, const T* input1, T *output, size_t co
     }
     return;
 }
-BinaryExecution::BinaryExecution(int opType, Backend *backend) : Execution(backend) {
+BinaryExecution::BinaryExecution(int opType, Backend *backend, int activationType) : Execution(backend) {
     mType = opType;
+    mActivationType = activationType;
 }
 BinaryExecution::~BinaryExecution(){
     // Do nothing
@@ -59,7 +60,7 @@ ErrorCode BinaryExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         auto input0 = (uint8_t*)input0T->deviceId();
         auto input1 = (uint8_t*)input1T->deviceId();
         auto output = (uint8_t*)outputT->deviceId();
-        BinaryBlit(output, input0, input1, size, stride0, stride1, stride2, type, runtime, mType);
+        BinaryBlit(output, input0, input1, size, stride0, stride1, stride2, type, runtime, mType, mActivationType);
     };
     computeFunction(inputs[0], inputs[1], outputs[0]);
     for (int i=2; i<inputs.size(); ++i) {
@@ -72,7 +73,8 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         if (op->type() == OpType_BinaryOp) {
-            return new BinaryExecution(op->main_as_BinaryOp()->opType(), backend);
+            //MNN_PRINT("binary act:%d\n", op->main_as_BinaryOp()->activationType());
+            return new BinaryExecution(op->main_as_BinaryOp()->opType(), backend, op->main_as_BinaryOp()->activationType());
         }
         if (op->type() == OpType_Eltwise) {
             switch (op->main_as_Eltwise()->type()) {

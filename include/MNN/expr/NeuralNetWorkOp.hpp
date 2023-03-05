@@ -162,9 +162,16 @@ MNN_PUBLIC VARP _ImageProcess(VARP input, CV::ImageProcess::Config config, CV::M
 MNN_PUBLIC VARP _Where(VARP x);
 MNN_PUBLIC VARP _Sort(VARP x, int axis = -1, bool arg = false, bool descend = false);
 MNN_PUBLIC VARP _Raster(const std::vector<VARP>& vars, const std::vector<int>& regions, const std::vector<int>& shape);
+MNN_PUBLIC VARP _RasterRaw(const std::vector<VARP>& vars, const std::vector<int>& region, const std::vector<int>& shape, halide_type_t dataType, Dimensionformat format);
+
 MNN_PUBLIC VARP _Nms(VARP boxes, VARP scores, int maxDetections, float iouThreshold = -1, float scoreThreshold = -1);
 MNN_PUBLIC VARP _Im2Col(VARP x, INTS kernelSize, INTS dilate, INTS pads, INTS stride);
 MNN_PUBLIC VARP _Col2Im(VARP x, VARP outputShape, INTS kernelSize, INTS dilate, INTS pads, INTS stride);
+
+/**
+ Onnx's Loop
+ */
+MNN_PUBLIC VARPS _Loop(VARPS x, const std::string& submoduleName);
 
 } // namespace Express
 } // namespace MNN

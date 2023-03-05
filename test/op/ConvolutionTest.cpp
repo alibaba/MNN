@@ -398,28 +398,29 @@ public:
 
         auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
-        // Multi Conv
-        // if (group == 1 || (group == ic && ic == oc)) {
-        //     VARP weightVar;
-        //     if (group == 1) {
-        //         weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
-        //     } else {
-        //         weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
-        //     }
-        //     auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
-        //     auto out     = _Conv(weightVar, biasVar, input, padMap[mode], {stride, stride}, {dilation, dilation}, group,
-        //                      {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
-        //     auto outputPtr = out->readMap<float>();
-        //     if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
-        //         MNN_PRINT("multi expect:\t real:\n");
-        //         for (int i = 0; i < outputData.size(); ++i)
-        //         {
-        //             MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
-        //         }
-        //         MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
-        //         return false;
-        //     }
-        // }
+         // Multi Conv
+         if (group == 1 || (group == ic && ic == oc)) {
+             VARP weightVar;
+             if (group == 1) {
+                 weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
+             } else {
+                 weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
+             }
+             auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
+             auto out     = _Conv(weightVar, biasVar, _Convert(input, NC4HW4), padMap[mode], {stride, stride}, {dilation, dilation}, group,
+                              {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
+             out = _Convert(out, NCHW);
+             auto outputPtr = out->readMap<float>();
+             if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
+                 MNN_PRINT("multi expect:\t real:\n");
+                 for (int i = 0; i < outputData.size(); ++i)
+                 {
+                     MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
+                 }
+                 MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
+                 return false;
+             }
+         }
         // Single Conv
         auto output = _Conv(std::move(weightData), std::move(biasData), input, {ic, oc}, {kw, kh}, padMap[mode],
                             {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, false, false, sparseAlgo, sparseBlockOC, mSparse);

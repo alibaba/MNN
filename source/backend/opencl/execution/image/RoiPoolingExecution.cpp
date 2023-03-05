@@ -26,6 +26,15 @@ RoiPooling::RoiPooling(const std::vector<Tensor *> &inputs, const MNN::Op *op, B
     mAreadySetArg  = false;
     std::set<std::string> buildOptions;
     std::string kernelName = "roi_pooling";
+    std::vector<int> roiShape    = tensorShapeFormat(inputs[1]);
+    const int roiHeight   = roiShape.at(1);
+    const int roiWidth    = roiShape.at(2);
+    const int roiChannels = roiShape.at(3);
+    if (roiWidth == 5) {
+        buildOptions.emplace("-DROI_C1H1W5");
+    }else if(roiChannels == 5){
+        buildOptions.emplace("-DROI_C5H1W1");
+    }
     mKernel                = mOpenCLBackend->getOpenCLRuntime()->buildKernel("roi_pooling", kernelName, buildOptions);
     mMaxWorkGroupSize      = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mKernel));
 #ifdef LOG_VERBOSE
@@ -71,8 +80,9 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     mKernel.setArg(idx++, openCLImage(roi));
     mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
     mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(channels));
-    mKernel.setArg(idx++, static_cast<int32_t>(roiShape.at(1)));
+    mKernel.setArg(idx++, static_cast<int32_t>(inputBatch));
+    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    mKernel.setArg(idx++, static_cast<int32_t>(outputWidth));
     mKernel.setArg(idx++, static_cast<float>(mSpatialScale));
     mKernel.setArg(idx++, openCLImage(output));
     

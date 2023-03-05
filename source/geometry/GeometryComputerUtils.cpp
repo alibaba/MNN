@@ -17,7 +17,7 @@
 #endif
 #define DEFAULT_ALLOCATE_SIZE 32
 namespace MNN {
-static bool _hasZeroShapeOutput(const Schedule::PipelineInfo& info) {
+static bool _hasZeroShapeOutput(const Schedule::OpCacheInfo& info) {
     for (auto t : info.outputs) {
         for (int v = 0; v < t->dimensions(); ++v) {
             if (t->length(v) <= 0) {
@@ -49,7 +49,7 @@ flatbuffers::Offset<Op> GeometryComputerUtils::makePool(flatbuffers::FlatBufferB
     return opB.Finish();
 }
 
-int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineInfo>& infos) {
+int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInfo>& infos) {
     // Check Middle Const
     for (auto& info : infos) {
         if (info.op->type() == OpType_Const) {
@@ -118,7 +118,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineIn
                     info.type = Schedule::CONSTANT;
                     hasConst  = true;
                 }
-            }
+              }
         }
     }
     for (auto& info : infos) {
@@ -132,12 +132,12 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineIn
 }
 
 ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
-    std::vector<Schedule::PipelineInfo>& infos,
+    std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
     std::shared_ptr<Backend> backupBackend,
-    Runtime::CompilerType compileType) {
+    Runtime::CompilerType compileType, bool skipShapeCompute) {
     /** Size Compute and compute Const Begin */
-    GeometryComputer::Context ctx(backupBackend, false);
+    GeometryComputer::Context ctx(backupBackend);
     // Size Compute and compute Const
     for (int i=0; i<infos.size(); ++i) {
         auto& info = infos[i];
@@ -165,21 +165,26 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
             }
         }
-        auto res = SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
-        if (!res) {
-            MNN_ERROR("Compute Shape Error for %s\n", info.op->name()->c_str());
-            return COMPUTE_SIZE_ERROR;
+        if (!skipShapeCompute) {
+            auto res = SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
+            if (!res) {
+                if (info.op->name() != nullptr) {
+                    MNN_ERROR("Compute Shape Error for %s\n", info.op->name()->c_str());
+                } else {
+                    MNN_ERROR("Compute Shape Error for %d\n", info.op->type());
+                }
+                return COMPUTE_SIZE_ERROR;
+            }
+            // FIXME: Find better way to may compability for old model
+            /**
+             For Convolution of 2D / 3D Tensor(Dense / 1D Convolution)
+             Because of old code, we will acces dim[2] / dim[3] to get width and height
+             Set the lenght to 1 for compability
+             */
+            for (auto t : info.outputs) {
+                TensorUtils::adjustTensorForCompability(t);
+            }
         }
-        // FIXME: Find better way to may compability for old model
-        /**
-         For Convolution of 2D / 3D Tensor(Dense / 1D Convolution)
-         Because of old code, we will acces dim[2] / dim[3] to get width and height
-         Set the lenght to 1 for compability
-         */
-        for (auto t : info.outputs) {
-            TensorUtils::adjustTensorForCompability(t);
-        }
-
 
         if (info.type == Schedule::CONSTANT) {
             if (_hasZeroShapeOutput(info)) {
@@ -217,7 +222,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     auto des = TensorUtils::getDescribe(t);
                     if (des->backend == nullptr) {
                         TensorUtils::setLinearLayout(t);
-                        res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
+                        auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
                         if (!res) {
                             return OUT_OF_MEMORY;
                         }
@@ -258,7 +263,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         }
         auto geo = GeometryComputer::search(info.op->type(), compileType);
         {
-            auto res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+            bool res = false;
+            if (!tempBuffer.hasWrap) {
+                res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+            }
             if (!res) {
                 tempBuffer.command.clear();
                 tempBuffer.extras.clear();
@@ -267,6 +275,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             if (!res) {
                 return NOT_SUPPORT;
             }
+            tempBuffer.hasWrap = false;
             GeometryComputerUtils::makeRaster(tempBuffer, cmdBufferReal, geoContext);
             for (auto t : info.outputs) {
                 auto des = TensorUtils::getDescribe(t);
@@ -278,14 +287,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
         }
     }
+
+    
 #ifdef MNN_BUILD_CODEGEN
-    // fuse op and codegen
-    // TODO: Merge CommandBuffer and then Fuse
-    {
-        for (auto& buf : buffer) {
-            opFuse(buf);
-        }
-    }
+    opFuse(infos, geoContext.forwardType());
 #endif
     return NO_ERROR;
 }

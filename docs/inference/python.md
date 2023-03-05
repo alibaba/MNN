@@ -1,5 +1,14 @@
 # Python API使用
 
+## 安装
+MNN Python API可以使用[源码安装](../compile/pymnn.md)，也可以直接使用`pip`安装预编译whl包；`pip`安装用法如下：
+```bash
+# 外部版本安装
+pip install MNN==$version
+# 公司内部版本安装
+pip install -i https://artifacts.antgroup-inc.cn/simple/ MNN-Internal==$version
+```
+
 ## 概览
 MNN在C++的基础上，增加了Python扩展。扩展单元包括两个部分：
 - MNN：负责推理，训练，图像处理和数值计算
@@ -212,7 +221,7 @@ array([ 0.        , -0.31288275,  0.59434694, -0.8161286 ,  0.955958  ,
 其他示例可以参考[示例](../pymnn/Var.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
 ## 使用cv/numpy API
 ### 数据类型
-Python的`cv`和`numpy`接口，其中`cv`是对C++中`tools/cv`实现的封装；`numpy`则是对`expr`接口的封装；这两个接口主要为了提高MNN的易用性，与`opencv`与`numpy`做到了再接口上的部分兼容，再用法和死路上基本一致。主要数据类型如下：
+Python的`cv`和`numpy`接口，其中`cv`是对C++中`tools/cv`实现的封装；`numpy`则是对`expr`接口的封装；这两个接口主要为了提高MNN的易用性，与`opencv`与`numpy`做到了再接口上的部分兼容，在用法和思路上基本一致。主要数据类型如下：
 - [Var](../pymnn/Var.md) `cv`中的图像，`numpy`中的`ndarray`
 ### 主要用法
 `cv`和`numpy`主要用作模型的前后处理部分，和一些数值计算任务。比如从图片直接读取数据后一般需要执行颜色空间变换，数据类型变换，缩放，裁剪等操作，这些可以用`cv`模块函数实现；模型输出的结果可能需要做一些额外的变换和计算，这些可以用`numpy`模块函数实现。

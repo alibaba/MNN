@@ -72,13 +72,21 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                     return false;
                 }
                 auto outputPtr = output->host<float>();
-                auto src = (half_float::half*)parameter->uint8s()->data();
                 auto size = output->elementSize();
+                half_float::half* src = nullptr;
+                std::unique_ptr<half_float::half[]> tmp;
+                if (USE_EXTERNAL_DATA(parameter)) {
+                    tmp.reset((new half_float::half[size]));
+                    src = tmp.get();
+                    OpCommonUtils::loadExternalDatas(defaultBackend, {reinterpret_cast<char*>(src)}, parameter->external()->data());
+                } else {
+                    src = (half_float::half*)parameter->uint8s()->data();
+                }
                 for (int i=0; i<size; ++i) {
                     outputPtr[i] = src[i];
                 }
             } else {
-                memcpy(output->host<float>(), OpCommonUtils::blobData(op), output->size());
+                OpCommonUtils::loadBlobData(defaultBackend, op, output->host<char>(), output->size());
             }
         }
     }
@@ -94,6 +102,7 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
         if (tensors[i].get() == nullptr) {
             tensors[i].reset(new Tensor);
             TensorUtils::getDescribe(tensors[i].get())->index = i;
+            // MNN_PRINT("initTensors create tensor:%p, index:%d, backend:%d\n", tensors[i].get(), i, TensorUtils::getDescribe(tensors[i].get())->backend);
         }
     }
     if (describes) {
@@ -136,19 +145,68 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
                     tb.dim[i].extent = extent;
                 }
                 tb.dimensions = idims->size();
-                TensorUtils::setLinearLayout(tensor);
             } else {
                 tb.dimensions = 0;
             }
             tensor->setType(inputParam->dtype());
             TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
+            TensorUtils::setLinearLayout(tensor);
+        }
+    }
+    if (net->usage() != Usage_INFERENCE_STATIC) {
+        return valid;
+    }
+    // static model will set all tensors' shape
+    for (int i = 0; i < describes->size(); i++) {
+        int index  = describes->GetAs<TensorDescribe>(i)->index();
+        des[index] = describes->GetAs<TensorDescribe>(i);
+    }
+    for (int i = 0; i < tensors.size(); ++i) {
+        if (TensorUtils::getDescribe(tensors[i].get())->usage != Tensor::InsideDescribe::NORMAL) {
+            // Const / Trainable Shape has been inited
+            continue;
+        }
+        auto blob = des[i]->blob();
+        auto& tb = tensors[i]->buffer();
+        if (auto idims = blob->dims()) {
+            for (int d = 0; d < idims->size(); d++) {
+                tb.dim[d].extent = idims->Get(d);
+            }
+            tb.dimensions = idims->size();
+        } else {
+            tb.dimensions = 0;
+        }
+        tensors[i]->setType(blob->dataType());
+    }
+    for (int i = 0; i < tensors.size(); ++i) {
+        auto blob                                                   = des[i]->blob();
+        TensorUtils::getDescribe(tensors[i].get())->dimensionFormat = blob->dataFormat();
+        if (auto regions = des[i]->regions()) {
+            auto& regs = TensorUtils::getDescribe(tensors[i].get())->regions;
+            TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+            regs.reserve(regions->size());
+            for (int r = 0; r < regions->size(); r++) {
+                auto region = regions->GetAs<Region>(r);
+                Tensor::InsideDescribe::Region reg;
+                reg.origin     = tensors[region->origin()].get();
+                reg.src.offset = region->src()->offset();
+                reg.dst.offset = region->dst()->offset();
+                for (int d = 0; d < 3; d++) {
+                    reg.size[d]       = region->size()->data()[d];
+                    reg.src.stride[d] = region->src()->stride()->data()[d];
+                    reg.dst.stride[d] = region->dst()->stride()->data()[d];
+                }
+                regs.emplace_back(std::move(reg));
+            }
         }
     }
     return valid;
 }
-void initPipelineInfosFromOps(std::vector<Schedule::PipelineInfo>& infos, std::vector<const Op*>& ops, const std::vector<std::shared_ptr<Tensor>>& allTensors) {
+void initPipelineInfosFromOps(std::vector<Schedule::OpCacheInfo>& infos, std::vector<const Op*>& ops, const std::vector<std::shared_ptr<Tensor>>& allTensors) {
     for (const Op* op : ops) {
-        Schedule::PipelineInfo opInfo;
+        // MNN_PRINT("initPipelineInfosFromOps, op type:%s, op name:%s\n", EnumNameOpType(op->type()), op->name()->c_str());
+
+        Schedule::OpCacheInfo opInfo;
         opInfo.op = op;
         if (nullptr != op->outputIndexes()) {
             auto data = op->outputIndexes()->data();
@@ -220,7 +278,7 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
     // 3. set usage for Tensor by index
     for (auto index : input) {
         auto des = TensorUtils::getDescribe(allTensors[index].get());
-        if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+        if (des->usage == Tensor::InsideDescribe::CONSTANT || des->usage == Tensor::InsideDescribe::TRAINABLE) {
             continue;
         }
         des->usage = Tensor::InsideDescribe::INPUT;
@@ -233,7 +291,7 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
     }
 }
 
-void initPipelineInfosFromNet(std::vector<Schedule::PipelineInfo>& infos, const Net* net, std::vector<std::shared_ptr<Tensor>>& allTensors) {
+void initPipelineInfosFromNet(std::vector<Schedule::OpCacheInfo>& infos, const Net* net, std::vector<std::shared_ptr<Tensor>>& allTensors) {
     std::vector<const Op*> ops;
     for (int i = 0; i < net->oplists()->size(); i++) {
         auto op = net->oplists()->GetAs<Op>(i);

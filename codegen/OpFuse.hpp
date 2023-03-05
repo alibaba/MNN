@@ -9,6 +9,6 @@
 #include "geometry/GeometryComputerUtils.hpp"
 
 namespace MNN {
-    bool opFuse(CommandBuffer& cmd);
+    bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type);
 } // namespace MNN
 

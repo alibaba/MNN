@@ -7,7 +7,7 @@
 //
 
 #include <fstream>
-
+#include <sstream>
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
 #include "utils/InitNet.hpp"
@@ -16,6 +16,8 @@
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "CommonUtils.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 using namespace MNN;
 
 #define SET_TYPE(TYPE, type) \
@@ -29,27 +31,144 @@ blob->type##s.push_back(tensor->host<type##_t>()[i]);\
 }\
 }
 
-void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::string>& tensorNames, std::vector<std::string>&& outputNames) {
-    printf("gen Static Model ... \n");
+static bool _RemoveDupOutput(MNN::NetT* net, bool abortOpt) {
+    std::vector<bool> outputMask(net->tensorName.size(), false);
+    std::map<int, TensorDescribeT*> describes;
+    for (auto& des : net->extraTensorDescribe) {
+        describes.insert(std::make_pair(des->index, des.get()));
+    }
+    for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
+        auto& op = *iter;
+        for (int i=0; i<op->outputIndexes.size(); ++i) {
+            auto index = op->outputIndexes[i];
+            if (!outputMask[index]) {
+                outputMask[index] = true;
+                continue;
+            }
+            if (abortOpt) {
+                return false;
+            }
+            // Dup output, rename it
+            int newIndex = (int)net->tensorName.size();
+            outputMask.push_back(true);
+            std::ostringstream tempOs;
+            tempOs << "_" << net->tensorName[index] << "_" << newIndex;
+            auto newName = tempOs.str();
+            MNN_PRINT("Convert: Dup output %s, replace by %s\n", net->tensorName[index].c_str(), newName.c_str());
+            net->tensorName.emplace_back(newName);
+            op->outputIndexes[i] = newIndex;
+            if (describes.find(index) != describes.end()) {
+                auto originDes = describes.find(index)->second;
+                std::unique_ptr<TensorDescribeT> newTensorDes;
+                flatbuffers::FlatBufferBuilder tempBuilder;
+                tempBuilder.Finish(TensorDescribe::Pack(tempBuilder, originDes));
+                newTensorDes.reset(flatbuffers::GetRoot<TensorDescribe>(tempBuilder.GetBufferPointer())->UnPack());
+                newTensorDes->index = newIndex;
+                net->extraTensorDescribe.emplace_back(std::move(newTensorDes));
+            }
+            for (auto subIter = iter; subIter != net->oplists.end(); ++subIter) {
+                auto& subOp = *subIter;
+                for (int k=0; k<subOp->inputIndexes.size(); ++k) {
+                    if (subOp->inputIndexes[k] == index) {
+                        subOp->inputIndexes[k] = newIndex;
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+    
+
+static void _RemoveUnusefulNodes(std::unique_ptr<MNN::NetT>& net) {
+    if (!_RemoveDupOutput(net.get(), true)) {
+        MNN_PRINT("Can't optimize static model because has loop\n");
+        return;
+    }
+    auto originMode = MNN::Express::ExecutorScope::Current()->getLazyMode();
+    MNN::Express::ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
+    std::map<std::string, MNN::Express::VARP> varMap;
+    auto outputs = std::move(net->outputName);
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(MNN::Net::Pack(builder, net.get()));
+        net.reset();
+        varMap = MNN::Express::Variable::loadMap(builder.GetBufferPointer(), builder.GetSize());
+    }
+    std::vector<MNN::Express::VARP> outputVars;
+    std::vector<std::string> validOutputs;
+    for (auto& name : outputs) {
+        auto iter = varMap.find(name);
+        if (iter == varMap.end()) {
+            MNN_ERROR("Convert Static Model: Can't find %s output, skip\n", name.c_str());
+            continue;
+        }
+        validOutputs.emplace_back(name);
+        outputVars.emplace_back(iter->second);
+    }
+    auto buffer = MNN::Express::Variable::save(outputVars);
+    outputVars.clear();
+    varMap.clear();
+    net.reset(flatbuffers::GetRoot<MNN::Net>(buffer.data())->UnPack());
+    buffer.clear();
+    net->outputName = validOutputs;
+    MNN::Express::ExecutorScope::Current()->setLazyComputeMode(originMode);
+}
+
+void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::pair<std::string, int>>& tensorNames, std::vector<std::string>&& outputNames, const Net* originNetInfo) {
+    MNN_PRINT("gen Static Model ... \n");
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     netT->outputName = std::move(outputNames);
     netT->usage = Usage_INFERENCE_STATIC;
     std::map<Tensor*, int> tensorMap;
+    // Add tensorName to new netT
+    netT->tensorName.resize(tensorNames.size());
+    std::vector<std::unique_ptr<OpT>> inputOps;
+    for (auto& iter : tensorNames) {
+        netT->tensorName[iter.second.second] = iter.second.first;
+        tensorMap.insert(std::make_pair(iter.first, iter.second.second));
+        if (TensorUtils::getDescribe(iter.first)->usage == MNN::Tensor::InsideDescribe::INPUT) {
+            std::unique_ptr<OpT> input(new OpT);
+            input->type = OpType_Input;
+            input->name = iter.second.first;
+            input->outputIndexes = {iter.second.second};
+            input->main.value = new InputT;
+            input->main.type = OpParameter_Input;
+            input->main.AsInput()->dims = iter.first->shape();
+            input->main.AsInput()->dformat = TensorUtils::getDescribe(iter.first)->dimensionFormat;
+            auto type = iter.first->getType();
+            if (type.code == halide_type_float) {
+                if (type.bits == 32) {
+                    input->main.AsInput()->dtype = DataType_DT_FLOAT;
+                } else if (type.bits == 16) {
+                    input->main.AsInput()->dtype = DataType_DT_HALF;
+                }
+            } else if (type.code == halide_type_int) {
+                if (type.bits == 32) {
+                    input->main.AsInput()->dtype = DataType_DT_INT32;
+                } else if (type.bits == 16) {
+                    input->main.AsInput()->dtype = DataType_DT_INT16;
+                } else if (type.bits == 8) {
+                    input->main.AsInput()->dtype = DataType_DT_INT8;
+                }
+            } else if (type.code == halide_type_uint) {
+                if (type.bits == 16) {
+                    input->main.AsInput()->dtype = DataType_DT_UINT16;
+                } else if (type.bits == 8) {
+                    input->main.AsInput()->dtype = DataType_DT_UINT8;
+                }
+            }
+            inputOps.emplace_back(std::move(input));
+        }
+    }
     // add Tensors to netT
     for (auto& iterP : buffer.command) {
         auto& iter = *iterP;
         std::function<void(Tensor*)> insertTensor = [&](Tensor* t) {
             if (tensorMap.find(t) == tensorMap.end()) {
-                auto des = TensorUtils::getDescribe(t);
-                for (auto reg : des->regions) {
-                    insertTensor(reg.origin);
-                }
                 int index = static_cast<int>(tensorMap.size());
                 tensorMap.insert(std::make_pair(t, index));
                 std::string tensorName = "ExtraTensor_" + std::to_string(index);
-                if (tensorNames.find(t) != tensorNames.end()) {
-                    tensorName = tensorNames[t];
-                }
                 netT->tensorName.push_back(tensorName);
             }
         };
@@ -64,6 +183,7 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
     for (auto tensorPair : tensorMap) {
         auto tensor = tensorPair.first;
         auto index = tensorPair.second;
+        //FUNC_PRINT(index);
         auto des = TensorUtils::getDescribe(tensor);
         if (des->usage == Tensor::InsideDescribe::CONSTANT) {
             std::unique_ptr<OpT> op(new OpT);
@@ -105,9 +225,6 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         for (int d = 0; d < tensor->dimensions();d++) {
             describe->blob->dims.push_back(tensor->buffer().dim[d].extent);
         }
-        if (tensor->dimensions() == 0) {
-            describe->blob->dims.push_back(1);
-        }
         auto tensorDes = TensorUtils::getDescribe(tensor);
         if (nullptr != tensorDes->quantAttr) {
             describe->quantInfo.reset(new TensorQuantInfoT);
@@ -127,12 +244,14 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
                 regionT->dst->stride.push_back(reg.dst.stride[s]);
                 regionT->size.push_back(reg.size[s]);
             }
-            regionT->origin = tensorMap[reg.origin];
             describe->regions.emplace_back(std::move(regionT));
         }
         netT->extraTensorDescribe.emplace_back(std::move(describe));
     }
     // add op to netT
+    for (auto&& iter : inputOps) {
+        netT->oplists.emplace_back(std::move(iter));
+    }
     int idx = 0;
     for (auto& iterP : buffer.command) {
         auto& iter = *iterP;
@@ -150,9 +269,19 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         }
         netT->oplists.emplace_back(std::move(opt));
     }
+    _RemoveUnusefulNodes(netT);
+    netT->usage = Usage_INFERENCE_STATIC;
+    netT->sourceType = originNetInfo->sourceType();
+    if (nullptr != originNetInfo->bizCode()) {
+        netT->bizCode = originNetInfo->bizCode()->str();
+    }
+    if (nullptr != originNetInfo->mnn_uuid()) {
+        netT->mnn_uuid = originNetInfo->mnn_uuid()->str();
+    }
+    netT->extraInfo.reset(new ExtraInfoT);
+    netT->extraInfo->version = MNN_VERSION;
     // write netT to file
     flatbuffers::FlatBufferBuilder builderOutput(1024);
-    builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());
     builderOutput.Finish(len);
     int sizeOutput    = builderOutput.GetSize();
@@ -198,16 +327,16 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
             }
         }
     }
-    std::vector<Schedule::PipelineInfo> infos;
+    std::vector<Schedule::OpCacheInfo> infos;
     initPipelineInfosFromNet(infos, net, allTensors);
-    GeometryComputer::Context ctx(defaultBackend, true);
+    GeometryComputer::Context ctx(defaultBackend);
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     GeometryComputerUtils::buildConstantTensors(infos);
     GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, ctx, defaultBackend, runtime->onGetCompilerType());
-    std::map<Tensor*, std::string> tensorName;
+    std::map<Tensor*, std::pair<std::string, int>> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
-        tensorName[allTensors[i].get()] = net->tensorName()->GetAsString(i)->str();
+        tensorName[allTensors[i].get()] = std::make_pair(net->tensorName()->GetAsString(i)->str(), i);
     }
     std::vector<std::string> outputNames;
     if (net->outputName() != nullptr) {
@@ -228,5 +357,5 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
         newBuffer.extras.insert(newBuffer.extras.end(), buf.extras.begin(), buf.extras.end());
     }
     // store buffer to STATIC model file
-    genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames));
+    genStaticModel(newBuffer, mnnFile, tensorName, std::move(outputNames), net);
 }

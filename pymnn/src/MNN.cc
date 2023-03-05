@@ -194,6 +194,7 @@ static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyO
 static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_setExternalFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setSessionMode(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObject *args);
@@ -213,6 +214,7 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"createRuntime", (PyCFunction)PyMNNInterpreter_createRuntime, METH_VARARGS | METH_STATIC, "create runtime"},
     {"createSession", (PyCFunction)PyMNNInterpreter_createSession, METH_VARARGS, "create session"},
     {"setCacheFile", (PyCFunction)PyMNNInterpreter_setCacheFile, METH_VARARGS, "set cache file for create session"},
+    {"setExternalFile", (PyCFunction)PyMNNInterpreter_setExternalFile, METH_VARARGS, "set external data file for create session"},
     {"updateCacheFile", (PyCFunction)PyMNNInterpreter_updateCacheFile, METH_VARARGS, "update cache file after resize session"},
     {"setSessionMode", (PyCFunction)PyMNNInterpreter_setSessionMode, METH_VARARGS, "set session mode before create session"},
     {"setSessionHint", (PyCFunction)PyMNNInterpreter_setSessionHint, METH_VARARGS, "set session hint before create session"},
@@ -600,81 +602,6 @@ namespace ec {
     }
 }
 
-static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> createScheduleConfig(PyObject* dict) {
-    std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> result;
-    result.first = false;
-    auto& config = result.second.first;
-    auto& backendConfig = result.second.second;
-    backendConfig.reset(new BackendConfig);
-    config.backendConfig = backendConfig.get();
-
-    if (dict) {
-        PyObject *backend = PyDict_GetItemString(dict, "backend");
-        config.type = MNN_FORWARD_CPU;
-        if (backend && checkString(backend)) {
-            auto backend_name = object2String(backend);
-            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
-            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
-            std::unordered_map<std::string, MNNForwardType> backend_map = {
-                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
-                // which make MNN.whl setup.py easy
-                {"CPU", MNN_FORWARD_CPU},
-                {"OPENCL", MNN_FORWARD_OPENCL},
-                {"OPENGL", MNN_FORWARD_OPENGL},
-                {"VULKAN", MNN_FORWARD_VULKAN},
-                {"METAL", MNN_FORWARD_METAL},
-                {"TRT", MNN_FORWARD_USER_1},
-                {"CUDA", MNN_FORWARD_CUDA},
-                {"HIAI", MNN_FORWARD_USER_0},
-                {"AUTO", MNN_FORWARD_AUTO}
-            };
-            auto iter = backend_map.find(backend_name);
-            if (iter == backend_map.end()) {
-                // backend not support, issue on python level when development
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: backend not support");
-                return result;
-            }
-            config.type = iter->second;
-        } else if (backend && PyLong_Check(backend)) {
-            config.type = (MNNForwardType)PyLong_AsLong(backend); // {'backend': 1L} for example
-        }
-        PyObject *numThread = PyDict_GetItemString(dict, "numThread");
-        if (numThread) {
-            if (!PyLong_Check(numThread)) {
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: numThread must be a integer");
-                return result;
-            }
-            config.numThread = (int)PyLong_AsLong(numThread);
-        }
-
-        {
-            //precision
-            PyObject *obj = PyDict_GetItemString(dict, "precision");
-            if (obj) {
-                auto obj_name = object2String(obj);
-                if (!obj_name.compare("low")) {
-                    MNN_PRINT("MNN use low precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
-                }
-                if (!obj_name.compare("high")) {
-                    MNN_PRINT("MNN use high precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_High;
-                }
-            }
-        }
-
-        if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
-            || -1 == ec::getVectorByKey(dict, "inputPaths", config.path.inputs)
-            || -1 == ec::getVectorByKey(dict, "outputPaths", config.path.outputs)){
-            return result;
-        }
-    }
-    result.first = true;
-    return result;
-}
-
 static void _runtime_capsule_deleter(PyObject *obj) {
     auto info = (RuntimeInfo*)PyCapsule_GetPointer(obj, NULL);
     if (info != nullptr) {
@@ -692,15 +619,20 @@ static PyObject* PyMNNInterpreter_createRuntime(PyObject* self, PyObject* args) 
         return Py_None;
     }
     // BackendConfig lifetime management
+    if(PySequence_Size(dicts) > MAX_CONFIG_SIZE) {
+        MNN_PRINT("Error: MNN support max ScheduleConfig size is %d\n", MAX_CONFIG_SIZE);
+        return Py_None;
+    }
     std::vector<ScheduleConfig> configs;
-    std::vector<std::shared_ptr<BackendConfig>> backend_configs_backup;
+    ScheduleConfig config[MAX_CONFIG_SIZE];
+    BackendConfig backendConfig[MAX_CONFIG_SIZE];
     for (auto i = 0; i < PySequence_Size(dicts); ++i) {
-        auto config = createScheduleConfig(PySequence_GetItem(dicts, i));
-        if (!config.first) {
+        config[i].backendConfig = &backendConfig[i];
+        bool ret = getScheduleConfig(PySequence_GetItem(dicts, i), config[i]);
+        if (!ret) {
             return Py_None;
         }
-        configs.push_back(config.second.first);
-        backend_configs_backup.push_back(config.second.second);
+        configs.push_back(config[i]);
     }
 
     auto info = new RuntimeInfo;
@@ -738,16 +670,19 @@ static PyObject* createSession(PyMNNInterpreter *self, PyObject* dict, PyObject 
         return (PyObject *)session;
     }
 
-    auto config = createScheduleConfig(dict);
-    if (!config.first) {
+    ScheduleConfig config;
+    BackendConfig backendConfig;
+    config.backendConfig = &backendConfig;
+    bool ret = getScheduleConfig(dict, config);
+    if (!ret) {
         return NULL;
     }
     Session* s;
     if (rtinfo_py == NULL) {
-        s = self->interpreter->createSession(config.second.first);
+        s = self->interpreter->createSession(config);
     } else {
         auto runtimeinfo = *(RuntimeInfo*)PyCapsule_GetPointer(rtinfo_py, NULL);
-        s = self->interpreter->createSession(config.second.first, runtimeinfo);
+        s = self->interpreter->createSession(config, runtimeinfo);
     }
     if (!s) {
         PyErr_SetString(PyExc_Exception,
@@ -862,6 +797,18 @@ static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject 
     Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
+static PyObject* PyMNNInterpreter_setExternalFile(PyMNNInterpreter *self, PyObject *args) {
+    char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setExternalFile: Not string input");
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    self->interpreter->setExternalFile(path);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
 static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args) {
     PyMNNSession* session = NULL;
     int flag = 0;
@@ -875,7 +822,7 @@ static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObje
         return NULL;
     }
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     r = self->interpreter->updateCacheFile(session->session, flag);
     return PyLong_FromLong(r);
 }
@@ -920,7 +867,7 @@ static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *a
                         "PyMNNInterpreter_runSession: First argument is not a MNN.Session instance");
         return NULL;
     }
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     Py_BEGIN_ALLOW_THREADS
 
 #ifdef PYMNN_INTERNAL_SERVING
@@ -1023,7 +970,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         return ret;
     };
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     //Py_BEGIN_ALLOW_THREADS
     r = self->interpreter->runSessionWithCallBack(session->session, begin, end);
     //Py_END_ALLOW_THREADS
@@ -1150,7 +1097,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
         return ret;
     };
 
-    ErrorCode r = NO_ERROR;
+    ErrorCode r;
     //Py_BEGIN_ALLOW_THREADS
     r = self->interpreter->runSessionWithCallBackInfo(session->session, begin, end);
     //Py_END_ALLOW_THREADS
@@ -1508,7 +1455,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
             break;
         case 4:
             parse_res = PyArg_ParseTuple(args, "OOOl", &shape, &dataType, &data, &dimensionType)
-                        && isInts(shape) && isVals(data);
+                        && isInts(shape) && (isVals(data) || isInt(data));
             break;
         default:
             parse_res = false;
@@ -1518,7 +1465,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
                         "\t0. (Var)\n"
                         "\t1. (Tensor/Var, DimensionType)\n"
                         "\t2. ([int], DataType, DimensionType)\n"
-                        "\t3. ([int], DataType, tuple/ndarray, DimensionType)\n");
+                        "\t3. ([int], DataType, ndarray/list/tuple/bytes/PyCapsule/int_addr, DimensionType)\n");
         return -1;
     }
 #ifdef PYMNN_EXPR_API
@@ -1589,7 +1536,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         dataSize *= i;
     }
     void *pData = NULL;
-    if (data && !PyCapsule_CheckExact(data)) {
+    if (data && !PyCapsule_CheckExact(data) && !isInt(data)) {
         if (PyBytes_Check(data)) {
             int64_t total_len = PyBytes_Size(data);
             if (dataSize * itemsize != total_len) {
@@ -1626,15 +1573,20 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         }
     } else {
         // no data input, set all zeros
-        // pycapsule input, copy data
+        // pycapsule/int_addr input, copy data
         pData = malloc(dataSize * itemsize);
-        if (data && PyCapsule_CheckExact(data)) {
-            auto src = PyCapsule_GetPointer(data, NULL);
-            if (src == nullptr) {
-                PyMNN_ERROR_LOG("PyMNNTensor_init: PyCapsule pointer is null.");
+        if (data) {
+            void* srcPtr = nullptr;
+            if (PyCapsule_CheckExact(data)) {
+                srcPtr = PyCapsule_GetPointer(data, NULL);
+            } else {
+                srcPtr = PyLong_AsVoidPtr(data);
+            }
+            if (srcPtr == nullptr) {
+                PyMNN_ERROR_LOG("PyMNNTensor_init: PyCapsule/int_addr pointer is null.");
                 return -1;
             }
-            memcpy(pData, src, dataSize * itemsize);
+            memcpy(pData, srcPtr, dataSize * itemsize);
         } else {
             memset(pData, 0, dataSize * itemsize);
         }
@@ -2187,12 +2139,22 @@ std::vector<CV::Point> toPoints(PyObject* obj) {
     }
     if (isVar(obj)) {
         auto vals = toVar(obj);
-        auto size = vals->getInfo()->size;
+        auto info = vals->getInfo();
+        auto size = info->size;
         MNN_ASSERT(size % 2 == 0);
         std::vector<CV::Point> points(size / 2);
-        auto ptr = vals->readMap<int>();
-        for (int i = 0; i < points.size(); i++) {
-            points[i].set(ptr[i*2], ptr[i*2+1]);
+        if (info->type == halide_type_of<float>()) {
+            auto ptr = vals->readMap<float>();
+            for (int i = 0; i < points.size(); i++) {
+                points[i].set(ptr[i*2], ptr[i*2+1]);
+            }
+        } else if (info->type == halide_type_of<int>()) {
+            auto ptr = vals->readMap<int>();
+            for (int i = 0; i < points.size(); i++) {
+                points[i].set(ptr[i*2], ptr[i*2+1]);
+            }
+        } else {
+            PyMNN_ERROR_LOG("Point data type must be int32 or float32.");
         }
         return points;
     }
@@ -2627,7 +2589,8 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 #ifdef PYMNN_NUMPY_USABLE
     gNumpyValid = true;
     if(_import_array() < 0) {
-        PyErr_SetString(PyExc_Exception, "initMNN: init numpy failed");
+        MNN_PRINT("[Warnning] import numpy failed, please reinstall numpy!\n");
+        PyErr_Clear();
         gNumpyValid = false;
     }
 #endif

@@ -16,7 +16,7 @@ Param(
     [Parameter(Mandatory=$true)][String]$pyc_env,
     [Parameter(Mandatory=$true)][String]$mnn_path,
     [Parameter(Mandatory=$true)][String]$python_path,
-    [Parameter(Mandatory=$true)][String]$numpy_path,
+    [Parameter(Mandatory=$false)][String]$numpy_path,
     [Parameter(Mandatory=$true)][String]$path,
     [Switch]$train_api,
     [Switch]$x86
@@ -49,7 +49,6 @@ $PACKAGE_LIB_PATH = "$PACKAGE_PATH/lib/$arch"
 $TEST_TOOL_PATH = "$PACKAGE_PATH/test/$arch"
 
 #clear and create package directory
-powershell ./schema/generate.ps1
 pushd $PACKAGE_PATH
 Remove-Item -Path include, wrapper -Recurse -ErrorAction Ignore
 mkdir -p include, wrapper
@@ -84,13 +83,18 @@ popd
 
 $mnn_path = $(Resolve-Path $mnn_path).Path
 $python_path = $(Resolve-Path $python_path).Path
-$numpy_path = $(Resolve-Path $numpy_path).Path
 
-$CMAKE_ARGS = "-DPYMNN_USE_ALINNPYTHON=ON -DPYMNN_RUNTIME_CHECK_VM=ON -DPYMNN_EXPR_API=ON -DPYMNN_NUMPY_USABLE=ON -DPYMNN_BUILD_TEST=OFF -DPYMNN_IMGCODECS=ON  -DPYMNN_IMGPROC_DRAW=ON  -DPYMNN_IMGPROC_STRUCTURAL=ON  -DPYMNN_IMGPROC_MISCELLANEOUS=ON -DPYMNN_IMGPROC_COLOR=ON -DPYMNN_IMGPROC_GEOMETRIC=ON -DPYMNN_IMGPROC_FILTER=ON"
+$CMAKE_ARGS = "-DPYMNN_USE_ALINNPYTHON=ON -DPYMNN_RUNTIME_CHECK_VM=ON -DPYMNN_EXPR_API=ON -DPYMNN_BUILD_TEST=OFF -DPYMNN_IMGCODECS=ON  -DPYMNN_IMGPROC_DRAW=ON  -DPYMNN_IMGPROC_STRUCTURAL=ON  -DPYMNN_IMGPROC_MISCELLANEOUS=ON -DPYMNN_IMGPROC_COLOR=ON -DPYMNN_IMGPROC_GEOMETRIC=ON -DPYMNN_IMGPROC_FILTER=ON"
 if ($train_api) {
   $CMAKE_ARGS = "$CMAKE_ARGS -DPYMNN_TRAIN_API=ON"
 }
-$CMAKE_ARGS = "$CMAKE_ARGS -Dmnn_path=$mnn_path -Dpython_path=$python_path -Dnumpy_path=$numpy_path"
+
+if ($numpy_path) {
+  $CMAKE_ARGS = "$CMAKE_ARGS -DPYMNN_NUMPY_USABLE=ON -Dnumpy_path=$numpy_path"
+}
+
+
+$CMAKE_ARGS = "$CMAKE_ARGS -Dmnn_path=$mnn_path -Dpython_path=$python_path"
 
 Remove-Item pymnn_build -Recurse -ErrorAction Ignore
 mkdir pymnn_build
@@ -101,7 +105,7 @@ function exist([String]$build_type, [String]$lib_type, [String]$crt_type) {
     $lib_dir = "$lib/lib/$arch/$build_type/$lib_type/$crt_type"
     return $((Test-Path -Path $lib_dir) -and ((Get-ChildItem -Path "$lib_dir/*" -Include "*.lib").Count -ne 0))
   }
-  return $((_exist $mnn_path) -and (_exist $python_path) -and (_exist $numpy_path))
+  return $((_exist $mnn_path) -and (_exist $python_path))
 }
 
 function log([String]$msg) {

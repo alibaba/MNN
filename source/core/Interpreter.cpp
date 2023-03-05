@@ -19,6 +19,7 @@
 #include "core/RuntimeFactory.hpp"
 #include "core/Session.hpp"
 #include <MNN/AutoTime.hpp>
+#include "backend/cpu/CPUBackend.hpp"
 
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/logging/Log.hpp"
@@ -39,6 +40,8 @@ struct Content {
     size_t lastCacheSize = 0;
     std::string bizCode;
     std::string uuid;
+    bool mStaticShape = false;
+    std::string externalFile;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> basicLogginData;
     std::map<const Session*, std::tuple<int, int>> sessionInfo;
@@ -128,6 +131,7 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
         delete net;
         return nullptr;
     }
+    net->mStaticShape = net->net->usage() == Usage_INFERENCE_STATIC;
     int opSize = net->net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->net->oplists()->GetAs<Op>(i);
@@ -191,7 +195,19 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
     }
 }
 
+void Interpreter::setExternalFile(const char* file, size_t flag) {
+    mNet->externalFile = file;
+}
+
 ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
+    std::lock_guard<std::mutex> _l(mNet->lock);
+
+    // Backend_Auto and no Async work, then don't need updateCache
+    if(mNet->modes.backendMode == Session_Backend_Auto && !(session->hasAsyncWork())) {
+        return NO_ERROR;
+    }
+    
+    // Get cache and write to file
     auto buffer = session->getCache();
 
     //When current cacheSize bigger than previous, update
@@ -229,6 +245,7 @@ Interpreter::~Interpreter() {
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
+    runtime.second->setExternalFile(mNet->externalFile);
     if (runtime.first.empty()) {
         MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;
@@ -254,6 +271,12 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
         return nullptr;
+    }
+    if (mNet->mStaticShape) {
+        for (auto& pipInfo : info.pipelineInfo) {
+            pipInfo.first.needComputeGeometry = false;
+            pipInfo.first.needComputeShape = false;
+        }
     }
     RuntimeInfo rt = runtime;
     bool valid  = false;
@@ -283,7 +306,7 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     auto result = newSession.get();
     auto validForResize = info.validForResize;
     if (validForResize && mNet->modes.inputMode == Session_Input_Inside && mNet->modes.resizeMode == Session_Resize_Direct) {
-        result->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
+        result->resize();
     }
 
     if ((!mNet->cacheFile.empty()) && (!valid) && mNet->modes.backendMode == Session_Backend_Fix) {

@@ -63,7 +63,7 @@ bool SparseConvInt8TiledExecutor::reorderWeight(Backend* b, const Convolution2DC
     return true;
 }
 
-SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp, res) {
+SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp->common(), res) {
 
     std::shared_ptr<Tensor> weightOrigin;
     weightOrigin.swap(mResource->mWeightInt8);
@@ -82,7 +82,7 @@ SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const
 
 SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common,
                                                          const SparseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, common, exe),
+    : ConvInt8TiledExecutor(backend, common, exe.mResource),
       mNNZMap(exe.mNNZMap),
       mDataOffsetMap(exe.mDataOffsetMap),
       mSparseBlockOC(exe.mSparseBlockOC),
@@ -160,13 +160,13 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
     auto outputDataPtr       = output->host<int8_t>();
     QuanPostTreatParameters quanParam;
-    quanParam.bias = mResource->mBiasInt32->host<int32_t>();
-    quanParam.scale = mResource->mScaleFloat->host<float>();
-    quanParam.maxValue = mResource->mClampMax;
+    quanParam.bias = mMutableResource.mBiasInt32->host<int32_t>();
+    quanParam.scale = mMutableResource.mScaleFloat->host<float>();
+    quanParam.maxValue = mMutableResource.mClampMax;
     if (mResource->mRelu) {
-        quanParam.minValue = mResource->mOutputZeroPoint;
+        quanParam.minValue = mMutableResource.mOutputZeroPoint;
     } else {
-        quanParam.minValue = mResource->mClampMin;
+        quanParam.minValue = mMutableResource.mClampMin;
     }
     // MNN_PRINT("outputPlaneLen: %d, reduce l:%zu, minValue:%d, maxValue:%d, mTileCount:%d\n", outputPlaneLen, mSparseQuantParam.l, quanParam.minValue, quanParam.maxValue, mTileCount);
     auto threadFunction = [&](int tId) {
@@ -181,7 +181,7 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
                 const int realDstCount = ALIMIN(outputPlaneLen - xIndexStart, sparseQuantParam.eP);
                 sparseQuantParam.eSize = realDstCount;
                 // im2col
-                sparseQuantIm2col(colAddr, srcPtr, mResource->mInputZeroPoint, &mIm2ColParamter, (size_t*)&sparseQuantParam, xIndexStart);
+                sparseQuantIm2col(colAddr, srcPtr, mMutableResource.mInputZeroPoint, &mIm2ColParamter, (size_t*)&sparseQuantParam, xIndexStart);
                 // MNN_PRINT("batch:%d, realDstCount:%d, InputZeroPoint:%d, inputdata matrix im2col:\n", bIndex, realDstCount, mResource->mInputZeroPoint);
                 // formatMatrix(colAddr, {static_cast<int>(UP_DIV(realDstCount, sparseQuantParam.eP)), static_cast<int>(sparseQuantParam.l), static_cast<int>(sparseQuantParam.eP)});
 

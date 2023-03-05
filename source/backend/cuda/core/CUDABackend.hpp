@@ -36,17 +36,18 @@ public:
 
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
-    std::shared_ptr<CUDARuntime> mCUDARuntime; 
+    std::shared_ptr<CUDARuntime> mCUDARuntime;
     bool mIsCreateError{false};
     BackendConfig::PrecisionMode mDefaultPrecision;
 };
 
 class CUDABackend : public Backend {
 public:
-    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, bool useFp16AsFp32);
+    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, int precisionLevel);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
+    virtual const Runtime* getRuntime() override;
     virtual Backend::MemObj* onAcquire(const Tensor *nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
 
@@ -79,12 +80,14 @@ public:
     int getBytes(const Tensor* tensor) const;
     CPUResizeCache* getCache();
     bool useFp16() const;
+    int getPrecision() const;
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mStaticBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
     CPUResizeCache mCache;
     bool mUseFp16AsFp32 = false;
+    int mPrecision = 0;
 };
 
 template <class T>

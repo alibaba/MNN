@@ -13,6 +13,12 @@
     out##i = mad(in##i.z, weights2, out##i); \
     out##i = mad(in##i.w, weights3, out##i);    
 
+#define CALCULATE_OUTPUT_WEIGHTS4(i, j)                  \
+    out##i = mad(in##j.x, weights4, out##i); \
+    out##i = mad(in##j.y, weights5, out##i); \
+    out##i = mad(in##j.z, weights6, out##i); \
+    out##i = mad(in##j.w, weights7, out##i);
+
 #define CALCULATE_OUTPUT_OPT(i)                  \
     out##i = mad(in_sm##i[local_idx].x, weights0, out##i); \
     out##i = mad(in_sm##i[local_idx].y, weights1, out##i); \
@@ -380,7 +386,7 @@ __kernel
 #if SET_ATTRIBUTE
 __attribute__((work_group_size_hint(16, 16, 1)))
 #endif
-void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
 #ifdef BIAS
                       __read_only image2d_t bias,
 #endif
@@ -392,7 +398,9 @@ void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d
                       __private const int2 stride_shape,
                       __private const int2 padding_shape,
                       __private const int2 dilation_shape,
-                      __private const int out_width_blocks) {
+                      __private const int out_width_blocks,
+                      __private const int out_channel_blocks,
+                      __private const int out_height_blocks) {
 
     const int output_channel_width_idx = get_global_id(0);
     const int output_batch_height_idx  = get_global_id(1);
@@ -415,12 +423,21 @@ void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d
     int in_width2          = in_width0 + stride_shape.y * 2;
     int in_width3          = in_width0 + stride_shape.y * 3;
     
+#ifdef MNN_CONV_S1D1
+    const int height_start = mad24((output_batch_height_idx % output_shape.x), 1, -padding_shape.x);
+    int in_height_start    = select(0, (-height_start), height_start < 0) + height_start;
+    int in_height_end      = min(weights_shape.x + height_start, input_shape.x);
+
+    const int batch_idx          = mul24((output_batch_height_idx / output_shape.x), input_shape.x);
+    const int weights_h_idx = mul24(out_channel_block_idx, mul24(weights_shape.y, weights_shape.x)) + mul24(select(0, (-height_start), height_start < 0), weights_shape.y);
+#else
     const int height_start = mad24((output_batch_height_idx % output_shape.x), stride_shape.x, -padding_shape.x);
     int in_height_start    = mad24(select(0, (-height_start + dilation_shape.x - 1) / dilation_shape.x, height_start < 0), dilation_shape.x, height_start);
     int in_height_end      = min(mad24(weights_shape.x, dilation_shape.x, height_start), input_shape.x);
 
     const int batch_idx          = mul24((output_batch_height_idx / output_shape.x), input_shape.x);
     const int weights_h_idx = mul24(out_channel_block_idx, mul24(weights_shape.y, weights_shape.x)) + mul24(select(0, (-height_start + dilation_shape.x - 1) / dilation_shape.x, height_start < 0), weights_shape.y);
+#endif
 
     FLOAT4 in0, in1, in2, in3;
     FLOAT4 weights0, weights1, weights2, weights3;
@@ -430,6 +447,40 @@ void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d
         int weights_y_idx = weights_h_idx;
         for (int iy = in_height_start; iy < in_height_end; iy += dilation_shape.x) {
             int in_hb_value = iy + batch_idx;
+#ifdef MNN_CONV_S1D1
+            {
+                READ_INPUT_IMAGE(0, 0);
+                READ_INPUT_IMAGE(1, 0);
+                READ_INPUT_IMAGE(2, 0);
+                READ_INPUT_IMAGE(3, 0);
+
+                weights0 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weights_y_idx));
+                weights1 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 1, weights_y_idx));
+                weights2 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 2, weights_y_idx));
+                weights3 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 3, weights_y_idx++));
+
+                CALCULATE_OUTPUT(0);
+                CALCULATE_OUTPUT(1);
+                CALCULATE_OUTPUT(2);
+                CALCULATE_OUTPUT(3);
+            }
+            for (int w = 1; w < weights_shape.y; w++){
+                in0 = in1;
+                in1 = in2;
+                in2 = in3;
+                READ_INPUT_IMAGE(3, w);
+
+                weights0 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weights_y_idx));
+                weights1 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 1, weights_y_idx));
+                weights2 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 2, weights_y_idx));
+                weights3 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 3, weights_y_idx++));
+
+                CALCULATE_OUTPUT(0);
+                CALCULATE_OUTPUT(1);
+                CALCULATE_OUTPUT(2);
+                CALCULATE_OUTPUT(3);
+            }
+#else
             for (int w = 0; w < weights_shape.y; w++) {
                 int input_width_base = mul24(w, dilation_shape.y);
                 READ_INPUT_IMAGE(0, input_width_base);
@@ -447,6 +498,7 @@ void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d
                 CALCULATE_OUTPUT(2);
                 CALCULATE_OUTPUT(3);
             }
+#endif
         }
     }
 
@@ -483,5 +535,286 @@ void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d
         WI_F(output, (int2)(output_idx + 1, output_batch_height_idx), out1);
     } else if (remain == 1) {
         WI_F(output, (int2)(output_idx, output_batch_height_idx), out0);
+    }
+}
+
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+#ifdef BIAS
+                      __read_only image2d_t bias,
+#endif
+                      __write_only image2d_t output,
+                      __private const int2 input_shape,
+                      __private const int in_channel_block_length,
+                      __private const int2 output_shape,
+                      __private const int2 weights_shape,
+                      __private const int2 stride_shape,
+                      __private const int2 padding_shape,
+                      __private const int2 dilation_shape,
+                      __private const int out_width_blocks,
+                      __private const int out_channel_blocks,
+                      __private const int out_height_blocks) {
+
+    const int output_channel_width_idx = get_global_id(0);
+    const int output_batch_height_idx  = get_global_id(1);
+    DEAL_NON_UNIFORM_DIM2(output_channel_width_idx, output_batch_height_idx);
+
+    const int out_channel_block_idx = (output_channel_width_idx / out_width_blocks) << 1;
+    const int out_width_block_idx   = output_channel_width_idx % out_width_blocks;
+    const int out_height_block_idx   = (output_batch_height_idx % out_height_blocks);
+    const int out_batch_block_idx   = output_batch_height_idx / out_height_blocks;
+
+#ifdef BIAS
+    FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
+    FLOAT4 out4 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx + 1, 0));
+#else
+    FLOAT4 out0 = (FLOAT4)0;
+    FLOAT4 out4 = (FLOAT4)0;
+#endif
+    FLOAT4 out1 = out0;
+    FLOAT4 out2 = out0;
+    FLOAT4 out3 = out0;
+    FLOAT4 out5 = out4;
+    FLOAT4 out6 = out4;
+    FLOAT4 out7 = out4;
+
+    int in_width0          = mad24(out_width_block_idx, stride_shape.y, -padding_shape.y);
+    int in_height0         = mad24(out_height_block_idx, stride_shape.x<<2, -padding_shape.x);
+    int in_height1         = in_height0 + stride_shape.x;
+    int in_height2         = in_height1 + stride_shape.x;
+    int in_height3         = in_height2 + stride_shape.x;
+    int weight_size        = mul24(weights_shape.y, weights_shape.x);
+    
+    const int weights_h_idx = mul24(out_channel_block_idx, weight_size);
+    const int batch_idx = mul24(out_batch_block_idx, input_shape.x);
+    
+    FLOAT4 in0, in1, in2, in3;
+    FLOAT4 weights0, weights1, weights2, weights3, weights4, weights5, weights6, weights7;
+    for (int in_channel_block_idx = 0; in_channel_block_idx < in_channel_block_length; ++in_channel_block_idx) {
+        const int in_idx = mul24(in_channel_block_idx, input_shape.y);
+        int weights_x_idx = in_channel_block_idx << 2;
+        int weights_y_idx = weights_h_idx;
+        for (int iy = 0; iy < weights_shape.x * dilation_shape.x; iy += dilation_shape.x) {
+            int h0 =  select(in_height0 + iy + batch_idx, -1, (in_height0 + iy < 0 || in_height0 + iy  >= input_shape.x));
+            int h1 =  select(in_height1 + iy + batch_idx, -1, (in_height1 + iy < 0 || in_height1 + iy  >= input_shape.x));
+            int h2 =  select(in_height2 + iy + batch_idx, -1, (in_height2 + iy < 0 || in_height2 + iy  >= input_shape.x));
+            int h3 =  select(in_height3 + iy + batch_idx, -1, (in_height3 + iy < 0 || in_height3 + iy  >= input_shape.x));
+            for (int ix = 0; ix < weights_shape.y * dilation_shape.y; ix += dilation_shape.y) {
+                int w0 =  select(in_width0 + ix + in_idx, -1, (in_width0 + ix < 0 || in_width0 + ix  >= input_shape.y));
+                
+                in0 = RI_F(input, SAMPLER, (int2)(w0, h0));
+                in1 = RI_F(input, SAMPLER, (int2)(w0, h1));
+                in2 = RI_F(input, SAMPLER, (int2)(w0, h2));
+                in3 = RI_F(input, SAMPLER, (int2)(w0, h3));
+
+                weights0 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weights_y_idx));
+                weights1 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 1, weights_y_idx));
+                weights2 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 2, weights_y_idx));
+                weights3 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 3, weights_y_idx));
+                weights4 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weight_size + weights_y_idx));
+                weights5 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 1, weight_size + weights_y_idx));
+                weights6 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 2, weight_size + weights_y_idx));
+                weights7 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 3, weight_size + weights_y_idx++));
+
+                CALCULATE_OUTPUT(0);
+                CALCULATE_OUTPUT(1);
+                CALCULATE_OUTPUT(2);
+                CALCULATE_OUTPUT(3);
+                CALCULATE_OUTPUT_WEIGHTS4(4, 0);
+                CALCULATE_OUTPUT_WEIGHTS4(5, 1);
+                CALCULATE_OUTPUT_WEIGHTS4(6, 2);
+                CALCULATE_OUTPUT_WEIGHTS4(7, 3);
+            }
+        }
+    }
+
+#ifdef RELU
+    out0 = fmax(out0, (FLOAT4)0);
+    out1 = fmax(out1, (FLOAT4)0);
+    out2 = fmax(out2, (FLOAT4)0);
+    out3 = fmax(out3, (FLOAT4)0);
+    out4 = fmax(out4, (FLOAT4)0);
+    out5 = fmax(out5, (FLOAT4)0);
+    out6 = fmax(out6, (FLOAT4)0);
+    out7 = fmax(out7, (FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
+    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
+    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+    out4 = clamp(out4, (FLOAT4)0, (FLOAT4)6);
+    out5 = clamp(out5, (FLOAT4)0, (FLOAT4)6);
+    out6 = clamp(out6, (FLOAT4)0, (FLOAT4)6);
+    out7 = clamp(out7, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+    const int out_x_base = mul24(out_channel_block_idx, output_shape.y);
+    const int out_y_base = mul24(out_batch_block_idx, output_shape.x);
+    int out_x_idx        = out_width_block_idx;
+    int out_y_idx        = out_height_block_idx << 2;
+
+    const int remain_y = output_shape.x - out_y_idx;
+    int output_idx   = out_x_base + out_x_idx;
+    int output_idy   = out_y_base + out_y_idx;
+    
+    if(remain_y >= 4){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out2);
+        WI_F(output, (int2)(output_idx, output_idy + 3), out3);
+    }else if(remain_y == 3){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out2);
+    }else if(remain_y == 2){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+    }else if(remain_y == 1){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+    }
+    
+    if(out_channel_block_idx + 1 >= out_channel_blocks) {
+        return;
+    }
+    output_idx   += output_shape.y;
+    if(remain_y >= 4){
+        WI_F(output, (int2)(output_idx, output_idy), out4);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out5);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out6);
+        WI_F(output, (int2)(output_idx, output_idy + 3), out7);
+    }else if(remain_y == 3){
+        WI_F(output, (int2)(output_idx, output_idy), out4);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out5);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out6);
+    }else if(remain_y == 2){
+        WI_F(output, (int2)(output_idx, output_idy), out4);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out5);
+    }else if(remain_y == 1){
+        WI_F(output, (int2)(output_idx, output_idy), out4);
+    }
+}
+
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+#ifdef BIAS
+                      __read_only image2d_t bias,
+#endif
+                      __write_only image2d_t output,
+                      __private const int2 input_shape,
+                      __private const int in_channel_block_length,
+                      __private const int2 output_shape,
+                      __private const int2 weights_shape,
+                      __private const int2 stride_shape,
+                      __private const int2 padding_shape,
+                      __private const int2 dilation_shape,
+                      __private const int out_width_blocks,
+                      __private const int out_channel_blocks,
+                      __private const int out_height_blocks) {
+
+    const int output_channel_width_idx = get_global_id(0);
+    const int output_batch_height_idx  = get_global_id(1);
+    DEAL_NON_UNIFORM_DIM2(output_channel_width_idx, output_batch_height_idx);
+
+    const int out_channel_block_idx = output_channel_width_idx / out_width_blocks;
+    const int out_width_block_idx   = output_channel_width_idx % out_width_blocks;
+    const int out_height_block_idx   = (output_batch_height_idx % out_height_blocks);
+    const int out_batch_block_idx   = output_batch_height_idx / out_height_blocks;
+
+#ifdef BIAS
+    FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
+#else
+    FLOAT4 out0 = (FLOAT4)0;
+#endif
+    FLOAT4 out1 = out0;
+    FLOAT4 out2 = out0;
+    FLOAT4 out3 = out0;
+
+    int in_width0          = mad24(out_width_block_idx, stride_shape.y, -padding_shape.y);
+    int in_height0         = mad24(out_height_block_idx, stride_shape.x<<2, -padding_shape.x);
+    int in_height1         = in_height0 + stride_shape.x;
+    int in_height2         = in_height1 + stride_shape.x;
+    int in_height3         = in_height2 + stride_shape.x;
+    int weight_size        = mul24(weights_shape.y, weights_shape.x);
+    
+    const int weights_h_idx = mul24(out_channel_block_idx, weight_size);
+    const int batch_idx = mul24(out_batch_block_idx, input_shape.x);
+    
+    FLOAT4 in0, in1, in2, in3;
+    FLOAT4 weights0, weights1, weights2, weights3;
+    for (int in_channel_block_idx = 0; in_channel_block_idx < in_channel_block_length; ++in_channel_block_idx) {
+        const int in_idx = mul24(in_channel_block_idx, input_shape.y);
+        int weights_x_idx = in_channel_block_idx << 2;
+        int weights_y_idx = weights_h_idx;
+        for (int iy = 0; iy < weights_shape.x * dilation_shape.x; iy += dilation_shape.x) {
+            int h0 =  select(in_height0 + iy + batch_idx, -1, (in_height0 + iy < 0 || in_height0 + iy  >= input_shape.x));
+            int h1 =  select(in_height1 + iy + batch_idx, -1, (in_height1 + iy < 0 || in_height1 + iy  >= input_shape.x));
+            int h2 =  select(in_height2 + iy + batch_idx, -1, (in_height2 + iy < 0 || in_height2 + iy  >= input_shape.x));
+            int h3 =  select(in_height3 + iy + batch_idx, -1, (in_height3 + iy < 0 || in_height3 + iy  >= input_shape.x));
+            for (int ix = 0; ix < weights_shape.y * dilation_shape.y; ix += dilation_shape.y) {
+                int w0 =  select(in_width0 + ix + in_idx, -1, (in_width0 + ix < 0 || in_width0 + ix  >= input_shape.y));
+                
+                in0 = RI_F(input, SAMPLER, (int2)(w0, h0));
+                in1 = RI_F(input, SAMPLER, (int2)(w0, h1));
+                in2 = RI_F(input, SAMPLER, (int2)(w0, h2));
+                in3 = RI_F(input, SAMPLER, (int2)(w0, h3));
+
+                weights0 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weights_y_idx));
+                weights1 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 1, weights_y_idx));
+                weights2 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 2, weights_y_idx));
+                weights3 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 3, weights_y_idx++));
+
+                CALCULATE_OUTPUT(0);
+                CALCULATE_OUTPUT(1);
+                CALCULATE_OUTPUT(2);
+                CALCULATE_OUTPUT(3);
+            }
+        }
+    }
+
+#ifdef RELU
+    out0 = fmax(out0, (FLOAT4)0);
+    out1 = fmax(out1, (FLOAT4)0);
+    out2 = fmax(out2, (FLOAT4)0);
+    out3 = fmax(out3, (FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
+    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
+    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+    const int out_x_base = mul24(out_channel_block_idx, output_shape.y);
+    const int out_y_base = mul24(out_batch_block_idx, output_shape.x);
+    int out_x_idx        = out_width_block_idx;
+    int out_y_idx        = out_height_block_idx << 2;
+
+    const int remain_y = output_shape.x - out_y_idx;
+    int output_idx   = out_x_base + out_x_idx;
+    int output_idy   = out_y_base + out_y_idx;
+
+    if(remain_y >= 4){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out2);
+        WI_F(output, (int2)(output_idx, output_idy + 3), out3);
+    }else if(remain_y == 3){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+        WI_F(output, (int2)(output_idx, output_idy + 2), out2);
+    }else if(remain_y == 2){
+        WI_F(output, (int2)(output_idx, output_idy), out0);
+        WI_F(output, (int2)(output_idx, output_idy + 1), out1);
+    }else{
+        WI_F(output, (int2)(output_idx, output_idy), out0);
     }
 }

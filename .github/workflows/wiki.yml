@@ -1,0 +1,34 @@
+name: wiki
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'docs/**'
+      - '.github/workflows/wiki.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/wiki.yml'
+
+concurrency:
+  group: wiki-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  sync_wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: sync_wiki
+        uses: kai-tub/external-repo-sync-action@v1
+        with:
+           source-directory: "./docs"
+        env:
+           GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}

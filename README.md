@@ -73,13 +73,14 @@ The Architecture / Precision MNN supported is shown below:
 |  | x86/x64-AVX2 | S | B | B | A |
 |  | x86/x64-AVX512 | S | B | B | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
-|  | ARMv8 | S | S (ARMv8.2) | S | S |
+|  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
 | GPU | OpenCL | A | S | C | C |
 |  | Vulkan | A | A | C | C |
 |  | Metal | A | S | C | C |
 |  | CUDA | A | S | C | C |
-| NPU | CoreML | B | C | C | C |
+| NPU | CoreML | B | B | C | C |
 |  | HIAI | B | C | C | B |
+|  | NNAPI | B | B | C | C |
 
 
 
@@ -103,7 +104,9 @@ Group #1 (Full): 23329087
 
 Group #2 (Full): 23350225
 
-Group #3: https://h5.dingtalk.com/circle/healthCheckin.html?dtaction=os&corpId=ding8989a1d6ae6ef130b177420cc0e366ea&f0c81=1b93a&cbdbhh=qwertyuiop
+Group #3: QR code:
+
+![MNN-3](doc/dingdingmnn3.png)
 
 ## Historical Paper
 

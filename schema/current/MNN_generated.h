@@ -92,7 +92,7 @@ enum OpType {
   OpType_AsString = 3,
   OpType_InstanceNorm = 4,
   OpType_BatchToSpaceND = 5,
-  OpType_Bias = 6,
+  OpType_Copy = 6,
   OpType_BinaryOp = 7,
   OpType_Bnll = 8,
   OpType_Cast = 9,
@@ -208,6 +208,7 @@ enum OpType {
   OpType_OneHot = 119,
   OpType_BroadcastTo = 120,
   OpType_Dilation2D = 121,
+  OpType_Interp3D = 122,
   OpType_Raster = 128,
   OpType_ConvertTensor = 129,
   OpType_ArgMin = 130,
@@ -241,13 +242,14 @@ enum OpType {
   OpType_Broastcast = 259,
   OpType_SetDiff1D = 260,
   OpType_ReluGrad = 261,
-  OpType_Relu6Grad = 262,
+  OpType_Identity = 262,
   OpType_PoolGrad = 263,
   OpType_SoftmaxGrad = 264,
   OpType_Conv2DBackPropFilter = 265,
   OpType_TrainableParam = 266,
   OpType_BatchNorm = 267,
-  OpType_ZeroGrad = 268,
+  OpType_ConvTranspose3D = 268,
+  OpType_ZeroGrad = 269,
   OpType_Extra = 512,
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
@@ -263,7 +265,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[173] {
+inline const OpType (&EnumValuesOpType())[175] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -271,7 +273,7 @@ inline const OpType (&EnumValuesOpType())[173] {
     OpType_AsString,
     OpType_InstanceNorm,
     OpType_BatchToSpaceND,
-    OpType_Bias,
+    OpType_Copy,
     OpType_BinaryOp,
     OpType_Bnll,
     OpType_Cast,
@@ -387,6 +389,7 @@ inline const OpType (&EnumValuesOpType())[173] {
     OpType_OneHot,
     OpType_BroadcastTo,
     OpType_Dilation2D,
+    OpType_Interp3D,
     OpType_Raster,
     OpType_ConvertTensor,
     OpType_ArgMin,
@@ -420,12 +423,13 @@ inline const OpType (&EnumValuesOpType())[173] {
     OpType_Broastcast,
     OpType_SetDiff1D,
     OpType_ReluGrad,
-    OpType_Relu6Grad,
+    OpType_Identity,
     OpType_PoolGrad,
     OpType_SoftmaxGrad,
     OpType_Conv2DBackPropFilter,
     OpType_TrainableParam,
     OpType_BatchNorm,
+    OpType_ConvTranspose3D,
     OpType_ZeroGrad,
     OpType_Extra,
     OpType_ConvInt8,
@@ -450,7 +454,7 @@ inline const char * const *EnumNamesOpType() {
     "AsString",
     "InstanceNorm",
     "BatchToSpaceND",
-    "Bias",
+    "Copy",
     "BinaryOp",
     "Bnll",
     "Cast",
@@ -566,7 +570,7 @@ inline const char * const *EnumNamesOpType() {
     "OneHot",
     "BroadcastTo",
     "Dilation2D",
-    "",
+    "Interp3D",
     "",
     "",
     "",
@@ -706,14 +710,14 @@ inline const char * const *EnumNamesOpType() {
     "Broastcast",
     "SetDiff1D",
     "ReluGrad",
-    "Relu6Grad",
+    "Identity",
     "PoolGrad",
     "SoftmaxGrad",
     "Conv2DBackPropFilter",
     "TrainableParam",
     "BatchNorm",
+    "ConvTranspose3D",
     "ZeroGrad",
-    "",
     "",
     "",
     "",
@@ -3134,11 +3138,11 @@ struct LoopParamT : public flatbuffers::NativeTable {
   int32_t tensorNumber;
   std::vector<int32_t> outputIndexes;
   std::vector<int32_t> inputIndexes;
-  std::vector<std::unique_ptr<TensorDescribeT>> midTensors;
+  std::vector<std::unique_ptr<TensorDescribeT>> extraTensorInfos;
   bool parallel;
   int32_t loopNumber;
   std::vector<std::unique_ptr<RegionCommandT>> commands;
-  std::unique_ptr<RegionCommandT> initCommand;
+  std::vector<std::unique_ptr<RegionCommandT>> initCommand;
   LoopParamT()
       : tensorNumber(0),
         parallel(true),
@@ -3155,7 +3159,7 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_TENSORNUMBER = 4,
     VT_OUTPUTINDEXES = 6,
     VT_INPUTINDEXES = 8,
-    VT_MIDTENSORS = 10,
+    VT_EXTRATENSORINFOS = 10,
     VT_PARALLEL = 12,
     VT_LOOPNUMBER = 14,
     VT_COMMANDS = 16,
@@ -3170,7 +3174,7 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<int32_t> *inputIndexes() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(8);
   }
-  const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *midTensors() const {
+  const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *extraTensorInfos() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *>(10);
   }
   bool parallel() const {
@@ -3182,8 +3186,8 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *commands() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *>(16);
   }
-  const RegionCommand *initCommand() const {
-    return GetPointer<const RegionCommand *>(18);
+  const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *initCommand() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<RegionCommand>> *>(18);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
@@ -3193,15 +3197,16 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(inputIndexes()) &&
            VerifyOffset(verifier, 10) &&
-           verifier.VerifyVector(midTensors()) &&
-           verifier.VerifyVectorOfTables(midTensors()) &&
+           verifier.VerifyVector(extraTensorInfos()) &&
+           verifier.VerifyVectorOfTables(extraTensorInfos()) &&
            VerifyField<uint8_t>(verifier, 12) &&
            VerifyField<int32_t>(verifier, 14) &&
            VerifyOffset(verifier, 16) &&
            verifier.VerifyVector(commands()) &&
            verifier.VerifyVectorOfTables(commands()) &&
            VerifyOffset(verifier, 18) &&
-           verifier.VerifyTable(initCommand()) &&
+           verifier.VerifyVector(initCommand()) &&
+           verifier.VerifyVectorOfTables(initCommand()) &&
            verifier.EndTable();
   }
   LoopParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3221,8 +3226,8 @@ struct LoopParamBuilder {
   void add_inputIndexes(flatbuffers::Offset<flatbuffers::Vector<int32_t>> inputIndexes) {
     fbb_.AddOffset(8, inputIndexes);
   }
-  void add_midTensors(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> midTensors) {
-    fbb_.AddOffset(10, midTensors);
+  void add_extraTensorInfos(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorInfos) {
+    fbb_.AddOffset(10, extraTensorInfos);
   }
   void add_parallel(bool parallel) {
     fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(parallel), 1);
@@ -3233,7 +3238,7 @@ struct LoopParamBuilder {
   void add_commands(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> commands) {
     fbb_.AddOffset(16, commands);
   }
-  void add_initCommand(flatbuffers::Offset<RegionCommand> initCommand) {
+  void add_initCommand(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> initCommand) {
     fbb_.AddOffset(18, initCommand);
   }
   explicit LoopParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
@@ -3253,16 +3258,16 @@ inline flatbuffers::Offset<LoopParam> CreateLoopParam(
     int32_t tensorNumber = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> outputIndexes = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> inputIndexes = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> midTensors = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorInfos = 0,
     bool parallel = true,
     int32_t loopNumber = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> commands = 0,
-    flatbuffers::Offset<RegionCommand> initCommand = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<RegionCommand>>> initCommand = 0) {
   LoopParamBuilder builder_(_fbb);
   builder_.add_initCommand(initCommand);
   builder_.add_commands(commands);
   builder_.add_loopNumber(loopNumber);
-  builder_.add_midTensors(midTensors);
+  builder_.add_extraTensorInfos(extraTensorInfos);
   builder_.add_inputIndexes(inputIndexes);
   builder_.add_outputIndexes(outputIndexes);
   builder_.add_tensorNumber(tensorNumber);
@@ -4909,11 +4914,11 @@ inline void LoopParam::UnPackTo(LoopParamT *_o, const flatbuffers::resolver_func
   { auto _e = tensorNumber(); _o->tensorNumber = _e; };
   { auto _e = outputIndexes(); if (_e) { _o->outputIndexes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputIndexes[_i] = _e->Get(_i); } } };
   { auto _e = inputIndexes(); if (_e) { _o->inputIndexes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->inputIndexes[_i] = _e->Get(_i); } } };
-  { auto _e = midTensors(); if (_e) { _o->midTensors.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->midTensors[_i] = std::unique_ptr<TensorDescribeT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = extraTensorInfos(); if (_e) { _o->extraTensorInfos.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->extraTensorInfos[_i] = std::unique_ptr<TensorDescribeT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = parallel(); _o->parallel = _e; };
   { auto _e = loopNumber(); _o->loopNumber = _e; };
   { auto _e = commands(); if (_e) { _o->commands.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->commands[_i] = std::unique_ptr<RegionCommandT>(_e->Get(_i)->UnPack(_resolver)); } } };
-  { auto _e = initCommand(); if (_e) _o->initCommand = std::unique_ptr<RegionCommandT>(_e->UnPack(_resolver)); };
+  { auto _e = initCommand(); if (_e) { _o->initCommand.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->initCommand[_i] = std::unique_ptr<RegionCommandT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<LoopParam> LoopParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LoopParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4927,17 +4932,17 @@ inline flatbuffers::Offset<LoopParam> CreateLoopParam(flatbuffers::FlatBufferBui
   auto _tensorNumber = _o->tensorNumber;
   auto _outputIndexes = _o->outputIndexes.size() ? _fbb.CreateVector(_o->outputIndexes) : 0;
   auto _inputIndexes = _o->inputIndexes.size() ? _fbb.CreateVector(_o->inputIndexes) : 0;
-  auto _midTensors = _o->midTensors.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorDescribe>> (_o->midTensors.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorDescribe(*__va->__fbb, __va->__o->midTensors[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _extraTensorInfos = _o->extraTensorInfos.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorDescribe>> (_o->extraTensorInfos.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorDescribe(*__va->__fbb, __va->__o->extraTensorInfos[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _parallel = _o->parallel;
   auto _loopNumber = _o->loopNumber;
   auto _commands = _o->commands.size() ? _fbb.CreateVector<flatbuffers::Offset<RegionCommand>> (_o->commands.size(), [](size_t i, _VectorArgs *__va) { return CreateRegionCommand(*__va->__fbb, __va->__o->commands[i].get(), __va->__rehasher); }, &_va ) : 0;
-  auto _initCommand = _o->initCommand ? CreateRegionCommand(_fbb, _o->initCommand.get(), _rehasher) : 0;
+  auto _initCommand = _o->initCommand.size() ? _fbb.CreateVector<flatbuffers::Offset<RegionCommand>> (_o->initCommand.size(), [](size_t i, _VectorArgs *__va) { return CreateRegionCommand(*__va->__fbb, __va->__o->initCommand[i].get(), __va->__rehasher); }, &_va ) : 0;
   return MNN::CreateLoopParam(
       _fbb,
       _tensorNumber,
       _outputIndexes,
       _inputIndexes,
-      _midTensors,
+      _extraTensorInfos,
       _parallel,
       _loopNumber,
       _commands,
@@ -7424,12 +7429,14 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7437,7 +7444,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "AsString",
     "InstanceNorm",
     "BatchToSpaceND",
-    "Bias",
+    "Copy",
     "BinaryOp",
     "Bnll",
     "Cast",
@@ -7553,6 +7560,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "OneHot",
     "BroadcastTo",
     "Dilation2D",
+    "Interp3D",
     "Raster",
     "ConvertTensor",
     "ArgMin",
@@ -7586,12 +7594,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "Broastcast",
     "SetDiff1D",
     "ReluGrad",
-    "Relu6Grad",
+    "Identity",
     "PoolGrad",
     "SoftmaxGrad",
     "Conv2DBackPropFilter",
     "TrainableParam",
     "BatchNorm",
+    "ConvTranspose3D",
     "ZeroGrad",
     "Extra",
     "ConvInt8",
@@ -7606,7 +7615,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 173, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 175, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -8089,7 +8098,7 @@ inline const flatbuffers::TypeTable *LoopParamTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 1 },
-    { flatbuffers::ET_SEQUENCE, 0, 1 }
+    { flatbuffers::ET_SEQUENCE, 1, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorDescribeTypeTable,
@@ -8099,7 +8108,7 @@ inline const flatbuffers::TypeTable *LoopParamTypeTable() {
     "tensorNumber",
     "outputIndexes",
     "inputIndexes",
-    "midTensors",
+    "extraTensorInfos",
     "parallel",
     "loopNumber",
     "commands",

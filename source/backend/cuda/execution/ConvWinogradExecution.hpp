@@ -10,7 +10,9 @@
 #define ConvWinogradExecution_hpp_
 
 #include "ConvSingleInputExecution.hpp"
-#include "TensorCoreGemmPacked.cuh"
+#include "CutlassGemmBatchedParam.hpp"
+#include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
@@ -18,7 +20,7 @@ namespace CUDA {
 class ConvWinogradExecution : public Execution {
 public:
     struct Resource;
-    static bool isValid(const Convolution2D* conv, const Tensor* input);
+    static bool isValid(const Convolution2D* conv);
     ConvWinogradExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
     virtual ~ConvWinogradExecution();
 
@@ -41,14 +43,29 @@ public:
 private:
     std::shared_ptr<Resource> mResource;
     const Op* mOp = nullptr;
-    __half* mBtdB_Buffer;
+    void* mBtdB_Buffer;
     void* mMatmul_Buffer;
-    MatMulParam mMatMulParam;
-    std::pair<void*, int> mGpuMatMulParam;
+
+    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F16LnSm75;
+    GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F32LnSm75;
+
+    GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F16Ln;
+    GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF16F32Ln;
+    GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column mGemmBatchedCudaF32F32Ln;
+
+    std::shared_ptr<Tensor> workspaceTensor;
+    void* mWorkspace;
+
+    CutlassGemmInfo mGemmInfo;
 
     int mPadX;
     int mPadY;
     int mBlock2;
+    int mGpuComputeCap;
+    int mActivationType;
+    bool mFp16Infer = false;
+    bool mFp32Infer = false;
+    bool mFp16Fp32MixInfer = false;
 };
 
 } // namespace CUDA

@@ -45,10 +45,17 @@ struct BinaryRealDiv {
     }
 };
 
+/**
+ Ref from onnxruntime/onnxruntime/core/providers/cpu/math/element_wise_ops.cc :: Modulus
+ */
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryModInt {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return x - (x / y) * y;
+        auto res = x % y;
+        if ((res < 0 && y > 0) || (res > 0 && y < 0)) {
+            res += y;
+        }
+        return (_ErrorCode)res;
     }
 };
 

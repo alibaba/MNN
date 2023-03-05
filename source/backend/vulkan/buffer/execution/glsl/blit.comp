@@ -1,0 +1,48 @@
+#version 440 core
+#ifdef C4
+#define FLOAT vec4
+#else
+#define FLOAT float
+#endif
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer sourceBuffer{
+    FLOAT data[];
+} uOutput;
+
+
+layout(set=0, binding=1) readonly buffer destBuffer{
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 stride;
+    ivec4 size;
+    ivec4 extent;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w)
+    {
+        ivec3 pos;
+        pos.x = posTmp.x / (uConstant.size.y * uConstant.size.z);
+        int subIndex = posTmp.x % (uConstant.size.y * uConstant.size.z);
+        pos.z = subIndex % uConstant.size.z;
+        pos.y = subIndex / uConstant.size.z;
+        int srcOffset = uConstant.stride.w
+            + uConstant.stride.z * pos.z
+            + uConstant.stride.y * pos.y
+            + uConstant.stride.x * pos.x
+            ;
+        
+        int dstOffset = uConstant.extent.w
+            + pos.x * uConstant.extent.x
+            + pos.y * uConstant.extent.y
+            + pos.z * uConstant.extent.z
+            ;
+        uOutput.data[dstOffset] = uInput.data[srcOffset];
+    }
+}

@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class GatherNDTest : public MNNTestCase {
 public:
     virtual ~GatherNDTest() = default;
-    virtual bool run(int precision) {
+    bool _run(int precision, bool lazy) {
         {
             const float inpudata[]                  = {-1.0, -2.0, 3.0, 4.0};
             const int indices_data[]                = {0, 0, 1, 1};
@@ -43,11 +43,29 @@ public:
         }
         return true;
     }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = false;
+        auto res = _run(precision, false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
+        res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        res = _run(precision, true);
+        return res;
+    }
 };
 class GatherTest : public MNNTestCase {
 public:
     virtual ~GatherTest() = default;
-    virtual bool run(int precision) {
+    bool _run(int precision, bool lazy) {
         auto params = _Input({4, 3, 2}, NCHW);
         params->setName("input_tensor");
         // set input data
@@ -67,6 +85,24 @@ public:
             return false;
         }
         return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = false;
+        auto res = _run(precision, false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
+        res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        res = _run(precision, true);
+        return res;
     }
 };
 MNNTestSuiteRegister(GatherNDTest, "op/gather_nd");

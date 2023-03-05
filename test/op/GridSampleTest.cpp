@@ -17,24 +17,24 @@
 
 using namespace MNN::Express;
 
-static float getPosition(float x, int range, bool alignCorners, GridSamplePaddingMode paddingMode, ConvertFP32 functor) {
+static float getPosition(float x, int range, bool alignCorners, GridSamplePaddingMode paddingMode) {
     if (paddingMode == GRID_SAMPLE_PADDING_REFLECTION) {
         // if x is on the left side of -1.0, move it to the right side of 1.0
         if (x < -1.0f) {
-            x = functor(x + ::ceil(1 - x) * 4);
+            x = (x + ::ceil(1 - x) * 4);
         }
         // reflect
         if (x > 1.0f) {
-            float l = functor(x - 1.0f);
+            float l = (x - 1.0f);
             int reflectionNum = ::floor(l / 2.0);
-            float offset = functor(l - reflectionNum * 2.0f);
-            x = (reflectionNum % 2 == 0) ? functor(1 - offset) : functor(-1.0f + offset);
+            float offset = (l - reflectionNum * 2.0f);
+            x = (reflectionNum % 2 == 0) ? (1 - offset) : (-1.0f + offset);
         }
     }
 
     float a = alignCorners ? 1.0f : 0.0f;
     float b = alignCorners ? 0.0f : 1.0f;
-    return functor(functor(functor(1 + x) * functor(range - a) - b) / 2.0f);
+    return (((1 + x) * (range - a) - b) / 2.0f);
 }
 
 static int CLAMP(int v, int min, int max) {
@@ -62,7 +62,7 @@ static float sample(int h, int w, const float *buffer, int height, int width, Gr
 }
 
 static float interpolate(float h, float w, const float *buffer, int height, int width, InterpolationMethod mode,
-                         GridSamplePaddingMode paddingMode, ConvertFP32 functor) {
+                         GridSamplePaddingMode paddingMode) {
     if (mode == NEAREST) {
         int nh = ::floor(h+0.5f);
         int nw = ::floor(w+0.5f);
@@ -72,24 +72,27 @@ static float interpolate(float h, float w, const float *buffer, int height, int 
     // mode == GridSampleMode_BILINEAR
     int w0_h = ::floor(h);
     int w0_w = ::floor(w);
-    int w1_h = w0_h + 1;
-    int w1_w = w0_w + 1;
+    int w1_h = ::ceil(h);
+    int w1_w = ::ceil(w);
+    float fx2 = w - w0_w;
+    float fx1 = 1.0f - fx2;
+    float fy2 = h - w0_h;
+    float fy1 = 1.0f - fy2;
 
     float i00 = sample(w0_h, w0_w, buffer, height, width, paddingMode);
     float i01 = sample(w0_h, w1_w, buffer, height, width, paddingMode);
     float i10 = sample(w1_h, w0_w, buffer, height, width, paddingMode);
     float i11 = sample(w1_h, w1_w, buffer, height, width, paddingMode);
 
-    float i0 = functor(functor(i00) * (w1_w - w) + functor(i01) * (w - w0_w));
-    float i1 = functor(functor(i10) * (w1_w - w) + functor(i11) * (w - w0_w));
+    float i0 = ((i00) * fx1 + (i01) * fx2);
+    float i1 = ((i10) * fx1 + (i11) * fx2);
 
-    return functor(functor(i0 * (w1_h - h)) + functor(i1 * (h - w0_h)));
+    return ((i0 * fy1) + (i1 * fy2));
 }
 
 static void reference_grid_sample(const float *inputPtr, const float *gridPtr, std::vector<float> &output,
                                   int batch, int inHeight, int inWidth, int outHeight, int outWidth, int depth,
-                                  InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners,
-                                  ConvertFP32 functor) {
+                                  InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners) {
     output.resize(batch * outHeight * outWidth * depth);
 
     float *outputPtr = output.data();
@@ -107,44 +110,14 @@ static void reference_grid_sample(const float *inputPtr, const float *gridPtr, s
                 auto ___outputPtr = __outputPtr + h * outWidth;
 
                 for (auto w = 0; w < outWidth; ++w) {
-                    auto x = getPosition(__gridPtr[2 * w + 0], inWidth, alignCorners, paddingMode, functor);
-                    auto y = getPosition(__gridPtr[2 * w + 1], inHeight, alignCorners, paddingMode, functor);
+                    auto x = getPosition(__gridPtr[2 * w + 0], inWidth, alignCorners, paddingMode);
+                    auto y = getPosition(__gridPtr[2 * w + 1], inHeight, alignCorners, paddingMode);
 
-                    ___outputPtr[w] = interpolate(y, x, __inputPtr, inHeight, inWidth, mode, paddingMode, functor);
+                    ___outputPtr[w] = interpolate(y, x, __inputPtr, inHeight, inWidth, mode, paddingMode);
                 }
             }
         }
     }
-
-}
-
-/**
- @brief check the result with the ground truth
- @param result data
- @param rightData
- @param size
- @param threshold
- */
-template <typename T>
-bool checkVector(const T* result, const T* rightData, int size, T threshold, T ratio){
-    MNN_ASSERT(result != nullptr);
-    MNN_ASSERT(rightData != nullptr);
-    MNN_ASSERT(size >= 0);
-    int count = 0;
-    for(int i = 0; i < size; ++i){
-        if(fabs(result[i] - rightData[i]) > threshold){
-            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
-            count ++;
-        }
-    }
-
-    float miss_match_ratio = 1.0f*count/size;
-    if (miss_match_ratio > ratio) {
-        std::cout << "ratio threshold: " << ratio << ", miss match ratio: " << miss_match_ratio << std::endl;
-        return false;
-    }
-
-    return true;
 }
 
 
@@ -168,11 +141,11 @@ public:
             const int outHeight = config[4];
             const int outWidth = config[5];
 
-            auto input = _Input({batch, depth, inHeight, inWidth}, NCHW);
-            auto grid = _Input({batch, outHeight, outWidth, 2}, NCHW);
+            std::vector<float> originInputData(batch * depth * inHeight * inWidth);
+            std::vector<float> originGridData(batch * outHeight * outWidth * 2);
 
-            auto inputPtr = input->writeMap<float>();
-            auto gridPtr = grid->writeMap<float>();
+            auto inputPtr = originInputData.data();
+            auto gridPtr = originGridData.data();
 
             std::random_device rd{};
             std::mt19937 gen{rd()};
@@ -180,66 +153,53 @@ public:
             std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
 
             for (int i = 0; i < batch * inHeight * inWidth * depth; i++) {
-                inputPtr[i] = FP32Converter[precision](inputDist(gen));
+                inputPtr[i] = inputDist(gen);
             }
             for (int b = 0; b < batch; b++) {
                 for (int h = 0; h < outHeight; h++) {
                     for (int w = 0; w < outWidth; w++) {
-                        float offsetH = FP32Converter[precision](gridDist(gen));
-                        float offsetW = FP32Converter[precision](gridDist(gen));
-                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 0] =
-                        FP32Converter[precision](2.0f * w / (outWidth-1) - 1.0f + offsetW);
-                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 1] =
-                        FP32Converter[precision](2.0f * h / (outHeight-1) - 1.0f + offsetH);
+                        float offsetH = gridDist(gen);
+                        float offsetW = gridDist(gen);
+                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 0] = (2.0f * w / (outWidth-1) - 1.0f + offsetW);
+                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 1] = (2.0f * h / (outHeight-1) - 1.0f + offsetH);
                     }
                 }
             }
+            auto input = _Input({batch, depth, inHeight, inWidth}, NCHW);
+            auto grid = _Input({batch, outHeight, outWidth, 2}, NCHW);
+            ::memcpy(input->writeMap<float>(), inputPtr, originInputData.size() * sizeof(float));
+            ::memcpy(grid->writeMap<float>(), gridPtr, originGridData.size() * sizeof(float));
+            input = _Convert(input, NC4HW4);
 
             std::vector<InterpolationMethod> modes({BILINEAR});
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS});
-            std::vector<bool> alignCornersVec({false});
-
-#define MNN_METAL_FULL_PRECISION 0
-#if MNN_METAL_FULL_PRECISION
-            bool usingMetalLowPrecision = false;
-#else
-            auto runtime = MNN::Express::Executor::getGlobalExecutor()->getRuntime();
-            bool usingMetalLowPrecision = runtime.first.find(MNN_FORWARD_METAL) != runtime.first.end();
-#endif
-
+            std::vector<int> alignCornersVec = {1, 0};
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
             for (auto mode : modes) {
                 for (auto paddingMode : paddingModes) {
                     for (auto alignCorners : alignCornersVec) {
                         reference_grid_sample(inputPtr, gridPtr, expectedOutput,
                                               batch, inHeight, inWidth, outHeight, outWidth, depth,
-                                              mode, paddingMode, alignCorners, FP32Converter[precision]);
+                                              mode, paddingMode, alignCorners);
                         auto expectedOutPtr = expectedOutput.data();
 
                         grid->unMap();
                         input->unMap();
-                        input = _Convert(input, NC4HW4);
 
                         auto output = _GridSample(input, grid, mode, paddingMode, alignCorners);
                         output      = _Convert(output, NCHW);
                         auto outputPtr = output->readMap<float>();
+//                        MNN_PRINT("GridSamplerTest, mode: %d, pad: %d, align: %d\n", mode, paddingMode, alignCorners);
 
-                        if (usingMetalLowPrecision) {
-                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.2, 0.01)) {
-                                MNN_ERROR("GridSampleTest test failed!\n");
+                        if (mode == NEAREST) {
+                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01)) {
+                                MNN_ERROR("GridSampleTest NEAREST test %d-%d-%d-%d-%d failed pad mode: %d, align: %d!\n", config[0], config[1], config[2], config[3], config[4], paddingMode, alignCorners);
                                 return false;
                             }
                         } else {
-                            if (mode == NEAREST) {
-                                if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01, 0.001)) {
-                                    MNN_ERROR("GridSampleTest NEAREST test failed!\n");
-                                    return false;
-                                }
-                            } else {
-                                if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01, 0.01)) {
-                                    MNN_ERROR("GridSampleTest BILINEAR test failed!\n");
-                                    return false;
-                                }
+                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01)) {
+                                MNN_ERROR("GridSampleTest BILINEAR test %d-%d-%d-%d-%d failed: pad mode: %d, align: %d!\n", config[0], config[1], config[2], config[3], config[4], paddingMode, alignCorners);
+                                return false;
                             }
                         }
                     }

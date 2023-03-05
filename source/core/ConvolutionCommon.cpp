@@ -478,8 +478,7 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 }
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon,
-                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias,
-                                              float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
+                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias) {
     int outputCount = conv2d->common()->outputCount();
     weightSize = 0;
     // fix xcode UndefinedBehaviorSanitizer
@@ -497,53 +496,15 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         return false;
     }
     if (conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
+        // Compability for old model
         MNN_ASSERT(conv2d->symmetricQuan()->bias()->size() == outputCount && conv2d->symmetricQuan()->scale()->size() == outputCount);
         ::memcpy(bias, conv2d->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
         ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
         return true;
     }
     if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
-        if (conv2d->symmetricQuan()->winogradAttr() != nullptr) {
-            ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
-            ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), outputCount * sizeof(float));
-            return true;
-        }
-        const int kernelNum = conv2d->common()->outputCount();
-        const int kernelSize = weightSize / kernelNum;
-
-        // // reference for how to get quantized bias
-        // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
-        // MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
-        // auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
-        // auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale * mInputScale)) - remains + outputZeroPointFused;
-
-
-        // compute remains used in asymmetric quant
-        std::vector<int> remains;
-        for (int i = 0; i < kernelNum; i++) {
-            int temp = 0;
-            int offset = i * kernelSize;
-            for (int j = 0; j < kernelSize; j++) {
-                temp += inputZeroPoint * weight[offset + j];
-            }
-            remains.emplace_back(temp);
-        }
-
-        inputScale  = inputScale == 0.f ? conv2d->quanParameter()->scaleIn() : inputScale;
-        outputScale = outputScale == 0.f ? conv2d->quanParameter()->scaleOut() : outputScale;
-        auto biasData    = conv2d->bias()->data();
-        auto alphaData   = conv2d->quanParameter()->alpha()->data();
-        auto alphaScale  = inputScale / outputScale;
-        for (int i = 0; i < outputCount; i++) {
-            auto alphaValue = alphaData[i];
-            if (fabs(alphaValue) < 1e-6) {
-                alphaValue = 1e-6;
-            }
-            scale[i] = alphaValue * alphaScale;
-            // compute outputZeroPointFused in asymmetric quant
-            int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
-            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaValue)) - remains[i] + outputZeroPointFused;
-        }
+        ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
+        ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), outputCount * sizeof(float));
         return true;
     }
     MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No bias & scale data!");

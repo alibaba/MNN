@@ -15,6 +15,7 @@
 #include "Command.hpp"
 #include "NonCopyable.hpp"
 #include <future>
+#include <atomic>
 
 namespace MNN {
 
@@ -22,8 +23,10 @@ struct Op;
 class Execution;
 
 class Runtime;
+class Backend;
 /** abstract backend */
 class Backend : public NonCopyable {
+
 public:
     /** info used to create backend */
     struct Info {
@@ -119,6 +122,10 @@ public:
      */
     virtual void onExecuteEnd() const = 0;
 
+    virtual const Runtime* getRuntime() {
+        return nullptr;
+    }
+    const std::string externalFile();
 public:
     /**
      * @brief allocate buffer of tensor for given storage type.
@@ -205,6 +212,14 @@ public:
         Compiler_Loop = 2,
     };
 
+    void setExternalFile(std::string file) {
+        mExternalFile = file;
+    }
+
+    std::string getExternalFile() const {
+        return mExternalFile;
+    }
+
     virtual CompilerType onGetCompilerType() const {
         return Compiler_Loop;
     }
@@ -258,18 +273,20 @@ public:
                                              const MNN::Op* op, OpInfo& dstInfo) const {
         return true;
     }
-    
+
     // FIXME: Temply use to mask cache valid, in future will delete
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) {
         // Do nothing
     }
     // FIXME: Temply used, in future will refract
-    bool hasAsyncWork() const;
+    std::atomic_bool mCancelled = ATOMIC_VAR_INIT(false);
+    MNN_PUBLIC bool hasAsyncWork() const;
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
 private:
     std::future<int> mFuture;
+    std::string mExternalFile;
 };
 
 /** abstract Runtime register */

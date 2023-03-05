@@ -44,8 +44,12 @@ class ShapeBroadcastTo : public SizeComputer {
                 } else {
                     // broadcast inputDim to shapeDim, need shapDim % inputDim == 0
                     // inputDim == 0, need shapeDim <= 0 keep dim
-                    MNN_ASSERT(inputDim != 0);
-                    MNN_ASSERT(shapeDim % inputDim == 0);
+                    if (inputDim == 0) {
+                        return false;
+                    }
+                    if (shapeDim % inputDim != 0) {
+                        return false;
+                    }
                     output->setLength(dimension - i, shapeDim);
                 }
             }

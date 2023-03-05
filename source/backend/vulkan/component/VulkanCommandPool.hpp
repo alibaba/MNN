@@ -35,6 +35,7 @@ public:
             WRITE_WRITE,
         };
         void barrierSource(VkBuffer source, size_t start, size_t end, BarrierType type = READ_WRITE) const;
+        void barrierSource(std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize>, BarrierType type = READ_WRITE) const;
     private:
         VkCommandBuffer mBuffer;
         const VulkanCommandPool* mPool;

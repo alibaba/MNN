@@ -2,7 +2,7 @@ struct binary_op_shape {
     int i0stride;
     int i1stride;
     int output_data_count;
-    int output_width;
+    int activationType;
 };
 #define define_op(op) \
 kernel void binary_##op##_x1(const device ftype *in0       [[buffer(0)]],\
@@ -13,7 +13,11 @@ kernel void binary_##op##_x1(const device ftype *in0       [[buffer(0)]],\
     if ((int)gid >= s.output_data_count) return;\
     auto value0 = in0[s.i0stride * int(gid)];\
     auto value1 = in1[s.i1stride * int(gid)];\
-    out[int(gid)] = op(value0, value1);\
+    auto val = op(value0, value1);\
+    if(s.activationType == 1) {\
+        val = (val < (ftype)0 ? (ftype)0 : val);\
+    }\
+    out[int(gid)] = val;\
 }
 
 static inline ftype add(ftype value1, ftype value2) {

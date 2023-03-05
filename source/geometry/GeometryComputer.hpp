@@ -23,7 +23,7 @@ public:
     }
     class MNN_PUBLIC Context {
     public:
-        Context(std::shared_ptr<Backend> allocBackend, bool permitVirtual = true, MNNForwardType = MNN_FORWARD_CPU);
+        Context(std::shared_ptr<Backend> allocBackend, MNNForwardType = MNN_FORWARD_CPU);
         ~Context();
 
         void clear();

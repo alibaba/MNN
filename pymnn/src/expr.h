@@ -57,7 +57,8 @@ def_enum(PowerMode, PowerMode,
 def_enum(PrecisionMode, PrecisionMode,
         PrecisionMode::Precision_Normal, "Normal",
         PrecisionMode::Precision_High, "High",
-        PrecisionMode::Precision_Low, "Low"
+        PrecisionMode::Precision_Low, "Low",
+        PrecisionMode::Precision_Low_BF16, "Low_BF16"
         )
 // class Var
 typedef struct {
@@ -1243,10 +1244,10 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
     PyObject *value, *shapes, *format = nullptr /* NCHW */, *type = nullptr /* DType_FLOAT */;
     static char *kwlist[] = { "value_list", "shape", "data_format", "dtype", NULL };
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OO", kwlist, &value, &shapes, &format, &type)) {
-        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
+        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule/int_addr, [ints], |data_format, dtype)");
     }
-    if (!isVals(value) || !isInts(shapes) || (format != nullptr && !isdata_format(format)) || (type != nullptr && !isdtype(type))) {
-        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule, [ints], |data_format, dtype)");
+    if ((!isVals(value) && !isInt(value)) || !isInts(shapes) || (format != nullptr && !isdata_format(format)) || (type != nullptr && !isdtype(type))) {
+        PyMNN_ERROR("const require args: (ndarray/list/tuple/bytes/PyCapsule/int_addr, [ints], |data_format, dtype)");
     }
     auto data_format = (format == nullptr ? NCHW : toEnum<Dimensionformat>(format));
     auto dtype = (type == nullptr ? DType_FLOAT : toEnum<DType>(type));
@@ -1268,6 +1269,8 @@ static PyObject* PyMNNExpr_const(PyObject *self, PyObject *args, PyObject *kwarg
         bool need_free = false;
         if (PyCapsule_CheckExact(value)) {
             data = PyCapsule_GetPointer(value, NULL);
+        } else if (isInt(value)) {
+            data = PyLong_AsVoidPtr(value);
         } else if (PyBytes_Check(value)) {
             int64_t bytesize = PyBytes_Size(value);
             data = toPtr(value, DType_UINT8, bytesize);
@@ -1532,7 +1535,7 @@ static PyObject* PyMNNExpr_crop_and_resize(PyObject *self, PyObject *args) {
              *method = nullptr /* BILINEAR */;
     float extrapolation_value = 0.0f;
     if (PyArg_ParseTuple(args, "OOOO|Of", &image, &boxes, &box_ind,
-                         &crop_size, &method, extrapolation_value)
+                         &crop_size, &method, &extrapolation_value)
         && isVar(image) && isVar(boxes) && isVar(box_ind)
         && isVar(crop_size)
         && (method == nullptr || isInterp_Method(method))) {

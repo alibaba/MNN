@@ -11,22 +11,9 @@ MNN模型压缩工具箱提供了包括低秩分解、剪枝、量化等模型�
 
 | 原始模型格式 | 提供的工具 | 支持的压缩算法类别 |
 | --- | --- | --- |
-| MNN | 量化工具（python，c++）
-模型转换工具（python，c++） | 离线量化
-训练量化（不成熟）
-权值量化（转换时直接完成）
-FP16（转换时直接完成） |
-| TensorFlow 1.X | python压缩算法插件（mnncompress） | 低秩分解
-线性过参数化
-模型剪枝
-离线量化
-训练量化
-训练权值量化 |
-| Pytorch | python压缩算法插件（mnncompress） | 低秩分解
-模型剪枝
-离线量化
-训练量化
-训练权值量化 |
+| MNN | 量化工具（python，c++）<br>模型转换工具（python，c++） | 离线量化<br>训练量化（不成熟）<br>权值量化（转换时直接完成）<br>FP16（转换时直接完成） |
+| TensorFlow 1.X | python压缩算法插件（mnncompress） | 低秩分解<br>线性过参数化<br>模型剪枝<br>离线量化<br>训练量化<br>训练权值量化 |
+| Pytorch | python压缩算法插件（mnncompress） | 低秩分解<br>模型剪枝<br>离线量化<br>训练量化<br>训练权值量化 |
 
 各类压缩算法的特点：
 
@@ -34,7 +21,7 @@ FP16（转换时直接完成） |
 | --- | --- | --- |
 | 低秩分解 | 将原始模型进行分解，降低模型计算量、存储量，分解之后的模型仍是一个规整的模型，不需要特殊的软件底层实现；需要进行finetune训练 | Tucker分解，SVD分解 |
 | 线性过参数化 | 用于模型从0开始训练的过程中，设计一个小模型，然后使用此算法对模型进行过参数化扩展为一个大模型，提高模型的表达能力，然后基于此大模型进行训练，训练完成之后可以将大模型中的层合并得到原始小模型一样的结构，而且精度和大模型一致 | 改进的 linear over parameterization |
-| 模型剪枝 | 将模型的权值矩阵进行稀疏，并进行finetune训练，利用稀疏编码（通道剪枝不需要）压缩模型大小，底层稀疏计算实现加速 | 1*1随机剪枝，1*4block剪枝，通道剪枝 |
+| 模型剪枝 | 将模型的权值矩阵进行稀疏，并进行finetune训练，利用稀疏编码（通道剪枝不需要）压缩模型大小，底层稀疏计算实现加速 | 1x1随机剪枝，1x4block剪枝，通道剪枝 |
 | 离线量化 | 将float卷积转换为int8卷积计算，仅需少量校准图片，降低存储量到原始模型的四分之一，降低内存，加速计算（某些模型可能会比float模型慢，因为float的优化方法和int8不同） | EMA，KL，ADMM |
 | 训练量化 | 将float卷积转换为int8卷积计算，需要进行训练，可提高量化模型精度，降低存储量到原始模型的四分之一，降低内存，加速计算（某些模型可能会比float模型慢，因为float的优化方法和int8不同） | LSQ，OAQ，WAQ |
 | 直接权值量化 | 仅将模型中的权值进行量化，计算时还原为float进行计算，因此仅减少模型存储量，计算速度和float相同，可以在模型转换时一键完成，8bit量化情况下，精度基本不变，模型大小减小到原来的1/4 | 对称量化，非对称量化 |
@@ -117,7 +104,7 @@ MNN框架压缩工具是基于离线量化工具和MNN转换工具来实现压�
 
 #### mnncompress技术路线
 mnncompress的技术路线如下图所示：
-![image.png](https://cdn.nlark.com/yuque/0/2022/png/405909/1655201133194-3996080e-ee69-4c7a-9671-1933848adcfd.png#crop=0&crop=0&crop=1&crop=1&height=162&id=ux2Kp&margin=%5Bobject%20Object%5D&name=image.png&originHeight=530&originWidth=2170&originalType=binary&ratio=1&rotation=0&showTitle=false&size=277820&status=done&style=none&title=&width=662)
+![image.png](https://cdn.nlark.com/yuque/0/2022/png/405909/1655201133194-3996080e-ee69-4c7a-9671-1933848adcfd.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_62%2Ctext_QWxpYmFiYQ%3D%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10%2Fresize%2Cw_1324%2Climit_0)
 通过mnncompress中的模型压缩插件对原始模型进行压缩，然后得到一个原始的float模型，以及该压缩算法所需要的额外的压缩参数（例如对于量化算法来说，需要各个卷积层的scale和zeropoint等信息）。最后将这个float模型和模型压缩参数文件输入到MNN转换器中，得到最终的MNN压缩模型。
 #### 关于模型压缩参数文件
 在mnncompress的文档中通常命名为“`compress_params.bin`”，是一个protobuf序列化之后的二进制文件。每执行一个压缩算法都需要保存一个对应的模型压缩参数文件，如果有算法上的叠加（例如剪枝+量化的叠加），那么需要将算法对应的API接口中的`append`参数设置为`True`（例如剪枝+量化的叠加，则需要在量化算法保存压缩参数文件时，将对应的接口`append`参数设置为`True`，将量化算法所需要的参数append到剪枝算法的模型压缩文件上去），这样MNN模型转换器才会知道你的模型经过了哪些优化，才能进行正确的转换。

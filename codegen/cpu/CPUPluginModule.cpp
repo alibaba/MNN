@@ -1,6 +1,6 @@
 //
-//  CPUPluginModule.cpp
-//  MNNCodegen
+//  SourceModule.cpp
+//  MNN
 //
 //  Created by MNN on 2020/12/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
@@ -11,14 +11,7 @@
 #include <unordered_map>
 #include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
-#include "cpu/CPUAst.hpp"
-
-#ifdef MNN_CODEGEN_LLVM
-#include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
-using namespace llvm;
-#endif
+#include "AST.hpp"
 
 using namespace AST;
 using namespace MNN;
@@ -44,11 +37,11 @@ std::vector<std::vector<Node*>> spliteNodes(std::vector<Node*>& nodes) {
     return res;
 }
 
-class CPUPluginModule::CPUPluginFunction {
+class SourceModule::CPUPluginFunction {
 public:
     CPUPluginFunction(std::vector<Node*>& nodes, int idx) : nodes(nodes) {
         sort(nodes.begin(), nodes.end(), [](Node* x, Node* y) { return x->topoIndex < y->topoIndex; });
-        std::unique_ptr<ListExprAST> list(new ListExprAST);
+        std::unique_ptr<ListExpr> list(new ListExpr);
         auto subNodes = spliteNodes(nodes);
         for (auto subNode : subNodes) {
             if (subNode.size() > 1 || subNode.back()->cmd->op->type() != OpType_Raster) {
@@ -62,34 +55,27 @@ public:
         auto proto = std::make_unique<PrototypeAST>("kernel_" + std::to_string(idx), inputs.size(), outputs.size());
         function = std::make_unique<FunctionAST>(std::move(proto), std::move(list));
     }
-#ifdef MNN_CODEGEN_LLVM
-    void codegen(LLVMTarget* target) {
-        function->codegen(target);
-    }
-#endif
-#ifdef MNN_CODEGEN_C
     std::string codegen(SourceTarget* target) {
         return function->codegen(target);
     }
-#endif
     std::vector<Tensor*> getInputs() { return inputs; }
     std::vector<Tensor*> getOutputs() { return outputs; }
 private:
-    std::unique_ptr<ExprAST> addElemwiseLoop(std::vector<Node*>& nodes) {
+    std::unique_ptr<Expr> addElemwiseLoop(std::vector<Node*>& nodes) {
         std::map<const Tensor*, int> varShape;
-        std::unordered_map<Tensor*, std::unique_ptr<ExprAST>> outMap;
+        std::unordered_map<Tensor*, std::unique_ptr<Expr>> outMap;
         for (auto& node : nodes) {
             auto cmd = node->cmd;
-            std::vector<std::unique_ptr<ExprAST>> in(cmd->inputs.size());
+            std::vector<std::unique_ptr<Expr>> in(cmd->inputs.size());
             for (int i = 0; i < cmd->inputs.size(); i++) {
                 if (outMap.find(cmd->inputs[i]) == outMap.end()) {
                     auto inputExpr = getExprByTensor(cmd->inputs[i], true);
                     int size = cmd->inputs[i]->elementSize();
                     varShape[cmd->inputs[i]] = size;
                     if (size > 1) {
-                        in[i] = std::make_unique<SubscriptExprAST>(std::move(inputExpr), "i");
+                        in[i] = std::make_unique<SubscriptExpr>(std::move(inputExpr), "i");
                     } else {
-                        in[i] = std::make_unique<SubscriptExprAST>(std::move(inputExpr), 0);
+                        in[i] = std::make_unique<SubscriptExpr>(std::move(inputExpr), 0);
                     }
                 } else {
                     in[i] = std::move(outMap[cmd->inputs[i]]);
@@ -100,7 +86,7 @@ private:
                 case MNN::OpType_BinaryOp:
                 {
                     auto type = static_cast<MNN::BinaryOpOperation>(cmd->op->main_as_BinaryOp()->opType());
-                    outMap[cmd->outputs[0]] = std::make_unique<BinaryExprAST>(type, std::move(in[0]), std::move(in[1]));
+                    outMap[cmd->outputs[0]] = std::make_unique<BinaryExpr>(type, std::move(in[0]), std::move(in[1]));
                     break;
                 }
                 case MNN::OpType_Eltwise:
@@ -112,9 +98,9 @@ private:
                         {EltwiseType_SUB, BinaryOpOperation_SUB}
                     };
                     auto type = elemToBinary[cmd->op->main_as_Eltwise()->type()];
-                    auto tmp = std::make_unique<BinaryExprAST>(type, std::move(in[0]), std::move(in[1]));
+                    auto tmp = std::make_unique<BinaryExpr>(type, std::move(in[0]), std::move(in[1]));
                     for (int i = 2; i < cmd->inputs.size(); i++) {
-                        tmp = std::make_unique<BinaryExprAST>(type, std::move(tmp), std::move(in[i]));
+                        tmp = std::make_unique<BinaryExpr>(type, std::move(tmp), std::move(in[i]));
                     }
                     outMap[cmd->outputs[0]] = std::move(tmp);
                     break;
@@ -123,7 +109,7 @@ private:
                 {
                     auto unary = cmd->op->main_as_UnaryOp();
                     auto type = unary->opType();
-                    outMap[cmd->outputs[0]] = std::make_unique<UnaryExprAST>(type, std::move(in[0]));
+                    outMap[cmd->outputs[0]] = std::make_unique<UnaryExpr>(type, std::move(in[0]));
                     break;
                 }
                 case MNN::OpType_ReLU6:
@@ -131,26 +117,26 @@ private:
                     auto relu6 = cmd->op->main_as_Relu6();
                     float minv = relu6->minValue();
                     float maxv = relu6->maxValue();
-                    outMap[cmd->outputs[0]] = std::make_unique<ReluExprAST>(minv, maxv, std::move(in[0]));
+                    outMap[cmd->outputs[0]] = std::make_unique<ReluExpr>(minv, maxv, std::move(in[0]));
                     break;
                 }
                 case MNN::OpType_ReLU:
                 {
                     auto relu = cmd->op->main_as_Relu();
                     float slope = relu->slope();
-                    outMap[cmd->outputs[0]] = std::make_unique<ReluExprAST>(slope, 0, std::move(in[0]));
+                    outMap[cmd->outputs[0]] = std::make_unique<ReluExpr>(slope, 0, std::move(in[0]));
                     break;
                 }
                 default:
                     break;
             }
         }
-        std::unique_ptr<ExprAST> content;
+        std::unique_ptr<Expr> content;
         for (auto& iter : outMap) {
             auto outputExpr = getExprByTensor(iter.first, false);
-            auto output = std::make_unique<SubscriptExprAST>(std::move(outputExpr), "i");
+            auto output = std::make_unique<SubscriptExpr>(std::move(outputExpr), "i");
             varShape[iter.first] = iter.first->elementSize();
-            content = std::make_unique<AssignExprAST>(std::move(output), std::move(iter.second));
+            content = std::make_unique<AssignExpr>(std::move(output), std::move(iter.second));
         }
         int size = -1;
         for (auto& iter : varShape) {
@@ -163,65 +149,64 @@ private:
                 }
             }
         }
-        auto start = std::make_unique<NumberExprAST>(0);
-        auto end = std::make_unique<NumberExprAST>(size);
-        auto step = std::make_unique<NumberExprAST>(1);
-        auto loop = std::make_unique<ForExprAST>("i", std::move(start), std::move(end), std::move(step), std::move(content));
+        auto start = std::make_unique<NumberExpr>(0);
+        auto end = std::make_unique<NumberExpr>(size);
+        auto step = std::make_unique<NumberExpr>(1);
+        auto loop = std::make_unique<ForExpr>("i", std::move(start), std::move(end), std::move(step), std::move(content));
         return loop;
     }
 
-    std::unique_ptr<ExprAST> addRaster(std::vector<Node*>& nodes) {
+    std::unique_ptr<Expr> addRaster(std::vector<Node*>& nodes) {
         auto node = nodes.back();
         auto input = node->cmd->inputs[0];
         auto output = node->cmd->outputs[0];
         auto des = TensorUtils::getDescribe(input);
         std::string foots[3] = { "i", "j", "k" };
         auto getOffset = [&foots](int strides[], int offset) {
-            std::unique_ptr<ExprAST> steps[3];
+            std::unique_ptr<Expr> steps[3];
             for (int i = 0; i < 3; i++) {
-                auto stride = std::make_unique<NumberExprAST>(strides[i]);
-                auto foot = std::make_unique<VariableExprAST>(foots[i]);
-                steps[i] = std::make_unique<BinaryExprAST>(MNN::BinaryOpOperation_MUL, std::move(foot), std::move(stride));
+                auto stride = std::make_unique<NumberExpr>(strides[i]);
+                auto foot = std::make_unique<VariableExpr>(foots[i]);
+                steps[i] = std::make_unique<BinaryExpr>(MNN::BinaryOpOperation_MUL, std::move(foot), std::move(stride));
             }
-            auto res = std::make_unique<BinaryExprAST>(MNN::BinaryOpOperation_ADD, std::move(steps[1]), std::move(steps[2]));
-            res = std::make_unique<BinaryExprAST>(MNN::BinaryOpOperation_ADD, std::move(steps[0]), std::move(res));
-            return std::make_unique<BinaryExprAST>(MNN::BinaryOpOperation_ADD, std::move(res), std::make_unique<NumberExprAST>(offset));
+            auto res = std::make_unique<BinaryExpr>(MNN::BinaryOpOperation_ADD, std::move(steps[1]), std::move(steps[2]));
+            res = std::make_unique<BinaryExpr>(MNN::BinaryOpOperation_ADD, std::move(steps[0]), std::move(res));
+            return std::make_unique<BinaryExpr>(MNN::BinaryOpOperation_ADD, std::move(res), std::make_unique<NumberExpr>(offset));
         };
-        std::unique_ptr<ListExprAST> list(new ListExprAST);
+        std::unique_ptr<ListExpr> list(new ListExpr);
         for (auto& reg : des->regions) {
             auto inputExpr = getExprByTensor(reg.origin, true);
             auto outputExpr = getExprByTensor(output, false);
-            auto srcPtr = std::make_unique<SubscriptExprAST>(std::move(inputExpr), getOffset(reg.src.stride, reg.src.offset));
-            auto dstPtr = std::make_unique<SubscriptExprAST>(std::move(outputExpr), getOffset(reg.dst.stride, reg.dst.offset));
-            std::unique_ptr<ExprAST> content = std::make_unique<AssignExprAST>(std::move(dstPtr), std::move(srcPtr));
+            auto srcPtr = std::make_unique<SubscriptExpr>(std::move(inputExpr), getOffset(reg.src.stride, reg.src.offset));
+            auto dstPtr = std::make_unique<SubscriptExpr>(std::move(outputExpr), getOffset(reg.dst.stride, reg.dst.offset));
+            std::unique_ptr<Expr> content = std::make_unique<AssignExpr>(std::move(dstPtr), std::move(srcPtr));
             for (int i = 2; i >= 0; i--) {
-                auto start = std::make_unique<NumberExprAST>(0);
-                auto end = std::make_unique<NumberExprAST>(reg.size[i]);
-                auto step = std::make_unique<NumberExprAST>(1);
-                content = std::make_unique<ForExprAST>(foots[i], std::move(start), std::move(end), std::move(step), std::move(content));
+                auto start = std::make_unique<NumberExpr>(0);
+                auto end = std::make_unique<NumberExpr>(reg.size[i]);
+                auto step = std::make_unique<NumberExpr>(1);
+                content = std::make_unique<ForExpr>(foots[i], std::move(start), std::move(end), std::move(step), std::move(content));
             }
             list->push_back(std::move(content));
         }
         return list;
     }
-
-    std::unique_ptr<ExprAST> getExprByTensor(Tensor* t, bool read) {
+    std::unique_ptr<Expr> getExprByTensor(Tensor* t, bool read) {
         if (inputMap.find(t) != inputMap.end()) {
-            return std::make_unique<SubscriptExprAST>("inputs", inputMap[t]);
+            return std::make_unique<SubscriptExpr>("inputs", inputMap[t]);
         }
         if (outputMap.find(t) != outputMap.end()) {
-            return std::make_unique<SubscriptExprAST>("outputs", outputMap[t]);
+            return std::make_unique<SubscriptExpr>("outputs", outputMap[t]);
         }
         if (read) {
             int idx = inputs.size();
             inputs.push_back(t);
             inputMap[t] = idx;
-            return std::make_unique<SubscriptExprAST>("inputs", idx);
+            return std::make_unique<SubscriptExpr>("inputs", idx);
         } else {
             int idx = outputs.size();
             outputs.push_back(t);
             outputMap[t] = idx;
-            return std::make_unique<SubscriptExprAST>("outputs", idx);
+            return std::make_unique<SubscriptExpr>("outputs", idx);
         }
     }
 private:

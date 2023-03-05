@@ -24,7 +24,7 @@ std::vector<int> PermuteTorch::inputTensorIdx() {
 void PermuteTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::PermuteT;
     auto type = getRealOpType(node);
-    if (type == "numpy_T") {
+    if (type == "numpy_T" || type == "t") {
         param->dims = {1, 0};
     } else {
         auto dims = getValue<std::vector<int64_t>>(node->input(1));
@@ -38,6 +38,7 @@ void PermuteTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope
 
 REGISTER_CONVERTER(PermuteTorch, permute);
 REGISTER_CONVERTER(PermuteTorch, numpy_T);
+REGISTER_CONVERTER(PermuteTorch, t);
 
 DECLARE_OP_CONVERTER(TransposeTorch);
 

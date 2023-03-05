@@ -15,12 +15,17 @@ struct RuntimeAttr {
     RuntimeInfo mRuntime;
     std::shared_ptr<Runtime> mInfo;
     std::shared_ptr<Cache> mCache;
-    RuntimeAttr* mInside;
     BackendConfig mConfig;
     bool mUserConfig;
     int mNumberThread;
     // Use for static module to compute flops
     float mFlops;
+    std::string mExternalFile;
+    bool checkNetBuffer = true;
+};
+struct ExecutorAttr {
+    std::shared_ptr<Backend> constantBackend;
+    std::pair<MNNForwardType, int> firstType;
 };
 };
 };

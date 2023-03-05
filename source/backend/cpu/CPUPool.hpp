@@ -289,10 +289,10 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
                 for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
                     const T *cursorInput = kernelInput;
                     for (int kw = 0; kw < kernelWidth; kw++, cursorInput += PACK) {
-                        sum = sum + VEC::load(cursorInput);
+                        sum = sum + VEC::load(cursorInput) * divs;
                     }
                 }
-                VEC::save(offsetOutput, sum * divs);
+                VEC::save(offsetOutput, sum);
             }
         }
     }

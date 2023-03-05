@@ -32,9 +32,9 @@ public:
 
     static OpGrad* get(int type);
     static void insert(int type, OpGrad* creator);
-    static std::vector<Express::VARP> gradLinear(Express::VARP loss, const std::vector<Express::VARP>& parameters, const std::vector<Express::VARP>& outputDiff, const std::string& blockExpr = "");
-    static std::map<Express::VARP, Express::VARP> gradCommon(Express::VARP loss, const std::set<Express::VARP>& parameters, std::map<Express::EXPRP, std::vector<Express::VARP>>& backwardMap, const std::string& blockExpr = "");
-    static std::map<Express::VARP, Express::VARP> grad(Express::VARP loss, const std::set<Express::VARP>& parameters, const std::string& blockExpr = "");
+    static std::vector<Express::VARP> gradLinear(Express::VARP loss, const std::vector<Express::VARP>& parameters, const std::vector<Express::VARP>& outputDiff, const std::vector<std::string> blockExpr = {});
+    static std::map<Express::VARP, Express::VARP> gradCommon(Express::VARP loss, const std::set<Express::VARP>& parameters, std::map<Express::EXPRP, std::vector<Express::VARP>>& backwardMap, const std::vector<std::string> blockExpr = {});
+    static std::map<Express::VARP, Express::VARP> grad(Express::VARP loss, const std::set<Express::VARP>& parameters, const std::vector<std::string> blockExpr = {});
 
 protected:
     Type mType = LINEAR;

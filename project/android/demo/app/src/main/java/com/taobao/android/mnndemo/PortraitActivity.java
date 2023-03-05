@@ -85,8 +85,8 @@ public class PortraitActivity extends AppCompatActivity {
         mConfig.numThread = 4;
         mConfig.forwardType = MNNForwardType.FORWARD_AUTO.type;
 
-        mConfig.outputTensors = new String[1];
-        mConfig.outputTensors[0] = "ResizeBilinear_2";
+        // mConfig.outputTensors = new String[1];
+        // mConfig.outputTensors[0] = "ResizeBilinear_3";
 
         mSession = mNetInstance.createSession(mConfig);
 

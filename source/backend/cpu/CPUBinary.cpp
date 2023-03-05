@@ -33,6 +33,11 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         mTotalSize = input0DataCount;
     }
     MNN_ASSERT(mTotalSize == outputs[0]->elementSize());
+    
+    if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
+        mActivationExe.reset(new CPURelu(backend(), 0.0));
+        mActivationExe->onResize(outputs, outputs);
+    }
     return NO_ERROR;
 }
 
@@ -59,7 +64,9 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto schedule = ((CPUBackend*)backend())->multiThreadDivide(mTotalSize);
     auto input0Ptr = input->host<uint8_t>();
     auto input1Ptr = input1->host<uint8_t>();
-    auto outputPtr = output->host<uint8_t>();
+    
+    auto outputPtr = outputs[0]->host<uint8_t>();
+
     int inpBytes = input->getType().bytes();
     int outBytes = output->getType().bytes();
     if (halide_type_float == input->getType().code) {
@@ -85,9 +92,20 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
             }
             auto out = outputPtr + start * outBytes;
             mProc(out, inp0, inp1, realSize, mNeedBroadcastIndex);
+            if(mActivationType == 1 && output->getType().code == halide_type_int) {
+                for(int i=0; i<realSize; i++) {
+                    auto val = ((int32_t *)out)[i];
+                    auto res = val > 0 ? val : 0;
+                    ((int32_t *)out)[i] = res;
+                }
+            }
         }
     }
     MNN_CONCURRENCY_END();
+    
+    if(mActivationType == 1 && output->getType().code == halide_type_float) {
+        mActivationExe->onExecute(outputs, outputs);;
+    }
     return NO_ERROR;
 }
 
@@ -128,7 +146,7 @@ MNNBinaryExecute CPUBinary::selectForFloat(int type) {
     return nullptr;
 }
 
-static MNNBinaryExecute selectForInt(int type) {
+MNNBinaryExecute CPUBinary::selectForInt(int type) {
     switch (type) {
         case BinaryOpOperation_MUL:
             return execute<int32_t, int32_t, BinaryMul<int32_t, int32_t, int32_t>>;
@@ -195,7 +213,11 @@ static MNNBinaryExecute selectForInt(int type) {
         case BinaryOpOperation_BITWISE_XOR:
             return execute<int32_t, int32_t, BinaryBitwiseXor<int32_t, int32_t, int32_t>>;
             break;
+        case BinaryOpOperation_POW:
+            return execute<int32_t, int32_t, BinaryPow<int32_t, int32_t, int32_t>>;
+            break;
         default:
+            MNN_ERROR("Don't support binary - int compute for type %d\n", type);
             MNN_ASSERT(false);
             break;
     }
@@ -211,17 +233,17 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {
-                auto func = selectForInt(type);
+                auto func = CPUBinary::selectForInt(type);
                 if (nullptr == func) {
                     return nullptr;
                 }
-                return new CPUBinary(backend, func);
+                return new CPUBinary(backend, func, op->main_as_BinaryOp()->activationType());
             } else if (dataType.code == halide_type_float) {
                 auto func = core->MNNSelectBinaryFunctionForFloat(type);
                 if (nullptr == func) {
                     return nullptr;
                 }
-                return new CPUBinary(backend, func);
+                return new CPUBinary(backend, func, op->main_as_BinaryOp()->activationType());
             }
         }
         MNN_ERROR("CpuBinary: unsupported data type (bits: %d, code: %d)\n",

@@ -25,6 +25,7 @@ private:
     std::shared_ptr<GLProgram> mProgram;
     int32_t mType;
     int mLocalSize[3];
+    int mActivationType = 0;
 };
 } // namespace OpenGL
 } // namespace MNN

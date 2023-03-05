@@ -1,0 +1,39 @@
+#version 440 core
+layout(std430) buffer;
+layout(set = 0, binding = 0) writeonly buffer outputBuffer{
+    vec4 data[];
+}uOutput;
+
+layout(set = 0, binding = 1) readonly buffer inputBuffer{
+    vec4 data[];
+}uInput;
+
+layout(set = 0, binding = 2) readonly buffer scaleBuffer{
+    vec4 data[];
+}uScale;
+
+layout(set = 0, binding = 3) readonly buffer biasBuffer{
+    vec4 data[];
+}uBias;
+
+layout(set = 0, binding = 4) uniform constBuffer{
+    ivec4 imgSize;
+}uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int posIndex = int(gl_GlobalInvocationID.x);
+
+    if(posIndex < uConst.imgSize.w)
+    {
+        int channelIndex = posIndex / uConst.imgSize.x;
+        vec4 scale = uScale.data[channelIndex];
+        vec4 bias = uBias.data[channelIndex];
+
+        vec4 color = uInput.data[posIndex];
+        vec4 res = color * scale + bias;
+        uOutput.data[posIndex] = res;
+    }
+}

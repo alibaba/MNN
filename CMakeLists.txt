@@ -186,6 +186,13 @@ option(MNN_AVX512 "Enable AVX512" OFF)
 option(MNN_CUDA "Enable CUDA" OFF)
 option(MNN_TENSORRT "Enable TensorRT" OFF)
 option(MNN_COREML "Enable CoreML" OFF)
+option(MNN_NNAPI "Enable NNAPI" OFF)
+
+option(MNN_CUDA_PROFILE "Enable CUDA profile" OFF)
+
+if (NOT MNN_CUDA OR NOT CMAKE_SYSTEM_NAME MATCHES "^Linux")
+  set(MNN_CUDA_PROFILE OFF)
+endif()
 
 if (MNN_USE_THREAD_POOL)
     message(STATUS "Use Threadpool, forbid openmp")
@@ -223,12 +230,14 @@ message(STATUS "\tARM82: ${MNN_ARM82}")
 message(STATUS "\toneDNN: ${MNN_ONEDNN}")
 message(STATUS "\tTensorRT: ${MNN_TENSORRT}")
 message(STATUS "\tCoreML: ${MNN_COREML}")
+message(STATUS "\tNNAPI: ${MNN_NNAPI}")
 message(STATUS "\tCUDA: ${MNN_CUDA}")
 message(STATUS "\tOpenMP: ${MNN_OPENMP}")
 message(STATUS "\tBF16: ${MNN_SUPPORT_BF16}")
 message(STATUS "\tThreadPool: ${MNN_USE_THREAD_POOL}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
+message(STATUS "\tCUDA PROFILE: ${MNN_CUDA_PROFILE}")
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Android" OR CMAKE_SYSTEM_NAME MATCHES "^Linux")
     add_definitions(-fPIC)
@@ -478,6 +487,13 @@ IF(MNN_COREML)
     list(APPEND MNN_EXTRA_DEPENDS ${FOUNDATION})
     list(APPEND MNN_EXTRA_DEPENDS ${METAL})
     list(APPEND MNN_EXTRA_DEPENDS ${VIDEO})
+ENDIF()
+
+# NNAPI
+IF(MNN_NNAPI)
+    add_definitions(-DMNN_NNAPI_ENABLED=1)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/nnapi/)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NNAPI>)
 ENDIF()
 
 # Vulkan

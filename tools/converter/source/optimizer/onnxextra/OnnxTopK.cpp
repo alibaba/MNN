@@ -28,24 +28,29 @@ public:
         // and finally transpose the result back.
         auto inputs = expr->inputs();
         VARP kVar = (inputs.size() == 2 ? inputs[1] : nullptr);
+        // Default Value See:
+        // https://github.com/onnx/onnx/blob/main/docs/Operators.md#TopK
+        
         int axis = -1;
         bool largest = true;
+        bool sorted = true;
         auto attrs = op->main_as_Extra()->attr();
-        MNN_THROW_CHECK(attrs != nullptr, "TopKV's attr is empty");
-        for (int i=0; i<attrs->size(); ++i) {
-            auto attr = attrs->GetAs<Attribute>(i);
-            if (attr->key()->str() == "axis") {
-                axis = attr->i();
-            } else if (attr->key()->str() == "k" && inputs.size() == 1) {
-                kVar = _Scalar<int32_t>(attr->i());
-            } else if (attr->key()->str() == "largest") {
-                largest = attr->i();
+        if (nullptr != attrs) {
+            for (int i=0; i<attrs->size(); ++i) {
+                auto attr = attrs->GetAs<Attribute>(i);
+                if (attr->key()->str() == "axis") {
+                    axis = attr->i();
+                } else if (attr->key()->str() == "k" && inputs.size() == 1) {
+                    kVar = _Scalar<int32_t>(attr->i());
+                } else if (attr->key()->str() == "largest") {
+                    largest = attr->i();
+                }
             }
         }
 
         std::unique_ptr<TopKV2T> onnxTopKParam(new TopKV2T);
         onnxTopKParam->T      = DataType_DT_FLOAT;
-        onnxTopKParam->sorted = false;
+        onnxTopKParam->sorted = sorted;
         onnxTopKParam->largest = largest;
 
         std::unique_ptr<OpT> onnxTopKOp(new OpT);

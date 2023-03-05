@@ -6,6 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #import "backend/metal/MetalBackend.hpp"
+#define MNN_METAL
+#import <MNN/MNNSharedContext.h>
+
 #if MNN_METAL_ENABLED
 #import <mutex>
 #import "backend/metal/MNNMetalContext.h"
@@ -53,6 +56,7 @@ MetalBackend::MetalBackend(std::shared_ptr<BufferAllocator> staticMem, const Met
     mStaticBufferPool = staticMem;
     mShapeH2D = getConstBuffer(4 * sizeof(int));
     mShapeD2H = getConstBuffer(4 * sizeof(int));
+    mOpFullSupport = true;
 }
 MetalBackend::~MetalBackend() {
     // Do nothing
@@ -323,16 +327,17 @@ static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_
 }
 
 void MetalBackend::onResizeBegin() {
-    mOpFullSupport = true;
     mFrameEncodeCache = false;
     mOpEncoderSet = false;
     mOpEncoders.clear();
     
     // Finish last inference task if needed
-    flushEncoder();
-    auto ctx = (__bridge MNNMetalContext *)context();
-    [ctx commit_net];
-    [ctx wait];
+    if(mComputeEncoder != nil) {
+        flushEncoder();
+        auto ctx = (__bridge MNNMetalContext *)context();
+        [ctx commit_net];
+        [ctx wait];
+    }
 }
 
 void MetalBackend::onResizeEnd() {
@@ -553,6 +558,8 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
     if (toCpu) {
         [ctx wait];
     }
+    mFrameEncodeCache = false;
+    mOpEncoderSet = false;
     return 0;
 }
 
@@ -872,7 +879,7 @@ void registerMetalRuntimeCreator() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
         registerMetalOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), true);
     } else {
         MNN_ERROR("Init Metal Error\n");
     }
@@ -883,4 +890,8 @@ namespace MNN {
 void registerMetalRuntimeCreator() {
 }
 };
+int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
+    return -1;
+}
+
 #endif

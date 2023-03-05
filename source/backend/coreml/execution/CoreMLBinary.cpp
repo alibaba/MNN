@@ -182,12 +182,43 @@ ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std:
             MNN_ERROR("NPU Binary not support %s\n", MNN::EnumNameBinaryOpOperation(binaryType));
             break;
     }
-    if (oneInput) {
-        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(input)}, {mCoreMLBackend->getTensorName(outputs[0])});
+
+    std::string binartInputName;
+    if(oneInput) {
+        binartInputName = mCoreMLBackend->getTensorName(input);
     } else {
-        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(inputs[0]), mCoreMLBackend->getTensorName(inputs[1])}, {mCoreMLBackend->getTensorName(outputs[0])});
+        binartInputName = mCoreMLBackend->getTensorName(inputs[0]);
+    }
+    std::string binaryOutputName = mCoreMLBackend->getTensorName(outputs[0]);
+    int activationType = 0;
+    if(mOp->type() == OpType_BinaryOp) {
+        activationType = mOp->main_as_BinaryOp()->activationType();
+    }
+    if (activationType == 1) {
+        binaryOutputName = binartInputName + "-" + binaryOutputName + "-Relu";
+    }
+
+    if (oneInput) {
+        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(input)}, {binaryOutputName});
+    } else {
+        setLayerInputsAndOutputs(mLayer_, {mCoreMLBackend->getTensorName(inputs[0]), mCoreMLBackend->getTensorName(inputs[1])}, {binaryOutputName});
     }
     mCoreMLBackend->addLayer(mLayer_);
+
+    if (activationType == 1) {
+        auto reluLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
+        core_ml__specification__neural_network_layer__init(reluLayer);
+        mCoreMLBackend->setLayerName(reluLayer, "BinaryRelu");
+        reluLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
+        reluLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
+        core_ml__specification__activation_params__init(reluLayer->activation);
+        reluLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_RE_LU;
+        reluLayer->activation->relu = mCoreMLBackend->create<CoreML__Specification__ActivationReLU>();
+        core_ml__specification__activation_re_lu__init(reluLayer->activation->relu);
+        setLayerInputsAndOutputs(reluLayer, {binaryOutputName}, {mCoreMLBackend->getTensorName(outputs[0])});
+        mCoreMLBackend->addLayer(reluLayer);
+    }
+
     return NO_ERROR;
 }
 

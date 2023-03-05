@@ -132,143 +132,148 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
 
     options.allow_unrecognised_options().add_options()(std::make_pair("h", "help"), "Convert Other Model Format To MNN Model\n")(
                                                                                                                                  std::make_pair("v", "version"), "show current version")
-        (std::make_pair("f", "framework"),
+    (std::make_pair("f", "framework"),
 #ifdef MNN_BUILD_TORCH
-        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH,JSON]",
+     "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH,JSON]",
 #else
-        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,JSON]",
+     "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,JSON]",
 #endif
-            cxxopts::value<std::string>())
-        (
-            "modelFile",
-            "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel",
-            cxxopts::value<std::string>()
-        )
-        (
-            "batch",
-            "if model input's batch is not set, set as the batch size you set",
-            cxxopts::value<int>()
-        )
-        (
-            "keepInputFormat",
-            "keep input dimension format or not, default: false",
-            cxxopts::value<bool>()
-        )
-        (
-            "optimizeLevel",
-            "graph optimize option, 0: don't run optimize(only support for MNN source), 1: use graph optimize only for every input case is right, 2: normally right but some case may be wrong, default 1",
-            cxxopts::value<int>()
-        )
-        (
-            "optimizePrefer",
-            "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest",
-            cxxopts::value<int>()
-            )
-        (
-            "prototxt",
-            "only used for caffe, ex: *.prototxt",
-            cxxopts::value<std::string>())
-        (
-            "MNNModel",
-            "MNN model, ex: *.mnn",
-            cxxopts::value<std::string>())
-        (
-            "fp16",
-            "save Conv's weight/bias in half_float data type")
-        (
-            "benchmarkModel",
-            "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test the cost of the model")
-        (
-            "bizCode",
-            "MNN Model Flag, ex: MNN",
-            cxxopts::value<std::string>())
-        (
-            "debug",
-            "Enable debugging mode."
-        )
-        (
-            "forTraining",
-            "whether or not to save training ops BN and Dropout, default: false",
-            cxxopts::value<bool>()
-        )
-        (
-            "weightQuantBits",
-            "save conv/matmul/LSTM float weights to int8 type, only optimize for model size, 2-8 bits, default: 0, which means no weight quant",
-            cxxopts::value<int>()
-        )
-        (
-            "weightQuantAsymmetric",
-            "the default weight-quant uses SYMMETRIC quant method, which is compatible with old MNN versions. "
-                                "you can try set --weightQuantAsymmetric to use asymmetric quant method to improve accuracy of the weight-quant model in some cases, "
-                                "but asymmetric quant model cannot run on old MNN versions. You will need to upgrade MNN to new version to solve this problem. default: false",
-            cxxopts::value<bool>()
-        )
-        (
-            "compressionParamsFile",
-            "The path of the compression parameters that stores activation, "
-            "weight scales and zero points for quantization or information "
-            "for sparsity.",
-            cxxopts::value<std::string>()
-            )
-        (
-            "OP",
-             "print framework supported op",
-             cxxopts::value<bool>()
-        )
-        (
-            "saveStaticModel",
-             "save static model with fix shape, default: false",
-             cxxopts::value<bool>()
-        )
-        (
-            "targetVersion",
-             "compability for old mnn engine, default: 1.2f",
-             cxxopts::value<float>()
-        )
-        (
-            "customOpLibs",
-             "custom op libs ex: libmy_add.so;libmy_sub.so",
-             cxxopts::value<std::string>()
-        )
-        (
-            "info",
-            "dump MNN's model info"
-        )
-        (
-            "authCode",
-             "code for model authentication.",
-             cxxopts::value<std::string>()
-        )
-        (
-            "inputConfigFile",
-             "set input config file for static model, ex: ~/config.txt",
-             cxxopts::value<std::string>()
-        )
-        (
-            "testdir",
-            "set test dir, mnn will convert model and then check the result",
-            cxxopts::value<std::string>()
-        )
-        (
-            "thredhold",
-            "if set test dir, thredhold mean the max rate permit for run MNN model and origin error",
-            cxxopts::value<float>()
-        )
-        (
-            "JsonFile",
-            "if input model is MNN and give jsonfile, while Dump MNN model to the JsonFile.",
-            cxxopts::value<std::string>()
-        )
-        (
-            "alignDenormalizedValue",
-             "if 1, converter would align denormalized float(|x| < 1.18e-38) as zero, because of in ubuntu/protobuf or android/flatbuf, system behaviors are different. default: 1, range: {0, 1}",
-             cxxopts::value<int>()
-        )
-        (
-            "detectSparseSpeedUp",
-            "if 1 converter would detect weights sparsity and check sparse speedup. default: 1, range : {0, 1}",
-            cxxopts::value<int>()
-        );
+     cxxopts::value<std::string>())
+    (
+     "modelFile",
+     "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel",
+     cxxopts::value<std::string>()
+     )
+    (
+     "batch",
+     "if model input's batch is not set, set as the batch size you set",
+     cxxopts::value<int>()
+     )
+    (
+     "keepInputFormat",
+     "keep input dimension format or not, default: false",
+     cxxopts::value<bool>()
+     )
+    (
+     "optimizeLevel",
+     "graph optimize option, 0: don't run optimize(only support for MNN source), 1: use graph optimize only for every input case is right, 2: normally right but some case may be wrong, default 1",
+     cxxopts::value<int>()
+     )
+    (
+     "optimizePrefer",
+     "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest",
+     cxxopts::value<int>()
+     )
+    (
+     "prototxt",
+     "only used for caffe, ex: *.prototxt",
+     cxxopts::value<std::string>())
+    (
+     "MNNModel",
+     "MNN model, ex: *.mnn",
+     cxxopts::value<std::string>())
+    (
+     "fp16",
+     "save Conv's weight/bias in half_float data type")
+    (
+     "benchmarkModel",
+     "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test the cost of the model")
+    (
+     "bizCode",
+     "MNN Model Flag, ex: MNN",
+     cxxopts::value<std::string>())
+    (
+     "debug",
+     "Enable debugging mode."
+     )
+    (
+     "forTraining",
+     "whether or not to save training ops BN and Dropout, default: false",
+     cxxopts::value<bool>()
+     )
+    (
+     "weightQuantBits",
+     "save conv/matmul/LSTM float weights to int8 type, only optimize for model size, 2-8 bits, default: 0, which means no weight quant",
+     cxxopts::value<int>()
+     )
+    (
+     "weightQuantAsymmetric",
+     "the default weight-quant uses SYMMETRIC quant method, which is compatible with old MNN versions. "
+     "you can try set --weightQuantAsymmetric to use asymmetric quant method to improve accuracy of the weight-quant model in some cases, "
+     "but asymmetric quant model cannot run on old MNN versions. You will need to upgrade MNN to new version to solve this problem. default: false",
+     cxxopts::value<bool>()
+     )
+    (
+     "compressionParamsFile",
+     "The path of the compression parameters that stores activation, "
+     "weight scales and zero points for quantization or information "
+     "for sparsity.",
+     cxxopts::value<std::string>()
+     )
+    (
+     "OP",
+     "print framework supported op",
+     cxxopts::value<bool>()
+     )
+    (
+     "saveStaticModel",
+     "save static model with fix shape, default: false",
+     cxxopts::value<bool>()
+     )
+    (
+     "targetVersion",
+     "compability for old mnn engine, default: 1.2f",
+     cxxopts::value<float>()
+     )
+    (
+     "customOpLibs",
+     "custom op libs ex: libmy_add.so;libmy_sub.so",
+     cxxopts::value<std::string>()
+     )
+    (
+     "info",
+     "dump MNN's model info"
+     )
+    (
+     "authCode",
+     "code for model authentication.",
+     cxxopts::value<std::string>()
+     )
+    (
+     "inputConfigFile",
+     "set input config file for static model, ex: ~/config.txt",
+     cxxopts::value<std::string>()
+     )
+    (
+     "testdir",
+     "set test dir, mnn will convert model and then check the result",
+     cxxopts::value<std::string>()
+     )
+    (
+     "thredhold",
+     "if set test dir, thredhold mean the max rate permit for run MNN model and origin error",
+     cxxopts::value<float>()
+     )
+    (
+     "JsonFile",
+     "if input model is MNN and give jsonfile, while Dump MNN model to the JsonFile.",
+     cxxopts::value<std::string>()
+     )
+    (
+     "alignDenormalizedValue",
+     "if 1, converter would align denormalized float(|x| < 1.18e-38) as zero, because of in ubuntu/protobuf or android/flatbuf, system behaviors are different. default: 1, range: {0, 1}",
+     cxxopts::value<int>()
+     )
+    (
+     "detectSparseSpeedUp",
+     "if 1 converter would detect weights sparsity and check sparse speedup. default: 1, range : {0, 1}",
+     cxxopts::value<int>()
+     )
+    (
+     "saveExternalData",
+     "save weight to extenal bin file.",
+     cxxopts::value<bool>()
+     );
 
 
     auto result = options.parse(argc, argv);
@@ -432,7 +437,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     // Int8 calibration table path.
     if (result.count("compressionParamsFile")) {
         modelPath.compressionParamsFile =
-            result["compressionParamsFile"].as<std::string>();
+        result["compressionParamsFile"].as<std::string>();
     }
     if (result.count("customOpLibs")) {
         modelPath.customOpLibs = result["customOpLibs"].as<std::string>();
@@ -452,6 +457,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("thredhold")) {
         modelPath.testThredhold = result["thredhold"].as<float>();
+    }
+    if (result.count("saveExternalData")) {
+        modelPath.saveExternalData = true;
     }
     return true;
 }
@@ -806,12 +814,18 @@ bool Cli::mnn2json(const char* modelFile, const char* jsonFile, int flag) {
                     param->quanParameter->buffer.clear();
                 }
             } else if (type == MNN::OpParameter::OpParameter_Blob) {
+                size_t totalSize = 1;
                 auto blobT = opParam->main.AsBlob();
-                blobT->float32s.clear();
-                blobT->int8s.clear();
-                blobT->uint8s.clear();
-                blobT->int32s.clear();
-                blobT->int64s.clear();
+                for (int v=0; v<blobT->dims.size(); ++v) {
+                    totalSize *= blobT->dims[v];
+                }
+                if (totalSize > 20) {
+                    blobT->float32s.clear();
+                    blobT->int8s.clear();
+                    blobT->uint8s.clear();
+                    blobT->int32s.clear();
+                    blobT->int64s.clear();
+                }
             } else if (type == MNN::OpParameter::OpParameter_Convolution2D) {
                 opParam->main.AsConvolution2D()->weight.clear();
                 opParam->main.AsConvolution2D()->bias.clear();
