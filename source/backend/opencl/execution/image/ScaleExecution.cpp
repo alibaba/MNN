@@ -150,7 +150,7 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
     
     std::string name = "scale";
     mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-    for (size_t i = 0; i < mLWS.size(); ++i) {
+    for (size_t i = 0; i < gws.size(); ++i) {
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }
     return NO_ERROR;
