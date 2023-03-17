@@ -35,9 +35,17 @@ public:
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
             auto op = cmd->op();
             if (OpType_MatMul == op->type() && mLoop->parallel() && mLoop->loopNumber() > 1) {
+                auto step = cmd->steps()->data();
                 if (inputs.size() <= 3) {
                     auto& unit = mExecutions[0];
-                    unit.exe.reset(new MatMulExecution(op->main_as_MatMul()->transposeA(),  op->main_as_MatMul()->transposeB(), backend()));
+                    int as = 1, bs = 1, cs = 1;
+                    if (step[1] == 0) {
+                        as = 0;
+                    }
+                    if (step[2] == 0) {
+                        bs = 0;
+                    }
+                    unit.exe.reset(new MatMulExecution(op->main_as_MatMul()->transposeA(),  op->main_as_MatMul()->transposeB(), backend(), as, bs, cs));
                     if (nullptr == unit.exe) {
                         return OUT_OF_MEMORY;
                     }

@@ -273,10 +273,17 @@ public:
         matMulOp.add_main(matMulParamOffset.Union());
         matMulOp.add_main_type(OpParameter_MatMul);
         auto opOffset = matMulOp.Finish();
-        if (i0Size == i1Size && i0Size == totalSize) {
+        bool fastway = (i0Size == i1Size) || (i0Size == 1) || (i1Size == 1);
+        if (fastway) {
             int inputNumber = 2;
             if (bias != nullptr) {
                 inputNumber = 3;
+            }
+            if (1 == i0Size) {
+                steps[1] = 0;
+            }
+            if (1 == i1Size) {
+                steps[2] = 0;
             }
             int number = inputNumber + 1;
             auto viewOffset = builder.CreateVector<flatbuffers::Offset<View>>(allViews);
