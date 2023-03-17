@@ -741,6 +741,14 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 
     // PreProcess for Alignment
     if(mNeedConvertMatAB) {
+        int aBatch = mBatch;
+        int bBatch = mBatch;
+        if (mAs == 0) {
+            aBatch = 1;
+        }
+        if (mBs == 0) {
+            bBatch = 1;
+        }
         DivModFast eD(mGemmInfo.elh[0]);
         DivModFast lD(mGemmInfo.elh[1]);
         DivModFast hD(mGemmInfo.elh[2]);
@@ -753,21 +761,21 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         if(mFp32Infer) {
             PackPadFill<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(), \
                     mTransposeA, mTransposeB, (float*)mTempMatA, (float*)mTempMatB,
-                    mBatch * mAs, mBatch * mBs, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    aBatch, bBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
                     mGemmInfo.elhPad[0], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2], \
                     eD, lD, hD, lpD, lp2D);
             checkKernelErrors;        
         } else if(mFp16Fp32MixInfer) {
             PackPadFill<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(), \
                     mTransposeA, mTransposeB, (half*)mTempMatA, (half*)mTempMatB,
-                    mBatch * mAs, mBatch * mBs, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    aBatch, bBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
                     mGemmInfo.elhPad[0], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2], \
                     eD, lD, hD, lpD, lp2D);
             checkKernelErrors;
         } else {
             PackPadFill<<<block_num, block_size>>>((const half*)inputs[0]->deviceId(), (const half*)inputs[1]->deviceId(), \
                     mTransposeA, mTransposeB, (half*)mTempMatA, (half*)mTempMatB,
-                    mBatch * mAs, mBatch * mBs, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    aBatch, bBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
                     mGemmInfo.elhPad[0], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2],  \
                     eD, lD, hD, lpD, lp2D);
             checkKernelErrors;  
