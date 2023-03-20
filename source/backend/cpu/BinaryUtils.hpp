@@ -127,7 +127,7 @@ struct BinaryPow {
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryAtan2 {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return atan(x / y);
+        return atan2(x, y);
     }
 };
 

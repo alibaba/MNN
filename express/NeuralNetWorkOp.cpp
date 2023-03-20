@@ -1973,5 +1973,102 @@ VARPS _Loop(VARPS x, const std::string& submoduleName) {
     return outputs;
 }
 
+
+VARP _ROIPooling(VARP input, VARP roi, int pooledHeight, int pooledWidth, float spatialScale, bool outputGrad, VARP backwardDiff) {
+    if (input == nullptr) {
+        MNN_ERROR("input nullptr\n");
+        return nullptr;
+    }
+    if (input->getInfo() == nullptr) {
+        MNN_ERROR("input info nullptr\n");
+        return nullptr;
+    }
+    if (input->getInfo()->order != NC4HW4) {
+        MNN_ERROR("input format must be nc4hw4\n");
+        return nullptr;
+    }
+    std::unique_ptr<RoiParametersT> roiPooling(new RoiParametersT);
+    roiPooling->pooledHeight = pooledHeight;
+    roiPooling->pooledWidth  = pooledWidth;
+    roiPooling->spatialScale = spatialScale;
+    roiPooling->outputGrad = outputGrad;
+
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_ROIPooling;
+    op->main.type  = OpParameter_RoiParameters;
+    op->main.value = roiPooling.release();
+
+    if (outputGrad == false) {
+        return (Variable::create(Expr::create(op.get(), {input, roi})));
+    }
+
+    if (backwardDiff == nullptr) {
+        MNN_ERROR("backwardDiff is null for roi_pool backward mode\n");
+        return nullptr;
+    }
+    if (backwardDiff->getInfo() == nullptr) {
+        MNN_ERROR("backwardDiff info nullptr\n");
+        return nullptr;
+    }
+    if (backwardDiff->getInfo()->order != NC4HW4) {
+        MNN_ERROR("backwardDiff format must be nc4hw4\n");
+        return nullptr;
+    }
+    return (Variable::create(Expr::create(op.get(), {input, roi, backwardDiff})));
+}
+
+VARP _ROIAlign(VARP input, VARP roi, int pooledHeight, int pooledWidth, float spatialScale, int samplingRatio, bool aligned, PoolingMode poolType, bool outputGrad, VARP backwardDiff) {
+    if (input == nullptr) {
+        MNN_ERROR("input nullptr\n");
+        return nullptr;
+    }
+    if (input->getInfo() == nullptr) {
+        MNN_ERROR("input info nullptr\n");
+        return nullptr;
+    }
+    if (input->getInfo()->order != NC4HW4) {
+        MNN_ERROR("input format must be nc4hw4\n");
+        return nullptr;
+    }
+    std::unique_ptr<RoiParametersT> roiAlign(new RoiParametersT);
+    roiAlign->pooledWidth   = pooledWidth;
+    roiAlign->pooledHeight  = pooledHeight;
+    roiAlign->spatialScale  = spatialScale;
+    roiAlign->samplingRatio = samplingRatio;
+    roiAlign->aligned       = aligned;
+    roiAlign->poolType      = (PoolType)poolType;
+    roiAlign->outputGrad = outputGrad;
+
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_ROIAlign;
+    op->main.type  = OpParameter_RoiParameters;
+    op->main.value = roiAlign.release();
+
+    if (outputGrad == false) {
+        return (Variable::create(Expr::create(op.get(), {input, roi})));
+    }
+
+    if (poolType == PoolingMode::MAXPOOL) {
+        MNN_ERROR("backward of RoiAlign with max pool type is not supported currently, see TODO in CPUROIAlign.cpp\n");
+        return nullptr;
+    }
+    if (backwardDiff == nullptr) {
+        MNN_ERROR("backwardDiff is null for roi_align backward mode\n");
+        return nullptr;
+    }
+    if (backwardDiff->getInfo() == nullptr) {
+        MNN_ERROR("backwardDiff info nullptr\n");
+        return nullptr;
+    }
+    if (backwardDiff->getInfo()->order != NC4HW4) {
+        MNN_ERROR("backwardDiff format must be nc4hw4\n");
+        return nullptr;
+    }
+    auto bI = _Split(roi, {1, 4}, 1);
+    auto info0 = bI[0]->getInfo();
+    auto ptr0 = bI[0]->readMap<float>();
+    return (Variable::create(Expr::create(op.get(), {input, bI[1], _Cast<int>(bI[0]), backwardDiff})));
+}
+
 } // namespace Express
 } // namespace MNN

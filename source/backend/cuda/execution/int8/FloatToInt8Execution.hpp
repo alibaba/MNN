@@ -32,6 +32,7 @@ private:
     int8_t mClampMax;
     int mClipBits;
     bool mSingle = false;
+    float mSingleScale;
     int mChannel;
     int mCount;
     int mArea;

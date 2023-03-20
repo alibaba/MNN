@@ -12,28 +12,27 @@
 namespace MNN {
 namespace CUDA {
 
-template<typename T0, typename T1>
-__global__ void Im2Col_packC(
+__global__ void Im2Col_packC_16(
     const int sw,
     const int sh,
     const int dw,
     const int dh,
     const int pw,
     const int ph,
-    const int icDiv4,
+    const int ic,
     const int iw,
     const int ih,
     const size_t maxCount,
     const int iBlock,
-    const int pack,
+    const int icDiv4,
     const int e,
     const int l,
-    const T0* A,
-    T1* AP,
+    const int32_t* A,
+    int32_t* AP,
     DivModFast d_lp,
     DivModFast d_ow,
     DivModFast d_oh,
-    DivModFast d_fxy,
+    DivModFast d_icp,
     DivModFast d_fx
 ) {
 
@@ -41,57 +40,66 @@ __global__ void Im2Col_packC(
         int eIndex, lpIndex;
         d_lp.divmod(indexO, eIndex, lpIndex);
 
-        if(eIndex >= e || lpIndex >= l) {
-            *(AP + indexO) = (T1)0;
+        if(eIndex >= e) {
+            *(((int4 *)AP) + indexO) = make_int4(0, 0, 0, 0);
             continue;
         }
         // Compute for source
-        int ox, oby, ob, oy, ic, kI, ksx, ksy;
+        int ox, oby, ob, oy, sz, kI, ksx, ksy;
         d_ow.divmod(eIndex, oby, ox);
         d_oh.divmod(oby, ob, oy);
-        d_fxy.divmod(lpIndex, ic, kI);
+        d_icp.divmod(lpIndex, kI, sz);
         d_fx.divmod(kI, ksy, ksx);
 
+        // No need to check ci boundry, for weight is already set zero.
         size_t sx = ox * sw + ksx * dw - pw;
         size_t sy = oy * sh + ksy * dh- ph;
 
-        const int ic_p = icDiv4 * pack;
         if (sx >= 0 && sx < iw) {
             if (sy >=0 && sy < ih) {
-                size_t offset = ((ob * ih + sy) * iw + sx) * ic_p + ic;
-                *(AP + indexO) = (T1)(*(A + offset));
+                size_t offset = ((ob * ih + sy) * iw + sx) * icDiv4 + sz;
+                *(((int4 *)AP) + indexO) = (*(((int4 *)A) + offset));
                 continue;
             }
         }
-        *(AP + indexO) = (T1)0;
+        *(((int4 *)AP) + indexO) =  make_int4(0, 0, 0, 0);
     }
 }
 
 template<typename T>
-__global__ void WeightPackFill(const int8_t* param,
+__global__ void WeightInt8PackFill(const int8_t* param,
     T* output,
     const size_t maxCount,
     const int l,
     const int h,
     const int hp,
+    const int ic,
     DivModFast d_lp,
+    DivModFast d_hp,
+    DivModFast d_icp,
     const bool ocMajor
 ) {
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        int lpIndex, hpIndex;
-        d_lp.divmod(index, hpIndex, lpIndex);
-
-        int out_idx = index;
-        if(ocMajor) {
-            out_idx = lpIndex * hp + hpIndex;
+        if(ocMajor) { // Depthwise Weight
+            int lIndex, hpIndex;
+            d_hp.divmod(index, lIndex, hpIndex);
+            if(hpIndex >= h) {
+                output[index] = (T)0;
+                continue;
+            }
+            output[index] = param[hpIndex * l + lIndex];
+        } else { // Convolution Weight
+            int lpIndex, fxyIndex, icpIndex, hpIndex;
+            d_lp.divmod(index, hpIndex, lpIndex);
+            d_icp.divmod(lpIndex, fxyIndex, icpIndex);
+    
+            if(icpIndex >= ic || hpIndex >= h) {
+                output[index] = (T)0;
+                continue;
+            }
+    
+            output[index] = param[hpIndex * l + icpIndex * (l / ic) + fxyIndex];
         }
-
-        if(lpIndex >= l || hpIndex >= h) {
-            output[out_idx] = (T)0;
-            continue;
-        }
-
-        output[out_idx] = param[hpIndex * l + lpIndex];
     }
 }
 
@@ -217,12 +225,17 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mClampMax = conv->symmetricQuan()->clampMax();
 
     auto oc = common->outputCount();
+    auto ic = common->inputCount();
 
     int l = weightSize / oc;
     int h = oc;
-    int lp = UP_DIV(l, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
+    int ic_p = UP_DIV(ic, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
+    int lp = (l / ic) * ic_p;
     int hp = UP_DIV(h, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
 
+    if(op->type() == OpType_DepthwiseConvInt8) {
+        lp = l;
+    }
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(int8_t));
@@ -234,14 +247,18 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         mWeightInt8Ptr = (void *)mWeightInt8Tensor.get()->buffer().device;
 
         DivModFast lpD(lp);
+        DivModFast hpD(hp);
+        DivModFast icpD(ic_p);
         int block_num = runtime->blocks_num(lp*hp);
         int block_size = runtime->threads_num();
 
+        // DepthwiseConv --> [KhKw, (Oc)p]
+        // Conv          --> [(Oc)p, KhKw(Ic)p]
         bool ocMajor = false;
         if(op->type() == OpType_DepthwiseConvInt8) {
             ocMajor = true;
         }
-        WeightPackFill<<<block_num, block_size>>>((int8_t*)cacheWeight, (int8_t*)mWeightInt8Ptr, lp*hp, l, h, hp, lpD, ocMajor);
+        WeightInt8PackFill<<<block_num, block_size>>>((int8_t*)cacheWeight, (int8_t*)mWeightInt8Ptr, lp*hp, l, h, hp, ic, lpD, hpD, icpD, ocMajor);
         checkKernelErrors;
 
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
@@ -324,7 +341,7 @@ ErrorCode ConvInt8CutlassExecution::onResize(const std::vector<Tensor*> &inputs,
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
     mGemmInfo.elhPad[0] = UP_DIV(e, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
-    mGemmInfo.elhPad[1] = UP_DIV(l, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
+    mGemmInfo.elhPad[1] = mIm2ColParamter.kernelX * mIm2ColParamter.kernelY * UP_DIV(ic, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
     mGemmInfo.elhPad[2] = UP_DIV(h, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
 
     mIsConv1x1S1D1P0 = (mIm2ColParamter.kernelX == 1 && mIm2ColParamter.kernelY == 1 && \
@@ -341,7 +358,7 @@ ErrorCode ConvInt8CutlassExecution::onResize(const std::vector<Tensor*> &inputs,
     }
 
     if(mGpuComputeCap < 80) {
-        if(mGemmInfo.elh[0] < 128 || mGemmInfo.elhPad[2] < 128 || mGemmInfo.elhPad[1] < 64) { // M-N-K
+        if(mGemmInfo.elh[0] < 128 || mGemmInfo.elhPad[2] < 64 || mGemmInfo.elhPad[1] < 64) { // M-N-K
             mGemmShapeSizeLevel = GEMM_SIZE_LITTLE;
         } else if(mGemmInfo.elh[0] >= 4096 && mGemmInfo.elhPad[2] >= 128 && mGemmInfo.elhPad[1] >= 64) {
             mGemmShapeSizeLevel = GEMM_SIZE_LARGE;
@@ -386,24 +403,27 @@ ErrorCode ConvInt8CutlassExecution::onExecute(const std::vector<Tensor*> &inputs
     const int icDiv4 = mIm2ColParamter.icDiv4;
     const int iw = mIm2ColParamter.iw;
     const int ih = mIm2ColParamter.ih;
+    const int ic = input->channel();
+    const int icp = UP_DIV(ic, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
 
     //printf("%d-%d-%d-%d-%d, %d-%d\n", cpuIm2Col->icDiv4, cpuIm2Col->ih, cpuIm2Col->iw, cpuIm2Col->oh, cpuIm2Col->ow, eAlign, lAlign);
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if (mNeedIm2Col) {
-            DivModFast lpD(mGemmInfo.elhPad[1]);
-            DivModFast fxyD((mIm2ColParamter.kernelX * mIm2ColParamter.kernelY));
+            DivModFast lpD(mGemmInfo.elhPad[1]/INT8_PACK_NUMBER);
+            DivModFast icpD(icp/INT8_PACK_NUMBER);
             DivModFast fxD(mIm2ColParamter.kernelX);
             DivModFast owD(mIm2ColParamter.ow);
             DivModFast ohD(mIm2ColParamter.oh);
         
-            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
+            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1] / INT8_PACK_NUMBER;
             size_t block_num = runtime->blocks_num(maxCount);
             size_t block_size = runtime->threads_num();
 
-            Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
-                maxCount, block_idx, INT8_PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const int8_t*)input_addr, (int8_t *)mIm2ColBuffer, \
-                lpD, owD, ohD, fxyD, fxD);
+            // [(NHW)p, KhKw(Ic)p]
+            Im2Col_packC_16<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, ic, iw, ih, 
+                maxCount, block_idx, icDiv4, mGemmInfo.elh[0], mGemmInfo.elh[1], (const int32_t*)input_addr, (int32_t *)mIm2ColBuffer, \
+                lpD, owD, ohD, icpD, fxD);
             checkKernelErrors;
         }
     }

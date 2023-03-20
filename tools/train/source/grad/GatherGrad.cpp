@@ -32,7 +32,8 @@ public:
             return res;
         }
         auto shape = _Shape(param);
-        res[0] = _ScatterNd(indice, backwardOutput[0], shape);
+        auto diff = _Unsqueeze(backwardOutput[0], {axis});
+        res[0] = _ScatterNd(indice, diff, shape);
         return res;
     }
 };

@@ -722,6 +722,9 @@
 		92FF04C223AA0BFB00AC97F6 /* Pipeline.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF04A123AA0BFB00AC97F6 /* Pipeline.cpp */; };
 		92FF04C323AA0BFB00AC97F6 /* Session.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF04A223AA0BFB00AC97F6 /* Session.hpp */; };
 		92FF04C423AA0BFB00AC97F6 /* Session.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF04A323AA0BFB00AC97F6 /* Session.cpp */; };
+		9558333D29B0947300488807 /* MNNGelu.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558333C29B0947300488807 /* MNNGelu.S */; };
+		9558334729B09A2300488807 /* MNNGelu.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558334629B09A2300488807 /* MNNGelu.S */; };
+		9558334B29B09A7B00488807 /* MNNGeluFP16.S in Sources */ = {isa = PBXBuildFile; fileRef = 9558334A29B09A7B00488807 /* MNNGeluFP16.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
 		C43C81FA251894A600A0FF84 /* CommonOptFunctionNeon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81F8251894A500A0FF84 /* CommonOptFunctionNeon.cpp */; };
 		C43C81FE251894BD00A0FF84 /* CPUPlugin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81FB251894BD00A0FF84 /* CPUPlugin.cpp */; };
 		C43C81FF251894BD00A0FF84 /* ThreadPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81FC251894BD00A0FF84 /* ThreadPool.cpp */; };
@@ -1515,6 +1518,9 @@
 		92FF04A123AA0BFB00AC97F6 /* Pipeline.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Pipeline.cpp; sourceTree = "<group>"; };
 		92FF04A223AA0BFB00AC97F6 /* Session.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Session.hpp; sourceTree = "<group>"; };
 		92FF04A323AA0BFB00AC97F6 /* Session.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Session.cpp; sourceTree = "<group>"; };
+		9558333C29B0947300488807 /* MNNGelu.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGelu.S; sourceTree = "<group>"; };
+		9558334629B09A2300488807 /* MNNGelu.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGelu.S; sourceTree = "<group>"; };
+		9558334A29B09A7B00488807 /* MNNGeluFP16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = MNNGeluFP16.S; path = ../../../arm82/asm/arm64/MNNGeluFP16.S; sourceTree = "<group>"; };
 		C43C81F8251894A500A0FF84 /* CommonOptFunctionNeon.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CommonOptFunctionNeon.cpp; sourceTree = "<group>"; };
 		C43C81FB251894BD00A0FF84 /* CPUPlugin.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUPlugin.cpp; sourceTree = "<group>"; };
 		C43C81FC251894BD00A0FF84 /* ThreadPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ThreadPool.cpp; sourceTree = "<group>"; };
@@ -2430,6 +2436,7 @@
 		92FF013A23AA0B4E00AC97F6 /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
+				9558333C29B0947300488807 /* MNNGelu.S */,
 				4D5662CB299B76ED0031C1A1 /* MNNMaxPoolInt8.S */,
 				4D5662C9299B76E10031C1A1 /* MNNAvgPoolInt8.S */,
 				4AF4FB2B269ED24C005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */,
@@ -2505,6 +2512,8 @@
 				4AF4FB27269ED243005BA97B /* MNNPackedSparseQuantMatMulEpx1.S */,
 				4AF4FB28269ED244005BA97B /* MNNPackedSparseQuantMatMulEpx4.S */,
 				4DD1793B2694078000B0098F /* MNNSoftmax.S */,
+				9558334629B09A2300488807 /* MNNGelu.S */,
+				9558334A29B09A7B00488807 /* MNNGeluFP16.S */,
 				48CA2F542681844C003A1796 /* MNNPackC8FP16.S */,
 				48CA2F552681844C003A1796 /* MNNUnpackC8FP16.S */,
 				4D6D7FD02656891400F80814 /* MNNPackedSparseMatMulEpx4.S */,
@@ -3154,6 +3163,7 @@
 				92FF02CB23AA0B5A00AC97F6 /* MNNSamplerC1NearestOpt.S in Sources */,
 				92FF02C223AA0B5A00AC97F6 /* MNNLoadU8AndSum.S in Sources */,
 				4819FB2E24C1396A0050BD09 /* GeometryLSTM.cpp in Sources */,
+				9558334B29B09A7B00488807 /* MNNGeluFP16.S in Sources */,
 				92FF02E323AA0B5A00AC97F6 /* MNNExpC8.S in Sources */,
 				92FF030223AA0B5A00AC97F6 /* MNNQuanToDestUint8.S in Sources */,
 				489D7AA12550FDC900AD896A /* MetalUnary.mm in Sources */,
@@ -3165,6 +3175,7 @@
 				4D9A936F26255BDA00F9B43C /* CoreMLConvolution.cpp in Sources */,
 				92FF03B523AA0B5A00AC97F6 /* ResizeFunction.cpp in Sources */,
 				489D7A7D2550FDC900AD896A /* MetalConvolution.mm in Sources */,
+				9558333D29B0947300488807 /* MNNGelu.S in Sources */,
 				4838EA7D2611BFE20027232C /* CPUGridSample.cpp in Sources */,
 				92FF04B323AA0BFB00AC97F6 /* Schedule.cpp in Sources */,
 				92FF036423AA0B5A00AC97F6 /* CPUUnravelIndex.cpp in Sources */,
@@ -3582,6 +3593,7 @@
 				48FD12BE2466A88D009E9102 /* GeometryImageOp.cpp in Sources */,
 				92FF035423AA0B5A00AC97F6 /* CPUSelect.cpp in Sources */,
 				92FF02C923AA0B5A00AC97F6 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S in Sources */,
+				9558334729B09A2300488807 /* MNNGelu.S in Sources */,
 				92FF032823AA0B5A00AC97F6 /* MNNSamplerC1BilinearOpt.S in Sources */,
 				4896D37F25FE2A6B00717702 /* MNNConvRunForLineDepthwiseFP16.S in Sources */,
 				92FF044323AA0B7100AC97F6 /* ShapeTopKV2.cpp in Sources */,
@@ -4053,7 +4065,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6G7464HHUS;
+				DEVELOPMENT_TEAM = Q48UX93J22;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = demo/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "use camera to capture photo for demo";
@@ -4069,7 +4081,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo3v4;
+				PRODUCT_BUNDLE_IDENTIFIER = jiuqi.gelu.test;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4086,7 +4098,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6G7464HHUS;
+				DEVELOPMENT_TEAM = Q48UX93J22;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = demo/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "use camera to capture photo for demo";
@@ -4101,7 +4113,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.com.demo3v4;
+				PRODUCT_BUNDLE_IDENTIFIER = jiuqi.gelu.test;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";

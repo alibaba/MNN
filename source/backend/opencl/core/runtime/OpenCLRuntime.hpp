@@ -38,6 +38,7 @@ namespace MNN {
 #define CL_KERNEL_WAVE_SIZE_QCOM 0xAA02
 
 enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, OTHER = 3 };
+enum MaliAr { MIDGARD = 0, BIFROST = 1, VALHALL = 2 };
 enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
@@ -66,6 +67,9 @@ public:
     uint64_t getMaxLocalMem() const;
     GpuType getGpuType() {
         return mGpuType;
+    }
+    MaliAr getMaliAr() {
+        return mMaliAr;
     }
     float getCLVersion() {
         return mCLVersion;
@@ -137,6 +141,7 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
+    MaliAr mMaliAr;
     float mCLVersion = 1.0f;
 
 #ifdef MNN_OPENCL_SVM_ENABLE

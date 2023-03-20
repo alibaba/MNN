@@ -2296,9 +2296,10 @@ void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
 void MNNGeluCommon(float* dst, const float* src, size_t size) {
     int sizeQuad = size / 8;
     int start = 0;
-#ifdef MNN_USE_SSE
+#if defined(MNN_USE_SSE) || defined(MNN_USE_NEON)
     if (sizeQuad > 0) {
-        MNNGelu(dst, src, sizeQuad);
+        float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
+        MNNGelu(dst, src, sizeQuad, parameters);
         start = sizeQuad * 8;
     }
 #endif

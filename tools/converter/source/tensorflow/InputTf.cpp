@@ -47,3 +47,4 @@ void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
 }
 
 REGISTER_CONVERTER(InputTf, Placeholder);
+REGISTER_CONVERTER(InputTf, PlaceholderWithDefault);

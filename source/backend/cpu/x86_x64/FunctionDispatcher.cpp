@@ -32,7 +32,7 @@ struct FunctionGroup {
     void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
-    void (*MNNGelu)(float* dst, const float* src, size_t size) = _SSE_MNNGelu;
+    void (*MNNGelu)(float* dst, const float* src, size_t size, float* parameters) = _SSE_MNNGelu;
     void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) = _SSE_MNNNorm;
 };
 
@@ -148,8 +148,8 @@ void MNNHardSwish(float* dst, const float* src, size_t size) {
     return gFunc.MNNHardSwish(dst, src, size);
 }
 
-void MNNGelu(float* dst, const float* src, size_t size) {
-    return gFunc.MNNGelu(dst, src, size);
+void MNNGelu(float* dst, const float* src, size_t size, float* parameters) {
+    return gFunc.MNNGelu(dst, src, size, parameters);
 }
 
 void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {

@@ -10,6 +10,7 @@
 #define VulkanMatMul_hpp
 
 #include "VulkanRaster.hpp"
+#include "VulkanLoop.hpp"
 namespace MNN {
 
 class VulkanMatMul : public VulkanBasicExecution {
@@ -22,17 +23,12 @@ public:
                                const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
-    VulkanRaster::Componet mInput;
-    VulkanRaster::Componet mKernel;
-    VulkanRaster::Componet mOutput;
-
-    const VulkanPipeline* mBlitPipeline;
-    const VulkanPipeline* mComputePipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mComputeSet;
-    const VulkanPipeline* mOutputPipeline;
-    std::vector<std::shared_ptr<VulkanBuffer>> mTempBuffer;
+    const VulkanPipeline* mPipeline;
+    std::shared_ptr<VulkanBuffer> mParam;
+    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescribe;
     bool mTransposeA;
     bool mTransposeB;
+    bool mHasBias;
 };
 }
 #endif

@@ -19,6 +19,10 @@
 #include "Arm82OptFunc.hpp"
 #include "MNN_generated.h"
 #include <arm_neon.h>
+
+extern "C" {
+    void MNNGeluFP16(FLOAT16* dst, const FLOAT16* src, size_t size, float* parameters);
+}
 namespace MNN {
 
 struct VecSquare {
@@ -144,6 +148,36 @@ struct _Sigmoid {
     }
 };
 
+void FP16GELU(void* outRaw, const void* inpRaw, int realSize) {
+    int sizeQuad = realSize / 16;
+    int start = 0;
+    auto out = (FLOAT16*)outRaw;
+    auto inp = (const FLOAT16*)inpRaw;
+
+    if (sizeQuad > 0) {
+        float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
+        MNNGeluFP16(out, inp, sizeQuad, parameters);
+        start = sizeQuad * 16;
+    }
+    auto tanhf_poly = [](float value) -> float {
+        if (value > 5.0f) {
+            return 1.0f;
+        } else if (value <= -5.0f) {
+            return -1.0f;
+        } else {
+            float x2 = value * value;
+            float a  = value * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
+            float b  = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
+            return a / b;
+        }
+    };
+    for (int i = start; i < realSize; i++) {
+        float temp = 0.044715f * inp[i] * inp[i] * inp[i];
+        temp = 0.79788458f * (temp + inp[i]);
+        out[i] = static_cast<FLOAT16>(1.0f + tanhf_poly(temp)) * inp[i] * 0.5f;
+    }
+}
+
 void FP16HardSwish(void* outRaw, const void* inpRaw, int realSize) {
     auto out = (FLOAT16*)outRaw;
     auto inp = (const FLOAT16*)inpRaw;
@@ -259,6 +293,8 @@ MNNUnaryExecute Arm82Unary::select(int type, int precision) {
             return _Wrap<_Unary<UnaryAcos<float>, float>>;
         case UnaryOpOperation_HARDSWISH:
             return FP16HardSwish;
+        case UnaryOpOperation_GELU:
+            return FP16GELU;
         default:
             MNN_ASSERT(false);
             break;

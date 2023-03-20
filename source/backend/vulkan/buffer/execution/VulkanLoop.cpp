@@ -17,21 +17,12 @@ static void _setTensorStack(std::vector<Tensor*>& result, const std::vector<Tens
     }
 }
 
-struct BatchMatMulInfo {
-    ivec4 size;
-    ivec4 stride_o;
-    ivec4 stride_a;
-    ivec4 stride_b;
-    ivec4 stride_c;
-    ivec4 step;
-    ivec4 iter;
-};
 class VulkanBatchMatMul : public VulkanBasicExecution {
 public:
     VulkanBatchMatMul(const LoopParam* loop, Backend *bn) : VulkanBasicExecution(bn) {
         mLoop = loop;
         auto vkbackend = static_cast<VulkanBackend*>(bn);
-        mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(BatchMatMulInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+        mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(VulkanBatchMatMulInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
         
         auto cmd = loop->commands()->GetAs<RegionCommand>(0);
         mHasBias = cmd->indexes()->size() > 3;
@@ -71,7 +62,7 @@ public:
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
         int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
-        auto param = reinterpret_cast<BatchMatMulInfo*>(mParam->map());
+        auto param = reinterpret_cast<VulkanBatchMatMulInfo*>(mParam->map());
         param->size[3] = mLoop->loopNumber();
         auto vkBn = static_cast<VulkanBackend*>(backend());
         for (int i=0; i<3; ++i) {
@@ -231,9 +222,7 @@ VulkanBasicExecution* VulkanLoop::create(const std::vector<Tensor*>& inputs, con
             return new VulkanGather(loop, bn);
         }
         if (OpType_MatMul == subop->type() && loop->parallel()) {
-            if (inputs.size() <= 3) {
-                return new VulkanBatchMatMul(loop, bn);
-            }
+            return new VulkanBatchMatMul(loop, bn);
         }
     }
     return nullptr;

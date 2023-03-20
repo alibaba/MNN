@@ -111,9 +111,9 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
 
 bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
                                 OpenCLRuntime *runtime, TransType formatTrans, bool needWait, bool svmFlag, bool srcswap, bool dstswap) {
-
-    uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(input->channel(), 4) * input->width()),
-                                        static_cast<uint32_t>(input->batch() * input->height())};
+    std::vector<int> outputShape = tensorShapeFormat(input);
+    uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
+                                        static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
         switch (formatTrans) {

@@ -1942,16 +1942,18 @@ static void _fastIm2ColI8mm(int8_t* colAddr, const int8_t* inputOrigin, int32_t 
                               size_t realDstCount) {
     const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, inputZeroPoint, col_buffer_size);
-    const int icDiv4    = im2colParameter->icDiv4;
-    const int srcZStep = im2colParameter->iw * im2colParameter->ih * GEMM_INT8_UNIT;
+    const int icDiv8    = im2colParameter->icDiv4 / 2;
+    const int srcZStep = im2colParameter->srcZStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
     inputOrigin += xIndexStart * GEMM_INT8_UNIT;
     for (int i = 0; i < realDstCount; ++i) {
-        auto colAddrI = colAddr + GEMM_INT8_UNIT * i;
+        auto colAddrI = colAddr + GEMM_INT8_SRC_UNIT * i;
         auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
-        for (int sz = 0; sz < icDiv4; ++sz) {
-            auto inputZ0       = inputK + srcZStep * sz;
-            auto dstK0         = colAddrI + sz * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
-            *((int32_t*)dstK0) = *((int32_t*)inputZ0);
+        for (int sz = 0; sz < icDiv8; ++sz) {
+            auto inputZ0       = inputK + srcZStep * sz * 2;
+            auto dstK0         = (int32_t*)colAddrI + sz * dstXStepInt32;
+            dstK0[0]           = *((int32_t*)inputZ0);
+            dstK0[1]           = *((int32_t*)(inputZ0 + srcZStep));
         }
     }
 }

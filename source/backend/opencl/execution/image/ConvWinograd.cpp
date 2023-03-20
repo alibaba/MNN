@@ -23,26 +23,33 @@ bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input,
     if (common->dilateX() != 1 || common->dilateY() != 1) {
         return false;
     }
-    if (input->channel() <= 16 || common->outputCount() <= 16) {
-        return false;
-    }
     if(common->kernelX() != common->kernelY()) {
         return false;
     }
+    if(common->kernelX() != 3 && common->kernelX() != 5){
+        return false;
+    }
     
-    int wUnit = UP_DIV(output->width(), UNIT);
-    int hUnit = UP_DIV(output->height(), UNIT);
-    int alpha  = common->kernelX() + UNIT - 1;
-    int sourceWidth  = UP_DIV(input->channel(), 4) * 4 * wUnit;
+    int ic = input->channel();
+    int oc = common->outputCount();
+    int ow = output->width();
+    int oh =output->height();
+    int kh = common->kernelX();
+    int wUnit = UP_DIV(ow, UNIT);
+    int hUnit = UP_DIV(oh, UNIT);
+    int alpha  = kh + UNIT - 1;
+    int sourceWidth  = UP_DIV(ic, 4) * 4 * wUnit;
     int sourceHeight = alpha * alpha * hUnit;
     int destWidth  = alpha * alpha * wUnit * 4;
-    int destHeight = UP_DIV(input->channel(), 4) * hUnit;
+    int destHeight = UP_DIV(ic, 4) * hUnit;
 
     if(sourceWidth > maxWidth || sourceHeight > maxHeight || destWidth > maxWidth || destHeight > maxHeight){
         return false;
     }
-    
-    return (common->kernelX() == 3) || (common->kernelX() == 5);
+    if(ic >= 32 && oc >= 32){
+        return true;
+    }
+    return ((oc * oh * ow) / (ic * kh) <= 5);
 }
 
 

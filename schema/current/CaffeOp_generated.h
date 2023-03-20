@@ -3289,13 +3289,15 @@ struct RoiParametersT : public flatbuffers::NativeTable {
   int32_t samplingRatio;
   bool aligned;
   PoolType poolType;
+  bool outputGrad;
   RoiParametersT()
       : pooledWidth(0),
         pooledHeight(0),
         spatialScale(0.0f),
         samplingRatio(-1),
         aligned(false),
-        poolType(PoolType_AVEPOOL) {
+        poolType(PoolType_AVEPOOL),
+        outputGrad(false) {
   }
 };
 
@@ -3322,6 +3324,9 @@ struct RoiParameters FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   PoolType poolType() const {
     return static_cast<PoolType>(GetField<int8_t>(14, 1));
   }
+  bool outputGrad() const {
+    return GetField<uint8_t>(16, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
@@ -3330,6 +3335,7 @@ struct RoiParameters FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int32_t>(verifier, 10) &&
            VerifyField<uint8_t>(verifier, 12) &&
            VerifyField<int8_t>(verifier, 14) &&
+           VerifyField<uint8_t>(verifier, 16) &&
            verifier.EndTable();
   }
   RoiParametersT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3358,6 +3364,9 @@ struct RoiParametersBuilder {
   void add_poolType(PoolType poolType) {
     fbb_.AddElement<int8_t>(14, static_cast<int8_t>(poolType), 1);
   }
+  void add_outputGrad(bool outputGrad) {
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(outputGrad), 0);
+  }
   explicit RoiParametersBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3377,12 +3386,14 @@ inline flatbuffers::Offset<RoiParameters> CreateRoiParameters(
     float spatialScale = 0.0f,
     int32_t samplingRatio = -1,
     bool aligned = false,
-    PoolType poolType = PoolType_AVEPOOL) {
+    PoolType poolType = PoolType_AVEPOOL,
+    bool outputGrad = false) {
   RoiParametersBuilder builder_(_fbb);
   builder_.add_samplingRatio(samplingRatio);
   builder_.add_spatialScale(spatialScale);
   builder_.add_pooledHeight(pooledHeight);
   builder_.add_pooledWidth(pooledWidth);
+  builder_.add_outputGrad(outputGrad);
   builder_.add_poolType(poolType);
   builder_.add_aligned(aligned);
   return builder_.Finish();
@@ -5286,6 +5297,7 @@ inline void RoiParameters::UnPackTo(RoiParametersT *_o, const flatbuffers::resol
   { auto _e = samplingRatio(); _o->samplingRatio = _e; };
   { auto _e = aligned(); _o->aligned = _e; };
   { auto _e = poolType(); _o->poolType = _e; };
+  { auto _e = outputGrad(); _o->outputGrad = _e; };
 }
 
 inline flatbuffers::Offset<RoiParameters> RoiParameters::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoiParametersT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5302,6 +5314,7 @@ inline flatbuffers::Offset<RoiParameters> CreateRoiParameters(flatbuffers::FlatB
   auto _samplingRatio = _o->samplingRatio;
   auto _aligned = _o->aligned;
   auto _poolType = _o->poolType;
+  auto _outputGrad = _o->outputGrad;
   return MNN::CreateRoiParameters(
       _fbb,
       _pooledWidth,
@@ -5309,7 +5322,8 @@ inline flatbuffers::Offset<RoiParameters> CreateRoiParameters(flatbuffers::FlatB
       _spatialScale,
       _samplingRatio,
       _aligned,
-      _poolType);
+      _poolType,
+      _outputGrad);
 }
 
 inline ProposalT *Proposal::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6434,7 +6448,8 @@ inline const flatbuffers::TypeTable *RoiParametersTypeTable() {
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_CHAR, 0, 0 }
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     PoolTypeTypeTable
@@ -6445,10 +6460,11 @@ inline const flatbuffers::TypeTable *RoiParametersTypeTable() {
     "spatialScale",
     "samplingRatio",
     "aligned",
-    "poolType"
+    "poolType",
+    "outputGrad"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

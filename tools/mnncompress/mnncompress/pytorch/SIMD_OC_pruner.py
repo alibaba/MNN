@@ -176,9 +176,9 @@ class SIMDOCPruner(object):
             g_trans_shape = g_trans.shape
             oc_blocks = g_trans_shape[-1] // 4
             remains = g_trans_shape[-1] % 4
+            block_total_rows = oc_blocks * 4
 
             if oc_blocks != 0:
-                block_total_rows = oc_blocks * 4
                 gt_reshape = g_trans[..., 0:block_total_rows].reshape((-1, 4))
                 gt_reshape_mean = gt_reshape.mean(axis=1, keepdims=True)
                 self._pname_gt_reshape_mean[n] = gt_reshape_mean
