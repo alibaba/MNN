@@ -30,6 +30,7 @@ private:
     int8_t mZeroPoint;
     int mClipBits;
     bool mSingle = false;
+    float mSingleScale;
     int mChannel;
     int mCount;
     int mArea;

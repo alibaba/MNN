@@ -37,7 +37,8 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 pad_hw,
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
-                      __private const int out_c_blocks) {
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -100,100 +101,6 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
  
 }
 
-
-__kernel
-void conv_2d_c8h1w1(GLOBAL_SIZE_2_DIMS
-                      __global const FLOAT *input,
-                      __global const FLOAT *weight,
-                      __global const FLOAT *bias,
-                      __global FLOAT *output,
-                      __private const int2 in_hw,
-                      __private const int inChannel,
-                      __private const int in_c_blocks,
-                      __private const int2 out_hw,
-                      __private const int2 filter_hw,
-                      __private const int2 stride_hw,
-                      __private const int2 pad_hw,
-                      __private const int2 dilate_hw,
-                      __private const int out_w_blocks,
-                      __private const int out_c_blocks) {
-    const int out_c_w_idx = get_global_id(0); //c/4 w
-    const int out_b_h_idx  = get_global_id(1); //b h
-
-    DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
-
-    const int out_c_idx = (out_c_w_idx / out_hw.y) << 1;
-    const int out_w_idx = out_c_w_idx % out_hw.y;
-    const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
-    const int out_h_idx = out_b_h_idx % out_hw.x;
-    
-    FLOAT4 out0 = vload4(out_c_idx, bias);
-    FLOAT4 out1 = vload4(out_c_idx+1, bias);
-    
-    const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
-    const int in_h_idx_base = mad24(out_h_idx, stride_hw.x, -pad_hw.x);
-    
-    const int kw_start = select(0, (-in_w_idx_base + dilate_hw.y - 1) / dilate_hw.y, in_w_idx_base < 0);
-    const int kh_start = select(0, (-in_h_idx_base + dilate_hw.x - 1) / dilate_hw.x, in_h_idx_base < 0);
-
-    const int in_w_idx_start = mad24(kw_start, dilate_hw.y, in_w_idx_base);
-    const int in_w_idx_end = min(mad24(filter_hw.y, dilate_hw.y, in_w_idx_base), in_hw.y);
-    
-    const int in_h_idx_start = mad24(kh_start, dilate_hw.x, in_h_idx_base);
-    const int in_h_idx_end = min(mad24(filter_hw.x, dilate_hw.x, in_h_idx_base), in_hw.x);
-    
-    const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
-    const int weight_ic_offset = out_c_blocks * weight_oc_offset;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
-        //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + kw_start) * 4;
-        for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            for(int ix = in_w_idx_start; ix < in_w_idx_end; ix += dilate_hw.y) {
-                int inp_offset = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + ix) * 4;
-                FLOAT4 in0 = vload4(0, input+inp_offset);
-                
-                const int filter_w_inc = (ix-in_w_idx_start)/dilate_hw.y;
-                FLOAT4 weight0 = vload4(filter_w_inc, weight+weight_offset);
-                FLOAT4 weight1 = vload4(filter_w_inc, weight+weight_offset+weight_ic_offset);
-                FLOAT4 weight2 = vload4(filter_w_inc, weight+weight_offset+weight_ic_offset*2);
-                FLOAT4 weight3 = vload4(filter_w_inc, weight+weight_offset+weight_ic_offset*3);
-                
-                out0 = mad(in0.x, weight0, out0);
-                out0 = mad(in0.y, weight1, out0);
-                out0 = mad(in0.z, weight2, out0);
-                out0 = mad(in0.w, weight3, out0);
-                
-                weight0 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset);
-                weight1 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset+weight_ic_offset);
-                weight2 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
-                weight3 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
-                
-                out1 = mad(in0.x, weight0, out1);
-                out1 = mad(in0.y, weight1, out1);
-                out1 = mad(in0.z, weight2, out1);
-                out1 = mad(in0.w, weight3, out1);
-            }
-            weight_offset += 4*filter_hw.y;
-        }
-    }
-#ifdef RELU
-    out0 = fmax(out0, (FLOAT4)0);
-    out1 = fmax(out1, (FLOAT4)0);
-#endif
-
-#ifdef RELU6
-    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
-    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
-#endif
-
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
-    vstore4(out0, 0, output+out_offset);
-    if(out_c_idx+1 >= out_c_blocks) return;
-    vstore4(out1, 0, output+out_offset+out_hw.x*out_hw.y*4);
-
-}
-
 __kernel
 void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
@@ -209,7 +116,8 @@ void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __private const int2 pad_hw,
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,//generate width's num
-                      __private const int out_c_blocks) {
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -298,7 +206,8 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 pad_hw,
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
-                      __private const int out_c_blocks) {
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -914,4 +823,428 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
         vstore4(out0, 0, output+out_offset);
     }
 
+}
+
+__kernel
+void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS
+                      __global const FLOAT *input,
+                      __global const FLOAT *weight,
+                      __global const FLOAT *bias,
+                      __global FLOAT *output,
+                      __private const int2 in_hw,
+                      __private const int inChannel,
+                      __private const int in_c_blocks,
+                      __private const int2 out_hw,
+                      __private const int2 filter_hw,
+                      __private const int2 stride_hw,
+                      __private const int2 pad_hw,
+                      __private const int2 dilate_hw,
+                      __private const int out_w_blocks,
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
+    const int out_c_w_idx = get_global_id(0); //c/4 w
+    const int out_b_h_idx  = get_global_id(1); //b h
+
+    DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
+
+    const int out_c_idx = out_c_w_idx / out_w_blocks;
+    const int out_w_idx = out_c_w_idx % out_w_blocks;
+    const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
+    const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
+    
+    FLOAT4 out0 = vload4(out_c_idx, bias);
+    FLOAT4 out1 = out0;
+    FLOAT4 out2 = out0;
+    FLOAT4 out3 = out0;
+
+    const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
+
+    const int in_h0_idx_base = mad24(out_h_idx, stride_hw.x, -pad_hw.x);
+    const int in_h1_idx_base = in_h0_idx_base + stride_hw.x;
+    const int in_h2_idx_base = in_h1_idx_base + stride_hw.x;
+    const int in_h3_idx_base = in_h2_idx_base + stride_hw.x;
+    
+    const int kw_start = select(0, (-in_w_idx_base + dilate_hw.y - 1) / dilate_hw.y, in_w_idx_base < 0);
+    const int in_w_idx_start = mad24(kw_start, dilate_hw.y, in_w_idx_base);
+    const int in_w_idx_end = min(mad24(filter_hw.y, dilate_hw.y, in_w_idx_base), in_hw.y);
+    
+    const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
+    const int in_hw_size = in_hw.x * in_hw.y;
+    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+        //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
+        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
+        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+
+        for(int iy = 0; iy < filter_hw.x; iy++) {
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
+            const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
+            const int in_h2_idx = (iy * dilate_hw.x + in_h2_idx_base) * in_hw.y;
+            const int in_h3_idx = (iy * dilate_hw.x + in_h3_idx_base) * in_hw.y;
+
+            for(int fw = in_w_idx_start; fw < in_w_idx_end; fw += dilate_hw.y) {
+                FLOAT4 in0 = (in_h0_idx < 0 || in_h0_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h0_idx + fw, input+inp_offset_base);
+                FLOAT4 in1 = (in_h1_idx < 0 || in_h1_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h1_idx + fw, input+inp_offset_base);
+                FLOAT4 in2 = (in_h2_idx < 0 || in_h2_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h2_idx + fw, input+inp_offset_base);
+                FLOAT4 in3 = (in_h3_idx < 0 || in_h3_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h3_idx + fw, input+inp_offset_base);
+
+                FLOAT4 weight0 = vload4(0, weight+weight_offset);
+                FLOAT4 weight1 = vload4(0, weight+weight_offset+weight_oc_offset);
+                FLOAT4 weight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
+                FLOAT4 weight3 = vload4(0, weight+weight_offset+weight_oc_offset*3);
+                
+                out0 = mad(in0.x, weight0, out0);
+                out0 = mad(in0.y, weight1, out0);
+                out0 = mad(in0.z, weight2, out0);
+                out0 = mad(in0.w, weight3, out0);
+                
+                out1 = mad(in1.x, weight0, out1);
+                out1 = mad(in1.y, weight1, out1);
+                out1 = mad(in1.z, weight2, out1);
+                out1 = mad(in1.w, weight3, out1);
+                
+                out2 = mad(in2.x, weight0, out2);
+                out2 = mad(in2.y, weight1, out2);
+                out2 = mad(in2.z, weight2, out2);
+                out2 = mad(in2.w, weight3, out2);
+                
+                out3 = mad(in3.x, weight0, out3);
+                out3 = mad(in3.y, weight1, out3);
+                out3 = mad(in3.z, weight2, out3);
+                out3 = mad(in3.w, weight3, out3);
+                
+                weight_offset += 4;
+            }
+        }
+    }
+#ifdef RELU
+    out0 = fmax(out0, (FLOAT4)0);
+    out1 = fmax(out1, (FLOAT4)0);
+    out2 = fmax(out2, (FLOAT4)0);
+    out3 = fmax(out3, (FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
+    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
+    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    vstore4(out0, 0, output+out_offset);
+    if(out_h_idx + 1 >= out_hw.x) return;
+    vstore4(out1, out_hw.y, output+out_offset);
+    if(out_h_idx + 2 >= out_hw.x) return;
+    vstore4(out2, 2 * out_hw.y, output+out_offset);
+    if(out_h_idx + 3 >= out_hw.x) return;
+    vstore4(out3, 3 * out_hw.y, output+out_offset);
+}
+
+__kernel
+void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS
+                      __global const FLOAT *input,
+                      __global const FLOAT *weight,
+                      __global const FLOAT *bias,
+                      __global FLOAT *output,
+                      __private const int2 in_hw,
+                      __private const int inChannel,
+                      __private const int in_c_blocks,
+                      __private const int2 out_hw,
+                      __private const int2 filter_hw,
+                      __private const int2 stride_hw,
+                      __private const int2 pad_hw,
+                      __private const int2 dilate_hw,
+                      __private const int out_w_blocks,
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
+    const int out_c_w_idx = get_global_id(0); //c/4 w
+    const int out_b_h_idx  = get_global_id(1); //b h
+
+    DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
+
+    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_w_idx = out_c_w_idx % out_w_blocks;
+    const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
+    const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
+    
+    FLOAT4 out0 = vload4(out_c_idx, bias);
+    FLOAT4 out1 = out0;
+    FLOAT4 out2 = out0;
+    FLOAT4 out3 = out0;
+    FLOAT4 out4 = vload4(out_c_idx + 1, bias);
+    FLOAT4 out5 = out4;
+    FLOAT4 out6 = out4;
+    FLOAT4 out7 = out4;
+
+    const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
+
+    const int in_h0_idx_base = mad24(out_h_idx, stride_hw.x, -pad_hw.x);
+    const int in_h1_idx_base = in_h0_idx_base + stride_hw.x;
+    const int in_h2_idx_base = in_h1_idx_base + stride_hw.x;
+    const int in_h3_idx_base = in_h2_idx_base + stride_hw.x;
+    
+    const int kw_start = select(0, (-in_w_idx_base + dilate_hw.y - 1) / dilate_hw.y, in_w_idx_base < 0);
+    const int in_w_idx_start = mad24(kw_start, dilate_hw.y, in_w_idx_base);
+    const int in_w_idx_end = min(mad24(filter_hw.y, dilate_hw.y, in_w_idx_base), in_hw.y);
+    
+    const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
+    const int weight_ic_offset = out_c_blocks * weight_oc_offset;
+    const int in_hw_size = in_hw.x * in_hw.y;
+    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+        //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
+        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
+        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+
+        for(int iy = 0; iy < filter_hw.x; iy++) {
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
+            const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
+            const int in_h2_idx = (iy * dilate_hw.x + in_h2_idx_base) * in_hw.y;
+            const int in_h3_idx = (iy * dilate_hw.x + in_h3_idx_base) * in_hw.y;
+
+            for(int fw = in_w_idx_start; fw < in_w_idx_end; fw += dilate_hw.y) {
+                FLOAT4 in0 = (in_h0_idx < 0 || in_h0_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h0_idx + fw, input+inp_offset_base);
+                FLOAT4 in1 = (in_h1_idx < 0 || in_h1_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h1_idx + fw, input+inp_offset_base);
+                FLOAT4 in2 = (in_h2_idx < 0 || in_h2_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h2_idx + fw, input+inp_offset_base);
+                FLOAT4 in3 = (in_h3_idx < 0 || in_h3_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h3_idx + fw, input+inp_offset_base);
+
+                FLOAT4 weight0 = vload4(0, weight+weight_offset);
+                FLOAT4 weight1 = vload4(0, weight+weight_offset+weight_ic_offset);
+                FLOAT4 weight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
+                FLOAT4 weight3 = vload4(0, weight+weight_offset+weight_ic_offset*3);
+                
+                out0 = mad(in0.x, weight0, out0);
+                out0 = mad(in0.y, weight1, out0);
+                out0 = mad(in0.z, weight2, out0);
+                out0 = mad(in0.w, weight3, out0);
+                
+                out1 = mad(in1.x, weight0, out1);
+                out1 = mad(in1.y, weight1, out1);
+                out1 = mad(in1.z, weight2, out1);
+                out1 = mad(in1.w, weight3, out1);
+                
+                out2 = mad(in2.x, weight0, out2);
+                out2 = mad(in2.y, weight1, out2);
+                out2 = mad(in2.z, weight2, out2);
+                out2 = mad(in2.w, weight3, out2);
+                
+                out3 = mad(in3.x, weight0, out3);
+                out3 = mad(in3.y, weight1, out3);
+                out3 = mad(in3.z, weight2, out3);
+                out3 = mad(in3.w, weight3, out3);
+                
+                weight0 = vload4(0, weight+weight_offset+weight_oc_offset);
+                weight1 = vload4(0, weight+weight_offset+weight_ic_offset+weight_oc_offset);
+                weight2 = vload4(0, weight+weight_offset+weight_ic_offset*2+weight_oc_offset);
+                weight3 = vload4(0, weight+weight_offset+weight_ic_offset*3+weight_oc_offset);
+                
+                out4 = mad(in0.x, weight0, out4);
+                out4 = mad(in0.y, weight1, out4);
+                out4 = mad(in0.z, weight2, out4);
+                out4 = mad(in0.w, weight3, out4);
+                
+                out5 = mad(in1.x, weight0, out5);
+                out5 = mad(in1.y, weight1, out5);
+                out5 = mad(in1.z, weight2, out5);
+                out5 = mad(in1.w, weight3, out5);
+                
+                out6 = mad(in2.x, weight0, out6);
+                out6 = mad(in2.y, weight1, out6);
+                out6 = mad(in2.z, weight2, out6);
+                out6 = mad(in2.w, weight3, out6);
+                
+                out7 = mad(in3.x, weight0, out7);
+                out7 = mad(in3.y, weight1, out7);
+                out7 = mad(in3.z, weight2, out7);
+                out7 = mad(in3.w, weight3, out7);
+                
+                weight_offset += 4;
+            }
+        }
+    }
+#ifdef RELU
+    out0 = fmax(out0, (FLOAT4)0);
+    out1 = fmax(out1, (FLOAT4)0);
+    out2 = fmax(out2, (FLOAT4)0);
+    out3 = fmax(out3, (FLOAT4)0);
+    out4 = fmax(out4, (FLOAT4)0);
+    out5 = fmax(out5, (FLOAT4)0);
+    out6 = fmax(out6, (FLOAT4)0);
+    out7 = fmax(out7, (FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
+    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
+    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+    out4 = clamp(out4, (FLOAT4)0, (FLOAT4)6);
+    out5 = clamp(out5, (FLOAT4)0, (FLOAT4)6);
+    out6 = clamp(out6, (FLOAT4)0, (FLOAT4)6);
+    out7 = clamp(out7, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int remain = out_hw.x - out_h_idx;
+    if(remain >= 4){
+        vstore4(out0, 0, output+out_offset);
+        vstore4(out1, out_hw.y, output+out_offset);
+        vstore4(out2, 2 * out_hw.y, output+out_offset);
+        vstore4(out3, 3 * out_hw.y, output+out_offset);
+    }else if(remain == 3){
+        vstore4(out0, 0, output+out_offset);
+        vstore4(out1, out_hw.y, output+out_offset);
+        vstore4(out2, 2 * out_hw.y, output+out_offset);
+    }else if(remain == 2){
+        vstore4(out0, 0, output+out_offset);
+        vstore4(out1, out_hw.y, output+out_offset);
+    }else if(remain == 1){
+        vstore4(out0, 0, output+out_offset);
+    }
+    if(out_c_idx + 1 >= out_c_blocks){
+        return;
+    }
+    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    if(remain >= 4){
+        vstore4(out4, 0, output+out_offset);
+        vstore4(out5, out_hw.y, output+out_offset);
+        vstore4(out6, 2 * out_hw.y, output+out_offset);
+        vstore4(out7, 3 * out_hw.y, output+out_offset);
+    }else if(remain == 3){
+        vstore4(out4, 0, output+out_offset);
+        vstore4(out5, out_hw.y, output+out_offset);
+        vstore4(out6, 2 * out_hw.y, output+out_offset);
+    }else if(remain == 2){
+        vstore4(out4, 0, output+out_offset);
+        vstore4(out5, out_hw.y, output+out_offset);
+    }else if(remain == 1){
+        vstore4(out4, 0, output+out_offset);
+    }
+}
+
+__kernel
+void conv_2d_c8h2w1(GLOBAL_SIZE_2_DIMS
+                      __global const FLOAT *input,
+                      __global const FLOAT *weight,
+                      __global const FLOAT *bias,
+                      __global FLOAT *output,
+                      __private const int2 in_hw,
+                      __private const int inChannel,
+                      __private const int in_c_blocks,
+                      __private const int2 out_hw,
+                      __private const int2 filter_hw,
+                      __private const int2 stride_hw,
+                      __private const int2 pad_hw,
+                      __private const int2 dilate_hw,
+                      __private const int out_w_blocks,
+                      __private const int out_c_blocks,
+                      __private const int out_h_blocks) {
+    const int out_c_w_idx = get_global_id(0); //c/4 w
+    const int out_b_h_idx  = get_global_id(1); //b h
+
+    DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
+
+    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_w_idx = out_c_w_idx % out_w_blocks;
+    const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
+    const int out_h_idx = (out_b_h_idx % out_h_blocks) << 1;
+    
+    FLOAT4 out0 = vload4(out_c_idx, bias);
+    FLOAT4 out1 = out0;
+    FLOAT4 out2 = vload4(out_c_idx + 1, bias);
+    FLOAT4 out3 = out2;
+
+    const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
+
+    const int in_h0_idx_base = mad24(out_h_idx, stride_hw.x, -pad_hw.x);
+    const int in_h1_idx_base = in_h0_idx_base + stride_hw.x;
+    
+    const int kw_start = select(0, (-in_w_idx_base + dilate_hw.y - 1) / dilate_hw.y, in_w_idx_base < 0);
+    const int in_w_idx_start = mad24(kw_start, dilate_hw.y, in_w_idx_base);
+    const int in_w_idx_end = min(mad24(filter_hw.y, dilate_hw.y, in_w_idx_base), in_hw.y);
+    
+    const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
+    const int weight_ic_offset = out_c_blocks * weight_oc_offset;
+    const int in_hw_size = in_hw.x * in_hw.y;
+    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+        //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
+        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
+        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+
+        for(int iy = 0; iy < filter_hw.x; iy++) {
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
+            const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
+
+            for(int fw = in_w_idx_start; fw < in_w_idx_end; fw += dilate_hw.y) {
+                FLOAT4 in0 = (in_h0_idx < 0 || in_h0_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h0_idx + fw, input+inp_offset_base);
+                FLOAT4 in1 = (in_h1_idx < 0 || in_h1_idx >= in_hw_size) ? (FLOAT4)0 : vload4(in_h1_idx + fw, input+inp_offset_base);
+
+                FLOAT4 weight0 = vload4(0, weight+weight_offset);
+                FLOAT4 weight1 = vload4(0, weight+weight_offset+weight_ic_offset);
+                FLOAT4 weight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
+                FLOAT4 weight3 = vload4(0, weight+weight_offset+weight_ic_offset*3);
+                
+                out0 = mad(in0.x, weight0, out0);
+                out0 = mad(in0.y, weight1, out0);
+                out0 = mad(in0.z, weight2, out0);
+                out0 = mad(in0.w, weight3, out0);
+                
+                out1 = mad(in1.x, weight0, out1);
+                out1 = mad(in1.y, weight1, out1);
+                out1 = mad(in1.z, weight2, out1);
+                out1 = mad(in1.w, weight3, out1);
+                
+                weight0 = vload4(0, weight+weight_offset+weight_oc_offset);
+                weight1 = vload4(0, weight+weight_offset+weight_ic_offset+weight_oc_offset);
+                weight2 = vload4(0, weight+weight_offset+weight_ic_offset*2+weight_oc_offset);
+                weight3 = vload4(0, weight+weight_offset+weight_ic_offset*3+weight_oc_offset);
+                
+                out2 = mad(in0.x, weight0, out2);
+                out2 = mad(in0.y, weight1, out2);
+                out2 = mad(in0.z, weight2, out2);
+                out2 = mad(in0.w, weight3, out2);
+                
+                out3 = mad(in1.x, weight0, out3);
+                out3 = mad(in1.y, weight1, out3);
+                out3 = mad(in1.z, weight2, out3);
+                out3 = mad(in1.w, weight3, out3);
+                
+                weight_offset += 4;
+            }
+        }
+    }
+#ifdef RELU
+    out0 = fmax(out0, (FLOAT4)0);
+    out1 = fmax(out1, (FLOAT4)0);
+    out2 = fmax(out2, (FLOAT4)0);
+    out3 = fmax(out3, (FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
+    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
+    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int remain = out_hw.x - out_h_idx;
+    if(remain >= 2){
+        vstore4(out0, 0, output+out_offset);
+        vstore4(out1, out_hw.y, output+out_offset);
+    }else if(remain == 1){
+        vstore4(out0, 0, output+out_offset);
+    }
+    if(out_c_idx + 1 >= out_c_blocks){
+        return;
+    }
+    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    if(remain >= 2){
+        vstore4(out2, 0, output+out_offset);
+        vstore4(out3, out_hw.y, output+out_offset);
+    }else if(remain == 1){
+        vstore4(out2, 0, output+out_offset);
+    }
 }

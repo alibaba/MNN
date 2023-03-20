@@ -288,8 +288,8 @@ class LSQQuantizer(object):
 
         for node in onnx_model.graph.node:
             if weight_name in node.input:
-                if node.op_type not in ["Conv", "Gemm"]:
-                    raise ValueError("only quantize onnx Conv and Gemm ops, but encountered op type:" + node.op_type)
+                if node.op_type not in ["Conv", "Gemm", "MatMul"]:
+                    raise ValueError("only quantize onnx Conv, Gemm, MatMul ops, but encountered op type:" + node.op_type)
                 input_name = node.input[0]
                 output_name, bn_info = self._get_onnx_output_name_bn_info(node, onnx_model)
                 return input_name, output_name, bn_info
@@ -319,6 +319,12 @@ class LSQQuantizer(object):
 
         for iz in onnx_model.graph.initializer:
             izv = numpy_helper.to_array(iz)
+            node_type = None
+            for node in onnx_model.graph.node:
+                if iz.name in node.input:
+                    node_type = node.op_type
+            if node_type == "MatMul" and len(weight.shape) == 2:
+                izv = izv.transpose((1, 0))
             if weight.shape == izv.shape:
                 if np.mean(np.abs(weight - izv) < 1e-6) > 0.99:
                     input_name, output_name, bn_info = self._get_input_output_name_bn_info(onnx_model, iz.name, bn_name, True)
@@ -380,6 +386,27 @@ class LSQQuantizer(object):
         output_nodes = self._find_onnx_output_nodes(output_name, onnx_model)
         if len(output_nodes) != 1:
             return output_name, bn_info
+
+        # matmul add is Add
+        if conv_or_gemm_node.op_type == "MatMul":
+            if output_nodes[0].op_type == "Add":
+                bias_name = output_nodes[0].input[0]
+                weight_name = conv_or_gemm_node.input[1]
+                w, b = None, None
+                for iz in onnx_model.graph.initializer:
+                    if iz.name == bias_name:
+                        b = numpy_helper.to_array(iz)
+                    if iz.name == weight_name:
+                        w = numpy_helper.to_array(iz)
+
+                if b.shape[0] in w.shape:
+                    output_name = output_nodes[0].output[0]
+                    output_nodes = self._find_onnx_output_nodes(output_name, onnx_model)
+                    if len(output_nodes) != 1:
+                        return output_name, bn_info
+            # when onnx convert to mnn, matmul is converted to conv, but relu is not fused, so need return anyway.
+            return output_name, bn_info
+
         if output_nodes[0].op_type not in ["BatchNormalization", "Relu"] and (not self._node_is_relu6(output_nodes[0], onnx_model)):
             return output_name, bn_info
         

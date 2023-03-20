@@ -289,6 +289,7 @@ table RoiParameters {
     samplingRatio:int = -1;
     aligned:bool = false;
     poolType:PoolType = AVEPOOL;
+    outputGrad:bool = false;
 }
 
 table Proposal {

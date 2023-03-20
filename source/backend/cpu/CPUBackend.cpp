@@ -168,11 +168,8 @@ void CPURuntime::onGabageCollect(int level) {
 
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
-    if (mThreadNumber > 1 && mPower != BackendConfig::Power_High) {
-        mTaskIndex = ThreadPool::acquireWorkIndex();
-        if (mTaskIndex >= 0 ) {
-            ThreadPool::active();
-        }
+    if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
+        ThreadPool::active();
     }
 #else
 #ifdef _OPENMP
@@ -186,7 +183,6 @@ void CPURuntime::onConcurrencyEnd() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
         ThreadPool::deactive();
-        ThreadPool::releaseWorkIndex(mTaskIndex);
     }
 #endif
 }

@@ -11,6 +11,7 @@
 #include <thread>
 #include "MNNTestSuite.h"
 #include "core/Backend.hpp"
+#include "RuntimeAttr.hpp"
 #include <MNN/expr/Executor.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -522,7 +523,7 @@ public:
         auto bufferOutput = builderOutput.GetBufferPointer();
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
-        config.numThread = 1;
+        config.numThread = 4;
         auto s1 = net->createSession(config);
         int runTime = 10;
         {
@@ -532,20 +533,23 @@ public:
             }
         }
         net->releaseSession(s1);
-        std::vector<Session*> sessions;
-        for (int i = 0; i < 4; ++i) {
-            auto s = net->createSession(config);
-            sessions.emplace_back(s);
-        }
+        net = nullptr;
         std::vector<std::thread> allThreads;
         for (int i = 0; i < 4; ++i) {
-            auto s = sessions[i];
-            allThreads.emplace_back(std::thread([s, net, config, runTime] {
+            allThreads.emplace_back(std::thread([runTime, i, bufferOutput, sizeOutput] {
                 {
+                    std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+                    ScheduleConfig config;
+                    config.numThread = 4 - i;
+                    BackendConfig bnConfig;
+                    bnConfig.power = MNN::BackendConfig::Power_Normal;
+                    config.backendConfig = &bnConfig;
+                    auto s = net->createSession(config);
                     AUTOTIME;
                     for (int t = 0; t < runTime; ++t) {
                         net->runSession(s);
                     }
+                    net->releaseSession(s);
                 }
             }));
         }
@@ -568,3 +572,44 @@ public:
     }
 };
 MNNTestSuiteRegister(SessionTest, "expr/SessionTest");
+
+class MemeoryUsageTest : public MNNTestCase {
+public:
+    bool _run(int precision, bool lazy) {
+        auto func = [](VARP y) {
+            flatbuffers::FlatBufferBuilder builderOutput(1024);
+            {
+                std::unique_ptr<MNN::NetT> net(new NetT);
+                Variable::save({y}, net.get());
+                auto len = MNN::Net::Pack(builderOutput, net.get());
+                builderOutput.Finish(len);
+            }
+            int sizeOutput    = builderOutput.GetSize();
+            auto bufferOutput = builderOutput.GetBufferPointer();
+            std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+            ScheduleConfig config;
+            config.numThread = 1;
+            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            auto s1 = net->createSession(config);
+            float memory = 0.0f;
+            net->getSessionInfo(s1, MNN::Interpreter::MEMORY, &memory);
+            FUNC_PRINT_ALL(memory, f);
+        };
+        auto y = _mobileNetV1Expr();
+        func(y);
+        auto x = _Input({1, 3, 1024, 1024}, NC4HW4);
+        y = _Sigmoid(x);
+        func(y);
+
+        return true;
+    }
+    virtual bool run(int precision) {
+        auto res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        return res;
+    }
+};
+MNNTestSuiteRegister(MemeoryUsageTest, "expr/MemeoryUsageTest");

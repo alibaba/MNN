@@ -174,7 +174,21 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
             lws_prefer[0] = 0;
             lws_prefer[1] = 0;
         }
-        min_cost = 0;
+        cl::Event event;
+        std::vector<uint32_t> internalGlobalWS(2, 1);
+        for (size_t i = 0; i < gws.size(); ++i) {
+            internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws_prefer[i]));
+        }
+        cl_int res = CL_SUCCESS;
+        if(lws_prefer[0] == 0 || lws_prefer[1] == 0){
+            res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                    kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, &event);
+        }else{
+            res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                    kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws_prefer[0], lws_prefer[1]), nullptr, &event);
+        }
+        MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
+        min_cost = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     }
     
     if (tunedLws.find(info) == tunedLws.end()) {
@@ -397,7 +411,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     auto padding = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
     mPaddings[1] = padding.first;//padX
-    
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(mKernelHeight) + "_" + std::to_string(mKernelWidth) + "_" + std::to_string(mStrides[0]) + "_" + std::to_string(mStrides[1]) + "_" + std::to_string(mDilations[0]) + "_" + std::to_string(mDilations[1]);
     if (mConv1x1Opt) {
 
         // {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1", "conv_2d_1x1_c8h1w4"};
@@ -493,31 +507,43 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
         
-        // {"conv_2d_c4h1w4", "conv_2d_c4h1w2", "conv_2d_c4h1w1", "conv_2d_c8h1w1", };
-        const int total_kernel = 4;
-        std::string kernelName[total_kernel] = {"conv_2d_c4h1w4", "conv_2d_c4h1w2", "conv_2d_c4h1w1", "conv_2d_c8h1w1"};
-        int itemC[total_kernel] = {4, 4, 4, 8};
-        int itemW[total_kernel] = {4, 2, 1, 1};
+        // {"conv_2d_c4h1w2", "conv_2d_c4h1w1", "conv_2d_c8h1w1", "conv_2d_c4h1w4", "conv_2d_c8h2w1", "conv_2d_c4h4w1"};
+        const int total_kernel = 6;
+        std::string kernelName[total_kernel] = {"conv_2d_c4h1w1", "conv_2d_c4h1w2", "conv_2d_c4h4w1", "conv_2d_c8h2w1", "conv_2d_c8h4w1", "conv_2d_c4h1w4"};
+        int itemC[total_kernel] = {4, 4, 4, 8, 8, 4};
+        int itemH[total_kernel] = {1, 1, 4, 2, 4, 1};
+        int itemW[total_kernel] = {1, 2, 1, 1, 1, 4};
         
         
         int actual_kernel = total_kernel;
         if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Normal) {
             actual_kernel = 2;
-            kernelName[0] = "conv_2d_c4h1w4";
-            itemC[0]      = 4;
-            itemW[0]      = 4;
-
-            kernelName[1] = "conv_2d_c4h1w2";
-            itemC[1]      = 4;
-            itemW[1]      = 2;
-        } else if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Fast || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == None) {
+        } else if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Fast) {
             actual_kernel = 1;
-            
-            kernelName[0] = "conv_2d_c4h1w4";
-            itemC[0]      = 4;
-            itemW[0]      = 4;
+        }else if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Wide){
+            actual_kernel = 4;
+            auto gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
+            auto maliArType = mOpenCLBackend->getOpenCLRuntime()->getMaliAr();
+            if(gpuType == MNN::MALI && maliArType == MNN::VALHALL){
+                if(outputShape.at(3) <= 8){
+                    kernelName[3] = "conv_2d_c4h1w4";
+                    itemC[3]      = 4;
+                    itemH[3]      = 1;
+                    itemW[3]      = 4;
+                }else{
+                    kernelName[2] = "conv_2d_c8h2w1";
+                    itemC[2]      = 8;
+                    itemH[2]      = 2;
+                    itemW[2]      = 1;
+                                
+                    kernelName[3] = "conv_2d_c8h4w1";
+                    itemC[3]      = 8;
+                    itemH[3]      = 4;
+                    itemW[3]      = 1;
+                }
+            }
         }
-
+        
         cl::Kernel kernel[total_kernel];
         std::vector<uint32_t> globalWorkSize[total_kernel];
         std::vector<uint32_t> localWorkSize[total_kernel];
@@ -526,7 +552,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[knl_idx], mBuildOptions);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
             
-            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
+            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
             uint32_t idx            = 0;
             kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
             kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
@@ -544,10 +570,11 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
             kernel[knl_idx].setArg(idx++, UP_DIV(width, itemW[knl_idx]));
             kernel[knl_idx].setArg(idx++, UP_DIV(outChannel, 4));
+            kernel[knl_idx].setArg(idx++, UP_DIV(height, itemH[knl_idx]));
             
             std::pair<std::vector<uint32_t>, int> retTune;
-            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx], maxWorkGroupSize);
-            //printf("conv %d, %d\n", knl_idx, retTune.second);
+            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx] + info, maxWorkGroupSize);
+
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
                 min_cost.second = knl_idx;
@@ -576,8 +603,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
         mKernel.setArg(idx++, UP_DIV(width, itemW[min_index]));
         mKernel.setArg(idx++, UP_DIV(outChannel, 4));
-        
-        //printf("conv:%d pad:%d filter: %d, chw:%d %d %d, %d %d %d, gws:%d %d\n", min_index, mPaddings[0],  mKernelHeight, inputs[0]->channel(), inputs[0]->height(), inputs[0]->width(), outputs[0]->channel(), outputs[0]->height(), outputs[0]->width(), mGlobalWorkSize[0], mGlobalWorkSize[1]);
+        mKernel.setArg(idx++, UP_DIV(height, itemH[min_index]));
     }
     if (inputs.size() > 1) {
         backend()->onReleaseBuffer(mFilter.get(), Backend::DYNAMIC);
@@ -643,7 +669,7 @@ public:
             return new ConvBufExecution(inputs, outputs, op, backend);
         }
         auto conv2D = op->main_as_Convolution2D();
-        if (ConvBufWinograd::valid(conv2D->common(), inputs[0])) {
+        if (ConvBufWinograd::valid(conv2D->common(), inputs[0], outputs[0])) {
             return new ConvBufWinograd(conv2D, backend);
         }
         return new ConvBufExecution(inputs, outputs, op, backend);

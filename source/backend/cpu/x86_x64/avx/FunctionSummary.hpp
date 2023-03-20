@@ -63,7 +63,7 @@ void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t 
 void _AVX_ExtraInit(void* functions);
 void _AVX_WinogradInit(void* functions);
 
-void _AVX_MNNGelu(float *dst, const float *src, size_t size);
+void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters);
 void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
 
 void _AVX_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);

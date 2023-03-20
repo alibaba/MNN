@@ -69,6 +69,10 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     }
 
     int weightSize = param->weight.size();
+    // shared weights or sth else.
+    if (weightSize == 0) {
+        return;
+    }
     if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
         weightSize = param->symmetricQuan->weight.size();
     }

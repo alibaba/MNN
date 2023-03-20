@@ -69,55 +69,53 @@ __global__ void CONV_DW_INT8_(const int8_t* input,
         int iy = oy * sh - ph;
 
         int4 bias4 = ((int4 *)(bias + oz))[0];
-        float color0 = (float)bias4.x;
-        float color1 = (float)bias4.y;
-        float color2 = (float)bias4.z;
-        float color3 = (float)bias4.w;
+        int color0 = bias4.x;
+        int color1 = bias4.y;
+        int color2 = bias4.z;
+        int color3 = bias4.w;
 
         int fxSta = max(0, (UP_DIV(-ix, dw)));
         int fySta = max(0, (UP_DIV(-iy, dh)));
         int fxEnd = min(kw, UP_DIV(iw - ix, dw));
         int fyEnd = min(kh, UP_DIV(ih - iy, dh));
-        int fx, fy, fz;
-        for (fy=fySta; fy<fyEnd; ++fy) {
+        for (int fy=fySta; fy<fyEnd; ++fy) {
             int sy = fy*dh + iy;
-            for (fx=fxSta; fx<fxEnd; ++fx) {
+            for (int fx=fxSta; fx<fxEnd; ++fx) {
                 int sx = fx*dw + ix;
                 int src_offset = ((ob * ih + sy) * iw + sx) * c_p + oz;
 
                 char4 inp4 = ((char4 *)(input + src_offset))[0];
                 char4 ker4 = ((char4 *)(kernel + (fy * kw + fx) * c_p + oz))[0];;
 
-                color0 = color0 + (float)inp4.x * (float)ker4.x;
-                color1 = color1 + (float)inp4.y * (float)ker4.y;
-                color2 = color2 + (float)inp4.z * (float)ker4.z;
-                color3 = color3 + (float)inp4.w * (float)ker4.w;
+                color0 = color0 + (int)inp4.x * (int)ker4.x;
+                color1 = color1 + (int)inp4.y * (int)ker4.y;
+                color2 = color2 + (int)inp4.z * (int)ker4.z;
+                color3 = color3 + (int)inp4.w * (int)ker4.w;
 
             }
         }
 
         float4 scale4 = ((float4 *)(scale + oz))[0];
-        color0 = color0 * scale4.x;
-        color1 = color1 * scale4.y;
-        color2 = color2 * scale4.z;
-        color3 = color3 * scale4.w;
+        color0 = __float2int_rn((float)color0 * scale4.x);
+        color1 = __float2int_rn((float)color1 * scale4.y);
+        color2 = __float2int_rn((float)color2 * scale4.z);
+        color3 = __float2int_rn((float)color3 * scale4.w);
 
-        color0 = max(color0, (float)minV);
-        color0 = min(color0, (float)maxV);
+        color0 = max(color0, minV);
+        color0 = min(color0, maxV);
 
-        color1 = max(color1, (float)minV);
-        color1 = min(color1, (float)maxV);
+        color1 = max(color1, minV);
+        color1 = min(color1, maxV);
 
-        color2 = max(color2, (float)minV);
-        color2 = min(color2, (float)maxV);
+        color2 = max(color2, minV);
+        color2 = min(color2, maxV);
 
-        color3 = max(color3, (float)minV);
-        color3 = min(color3, (float)maxV);
+        color3 = max(color3, minV);
+        color3 = min(color3, maxV);
 
         int dst_offset = ((ob * oh + oy) * ow + ox) * c_p + oz;
 
-        char4 res = make_char4(__float2int_rn(color0), __float2int_rn(color1), __float2int_rn(color2), __float2int_rn(color3));
-        ((char4*)(output + dst_offset))[0] = res;
+        ((char4*)(output + dst_offset))[0] = make_char4((color0), (color1), (color2), (color3));
     }
 }
 
@@ -151,28 +149,29 @@ __global__ void CONV_DW3x3S1_INT8_OPT(const int8_t* input,
 ) {
 
     for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < total/8; index += blockDim.x * gridDim.x) {
-        int oz_4, tmp2, oy, ox_2, tmp1, ob;
-        d_oc.divmod(index, tmp1, oz_4);
-        d_ow.divmod(tmp1, tmp2, ox_2);
-        d_oh.divmod(tmp2, ob, oy);
+        int oz, ix, oy, ox, iy, ob;
+        d_oc.divmod(index, iy, oz);
+        d_ow.divmod(iy, ix, ox);
+        d_oh.divmod(ix, ob, oy);
         
-        int ox = ox_2 << 1;
-        int oz = oz_4 << 2;
-        int ix = ox - 1;
-        int iy = oy - 1;
+        ox = ox << 1;
+        oz = oz << 2;
+        ix = ox - 1;
+        iy = oy - 1;
 
         int4 bias4 = ((int4 *)(bias + oz))[0];
-        float color0_0 = (float)bias4.x;
-        float color0_1 = color0_0;
-        float color1_0 = (float)bias4.y;
-        float color1_1 = color1_0;
-        float color2_0 = (float)bias4.z;
-        float color2_1 = color2_0;
-        float color3_0 = (float)bias4.w;
-        float color3_1 = color3_0;
+        int color0_0 = (int)bias4.x;
+        int color0_1 = color0_0;
+        int color1_0 = (int)bias4.y;
+        int color1_1 = color1_0;
+        int color2_0 = (int)bias4.z;
+        int color2_1 = color2_0;
+        int color3_0 = (int)bias4.w;
+        int color3_1 = color3_0;
 
         char4 zero4 = make_char4(0, 0, 0, 0);
         char4 inp4[12], ker4[3][3];
+        #pragma unroll
         for(int j=0; j<3; j++) {
             if(iy < 0 && j==0) {
                 for(int i=0; i<4; i++) {
@@ -212,124 +211,91 @@ __global__ void CONV_DW3x3S1_INT8_OPT(const int8_t* input,
         }
 
         // 1st channel
-        char4 tmp0_inp4 = make_char4(inp4[0].x, inp4[1].x, inp4[2].x, inp4[4].x);
-        char4 tmp1_inp4 = make_char4(inp4[1].x, inp4[2].x, inp4[3].x, inp4[5].x);
         char4 tmp_ker4 = make_char4(ker4[0][0].x, ker4[0][1].x, ker4[0][2].x, ker4[1][0].x);
-        int32_t tmp0_res = vecDot(tmp0_inp4, tmp_ker4, 0);
-        int32_t tmp1_res = vecDot(tmp1_inp4, tmp_ker4, 0);
+        color0_0 += vecDot(make_char4(inp4[0].x, inp4[1].x, inp4[2].x, inp4[4].x), tmp_ker4, 0);
+        color0_1 += vecDot(make_char4(inp4[1].x, inp4[2].x, inp4[3].x, inp4[5].x), tmp_ker4, 0);
 
-        tmp0_inp4 = make_char4(inp4[5].x, inp4[6].x, inp4[8].x, inp4[9].x);
-        tmp1_inp4 = make_char4(inp4[6].x, inp4[7].x, inp4[9].x, inp4[10].x);
         tmp_ker4 = make_char4(ker4[1][1].x, ker4[1][2].x, ker4[2][0].x, ker4[2][1].x);
-        tmp0_res += vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res += vecDot(tmp1_inp4, tmp_ker4, 0);
+        color0_0 += vecDot(make_char4(inp4[5].x, inp4[6].x, inp4[8].x, inp4[9].x), tmp_ker4, 0);
+        color0_1 += vecDot(make_char4(inp4[6].x, inp4[7].x, inp4[9].x, inp4[10].x), tmp_ker4, 0);
 
-        tmp0_res += inp4[10].x * ker4[2][2].x;
-        tmp1_res += inp4[11].x * ker4[2][2].x;
-
-        color0_0 += (float)tmp0_res;
-        color0_1 += (float)tmp1_res;
+        color0_0 += inp4[10].x * ker4[2][2].x;
+        color0_1 += inp4[11].x * ker4[2][2].x;
 
         // 2nd channel
-        tmp0_inp4 = make_char4(inp4[0].y, inp4[1].y, inp4[2].y, inp4[4].y);
-        tmp1_inp4 = make_char4(inp4[1].y, inp4[2].y, inp4[3].y, inp4[5].y);
         tmp_ker4 = make_char4(ker4[0][0].y, ker4[0][1].y, ker4[0][2].y, ker4[1][0].y);
-        tmp0_res = vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res = vecDot(tmp1_inp4, tmp_ker4, 0);
+        color1_0 += vecDot(make_char4(inp4[0].y, inp4[1].y, inp4[2].y, inp4[4].y), tmp_ker4, 0);
+        color1_1 += vecDot(make_char4(inp4[1].y, inp4[2].y, inp4[3].y, inp4[5].y), tmp_ker4, 0);
 
-        tmp0_inp4 = make_char4(inp4[5].y, inp4[6].y, inp4[8].y, inp4[9].y);
-        tmp1_inp4 = make_char4(inp4[6].y, inp4[7].y, inp4[9].y, inp4[10].y);
         tmp_ker4 = make_char4(ker4[1][1].y, ker4[1][2].y, ker4[2][0].y, ker4[2][1].y);
-        tmp0_res += vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res += vecDot(tmp1_inp4, tmp_ker4, 0);
+        color1_0 += vecDot(make_char4(inp4[5].y, inp4[6].y, inp4[8].y, inp4[9].y), tmp_ker4, 0);
+        color1_1 += vecDot(make_char4(inp4[6].y, inp4[7].y, inp4[9].y, inp4[10].y), tmp_ker4, 0);
 
-        tmp0_res += inp4[10].y * ker4[2][2].y;
-        tmp1_res += inp4[11].y * ker4[2][2].y;
-
-        color1_0 += (float)tmp0_res;
-        color1_1 += (float)tmp1_res;
-
+        color1_0 += inp4[10].y * ker4[2][2].y;
+        color1_1 += inp4[11].y * ker4[2][2].y;
 
         // 3rd channel
-        tmp0_inp4 = make_char4(inp4[0].z, inp4[1].z, inp4[2].z, inp4[4].z);
-        tmp1_inp4 = make_char4(inp4[1].z, inp4[2].z, inp4[3].z, inp4[5].z);
         tmp_ker4 = make_char4(ker4[0][0].z, ker4[0][1].z, ker4[0][2].z, ker4[1][0].z);
-        tmp0_res = vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res = vecDot(tmp1_inp4, tmp_ker4, 0);
+        color2_0 += vecDot(make_char4(inp4[0].z, inp4[1].z, inp4[2].z, inp4[4].z), tmp_ker4, 0);
+        color2_1 += vecDot(make_char4(inp4[1].z, inp4[2].z, inp4[3].z, inp4[5].z), tmp_ker4, 0);
 
-        tmp0_inp4 = make_char4(inp4[5].z, inp4[6].z, inp4[8].z, inp4[9].z);
-        tmp1_inp4 = make_char4(inp4[6].z, inp4[7].z, inp4[9].z, inp4[10].z);
         tmp_ker4 = make_char4(ker4[1][1].z, ker4[1][2].z, ker4[2][0].z, ker4[2][1].z);
-        tmp0_res += vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res += vecDot(tmp1_inp4, tmp_ker4, 0);
+        color2_0 += vecDot(make_char4(inp4[5].z, inp4[6].z, inp4[8].z, inp4[9].z), tmp_ker4, 0);
+        color2_1 += vecDot(make_char4(inp4[6].z, inp4[7].z, inp4[9].z, inp4[10].z), tmp_ker4, 0);
 
-        tmp0_res += inp4[10].z * ker4[2][2].z;
-        tmp1_res += inp4[11].z * ker4[2][2].z;
-
-        color2_0 += (float)tmp0_res;
-        color2_1 += (float)tmp1_res;
-
+        color2_0 += inp4[10].z * ker4[2][2].z;
+        color2_1 += inp4[11].z * ker4[2][2].z;
 
         // 4th channel
-        tmp0_inp4 = make_char4(inp4[0].w, inp4[1].w, inp4[2].w, inp4[4].w);
-        tmp1_inp4 = make_char4(inp4[1].w, inp4[2].w, inp4[3].w, inp4[5].w);
         tmp_ker4 = make_char4(ker4[0][0].w, ker4[0][1].w, ker4[0][2].w, ker4[1][0].w);
-        tmp0_res = vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res = vecDot(tmp1_inp4, tmp_ker4, 0);
+        color3_0 += vecDot(make_char4(inp4[0].w, inp4[1].w, inp4[2].w, inp4[4].w), tmp_ker4, 0);
+        color3_1 += vecDot(make_char4(inp4[1].w, inp4[2].w, inp4[3].w, inp4[5].w), tmp_ker4, 0);
 
-        tmp0_inp4 = make_char4(inp4[5].w, inp4[6].w, inp4[8].w, inp4[9].w);
-        tmp1_inp4 = make_char4(inp4[6].w, inp4[7].w, inp4[9].w, inp4[10].w);
         tmp_ker4 = make_char4(ker4[1][1].w, ker4[1][2].w, ker4[2][0].w, ker4[2][1].w);
-        tmp0_res += vecDot(tmp0_inp4, tmp_ker4, 0);
-        tmp1_res += vecDot(tmp1_inp4, tmp_ker4, 0);
+        color3_0 += vecDot(make_char4(inp4[5].w, inp4[6].w, inp4[8].w, inp4[9].w), tmp_ker4, 0);
+        color3_1 += vecDot(make_char4(inp4[6].w, inp4[7].w, inp4[9].w, inp4[10].w), tmp_ker4, 0);
 
-        tmp0_res += inp4[10].w * ker4[2][2].w;
-        tmp1_res += inp4[11].w * ker4[2][2].w;
+        color3_0 += inp4[10].w * ker4[2][2].w;
+        color3_1 += inp4[11].w * ker4[2][2].w;
 
-        color3_0 += (float)tmp0_res;
-        color3_1 += (float)tmp1_res;
-
-
-
+        // Multiple scale
         float4 scale4 = ((float4 *)(scale + oz))[0];
-        color0_0 = color0_0 * scale4.x;
-        color0_1 = color0_1 * scale4.x;
+        color0_0 = __float2int_rn((float)color0_0 * scale4.x);
+        color0_1 = __float2int_rn((float)color0_1 * scale4.x);
 
-        color1_0 = color1_0 * scale4.y;
-        color1_1 = color1_1 * scale4.y;
+        color1_0 = __float2int_rn((float)color1_0 * scale4.y);
+        color1_1 = __float2int_rn((float)color1_1 * scale4.y);
 
-        color2_0 = color2_0 * scale4.z;
-        color2_1 = color2_1 * scale4.z;
+        color2_0 = __float2int_rn((float)color2_0 * scale4.z);
+        color2_1 = __float2int_rn((float)color2_1 * scale4.z);
 
-        color3_0 = color3_0 * scale4.w;
-        color3_1 = color3_1 * scale4.w;
+        color3_0 = __float2int_rn((float)color3_0 * scale4.w);
+        color3_1 = __float2int_rn((float)color3_1 * scale4.w);
 
-        color0_0 = max(color0_0, (float)minV);
-        color0_0 = min(color0_0, (float)maxV);
-        color0_1 = max(color0_1, (float)minV);
-        color0_1 = min(color0_1, (float)maxV);
+        // Clamp
+        color0_0 = max(color0_0, minV);
+        color0_0 = min(color0_0, maxV);
+        color0_1 = max(color0_1, minV);
+        color0_1 = min(color0_1, maxV);
 
-        color1_0 = max(color1_0, (float)minV);
-        color1_0 = min(color1_0, (float)maxV);
-        color1_1 = max(color1_1, (float)minV);
-        color1_1 = min(color1_1, (float)maxV);
+        color1_0 = max(color1_0, minV);
+        color1_0 = min(color1_0, maxV);
+        color1_1 = max(color1_1, minV);
+        color1_1 = min(color1_1, maxV);
 
-        color2_0 = max(color2_0, (float)minV);
-        color2_0 = min(color2_0, (float)maxV);
-        color2_1 = max(color2_1, (float)minV);
-        color2_1 = min(color2_1, (float)maxV);
+        color2_0 = max(color2_0, minV);
+        color2_0 = min(color2_0, maxV);
+        color2_1 = max(color2_1, minV);
+        color2_1 = min(color2_1, maxV);
 
-        color3_0 = max(color3_0, (float)minV);
-        color3_0 = min(color3_0, (float)maxV);
-        color3_1 = max(color3_1, (float)minV);
-        color3_1 = min(color3_1, (float)maxV);
+        color3_0 = max(color3_0, minV);
+        color3_0 = min(color3_0, maxV);
+        color3_1 = max(color3_1, minV);
+        color3_1 = min(color3_1, maxV);
         int dst_offset = ((ob * oh + oy) * ow + ox) * c_p + oz;
 
-        char4 res0 = make_char4(__float2int_rn(color0_0), __float2int_rn(color1_0), __float2int_rn(color2_0), __float2int_rn(color3_0));
-        char4 res1 = make_char4(__float2int_rn(color0_1), __float2int_rn(color1_1), __float2int_rn(color2_1), __float2int_rn(color3_1));
-
-        ((char4*)(output + dst_offset))[0] = res0;
-        ((char4*)(output + dst_offset + c_p))[0] = res1;
+        ((char4*)(output + dst_offset))[0] = make_char4((color0_0), (color1_0), (color2_0), (color3_0));
+        ((char4*)(output + dst_offset + c_p))[0] = make_char4((color0_1), (color1_1), (color2_1), (color3_1));
 
     }
 }
@@ -419,7 +385,7 @@ ErrorCode DepthwiseConvInt8Execution::onExecute(const std::vector<Tensor*>& inpu
     const auto scalePtr    = mResource->mScaleFloatPtr;
 
     int limitThreads = UP_DIV(total, prop.multiProcessorCount);
-    int threads_num = ALIMIN(prop.maxThreadsPerBlock/2, limitThreads);
+    int threads_num = ALIMIN(prop.maxThreadsPerBlock / 2, limitThreads);
     int block_num = prop.multiProcessorCount;
 
     DivModFast d_oc(c_p / 4);
@@ -438,6 +404,9 @@ ErrorCode DepthwiseConvInt8Execution::onExecute(const std::vector<Tensor*>& inpu
         checkKernelErrors;
         return NO_ERROR;
     }
+
+    block_num = runtime->blocks_num(total);
+    threads_num = runtime->threads_num();
 
     CONV_DW_INT8_<<<block_num, threads_num>>>((const int8_t*)inputs[0]->deviceId(), (const int8_t*)weightPtr,
         (const int32_t*)biasPtr, (const float*)scalePtr, (int8_t*)outputs[0]->deviceId(),

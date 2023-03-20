@@ -162,6 +162,9 @@ static bool _equalSizeStride(const Tensor::InsideDescribe::Region& slice0, const
         //MNN_PRINT("Raster total:%d, index:%d, copy size:%d-%d-%d, %d-%d-%d\n", mTempInputCopy.size(), i, slice.size[0], slice.size[1], slice.size[2], slice0.size[0], slice0.size[1], slice0.size[2]);
         return false;
     }
+    if (slice0.dst.stride[0] !=0 && slice0.src.stride[0] != 0 && slice0.src.stride[0] % slice0.dst.stride[0] != 0 && slice0.dst.stride[0] % slice0.src.stride[0] != 0) {
+        return false;
+    }
     return true;
 }
 
@@ -172,26 +175,38 @@ static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Te
     if(slice1.size[1] % PACK_NUMBER != 0 || slice1.size[0] != 1) {
         return false;
     }
-    if(slice0.dst.offset % (slice0.size[1] * slice0.size[0]) != 0) {
+    if(slice0.dst.offset % (slice0.size[1] * slice0.size[2]) != 0) {
         return false;
     }
-    if(slice1.dst.offset % (slice1.size[1] * slice1.size[0]) != 0) {
+    if(slice1.dst.offset % (slice1.size[1] * slice1.size[2]) != 0) {
+        return false;
+    }
+    if(slice0.src.offset % (slice0.size[1] * slice0.size[2]) != 0) {
+        return false;
+    }
+    if(slice1.src.offset % (slice1.size[1] * slice1.size[2]) != 0) {
+        return false;
+    }
+    if(slice0.src.stride[2] != 1 || slice0.dst.stride[2] != 1) {
+        return false;
+    }
+    if(slice1.src.stride[2] != 1 || slice1.dst.stride[2] != 1) {
         return false;
     }
     return _equalSizeStride(slice0, slice1); 
 }
 
-static void _turnToNewRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& newRegion, int multiStride) {
+static void _turnToNewRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& newRegion, const int srcStep, const int dstStep) {
     newRegion.size[0] = region.size[0];
     newRegion.size[1] = region.size[2];
     newRegion.size[2] = region.size[1];
 
     newRegion.src.stride[0] = region.src.stride[0];
-    newRegion.src.stride[1] = region.src.stride[2] * region.size[1];
+    newRegion.src.stride[1] = region.src.stride[2] * region.size[1] * srcStep;
     newRegion.src.stride[2] = region.src.stride[1] / region.size[2];
 
-    newRegion.dst.stride[0] = region.dst.stride[0] * multiStride;
-    newRegion.dst.stride[1] = region.dst.stride[2] * region.size[1] * multiStride;
+    newRegion.dst.stride[0] = region.dst.stride[0] * dstStep;
+    newRegion.dst.stride[1] = region.dst.stride[2] * region.size[1] * dstStep;
     newRegion.dst.stride[2] = region.dst.stride[1] / region.size[2];
 
     newRegion.src.offset = region.src.offset / region.size[2];
@@ -221,7 +236,8 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         auto& slice0 = des->regions[0];
         for (int i=0; i< des->regions.size(); ++i) {
             auto& slice = des->regions[i];
-            //MNN_PRINT("%d-%d-%d, %d-%d-%d-%d\n", slice.size[0], slice.size[1], slice.size[2], slice.src.stride[1], slice.src.stride[2], slice.dst.stride[1], slice.dst.stride[2]);
+            // MNN_PRINT("%d-%d-%d-%d-%d\n", ____inputs[0]->batch(), ____inputs[0]->height(), ____inputs[0]->width(), ____inputs[0]->channel(), outputs[0]->channel());
+            // MNN_PRINT("%d-%d-%d, %d-%d-%d, %d-%d-%d, %d-%d\n\n", slice.size[0], slice.size[1], slice.size[2], slice.src.stride[0], slice.src.stride[1], slice.src.stride[2], slice.dst.stride[0], slice.dst.stride[1], slice.dst.stride[2],  slice.src.offset,  slice.dst.offset);
             if (TensorUtils::getDescribe(slice.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
                 mFast = false;
                 break;
@@ -235,24 +251,40 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
                 break;
             }
         }
-        //MNN_PRINT("raster fast:%d\n", mFast);
+        // MNN_PRINT("raster fast:%d regionNum:%d\n\n\n", mFast, des->regions.size());
         if (mFast) {
-            int multiStride = 1;
+            int srcStep = 1;
+            int dstStep = 1;
             for (int i=0; i< des->regions.size(); ++i) {
-                auto& slice = des->regions[i];
-                if(slice.dst.offset / (slice.size[0] * slice.size[1]) >= 1) {
+                 auto& slice = des->regions[i];
+                if(slice.dst.offset / (slice.size[2] * slice.size[1]) >= 1) {
                     int batchChannel = slice.dst.offset / (slice.size[1] * slice.size[2]) + 1;
-                    multiStride = multiStride > batchChannel ? multiStride : batchChannel;
+                    dstStep = dstStep > batchChannel ? dstStep : batchChannel;
+                }
+                if(slice.src.stride[0] != 0 && slice.dst.stride[0] / slice.src.stride[0] > 1) {
+                    int tmp = slice.dst.stride[0] / slice.src.stride[0];
+                    dstStep = dstStep > tmp ? dstStep : tmp;
+                }
+                if(slice.src.offset / (slice.size[2] * slice.size[1]) >= 1) {
+                    int batchChannel = slice.src.offset / (slice.size[1] * slice.size[2]) + 1;
+                    srcStep = srcStep > batchChannel ? srcStep : batchChannel;
+                }
+                if(slice.dst.stride[0] != 0 && slice.src.stride[0] / slice.dst.stride[0] > 1) {
+                    int tmp = slice.src.stride[0] / slice.dst.stride[0];
+                    srcStep = srcStep > tmp ? srcStep : tmp;
                 }
             }
+
             for (int i=0; i< des->regions.size(); ++i) {
                 auto& slice = des->regions[i];
                 if (slice.origin == nullptr) {
                     continue;
                 }
                 Tensor::InsideDescribe::Region newRegion;
-                _turnToNewRegion(slice, newRegion, multiStride);
+                // [N, C, HW] --> [N, HW, C]
+                _turnToNewRegion(slice, newRegion, srcStep, dstStep);
                 mFastBlit.emplace_back(std::make_pair(slice.origin, std::move(newRegion)));
+                // MNN_PRINT("new step %d-%d:%d-%d-%d, %d-%d-%d, %d-%d-%d, %d-%d\n\n", srcStep, dstStep, newRegion.size[0], newRegion.size[1], newRegion.size[2], newRegion.src.stride[0], newRegion.src.stride[1], newRegion.src.stride[2], newRegion.dst.stride[0], newRegion.dst.stride[1], newRegion.dst.stride[2],  newRegion.src.offset,  newRegion.dst.offset);
             }
             return NO_ERROR;
         }

@@ -1635,6 +1635,38 @@ static PyObject* PyMNNExpr_detection_post_process(PyObject *self, PyObject *args
     }
     PyMNN_ERROR("detection_post_process require args: (Var, Var, Var, int, int, int, int, float, float, bool, [float])");
 }
+static PyObject* PyMNNExpr_roi_pooling(PyObject *self, PyObject *args) {
+    PyObject *input, *roi;
+    int pooledHeight, pooledWidth;
+    float spatialScale;
+    int outputGrad = 0;
+    PyObject *backwardDiff = nullptr;
+    if (PyArg_ParseTuple(args, "OOiifpO", &input, &roi, &pooledHeight, &pooledWidth,
+        &spatialScale, &outputGrad, &backwardDiff) && isVar(input) && isVar(roi) && isVar(backwardDiff)) {
+        auto res = Express::_ROIPooling(toVar(input), toVar(roi), pooledHeight, pooledWidth, spatialScale, outputGrad, toVar(backwardDiff));
+        return toPyObj(res);
+    }
+    PyMNN_ERROR("roi_pooling require args: (Var, Var, int, int, float, [bool, Var])");
+}
+static PyObject* PyMNNExpr_roi_align(PyObject *self, PyObject *args) {
+    PyObject *input, *roi;
+    int pooledHeight, pooledWidth;
+    float spatialScale;
+    int samplingRatio;
+    int aligned;
+    PyObject *poolType;
+    int outputGrad = 0;
+    PyObject *backwardDiff = nullptr;
+    if (PyArg_ParseTuple(args, "OOiifipOpO", &input, &roi, &pooledHeight, &pooledWidth,
+        &spatialScale, &samplingRatio, &aligned, &poolType, &outputGrad, &backwardDiff)
+        && isVar(input) && isVar(roi) && isPooling_Mode(poolType) && isVar(backwardDiff)) {
+        auto res = Express::_ROIAlign(toVar(input), toVar(roi), pooledHeight, pooledWidth, spatialScale,
+                                    samplingRatio, aligned, toEnum<PoolingMode>(poolType),
+                                    outputGrad, toVar(backwardDiff));
+        return toPyObj(res);
+    }
+    PyMNN_ERROR("roi_align require args: (Var, Var, int, int, float, int, bool, PoolingMode, [bool, Var])");
+}
 static PyMethodDef PyMNNExpr_methods[] = {
     register_methods_kw(Expr,
         const, "build const var."
@@ -1803,7 +1835,9 @@ static PyMethodDef PyMNNExpr_methods[] = {
         sort, "build sort expr",
         raster, "build raster expr",
         nms, "build nms expr",
-        detection_post_process, "build detection_post_process expr"
+        detection_post_process, "build detection_post_process expr",
+        roi_pooling, "build roi_pooling expr",
+        roi_align, "build roi_align expr"
     )
 };
 // Expr Module End

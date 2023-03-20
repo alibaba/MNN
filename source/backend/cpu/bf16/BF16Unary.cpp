@@ -5,6 +5,10 @@
 #include "math/Vec.hpp"
 #include "backend/cpu/UnaryUtils.hpp"
 #include "BF16Backend.hpp"
+
+extern "C" {
+    void NEON_MNNGelu_BF16(int16_t* dst, const int16_t* src, size_t size, float* parameters);
+}
 namespace MNN {
 
 using Vec4Half = MNN::Math::VecHalf<4>;
@@ -132,6 +136,26 @@ struct _HardSwish {
     }
 };
 
+void BF16GELU (void* OutRaw, const void* inpRaw, int realSize) {
+    auto out = (int16_t*)OutRaw;
+    auto inp = (const int16_t*)inpRaw;
+    int sizeQuad = realSize / 8;
+    int start = 0;
+    float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
+    if (sizeQuad > 0) {     
+        NEON_MNNGelu_BF16(out, inp, sizeQuad, parameters);
+        start = sizeQuad * 8;
+    }
+    int16_t tempInp[8];
+    for (int i = start; i < realSize; i++) {
+        tempInp[i-start] = inp[i];
+    }
+    NEON_MNNGelu_BF16(tempInp, tempInp, 1, parameters);
+    for (int i = start; i < realSize; i++) {
+        out[i] = tempInp[i-start]; 
+    }
+}
+
 template <typename Func, typename T>
 struct _Unary {
     void operator()(void* outputPtr, const void* inputPtr, int elementSize) const {
@@ -210,6 +234,8 @@ MNNUnaryExecute BF16UnaryFloatSelect(int type, int precision) {
             return _Wrap<_Unary<UnaryAcos<float>, float>>;
         case UnaryOpOperation_HARDSWISH:
             return _Wrap<_HardSwish>;
+        case UnaryOpOperation_GELU:
+            return BF16GELU;
         default:
             MNN_ASSERT(false);
             break;

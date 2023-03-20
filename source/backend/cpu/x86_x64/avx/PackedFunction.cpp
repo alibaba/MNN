@@ -279,8 +279,8 @@ void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, siz
         __m256i mask;
         if (areaRemain > PACK_UNIT / 2) {
             for (int i = 0; i < areaRemain - PACK_UNIT / 2; ++i) {
-                flag[2 * i] = -0.f;
-                flag[2 * i + 1] = -0.f;
+                flag[2 * i] = -0.1f;
+                flag[2 * i + 1] = -0.1f;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 grid0 = _mm256_loadu_ps(src);
@@ -296,8 +296,8 @@ void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, siz
             _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
         } else {
             for (int i = 0; i < areaRemain; ++i) {
-                flag[2 * i] = -0.f;
-                flag[2 * i + 1] = -0.f;
+                flag[2 * i] = -0.1f;
+                flag[2 * i + 1] = -0.1f;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 grid0 = _mm256_maskload_ps(src, mask);
@@ -470,7 +470,7 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
         __m256i mask;
         if (areaRemain < 3) {
             for (int i = 0; i < areaRemain * 3; i++) {
-                flag[i] = -0.f;
+                flag[i] = -0.1f;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 cord0 = _mm256_loadu_ps(src);
@@ -478,7 +478,7 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
             _mm256_maskstore_ps(dst, mask, cord0);
         } else if (areaRemain < 6) {
             for (int i = 0; i < areaRemain * 3 - 8; i++) {
-                flag[i] = -0.f;;
+                flag[i] = -0.1f;;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 cord0 = _mm256_loadu_ps(src);
@@ -489,7 +489,7 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
             _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
         } else {
             for (int i = 0; i < areaRemain * 3 - 16; i++) {
-                flag[i] = -0.f;;
+                flag[i] = -0.1f;;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 cord0 = _mm256_loadu_ps(src);

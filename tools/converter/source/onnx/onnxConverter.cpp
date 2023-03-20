@@ -7,6 +7,7 @@
 //
 
 #include <iostream>
+#include <queue>
 
 #include "MNN_generated.h"
 #include "OnnxUtils.hpp"
@@ -19,6 +20,58 @@
 #include "onnx.pb.h"
 #include "onnxConverter.hpp"
 #include "onnxOpConverter.hpp"
+
+std::vector<int> topoSort(const ::onnx::GraphProto& onnxGraph) {
+    std::vector<int> idxMap;
+    const int nodeCount   = onnxGraph.node_size();
+    std::map<std::string, int> outputMap;
+    std::map<int, std::vector<int>> graph; // key --[in]--> values
+    std::vector<int> inDegree(nodeCount);
+    // build Graph and inDegree
+    for (int i = 0; i < nodeCount; ++i) {
+        const auto& onnxNode = onnxGraph.node(i);
+        if (onnxNode.op_type() == "Loop" || onnxNode.op_type() == "If") {
+            return idxMap;
+        }
+        for (int k = 0; k < onnxNode.output_size(); k++) {
+            outputMap.insert(std::make_pair(onnxNode.output(k), i));
+        }
+    }
+    for (int i = 0; i < nodeCount; ++i) {
+        const auto& onnxNode = onnxGraph.node(i);
+        for (int k = 0; k < onnxNode.input_size(); k++) {
+            auto inputName = onnxNode.input(k);
+            auto iter = outputMap.find(inputName);
+            if (iter != outputMap.end()) {
+                graph[iter->second].push_back(i);
+            }
+        }
+    }
+    for (auto node : graph) {
+        for (auto output : node.second) {
+            inDegree[output]++;
+        }
+    }
+    // topo sort
+    std::queue<int> validNode;
+    for (int i = 0; i < nodeCount; i++) {
+        if (!inDegree[i]) {
+            validNode.push(i);
+        }
+    }
+    while (!validNode.empty()) {
+        int node = validNode.front();
+        validNode.pop();
+        idxMap.push_back(node);
+        for (auto succ : graph[node]) {
+            if (--inDegree[succ] == 0) {
+                validNode.push(succ);
+            }
+        }
+    }
+    MNN_ASSERT(idxMap.size() == nodeCount);
+    return idxMap;
+}
 
 int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 std::unique_ptr<MNN::NetT>& netT) {
@@ -62,7 +115,12 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             const int inputDimSize = tensorInfo.shape().dim_size();
             inputParam->dims.resize(inputDimSize);
             for (int i = 0; i < inputDimSize; ++i) {
-                inputParam->dims[i] = tensorInfo.shape().dim(i).dim_value();
+                const auto& dim = tensorInfo.shape().dim(i);
+                if (dim.has_dim_value()) {
+                    inputParam->dims[i] = static_cast<int32_t>(dim.dim_value());
+                } else {
+                    inputParam->dims[i] = -1;
+                }
             }
             inputParam->dtype   = onnxOpConverter::convertDataType(tensorInfo.elem_type());
             inputParam->dformat = MNN::MNN_DATA_FORMAT_NCHW;
@@ -72,8 +130,12 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         }
     }
 
+    // onnx model not all topo sort graph, sort it
+    std::vector<int> idxMap = topoSort(onnxGraph);
+
     // onnx node ==> MNN node
-    for (int i = 0; i < nodeCount; ++i) {
+    for (int idx = 0; idx < nodeCount; ++idx) {
+        int i = idxMap.size() == nodeCount ? idxMap[idx] : idx;
         const auto& onnxNode = onnxGraph.node(i);
         const auto& opType   = onnxNode.op_type();
 
@@ -101,6 +163,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 netT->oplists.emplace_back(constOp);
             }
         }
+
         // build input and output
         for (int k = 0; k < onnxNode.input_size(); k++) {
             int inputIdx = scope->lookupTensor(onnxNode.input(k));

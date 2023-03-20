@@ -14,20 +14,49 @@ __global__ void INT8_2_FLOAT(const int total,
     const int8_t* in, 
     T* out,
     const float* scaleData, 
-    const bool isSingle,
-    const int8_t zeroPoint
+    const int8_t zeroPoint,
+    DivModFast d_cp
 ) {
     CUDA_KERNEL_LOOP(index, total) {
-        int nhw_idx = index / channelsPackFloat;
-        int c_idx = index % channelsPackFloat;
-        if(c_idx >= channels) {
-            out[index] = (T)0.0f;
-            continue;
-        }
-        float scale = isSingle ? scaleData[0] : scaleData[c_idx];
+        int nhw_idx, c_idx;
+        d_cp.divmod(index, nhw_idx, c_idx);
 
-        int idx_inp = nhw_idx * channelsPackInt8 + c_idx;
-        out[index] = (T)((in[idx_inp] - zeroPoint) * scale);
+        int idx_inp = nhw_idx * channelsPackInt8 + 4*c_idx;
+        char4 inp_0 = ((char4 *)(in + idx_inp))[0];
+        float4 scale_0 = ((float4 *)(scaleData + (c_idx << 2)))[0];
+
+        const int idx_out = index << 2;
+        
+        out[idx_out+0] = (T)((inp_0.x - zeroPoint) * scale_0.x);
+        out[idx_out+1] = (T)((inp_0.y - zeroPoint) * scale_0.y);
+        out[idx_out+2] = (T)((inp_0.z - zeroPoint) * scale_0.z);
+        out[idx_out+3] = (T)((inp_0.w - zeroPoint) * scale_0.w);
+    }
+}
+
+template<typename T>
+__global__ void INT8_2_FLOAT_SINGLE(const int total,
+    const int channelsPackInt8,
+    const int channelsPackFloat,
+    const int channels, 
+    const int8_t* in, 
+    T* out,
+    const float scaleData, 
+    const int8_t zeroPoint,
+    DivModFast d_cp
+) {
+    CUDA_KERNEL_LOOP(index, total) {
+        int nhw_idx, c_idx;
+        d_cp.divmod(index, nhw_idx, c_idx);
+
+        int idx_inp = nhw_idx * channelsPackInt8 + 4*c_idx;
+        char4 inp_0 = ((char4 *)(in + idx_inp))[0];
+
+        const int idx_out = index << 2;
+        out[idx_out+0] = (T)((inp_0.x - zeroPoint) * scaleData);
+        out[idx_out+1] = (T)((inp_0.y - zeroPoint) * scaleData);
+        out[idx_out+2] = (T)((inp_0.z - zeroPoint) * scaleData);
+        out[idx_out+3] = (T)((inp_0.w - zeroPoint) * scaleData);
     }
 }
 
@@ -40,25 +69,21 @@ Int8ToFloatExecution::Int8ToFloatExecution(Backend *backend, const std::vector<T
         mZeroPoint = quantAttr->zero;
 
         mSingle = true;
-        auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-        mScaleStorage = staticPool->alloc(PACK_NUMBER * sizeof(float));
-        mScales = (void*)mScaleStorage.first + mScaleStorage.second;
-        float tensorScale = quantAttr->scale;
-        runtime->memcpy(mScales, &tensorScale, 1 * sizeof(float), MNNMemcpyHostToDevice);
-
+        mSingleScale = quantAttr->scale;
     } else {
         const int scaleLen = scale->tensorScale()->size();
         mClipBits = scale->nbits();
 
-        auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-        mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
-        mScales = (void*)mScaleStorage.first + mScaleStorage.second;
-        runtime->memset(mScales, 0, UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
-
         if (1 == scaleLen) {
             mSingle = true;
-            runtime->memcpy(mScales, scale->tensorScale()->data(), 1 * sizeof(float), MNNMemcpyHostToDevice);
+            mSingleScale = scale->tensorScale()->data()[0];
         } else {
+
+            auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+            mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
+            mScales = (void*)mScaleStorage.first + mScaleStorage.second;
+            runtime->memset(mScales, 0, UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
+
             runtime->memcpy(mScales, scale->tensorScale()->data(), scaleLen * sizeof(float), MNNMemcpyHostToDevice);
         }
 
@@ -66,8 +91,10 @@ Int8ToFloatExecution::Int8ToFloatExecution(Backend *backend, const std::vector<T
     }
 }
 Int8ToFloatExecution::~Int8ToFloatExecution() {
-    auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
-    staticPool->free(mScaleStorage);
+    if(!mSingle) {
+        auto staticPool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+        staticPool->free(mScaleStorage);
+    }
 }
 
 ErrorCode Int8ToFloatExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -79,7 +106,8 @@ ErrorCode Int8ToFloatExecution::onResize(const std::vector<Tensor *> &inputs, co
     for (int i = 2; i < input->dimensions(); ++i) {
         mArea *= input->length(i);
     }
-    mCount = mArea * UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER;
+    mCount = mArea * UP_DIV(mChannel, PACK_NUMBER) * 2;
+    // printf("Int8_2_Float size:%d-%d-%d\n\n", mArea, mChannel, mCount);
     return NO_ERROR;
 }
 
@@ -92,16 +120,29 @@ ErrorCode Int8ToFloatExecution::onExecute(const std::vector<Tensor *> &inputs, c
     auto output_addr = (void*)outputs[0]->deviceId();
 
     auto channelPackInt8 = UP_DIV(mChannel, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
-    auto channelPackFloat = UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER;
+    auto channelPackFloat = UP_DIV(mChannel, PACK_NUMBER) * 2;
+    DivModFast cpD(channelPackFloat);
 
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        INT8_2_FLOAT<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (half *)output_addr,\
-            (const float *)mScales, mSingle, mZeroPoint);
-        checkKernelErrors;
+        if(mSingle) {
+            INT8_2_FLOAT_SINGLE<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (half *)output_addr,\
+                mSingleScale, mZeroPoint, cpD);
+            checkKernelErrors;  
+        } else {
+            INT8_2_FLOAT<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (half *)output_addr,\
+                (const float *)mScales, mZeroPoint, cpD);
+            checkKernelErrors;  
+        }
     } else {
-        INT8_2_FLOAT<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (float *)output_addr,\
-            (const float *)mScales, mSingle, mZeroPoint);
-        checkKernelErrors;
+        if(mSingle) {
+            INT8_2_FLOAT_SINGLE<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (float *)output_addr,\
+                mSingleScale, mZeroPoint, cpD);
+            checkKernelErrors;
+        } else {
+            INT8_2_FLOAT<<<block_num, threads_num>>>(mCount, channelPackInt8, channelPackFloat, mChannel, (const int8_t *)input_addr, (float *)output_addr,\
+                (const float *)mScales, mZeroPoint, cpD);
+            checkKernelErrors;
+        }
     }
 
     return NO_ERROR;

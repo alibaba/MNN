@@ -9,16 +9,17 @@
 #include "FunctionSummary.hpp"
 #include <math.h>
 
-void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size) {
-    auto var1 = _mm256_set1_ps(0.044715f);
-    auto var2 = _mm256_set1_ps(0.79788458f);
-    auto var3 = _mm256_set1_ps(378.f);
-    auto var4 = _mm256_set1_ps(17325.f);
-    auto var5 = _mm256_set1_ps(135135.f);
-    auto var6 = _mm256_set1_ps(28.f);
-    auto var7 = _mm256_set1_ps(3150.f);
-    auto var8 = _mm256_set1_ps(62370.f);
-    auto var9 = _mm256_set1_ps(135135.f);
+void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size, float* parameters) {
+    // parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
+    auto var1 = _mm256_set1_ps(parameters[0]);
+    auto var2 = _mm256_set1_ps(parameters[1]);
+    auto var3 = _mm256_set1_ps(parameters[2]);
+    auto var4 = _mm256_set1_ps(parameters[3]);
+    auto var5 = _mm256_set1_ps(parameters[4]);
+    auto var6 = _mm256_set1_ps(parameters[5]);
+    auto var7 = _mm256_set1_ps(parameters[6]);
+    auto var8 = _mm256_set1_ps(parameters[7]);
+    auto var9 = _mm256_set1_ps(parameters[4]);
     auto var10 = _mm256_set1_ps(0.5);
     auto varOne = _mm256_set1_ps(1.f);
     auto varNegOne = _mm256_set1_ps(-1.f);

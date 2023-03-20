@@ -70,6 +70,20 @@ public:
             }
         }
 
+        for (int i = 0; i < 2; i++) {
+            int inputDims = inputs[i]->getInfo()->dim.size();
+            int resDims = res[i]->getInfo()->dim.size();
+            MNN_ASSERT(resDims >= inputDims);
+
+            std::vector<int> reduceDims;
+            if (resDims > inputDims) {
+                for (int j = 0; j < (resDims - inputDims); j++) {
+                    reduceDims.push_back(j);
+                }
+                res[i] = _ReduceSum(res[i], reduceDims, false);
+            }
+        }
+
         return res;
     }
 };
@@ -187,6 +201,20 @@ public:
                 newOp->main.AsMatMul()->transposeB = true;
                 auto expr                          = Expr::create(std::move(newOp), {outputDiff, inputs[0]});
                 res[1]                             = Variable::create(expr);
+            }
+        }
+
+        for (int i = 0; i < 2; i++) {
+            int inputDims = inputs[i]->getInfo()->dim.size();
+            int resDims = res[i]->getInfo()->dim.size();
+            MNN_ASSERT(resDims >= inputDims);
+
+            std::vector<int> reduceDims;
+            if (resDims > inputDims) {
+                for (int j = 0; j < (resDims - inputDims); j++) {
+                    reduceDims.push_back(j);
+                }
+                res[i] = _ReduceSum(res[i], reduceDims, false);
             }
         }
 

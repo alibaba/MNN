@@ -107,7 +107,7 @@ struct ScheduleConfig {
 };
 ```
 
-推理时，主选后端由`type`指定，默认为CPU。在主选后端不支持模型中的算子时，启用由`backupType`指定的备选后端。
+推理时，主选后端由`type`指定，默认为CPU。若模型中存在主选后端不支持的算子，这些算子会使用由`backupType`指定的备选后端运行。
 
 推理路径包括由`path`的`inputs`到`outputs`途径的所有算子，在不指定时，会根据模型结构自动识别。为了节约内存，MNN会复用`outputs`之外的tensor内存。如果需要保留中间tensor的结果，可以使用`saveTensors`保留tensor结果，避免内存复用。
 

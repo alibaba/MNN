@@ -47,29 +47,27 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             mDeviceName = deviceName;
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
-            static std::map<std::string, float> gFlopsMap {
-                {"Mali-T860", 6.83f},
-                {"Mali-T880", 6.83f},
-                {"Mali-G51", 6.83f},
-                {"Mali-G52", 6.83f},
-                {"Mali-G71", 31.61f},
-                {"Mali-G72", 31.61f},
-                {"Mali-G76", 31.61f},
-                {"Adreno (TM) 505", 3.19f},
-                {"Adreno (TM) 506", 4.74f},
-                {"Adreno (TM) 512", 14.23f},
-                {"Adreno (TM) 530", 25.40f},
-                {"Adreno (TM) 540", 42.74f},
-                {"Adreno (TM) 615", 16.77f},
-                {"Adreno (TM) 616", 18.77f},
-                {"Adreno (TM) 618", 18.77f},
-                {"Adreno (TM) 630", 42.74f},
-                {"Adreno (TM) 640", 42.74f},
+            std::map<std::string, MNN::MaliAr> maliArMap {
+                {"Mali-T860", MIDGARD},
+                {"Mali-T880", MIDGARD},
+                {"Mali-G31", BIFROST},
+                {"Mali-G51", BIFROST},
+                {"Mali-G52", BIFROST},
+                {"Mali-G71", BIFROST},
+                {"Mali-G72", BIFROST},
+                {"Mali-G76", BIFROST},
+                {"Mali-G57", VALHALL},
+                {"Mali-G68", VALHALL},
+                {"Mali-G77", VALHALL},
+                {"Mali-G78", VALHALL},
+                {"Mali-G310", VALHALL},
+                {"Mali-G510", VALHALL},
+                {"Mali-G610", VALHALL},
+                {"Mali-G615", VALHALL},
+                {"Mali-G710", VALHALL},
+                {"Mali-G715", VALHALL},
             };
         
-            if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
-                mFlops = gFlopsMap[deviceName];
-            }
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
             cl_command_queue_properties properties = 0;
 
@@ -114,6 +112,11 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 }
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
+                if(maliArMap.find(deviceName) != maliArMap.end()){
+                    mMaliAr = maliArMap[deviceName];
+                }else{
+                    mMaliAr = VALHALL;
+                }
             } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
                 // Radeon series GPU is main product of Advanced Micro Devices (AMD)
                 mGpuType = RADEON;

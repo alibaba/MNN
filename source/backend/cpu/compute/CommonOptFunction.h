@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/Macro.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 
 extern "C" {
 
@@ -26,7 +27,7 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
 
 void MNNHardSwish(float* dst, const float* src, size_t size);
 
-void MNNGelu(float* dst, const float* src, size_t size);
+void MNNGelu(float* dst, const float* src, size_t size, float* parameters);
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);

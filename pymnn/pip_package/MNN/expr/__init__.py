@@ -3250,4 +3250,98 @@ def nms(boxes, scores, max_detections, iou_threshold=-1.0, score_threshold=-1.0)
         return _F.const([], [0], NCHW, _F.int)
     return res[idx]
 # TODO: detection_post_process
+def roi_pooling(input, roi, pooled_height, pooled_width, spatial_scale, output_grad = False, backward_diff = None):
+    '''
+    roi_pooling(input, roi, pooled_height, pooled_width, spatial_scale, output_grad = False, backward_diff=None)
+    Return the roi pooling result of ``input``.
+
+    Parameters
+    ----------
+    input: val_like, input value, must be nc4hw4 format.
+    roi: val_like, input value.
+    pooled_height: int.
+    pooled_width: int.
+    spatial_scale: float.
+    output_grad: bool, if true, use backward mode, output the grad of ``input`` with ``backward_diff``.
+    backward_diff: val_like, the backward diff used in backward mode, must be nc4hw4 format.
+
+    Returns
+    -------
+    roi_pooling result : Var, in nc4hw4 format.
+
+    Example:
+    -------
+    >>> from MNN import expr as F
+    >>> a = F.randomuniform((3, 9, 4, 4))
+    >>> a = F.convert(a, F.NC4HW4)
+    >>> spatialScale = 1.0 / 16
+    >>> roi = np.array([[2, 1 / spatialScale, 2 / spatialScale, 3 / spatialScale, 3 / spatialScale],
+                    [0, 0 / spatialScale, 2 / spatialScale, 2 / spatialScale, 3 / spatialScale]])
+    >>> roi = F.const(roi.astype(np.float32), roi.shape, F.NCHW, F.float)
+    >>> c = F.roi_pooling(a, roi, 3, 3, spatialScale)
+    >>> print(F.convert(c, F.NCHW))
+    '''
+
+    input = _to_c4(_to_var(input))
+    roi = _to_var(roi)
+    pooled_height = _to_int(pooled_height)
+    pooled_width = _to_int(pooled_width)
+    spatial_scale = _to_float(spatial_scale)
+    output_grad = _to_int(output_grad)
+    if backward_diff is None:
+        backward_diff = _F.convert(scalar(0.0), _F.NC4HW4)
+    else:
+        backward_diff = _to_c4(_to_var(backward_diff))
+    return _F.roi_pooling(input, roi, pooled_height, pooled_width, spatial_scale, output_grad, backward_diff)
+def roi_align(input, roi, pooled_height, pooled_width, spatial_scale, sampling_ratio, aligned, pooling_mode, output_grad = False, backward_diff = None):
+    '''
+    roi_align(input, roi, pooled_height, pooled_width, spatial_scale, sampling_ratio, aligned, pooling_mode, output_grad = False, backward_diff = None)
+    Return the roi align result of ``input``.
+
+    Parameters
+    ----------
+    input: val_like, input value, must be nc4hw4 format.
+    roi: val_like, input value.
+    pooled_height: int.
+    pooled_width: int.
+    spatial_scale: float.
+    sampling_ratio: int.
+    aligned: bool.
+    pooling_mode: F.Pooling_Mode.AVEPOOL or F.Pooling_Mode.MAXPOOL.
+    output_grad: bool, if true, use backward mode, output the grad of ``input`` with ``backward_diff``.
+    backward_diff: val_like, the backward diff used in backward mode, must be nc4hw4 format.
+
+    Returns
+    -------
+    roi_align result : Var, in nc4hw4 format.
+
+    Example:
+    -------
+    >>> from MNN import expr as F
+    >>> a = F.randomuniform((3, 9, 4, 4))
+    >>> a = F.convert(a, F.NC4HW4)
+    >>> spatialScale = 1.0 / 16
+    >>> roi = np.array([[2, 1 / spatialScale, 2 / spatialScale, 3 / spatialScale, 3 / spatialScale],
+                    [0, 0 / spatialScale, 2 / spatialScale, 2 / spatialScale, 3 / spatialScale]])
+    >>> roi = F.const(roi.astype(np.float32), roi.shape, F.NCHW, F.float)
+    >>> sampling_ratio = 2
+    >>> aligned = True
+    >>> pooling_mode = F.Pool_Mode.AVEPOOL
+    >>> c = F.roi_align(a, roi, 3, 3, spatialScale, sampling_ratio, aligned, pooling_mode)
+    >>> print(F.convert(c, F.NCHW))
+    '''
+
+    input = _to_c4(_to_var(input))
+    roi = _to_var(roi)
+    pooled_height = _to_int(pooled_height)
+    pooled_width = _to_int(pooled_width)
+    spatial_scale = _to_float(spatial_scale)
+    sampling_ratio = _to_int(sampling_ratio)
+    aligned = _to_int(aligned)
+    output_grad = _to_int(output_grad)
+    if backward_diff is None:
+        backward_diff = _F.convert(scalar(0.0), _F.NC4HW4)
+    else:
+        backward_diff = _to_c4(_to_var(backward_diff))
+    return _F.roi_align(input, roi, pooled_height, pooled_width, spatial_scale, sampling_ratio, aligned, pooling_mode, output_grad, backward_diff)
 # wrapper for builtin functions end

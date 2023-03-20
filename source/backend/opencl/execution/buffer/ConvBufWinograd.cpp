@@ -18,17 +18,24 @@
 #define INTERP 1
 namespace MNN {
 namespace OpenCL {
-bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, int limit) {
+bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int limit) {
     if (common->strideX() != 1 || common->strideY() != 1) {
         return false;
     }
     if (common->dilateX() != 1 || common->dilateY() != 1) {
         return false;
     }
-    if (input->channel() < 8 || common->outputCount() < 8) {
+    if(common->kernelX() != 3 || common->kernelY() != 3){
         return false;
     }
-    return (common->kernelX() == 3 && common->kernelY() == 3);
+    if (output->channel() > 512) {
+        return false;
+    }
+    const int input_channel_limit = output->channel() <= 64 ? 1024 : 512;
+    if(input->channel() < 32 || input->channel() > input_channel_limit){
+        return false;
+    }
+    return (input->width() <= 16 && input->height() <= 16);
 }
 
 ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend) : Execution(backend) {

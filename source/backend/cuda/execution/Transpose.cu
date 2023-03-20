@@ -421,7 +421,7 @@ __global__ void C4NHW4_2_NHWC8(const T0* input,
         int hw_idx = temp % area;
         int batch_idx = temp / area;
 
-	if(c_idx > channel) {
+	if(c_idx >= channel) {
 	    output[index] = (T1)0.0f;
 	    continue;
 	}

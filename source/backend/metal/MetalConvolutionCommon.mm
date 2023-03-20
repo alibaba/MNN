@@ -19,9 +19,11 @@ namespace MNN {
 static id<MTLBuffer> biasForConv(MNNMetalContext *context, const Convolution2D *conv) {
     auto bias   = conv->bias();
     auto oc     = conv->common()->outputCount();
-    auto buffer = [context newDeviceBuffer:UP_DIV(oc, 4) * 4 * sizeof(metal_float) access:CPUWriteOnly];
+    auto bias_size = UP_DIV(oc, 16) * 16 * sizeof(metal_float);
+    auto buffer = [context newDeviceBuffer:bias_size access:CPUWriteOnly];
     auto src    = bias->data();
     auto dst    = (metal_float *)buffer.contents;
+    ::memset(dst, 0, bias_size);
 #pragma clang loop vectorize(enable) unroll(enable)
     for (int i = 0; i < oc; i++) {
         dst[i] = src[i];
@@ -64,9 +66,10 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
     auto gic    = ic / group;
     auto goc_4  = UP_DIV(goc, 4);
     auto gic_4  = UP_DIV(gic, 4);
-    auto buffer = [context newDeviceBuffer:group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16 * sizeof(TType) access:CPUWriteOnly];
+    auto weight_len = group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16 * sizeof(TType);
+    auto buffer = [context newDeviceBuffer:weight_len access:CPUWriteOnly];
     auto dst    = (TType *)buffer.contents;
-
+    ::memset(dst, 0, weight_len);
     for (int g = 0; g < group; g++) {
         auto g_dst = dst + g * goc_4 * gic_4 * kh * kw * 16; // g
         for (int o = 0; o < goc; o++) {
