@@ -104,6 +104,12 @@ public:
         size[0] = e; size[1] = l; size[2] = h;
         auto step = (int*)rgCmd->steps()->data();
         step[0] = e * h; step[1] = e * l; step[2] = l * h;
+        if (i0Size == 1) {
+            step[1] = 0;
+        }
+        if (i1Size == 1) {
+            step[2] = 0;
+        }
         // Update view
         {
             auto cStride = (int*)(rgCmd->view()->GetAs<View>(0)->stride()->data());
