@@ -159,20 +159,17 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         mBiasPtr = (void*)inputs[2]->deviceId();
         beta = ElementComputeEpilogue(1);
     }
-    auto bStride = mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2] * mBs;
-    auto aStride = mGemmInfo.elh[0] * mGemmInfo.elhPad[1] * mAs;
-    auto cStride = mGemmInfo.elh[0] * mGemmInfo.elhPad[2] * mCs;
     if(mFp32Infer) {
         if(mUseRRLayout) {
             typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                (int64_t)(aStride), // batch_stride_A
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                 {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                (int64_t)(bStride), // batch_stride_B
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                                                 {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                 (int64_t)(0), // batch_stride_bias
                                                 {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                (int64_t)(cStride),  // batch_stride_C
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 mBatch};                // batch_count
 
@@ -193,9 +190,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         } else {
             typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                (int64_t)(aStride), // batch_stride_A
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                 {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                                 {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                 (int64_t)(0), // batch_stride_bias
                                                 {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -229,13 +226,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             if(mUseRRLayout) {
                 typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(aStride), // batch_stride_A
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                     {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                    (int64_t)(bStride), // batch_stride_B
+                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                     {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                     (int64_t)(0), // batch_stride_bias
                     {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                    (int64_t)(cStride),  // batch_stride_C
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                     {alpha, beta},          // <- tuple of alpha and beta
                     mBatch};                // batch_count
     
@@ -255,9 +252,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             } else {
                 typename GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(aStride), // batch_stride_A
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                     {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                     {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                     (int64_t)(0), // batch_stride_bias
                     {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -286,13 +283,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 if(mNeedConvertMatAB) {
                     typename GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        (int64_t)(aStride), // batch_stride_A
+                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                         {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                        (int64_t)(bStride), // batch_stride_B
+                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                         (int64_t)(0), // batch_stride_bias
                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                        (int64_t)(cStride),  // batch_stride_C
+                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                         {alpha, beta},          // <- tuple of alpha and beta
                                         mBatch};                // batch_count
     
@@ -313,13 +310,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 } else {
                     typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Row::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                         {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                        (int64_t)(aStride), // batch_stride_A
+                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                         {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                        (int64_t)(bStride), // batch_stride_B
+                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                         (int64_t)(0), // batch_stride_bias
                                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                        (int64_t)(cStride),  // batch_stride_C
+                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                                         {alpha, beta},          // <- tuple of alpha and beta
                                                         mBatch};                // batch_count
     
@@ -342,9 +339,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 if(mNeedConvertMatAB) {
                     typename GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            (int64_t)(aStride), // batch_stride_A
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                             {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                             {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                             (int64_t)(0), // batch_stride_bias
                                             {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -369,9 +366,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 } else {
                     typename GemmBatchedCuda_F32_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                         {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                        (int64_t)(aStride), // batch_stride_A
+                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                         {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                         (int64_t)(0), // batch_stride_bias
                                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -403,13 +400,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         if(mUseRRLayout) {
             typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                 {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                (int64_t)(aStride), // batch_stride_A
+                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                 {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                (int64_t)(bStride), // batch_stride_B
+                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                 {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                 (int64_t)(0), // batch_stride_bias
                 {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                (int64_t)(cStride),  // batch_stride_C
+                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                 {alpha, beta},          // <- tuple of alpha and beta
                 mBatch};                // batch_count
 
@@ -430,9 +427,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             if(hAlignment) {
                 typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(aStride), // batch_stride_A
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                     {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                     {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                     (int64_t)(0), // batch_stride_bias
                     {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -457,9 +454,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             } else {
                 typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(aStride), // batch_stride_A
+                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                     {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                     {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                     (int64_t)(0), // batch_stride_bias
                     {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -489,13 +486,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             if(mNeedConvertMatAB) {
                 typename GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Row_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                     {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                    (int64_t)(aStride), // batch_stride_A
+                                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                     {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                    (int64_t)(bStride), // batch_stride_B
+                                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                                     {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                     (int64_t)(0), // batch_stride_bias
                                     {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                    (int64_t)(cStride),  // batch_stride_C
+                                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                     {alpha, beta},          // <- tuple of alpha and beta
                                     mBatch};                // batch_count
 
@@ -516,13 +513,13 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             } else {
                 typename GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Row_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                     {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                    (int64_t)(aStride), // batch_stride_A
+                                                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                     {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                    (int64_t)(bStride), // batch_stride_B
+                                                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs), // batch_stride_B
                                                     {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                     (int64_t)(0), // batch_stride_bias
                                                     {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
-                                                    (int64_t)(cStride),  // batch_stride_C
+                                                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                                     {alpha, beta},          // <- tuple of alpha and beta
                                                     mBatch};                // batch_count
 
@@ -546,9 +543,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 if(mNeedConvertMatAB) {
                     typename GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        (int64_t)(aStride), // batch_stride_A
+                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                         {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                         (int64_t)(0), // batch_stride_bias
                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -573,9 +570,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 } else {
                     typename GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        (int64_t)(aStride), // batch_stride_A
+                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                         {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                         (int64_t)(0), // batch_stride_bias
                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -602,9 +599,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 if(mNeedConvertMatAB) {
                     typename GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            (int64_t)(aStride), // batch_stride_A
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                             {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                             {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                             (int64_t)(0), // batch_stride_bias
                                             {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
@@ -629,9 +626,9 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 } else {
                     typename GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                         {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                        (int64_t)(aStride), // batch_stride_A
+                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                                         {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]), // batch_stride_B
+                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
                                                         {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
                                                         (int64_t)(0), // batch_stride_bias
                                                         {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
