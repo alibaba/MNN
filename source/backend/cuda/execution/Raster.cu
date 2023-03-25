@@ -9,6 +9,7 @@ namespace CUDA {
 // Blit don't care offset
 template <typename T>
 __global__ void blitRegion(const T *inputO, T *outputO,
+    int count,
     int loopCount,
     const int32_t* dstIndice, const int32_t* srcIndice,
     int dstUseIndice, int srcUseIndice,
@@ -17,8 +18,14 @@ __global__ void blitRegion(const T *inputO, T *outputO,
     int strideZ, int strideY, int strideX,
     int dstStrideZ, int dstStrideY, int dstStrideX
     ) {
-    int total = loopCount;
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
+    int total = count;
+    for (size_t fuseIndex = blockIdx.x * blockDim.x + threadIdx.x; fuseIndex < total; fuseIndex += blockDim.x * gridDim.x) {
+        int x = fuseIndex % sizeX;
+        int temp = fuseIndex / sizeX;
+        int y = temp % sizeY;
+        temp = temp / sizeY;
+        int z = temp % sizeZ;
+        int i = temp / sizeZ;
         int srcOffsetO = i * srcStep;
         if (srcUseIndice >= 0) {
             srcOffsetO = srcIndice[i] * srcStep;
@@ -30,35 +37,24 @@ __global__ void blitRegion(const T *inputO, T *outputO,
         if (srcOffsetO >= 0 && srcOffsetO < srcLimit) {
             const T* input = inputO + srcOffsetO;
             T* output = outputO + dstOffsetO;
-            for (int z=0; z<sizeZ; ++z) {
-                for (int y=0; y<sizeY; ++y) {
-                    for (int x=0; x<sizeX; ++x) {
-                        int srcOffset = z * strideZ + y * strideY + x * strideX;
-                        int dstOffset = z * dstStrideZ + y * dstStrideY + x * dstStrideX;
-                        output[dstOffset] = input[srcOffset];
-                    }
-                }
-            }
+            int srcOffset = z * strideZ + y * strideY + x * strideX;
+            int dstOffset = z * dstStrideZ + y * dstStrideY + x * dstStrideX;
+            output[dstOffset] = input[srcOffset];
         } else {
             T* output = outputO + dstOffsetO;
-            for (int z=0; z<sizeZ; ++z) {
-                for (int y=0; y<sizeY; ++y) {
-                    for (int x=0; x<sizeX; ++x) {
-                        int dstOffset = z * dstStrideZ + y * dstStrideY + x * dstStrideX;
-                        output[dstOffset] = (T)0;
-                    }
-                }
-            }
+            int dstOffset = z * dstStrideZ + y * dstStrideY + x * dstStrideX;
+            output[dstOffset] = (T)0;
         }
     }
 }
 void BlitWithIndice(uint8_t* output, const uint8_t* input, const int32_t* dstIndices, const int32_t* srcIndices, int dstUseIndice, int srcUseIndice, int loopCount, int dstStep, int srcStep, int srcLimit, const Tensor::InsideDescribe::Region& reg, int bytes, CUDARuntime* runtime) {
-    int count = loopCount;
+    int count = loopCount * reg.size[0]*reg.size[1]*reg.size[2];
     int block_num = runtime->blocks_num(count);
-    int threads_num = runtime->threads_num();
+    int threads_num = ALIMIN(runtime->threads_num(), count);
     switch (bytes) {
         case 4:
             blitRegion<<<block_num, threads_num>>>((const float*)input, (float*)output, 
+                count,
                 loopCount,
                 dstIndices, srcIndices,
                 dstUseIndice, srcUseIndice,
@@ -69,6 +65,7 @@ void BlitWithIndice(uint8_t* output, const uint8_t* input, const int32_t* dstInd
             break;
         case 2:
             blitRegion<<<block_num, threads_num>>>((const int16_t*)input, (int16_t*)output,
+                count,
                 loopCount,
                 dstIndices, srcIndices,
                 dstUseIndice, srcUseIndice,
@@ -79,6 +76,7 @@ void BlitWithIndice(uint8_t* output, const uint8_t* input, const int32_t* dstInd
             break;
         case 1:
             blitRegion<<<block_num, threads_num>>>((const int8_t*)input, (int8_t*)output,
+                count,
                 loopCount,
                 dstIndices, srcIndices,
                 dstUseIndice, srcUseIndice,

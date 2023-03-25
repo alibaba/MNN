@@ -104,6 +104,12 @@ public:
         size[0] = e; size[1] = l; size[2] = h;
         auto step = (int*)rgCmd->steps()->data();
         step[0] = e * h; step[1] = e * l; step[2] = l * h;
+        if (i0Size == 1) {
+            step[1] = 0;
+        }
+        if (i1Size == 1) {
+            step[2] = 0;
+        }
         // Update view
         {
             auto cStride = (int*)(rgCmd->view()->GetAs<View>(0)->stride()->data());
@@ -273,10 +279,17 @@ public:
         matMulOp.add_main(matMulParamOffset.Union());
         matMulOp.add_main_type(OpParameter_MatMul);
         auto opOffset = matMulOp.Finish();
-        if (i0Size == i1Size && i0Size == totalSize) {
+        bool fastway = (i0Size == i1Size) || (i0Size == 1) || (i1Size == 1);
+        if (fastway) {
             int inputNumber = 2;
             if (bias != nullptr) {
                 inputNumber = 3;
+            }
+            if (1 == i0Size) {
+                steps[1] = 0;
+            }
+            if (1 == i1Size) {
+                steps[2] = 0;
             }
             int number = inputNumber + 1;
             auto viewOffset = builder.CreateVector<flatbuffers::Offset<View>>(allViews);
