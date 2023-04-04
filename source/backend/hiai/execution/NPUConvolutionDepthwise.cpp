@@ -60,7 +60,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     auto xOp = mNpuBackend->getInputOps(mOp);
     
     // om input weight const op
-    mConst_w = ge::op::Const(opName + "_w_const");
+    mConst_w = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorDesc fdesc(ge::Shape({outputCount, inputCount, kernelY, kernelX}), ge::FORMAT_NCHW,
                              ge::DT_FLOAT); // in o h w ?
@@ -71,7 +71,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
         mConst_w.set_attr_value(filter);
     }
     // om input bias const op
-    mConst_b = ge::op::Const(opName + "_b_const");
+    mConst_b = hiai::op::Const(opName + "_b_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, outputCount, 1, 1}), ge::DT_FLOAT);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -81,7 +81,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
         mConst_b.set_attr_value(filter);
     }
 
-    string padMode = "VALID"; // NOTSET
+    auto padMode = "VALID"; // NOTSET
     if (PadMode_VALID == conv2DCommon->padMode()) {
         padMode = "VALID";
     } else if (PadMode_SAME == conv2DCommon->padMode()) {
@@ -98,7 +98,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
             {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()})) // 上下左右
         .set_attr_pad_mode(padMode);
 
-    shared_ptr<ge::op::Activation> relu_conv(new ge::op::Activation(opName + "_Relu"));
+    shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));
     mRelu_conv = relu_conv;
 
     auto relu  = conv2DCommon->relu();

@@ -22,8 +22,8 @@ public:
     virtual ~NPUInstanceNorm() = default;
 
 private:
-    ge::op::Const mScale;
-    ge::op::Const mBias;
+    hiai::op::Const mScale;
+    hiai::op::Const mBias;
 };
 } // namespace MNN
 

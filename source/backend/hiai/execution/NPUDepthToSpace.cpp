@@ -22,8 +22,8 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
 
     auto opName = mOp->name()->str();
     shared_ptr<hiai::op::DepthToSpace> depthToSpace(new hiai::op::DepthToSpace(opName));
-    shared_ptr<ge::op::Permute> permuteBefore(new ge::op::Permute(opName+"_before"));
-    shared_ptr<ge::op::Permute> permuteAfter(new ge::op::Permute(opName+"_after"));
+    shared_ptr<hiai::op::Permute> permuteBefore(new hiai::op::Permute(opName+"_before"));
+    shared_ptr<hiai::op::Permute> permuteAfter(new hiai::op::Permute(opName+"_after"));
 
     /*
      * set om op

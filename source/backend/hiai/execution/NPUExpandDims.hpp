@@ -21,7 +21,8 @@ public:
     virtual ~NPUExpandDims() = default;
  
 private:
-    ge::op::Const mConst_d;
+    hiai::op::Const mConst_d;
+    hiai::op::Const shapeConst;
 };
 } // namespace MNN
 

@@ -21,13 +21,11 @@ ErrorCode NPUEltwise::onResize(const std::vector<Tensor *> &inputs, const std::v
     mNpuBackend->setNetworkInput(inputs, mOp);
 
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Eltwise> eltwise(new ge::op::Eltwise(opName));
+    shared_ptr<hiai::op::Eltwise> eltwise(new hiai::op::Eltwise(opName));
 
     /*
      * set om op
      * */
-
-    // 
     auto inputIndex1 = mOp->inputIndexes()->data()[0];
     auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
     auto xOp1        = iops1.back().first;
@@ -37,22 +35,28 @@ ErrorCode NPUEltwise::onResize(const std::vector<Tensor *> &inputs, const std::v
     auto iops2       = mNpuBackend->mGrapMap[inputIndex2]; // x
     auto xOp2        = iops2.back().first;
 
+    auto inputSize = mOp->inputIndexes()->size();
     auto param = mOp->main_as_Eltwise();
+    (*eltwise).create_dynamic_input_x(inputSize)
+     .set_attr_N(inputSize)
+     .set_attr_mode(param->type()); // 0:product,1:sum,2:max;default is CC_ELTWISE_SUM.  TODO SUB  Weight
+
+    for (int i = 0; i < inputSize; ++i) {
+        auto inputIndex = mOp->inputIndexes()->data()[i];
+        auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
+        auto xOp        = iops.back().first;
+
+        hiai::Operator *px = (hiai::Operator *)xOp.get();
+        (* eltwise).set_dynamic_input_x(i + 1, *px);
+    }
 
     if(param->type()==EltwiseType_SUB) {
-        shared_ptr<ge::op::Sub> sub(new ge::op::Sub(opName));
+        shared_ptr<hiai::op::Sub> sub(new hiai::op::Sub(opName));
         (*sub)
             .set_input_x1(*xOp1.get())
             .set_input_x2(*xOp2.get());
         mNpuBackend->setOutputOps(mOp, {sub}, outputs);
     } else {
-        (*eltwise)
-            .set_input_x1(*xOp1.get())
-            .set_input_x2(*xOp2.get())
-            .set_attr_coeff(ge::AttrValue::LIST_FLOAT({1, 1}))
-            .set_attr_weight(ge::AttrValue::LIST_TENSOR{})
-            .set_attr_mode(param->type()); // 0:product,1:sum,2:max;default is CC_ELTWISE_SUM.  TODO SUB  Weight
-
         mNpuBackend->setOutputOps(mOp, {eltwise}, outputs);
     }
     return NO_ERROR;

@@ -22,7 +22,7 @@ ErrorCode NPUInstanceNorm::onResize(const std::vector<Tensor *> &inputs, const s
     auto opName = mOp->name()->str();
 
     auto slope = mOp->main_as_BatchNorm()->slopeData();
-    mScale = ge::op::Const(opName + "_scale");
+    mScale = hiai::op::Const(opName + "_scale");
     {
         ge::TensorDesc fdesc(ge::Shape({1,slope->size(),1,1}),ge::DT_FLOAT);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -32,7 +32,7 @@ ErrorCode NPUInstanceNorm::onResize(const std::vector<Tensor *> &inputs, const s
     }
 
     auto bias = mOp->main_as_BatchNorm()->biasData();
-    mBias = ge::op::Const(opName + "_bias");
+    mBias = hiai::op::Const(opName + "_bias");
     {
         ge::TensorDesc fdesc(ge::Shape({1,bias->size(),1,1}),ge::DT_FLOAT); 
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();

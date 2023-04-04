@@ -17,14 +17,14 @@ namespace MNN {
 class NPUBinary : public NPUCommonExecution {
 public:
     void OpInsert(int binary_type, string opName, 
-                  ge::Operator& input0, ge::Operator& input1,
+                  hiai::Operator& input0, hiai::Operator& input1,
                   const std::vector<Tensor *> &outputs, int activationType);
     NPUBinary(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUBinary() = default;
    
 private:
-    ge::op::Const mConst;
+    hiai::op::Const mConst;
 
 };
 } // namespace MNN

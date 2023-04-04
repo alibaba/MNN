@@ -18,7 +18,7 @@ public:
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUPadding() = default;
 private:
-    ge::op::Const mConst;
+    hiai::op::Const mConst;
     std::vector<int32_t> mPadData;
 };
 

@@ -304,7 +304,7 @@ namespace MNN {
         bool isInput = TensorUtils::getDescribe(inputTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         if (isInput && mGrapMap.find(inputIndex) == mGrapMap.end()) {
             auto opName = string("input") + to_string(inputIndex);
-            shared_ptr<ge::op::Data> data(new ge::op::Data(opName));    
+            shared_ptr<hiai::op::Data> data(new hiai::op::Data(opName));    
             auto shape = tensorShapeFormat(inputTensor);
             ge::TensorDesc desc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT); 
             data->update_input_desc_x(desc);

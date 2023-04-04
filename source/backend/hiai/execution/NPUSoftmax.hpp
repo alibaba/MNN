@@ -18,8 +18,8 @@ public:
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUSoftmax() = default;
 private:
-    ge::op::Const mConstAxis;
-    ge::op::Const mConstSub;
+    hiai::op::Const mConstAxis;
+    hiai::op::Const mConstSub;
 };
 
 } // namespace MNN

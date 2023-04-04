@@ -21,7 +21,7 @@ ErrorCode NPUNonMaxSuppressionV2::onResize(const std::vector<Tensor *> &inputs, 
     mNpuBackend->setNetworkInput(inputs, mOp);
 
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Split> slice(new ge::op::Split(opName));
+    shared_ptr<hiai::op::SplitD> slice(new hiai::op::SplitD(opName));
 
     auto param = mOp->main_as_Slice();
     auto axis = param->axis();
@@ -36,12 +36,12 @@ ErrorCode NPUNonMaxSuppressionV2::onResize(const std::vector<Tensor *> &inputs, 
 
     (*slice)
         .set_input_x(*xOp1.get())
-        .set_attr_axis(axis);
+        .set_attr_split_dim(axis);
 
     /*
      * add map
      * */
-    vector<pair<shared_ptr<ge::Operator>, string>> ops;
+    vector<pair<shared_ptr<hiai::Operator>, string>> ops;
     ops.emplace_back(make_pair(slice, ""));
 
     for (size_t i = 0; i < mOp->outputIndexes()->size(); i++){

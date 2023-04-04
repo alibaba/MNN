@@ -22,7 +22,7 @@ public:
     virtual ~NPUInterp() = default;
 
 private:
-    ge::op::Const mConstShape;
+    hiai::op::Const mConstShape;
 };
 } // namespace MNN
 

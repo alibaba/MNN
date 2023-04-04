@@ -15,17 +15,17 @@ namespace MNN {
 
 
 void NPUBinary::OpInsert(int binary_type, string opName,
-                         ge::Operator& input0, ge::Operator& input1,
+                         hiai::Operator& input0, hiai::Operator& input1,
                          const std::vector<Tensor *> &outputs, int activationType){
 
     if(binary_type == BinaryOpOperation_ADD) {
-        shared_ptr<ge::op::Add> binary(new ge::op::Add(opName));
+        shared_ptr<hiai::op::Add> binary(new hiai::op::Add(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -35,12 +35,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_MUL) {
-        shared_ptr<ge::op::Mul> binary(new ge::op::Mul(opName));
+        shared_ptr<hiai::op::Mul> binary(new hiai::op::Mul(opName));
         (*binary)
-        .set_input_x(input0)
-        .set_input_y(input1);
+        .set_input_x1(input0)
+        .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -50,12 +50,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_REALDIV) {
-        shared_ptr<ge::op::RealDiv> binary(new ge::op::RealDiv(opName));
+        shared_ptr<hiai::op::RealDiv> binary(new hiai::op::RealDiv(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -65,12 +65,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_SUB) {
-        shared_ptr<ge::op::Sub> binary(new ge::op::Sub(opName));
+        shared_ptr<hiai::op::Sub> binary(new hiai::op::Sub(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -80,12 +80,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_MINIMUM) {
-        shared_ptr<ge::op::Minimum> binary(new ge::op::Minimum(opName));
+        shared_ptr<hiai::op::Minimum> binary(new hiai::op::Minimum(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -95,12 +95,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_MAXIMUM) {
-        shared_ptr<ge::op::Maximum> binary(new ge::op::Maximum(opName));
+        shared_ptr<hiai::op::Maximum> binary(new hiai::op::Maximum(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -110,12 +110,12 @@ void NPUBinary::OpInsert(int binary_type, string opName,
             mNpuBackend->setOutputOps(mOp, {binary}, outputs);
         }
     } else if(binary_type == BinaryOpOperation_EQUAL) {
-        shared_ptr<ge::op::Equal> binary(new ge::op::Equal(opName));
+        shared_ptr<hiai::op::Equal> binary(new hiai::op::Equal(opName));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -130,7 +130,7 @@ void NPUBinary::OpInsert(int binary_type, string opName,
         .set_input_x1(input0)
         .set_input_x2(input1);
         if(activationType == 1) {
-            shared_ptr<ge::op::Activation> binary_activation(new ge::op::Activation(opName + "_Relu"));
+            shared_ptr<hiai::op::Activation> binary_activation(new hiai::op::Activation(opName + "_Relu"));
             (*binary_activation)
                 .set_input_x(*binary.get())
                 .set_attr_mode(1);
@@ -150,7 +150,7 @@ NPUBinary::NPUBinary(MNN::Backend *b, const MNN::Op *op, const std::vector<Tenso
     bool isConst0 = TensorUtils::getDescribe(inputs[0])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
     bool isConst1 = TensorUtils::getDescribe(inputs[1])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-    vector<pair<shared_ptr<ge::Operator>, string>> ops;
+    vector<pair<shared_ptr<hiai::Operator>, string>> ops;
     auto binary_type = mOp->main_as_BinaryOp()->opType();
 
     if(!isConst0 && isConst1){
@@ -161,7 +161,7 @@ NPUBinary::NPUBinary(MNN::Backend *b, const MNN::Op *op, const std::vector<Tenso
         auto input1 = inputs[1];
         auto input0 = inputs[1];
         // om input weight const op
-        mConst = ge::op::Const(opName + "_w_const");
+        mConst = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
 
@@ -190,7 +190,7 @@ NPUBinary::NPUBinary(MNN::Backend *b, const MNN::Op *op, const std::vector<Tenso
         auto input0 = inputs[0];
         auto input1 = inputs[1];
         // om input weight const op
-        mConst = ge::op::Const(opName + "_w_const");
+        mConst = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
             auto shape = tensorShapeFormat(input0);
@@ -220,7 +220,7 @@ ErrorCode NPUBinary::onResize(const std::vector<Tensor *> &inputs, const std::ve
     bool isConst0 = TensorUtils::getDescribe(inputs[0])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
     bool isConst1 = TensorUtils::getDescribe(inputs[1])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-    vector<pair<shared_ptr<ge::Operator>, string>> ops;
+    vector<pair<shared_ptr<hiai::Operator>, string>> ops;
     auto binary_type = mOp->main_as_BinaryOp()->opType();
     int activationType = mOp->main_as_BinaryOp()->activationType();
     if(!isConst0 && isConst1){

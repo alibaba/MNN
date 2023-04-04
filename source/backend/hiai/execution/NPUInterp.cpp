@@ -25,7 +25,7 @@ ErrorCode NPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     MNN_ASSERT(resizeType <= 3);
 
     vector<int32_t> hw = {outputs[0]->height(),outputs[0]->width()};
-    mConstShape = ge::op::Const(opName + "_w_const");
+    mConstShape = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorDesc fdesc(ge::Shape({2}), ge::FORMAT_NCHW, ge::DT_INT32); 
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();

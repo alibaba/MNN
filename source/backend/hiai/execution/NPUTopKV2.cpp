@@ -21,13 +21,13 @@ ErrorCode NPUTopKV2::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto opName = mOp->name()->str();
     auto param  = mOp->main_as_Axis();
 
-    shared_ptr<ge::op::TopK> prob(new ge::op::TopK(opName));
+    shared_ptr<hiai::op::TopK> prob(new hiai::op::TopK(opName));
 
     auto inputIndex = mOp->inputIndexes()->data()[0];
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
     auto xOp        = iops.back().first;
 
-    mConst_w = ge::op::Const(opName + "_w_const");
+    mConst_w = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, 1, 1, 1}), ge::FORMAT_NCHW,
                              ge::DT_FLOAT); // in o h w ?

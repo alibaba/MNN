@@ -21,14 +21,14 @@ public:
     virtual ~NPUEltwiseInt8() = default;
    
 private:
-    ge::op::Const mConst_scale0;
-    ge::op::Const mConst_scale1;
-    ge::op::Const mConstMin0;
-    ge::op::Const mConstMax0;
-    ge::op::Const mConstMin1;
-    ge::op::Const mConstMax1;
-    ge::op::Const mConstMin;
-    ge::op::Const mConstMax;
+    hiai::op::Const mConst_scale0;
+    hiai::op::Const mConst_scale1;
+    hiai::op::Const mConstMin0;
+    hiai::op::Const mConstMax0;
+    hiai::op::Const mConstMin1;
+    hiai::op::Const mConstMax1;
+    hiai::op::Const mConstMin;
+    hiai::op::Const mConstMax;
 };
 } // namespace MNN
 

@@ -20,6 +20,7 @@ public:
     virtual ~NPUTranspose() = default;
 private:
     std::vector<int64_t> permutation;
+    hiai::op::Const shapeConst;
 };
 
 } // namespace MNN

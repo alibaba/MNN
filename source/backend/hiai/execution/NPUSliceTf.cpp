@@ -22,7 +22,7 @@ NPUSliceTf::NPUSliceTf(MNN::Backend *b, const MNN::Op *op, const std::vector<Ten
         MNN_ERROR("slice tf not support input != const now !!! \n");
     }
 
-    mConst_start = ge::op::Const(opName + "_start_const");
+    mConst_start = hiai::op::Const(opName + "_start_const");
     {
         auto input1 = inputs[1];
         ge::TensorDesc fdesc(ge::Shape({input1->batch(), input1->channel(), input1->height(), input1->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
@@ -32,7 +32,7 @@ NPUSliceTf::NPUSliceTf(MNN::Backend *b, const MNN::Op *op, const std::vector<Ten
         mConst_start.set_attr_value(filter);
     }
 
-    mConst_size = ge::op::Const(opName + "_size_const");
+    mConst_size = hiai::op::Const(opName + "_size_const");
     {
         auto input1 = inputs[2];
         ge::TensorDesc fdesc(ge::Shape({input1->batch(), input1->channel(), input1->height(), input1->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
@@ -48,13 +48,13 @@ ErrorCode NPUSliceTf::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     auto opName = mOp->name()->str();
 
-    shared_ptr<ge::op::Slice> slice(new ge::op::Slice(opName));
+    shared_ptr<hiai::op::Slice> slice(new hiai::op::Slice(opName));
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
     auto dims = outputs[0]->shape();
 
-    (*slice).set_input_input(*xOp)
+    (*slice).set_input_x(*xOp)
              .set_input_offsets(mConst_start)
              .set_input_size(mConst_size);
     mNpuBackend->setOutputOps(mOp, {slice}, outputs);
