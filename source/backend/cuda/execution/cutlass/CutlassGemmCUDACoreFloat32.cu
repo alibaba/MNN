@@ -1,11 +1,15 @@
-#ifndef CutlassGemmCudaCoreFloat32_cuh
-#define CutlassGemmCudaCoreFloat32_cuh
-
-#include "../ConvCutlassExecution.hpp"
+//
+//  CutlassGemmCUDACoreFloat32.cu
+//  MNN
+//
+//  Created by MNN on 2023/03/22.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+#include "CutlassCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
-ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
+ErrorCode CutlassCommonExecution::callCutlassGemmCudaCoreFloat32(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
     ElementInput_F32 *input_fp32_addr = mNeedIm2Col ? (ElementInput_F32 *)mIm2ColBuffer : (ElementInput_F32 *)input->deviceId();
@@ -21,8 +25,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
         // instantiated CUTLASS kernel
         typename GemmCuda_F32_F32_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {input_fp32_addr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                            {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             split_k_slices};        // <- k-dimension split factor
@@ -30,7 +34,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
 
         if(workspace_size != 0) {
             workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
             mWorkspace = (void *)workspaceTensor.get()->buffer().device;
         }
 
@@ -47,8 +51,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
         // instantiated CUTLASS kernel
         typename GemmCuda_F32_F32_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {input_fp32_addr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                            {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             split_k_slices};        // <- k-dimension split factor
@@ -56,7 +60,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
 
         if(workspace_size != 0) {
             workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
             mWorkspace = (void *)workspaceTensor.get()->buffer().device;
         }
 
@@ -71,8 +75,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
     } else {
         typename GemmCuda_F32_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {input_fp32_addr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                            {(ElementInput_F32 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                            {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             split_k_slices};        // <- k-dimension split factor
@@ -80,7 +84,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
 
         if(workspace_size != 0) {
             workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-            mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+            mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
             mWorkspace = (void *)workspaceTensor.get()->buffer().device;
         }
         cutlass::Status status = mGemmCudaF32F32Ln.can_implement(arguments);
@@ -96,4 +100,3 @@ ErrorCode ConvCutlassExecution::callCutlassGemmCudaCoreFloat32(const std::vector
 
 }
 }
-#endif //CutlassGemmCudaCoreFloat32_cuh

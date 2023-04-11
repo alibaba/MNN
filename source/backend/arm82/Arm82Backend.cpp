@@ -154,8 +154,9 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
             dest = source;
         }
     }
-    if (source == MNN_DATA_FORMAT_NC4HW4) {
+    if (source == MNN_DATA_FORMAT_NC4HW4 && srcTensor->dimensions() >= 2) {
         // NC4HW4 <-> NC8HW8
+        // For dimension < 2, it don't care format convert
         int area    = 1;
         int channel = srcTensor->length(1);
         for (int axis = 2; axis < ib.dimensions; ++axis) {

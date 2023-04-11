@@ -9,6 +9,7 @@
 #include "ConvSingleInputExecution.hpp"
 #include "ConvWinogradExecution.hpp"
 #include "ConvCutlassExecution.hpp"
+#include "MultiInputConvExecution.hpp"
 #include "int8/ConvInt8CutlassExecution.hpp"
 #include "backend/cuda/core/CUDATools.hpp"
 
@@ -27,6 +28,10 @@ public:
                     return nullptr;
                 }
             }
+        }
+
+        if (inputs.size() == 2 || inputs.size() == 3) {
+            return new MultiInputConvExecution(op, backend);
         }
 
 #ifdef USE_MNN_CONV

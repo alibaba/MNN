@@ -66,13 +66,17 @@ public:
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         auto inputBn = TensorUtils::getDescribe(inputs[0])->backend;
-        auto outputBn = backend();
+        auto outputBn = TensorUtils::getDescribe(outputs[0])->backend;
         auto inputForwardtype = MNN_FORWARD_CPU;
+        auto outputForwardtype = MNN_FORWARD_CPU;
         if (nullptr != inputBn) {
             inputForwardtype = inputBn->type();
         }
+        if (nullptr != outputBn) {
+            outputForwardtype = outputBn->type();
+        }
         mMidCPUTensor = nullptr;
-        if (inputForwardtype != MNN_FORWARD_CPU && outputBn->type() != MNN_FORWARD_CPU) {
+        if (inputForwardtype != MNN_FORWARD_CPU && outputForwardtype != MNN_FORWARD_CPU) {
             // Use Mid Buffer
             mMidCPUTensor = WrapExecution::makeCopyTensor(inputs[0], mBackupBackend);
             auto res = mBackupBackend->onAcquireBuffer(mMidCPUTensor.get(), Backend::DYNAMIC);
@@ -85,14 +89,17 @@ public:
     }
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         auto inputBn = TensorUtils::getDescribe(inputs[0])->backend;
-        auto outputBn = backend();
-        auto inputForwardtype = MNN_FORWARD_CPU;
+        auto outputBn = TensorUtils::getDescribe(outputs[0])->backend;
+        auto outputForwardtype = MNN_FORWARD_CPU;
         if (nullptr != mMidCPUTensor.get()) {
             inputBn->onCopyBuffer(inputs[0], mMidCPUTensor.get());
             outputBn->onCopyBuffer(mMidCPUTensor.get(), outputs[0]);
             return NO_ERROR;
         }
-        if (outputBn->type() == MNN_FORWARD_CPU) {
+        if (nullptr != outputBn) {
+            outputForwardtype = outputBn->type();
+        }
+        if (outputForwardtype == MNN_FORWARD_CPU) {
             MNN_ASSERT(nullptr != inputBn);
             inputBn->onCopyBuffer(inputs[0], outputs[0]);
         } else {
@@ -114,14 +121,18 @@ std::shared_ptr<Tensor> WrapExecution::makeCopyTensor(Tensor* t, Backend* target
     return wrapTensor;
 }
 
-std::pair<Execution*, std::shared_ptr<Tensor>> WrapExecution::makeCopyExecution(Backend* backend, Backend* backupBackend, Tensor* tensor, std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>>& cache) {
-    auto iter = cache.find(std::make_pair(tensor, backend));
-    if (iter != cache.end()) {
-        return std::make_pair((Execution*)nullptr, iter->second);
+std::pair<Execution*, std::shared_ptr<Tensor>> WrapExecution::makeCopyExecution(Backend* backend, Backend* backupBackend, Tensor* tensor, std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>>& cache, bool useCache) {
+    if (useCache) {
+        auto iter = cache.find(std::make_pair(tensor, backend));
+        if (iter != cache.end()) {
+            return std::make_pair((Execution*)nullptr, iter->second);
+        }
     }
     auto t = tensor;
     std::shared_ptr<Tensor> wrapTensor = makeCopyTensor(tensor, backend);
-    cache.insert(std::make_pair(std::make_pair(t, backend), wrapTensor));
+    if (useCache) {
+        cache.insert(std::make_pair(std::make_pair(t, backend), wrapTensor));
+    }
     Execution* copyExe = new WrapCopyExecution(backend, backupBackend);
     return std::make_pair(copyExe, wrapTensor);
 }

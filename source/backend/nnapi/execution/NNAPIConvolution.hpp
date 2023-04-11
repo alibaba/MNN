@@ -23,6 +23,8 @@ public:
 private:
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     std::unique_ptr<float[]> nhwcWeight;
+    std::unique_ptr<int8_t[]> quantWeight;
+    std::unique_ptr<int32_t[]> quantBias;
     bool isDepthwise = false, isDeconv = false;
 };
 } // namespace MNN

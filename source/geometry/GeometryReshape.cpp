@@ -87,6 +87,10 @@ class CopyGeometryComputer : public GeometryComputer {
             auto output     = outputs[v];
             auto inputDes   = TensorUtils::getDescribe(input);
             auto outputDes  = TensorUtils::getDescribe(output);
+            if (inputDes->tensorArrayAttr != nullptr) {
+                outputDes->tensorArrayAttr = inputDes->tensorArrayAttr;
+                return true;
+            }
             outputDes->regions = {TensorUtils::makeFullSlice(input)};
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         }

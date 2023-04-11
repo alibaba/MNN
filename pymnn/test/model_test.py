@@ -100,13 +100,13 @@ def log_result(success, model):
     global wrongs
     total_num += 1
     if success:
-        print('Test %s Correct!'%model)
+        print('Test %s Correct!\n'%model)
     else:
         wrongs.append(model)
-        print('Test Failed %s!'%model)
+        print('Test Failed %s!\n'%model)
 
 def modelTest(modelPath, givenName, expectName):
-    print("Testing model %s, input: %s, output: %s\n" % (modelPath, givenName, expectName))
+    print("Testing model %s, input: %s, output: %s" % (modelPath, givenName, expectName))
 
     net = MNN.Interpreter(modelPath)
     session = net.createSession()
@@ -133,7 +133,7 @@ def modelTestWithConfig(config):
     givens = config['given_names']
     outputs = config['output_names']
     expects = config['expect_names']
-    print("Testing model %s, input: %s, output: %s\n" % (model, givens, expects))
+    print("Testing model %s, input: %s, output: %s" % (model, givens, expects))
     net = MNN.Interpreter(config['model_name'])
     session = net.createSession()
     all_input = net.getSessionInputAll(session)
@@ -166,6 +166,32 @@ def modelTestWithConfig(config):
     # res
     log_result(success, model)
 
+def testSessionConfig(modelPath, givenName, expectName, session_config, outputTensorName):
+    print("Testing model %s, input: %s, output: %s" % (modelPath, givenName, expectName))
+    print("with session config:", session_config)
+
+    net = MNN.Interpreter(modelPath)
+    session = net.createSession(session_config)
+    allInput = net.getSessionInputAll(session)
+    # input
+    inputTensor = net.getSessionInput(session)
+    inputHost = createTensor(inputTensor, givenName)
+    inputTensor.copyFrom(inputHost)
+    # infer
+    net.runSession(session)
+
+    allOutput = net.getSessionOutputAll(session)
+    print("output shapes:")
+    for key in allOutput.keys():
+        print(key, "shape:", allOutput[key].getShape())
+
+    outputTensor = net.getSessionOutput(session, outputTensorName)
+    outputHost = createTensor(outputTensor)
+    outputTensor.copyToHostTensor(outputHost)
+    # compare
+    success = compareTensor(outputHost, expectName)
+    log_result(success, modelPath)
+
 def testResource(model_root_dir, name):
     root_dir = os.path.join(model_root_dir, 'TestResource')
     print('root: ' + root_dir + '\n')
@@ -187,11 +213,28 @@ def testTestWithDescribe(model_root_dir):
         if config:
             modelTestWithConfig(config)
 
+def testPymnnConfig(model_root_dir):
+    root_dir = os.path.join(model_root_dir, "TestResource")
+    print("\ntest pymnn session config")
+    print('root: ' + root_dir + '\n')
+
+    name = "ocr-single"
+    modelName = os.path.join(root_dir, name, 'temp.bin')
+    inputName = os.path.join(root_dir, name, 'input_0.txt')
+    expectName = os.path.join(root_dir, name, 'output.txt')
+
+    outputTensorName = "topk"
+    session_config = {"saveTensors":("conv1", "pool1", outputTensorName)}
+
+    testSessionConfig(modelName, inputName, expectName, session_config, outputTensorName)
+
+
 if __name__ == '__main__':
     model_root_dir = sys.argv[1]
     testResource(model_root_dir, 'TestResource')
     testResource(model_root_dir, 'OpTestResource')
     testTestWithDescribe(model_root_dir)
+    testPymnnConfig(model_root_dir)
     if len(wrongs) > 0:
         print('Wrong: ', len(wrongs))
         for wrong in wrongs:

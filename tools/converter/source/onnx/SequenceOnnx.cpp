@@ -23,6 +23,7 @@ void SplitToSequenceOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                               OnnxScope* scope) {
     auto tensorArray = new MNN::TensorArrayT;
     tensorArray->T = MNN::DataType_DT_FLOAT;
+    tensorArray->keepdims = 1;// Default is 1 by onnx ref
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto& attributeProto = onnxNode->attribute(i);
         const auto& attributeName  = attributeProto.name();
@@ -110,7 +111,7 @@ void SequenceInsertOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         auto name = dstOp->name + "/seq_length";
         op->name = name;
         op->type = MNN::OpType_TensorArraySize;
-        op->inputIndexes.push_back(op->inputIndexes[0]);
+        op->inputIndexes = {dstOp->inputIndexes[0], dstOp->inputIndexes[0]};
         op->outputIndexes.push_back(scope->declareTensor(name));
         indexs.push_back(op->outputIndexes[0]);
         scope->oplists().emplace_back(std::move(op));
@@ -232,23 +233,16 @@ REGISTER_CONVERTER(SequenceConstructOnnx, SequenceConstruct);
 // ======================= SequenceEmpty =========================
 DECLARE_OP_CONVERTER(SequenceEmptyOnnx);
 MNN::OpType SequenceEmptyOnnx::opType() {
-    return MNN::OpType_TensorArray;
+    return MNN::OpType_Identity;
 }
 MNN::OpParameter SequenceEmptyOnnx::type() {
-    return MNN::OpParameter_TensorArray;
+    return MNN::OpParameter_NONE;
 }
 void SequenceEmptyOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                          OnnxScope* scope) {
-    auto tensorArray = new MNN::TensorArrayT;
-    tensorArray->T = MNN::DataType_DT_FLOAT;
-    dstOp->main.value = tensorArray;
-    
-    auto tensorArrayIdx = scope->buildTensorArrayOp({}, false, dstOp->name + "/tensorArray");
-    scope->oplists()[scope->oplists().size() - 2]->main.AsBlob()->int32s[0] = 0; // change init_size 1 -> 0
-    
-    dstOp->inputIndexes.resize(2);
-    dstOp->inputIndexes[0] = tensorArrayIdx.first;
-    dstOp->inputIndexes[1] = tensorArrayIdx.second;
+    auto tensorArrayIdx = scope->buildTensorArrayOp({}, false, dstOp->name + "/tensorArray", 0);
+    dstOp->inputIndexes.resize(1);
+    dstOp->inputIndexes[0] = tensorArrayIdx.second;
 }
 REGISTER_CONVERTER(SequenceEmptyOnnx, SequenceEmpty);
 

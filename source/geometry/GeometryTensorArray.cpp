@@ -14,8 +14,11 @@ namespace MNN {
 // get a pair <ElemOffset, ElemSize>
 static std::pair<int, int> getElemSize(const Tensor* t, int index) {
     auto des = TensorUtils::getDescribe(t);
-    auto shapes = des->tensorArrayAttr->elemShape;
+    const auto& shapes = des->tensorArrayAttr->elemShape;
     int elemSize = 1;
+    if (index < 0) {
+        index = index + shapes.size();
+    }
     if (!des->tensorArrayAttr->isIdenticalShape && shapes.size() > index) {
         int offset = 0;
         for (int i = 0; i <= index; i++) {
@@ -406,24 +409,33 @@ class GeometryTensorArrayConcat : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        auto attr = TensorUtils::getDescribe(inputs[1])->tensorArrayAttr;
-        auto shape = attr->elemShape[0];
-        int concatAxis = (op->main_as_TensorArray()->axis() + shape.size()) % shape.size();
-        auto outside = std::accumulate(shape.begin(), shape.begin() + concatAxis, 1,
-                                      [](int a, int b) { return a * b; });
-        auto inside = std::accumulate(shape.begin() + concatAxis + 1, shape.end(), 1,
-                                       [](int a, int b) { return a * b; });
-        auto concatFinal = std::accumulate(attr->elemShape.begin(), attr->elemShape.end(), 0, [=](int a, std::vector<int> b) { return a + b[concatAxis]; });
-        if (attr->isIdenticalShape) {
-            concatFinal *= attr->arraySize;
-        }
-
         auto output    = outputs[0];
         auto outDes = TensorUtils::getDescribe(output);
         outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         outDes->regions.clear();
+        auto attr = TensorUtils::getDescribe(inputs[1])->tensorArrayAttr;
+        auto tpParam = op->main_as_TensorArray();
+        int concatAxis = tpParam->axis(), newAxis = tpParam->new_axis();
+        int outputDimensions = output->dimensions();
+        concatAxis = (concatAxis + outputDimensions) % outputDimensions;
+        int outside = 1;
+        int inside = 1;
+        for (int i=0; i<concatAxis; ++i) {
+            outside *= output->length(i);
+        }
+        for (int i=concatAxis+1; i<output->dimensions(); ++i) {
+            inside *= output->length(i);
+        }
+        int concatFinal = output->length(concatAxis);
         for (int i = 0, concatSum = 0, concatLast = -1; i < attr->arraySize; ++i) {
-            int concatLen = attr->elemShape[attr->isIdenticalShape ? 0 : i][concatAxis];
+            int shapeIndex = i;
+            if (attr->isIdenticalShape) {
+                shapeIndex = 0;
+            }
+            int concatLen = 1;
+            if (newAxis == 0) {
+                concatLen = attr->elemShape[shapeIndex][concatAxis];
+            }
             if (concatLast == concatLen) {
                 outDes->regions[outDes->regions.size() - 1].size[0] += 1;
                 continue;

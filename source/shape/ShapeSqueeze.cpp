@@ -26,7 +26,7 @@ class UnSqueezeSizeComputer : public SizeComputer {
             squeezeDimSize = inputs[1]->elementSize();
         }
         auto& ob = outputs[0]->buffer();
-        auto ib  = inputs[0]->buffer();
+        auto& ib  = inputs[0]->buffer();
         ob.dimensions = ib.dimensions + squeezeDimSize;
         uint8_t mask[MNN_MAX_TENSOR_DIM];
         ::memset(mask, 0, sizeof(mask));

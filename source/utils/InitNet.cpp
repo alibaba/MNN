@@ -88,6 +88,19 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
             } else {
                 OpCommonUtils::loadBlobData(defaultBackend, op, output->host<char>(), output->size());
             }
+        } else {
+            if (nullptr != op->outputIndexes()) {
+                for (int i=0; i<op->outputIndexes()->size(); ++i) {
+                    auto index = op->outputIndexes()->data()[i];
+                    if (nullptr == tensors[index].get()) {
+                        continue;
+                    }
+                    auto des = TensorUtils::getDescribe(tensors[index].get());
+                    if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+                        des->usage = Tensor::InsideDescribe::TRAINABLE;
+                    }
+                }
+            }
         }
     }
     return valid;

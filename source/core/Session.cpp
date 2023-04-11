@@ -7,6 +7,7 @@
 //
 
 #include "core/Session.hpp"
+#include "core/WrapExecution.hpp"
 #include <string.h>
 #include <MNN/AutoTime.hpp>
 #include <map>
@@ -333,7 +334,7 @@ ErrorCode Session::updateToModel(Net* net) const {
             continue;
         }
         std::shared_ptr<Tensor> tensor = mInfo.allTensors[index];
-        if (tensor->host<void>() == nullptr && tensor->deviceId() != 0) {
+        if (WrapExecution::needWrap(tensor.get(), nullptr)) {
             tensor.reset(Tensor::createHostTensorFromDevice(tensor.get(), true));
             if (tensor.get() == nullptr) {
                 MNN_ERROR("failed to copy trained param from device to host\n");

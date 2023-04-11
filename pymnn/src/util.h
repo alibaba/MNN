@@ -578,6 +578,35 @@ static void* toPtr(PyObject *obj, DType dtype, int64_t& total_length, void* data
     return data;
 }
 
+namespace ec {
+    int getVectorByKey(PyObject* dict, const char *key, std::vector<std::string>& result){
+        PyObject *saveTensors = PyDict_GetItemString(dict, key);
+        int count = 0;
+        if (saveTensors) {
+            if (!PyTuple_Check(saveTensors)) {
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: saveTensors must be a tuple");
+                return -1;
+            }
+
+            size_t saveTensorsCount = PyTuple_Size(saveTensors);
+            for (size_t i = 0; i < saveTensorsCount; i++) {
+                PyObject *tensorNameItem = PyTuple_GetItem(saveTensors, i);
+                if (!checkString(tensorNameItem)) {
+                    PyErr_SetString(PyExc_Exception,
+                                    "PyMNNInterpreter_createSession: saveTensors's member must be string");
+                    return -1;
+                }
+
+
+                result.push_back(object2String(tensorNameItem));
+                count++;
+            }
+        }
+        return count;
+    }
+}
+
 inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
     auto backendConfig = config.backendConfig;
     if (dict) {
@@ -640,6 +669,12 @@ inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
                     backendConfig->precision = MNN::BackendConfig::Precision_High;
                 }
             }
+        }
+
+        if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
+            || -1 == ec::getVectorByKey(dict, "inputPaths", config.path.inputs)
+            || -1 == ec::getVectorByKey(dict, "outputPaths", config.path.outputs)){
+            return false;
         }
     }
     return true;

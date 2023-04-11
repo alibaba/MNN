@@ -330,7 +330,7 @@ int OnnxScope::lookupTensor(std::string name) {
     return -1;
 }
 
-std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name) {
+std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size) {
     std::unique_ptr<MNN::OpT> tensorArrayOp(new MNN::OpT);
     tensorArrayOp->name      = name;
     tensorArrayOp->type      = MNN::OpType_TensorArray;
@@ -342,7 +342,7 @@ std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape
     tensorArray->identical_element_shapes = identical;
     tensorArray->element_shape = element_shape;
     tensorArrayOp->main.value = tensorArray;
-    tensorArrayOp->inputIndexes.push_back(buildIntConstOp({1}, name + "/init_size"));
+    tensorArrayOp->inputIndexes.push_back(buildIntConstOp({init_size}, name + "/init_size"));
     int idx_handle = declareTensor(name + "/handle");
     int idx = declareTensor(name);
     tensorArrayOp->outputIndexes.push_back(idx_handle);

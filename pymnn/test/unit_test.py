@@ -9,6 +9,7 @@ import MNN
 import MNN.expr as expr
 import MNN.cv as cv
 import MNN.numpy as mp
+import math
 
 img_path = '../../resource/images/cat.jpg'
 
@@ -238,8 +239,23 @@ class UnitTest(unittest.TestCase):
     def test_matmul(self):
         self.assertEqualVar(expr.matmul(self.x, self.x), np.matmul(self.x_, self.x_))
     def test_normalize(self):
-        x = expr.const([-1.0, -2.0, 3.0, 4.0], [1, 2, 2, 1], expr.NCHW)
-        y = expr.const([-0.2236, -0.4472, 0.3, 0.4], [1, 2, 2, 1], expr.NCHW)
+        def _refNormalize(src, batch, channel, area, scale, eps):
+            dst = [0.0] * (batch * channel * area)
+            for b in range(0, batch):
+                for x in range(0, area):
+                    dstX = b * area * channel + x;
+                    srcX = b * area * channel + x;
+                    sumSquare = 0.0;
+                    for c in range(0, channel):
+                        sumSquare += src[srcX + area * c] * src[srcX + area * c];
+                    normalValue = 1.0 / math.sqrt(sumSquare + eps);
+                    for c in range(0, channel):
+                        dst[dstX + area*c] = src[srcX + area * c] * normalValue * scale[c];
+            return dst
+        src = [-1.0, -2.0, 3.0, 4.0]
+        dst = _refNormalize(src, 1, 2, 2, [0.5, 0.5], 0.0)
+        x = expr.const(src, [1, 2, 2, 1], expr.NCHW)
+        y = expr.const(dst, [1, 2, 2, 1], expr.NCHW)
         self.assertEqualVar(expr.normalize(x, 0, 0, 0.0, [0.5, 0.5]), y.read().copy())
     def test_argmax(self):
         x = expr.reshape(self.x, [-1])

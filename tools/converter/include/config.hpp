@@ -59,6 +59,7 @@ public:
     bool mnn2json = false;
     bool dumpInfo = false;
     bool saveExternalData = false;
+    bool inSubGraph = false;
 };
 
 #endif // CONFIG_HPP

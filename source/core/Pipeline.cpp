@@ -22,7 +22,7 @@
 namespace MNN {
 
 
-static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, MNNForwardType type) {
     auto otype = op->type();
     switch (otype) {
         case OpType_Convolution:
@@ -68,7 +68,8 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             } else {
                 return false;
             }
-        default:
+        case OpType_BinaryOp:
+            return type == MNN_FORWARD_NN;
             return false;
     }
     return false;
@@ -244,7 +245,7 @@ ErrorCode Pipeline::encode(bool supportDebug) {
 #endif
     }
     // Propagate Scale and insert new command
-    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION || mBackend->type() == MNN_FORWARD_CUDA)) {
+    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION || mBackend->type() == MNN_FORWARD_CUDA || mBackend->type() == MNN_FORWARD_NN)) {
         // get propagate map
         using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
         PropagateMap forwardMap, backwardMap;
@@ -341,7 +342,7 @@ ErrorCode Pipeline::encode(bool supportDebug) {
                 if (outputs.size() == 1) {
                     // Quant: output and all input has quantAttr and op support
                     if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
-                        useQuant = _supportQuant(cmd.op, inputs, outputs);
+                        useQuant = _supportQuant(cmd.op, inputs, outputs, mBackend->type());
                     }
                     if (useQuant) {
                         for (auto t : inputs) {
@@ -643,6 +644,16 @@ static void _SetTensorBackend(Schedule::PipelineInfo& mInfo, bool ownInputs) {
         }
     }
 }
+static void _makeCopyOp(std::shared_ptr<BufferStorage>& copyOp) {
+    if (copyOp.get() == nullptr) {
+        flatbuffers::FlatBufferBuilder builder(32);
+        OpBuilder builder_(builder);
+        builder_.add_type(OpType_Copy);
+        builder.Finish(builder_.Finish());
+        copyOp.reset(new BufferStorage);
+        copyOp->storage = builder.ReleaseRaw(copyOp->allocated_size, copyOp->offset);
+    }
+}
 static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, bool ownInput) {
     std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>> wrapCache;
     std::map<Tensor*, std::shared_ptr<Tensor>> shapeFixConstCache;
@@ -672,7 +683,7 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                 if (WrapExecution::needWrap(t, curBackend)) {
                     do {
                         std::shared_ptr<Tensor> newTensor;
-                        if (!des->isMutable) {
+                        if (!des->isMutable && (des->usage != Tensor::InsideDescribe::TRAINABLE)) {
                             newTensor = WrapExecution::copyConstCache(t, curBackend, mCacheConstTensors);
                         } else if (des->usage == Tensor::InsideDescribe::CONSTANT) {
                             newTensor = WrapExecution::copyConstCache(t, curBackend, shapeFixConstCache);
@@ -707,17 +718,10 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                                 }
                             }
                         }
-                        auto copyWrap = WrapExecution::makeCopyExecution(curBackend, mInfo.first.cache.second.get(), t, wrapCache);
+                        auto copyWrap = WrapExecution::makeCopyExecution(curBackend, mInfo.first.cache.second.get(), t, wrapCache, true);
                         iter.workInputs[v] = copyWrap.second.get();
                         if (nullptr != copyWrap.first) {
-                            if (copyOp.get() == nullptr) {
-                                flatbuffers::FlatBufferBuilder builder(32);
-                                OpBuilder builder_(builder);
-                                builder_.add_type(OpType_Copy);
-                                builder.Finish(builder_.Finish());
-                                copyOp.reset(new BufferStorage);
-                                copyOp->storage = builder.ReleaseRaw(copyOp->allocated_size, copyOp->offset);
-                            }
+                            _makeCopyOp(copyOp);
                             SharedPtr<Command> cmdP = new Command;
                             auto& cmd = *cmdP;
                             cmd.buffer = copyOp;
@@ -732,12 +736,23 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                 }
             }
             buffer.command.emplace_back(iterP);
-#ifdef DEBUG
             for (int v=0; v<iter.outputs.size(); ++v) {
                 auto t = iter.outputs[v];
-                MNN_ASSERT(!WrapExecution::needWrap(t, curBackend));
+                if (WrapExecution::needWrap(t, curBackend)) {
+                    auto copyWrap = WrapExecution::makeCopyExecution(curBackend, mInfo.first.cache.second.get(), t, wrapCache, false);
+                    iterP->outputs[v] = copyWrap.second.get();
+                    _makeCopyOp(copyOp);
+                    SharedPtr<Command> cmdP = new Command;
+                    auto& cmd = *cmdP;
+                    cmd.buffer = copyOp;
+                    cmd.workInputs  = {copyWrap.second.get()};
+                    cmd.outputs = {t};
+                    cmd.op      = flatbuffers::GetRoot<Op>(cmd.buffer->buffer());
+                    buffer.extras.emplace_back(copyWrap.second);
+                    cmd.execution.reset(copyWrap.first);
+                    buffer.command.emplace_back(cmdP);
+                }
             }
-#endif
         }
     }
     return NO_ERROR;
@@ -958,7 +973,6 @@ ErrorCode Pipeline::execute() {
         auto& buffer = info.executeBuffer;
         for (auto& cmdP : buffer.command) {
             auto& cmd = *cmdP;
-
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);
             if (NO_ERROR != code) {
                 mBackend->onExecuteEnd();
@@ -977,7 +991,8 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
     mBackend->onExecuteBegin();
     for (auto& info : mInfo.second) {
         auto& buffer = info.executeBuffer;
-        for (auto& cmdP : buffer.command) {
+        for (int cmdIndex=0; cmdIndex < buffer.command.size(); ++cmdIndex) {
+            auto cmdP = buffer.command[cmdIndex];
             auto& cmd = *cmdP;
             if (nullptr == cmd.info.get()) {
                 auto code = cmd.execution->onExecute(cmd.workInputs, cmd.outputs);

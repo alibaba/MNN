@@ -16,6 +16,7 @@
 #include "common/MemoryFormater.h"
 #include <fstream>
 #include <sstream>
+#include <numeric>
 #include <cmath>
 #include "ExprDebug.hpp"
 
@@ -58,14 +59,18 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         MNN_PRINT("%d, ", info->dim[i]);
     }
     MNN_PRINT(")\n");
-    auto targetValue = _Input({info->dim}, info->order, info->type);
+    auto targetValue = _Input(info->dim, info->order, info->type);
     auto targetPtr = targetValue->writeMap<float>();
     auto outputPtr = output->readMap<float>();
 #define MNN_IS_INF(x) (fabs(x) == INFINITY)
 #define MNN_IS_NAN(x) ((x) != (x))
+    for (int i=0; i<info->size; ++i) {
+        double targetValue;
+        outputOrigin >> targetValue;
+        targetPtr[i] = targetValue;
+    }
 
     for (int i=0; i<info->size; ++i) {
-        outputOrigin >> targetPtr[i];
         if (MNN_IS_INF(outputPtr[i]) || MNN_IS_NAN(outputPtr[i])) {
             MNN_ERROR("TESTERROR %s value error:%f\n", name.c_str(), outputPtr[i]);
             return false;
@@ -198,6 +203,9 @@ int main(int argc, char *argv[]) {
     if (runMask & 1) {
         rtmgr->setMode(Interpreter::Session_Debug);
     }
+    if (runMask & 128) {
+        rtmgr->setMode(Interpreter::Session_Debug);
+    }
     if (runMask & 8) {
         rtmgr->setMode(Interpreter::Session_Input_Inside);
     }
@@ -238,7 +246,9 @@ int main(int argc, char *argv[]) {
             continue;\
         }\
         for (int i=0; i<info->size; ++i) {\
-            inputOs >> ptr[i];\
+            double tempValue;\
+            inputOs >> tempValue;\
+            ptr[i] = tempValue;\
         }\
     }
 
@@ -341,12 +351,26 @@ int main(int argc, char *argv[]) {
     if (runTime > 0) {
         int t = runTime;
         std::vector<float> times(t, 0.0f);
-
+        if (runMask & 128) {
+            _initTimeTrace();
+        }
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
             times[i] = _l.durationInUs() / 1000.0f;
-
+        }
+        if (nullptr != gTimeTraceInfo) {
+            float opSummer = 0.0f;
+            for (auto& iter : gTimeTraceInfo->mTypes) {
+                float summer = 0.0f;
+                for (auto& t : iter.second) {
+                    summer += std::accumulate(t.second.begin(), t.second.end(), 0.0f);
+                }
+                summer = summer / (float)t;
+                MNN_PRINT("%s : %.7f\n", iter.first.c_str(), summer);
+                opSummer += summer;
+            }
+            MNN_PRINT("OP Summer: %.7f\n", opSummer);
         }
         auto minTime = std::min_element(times.begin(), times.end());
         auto maxTime = std::max_element(times.begin(), times.end());

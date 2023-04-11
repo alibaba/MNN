@@ -7,12 +7,49 @@
 //
 
 #include <MNN/MNNDefine.h>
+#include <fstream>
+#include <google/protobuf/util/json_util.h>
 #include "../OnnxUtils.hpp"
 #include "onnx.pb.h"
+static void _removeWeight(int argc, const char* argv[]) {
+    auto modelName = argv[1];
+    auto dstModelName = argv[2];
+    FUNC_PRINT_ALL(modelName, s);
+    FUNC_PRINT_ALL(dstModelName, s);
+    onnx::ModelProto onnxModel;
+
+    // read ONNX Model
+    bool success = onnx_read_proto_from_binary(modelName, &onnxModel);
+    if (!success) {
+        MNN_PRINT("Load onnx model failed\n");
+        return;
+    }
+    auto onnxGraph = onnxModel.mutable_graph();
+    int size = onnxGraph->initializer_size();
+    for (int i=0; i<size; ++i) {
+        auto initial = onnxGraph->mutable_initializer(i);
+        initial->clear_raw_data();
+        initial->clear_float_data();
+        initial->clear_double_data();
+    }
+    std::string output;
+    google::protobuf::util::JsonOptions options;
+    options.add_whitespace = true;
+    options.always_print_primitive_fields = true;
+    google::protobuf::util::MessageToJsonString(onnxModel, &output, options);
+    std::ofstream outputOs(dstModelName);
+    outputOs << output;
+}
+
 
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
-        MNN_PRINT("Usage: ./OnnxClip SRC.onnx DST.onnx layerName\n");
+        if (argc < 3) {
+            MNN_PRINT("Usage: ./OnnxClip SRC.onnx DST.onnx layerName\n");
+            MNN_PRINT("Or: ./OnnxClip SRC.onnx struct.json\n");
+            return 0;
+        }
+        _removeWeight(argc, argv);
         return 0;
     }
     auto modelName = argv[1];

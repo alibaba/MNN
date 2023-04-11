@@ -43,6 +43,10 @@ static void reference_conv2d(const std::vector<float>& input, const std::vector<
     }
 
     MNN_ASSERT(oc % group == 0 && ic % group == 0);
+    if (oh <= 0 || ow <= 0) {
+        output.clear();
+        return;
+    }
     output.resize(batch * oh * ow * oc);
     /*
       In CPUConvolutionDepthwise, bias function 'MNNAxByClampBroadcastUnit' is called separately with MNNConvRunForLineDepthwise,
@@ -395,6 +399,9 @@ public:
 
         reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
                          stride, dilation, group, FP32Converter[precision]);
+        if (outputData.size() == 0) {
+            return true;
+        }
 
         auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
@@ -680,29 +687,39 @@ public:
     virtual ~DepthwiseConvolutionTest() = default;
 
 protected:
+    virtual bool run(int precision) {
+        return test(MNN_FORWARD_CPU, "CPU", precision);
+    }
+
     static bool test(MNNForwardType type, const std::string& device_name, int precision) {
         srand(TEST_RANDOM_SEED);
         // correct unit test
         for (int b = 1; b <= 2; b++) {
             for (int oc = 4; oc <= 16; oc *= 2) {
                 for (int ic = oc; ic <= oc; ic++) {
-                    for (int is = 1; is <= 8; is *= 2) {
-                        for (int kw = 1; kw <= 3 && kw <= is; kw++) {
-                            for (int kh = 1; kh <= 3 && kh <= is; kh++) {
-                                for (int d = 1; d <= 2; d++) {
-                                    if (d > std::min(kw, kh) || d * (std::max(kw, kh) - 1) + 1 > is)
-                                        continue;
-                                    for (int s = 1; s <= 2; s++) {
-                                        for (int p = 0; p <= 1; p++) {
-                                            // depthwise <==> group == outputChannel
-                                            bool succ = ConvolutionCommonTest().test(
-                                                type, device_name, "DepthwiseConv2D", b, ic, oc, is, is, PadMode_CAFFE,
-                                                p, p, kh, kw, s, d, oc, precision);
-                                            if (!succ) {
-                                                MNN_ERROR(
-                                                    "Error for dw oc=%d, ic=%d, is=%d,kw=%d,kh=%d,d=%d,s=%d,p=%d\n", oc,
-                                                    ic, is, kw, kh, d, s, p);
-                                                return false;
+                    for (int isw = 1; isw <= 8; ++isw) {
+                        for (int ish = 1; ish <= 8; ++ish) {
+                            for (int kw = 1; kw <= 4; kw++) {
+                                for (int kh = 1; kh <= 4; kh++) {
+                                    for (int d = 1; d <= 2; d++) {
+                                        for (int s = 1; s <= 2; s++) {
+                                            for (int p = 0; p <= std::min(kw, kh); p++) {
+                                                // depthwise <==> group == outputChannel
+                                                bool succ = ConvolutionCommonTest().test(
+                                                                                         type, device_name, "DepthwiseConv2D", b, ic, oc, ish, isw, PadMode_CAFFE,
+                                                                                         p, p, kh, kw, s, d, oc, precision);
+                                                if (!succ) {
+                                                    MNN_ERROR(
+                                                              "Error for dw oc=%d, ic=%d, ih=%d, iw = %d, kw=%d,kh=%d,d=%d,s=%d,p=%d\n", oc,
+                                                              ic, ish, isw, kw, kh, d, s, p);
+#ifdef DEBUG
+                                                    //Rerun test for easy to test
+                                                    ConvolutionCommonTest().test(
+                                                                                             type, device_name, "DepthwiseConv2D", b, ic, oc, ish, isw, PadMode_CAFFE,
+                                                                                             p, p, kh, kw, s, d, oc, precision);
+#endif
+                                                    return false;
+                                                }
                                             }
                                         }
                                     }
@@ -717,14 +734,6 @@ protected:
         int b = 1, oc = 4, ic = oc, group = oc, is = 2, p = 1, kh = 3, kw = 3, s = 2, d = 1;
         return ConvolutionCommonTest().test(type, device_name, "DepthwiseConv2D", b, ic, oc, is, is,
                                            PadMode_CAFFE, p, p, kh, kw, s, d, group, precision);
-    }
-};
-
-class DepthwiseConvolutionTestOnCPU : public DepthwiseConvolutionTest {
-public:
-    ~DepthwiseConvolutionTestOnCPU() = default;
-    virtual bool run(int precision) {
-        return DepthwiseConvolutionTest::test(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 
@@ -785,5 +794,5 @@ public:
 MNNTestSuiteRegister(ConvolutionTestOnCPU, "op/convolution/conv2d");
 MNNTestSuiteRegister(ConvolutionSpeedTestOnCPU, "speed/convolution/conv2d");
 MNNTestSuiteRegister(SparseConvolutionTestOnCPU, "op/convolution/sparse_conv2d");
-MNNTestSuiteRegister(DepthwiseConvolutionTestOnCPU, "op/convolution/depthwise_conv");
+MNNTestSuiteRegister(DepthwiseConvolutionTest, "op/convolution/depthwise_conv");
 MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group");

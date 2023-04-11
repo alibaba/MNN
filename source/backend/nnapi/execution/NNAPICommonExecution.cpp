@@ -15,6 +15,7 @@ NNAPICommonExecution::NNAPICommonExecution(Backend *backend, const Op *op) : Exe
 }
 
 ErrorCode NNAPICommonExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    printf("NNAPICommonExecution::onResize\n");
     return NO_ERROR;
 }
 
@@ -25,13 +26,13 @@ ErrorCode NNAPICommonExecution::onExecute(const std::vector<Tensor *> &inputs, c
 std::vector<uint32_t> NNAPICommonExecution::getTensorIdxs(const std::vector<Tensor*>& tensors) {
     std::vector<uint32_t> idxs(tensors.size());
     for (int i = 0; i < tensors.size(); i++) {
-        idxs[i] = mNNAPIBackend->getTensorIdx(tensors[i]);
+        idxs[i] = mNNAPIBackend->getTensorIdx(tensors[i], true);
     }
     return idxs;
 }
 
-uint32_t NNAPICommonExecution::buildConstant(const void* data, size_t size, OperandCode dtype, std::vector<uint32_t> dims) {
-    return mNNAPIBackend->buildOperand(data, size, dtype, dims);
+uint32_t NNAPICommonExecution::buildConstant(const void* data, size_t size, OperandCode dtype, std::vector<uint32_t> dims, const float* scales, int zero) {
+    return mNNAPIBackend->buildOperand(data, size, dtype, dims, scales, zero);
 }
 
 uint32_t NNAPICommonExecution::buildVector(const std::vector<int32_t>& vec) {

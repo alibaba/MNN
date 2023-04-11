@@ -124,3 +124,45 @@ static void _initDebug() {
     };
     MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
+
+
+struct TimeTraceInfo {
+    std::map<std::string, std::map<std::string, std::vector<float>>> mTypes;
+    
+    void begin(const MNN::OperatorInfo* info) {
+        auto tIter = mTypes.find(info->type());
+        if (tIter == mTypes.end()) {
+            std::map<std::string, std::vector<float>> _t;
+            mTypes.insert(std::make_pair(info->type(), _t));
+            tIter = mTypes.find(info->type());
+        }
+        mInserIter = tIter->second.find(info->name());
+        if (mInserIter == tIter->second.end()) {
+            std::vector<float> _t;
+            tIter->second.insert(std::make_pair(info->name(), _t));
+            mInserIter = tIter->second.find(info->name());
+        }
+        mTimer.reset();
+    }
+    void end() {
+        auto timeInMs = (float)mTimer.durationInUs() / 1000.0f;
+        mInserIter->second.emplace_back(timeInMs);
+    }
+private:
+    std::map<std::string, std::vector<float>>::iterator mInserIter;
+    MNN::Timer mTimer;
+};
+static TimeTraceInfo* gTimeTraceInfo = nullptr;
+static void _initTimeTrace() {
+    static TimeTraceInfo gTime;
+    gTimeTraceInfo = &gTime;
+    MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
+        gTimeTraceInfo->begin(info);
+        return true;
+    };
+    MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
+        gTimeTraceInfo->end();
+        return true;
+    };
+    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+}

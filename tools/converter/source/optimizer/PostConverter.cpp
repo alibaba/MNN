@@ -42,6 +42,7 @@ SubGraphProtoT* FindSubGraphByName(const std::vector<SubGraphProtoT*>& subgraphs
 
 bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const SubGraphProtoT* subgraph) {
     auto* ctx = Global<OptimizeContext>::Get();
+    auto config = Global<modelConfig>::Get();
     MNN_ASSERT(ctx != nullptr);
     // Disable verbose for subgraph.
     bool verbose = ctx->verbose;
@@ -63,8 +64,22 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     subnet->tensorName = mutable_subgraph->tensors;
     subnet->sourceType = ctx->source;
     subnet->outputName = outputNames;
-
+    bool gDebug = false;
+    if (gDebug) {
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(MNN::Net::Pack(builder, subnet.get()));
+        std::ofstream output("temp.before_opt.mnn", std::ofstream::binary);
+        output.write((const char*)builder.GetBufferPointer(), builder.GetSize());
+    }
+    config->inSubGraph = true;
     std::unique_ptr<MNN::NetT> new_subnet = ctx->RunOptimize(subnet, inputs);
+    config->inSubGraph = false;
+    if (gDebug) {
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(MNN::Net::Pack(builder, new_subnet.get()));
+        std::ofstream output("temp.after_opt.mnn", std::ofstream::binary);
+        output.write((const char*)builder.GetBufferPointer(), builder.GetSize());
+    }
     mutable_subgraph->nodes               = std::move(subnet->oplists);
 
     MNN::SubGraphProtoT* new_subgraph(new MNN::SubGraphProtoT);
@@ -85,11 +100,16 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     new_subgraph->outputs.clear();
     outputNames = new_subnet->outputName;
     for (auto& output : outputNames) {
+        bool find = false;
         for (int i = 0; i < new_subnet->tensorName.size(); ++i) {
             if (new_subnet->tensorName[i] == output) {
+                find = true;
                 new_subgraph->outputs.emplace_back(i);
                 break;
             }
+        }
+        if (!find) {
+            MNN_ERROR("Can't find output for %s\n", output.c_str());
         }
     }
     MNN_ASSERT(new_subgraph->outputs.size() == outputNames.size());
