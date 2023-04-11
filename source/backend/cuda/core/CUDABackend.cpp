@@ -339,8 +339,8 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     auto dstDimensionFormat = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcIndex = TensorUtils::getDescribe(srcTensor)->index;
     auto dstIndex = TensorUtils::getDescribe(dstTensor)->index;
-    auto srcDevice          = srcTensor->deviceId() != 0;
-    auto dstDevice          = dstTensor->deviceId() != 0;
+    auto srcDevice = (srcTensor->deviceId() != 0 && srcTensor->deviceId() != 1);
+    auto dstDevice = (dstTensor->deviceId() != 0 && dstTensor->deviceId() != 1);    
     MNN_ASSERT(srcDevice || dstDevice);
     uint8_t* srcPtr = nullptr;
     std::pair<void*, int> tempSrcStorage;

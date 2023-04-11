@@ -44,7 +44,7 @@ public:
 
         {
             // 1, axis, 1 -> outside, axis, inside
-            std::shared_ptr<Tensor> broadCastScale(Tensor::createDevice<float>({outside, axis, inside}));
+            std::shared_ptr<Tensor> broadCastScale(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
             res.extras.emplace_back(broadCastScale);
             auto des = TensorUtils::getDescribe(broadCastScale.get());
             des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
@@ -70,26 +70,26 @@ public:
             inside  = 1;
             axis    = inputTensor->width() * inputTensor->height() * inputTensor->channel();
         }
-        std::shared_ptr<Tensor> inputRaw(Tensor::createDevice<float>({outside, axis, inside}));
+        std::shared_ptr<Tensor> inputRaw(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
         res.extras.emplace_back(inputRaw);
-        std::shared_ptr<Tensor> inputRawSquare(Tensor::createDevice<float>({outside, axis, inside}));
+        std::shared_ptr<Tensor> inputRawSquare(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
         res.extras.emplace_back(inputRawSquare);
         GeometryComputerUtils::makeRawAddressRef(inputRaw.get(), inputTensor, 0, outside * axis * inside);
         res.command.emplace_back(
             GeometryComputerUtils::makeUnary(UnaryOpOperation_SQUARE, inputRaw.get(), inputRawSquare.get()));
-        std::shared_ptr<Tensor> summer(Tensor::createDevice<float>({outside, 1, inside}));
+        std::shared_ptr<Tensor> summer(Tensor::createDevice<float>({outside, 1, inside}, Tensor::CAFFE));
         res.extras.emplace_back(summer);
         res.command.emplace_back(
             GeometryComputerUtils::makeReduce(ReductionType_SUM, inputRawSquare.get(), summer.get()));
-        std::shared_ptr<Tensor> temp0(Tensor::createDevice<float>({outside, 1, inside}));
+        std::shared_ptr<Tensor> temp0(Tensor::createDevice<float>({outside, 1, inside}, Tensor::CAFFE));
         res.extras.emplace_back(temp0);
-        std::shared_ptr<Tensor> temp1(Tensor::createDevice<float>({outside, 1, inside}));
+        std::shared_ptr<Tensor> temp1(Tensor::createDevice<float>({outside, 1, inside}, Tensor::CAFFE));
         res.extras.emplace_back(temp1);
         res.command.emplace_back(
             GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, summer.get(), eps, temp0.get()));
         res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_RSQRT, temp0.get(), temp1.get()));
 
-        std::shared_ptr<Tensor> scaleFirst(Tensor::createDevice<float>({outside, axis, inside}));
+        std::shared_ptr<Tensor> scaleFirst(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
         res.extras.emplace_back(scaleFirst);
         {
             // Broadcast scale
@@ -111,9 +111,9 @@ public:
             reg.origin = temp1.get();
         }
 
-        std::shared_ptr<Tensor> output0(Tensor::createDevice<float>({outside, axis, inside}));
+        std::shared_ptr<Tensor> output0(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
         res.extras.emplace_back(output0);
-        std::shared_ptr<Tensor> output1(Tensor::createDevice<float>({outside, axis, inside}));
+        std::shared_ptr<Tensor> output1(Tensor::createDevice<float>({outside, axis, inside}, Tensor::CAFFE));
         res.extras.emplace_back(output1);
         res.command.emplace_back(
             GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, inputRaw.get(), scaleFirst.get(), output0.get()));

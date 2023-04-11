@@ -1607,6 +1607,22 @@ static PyObject* PyMNNExpr_raster(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("raster require args: ([Var], [int], [int])");
 }
+static PyObject* PyMNNExpr_quant(PyObject *self, PyObject *args) {
+    PyObject *var, *scale;
+    int min = -127, max = 127;
+    if (PyArg_ParseTuple(args, "OO|ii", &var, &scale, &min, &max) && isVar(var) && isVar(scale)) {
+        return toPyObj(Express::_FloatToInt8(toVar(var), toVar(scale), min, max));
+    }
+    PyMNN_ERROR("quant require args: (Var, Var, |int, int)");
+}
+static PyObject* PyMNNExpr_dequant(PyObject *self, PyObject *args) {
+    PyObject *var, *scale;
+    int zero;
+    if (PyArg_ParseTuple(args, "OOi", &var, &scale, &zero) && isVar(var) && isVar(scale)) {
+        return toPyObj(Express::_Int8ToFloat(toVar(var), toVar(scale), zero));
+    }
+    PyMNN_ERROR("dequant require args: (Var, Var, int)");
+}
 static PyObject* PyMNNExpr_nms(PyObject *self, PyObject *args) {
     PyObject *boxes, *scores;
     int max_detections;
@@ -1779,7 +1795,9 @@ static PyMethodDef PyMNNExpr_methods[] = {
         conv2d, "build conv2d expr",
         conv2d_transpose, "build conv2d_transpose expr",
         max_pool, "build max_pool expr",
-        avg_pool, "build avg_pool expr"
+        avg_pool, "build avg_pool expr",
+        quant, "build quant expr",
+        dequant, "build dequant expr"
     )
     {"reshape",  PyMNNExpr_reshape, METH_VARARGS, "build reshape: (Var, [int], |data_format)"},
     register_methods(Expr,

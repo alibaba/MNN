@@ -46,7 +46,7 @@
       const auto ENUM_TO_STR = NNAPIEnumToString(_status);              \
       MNN_ERROR("[NNAPI] Error: %s when call " #func " at line %d.\n",  \
                                         ENUM_TO_STR.c_str(), __LINE__); \
-      exit(0);\
+      exit(0); \
     }                                                                   \
   } while (0)
 
@@ -130,7 +130,6 @@ namespace MNN {
     Execution* NNAPIBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
         auto map = getCreatorMap();
         auto iter = map->find(op->type());
-        NNAPI_OP_LOG("### op: %s, %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "NoName");
         if (iter == map->end()) {
             MNN_ERROR("[NNAPI] Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
             return nullptr;
@@ -140,6 +139,7 @@ namespace MNN {
             MNN_ERROR("[NNAPI] The Creator Don't support type %s.\n", MNN::EnumNameOpType(op->type()));
             return nullptr;
         }
+        NNAPI_OP_LOG("[NNAPI] Create op: %s, %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "NoName");
         return exe;
     }
 
@@ -153,21 +153,33 @@ namespace MNN {
     Backend::MemObj* NNAPIBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
         bool isInputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
+        if (!isInputCopy && !isOutputCopy) {
+            return new Backend::MemObj;
+        }
         std::unique_ptr<Tensor> tensor_;
         auto format = mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW;
         if (bytes() == 2 && tensor->getType() == halide_type_of<float>()) {
+            // fp16
             const_cast<Tensor*>(tensor)->buffer().type = halide_type_t(halide_type_float, 16);
             tensor_.reset(new Tensor(tensor, format, true));
             const_cast<Tensor*>(tensor)->buffer().type = halide_type_of<float>();
         } else {
+            // fp32
             tensor_.reset(new Tensor(tensor, format, true));
         }
-        if(isInputCopy){
+        if (TensorUtils::getDescribe(tensor)->quantAttr.get()) {
+            // int8
+            TensorUtils::getDescribe(tensor_.get())->quantAttr = TensorUtils::getDescribe(tensor)->quantAttr;
+        }
+        if (isInputCopy) {
             mInputTensors.push_back(tensor);
             mInputContentTensors.push_back(std::move(tensor_));
             mInputIdxMap.insert(std::make_pair(tensor, mInputIdxMap.size()));
         }
-        if(isOutputCopy){
+        if (isOutputCopy) {
+            if (TensorUtils::getDescribe(tensor)->quantAttr.get()) {
+                buildDequantOperand(tensor);
+            }
             mOutputTensors.push_back(tensor);
             mOutputContentTensors.push_back(std::move(tensor_));
             mOutputIdxMap.insert(std::make_pair(tensor, mOutputIdxMap.size()));
@@ -175,9 +187,7 @@ namespace MNN {
             // const_cast<halide_buffer_t&>(tensor->buffer()).host = (uint8_t*)MNNMemoryAllocAlign(tensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
             // MNN_ASSERT(tensor->buffer().host != nullptr);
         }
-        if (isInputCopy || isOutputCopy) {
-            getTensorIdx(tensor);
-        }
+        getTensorIdx(tensor);
         // Don't need release
         return new Backend::MemObj;
     }
@@ -245,7 +255,13 @@ namespace MNN {
         buildModel();
         mHalfBuffer.clear();
     }
-    uint32_t NNAPIBackend::getTensorIdx(const Tensor* t) {
+    uint32_t NNAPIBackend::getTensorIdx(const Tensor* t, bool dequant) {
+        if (dequant) {
+            const auto& qiter = mDequantIdxMap.find(t);
+            if (qiter != mDequantIdxMap.end()) {
+                return qiter->second;
+            }
+        }
         const auto& iter = mTensorIdxMap.find(t);
         if (iter != mTensorIdxMap.end()) {
             return iter->second;
@@ -264,16 +280,29 @@ namespace MNN {
         if (dtype == halide_type_of<int>()) {
             code = ANEURALNETWORKS_TENSOR_INT32;
         }
+        float scale = 0.f;
+        int zero = 0;
+        if (TensorUtils::getDescribe(t)->quantAttr.get() != nullptr &&
+            t->getType() == halide_type_of<int8_t>()) {
+            code = ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED;
+            scale = TensorUtils::getDescribe(t)->quantAttr->scale;
+            zero = TensorUtils::getDescribe(t)->quantAttr->zero;
+        }
         uint32_t idx = -1;
         if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
             idx = buildOperand(t->host<void>(), t->size(), code, udims);
         } else {
-            idx = buildOperand(nullptr, 0, code, udims);
+            idx = buildOperand(nullptr, 0, code, udims, &scale, zero);
         }
         mTensorIdxMap.insert(std::make_pair(t, idx));
         return idx;
     }
     ErrorCode NNAPIBackend::replaceTensorWith(const Tensor* src, const Tensor* replace) {
+        const auto& qiter = mDequantIdxMap.find(replace);
+        if (qiter != mDequantIdxMap.end()) {
+            mDequantIdxMap.insert(std::make_pair(src, qiter->second));
+            return NO_ERROR;
+        }
         const auto& iter = mTensorIdxMap.find(replace);
         if (iter != mTensorIdxMap.end()) {
             mTensorIdxMap.insert(std::make_pair(src, iter->second));
@@ -281,6 +310,25 @@ namespace MNN {
         }
         MNN_ERROR("[NNAPI] The replace Tensor must register.");
         return INVALID_VALUE;
+    }
+    uint32_t NNAPIBackend::buildDequantOperand(const Tensor* tensor) {
+        const auto& iter = mDequantIdxMap.find(tensor);
+        if (iter != mDequantIdxMap.end()) {
+            return iter->second;
+        }
+        // 1. build tmp operand
+        std::vector<uint32_t> udims;
+        for (auto d : tensor->shape()) {
+            udims.push_back(d);
+        }
+        auto code = ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED;
+        auto scale = TensorUtils::getDescribe(tensor)->quantAttr->scale;
+        auto zero = TensorUtils::getDescribe(tensor)->quantAttr->zero;
+        dimsFormat<uint32_t>(udims, TensorUtils::getDescribe(tensor)->dimensionFormat);
+        auto tmpIdx = buildOperand(nullptr, 0, code, udims, &scale, zero);
+        mDequantIdxMap.insert(std::make_pair(tensor, tmpIdx));
+        mDequantMap.insert(std::make_pair(tmpIdx, tensor));
+        return tmpIdx;
     }
     uint32_t NNAPIBackend::buildScalar(int scalar) {
         auto iter = mScalarIntMap.find(scalar);
@@ -316,20 +364,20 @@ namespace MNN {
         mScalarFloatMap.insert(std::make_pair(scalar, scalarIdx));
         return scalarIdx;
     }
-    uint32_t NNAPIBackend::buildOperand(const void* data, size_t size, OperandCode code, std::vector<uint32_t> dims) {
-        bool needQuant = (bytes() == 2 && code == ANEURALNETWORKS_TENSOR_FLOAT32);
-        if (needQuant) {
+    uint32_t NNAPIBackend::buildOperand(const void* data, size_t size, OperandCode code, std::vector<uint32_t> dims, const float* scales, int zero) {
+        bool useFP16 = (bytes() == 2 && code == ANEURALNETWORKS_TENSOR_FLOAT32);
+        if (useFP16) {
             code = ANEURALNETWORKS_TENSOR_FLOAT16;
             size /= 2;
         }
-        ANeuralNetworksOperandType operandType {
-            .type = code,
-            .dimensionCount = static_cast<uint32_t>(dims.size()),
-            .dimensions = dims.empty() ? nullptr : dims.data(),
-            .scale = 0.0f,
-            .zeroPoint = 0,
-        };
-        CHECK(ANeuralNetworksModel_addOperand_27, mNNAPIModel, &operandType);
+        float scale = (scales && code != ANEURALNETWORKS_TENSOR_QUANT8_SYMM_PER_CHANNEL) ? *scales : 0.f;
+        ANeuralNetworksOperandType operandType;
+        operandType.type = code;
+        operandType.dimensionCount = static_cast<uint32_t>(dims.size());
+        operandType.dimensions = dims.empty() ? nullptr : dims.data();
+        operandType.scale = scale;
+        operandType.zeroPoint = zero;
+
         uint32_t operandIdx = mTensorIdx++;
         {
             NNAPI_OP_LOG("build operand : {\n");
@@ -337,21 +385,31 @@ namespace MNN {
             NNAPI_OP_LOG("\tdata : %p\n", data);
             NNAPI_OP_LOG("\tsize : %d\n", size);
             NNAPI_OP_LOG("\ttype : %d\n", operandType.type);
+            NNAPI_OP_LOG("\tscale : %f\n", scale);
+            NNAPI_OP_LOG("\tzero : %d\n", zero);
             NNAPI_OP_LOG("\tdimensions : [ ");
             for (auto i : dims) NNAPI_OP_LOG("%d, ", i);
             NNAPI_OP_LOG("]\n}\n");
         }
+        CHECK(ANeuralNetworksModel_addOperand_27, mNNAPIModel, &operandType);
         if (data && size) {
-            if (needQuant) {
+            if (useFP16) {
                 mHalfBuffer.emplace_back(new int16_t[size/2]);
                 FLOAT_TO_HALF(reinterpret_cast<const float*>(data), mHalfBuffer.back().get(), size/2);
                 data = mHalfBuffer.back().get();
+            }
+            if (code == ANEURALNETWORKS_TENSOR_QUANT8_SYMM_PER_CHANNEL) {
+                MNN_ASSERT(scales != nullptr);
+                ANeuralNetworksSymmPerChannelQuantParams quantParam;
+                quantParam.channelDim = 0;
+                quantParam.scaleCount = dims[0];
+                quantParam.scales = scales;
+                ANeuralNetworksModel_setOperandSymmPerChannelQuantParams_29(mNNAPIModel, operandIdx, &quantParam);
             }
             CHECK(ANeuralNetworksModel_setOperandValue_27, mNNAPIModel, operandIdx, data, size);
         }
         return operandIdx;
     }
-
     ErrorCode NNAPIBackend::buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs, const char* name) {
         {
             NNAPI_OP_LOG("build operation : {\n");
@@ -368,6 +426,13 @@ namespace MNN {
               mNNAPIModel, op,
               inputs.size(), inputs.data(),
               outputs.size(), outputs.data());
+        for (auto output : outputs) {
+            const auto& iter = mDequantMap.find(output);
+            if (iter != mDequantMap.end()) {
+                // append dequant operation
+                buildOperation(ANEURALNETWORKS_DEQUANTIZE, {output}, {getTensorIdx(iter->second)});
+            }
+        }
         return NO_ERROR;
     }
 
@@ -378,6 +443,7 @@ namespace MNN {
             inputOperands[i] = getTensorIdx(mInputTensors[i]);
         }
         for (int i = 0; i < mOutputTensors.size(); i++) {
+            auto output = mOutputTensors[i];
             outputOperands[i] = getTensorIdx(mOutputTensors[i]);
         }
         {

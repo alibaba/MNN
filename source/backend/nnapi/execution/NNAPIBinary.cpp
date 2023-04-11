@@ -69,6 +69,9 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
         MNN_ERROR("[NNAPI] Binary not support %s\n", MNN::EnumNameBinaryOpOperation(binaryType));
         return NOT_SUPPORT;
     }
+    if (TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
+        outputs[0]->buffer().type = halide_type_of<int8_t>();
+    }
     auto inputIdxs = getTensorIdxs(inputs);
     inputIdxs.push_back(buildScalar(ANEURALNETWORKS_FUSED_NONE));
     return buildOperation(iter->second, inputIdxs, getTensorIdxs(outputs));

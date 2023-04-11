@@ -8,98 +8,12 @@
 
 #include "ConvCutlassExecution.hpp"
 #include "Raster.cuh"
+#include "ConvBaseKernel.cuh"
 
 //#define DEBUG
 
 namespace MNN {
 namespace CUDA {
-
-template<typename T0, typename T1>
-__global__ void Im2Col_packC(
-    const int sw,
-    const int sh,
-    const int dw,
-    const int dh,
-    const int pw,
-    const int ph,
-    const int icDiv4,
-    const int iw,
-    const int ih,
-    const size_t maxCount,
-    const int iBlock,
-    const int pack,
-    const int e,
-    const int l,
-    const T0* A,
-    T1* AP,
-    DivModFast d_lp,
-    DivModFast d_ow,
-    DivModFast d_oh,
-    DivModFast d_fxy,
-    DivModFast d_fx
-) {
-
-    for (size_t indexO = blockIdx.x * blockDim.x + threadIdx.x; indexO < maxCount; indexO += blockDim.x * gridDim.x) {
-        int eIndex, lpIndex;
-        d_lp.divmod(indexO, eIndex, lpIndex);
-
-        if(eIndex >= e || lpIndex >= l) {
-            *(AP + indexO) = (T1)0.0f;
-            continue;
-        }
-        // Compute for source
-        int ox, oby, ob, oy, ic, kI, ksx, ksy;
-        d_ow.divmod(eIndex, oby, ox);
-        d_oh.divmod(oby, ob, oy);
-        d_fxy.divmod(lpIndex, ic, kI);
-        d_fx.divmod(kI, ksy, ksx);
-
-        size_t sx = ox * sw + ksx * dw - pw;
-        size_t sy = oy * sh + ksy * dh- ph;
-
-        const int ic_p = icDiv4 * pack;
-        if (sx >= 0 && sx < iw) {
-            if (sy >=0 && sy < ih) {
-                size_t offset = ((ob * ih + sy) * iw + sx) * ic_p + ic;
-                *(AP + indexO) = (T1)(*(A + offset));
-                continue;
-            }
-        }
-        *(AP + indexO) = (T1)0.0f;
-    }
-}
-
-template<typename T>
-__global__ void WeightPackFill(const float* param,
-    T* output,
-    const size_t maxCount,
-    const int l,
-    const int h,
-    DivModFast d_lp
-) {
-    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        int lpIndex, hpIndex;
-        d_lp.divmod(index, hpIndex, lpIndex);
-
-        if(lpIndex >= l || hpIndex >= h) {
-            output[index] = (T)0.0f;
-            continue;
-        }
-        output[index] = param[hpIndex * l + lpIndex];
-    }
-}
-
-__global__ void Float22Half2(const float* param,
-    half* output,
-    const size_t maxCount
-) {
-    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
-        float2* srcPtr = (float2 *)(param + (index << 2));
-        half2* dstPtr = (half2*)(output + (index << 2));
-        dstPtr[0] = __float22half2_rn(srcPtr[0]);
-        dstPtr[1] = __float22half2_rn(srcPtr[1]);
-    }
-}
 
 ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mBackend = bn;
@@ -133,17 +47,11 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
         mFilter = (void *)weightTensor.get()->buffer().device;
 
-        DivModFast lpD(lp);
-        int block_num = runtime->blocks_num(lp*hp);
-        int block_size = runtime->threads_num();
-         // Only when fp32 Weight convert to fp32, Fp16Fp32Mix Weight convert to fp16
-        if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
-            WeightPackFill<<<block_num, block_size>>>((float*)cacheWeight, (float*)mFilter, lp*hp, l, h, lpD);
-            checkKernelErrors;
-        } else {
-            WeightPackFill<<<block_num, block_size>>>((float*)cacheWeight, (half*)mFilter, lp*hp, l, h, lpD);
-            checkKernelErrors;
+        int precision = static_cast<CUDABackend*>(bn)->getPrecision();
+        if(precision == 2) {
+            precision == 0;
         }
+        callWeightFill((const void *)cacheWeight, (void *)mFilter, l, h, lp, hp, static_cast<CUDABackend*>(bn)->getPrecision() == 1, runtime);
 
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     }
@@ -162,11 +70,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
             mBias = (void *)biasTensor.get()->buffer().device;
             runtime->memset(mBias, 0, hp * sizeof(int16_t));
 
-            int maxCount = hp / 4;
-            int block_num = runtime->blocks_num(maxCount);
-            int block_size = runtime->threads_num();
-            Float22Half2<<<block_num, block_size>>>((float*)biasTemp, (half*)mBias, maxCount);
-            checkKernelErrors;
+            callFloat2Half((const void*)biasTemp, (void*)mBias, hp, runtime);
 
             static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempBiasStorage);
         } else {
@@ -184,13 +88,14 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 ConvCutlassExecution::Resource::~Resource() {
     // Do nothing
 }
-ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : Execution(backend), mOp(op) {
+ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : CutlassCommonExecution(backend) {
+    mOp = op;
     mResource = res;
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
-    int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
-    mFp16Infer = (precisonLevel == 2);
-    mFp32Infer = (precisonLevel == 1);
-    mFp16Fp32MixInfer = (precisonLevel == 0);
+    mPrecisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
+    mFp16Infer = (mPrecisonLevel == 2);
+    mFp32Infer = (mPrecisonLevel == 1);
+    mFp16Fp32MixInfer = (mPrecisonLevel == 0);
 }
 
 ConvCutlassExecution::~ConvCutlassExecution() {
@@ -278,6 +183,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     }
 
 
+    mFilterAddr = mResource->mFilter;
+    mBiasAddr   = mResource->mBias;
+    mBackendPtr = mResource->mBackend;
+
     // Call from different function
     if(mFp32Infer){
         return callCutlassGemmCudaCoreFloat32(inputs, outputs);
@@ -324,140 +233,17 @@ ErrorCode ConvCutlassExecution::onExecute(const std::vector<Tensor*> &inputs, co
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if(mIsConv1x1S1D1P0 && mFp16Fp32MixInfer) {
-            size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1] / 4;
-            int block_num = runtime->blocks_num(maxCount);
-            int block_size = runtime->threads_num();
-            Float22Half2<<<block_num, block_size>>>((float*)input_addr, (half *)mIm2ColBuffer, maxCount);
-            checkKernelErrors;
-        } else if (mNeedIm2Col) {
-            DivModFast lpD(mGemmInfo.elhPad[1]);
-            DivModFast fxyD((mIm2ColParamter.kernelX * mIm2ColParamter.kernelY));
-            DivModFast fxD(mIm2ColParamter.kernelX);
-            DivModFast owD(mIm2ColParamter.ow);
-            DivModFast ohD(mIm2ColParamter.oh);
-        
             size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
-            size_t block_num = runtime->blocks_num(maxCount);
-            size_t block_size = runtime->threads_num();
+            callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
+        } else if (mNeedIm2Col) {
 
-            if(mFp32Infer) {
-                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih,
-                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (float *)mIm2ColBuffer, \
-                    lpD, owD, ohD, fxyD, fxD);
-                checkKernelErrors;
-            } else if(mFp16Fp32MixInfer) {
-                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
-                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const float*)input_addr, (half *)mIm2ColBuffer, \
-                    lpD, owD, ohD, fxyD, fxD);
-                checkKernelErrors;
-            } else {
-                Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
-                    maxCount, block_idx, PACK_NUMBER, mGemmInfo.elh[0], mGemmInfo.elh[1], (const half*)input_addr, (half *)mIm2ColBuffer, \
-                    lpD, owD, ohD, fxyD, fxD);
-                checkKernelErrors;
-            }
+            callIm2ColPack((const void *)input_addr, (void *)mIm2ColBuffer, &mIm2ColParamter, mGemmInfo.elh[0], mGemmInfo.elh[1], \
+                mGemmInfo.elhPad[0], mGemmInfo.elhPad[1], mPrecisonLevel, runtime);
         }
     }
 
-    if(mFp32Infer) {
-        if(mActivationType == 1) {
-            cutlass::Status status = mGemmCudaF32F32Relu();
-            cutlass_check(status);
-        } else if(mActivationType == 2) {
-            cutlass::Status status = mGemmCudaF32F32Relu6();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmCudaF32F32Ln();
-            cutlass_check(status);
-        }
-        return NO_ERROR;
-    }
-
-    if(mGpuComputeCap < 70) {
-        if(mActivationType == 1) {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmCudaF16F32Relu();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16F16Relu();
-                cutlass_check(status);
-            }
-        } else if(mActivationType == 2) {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmCudaF16F32Relu6();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16F16Relu6();
-                cutlass_check(status);
-            }
-        } else {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmCudaF16F32Ln();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmCudaF16F16Ln();
-                cutlass_check(status);
-            }
-        }
-    
-        return NO_ERROR;
-    } else if(mGpuComputeCap < 75) {
-        if(mActivationType == 1) {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmF16F32ReluSm70();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmF16F16ReluSm70();
-                cutlass_check(status);
-            }
-        } else if(mActivationType == 2) {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmF16F32Relu6Sm70();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmF16F16Relu6Sm70();
-                cutlass_check(status);
-            }
-        } else {
-            if(mFp16Fp32MixInfer) {
-                cutlass::Status status = mGemmF16F32LnSm70();
-                cutlass_check(status);
-            } else {
-                cutlass::Status status = mGemmF16F16LnSm70();
-                cutlass_check(status);
-            }
-        }
-    
-        return NO_ERROR;
-    }
-
-    if(mActivationType == 1) {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32ReluSm75();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmF16F16ReluSm75();
-            cutlass_check(status);
-        }
-    } else if(mActivationType == 2) {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32Relu6Sm75();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmF16F16Relu6Sm75();
-            cutlass_check(status);
-        }
-    } else {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32LnSm75();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmF16F16LnSm75();
-            cutlass_check(status);
-        }
-    }
-
-    return NO_ERROR;
+    // Run cutlass gemm forward
+    return runCutlassGemmFunc();
 }
 
 

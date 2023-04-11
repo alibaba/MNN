@@ -186,6 +186,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         convertPipeline->bind(cmdBuffer->get(), describe->get());
         auto totalSize = UP_DIV(dims.size[1], 4) * dims.size[0] * dims.size[2] * dims.size[3];
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
+        cmdBuffer->barrierSource(((VulkanBuffer*)(temp.first))->buffer(), temp.second, bufferSize);
     }
     // Blit
     auto blitPipeline = vkBn->getPipeline("glsl_blit_comp", {
@@ -225,7 +226,6 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         describe->writeBuffer(src.first->buffer(), 1, srcSize, src.second);
         describe->writeBuffer(uniform->buffer(), 2, uniform->size());
 
-        cmdBuffer->barrierSource(src.first->buffer(), src.second, srcSize);
         blitPipeline->bind(cmdBuffer->get(), describe->get());
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
     }

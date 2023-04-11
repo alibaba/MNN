@@ -395,6 +395,57 @@ public:
 };
 MNNTestSuiteRegister(ModuleCloneTest, "expr/ModuleClone");
 
+class ModuleReleaseTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto y = _mobileNetV1Expr();
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        // Force use CPU Runtime
+        BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        auto rtInfo = exe->getRuntime();
+        float memory;
+        auto countMemory = [&rtInfo, &memory]() {
+            memory = 0.0f;
+            for (auto& iter : rtInfo.first) {
+                memory += iter.second->onGetMemoryInMB();
+            }
+            memory += rtInfo.second->onGetMemoryInMB();
+        };
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        Module::Config config;
+        config.shapeMutable = false;
+        config.rearrange = true;
+        std::shared_ptr<Module> interp0;
+        {
+            MNN::ScheduleConfig sconfig;
+            sconfig.numThread = 1;
+            std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+            std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+            interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+        }
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        interp0.reset();
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        if (memory > 1.0f) {
+            return false;
+        }
+        return true;
+    };
+};
+MNNTestSuiteRegister(ModuleReleaseTest, "expr/ModuleReleaseTest");
+
 
 class ModuleTestSpeed : public MNNTestCase {
 public:

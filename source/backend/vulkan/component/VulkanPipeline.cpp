@@ -148,6 +148,7 @@ void VulkanPipeline::DescriptorSet::writeBuffer(std::tuple<VkBuffer, VkDeviceSiz
 }
 
 void VulkanPipeline::DescriptorSet::writeBuffer(VkBuffer buffer, int bindIndex, size_t size, VkDeviceSize offset) {
+    MNN_ASSERT(0 != buffer);
     VkWriteDescriptorSet writeSet;
     ::memset(&writeSet, 0, sizeof(writeSet));
     VkDescriptorBufferInfo sourceInfo;

@@ -1,11 +1,16 @@
-#ifndef CutlassGemmCudaTensorCore_cuh
-#define CutlassGemmCudaTensorCore_cuh
+//
+//  CutlassGemmTensorCore.cu
+//  MNN
+//
+//  Created by MNN on 2023/03/22.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
 
-#include "../ConvCutlassExecution.hpp"
+#include "CutlassCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
-ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
+ErrorCode CutlassCommonExecution::callCutlassGemmTensorCore(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
     ElementInput_F16 *inputA_ptr = mNeedIm2Col ? (ElementInput_F16 *)mIm2ColBuffer : (ElementInput_F16 *)input->deviceId();
@@ -21,8 +26,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F16 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
@@ -30,7 +35,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -46,8 +51,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F32_Relu_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
@@ -55,7 +60,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -75,8 +80,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu6_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F16 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
@@ -84,7 +89,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -100,8 +105,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F32_Relu6_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
@@ -109,7 +114,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -127,8 +132,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
         if(mFp16Infer) {
             typename GemmTensor_F16_F16_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                         {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                        {(ElementOutput_F16 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                        {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                        {(ElementOutput_F16 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                         {(ElementOutput_F16 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                         {alpha, beta},          // <- tuple of alpha and beta
                                         split_k_slices};        // <- k-dimension split factor
@@ -136,7 +141,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -149,8 +154,8 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
         } else {
             typename GemmTensor_F16_F32_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {inputA_ptr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mResource->mFilter, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                {(ElementOutput_F32 *)mResource->mBias, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementOutput_F32 *)mBiasAddr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)output->deviceId(), mGemmInfo.elhPad[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 split_k_slices};        // <- k-dimension split factor
@@ -158,7 +163,7 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                mBackendPtr->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
@@ -175,4 +180,3 @@ ErrorCode ConvCutlassExecution::callCutlassGemmTensorCore(const std::vector<Tens
 
 }
 }
-#endif //CutlassGemmTensorCore_cuh

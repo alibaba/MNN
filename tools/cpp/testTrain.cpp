@@ -96,7 +96,7 @@ int main(int argc, const char* argv[]) {
     
     // create net
     auto type = MNN_FORWARD_CPU;
-    MNN::BackendConfig::PrecisionMode precision = MNN::BackendConfig::Precision_High;
+    MNN::BackendConfig::PrecisionMode precision = MNN::BackendConfig::Precision_Low;
     std::shared_ptr<MNN::Interpreter> net =
         std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath.c_str()));
 
@@ -112,16 +112,51 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("Invalid model for train\n");
         return 0;
     }
+    static bool gDebug = false;
+    bool onlyInfer = false;
     auto lossTensor = net->getSessionOutput(session, lossName);
     std::vector<float> loss;
-    for (int i=0; i<2; ++i) {
+    MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+        return true;
+    };
+    MNN::TensorCallBack callBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+        for (int i = 0; i < ntensors.size(); ++i) {
+            auto ntensor    = ntensors[i];
+            if (onlyInfer && ntensor == lossTensor) {
+                return false;
+            }
+            if (ntensor->getType().code != halide_type_float) {
+                continue;
+            }
+            if (gDebug) {
+                auto outDimType = ntensor->getDimensionType();
+                auto expectTensor = new MNN::Tensor(ntensor, outDimType);
+                ntensor->copyToHostTensor(expectTensor);
+                auto size = expectTensor->elementSize();
+                float summer = 0.0f;
+                for (int i=0; i<size; ++i) {
+                    summer += expectTensor->host<float>()[i];
+                }
+                delete expectTensor;
+                MNN_PRINT("For op %s, summer=%f\n", opName.c_str(), summer);
+            }
+        }
+        return true;
+    };
+    auto lrTensor = net->getSessionInput(session, lR);
+    std::shared_ptr<MNN::Tensor> userLR(new MNN::Tensor(lrTensor, lrTensor->getDimensionType()));
+    
+    int runTime = 2;
+    for (int i=0; i<runTime; ++i) {
+        onlyInfer = i == (runTime-1);
         for (auto iter = dataArray.begin(); iter != dataArray.end(); iter++) {
             auto dataName = std::string(dirPath) + "/" + std::string(iter->GetString());
             auto varMap = MNN::Express::Variable::load(dataName.c_str());
             if (varMap.empty()) {
                 continue;
             }
-            net->getSessionInput(session, lR)->host<float>()[0] = learnRate;
+            userLR->host<float>()[0] = learnRate;
+            lrTensor->copyFromHostTensor(userLR.get());
             for (auto v : varMap) {
                 auto target = net->getSessionInput(session, v->name().c_str());
                 if (nullptr == target) {
@@ -132,8 +167,10 @@ int main(int argc, const char* argv[]) {
                 ::memcpy(targetUser->host<void>(), v->readMap<void>(), targetUser->size());
                 target->copyFromHostTensor(targetUser.get());
             }
-            net->runSession(session);
-            loss.emplace_back(lossTensor->host<float>()[0]);
+            net->runSessionWithCallBack(session, beforeCallBack, callBack);
+            std::shared_ptr<MNN::Tensor> lossTemp(new MNN::Tensor(lossTensor, lossTensor->getDimensionType()));
+            lossTensor->copyToHostTensor(lossTemp.get());
+            loss.emplace_back(lossTemp->host<float>()[0]);
         }
     }
     bool correct = false;
@@ -143,10 +180,56 @@ int main(int argc, const char* argv[]) {
     }
     auto firstLoss = loss[0];
     auto lastLoss = loss[(int)loss.size() - 1];
-    if (lastLoss < firstLoss * decay) {
-        printf("From %f -> %f, Test %s Correct!\n", firstLoss, lastLoss, modelPath.c_str());
-    } else {
-        printf("From %f -> %f, Test Failed %s!\n", firstLoss, lastLoss, modelPath.c_str());
+    bool validFirst = firstLoss < 0.0f || firstLoss >= 0.0f;
+    bool validLast = lastLoss < 0.0f || lastLoss >= 0.0f;
+    MNN_PRINT("Loss from %f -> %f\n", firstLoss, lastLoss);
+    bool lossValid = lastLoss < firstLoss * decay;
+    if (!lossValid) {
+        MNN_PRINT("Invalid loss decrease\n");
+        return 0;
     }
+    // Test Update
+    net->updateSessionToModel(session);
+    auto buffer = net->getModelBuffer();
+    config.path.mode = MNN::ScheduleConfig::Path::Tensor;
+    config.path.outputs.emplace_back(lossName);
+    std::shared_ptr<MNN::Interpreter> newNet(MNN::Interpreter::createFromBuffer(buffer.first, buffer.second), MNN::Interpreter::destroy);
+    net.reset();
+    net = newNet;
+    session = net->createSession(config);
+    lossTensor = net->getSessionOutput(session, lossName);
+    onlyInfer = true;
+    lrTensor = net->getSessionInput(session, lR);
+    for (auto iter = dataArray.begin(); iter != dataArray.end(); iter++) {
+        auto dataName = std::string(dirPath) + "/" + std::string(iter->GetString());
+        auto varMap = MNN::Express::Variable::load(dataName.c_str());
+        if (varMap.empty()) {
+            continue;
+        }
+        userLR->host<float>()[0] = learnRate;
+        lrTensor->copyFromHostTensor(userLR.get());
+        for (auto v : varMap) {
+            auto target = net->getSessionInput(session, v->name().c_str());
+            if (nullptr == target) {
+                MNN_ERROR("Invalid data %s\n", v->name().c_str());
+                continue;
+            }
+            std::shared_ptr<MNN::Tensor> targetUser(new MNN::Tensor(target, target->getDimensionType()));
+            ::memcpy(targetUser->host<void>(), v->readMap<void>(), targetUser->size());
+            target->copyFromHostTensor(targetUser.get());
+        }
+        net->runSessionWithCallBack(session, beforeCallBack, callBack);
+        {
+            std::shared_ptr<MNN::Tensor> lossTemp(new MNN::Tensor(lossTensor, lossTensor->getDimensionType()));
+            lossTensor->copyToHostTensor(lossTemp.get());
+            auto newLoss = lossTemp->host<float>()[0];
+            MNN_PRINT("Update and reload, loss from %f -> %f\n", lastLoss, newLoss);
+            if (newLoss > lastLoss + 0.1f) {
+                MNN_ERROR("newLoss not valid\n");
+                return 0;
+            }
+        }
+    }
+    MNN_PRINT("Test %s Correct!\n", modelPath.c_str());
     return 0;
 }
