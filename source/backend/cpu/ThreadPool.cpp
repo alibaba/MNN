@@ -287,7 +287,6 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
     mTasks[index].first.first(0);
     bool complete = true;
     do {
-        std::this_thread::yield();
         complete = true;
         for (int i = 1; i < workSize; ++i) {
             if (*mTasks[index].second[i]) {
@@ -295,6 +294,7 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
                 break;
             }
         }
+        std::this_thread::yield();
         // FUNC_PRINT(notComplete);
     } while (!complete);
 }
