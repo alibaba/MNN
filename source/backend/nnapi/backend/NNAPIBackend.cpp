@@ -249,11 +249,13 @@ namespace MNN {
 
     void NNAPIBackend::onResizeBegin() {
         mHalfBuffer.clear();
+        mQuantCacheMap.clear();
     }
 
     void NNAPIBackend::onResizeEnd() {
         buildModel();
         mHalfBuffer.clear();
+        mQuantCacheMap.clear();
     }
     uint32_t NNAPIBackend::getTensorIdx(const Tensor* t, bool dequant) {
         if (dequant) {
@@ -275,13 +277,16 @@ namespace MNN {
         if (udims.empty()) {
             udims.push_back(1);
         }
+        float scale = 0.f;
+        int zero = 0;
         auto dtype = t->getType();
         auto code = ANEURALNETWORKS_TENSOR_FLOAT32;
         if (dtype == halide_type_of<int>()) {
             code = ANEURALNETWORKS_TENSOR_INT32;
+        } else if (dtype == halide_type_of<uint8_t>()) {
+            code = ANEURALNETWORKS_TENSOR_QUANT8_ASYMM;
+            scale = 1.f;
         }
-        float scale = 0.f;
-        int zero = 0;
         if (TensorUtils::getDescribe(t)->quantAttr.get() != nullptr &&
             t->getType() == halide_type_of<int8_t>()) {
             code = ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED;
@@ -329,6 +334,18 @@ namespace MNN {
         mDequantIdxMap.insert(std::make_pair(tensor, tmpIdx));
         mDequantMap.insert(std::make_pair(tmpIdx, tensor));
         return tmpIdx;
+    }
+    ErrorCode NNAPIBackend::buildQuantOperation(const Tensor* src, const Tensor* dst) {
+        auto srcIdx = getTensorIdx(src);
+        const auto& iter = mQuantCacheMap.find(srcIdx);
+        if (iter != mQuantCacheMap.end()) {
+            // using cached quant output
+            mTensorIdxMap.insert(std::make_pair(dst, iter->second));
+            return NO_ERROR;
+        }
+        auto dstIdx = getTensorIdx(dst);
+        mQuantCacheMap.insert(std::make_pair(srcIdx, dstIdx));
+        return buildOperation(ANEURALNETWORKS_QUANTIZE, {srcIdx}, {dstIdx});
     }
     uint32_t NNAPIBackend::buildScalar(int scalar) {
         auto iter = mScalarIntMap.find(scalar);

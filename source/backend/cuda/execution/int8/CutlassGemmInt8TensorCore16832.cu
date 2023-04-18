@@ -1,5 +1,11 @@
-#ifndef CutlassGemmInt8TensorCore16832_cuh
-#define CutlassGemmInt8TensorCore16832_cuh
+//
+//  CutlassGemmInt8TensorCore16832.cu
+//  MNN
+//
+//  Created by MNN on 2023/01/15.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+#ifdef ENABLE_CUDA_QUANT
 
 #include "ConvInt8CutlassExecution.hpp"
 
@@ -55,4 +61,4 @@ ErrorCode ConvInt8CutlassExecution::callCutlassGemmInt8TensorCore16832(const std
 
 }
 }
-#endif //CutlassGemmInt8TensorCore_cuh
+#endif

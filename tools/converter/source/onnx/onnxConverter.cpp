@@ -90,12 +90,19 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         return 1;
     }
 
+    int opsetVersion = 13;
+    auto opsetInfo = onnxModel.opset_import();
+    if (!opsetInfo.empty()) {
+        opsetVersion = static_cast<int>(opsetInfo.begin()->version());
+    }
     LOG(INFO) << "ONNX Model ir version: " << onnxModel.ir_version();
+    LOG(INFO) << "ONNX Model opset version: " << opsetVersion;
 
     const auto& onnxGraph = onnxModel.graph();
     const int nodeCount   = onnxGraph.node_size();
 
     std::unique_ptr<OnnxScope> scope(new OnnxScope(&onnxGraph, netT.get()));
+    scope->mOpsetVersion = opsetVersion;
     // find the inputs which do not have initializer
     const auto& initializers         = scope->mInitializers;
     const auto& inputs               = scope->mInputs;

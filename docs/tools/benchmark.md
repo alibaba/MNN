@@ -10,8 +10,8 @@
 - warm_up_count: 预热次数
 - forwardtype: 可选，默认是0，即CPU，forwardtype有0->CPU，1->Metal，3->OpenCL，6->OpenGL，7->Vulkan
 ## Android
-在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark)下直接执行脚本`bench_android.sh`，默认编译armv7，加参数-64编译armv8，参数-p将[benchmarkModels](https://github.com/alibaba/MNN/tree/master/benchmark/models) push到机器上。
-脚本执行完成在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark)下得到测试结果`benchmark.txt`
+在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark/android)下直接执行脚本`bench_android.sh`，默认编译armv7，加参数-64编译armv8，参数-p将[benchmarkModels](https://github.com/alibaba/MNN/tree/master/benchmark/models) push到机器上。
+脚本执行完成在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark/android)下得到测试结果`benchmark.txt`
 ## iOS
 1. 先准备模型文件，进入tools/script目录下执行脚本`get_model.sh`；
 2. 打开demo/iOS目录下的demo工程，点击benchmark；可通过底部工具栏切换模型、推理类型、线程数。

@@ -115,6 +115,7 @@ namespace MNN {
         uint32_t buildScalar(float scalar);
         uint32_t buildOperand(const void* data, size_t size, OperandCode code, std::vector<uint32_t> dims = {}, const float* scales = nullptr, int zero = 0);
         ErrorCode buildOperation(int op, const std::vector<uint32_t> &inputs, const std::vector<uint32_t> &outputs, const char* name = nullptr);
+        ErrorCode buildQuantOperation(const Tensor* src, const Tensor* dst);
         ErrorCode replaceTensorWith(const Tensor* src, const Tensor* replace);
         uint32_t buildDequantOperand(const Tensor* t);
         void buildModel();
@@ -129,6 +130,7 @@ namespace MNN {
         // tensor idx map
         std::map<const Tensor*, uint32_t> mTensorIdxMap, mInputIdxMap, mOutputIdxMap, mDequantIdxMap;
         std::map<uint32_t, const Tensor*> mDequantMap;
+        std::map<uint32_t, uint32_t> mQuantCacheMap;
         uint32_t mTensorIdx = 0;
         std::vector<const char*> mOpNames;
         // scalar idx map

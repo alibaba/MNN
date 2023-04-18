@@ -42,6 +42,14 @@ struct MNNMetalTensorContent {
 MNN_PUBLIC int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor);
 #endif
 
+#ifdef MNN_USER_SET_DEVICE
+
+struct MNNDeviceContext {
+    uint32_t deviceId;
+};
+
+#endif
+
 
 #ifdef __cplusplus
 }

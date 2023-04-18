@@ -5,6 +5,8 @@
 //  Created by MNN on 2023/01/04.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_QUANT
+
 #ifndef ConvInt8CutlassExecution_hpp
 #define ConvInt8CutlassExecution_hpp
 
@@ -97,3 +99,4 @@ private:
 } // namespace MNN
 
 #endif /* ConvInt8CutlassExecution */
+#endif

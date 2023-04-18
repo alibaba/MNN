@@ -21,7 +21,7 @@ void registerBF16Backend() {
     BF16Functions::init();
 }
 
-BF16Backend::BF16Backend(const CPURuntime* runtime) : CPUBackend(runtime, BackendConfig::Precision_Low, MNN_FORWARD_CPU_EXTENSION) {
+BF16Backend::BF16Backend(const CPURuntime* runtime) : CPUBackend(runtime, BackendConfig::Precision_Low, BackendConfig::Memory_Normal, MNN_FORWARD_CPU_EXTENSION) {
     mCoreFunctions = BF16Functions::get();
 }
 

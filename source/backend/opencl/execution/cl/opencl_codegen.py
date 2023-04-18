@@ -12,8 +12,7 @@ def convert_string_to_hex_list(code_str):
 def opencl_codegen():
     cl_kernel_dir = sys.argv[1]
     output_path = sys.argv[2]
-    remove_buffer_file = sys.argv[3]
-    print("Generating OpenCL Kernels in "+cl_kernel_dir+" to "+output_path + ", remove buffer kernel: " + remove_buffer_file)
+    print("Generating OpenCL Kernels in "+cl_kernel_dir+" to "+output_path)
     if not os.path.exists(cl_kernel_dir):
         print(cl_kernel_dir + " doesn't exist!")
 
@@ -36,21 +35,20 @@ def opencl_codegen():
     for file_name in os.listdir(cl_kernel_dir):
         file_path = os.path.join(cl_kernel_dir, file_name)
         if file_path[-3:] == ".cl":
-            if remove_buffer_file == "0" or file_path[-7:-3] != "_buf":
-                with open(file_path, "r") as f:
-                    code_str = ""
-                    for line in f.readlines():
-                        if "#include <activation_common.h>" in line:
-                            code_str += common_header_code
-                            code_str += activation_common_header_code
-                        elif "#include <quantized_common.h>" in line:
-                            code_str += common_header_code
-                            code_str += quantized_common_header_code
-                        elif "#include <common.h>" in line:
-                            code_str += common_header_code
-                        else:
-                            code_str += line
-                    opencl_code_maps[file_name[:-3]] = convert_string_to_hex_list(code_str)
+            with open(file_path, "r") as f:
+                code_str = ""
+                for line in f.readlines():
+                    if "#include <activation_common.h>" in line:
+                        code_str += common_header_code
+                        code_str += activation_common_header_code
+                    elif "#include <quantized_common.h>" in line:
+                        code_str += common_header_code
+                        code_str += quantized_common_header_code
+                    elif "#include <common.h>" in line:
+                        code_str += common_header_code
+                    else:
+                        code_str += line
+                opencl_code_maps[file_name[:-3]] = convert_string_to_hex_list(code_str)
 
 #source model
     opencl_source_map = "#include <map> \n"
@@ -66,6 +64,8 @@ def opencl_codegen():
     else:
         items = opencl_code_maps.items()
     for file_name, file_source in items:
+        if file_name[-4:] == "_buf":
+            opencl_source_map += "#ifndef MNN_OPENCL_BUFFER_CLOSED\n"
         opencl_source_map += "{\n \""
         opencl_source_map += file_name
         opencl_source_map += "\", \n"
@@ -75,7 +75,8 @@ def opencl_codegen():
             opencl_source_map += ","
         opencl_source_map += " } "
         opencl_source_map += "\n }, \n"
-
+        if file_name[-4:] == "_buf":
+            opencl_source_map += "#endif\n"
     opencl_source_map += " }; \n"
     opencl_source_map += "} \n"
 

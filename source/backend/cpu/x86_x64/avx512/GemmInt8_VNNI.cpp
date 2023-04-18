@@ -139,15 +139,19 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
             d0 = _mm512_inserti32x8(d0, _d1, 1);
             auto d1 = _mm512_castsi256_si512(_d2);
             d1 = _mm512_inserti32x8(d1, _d3, 1);
-            if (post->scale != nullptr) {
-                auto biasValue = _mm512_loadu_si512(bias_dz);
-                d0 = _mm512_add_epi32(d0, biasValue);
-                d1 = _mm512_add_epi32(d1, biasValue);
-                auto scaleValue = _mm512_loadu_ps(scale_dz);
-                auto f0 = _mm512_cvtepi32_ps(d0);
-                auto f1 = _mm512_cvtepi32_ps(d1);
-                f0 = _mm512_mul_ps(f0, scaleValue);
-                f1 = _mm512_mul_ps(f1, scaleValue);
+
+            auto biasValue = _mm512_loadu_si512(bias_dz);
+            d0 = _mm512_add_epi32(d0, biasValue);
+            d1 = _mm512_add_epi32(d1, biasValue);
+            auto scaleValue = _mm512_loadu_ps(scale_dz);
+            auto f0 = _mm512_cvtepi32_ps(d0);
+            auto f1 = _mm512_cvtepi32_ps(d1);
+            f0 = _mm512_mul_ps(f0, scaleValue);
+            f1 = _mm512_mul_ps(f1, scaleValue);
+            if (post->useInt8 == 0) {
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+            } else {
                 f0 = _mm512_min_ps(f0, maxValue);
                 f1 = _mm512_min_ps(f1, maxValue);
                 f0 = _mm512_max_ps(f0, minValue);
@@ -175,15 +179,6 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
                 _mm_storeu_si128((__m128i*)dst_x, h0);
                 _mm_storeu_si128((__m128i*)dst_x + 1, h1);
-            } else {
-                auto biasValue = _mm512_loadu_si512(bias_dz);
-                d0 = _mm512_add_epi32(d0, biasValue);
-                d1 = _mm512_add_epi32(d1, biasValue);
-                auto scaleValue = _mm512_loadu_ps(scale_dz);
-                auto f0 = _mm512_cvtepi32_ps(d0);
-                auto f1 = _mm512_cvtepi32_ps(d1);
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
             }
         }
         return;
@@ -253,12 +248,14 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
         auto d0 = _mm512_castsi256_si512(_d0);
         d0 = _mm512_inserti32x8(d0, _d1, 1);
-        if (post->scale != nullptr) {
-            auto biasValue = _mm512_loadu_si512(bias_dz);
-            d0 = _mm512_add_epi32(d0, biasValue);
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto f0 = _mm512_cvtepi32_ps(d0);
-            f0 = _mm512_mul_ps(f0, scaleValue);
+        auto biasValue = _mm512_loadu_si512(bias_dz);
+        d0 = _mm512_add_epi32(d0, biasValue);
+        auto scaleValue = _mm512_loadu_ps(scale_dz);
+        auto f0 = _mm512_cvtepi32_ps(d0);
+        f0 = _mm512_mul_ps(f0, scaleValue);
+        if (post->useInt8 == 0) {
+            _mm512_storeu_ps(((float*)dst_x), f0);
+        } else {
             f0 = _mm512_min_ps(f0, maxValue);
             f0 = _mm512_max_ps(f0, minValue);
             auto m0 = _mm512_cmp_ps_mask(f0, zero512, 1);
@@ -274,12 +271,6 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
             h0 = _mm_packus_epi16(h0, h1);
 
             _mm_storeu_si128((__m128i*)dst_x, h0);
-        } else {
-            auto biasValue = _mm512_loadu_si512(bias_dz);
-            d0 = _mm512_add_epi32(d0, biasValue);
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto f0 = _mm512_cvtepi32_ps(d0);
-            _mm512_storeu_ps(((float*)dst_x), f0);
         }
     }
 }

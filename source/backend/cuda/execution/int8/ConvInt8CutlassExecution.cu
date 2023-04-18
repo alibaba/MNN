@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/02/02.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_QUANT
 
 #include "ConvInt8CutlassExecution.hpp"
 #include "core/TensorUtils.hpp"
@@ -450,3 +451,4 @@ ErrorCode ConvInt8CutlassExecution::onExecute(const std::vector<Tensor*> &inputs
 
 }// namespace CUDA
 }// namespace MNN
+#endif

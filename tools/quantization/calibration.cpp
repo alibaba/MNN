@@ -687,7 +687,7 @@ void Calibration::_insertScale() {
             continue;
         }
         
-        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise && opType != MNN::OpType_Deconvolution) {
             continue;
         }
         auto tensorsPair = _opInfo.find(op->name);

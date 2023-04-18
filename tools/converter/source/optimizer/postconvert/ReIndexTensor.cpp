@@ -15,8 +15,22 @@ class ReIndexTensor : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         auto& mNet = net;
+        std::map<std::string, int> tensorNameIdx;
         std::map<int, int> usefulTensorIndexMap;
         std::vector<std::string> usefulTensorName;
+        // extraTensorDescribe reindex
+        for (int i = 0; i < mNet->tensorName.size(); i++) {
+            tensorNameIdx.insert(std::make_pair(mNet->tensorName[i], i));
+        }
+        for (int i = 0; i < mNet->extraTensorDescribe.size(); i++) {
+            auto name = mNet->extraTensorDescribe[i]->name;
+            auto iter = tensorNameIdx.find(name);
+            if (iter == tensorNameIdx.end()) {
+                mNet->extraTensorDescribe[i]->index = -1;
+            } else {
+                mNet->extraTensorDescribe[i]->index = iter->second;
+            }
+        }
 
         std::vector<bool> tensorValid(mNet->tensorName.size(), false);
         for (auto& op : mNet->oplists) {

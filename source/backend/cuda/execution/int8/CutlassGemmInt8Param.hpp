@@ -1,3 +1,12 @@
+//
+//  CutlassGemmInt8Param.hpp
+//  MNN
+//
+//  Created by MNN on 2023/02/02.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+#ifdef ENABLE_CUDA_QUANT
+
 #ifndef CutlassGemmInt8Param_hpp
 #define CutlassGemmInt8Param_hpp
 
@@ -100,4 +109,5 @@ using GemmInt8Tensor_Clamp_AlignTensor_Normal_Sm80 = cutlass::gemm::device::Gemm
 
 }
 }
+#endif
 #endif

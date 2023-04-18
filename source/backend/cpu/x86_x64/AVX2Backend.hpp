@@ -17,7 +17,7 @@ namespace MNN {
 class AVX2Backend : public CPUBackend {
 public:
     virtual ~AVX2Backend();
-    AVX2Backend(const CPURuntime* runtime, size_t flags);
+    AVX2Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory, size_t flags);
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
     virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;

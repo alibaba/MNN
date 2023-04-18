@@ -25,8 +25,6 @@ set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_LIST_DIR}/cmake"
 )
-# Required for OpenCL/OpenGL/Vulkan CodeGen
-include(FindPythonInterp REQUIRED)
 # build options
 option(MNN_USE_SYSTEM_LIB "For opencl and vulkan, use system lib or use dlopen" OFF)
 option(MNN_BUILD_HARD "Build -mfloat-abi=hard or not" OFF)
@@ -279,6 +277,10 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
     endif()
 endif()
 
+IF(MNN_DEBUG_MEMORY)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+endif()
 
 IF(CMAKE_BUILD_TYPE MATCHES Debug)
     add_definitions(-DMNN_DEBUG -DDEBUG)

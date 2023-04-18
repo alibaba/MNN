@@ -404,6 +404,7 @@ void Interpreter::logForRunSession(const Session* session, float timeInMs, const
 #endif
 
 ErrorCode Interpreter::runSession(Session* session) const {
+    std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif
@@ -497,6 +498,7 @@ void Interpreter::waitSessionFinish(const Session* session) const {
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
 
+    std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif

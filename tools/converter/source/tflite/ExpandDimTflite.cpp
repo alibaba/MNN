@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(ExpandDimTflite);
-MNN::OpType ExpandDimTflite::opType(bool quantizedModel) {
+MNN::OpType ExpandDimTflite::opType(int quantizedModel) {
     return MNN::OpType_ExpandDims;
 }
-MNN::OpParameter ExpandDimTflite::type(bool quantizedModel) {
+MNN::OpParameter ExpandDimTflite::type(int quantizedModel) {
     return MNN::OpParameter_ExpandDims;
 }
 
 void ExpandDimTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     dstOp->main.value = new MNN::ExpandDimsT;
 }
 

@@ -91,8 +91,6 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
     mOutputScale = outputScale;
     mInputZeroPoint = int8_t(inputZeroPoint);
     mOutputZeroPoint = int8_t(outputZeroPoint);
-    auto scalePtr = mScaleFloat->host<float>();
-    auto biasPtr = mBiasInt32->host<int>();
     int size = mResource->mOutputCount;
     const int kernelNum = static_cast<int>(mResource->mInt8WeightKernelSum.size());
     auto biasData    = mResource->mOriginBias->host<float>();

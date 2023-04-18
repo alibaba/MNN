@@ -43,6 +43,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_AVX512           | 是否构建`avx512`后端，默认为`OFF` |
 | MNN_CUDA             | 是否构建`Cuda`后端，默认为`OFF` |
 | MNN_CUDA_PROFILE     | 是否打开CUDA profile工具，默认为`OFF` |
+| MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |

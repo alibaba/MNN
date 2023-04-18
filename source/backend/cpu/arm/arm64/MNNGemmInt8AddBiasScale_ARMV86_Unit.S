@@ -67,22 +67,24 @@ asm_function MNNGemmInt8AddBiasScale_ARMV86_Unit
 //Auto: x0:dst, x1:src, x2:weight, x3:src_depth_quad, x4:dst_step
 //x5:dst_depth_quad, x6: parameters, x7: realDstCount
 
-//Load from x7: x8: scale, x9: bias, w12: maxValue, w13: minValue
+//Load from x7: x8: scale, x9: bias, w12: maxValue, w13: minValue, w23: useInt8
 ldr x8, [x6, #0]
 ldr x9, [x6, #8]
 ldr w10, [x6, #16]
 ldr w14, [x6, #20]
 
-stp d14, d15, [sp, #(-16 * 6)]!
+stp d14, d15, [sp, #(-16 * 7)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 stp x21, x22, [sp, #(16 * 4)]
 stp x19, x20, [sp, #(16 * 5)]
+stp x23, x24, [sp, #(16 * 6)]
+ldr w23, [x6, #24]
 
 mov x21, #4 // sizeof(int8_t) * UNIT
 mov x22, #160 // GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT = 20 * 8 = 160
-cbnz x8, Start
+cbnz w23, Start
 mov x21, #16 // sizeof(float) * UNIT
 
 Start:
@@ -164,7 +166,16 @@ LoopSzEnd_TILE_20:
     Int32ToFloat v19, v20, v21, v22
     Int32ToFloat v23, v24, v25, v26
     Int32ToFloat v27, v28, v29, v30
-    cbnz x8, Tile20Quan
+
+Tile20Quan:
+    ld1 {v0.4s}, [x8], #16  // scale
+    MUL_SCALE v0, v11, v12, v13, v14
+    MUL_SCALE v0, v15, v16, v17, v18
+    MUL_SCALE v0, v19, v20, v21, v22
+    MUL_SCALE v0, v23, v24, v25, v26
+    MUL_SCALE v0, v27, v28, v29, v30
+    cmp w23, #1
+    beq Tile20QuanUseInt8
     sub x4, x4, #256
     st1 {v11.4s, v12.4s, v13.4s, v14.4s}, [x0], #64
     st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], #64
@@ -173,13 +184,8 @@ LoopSzEnd_TILE_20:
     st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x0], x4
     add x4, x4, #256
     b Tile20LoopCheck
-Tile20Quan:
-    ld1 {v0.4s}, [x8], #16  // scale
-    MUL_SCALE v0, v11, v12, v13, v14
-    MUL_SCALE v0, v15, v16, v17, v18
-    MUL_SCALE v0, v19, v20, v21, v22
-    MUL_SCALE v0, v23, v24, v25, v26
-    MUL_SCALE v0, v27, v28, v29, v30
+
+    Tile20QuanUseInt8:
     FloatToInt32 v11, v12, v13, v14
     FloatToInt32 v15, v16, v17, v18
     FloatToInt32 v19, v20, v21, v22
@@ -286,7 +292,15 @@ LoopSzEnd_TILE_16:
     Int32ToFloat v19, v20, v21, v22
     Int32ToFloat v23, v24, v25, v26
     Int32ToFloat v27, v28, v29, v30
-    cbnz x8, Tile16Quan
+
+Tile16Quan:
+    ld1 {v0.4s}, [x19], #16  // scale
+    MUL_SCALE v0, v15, v16, v17, v18
+    MUL_SCALE v0, v19, v20, v21, v22
+    MUL_SCALE v0, v23, v24, v25, v26
+    MUL_SCALE v0, v27, v28, v29, v30
+    cmp w23, #1
+    beq Tile16QuanUseInt8
     sub x4, x4, #192
     st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x17], #64
     st1 {v19.4s, v20.4s, v21.4s, v22.4s}, [x17], #64
@@ -294,12 +308,8 @@ LoopSzEnd_TILE_16:
     st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x17], x4
     add x4, x4, #192
     b Tile16LoopCheck
-Tile16Quan:
-    ld1 {v0.4s}, [x19], #16  // scale
-    MUL_SCALE v0, v15, v16, v17, v18
-    MUL_SCALE v0, v19, v20, v21, v22
-    MUL_SCALE v0, v23, v24, v25, v26
-    MUL_SCALE v0, v27, v28, v29, v30
+
+    Tile16QuanUseInt8:
     FloatToInt32 v15, v16, v17, v18
     FloatToInt32 v19, v20, v21, v22
     FloatToInt32 v23, v24, v25, v26
@@ -374,16 +384,20 @@ LoopSzEnd_TILE_8:
     uzp2 v30.2d, v30.2d, v31.2d
     Int32ToFloat v23, v24, v25, v26
     Int32ToFloat v27, v28, v29, v30
-    cbnz x8, Tile8Quan
+
+Tile8Quan:
+    ld1 {v0.4s}, [x19], #16  // scale
+    MUL_SCALE v0, v23, v24, v25, v26
+    MUL_SCALE v0, v27, v28, v29, v30
+    cmp w23, #1
+    beq Tile8QuanUseInt8
     sub x4, x4, #64
     st1 {v23.4s, v24.4s, v25.4s, v26.4s}, [x17], #64
     st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x17], x4
     add x4, x4, #64
     b Tile8LoopCheck
-Tile8Quan:
-    ld1 {v0.4s}, [x19], #16  // scale
-    MUL_SCALE v0, v23, v24, v25, v26
-    MUL_SCALE v0, v27, v28, v29, v30
+
+    Tile8QuanUseInt8:
     FloatToInt32 v23, v24, v25, v26
     FloatToInt32 v27, v28, v29, v30
     Int32ToInt16 v23, v24, v25, v26, v4, v5
@@ -440,12 +454,16 @@ LoopSzEnd_TILE_4:
     uzp1 v29.2d, v30.2d, v31.2d
     uzp2 v30.2d, v30.2d, v31.2d
     Int32ToFloat v27, v28, v29, v30
-    cbnz x8, Tile4Quan
-    st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x17], x4
-    b Tile4LoopCheck
+
 Tile4Quan:
     ld1 {v0.4s}, [x19], #16  // scale
     MUL_SCALE v0, v27, v28, v29, v30
+    cmp w23, #1
+    beq Tile4QuanUseInt8
+    st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x17], x4
+    b Tile4LoopCheck
+
+    Tile4QuanUseInt8:
     FloatToInt32 v27, v28, v29, v30
     Int32ToInt16 v27, v28, v29, v30, v6, v7
     Int16ToInt8_ONE v6, v7, v19
@@ -493,13 +511,16 @@ LoopSzEnd_TILE_2:
     uzp2 v30.2d, v30.2d, v31.2d
     scvtf v29.4s, v29.4s
     scvtf v30.4s, v30.4s
-    cbnz x8, Tile2Quan
-    st1 {v29.4s, v30.4s}, [x17], x4
-    b Tile2LoopCheck
+
 Tile2Quan:
     ld1 {v0.4s}, [x19], #16  // scale
     fmul v29.4s, v29.4s, v0.4s
     fmul v30.4s, v30.4s, v0.4s
+    cmp w23, #1
+    beq Tile2QuanUseInt8
+    st1 {v29.4s, v30.4s}, [x17], x4
+    b Tile2LoopCheck
+    Tile2QuanUseInt8:
     fcvtas v29.4s, v29.4s
     fcvtas v30.4s, v30.4s
     sqxtn v6.4h,  v29.4s
@@ -550,13 +571,16 @@ LoopSzEnd_TILE_1:
     uzp2 v30.2d, v30.2d, v31.2d
     scvtf v29.4s, v29.4s
     scvtf v30.4s, v30.4s
-    cbnz x8, Tile1Quan
-    st1 {v29.4s, v30.4s}, [x17], x4
-    b Tile1LoopEnd
+
 Tile1Quan:
     ld1 {v0.4s}, [x19], #16  // scale
     fmul v29.4s, v29.4s, v0.4s
     fmul v30.4s, v30.4s, v0.4s
+    cmp w23, #1
+    beq Tile1QuanUseInt8
+    st1 {v29.4s, v30.4s}, [x17], x4
+    b Tile1LoopEnd
+    Tile1QuanUseInt8:
     fcvtas v29.4s, v29.4s
     fcvtas v30.4s, v30.4s
     sqxtn v6.4h,  v29.4s

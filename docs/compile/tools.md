@@ -10,7 +10,7 @@
     ```
 - 编译产物
   - `MNNConvert` 模型转换工具
-  - `TestConvertResult` 模型转换正确性测试工具，*Windows下没有此产物*
+  - `TestConvertResult` 模型转换正确性测试工具，*Windows下没有此产物，用`MNNConvert`对应功能替代*
   - `TestPassManager` 模型转换工具测试用例
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型

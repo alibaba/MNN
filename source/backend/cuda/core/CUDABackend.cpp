@@ -46,9 +46,9 @@ public:
 private:
     CUDARuntime* mRuntime;
 };
-CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power) {
+CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, int deviceId) {
     // TODO: Search CUDA Device info and use best one
-    mCUDARuntime.reset(new CUDARuntime(-1));
+    mCUDARuntime.reset(new CUDARuntime(deviceId));
 #ifdef LOG_VERBOSE
     MNN_PRINT("create cuda runtime:%p\n", mCUDARuntime.get());
 #endif

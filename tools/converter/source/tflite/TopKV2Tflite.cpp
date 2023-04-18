@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(TopKV2Tflite);
-MNN::OpType TopKV2Tflite::opType(bool quantizedModel) {
+MNN::OpType TopKV2Tflite::opType(int quantizedModel) {
     return MNN::OpType_TopKV2;
 }
-MNN::OpParameter TopKV2Tflite::type(bool quantizedModel) {
+MNN::OpParameter TopKV2Tflite::type(int quantizedModel) {
     return MNN::OpParameter_TopKV2;
 }
 
 void TopKV2Tflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
 
   auto topkv2Param = new MNN::TopKV2T;
   topkv2Param->sorted = false;

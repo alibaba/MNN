@@ -28,9 +28,7 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
         const float* scale_dz = nullptr;
-        if (post->scale != nullptr) {
-            scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
-        }
+        scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
         const auto src_x   = src;
         auto dst_x         = dst_z;
@@ -130,22 +128,22 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
         E0 = _mm_hadd_epi32(E0, E1);
         E1 = _mm_hadd_epi32(E2, E3);
         d3 = _mm_hadd_epi32(E0, E1);
-        
-        if (post->scale != nullptr) {
-            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
-            auto scaleValue = _mm_loadu_ps(scale_dz);
-            d0 = _mm_add_epi32(d0, biasValue);
-            d1 = _mm_add_epi32(d1, biasValue);
-            d2 = _mm_add_epi32(d2, biasValue);
-            d3 = _mm_add_epi32(d3, biasValue);
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            __m128 f3 = _mm_cvtepi32_ps(d3);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            f1 = _mm_mul_ps(f1, scaleValue);
-            f2 = _mm_mul_ps(f2, scaleValue);
-            f3 = _mm_mul_ps(f3, scaleValue);
+
+        auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
+        auto scaleValue = _mm_loadu_ps(scale_dz);
+        d0 = _mm_add_epi32(d0, biasValue);
+        d1 = _mm_add_epi32(d1, biasValue);
+        d2 = _mm_add_epi32(d2, biasValue);
+        d3 = _mm_add_epi32(d3, biasValue);
+        __m128 f0 = _mm_cvtepi32_ps(d0);
+        __m128 f1 = _mm_cvtepi32_ps(d1);
+        __m128 f2 = _mm_cvtepi32_ps(d2);
+        __m128 f3 = _mm_cvtepi32_ps(d3);
+        f0 = _mm_mul_ps(f0, scaleValue);
+        f1 = _mm_mul_ps(f1, scaleValue);
+        f2 = _mm_mul_ps(f2, scaleValue);
+        f3 = _mm_mul_ps(f3, scaleValue);
+        if (post->useInt8 == 1) {
             f0 = _mm_min_ps(f0, maxValue);
             f1 = _mm_min_ps(f1, maxValue);
             f2 = _mm_min_ps(f2, maxValue);
@@ -189,14 +187,8 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
                     ((int32_t*)dst_x)[j] = tempV[j];
                 }
             }
-        } else {
-            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
-            __m128 f[4] = {
-                _mm_cvtepi32_ps(_mm_add_epi32(d0, biasValue)),
-                _mm_cvtepi32_ps(_mm_add_epi32(d1, biasValue)),
-                _mm_cvtepi32_ps(_mm_add_epi32(d2, biasValue)),
-                _mm_cvtepi32_ps(_mm_add_epi32(d3, biasValue)),
-            };
+        } else { // Store float values directly.
+            __m128 f[4] = {f0, f1, f2, f3};
             for (int j = 0; j < realDst; ++j) {
                 _mm_storeu_ps(((float*)dst_x) + j * 4, f[j]);
             }

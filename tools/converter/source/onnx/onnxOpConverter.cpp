@@ -58,6 +58,11 @@ public:
             attr->f = srcAttr.f();
             extra->attr.emplace_back(std::move(attr));
         }
+        // add onnx ir version for some differet impl
+        std::unique_ptr<AttributeT> attr(new AttributeT);
+        attr->key = "onnx_opset_version";
+        attr->i = scope->mOpsetVersion;
+        extra->attr.emplace_back(std::move(attr));
     }
     virtual MNN::OpParameter type() override {
         return OpParameter_Extra;

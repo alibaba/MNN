@@ -22,6 +22,8 @@
 #include "core/Backend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#define MNN_USER_SET_DEVICE
+#include "MNN/MNNSharedContext.h"
 
 #define NONE "\e[0m"
 #define RED "\e[0;31m"
@@ -87,6 +89,13 @@ int main(int argc, const char* argv[]) {
     config.type = type;
     MNN::BackendConfig backendConfig;
     backendConfig.precision = precision;
+    
+    MNNDeviceContext cudaDeviceConfig;
+    // CUDA BAckend support user set_device_id
+    if(type == MNN_FORWARD_CUDA) {
+        cudaDeviceConfig.deviceId = 0;
+        backendConfig.sharedContext = &cudaDeviceConfig;
+    }
     config.backendConfig = &backendConfig;
     auto session         = net->createSession(config);
     

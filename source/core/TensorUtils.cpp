@@ -768,6 +768,7 @@ void TensorUtils::setRasterInputs(Command* cmd) {
     cmd->inputs.resize(regions.size());
     for (int i=0; i<regions.size(); ++i) {
         cmd->inputs[i] = regions[i].origin;
+        auto des = getDescribe(regions[i].origin);
     }
 }
 

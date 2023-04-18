@@ -41,8 +41,10 @@ struct QuanPostTreatParameters {
     const int32_t* bias;
     int32_t maxValue;
     int32_t minValue;
+    int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
+
 };
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue, ssize_t zeroPoint);

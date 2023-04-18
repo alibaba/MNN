@@ -13,13 +13,13 @@
 
 DECLARE_OP_COVERTER(DepthwiseConv2DTflite);
 
-MNN::OpType DepthwiseConv2DTflite::opType(bool quantizedModel) {
+MNN::OpType DepthwiseConv2DTflite::opType(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedDepthwiseConv2D;
     return MNN::OpType_ConvolutionDepthwise;
 }
 
-MNN::OpParameter DepthwiseConv2DTflite::type(bool quantizedModel) {
+MNN::OpParameter DepthwiseConv2DTflite::type(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_TfQuantizedConv2D;
     return MNN::OpParameter_Convolution2D;
@@ -29,7 +29,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
                                 const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                                 const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                                 const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet,
-                                bool quantizedModel) {
+                                int quantizedModel) {
     // 3|2 inputs: input tensor, weight, (bias)
     const int inputSize = tfliteOp->inputs.size();
     DCHECK(inputSize == 2 || inputSize == 3) << "tflite DepthiwiseConv2D input ERROR! ";

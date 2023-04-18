@@ -109,14 +109,14 @@ DECLARE_OP_COVERTER(MyCustomOpTflite);
 
 需要实现函数：
 ```cpp
-MyCustomOpTflite::opType(bool quantizedModel);
-MyCustomOpTflite::type(bool quantizedModel);
+MyCustomOpTflite::opType(int quantizedModel);
+MyCustomOpTflite::type(int quantizedModel);
 MyCustomOpTflite::run(MNN::OpT *dstOp, 
                       const std::unique_ptr<tflite::OperatorT> &tfliteOp, 
                       const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
                       const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
                       const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet,
-                      bool quantizedModel)
+                      int quantizedModel)
 ```
 
 其中，`run`函数相比TensorFlow的版本，多一个`quantizedModel`参数。若`qu``antizedModel`为true，则模型为量化模型，需转为相应的量化Op；若为false，转为浮点Op。在run函数中需要设置输入、输出tensor的index：

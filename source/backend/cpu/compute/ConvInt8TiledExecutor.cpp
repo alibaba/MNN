@@ -14,7 +14,6 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
-#include <math.h>
 namespace MNN {
 
 ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* convOp, std::shared_ptr<ResourceInt8> res): CPUConvolution(convOp, backend), mResource(res), mMutableResource(res, backend) {
@@ -215,7 +214,6 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         quanParam.minValue = mMutableResource.mClampMin;
     }
     //MNN_PRINT("max: %d, min: %d\n", quanParam.maxValue, quanParam.minValue);
-
 
     auto threadFunction = [&](int tId) {
         auto colAddr        = im2colPtr + tId * mTempIm2ColBuffer->stride(0);

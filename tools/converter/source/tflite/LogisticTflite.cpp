@@ -11,12 +11,12 @@
 
 DECLARE_OP_COVERTER(LogisticTflite);
 
-MNN::OpType LogisticTflite::opType(bool quantizedModel) {
+MNN::OpType LogisticTflite::opType(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedLogistic;
     return MNN::OpType_Sigmoid;
 }
-MNN::OpParameter LogisticTflite::type(bool quantizedModel) {
+MNN::OpParameter LogisticTflite::type(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_QuantizedLogistic;
     return MNN::OpParameter_NONE;
@@ -25,7 +25,7 @@ MNN::OpParameter LogisticTflite::type(bool quantizedModel) {
 void LogisticTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     if (quantizedModel) {
         auto LogisticParam = new MNN::QuantizedLogisticT;
 

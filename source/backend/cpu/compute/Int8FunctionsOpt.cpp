@@ -1430,14 +1430,12 @@ static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, fl
 
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
-    const int bytes = (post->scale != nullptr ? 1 : 4);
+    const int bytes = ((post->useInt8 == 1) ? 1 : 4);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
         const float* scale_dz = nullptr;
-        if (post->scale != nullptr) {
-            scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
-        }
+        scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
@@ -1457,10 +1455,13 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
             }
 
             for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                if (post->scale != nullptr) {
+                if (!post->scale) {
+                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
+                } else if (post->useInt8 == 1) {
                     dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
                 } else {
-                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
+                    float value = (float)(dstTemp[j] + bias_dz[j]) * scale_dz[j];
+                    ((float*)dst_x)[j] = value;
                 }
             }
         }
@@ -1997,6 +1998,7 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
     gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
     gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnit;
+
     // Im2Col
     gCoreFunc->chooseIm2Col = chooseIm2Col;
     // conv depthwise

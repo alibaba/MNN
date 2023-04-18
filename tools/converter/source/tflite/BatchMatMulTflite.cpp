@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(BatchMatMulTflite);
-MNN::OpType BatchMatMulTflite::opType(bool quantizedModel) {
+MNN::OpType BatchMatMulTflite::opType(int quantizedModel) {
     return MNN::OpType_BatchMatMul;
 }
-MNN::OpParameter BatchMatMulTflite::type(bool quantizedModel) {
+MNN::OpParameter BatchMatMulTflite::type(int quantizedModel) {
     return MNN::OpParameter_BatchMatMulParam;
 }
 
 void BatchMatMulTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     // Do nothing
     dstOp->main.value = new MNN::BatchMatMulParamT;
     auto src = tfliteOp->builtin_options.AsBatchMatMulOptions();
