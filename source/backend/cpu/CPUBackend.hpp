@@ -52,7 +52,7 @@ struct CoreInt8Functions;
 class CPUResizeCache;
 class CPUBackend : public Backend {
 public:
-    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
+    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
     virtual ~CPUBackend();
 
     // Return sizeDivide, scheduleNumber aligned memory
@@ -94,7 +94,7 @@ public:
     }
 
     BackendConfig::MemoryMode memoryMode() const {
-        return mRuntime->mMemory;
+        return mMemory;
     }
     BackendConfig::PrecisionMode precisionMode() const {
         return mPrecisionMode;
@@ -122,6 +122,7 @@ private:
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
+    BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     CPUResizeCache* mCache;
 };

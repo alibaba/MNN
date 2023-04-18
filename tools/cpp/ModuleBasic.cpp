@@ -90,7 +90,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision] [cacheFile]\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile]\n");
         return 0;
     }
     std::string modelName = argv[1];
@@ -173,14 +173,18 @@ int main(int argc, char *argv[]) {
     }
 
     int precision = BackendConfig::Precision_Normal;
+    int memory = BackendConfig::Memory_Normal;
     if (argc > 7) {
-        precision = atoi(argv[7]);
+        int mask = atoi(argv[7]);
+        precision = mask % 4;
+        memory = (mask / 4) % 4;
     }
     const char* cacheFileName = ".tempcache";
     if (argc > 8) {
         cacheFileName = argv[8];
     }
     FUNC_PRINT(precision);
+    FUNC_PRINT(memory);
     FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;
@@ -193,7 +197,7 @@ int main(int argc, char *argv[]) {
     // config.path.outputs.push_back("ResizeBilinear_2");
     // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
-    // backendConfig.memory = BackendConfig::Memory_High;
+    backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
     config.backendConfig     = &backendConfig;
 
     MNN::Express::Module::Config mConfig;
@@ -201,9 +205,11 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     if (runMask & 1) {
+        // Need dump tensor, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
     if (runMask & 128) {
+        // Need time trace for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
     if (runMask & 8) {

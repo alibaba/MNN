@@ -254,6 +254,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
+    auto tensorDescribe = std::move(originNet->extraTensorDescribe);
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -323,6 +324,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
+    newNet->extraTensorDescribe = std::move(tensorDescribe);
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 
@@ -579,7 +581,6 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     ctx.RunOptimize = optimizeNetImpl;
 
     Global<OptimizeContext>::Reset(&ctx);
-    
     std::unordered_map<std::string, VARP> inputs, empty;
     // subgraph may depend on vars of outter subgraph or root net, getting vars of them need Program::create.
     // But program (create from unoptimize net) may have OpType_Extra op, causing vars can't do getInfo/readMap correctly,

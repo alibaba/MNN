@@ -114,13 +114,12 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
     }
     auto output = outputs[0];
     auto des = TensorUtils::getDescribe(output);
-    auto outputDes = TensorUtils::getDescribe(output);
     bool needZero = !TensorUtils::regionIsFull(output);
     _recycle();
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto bufferAlloc = vkBn->getDynamicMemoryPool();
     auto vkRt = ((VulkanRuntime*)(vkBn->getRuntime()));
-    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bool fast = true;
         for (int i=0; i< des->regions.size(); ++i) {
             auto& slice = des->regions[i];
@@ -138,7 +137,65 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
             onEncodeFast(output, output, cmdBuffer, needZero);
             return NO_ERROR;
         }
-        // Can't use fast mode, create temp buffer
+    }
+    // Single Convert Optimize
+    std::vector<VkDescriptorType> nchwConvertTypes{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+    do {
+        if (des->regions.size() != 1) {
+            break;
+        }
+        OpCommonUtils::TensorConvertParameter convertParameter;
+        OpCommonUtils::turnRegion2Convert(des->regions[0], output, convertParameter);
+        if (convertParameter.type == 0) {
+            break;
+        }
+        const VulkanPipeline* convertPipeline = nullptr;
+        int srcIndex;
+        int dstIndex;
+        if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            convertPipeline = vkBn->getPipeline("glsl_nchwTonc4hw4_comp", nchwConvertTypes);
+            srcIndex = 0;
+            dstIndex = 1;
+        } else {
+            convertPipeline = vkBn->getPipeline("glsl_nc4hw4Tonchw_comp", nchwConvertTypes);
+            srcIndex = 1;
+            dstIndex = 0;
+        }
+        NCHWInfo dims;
+        dims.size[0] = convertParameter.batch;
+        dims.size[1] = convertParameter.channel;
+        dims.size[2] = 1;
+        dims.size[3] = convertParameter.area;
+        if (convertParameter.type == 1) {
+            dims.stride[0] = convertParameter.channel * convertParameter.area;
+            dims.stride[1] = convertParameter.area;
+            dims.stride[2] = 0;
+            dims.stride[3] = 1;
+        } else {
+            dims.stride[0] = convertParameter.channel * convertParameter.area;
+            dims.stride[1] = 1;
+            dims.stride[2] = 0;
+            dims.stride[3] = convertParameter.channel;
+        }
+        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(convertPipeline->createSet());
+        std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
+        mExtraDescribes.emplace_back(describe);
+        mExtraUniform.emplace_back(uniform);
+        auto inputBuffer = vkBn->getBuffer(des->regions[0].origin);
+        auto outputBuffer = vkBn->getBuffer(output);
+        describe->writeBuffer(outputBuffer, dstIndex);
+        describe->writeBuffer(inputBuffer, srcIndex);
+        describe->writeBuffer(uniform->buffer(), 2, uniform->size());
+        
+        convertPipeline->bind(cmdBuffer->get(), describe->get());
+        auto totalSize = UP_DIV(dims.size[1], 4) * dims.size[0] * dims.size[2] * dims.size[3];
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
+        return NO_ERROR;
+    } while(false);
+
+    // Can't use fast mode, create temp buffer
+    if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         int bufferSize = sizeof(float);
         for (int i=0; i<output->dimensions(); ++i) {
             bufferSize *= output->length(i);
@@ -148,8 +205,6 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
             return OUT_OF_MEMORY;
         }
     }
-    std::vector<VkDescriptorType> nchwConvertTypes{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     // Input Convert
     for (auto& slice : des->regions) {
         auto origin = slice.origin;

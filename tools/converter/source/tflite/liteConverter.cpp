@@ -120,11 +120,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
 
     // check whether this tflite model is quantization model
     // use the weight's data type of Conv2D|DepthwiseConv2D to decide quantizedModel mode
-    bool quantizedModel = true;
+    int quantizedModel = 0;
     for (int i = 0; i < subGraphsSize; ++i) {
         const auto& ops     = tfliteModel->subgraphs[i]->operators;
         const auto& tensors = tfliteModel->subgraphs[i]->tensors;
-        const int opNums    = ops.size();
+        const int opNums    = static_cast<int>(ops.size());
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
             const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
@@ -132,13 +132,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                 opCode == tflite::BuiltinOperator_TRANSPOSE_CONV) {
                 const int weightIndex    = ops[j]->inputs[1];
                 const auto& weightTensor = tensors[weightIndex];
-                quantizedModel           = weightTensor->type == tflite::TensorType_UINT8;
-                if(weightTensor->type == tflite::TensorType_INT8){
-                    DLOG(ERROR) << "***MNN DO NOT SUPPORT Tflite [INT8] quantized model, please use MNN quantization tool to quantize model***";
-                    return -1;
+                if (weightTensor->type == tflite::TensorType_UINT8) {
+                    quantizedModel = 1;
+                } else if (weightTensor->type == tflite::TensorType_INT8) {
+                    quantizedModel = 2;
                 }
-                if (!quantizedModel)
-                    break;
             }
         }
     }
@@ -264,11 +262,32 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
             // set default input output index
             op->inputIndexes.resize(ops[j]->inputs.size());
             op->outputIndexes.resize(ops[j]->outputs.size());
+            auto insertQuantinfo = [&](int idx) {
+                if (quantizedModel != 2) {
+                    return;
+                }
+                if (tensors[idx]->type != tflite::TensorType_INT8) {
+                    return;
+                }
+                auto quant = tensors[idx]->quantization.get();
+                if (!quant) {
+                    return;
+                }
+                std::unique_ptr<MNN::TensorDescribeT> tensorDescribe(new MNN::TensorDescribeT);
+                tensorDescribe->index = idx;
+                tensorDescribe->name = MNNNetT->tensorName[idx];
+                tensorDescribe->quantInfo.reset(new MNN::TensorQuantInfoT);
+                tensorDescribe->quantInfo->type = MNN::DataType_DT_INT8;
+                tensorDescribe->quantInfo->scale = quant->scale[0];
+                tensorDescribe->quantInfo->zero = quant->zero_point[0];
+                MNNNetT->extraTensorDescribe.emplace_back(std::move(tensorDescribe));
+            };
             for (int i = 0; i < ops[j]->inputs.size(); i++) {
                 op->inputIndexes[i] = ops[j]->inputs[i];
             }
             for (int i = 0; i < ops[j]->outputs.size(); i++) {
                 op->outputIndexes[i] = ops[j]->outputs[i];
+                insertQuantinfo(ops[j]->outputs[i]);
             }
             // Run actual conversion
             creator->run(op, ops[j], tensors, tfliteModelBuffer, tfliteOpSet, quantizedModel);

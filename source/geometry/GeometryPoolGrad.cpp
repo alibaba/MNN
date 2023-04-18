@@ -60,192 +60,163 @@ public:
             }
         }
 
-        std::vector<std::shared_ptr<Tensor>> originSplit;
-        originSplit.resize(kernel_h * kernel_w);
-
-        std::vector<std::shared_ptr<Tensor>> originGEqual;
-        originGEqual.resize(kernel_h * kernel_w);
-
-        std::vector<std::shared_ptr<Tensor>> originDiff;
-        originDiff.resize(kernel_h * kernel_w);
-
-        std::vector<std::shared_ptr<Tensor>> inpDiffAdd;
-        inpDiffAdd.resize(kernel_h * kernel_w);
-
-        for (int ky = 0; ky < kernel_h; ky++) {
-            auto startSy = ky - pad_h;
-            int startDy  = 0;
-            if (startSy < 0) {
-                startDy = ((-startSy) + stride_h - 1) / stride_h;
-                startSy = startSy + startDy * stride_h;
-            }
-            auto endDy = oh - 1;
-            auto endSy = endDy * stride_h + ky - pad_h;
-            if (endSy >= ih) {
-                endDy = endDy - (endSy - ih + stride_h) / stride_h;
-                endSy = endDy * stride_h + ky - pad_h;
-            }
-            if (startDy > endDy) {
-                continue;
-            }
-            MNN_ASSERT(endDy >= 0);
-            MNN_ASSERT(startDy < oh);
-
-            for (int kx = 0; kx < kernel_w; kx++) {
-                auto startSx = kx - pad_w;
-                int startDx  = 0;
-                if (startSx < 0) {
-                    startDx = ((-startSx) + stride_w - 1) / stride_w;
-                    startSx = startSx + startDx * stride_w;
+        std::vector<int> broadcastShape = {ob * kernel_h * kernel_w, oc, oh, ow};
+        std::shared_ptr<Tensor> originSplit(MNN::Tensor::createDevice<float>(broadcastShape, Tensor::CAFFE_C4));
+        {
+            auto des             = TensorUtils::getDescribe(originSplit.get());
+            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            des->regions.reserve(kernel_w * kernel_h);
+            res.extras.emplace_back(originSplit);
+            for (int ky = 0; ky < kernel_h; ky++) {
+                auto startSy = ky - pad_h;
+                int startDy  = 0;
+                if (startSy < 0) {
+                    startDy = ((-startSy) + stride_h - 1) / stride_h;
+                    startSy = startSy + startDy * stride_h;
                 }
-                auto endDx = ow - 1;
-                auto endSx = endDx * stride_w + kx - pad_w;
-                if (endSx >= iw) {
-                    endDx = endDx - (endSx - iw + stride_w) / stride_w;
-                    endSx = endDx * stride_w + kx - pad_w;
+                auto endDy = oh - 1;
+                auto endSy = endDy * stride_h + ky - pad_h;
+                if (endSy >= ih) {
+                    endDy = endDy - (endSy - ih + stride_h) / stride_h;
+                    endSy = endDy * stride_h + ky - pad_h;
                 }
-                if (startDx > endDx) {
+                if (startDy > endDy) {
                     continue;
                 }
-                MNN_ASSERT(endDx >= 0);
-                MNN_ASSERT(startDx < ow);
-
-                // A: Input feature
-                int index = ky * kernel_w + kx;
-                originSplit[index].reset(new Tensor);
-                originSplit[index]->buffer().type       = halide_type_of<float>();
-                originSplit[index]->buffer().dimensions = 4;
-                originSplit[index]->setLength(0, ob);
-                originSplit[index]->setLength(1, oc);
-                originSplit[index]->setLength(2, oh);
-                originSplit[index]->setLength(3, ow);
-                auto des             = TensorUtils::getDescribe(originSplit[index].get());
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
-                Tensor::InsideDescribe::Region region;
-                region.origin        = origin;
-                region.size[0]       = ob * oc;
-                region.size[1]       = endDy - startDy + 1;
-                region.size[2]       = endDx - startDx + 1;
-                region.dst.offset    = startDy * ow + startDx;
-                region.src.offset    = startSy * iw + startSx;
-                region.dst.stride[0] = ow * oh;
-                region.src.stride[0] = iw * ih;
-                region.dst.stride[1] = ow;
-                region.src.stride[1] = iw * stride_h;
-                region.dst.stride[2] = 1;
-                region.src.stride[2] = stride_w;
-                des->regions.emplace_back(std::move(region));
-
-                // greater equal
-                std::shared_ptr<Tensor> originGEqualInt(new Tensor);
-                originGEqualInt->buffer().type       = halide_type_of<int32_t>();
-                originGEqualInt->buffer().dimensions = 4;
-                originGEqualInt->setLength(0, ob);
-                originGEqualInt->setLength(1, oc);
-                originGEqualInt->setLength(2, oh);
-                originGEqualInt->setLength(3, ow);
-                des = TensorUtils::getDescribe(originGEqualInt.get());
-                // des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
-                auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_GREATER_EQUAL, originSplit[index].get(),
-                                                             originOutput, originGEqualInt.get());
-
-                // cast int to float
-                originGEqual[index].reset(new Tensor);
-                originGEqual[index]->buffer().type       = halide_type_of<float>();
-                originGEqual[index]->buffer().dimensions = 4;
-                originGEqual[index]->setLength(0, ob);
-                originGEqual[index]->setLength(1, oc);
-                originGEqual[index]->setLength(2, oh);
-                originGEqual[index]->setLength(3, ow);
-                des = TensorUtils::getDescribe(originGEqual[index].get());
-                // des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
-                std::unique_ptr<OpT> cast2float(new OpT);
-                cast2float->type                     = OpType_Cast;
-                cast2float->main.type                = OpParameter_CastParam;
-                cast2float->main.value               = new CastParamT;
-                cast2float->main.AsCastParam()->dstT = DataType_DT_FLOAT;
-
-                flatbuffers::FlatBufferBuilder builder1;
-                auto lastOffset1 = Op::Pack(builder1, cast2float.get());
-                builder1.Finish(lastOffset1);
-                auto cmd1 = GeometryComputerUtils::makeCommand(builder1, {originGEqualInt.get()}, {originGEqual[index].get()});
-                // mul inputDiff
-                originDiff[index].reset(new Tensor);
-                originDiff[index]->buffer().type       = halide_type_of<float>();
-                originDiff[index]->buffer().dimensions = 4;
-                originDiff[index]->setLength(0, ob);
-                originDiff[index]->setLength(1, oc);
-                originDiff[index]->setLength(2, oh);
-                originDiff[index]->setLength(3, ow);
-                des = TensorUtils::getDescribe(originDiff[index].get());
-                // des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
-                auto cmd2 = GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, inputDiff,
-                                                              originGEqual[index].get(), originDiff[index].get());
-
-                // expand tensor
-                inpDiffAdd[index].reset(new Tensor);
-                inpDiffAdd[index]->buffer().type       = halide_type_of<float>();
-                inpDiffAdd[index]->buffer().dimensions = 4;
-                inpDiffAdd[index]->setLength(0, ob);
-                inpDiffAdd[index]->setLength(1, oc);
-                inpDiffAdd[index]->setLength(2, ih);
-                inpDiffAdd[index]->setLength(3, iw);
-                des                  = TensorUtils::getDescribe(inpDiffAdd[index].get());
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
-                // Tensor::InsideDescribe::Region region;
-                region.origin        = originDiff[index].get();
-                region.size[0]       = ob * oc;
-                region.size[1]       = oh;
-                region.size[2]       = ow;
-                region.src.offset    = 0;
-                region.dst.offset    = ky * iw + kx;
-                region.src.stride[0] = ow * oh;
-                region.dst.stride[0] = iw * ih;
-                region.src.stride[1] = ow;
-                region.dst.stride[1] = iw * stride_h;
-                region.src.stride[2] = 1;
-                region.dst.stride[2] = stride_w;
-                des->regions.emplace_back(std::move(region));
-
-                res.extras.emplace_back(inpDiffAdd[index]);
-                res.extras.emplace_back(originSplit[index]);
-                res.extras.emplace_back(originGEqual[index]);
-                res.extras.emplace_back(originGEqualInt);
-                res.extras.emplace_back(originDiff[index]);
-                res.command.emplace_back(std::move(cmd));
-                res.command.emplace_back(std::move(cmd1));
-                res.command.emplace_back(std::move(cmd2));
+                MNN_ASSERT(endDy >= 0);
+                MNN_ASSERT(startDy < oh);
+                
+                for (int kx = 0; kx < kernel_w; kx++) {
+                    auto startSx = kx - pad_w;
+                    int startDx  = 0;
+                    if (startSx < 0) {
+                        startDx = ((-startSx) + stride_w - 1) / stride_w;
+                        startSx = startSx + startDx * stride_w;
+                    }
+                    auto endDx = ow - 1;
+                    auto endSx = endDx * stride_w + kx - pad_w;
+                    if (endSx >= iw) {
+                        endDx = endDx - (endSx - iw + stride_w) / stride_w;
+                        endSx = endDx * stride_w + kx - pad_w;
+                    }
+                    if (startDx > endDx) {
+                        continue;
+                    }
+                    MNN_ASSERT(endDx >= 0);
+                    MNN_ASSERT(startDx < ow);
+                    
+                    // A: Input feature
+                    int index = ky * kernel_w + kx;
+                    
+                    Tensor::InsideDescribe::Region region;
+                    region.origin        = origin;
+                    region.size[0]       = ob * oc;
+                    region.size[1]       = endDy - startDy + 1;
+                    region.size[2]       = endDx - startDx + 1;
+                    region.dst.offset    = startDy * ow + startDx + ob * oc * oh * ow * (ky * kernel_w + kx);
+                    region.src.offset    = startSy * iw + startSx;
+                    region.dst.stride[0] = ow * oh;
+                    region.src.stride[0] = iw * ih;
+                    region.dst.stride[1] = ow;
+                    region.src.stride[1] = iw * stride_h;
+                    region.dst.stride[2] = 1;
+                    region.src.stride[2] = stride_w;
+                    des->regions.emplace_back(std::move(region));
+                }
             }
         }
-
-        // eltwise
-        std::shared_ptr<Tensor> tmpOutput(new Tensor);
+        std::shared_ptr<Tensor> originOutputBroadcast(MNN::Tensor::createDevice<float>(broadcastShape, Tensor::CAFFE_C4));
+        std::shared_ptr<Tensor> inputDiffBroadcast(MNN::Tensor::createDevice<float>(broadcastShape, Tensor::CAFFE_C4));
         {
-            std::unique_ptr<OpT> eltWise(new OpT);
-            eltWise->type                   = OpType_Eltwise;
-            eltWise->main.type              = OpParameter_Eltwise;
-            eltWise->main.value             = new EltwiseT;
-            eltWise->main.AsEltwise()->type = EltwiseType_SUM;
-            // eltWise->main.AsEltwise()->coeff() = nullptr;
-            flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, eltWise.get());
-            builder.Finish(lastOffset);
-            std::vector<Tensor*> inputs(kernel_w * kernel_h);
-            for (int i = 0; i < kernel_w * kernel_h; i++) {
-                inputs[i] = inpDiffAdd[i].get();
+            auto des             = TensorUtils::getDescribe(originOutputBroadcast.get());
+            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            Tensor::InsideDescribe::Region region;
+            region.origin        = originOutput;
+            region.size[0]       = 1;
+            region.size[1]       = kernel_w * kernel_h;
+            region.size[2]       = ob * oc * oh * ow;
+            region.dst.offset    = 0;
+            region.src.offset    = 0;
+            region.dst.stride[0] = 0;
+            region.src.stride[0] = 0;
+            region.dst.stride[1] = ob * oc * oh * ow;
+            region.src.stride[1] = 0;
+            region.dst.stride[2] = 1;
+            region.src.stride[2] = 1;
+            des->regions = {region};
+            res.extras.emplace_back(originOutputBroadcast);
+            region.origin = inputDiff;
+            des = TensorUtils::getDescribe(inputDiffBroadcast.get());
+            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            des->regions = {region};
+            res.extras.emplace_back(inputDiffBroadcast);
+        }
+        std::shared_ptr<Tensor> originGEqual(MNN::Tensor::createDevice<float>(broadcastShape, Tensor::CAFFE_C4));
+        std::shared_ptr<Tensor> originGEqualInt(MNN::Tensor::createDevice<int>(broadcastShape, Tensor::CAFFE_C4));
+        {
+            
+            auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_GREATER_EQUAL, originSplit.get(),
+                                                         originOutputBroadcast.get(), originGEqualInt.get());
+            res.command.emplace_back(cmd);
+            res.extras.emplace_back(originGEqualInt);
+        }
+        {
+            std::unique_ptr<OpT> cast2float(new OpT);
+            cast2float->type                     = OpType_Cast;
+            cast2float->main.type                = OpParameter_CastParam;
+            cast2float->main.value               = new CastParamT;
+            cast2float->main.AsCastParam()->dstT = DataType_DT_FLOAT;
+
+            flatbuffers::FlatBufferBuilder builder1;
+            auto lastOffset1 = Op::Pack(builder1, cast2float.get());
+            builder1.Finish(lastOffset1);
+            auto cmd1 = GeometryComputerUtils::makeCommand(builder1, {originGEqualInt.get()}, {originGEqual.get()});
+            res.extras.emplace_back(originGEqual);
+            res.command.emplace_back(cmd1);
+        }
+
+        std::shared_ptr<Tensor> originDiff(MNN::Tensor::createDevice<float>(broadcastShape, Tensor::CAFFE_C4));
+        {
+            auto cmd2 = GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, inputDiffBroadcast.get(), originGEqual.get(), originDiff.get());
+            res.extras.emplace_back(originDiff);
+            res.command.emplace_back(cmd2);
+        }
+        std::shared_ptr<Tensor> reduceDiffBefore(MNN::Tensor::createDevice<float>({1, kernel_w * kernel_h, ob * oc * ih * iw}, Tensor::CAFFE));
+        {
+            auto des                  = TensorUtils::getDescribe(reduceDiffBefore.get());
+            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            Tensor::InsideDescribe::Region region;
+            for (int ky = 0; ky < kernel_h; ++ky) {
+                for (int kx = 0; kx < kernel_w; ++kx) {
+                    region.origin        = originDiff.get();
+                    region.size[0]       = ob * oc;
+                    region.size[1]       = oh;
+                    region.size[2]       = ow;
+                    region.src.offset    = oc * ob * ow * oh * (ky * kernel_w + kx);
+                    region.dst.offset    = ky * iw + kx + oc * ob * iw * ih * (ky * kernel_w + kx);
+                    region.src.stride[0] = ow * oh;
+                    region.dst.stride[0] = iw * ih;
+                    region.src.stride[1] = ow;
+                    region.dst.stride[1] = iw * stride_h;
+                    region.src.stride[2] = 1;
+                    region.dst.stride[2] = stride_w;
+                    des->regions.emplace_back(std::move(region));
+                }
             }
-            auto cmd = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
-            res.command.emplace_back(std::move(cmd));
+            res.extras.emplace_back(reduceDiffBefore);
+        }
+        std::shared_ptr<Tensor> reduceDiffAfter(MNN::Tensor::createDevice<float>({1, 1, ob * oc * iw * ih}, Tensor::CAFFE));
+
+        auto reduceCmd = GeometryComputerUtils::makeReduce(ReductionType_SUM, reduceDiffBefore.get(), reduceDiffAfter.get());
+        res.command.emplace_back(reduceCmd);
+        res.extras.emplace_back(reduceDiffAfter);
+        {
+            auto outputDes = TensorUtils::getDescribe(outputs[0]);
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->regions = {TensorUtils::makeFullSlice(reduceDiffAfter.get())};
         }
         return true;
     }

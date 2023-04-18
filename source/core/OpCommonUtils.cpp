@@ -58,7 +58,7 @@ static std::tuple<bool, bool, bool> _computeAxisFused(const std::tuple<int, int,
     bool cwFused = std::get<1>(dstTup) > 0 && std::get<0>(dstTup) > 0;
     return std::make_tuple(ncFused, cwFused, nwFused);
 }
-static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>& srcTup, const std::tuple<int, int, int>& srcSplit, int step, bool swapnc) {
+static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>& srcTup, const std::tuple<int, int, int>& srcSplit, int step, bool swapnc, int stride) {
     int inside  = std::get<0>(srcTup) / step;
     int axis    = std::get<1>(srcTup) / step;
     int outside = std::get<2>(srcTup) / step;
@@ -67,43 +67,19 @@ static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>&
         // nc fused
         if (swapnc) {
             axis = 0;
-            if (step >= std::get<1>(srcSplit)) {
-                // Cover C, N may be part
-                auto outsideStride = (step + 1) / (std::get<1>(srcSplit));
-                outside = std::get<2>(srcTup) / (outsideStride - 1);
-            } else {
-                outside = 1;
-            }
+            outside = stride / std::get<0>(srcSplit);
         } else {
             outside = 0;
-            if (step >= std::get<2>(srcSplit)) {
-                // Cover N, C may be a part
-                auto axisStride = (step + 1) / (std::get<2>(srcSplit));
-                axis = std::get<1>(srcTup) / (axisStride - 1);
-            } else {
-                axis = 1;
-            }
+            axis = stride / std::get<0>(srcSplit);
         }
     } else if (std::get<2>(fuse)) {
         // nw fused
         outside = 0;
-        if (step >= std::get<2>(srcSplit)) {
-            // Cover N, W may be a part
-            auto insideStride = (step + 1) / (std::get<2>(srcSplit));
-            inside = std::get<0>(srcTup) / (insideStride - 1);
-        } else {
-            // Cover W
-            inside = 1;
-        }
+        inside = stride;
     } else if (std::get<1>(fuse)) {
         // cw fused
         axis = 0;
-        if (step >= std::get<1>(srcSplit)) {
-            auto insideStride = (step + 1) / (std::get<1>(srcSplit));
-            inside = std::get<0>(srcTup) / (insideStride - 1);
-        } else {
-            inside = 1;
-        }
+        inside = stride;
     }
     return std::make_tuple(inside, axis, outside);
 }
@@ -201,7 +177,7 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
         auto dstTup = _split(dstStride, std::get<1>(dstSplits), std::get<0>(dstSplits));
         auto srcTup = _split(srcStride, std::get<1>(srcSplits), std::get<0>(srcSplits));
         {
-            auto tup = _computeStride(srcTup, srcSplits, step, swapnc);
+            auto tup = _computeStride(srcTup, srcSplits, step, swapnc, region.src.stride[i]);
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
@@ -214,7 +190,7 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
             }
         }
         {
-            auto tup = _computeStride(dstTup, dstSplits, step, swapnc);
+            auto tup = _computeStride(dstTup, dstSplits, step, swapnc, region.dst.stride[i]);
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
@@ -253,16 +229,19 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
                                   std::get<1>(offsetTup) * std::get<0>(dstSplits) + std::get<0>(offsetTup) * pack;
         }
     }
-//    MNN_PRINT("Origin:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
-//    region.size[0],region.size[1], region.size[2], region.src
-//              .offset, region.src.stride[0], region.src.stride[1], region.src.stride[2], region.dst.offset,
-//              region.dst.stride[0], region.dst .stride[1], region.dst.stride[2]);
-//
-//
-//    MNN_PRINT("Pack:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
-//     c4Region.size[0],c4Region.size[1], c4Region.size[2], c4Region.src
-//               .offset, c4Region.src.stride[0], c4Region.src.stride[1], c4Region.src.stride[2], c4Region.dst.offset,
-//               c4Region.dst.stride[0], c4Region.dst .stride[1], c4Region.dst.stride[2]);
+#ifdef MNN_DEBUG_BLIT
+    MNN_PRINT("Src WCN: %d-%d-%d, Dst WCN:%d-%d-%d\n", std::get<0>(srcSplits), std::get<1>(srcSplits), std::get<2>(srcSplits), std::get<0>(dstSplits), std::get<1>(dstSplits), std::get<2>(dstSplits));
+    MNN_PRINT("Origin:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
+    region.size[0],region.size[1], region.size[2], region.src
+              .offset, region.src.stride[0], region.src.stride[1], region.src.stride[2], region.dst.offset,
+              region.dst.stride[0], region.dst .stride[1], region.dst.stride[2]);
+
+
+    MNN_PRINT("Pack:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
+     c4Region.size[0],c4Region.size[1], c4Region.size[2], c4Region.src
+               .offset, c4Region.src.stride[0], c4Region.src.stride[1], c4Region.src.stride[2], c4Region.dst.offset,
+               c4Region.dst.stride[0], c4Region.dst .stride[1], c4Region.dst.stride[2]);
+#endif
 }
 
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack, bool swapnc, bool swapcw) {
@@ -369,7 +348,7 @@ std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const st
             }
         }
     }
-    auto totalSize = inputs[0]->elementSize();
+    auto totalSize = TensorUtils::getRawSize(inputs[0]);
     if (axises.empty()) {
         return {std::make_tuple(1, totalSize, 1)};
     }
@@ -516,7 +495,8 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
 }
 void OpCommonUtils::rasterInputReset(const std::vector<Tensor *> &inputs, Tensor *output) {
     auto outputDes = TensorUtils::getDescribe(output);
-    MNN_ASSERT(outputDes->regions.size() == inputs.size());
+    // For output with copy, the region's size may not be the same as input's size
+    outputDes->regions.resize(inputs.size());
     for (int i=0; i<outputDes->regions.size(); ++i) {
         outputDes->regions[i].origin = inputs[i];
     }
@@ -556,4 +536,104 @@ bool OpCommonUtils::loadConvData(Backend* backend, const Op* op, std::unique_ptr
     loadExternalDatas(backend, {weight->host<char>(), bias->host<char>()}, conv2d->external()->data());
     return true;
 }
+
+static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& area) {
+    if (t->dimensions() == 0) {
+        batch = 1;
+        channel = 1;
+        area = 1;
+        return;
+    }
+    if (t->dimensions() == 1) {
+        batch = t->length(0);
+        channel = 1;
+        area = 1;
+        return;
+    }
+    batch = t->length(0);
+    channel = t->length(1);
+    area = 1;
+    for (int i=2; i<t->dimensions(); ++i) {
+        area *= t->length(i);
+    }
+}
+
+bool OpCommonUtils::isTranspose(const Tensor::InsideDescribe::Region& region, int& srcOne, int& dstOne) {
+    srcOne = -1;
+    dstOne = -1;
+    for (int i = 0; i < 3; i++) {
+        if (region.size[i] == 1) {
+            continue;
+        }
+        if (region.src.stride[i] == 1) {
+            if (srcOne >= 0) {
+                return false;
+            }
+            srcOne = i;
+        }
+        if (region.dst.stride[i] == 1) {
+            if (dstOne >= 0) {
+                return false;
+            }
+            dstOne = i;
+        }
+    }
+    return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
+}
+
+void OpCommonUtils::turnRegion2Convert(const Tensor::InsideDescribe::Region& region, const Tensor* dest, OpCommonUtils::TensorConvertParameter& info) {
+    auto origin = region.origin;
+    auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
+    auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
+    info.type = 0;
+    if (srcFormat == dstFormat) {
+        return;
+    }
+    if (srcFormat != MNN_DATA_FORMAT_NC4HW4 && dstFormat != MNN_DATA_FORMAT_NC4HW4) {
+        return;
+    }
+    const Tensor* nc4hw4Tensor = origin;
+    const Tensor* originTensor = dest;
+    if (dstFormat == MNN_DATA_FORMAT_NC4HW4) {
+        nc4hw4Tensor = dest;
+        originTensor = origin;
+    }
+    getBatchChannelArea(nc4hw4Tensor, info.batch, info.channel, info.area);
+    if (0 != region.src.offset || 0 != region.dst.offset) {
+        return;
+    }
+    if (TensorUtils::isCopyRegion(region)) {
+        if (info.batch * info.channel * info.area == region.size[0] * region.size[1] * region.size[2]) {
+            info.type = 1;
+            return;
+        }
+        return;
+    }
+    int srcOne, dstOne;
+    if (isTranspose(region, srcOne, dstOne)) {
+        int keepDim = -1;
+        for (int i = 0; i < 3; i++) {
+            if (i != srcOne && i != dstOne) {
+                keepDim = i;
+                break;
+            }
+        }
+        if (info.batch == region.size[keepDim]) {
+            if (info.channel == region.size[srcOne] && info.area == region.size[dstOne]) {
+                auto srcSize = TensorUtils::getRawSize(originTensor);
+                auto dstSize = TensorUtils::getRawSize(nc4hw4Tensor);
+                auto regionSize = region.size[0] * region.size[1] * region.size[2];
+                if (srcSize != dstSize || regionSize != srcSize) {
+                    return;
+                }
+                info.type = 2;
+                return;
+            }
+            return;
+        }
+    }
+    return;
+}
+
+
 } // namespace MNN

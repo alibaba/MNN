@@ -33,7 +33,7 @@ bool AVX2Backend::isValid() {
     return nullptr != AVX2Functions::get();
 }
 
-AVX2Backend::AVX2Backend(const CPURuntime* runtime, size_t flags) : CPUBackend(runtime, BackendConfig::Precision_Low, MNN_FORWARD_CPU_EXTENSION, flags) {
+AVX2Backend::AVX2Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory, size_t flags) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION, flags) {
     mCoreFunctions = AVX2Functions::get();
     mInt8CoreFunctions = AVX2Functions::getInt8();
 }

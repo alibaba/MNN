@@ -313,7 +313,7 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
     } else {
         quanParam.minValue = outputQuant[2];
     }
-    mergeAddBiasScaleQuantize(tmp_outputs, outputs[0], &quanParam, bn,  outputQuant[1]);
+    mergeAddBiasScaleQuantize(tmp_outputs, outputs[0], &quanParam, bn, outputQuant[1]);
     return NO_ERROR;
 };
 
@@ -506,12 +506,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     auto _weightInt8Ptr = weight + i * mWinoResource->weight->stride(0);
                     QuanPostTreatParameters quanParam;
                     quanParam.bias = mWinoResource->offsets->host<int32_t>() + i * mWinoResource->offsets->stride(0);
-                    // If scale is nullptr, the gemm will return float value
-                    quanParam.scale = nullptr;
-                    gemmFunc((int8_t*)buffer0, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
-                    core->MNNScaleAndAddBias(_dstFloatPtr, buffer0, buffer1, mWinoResource->scales->host<float>() + i * dc_4 * UNIT, xC, dc_4);
-    //                    auto scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
-    //                    printf("i:%d, dc_4:%d, scale:%f - %f - %f - %f * %f, %f, %f, %f -> %f - %f - %f - %f\n", i, dc_4, buffer0[0], buffer0[1], buffer0[2], buffer0[3], scale[0], scale[1], scale[2], scale[3], _dstFloatPtr[0], _dstFloatPtr[1], _dstFloatPtr[2], _dstFloatPtr[3]);
+                    quanParam.useInt8 = 0;
+                    quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
+                    gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
                 }
     #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {

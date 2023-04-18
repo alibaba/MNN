@@ -20,6 +20,7 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 //    const int32_t* bias;
 //    int32_t maxValue;
 //    int32_t minValue;
+//    int32_t useInt8;
 //};
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
@@ -29,18 +30,21 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 // x5: dst_depth_quad, x6: post, x7: realSize
 
 //Load from post:
-// x7: scale, x10: bias, w11: maxValue, w6: minValue
+// x7: scale, x10: bias, w11: maxValue, w6: minValue, w13: UseInt8
 mov x8, x7
-ldr x7, [x6, #0]
-ldr x10, [x6, #8]
-ldr w11, [x6, #16]
-ldr w6, [x6, #20]
+mov x15, x6
+ldr x7, [x15, #0]
+ldr x10, [x15, #8]
+ldr w11, [x15, #16]
+ldr w6, [x15, #20]
+ldr w13, [x15, #24]
 
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
+Start:
 cmp x8, #3
 beq L3Dz
 
@@ -50,8 +54,9 @@ beq L2Dz
 cmp x8, #1
 beq L1Dz
 
-cbz x7, L4LoopDz
-sub x4, x4, #8
+cmp w13, #1
+bne L4LoopDz
+sub x4, x4, #8          // post->scale != nullptr && post->useInt8 == 1.
 L4LoopDz:
     mov x8, x1
     ld1 {v0.16b}, [x2], #16
@@ -218,20 +223,6 @@ L4LoopDz:
     addp v14.4s, v8.4s, v9.4s
     addp v15.4s, v10.4s, v11.4s
 
-    cbnz x7, L4Quan
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
-    add v18.4s, v14.4s, v0.4s
-    add v19.4s, v15.4s, v0.4s
-    scvtf v0.4s, v16.4s
-    scvtf v1.4s, v17.4s
-    scvtf v2.4s, v18.4s
-    scvtf v3.4s, v19.4s
-    subs x5, x5, #1
-    mov x1, x8
-    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], x4
-    b L4LoopCheck
-
     L4Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
@@ -251,6 +242,12 @@ L4LoopDz:
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
     fmul v15.4s, v7.4s, v1.4s
+    cmp w13, #1
+    beq L4QuantUseInt8
+    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], x4
+    b L4LoopCheck
+
+    L4QuantUseInt8:
 
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
@@ -275,16 +272,17 @@ L4LoopDz:
     sqxtn v2.8b, v0.8h
     sqxtn v3.8b, v1.8h
     st1 {v2.8b}, [x0], #8
-    subs x5, x5, #1
-    mov x1, x8
     st1 {v3.8b}, [x0], x4
 L4LoopCheck:
+    subs x5, x5, #1
+    mov x1, x8
     bne L4LoopDz
 
 b End
 
 L3Dz:
-cbz x7, L3LoopDz
+cmp w13, #1
+bne L3LoopDz
 sub x4, x4, #8
 L3LoopDz:
     mov x8, x1
@@ -420,18 +418,6 @@ L3LoopDz:
     addp v13.4s, v6.4s, v7.4s
     addp v14.4s, v8.4s, v9.4s
 
-    cbnz x7, L3Quan
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
-    add v18.4s, v14.4s, v0.4s
-    scvtf v0.4s, v16.4s
-    scvtf v1.4s, v17.4s
-    scvtf v2.4s, v18.4s
-    subs x5, x5, #1
-    mov x1, x8
-    st1 {v0.4s, v1.4s, v2.4s}, [x0], x4
-    b L3LoopCheck
-
     L3Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
@@ -448,7 +434,12 @@ L3LoopDz:
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
+    cmp w13, #1
+    beq L3QuantUseInt8
+    st1 {v12.4s, v13.4s, v14.4s}, [x0], x4
+    b L3LoopCheck
 
+    L3QuantUseInt8:
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
     fcvtas v10.4s, v14.4s
@@ -468,10 +459,10 @@ L3LoopDz:
     sqxtn v2.8b, v0.8h
     sqxtn v3.8b, v1.8h
     st1 {v2.8b}, [x0], #8
-    subs x5, x5, #1
-    mov x1, x8
     st1 {v3.s}[0], [x0], x4
 L3LoopCheck:
+    subs x5, x5, #1
+    mov x1, x8
     bne L3LoopDz
 
 b End
@@ -574,16 +565,6 @@ L2LoopDz:
     addp v12.4s, v4.4s, v5.4s
     addp v13.4s, v6.4s, v7.4s
 
-    cbnz x7, L2Quan
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
-    scvtf v0.4s, v16.4s
-    scvtf v1.4s, v17.4s
-    subs x5, x5, #1
-    mov x1, x8
-    st1 {v0.4s, v1.4s}, [x0], x4
-    b L2LoopCheck
-
     L2Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
@@ -597,7 +578,12 @@ L2LoopDz:
 
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
+    cmp w13, #1
+    beq L2QuantUseInt8
+    st1 {v12.4s, v13.4s}, [x0], x4
+    b L2LoopCheck
 
+    L2QuantUseInt8:
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
 
@@ -612,9 +598,9 @@ L2LoopDz:
 
     sqxtn v2.8b, v0.8h
     st1 {v2.8b}, [x0], x4
+L2LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-L2LoopCheck:
     bne L2LoopDz
 
 b End
@@ -686,14 +672,6 @@ L1LoopDz:
 
     addp v12.4s, v4.4s, v5.4s
 
-    cbnz x7, L1Quan
-    add v16.4s, v12.4s, v0.4s
-    scvtf v0.4s, v16.4s
-    subs x5, x5, #1
-    mov x1, x8
-    st1 {v0.4s}, [x0], x4
-    b L1LoopCheck
-
     L1Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
@@ -704,6 +682,12 @@ L1LoopDz:
     scvtf v4.4s, v16.4s
 
     fmul v12.4s, v4.4s, v1.4s
+    cmp w13, #1
+    beq L1QuantUseInt8
+    st1 {v12.4s}, [x0], x4
+    b L1LoopCheck
+
+    L1QuantUseInt8:
 
     fcvtas v8.4s, v12.4s
 
@@ -715,9 +699,9 @@ L1LoopDz:
 
     sqxtn v2.8b, v0.8h
     st1 {v2.s}[0], [x0], x4
+L1LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-L1LoopCheck:
     bne L1LoopDz
 
 End:

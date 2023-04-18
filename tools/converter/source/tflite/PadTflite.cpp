@@ -12,16 +12,16 @@
 using namespace tflite;
 DECLARE_OP_COVERTER(PadTflite);
 
-MNN::OpType PadTflite::opType(bool quantizedModel) {
+MNN::OpType PadTflite::opType(int quantizedModel) {
     return MNN::OpType_Padding;
 }
-MNN::OpParameter PadTflite::type(bool quantizedModel) {
+MNN::OpParameter PadTflite::type(int quantizedModel) {
     return MNN::OpParameter_NONE;
 }
 void PadTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     auto padparm = new MNN::PadParamT;
     switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
       case BuiltinOperator_PADV2:

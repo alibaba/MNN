@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/01/15.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_QUANT
 
 #include "DepthwiseConvInt8Execution.hpp"
 #include "../Raster.cuh"
@@ -435,3 +436,4 @@ static CUDACreatorRegister<DepthWiseConvInt8ExecutionCreator> __init(OpType_Dept
 
 } // namespace CUDA
 } // namespace MNN
+#endif

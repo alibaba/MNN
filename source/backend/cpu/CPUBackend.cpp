@@ -110,10 +110,12 @@ float CPURuntime::onGetMemoryInMB() {
 
 Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     auto precision = mPrecision;
+    auto memory = mMemory;
     size_t flags = mFlags;
     if (nullptr != config) {
         precision = config->precision;
         flags = config->flags;
+        memory = config->memory;
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
@@ -131,15 +133,15 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     }
 #endif
     if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
-        return new CPUBackend(this, precision, MNN_FORWARD_CPU, 0);
+        return new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
     }
 #ifdef MNN_USE_SSE
     if (AVX2Backend::isValid()) {
-        return new AVX2Backend(this, flags);
+        return new AVX2Backend(this, memory, flags);
     }
 #endif
 
-    return new CPUBackend(this, precision, MNN_FORWARD_CPU, flags);
+    return new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
 }
 
 int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
@@ -202,10 +204,11 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
-CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type, size_t flags) : Backend(type) {
+CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags) : Backend(type) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend create\n");
 #endif
+    mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
     std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
     mDynamicAllocator.reset(new BufferAllocator(defaultAlloc));
@@ -316,7 +319,6 @@ static OpType _getRealOpType(OpType opType) {
             return OpType_ConvInt8;
         case OpType_ConvolutionDepthwise:
             return OpType_DepthwiseConvInt8;
-        
         case OpType_Pooling:
             return OpType_PoolInt8;
         

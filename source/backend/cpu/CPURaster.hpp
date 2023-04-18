@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 namespace MNN {
 class CPURaster : public Execution {
 public:
@@ -25,12 +26,6 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
     void tensorConvert(Tensor* input, Tensor* output, int bytes);
-    struct TensorConvertInfo {
-        int batch;
-        int channel;
-        int area;
-        int type;
-    };
 private:
     std::map<Tensor*, Tensor*> mTempInput;
     std::vector<std::pair<void*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
@@ -39,7 +34,7 @@ private:
     void* mOutputPtr;
     bool mNeedZero = false;
     bool mFast = false;
-    TensorConvertInfo mSingleConvert;
+    OpCommonUtils::TensorConvertParameter mSingleConvert;
     std::vector<std::shared_ptr<Tensor::InsideDescribe::Region>> mCacheRegions;
     int32_t mZeroPoint = 0;
 };

@@ -341,7 +341,7 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     int inp_offset =
     (((out_b_idx*in_c_block)*out_h + out_h_idx)* out_w + intput_width_idx0) << 2;
     
-    const inp_add = out_h*out_w*4;
+    const int inp_add = out_h*out_w*4;
     for (ushort in_channel_block_idx = 0; in_channel_block_idx < (ushort)IN_C_BLOCK; ++in_channel_block_idx) {
 
         FLOAT4 in0 = vload4(0, input+inp_offset);

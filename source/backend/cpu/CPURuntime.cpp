@@ -1567,5 +1567,5 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 #endif /* __linux__ && __aarch64__ */
 #endif
 
-    MNN_PRINT("The device support dot:%d, support fp16:%d, support i8mm: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm);
+    MNN_PRINT("The device support i8sdot:%d, support fp16:%d, support i8mm: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm);
 }

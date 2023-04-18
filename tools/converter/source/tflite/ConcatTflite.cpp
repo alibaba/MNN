@@ -10,12 +10,12 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(ConcatTflite);
-MNN::OpType ConcatTflite::opType(bool quantizedModel) {
+MNN::OpType ConcatTflite::opType(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedConcat;
     return MNN::OpType_Concat;
 }
-MNN::OpParameter ConcatTflite::type(bool quantizedModel) {
+MNN::OpParameter ConcatTflite::type(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_QuantizedConcat;
     return MNN::OpParameter_Axis;
@@ -24,7 +24,7 @@ MNN::OpParameter ConcatTflite::type(bool quantizedModel) {
 void ConcatTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     const auto& tfliteConcatOption = tfliteOp->builtin_options.AsConcatenationOptions();
     if (quantizedModel) {
         auto concatParamQuan  = new MNN::QuantizedConcatT;

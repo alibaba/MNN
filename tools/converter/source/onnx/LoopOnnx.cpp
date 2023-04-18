@@ -20,9 +20,12 @@ MNN::OpParameter LoopOnnx::type() {
 
 void LoopOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                    OnnxScope* scope) {
-    if(onnxNode->input(0) == "" || onnxNode->input(1) == "") {
-        MNN_ERROR("Failed: Loop don't support optional M and cond input\n");
-        return;
+    if(onnxNode->input(0) == "") {
+        int maxInt = 1 << 30;
+        dstOp->inputIndexes[0] = scope->buildIntConstOp({maxInt}, dstOp->name + "_maxInt");
+    }
+    if (onnxNode->input(1) == "") {
+        dstOp->inputIndexes[1] = scope->buildIntConstOp({1}, dstOp->name + "_oneInt");
     }
     auto param = new MNN::WhileParamT;
     dstOp->name += "/Loop";

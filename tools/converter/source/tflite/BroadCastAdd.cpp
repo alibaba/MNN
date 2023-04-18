@@ -11,14 +11,14 @@
 
 DECLARE_OP_COVERTER(AddTflite);
 
-MNN::OpType AddTflite::opType(bool quantizedModel) {
-    if (quantizedModel)
+MNN::OpType AddTflite::opType(int quantizedModel) {
+    if (quantizedModel == 1)
         return MNN::OpType_QuantizedAdd;
     return MNN::OpType_Extra;
 }
 
-MNN::OpParameter AddTflite::type(bool quantizedModel) {
-    if (quantizedModel)
+MNN::OpParameter AddTflite::type(int quantizedModel) {
+    if (quantizedModel == 1)
         return MNN::OpParameter_QuantizedAdd;
     return MNN::OpParameter_Extra;
 }
@@ -26,9 +26,9 @@ MNN::OpParameter AddTflite::type(bool quantizedModel) {
 void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                     const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                     const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                    const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                    const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     const auto& addOption = tfliteOp->builtin_options.AsAddOptions();
-    if (quantizedModel) {
+    if (quantizedModel == 1) {
         auto AddParam = new MNN::QuantizedAddT;
 
         DCHECK(tfliteOp->inputs.size() == 2) << "tflite Reshape input ERROR";

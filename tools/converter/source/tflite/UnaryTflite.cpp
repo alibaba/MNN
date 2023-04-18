@@ -10,10 +10,10 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(UnaryTflite);
-MNN::OpType UnaryTflite::opType(bool quantizedModel) {
+MNN::OpType UnaryTflite::opType(int quantizedModel) {
     return MNN::OpType_UnaryOp;
 }
-MNN::OpParameter UnaryTflite::type(bool quantizedModel) {
+MNN::OpParameter UnaryTflite::type(int quantizedModel) {
     return MNN::OpParameter_UnaryOp;
 }
 
@@ -38,7 +38,7 @@ static MNN::UnaryOpOperation _convert(tflite::BuiltinOperator op) {
 void UnaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto param = new MNN::UnaryOpT;
     param->opType = _convert(tfliteOpSet[tfliteOp->opcode_index]->builtin_code);
     dstOp->main.value = param;

@@ -16,9 +16,6 @@
 #include "core/Concurrency.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
 
-#define DST_TILE 16
-#define CACHE_SIZE 128
-
 namespace MNN {
 
 static void poolingAvgNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_t, size_t, size_t, size_t, ssize_t, ssize_t), const Tensor *src, Tensor *dst,

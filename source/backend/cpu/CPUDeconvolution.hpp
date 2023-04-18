@@ -11,6 +11,8 @@
 
 #include "CPUConvolution.hpp"
 #include "compute/StrassenMatmulComputor.hpp"
+#include "compute/GemmInt8Executor.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {
@@ -35,9 +37,51 @@ protected:
 
 class CPUDeconvolutionOrigin : public CPUDeconvolutionBasic {
 public:
-    CPUDeconvolutionOrigin(const Tensor *input, const Op *convOp, Backend *b)
-        : CPUDeconvolutionBasic(input, convOp, b) {
-        // Do nothing
+    CPUDeconvolutionOrigin(const Tensor *input, Tensor *weight, const Op *convOp, Backend *b, bool ModeInt8)
+        : CPUDeconvolutionBasic(input, convOp, b){
+        if (ModeInt8) {
+            const auto weightDataPtr = weight->host<int8_t>();
+            auto conv2d = convOp->main_as_Convolution2D();
+            auto common = conv2d->common();
+            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d);
+            CPUConvolution::MutableResourceInt8 mutableResource(mResource, b);
+            auto core = static_cast<CPUBackend*>(b)->int8Functions();
+            auto gemmKernel = core->Int8GemmKernel;
+            int UNIT, SRC_UNIT, DST_XUNIT;
+            core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+            const auto kEleCnt = mCommon->kernelX() * mCommon->kernelY();
+            const int ocDiv4 = UP_DIV(common->outputCount() * kEleCnt, UNIT); 
+            const int icDiv4 = UP_DIV(common->inputCount(), SRC_UNIT);
+            const int oc4 = ocDiv4 / kEleCnt;
+            const int bias_elesize = ocDiv4 * UNIT;
+            // set offset if use SSE.
+            auto inputQuant = TensorUtils::getQuantInfo(input);
+            auto inputZeroPoint = inputQuant[1];
+            std::vector<int32_t> _bias(bias_elesize, inputZeroPoint);
+#ifdef MNN_USE_SSE
+            int actBits = conv2d->symmetricQuan()->nbits();
+            if (actBits <= 7) {
+                gemmKernel = core->Int8GemmKernelFast;
+            }
+            for (int a = 0; a < kEleCnt; ++a){
+                for (int oz = 0; oz < oc4 * UNIT; ++oz) {
+                int offset = inputZeroPoint, oz4 = oz / UNIT, ozRemain = oz % UNIT;
+                for (int sz = 0; sz < icDiv4 * SRC_UNIT; ++sz) {
+                    int sz4 = sz / SRC_UNIT, szRemain = sz % SRC_UNIT;
+                    int index = (((a * oc4 + oz4) * icDiv4 + sz4) * UNIT + ozRemain) * SRC_UNIT + szRemain;
+                    auto weightInt8Data = weightDataPtr[index];
+                    offset += weightInt8Data * (-128);
+                }
+                _bias[a * oc4 * UNIT + oz] = offset;
+        }
+    }
+#else
+            if(conv2d->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
+                gemmKernel = core->Int8GemmKernelFast;
+            }
+#endif
+            mDeconvInt8Exe.reset(new GemmInt8Executor(b, mResource, conv2d, gemmKernel, _bias));
+        }
     }
     virtual ~CPUDeconvolutionOrigin() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -45,7 +89,10 @@ public:
 
 private:
     std::shared_ptr<StrassenMatrixComputor> mMatMul;
-    std::vector<std::pair<std::function<void(float*, int)>, int>> mPostFunctions;
+    std::shared_ptr<GemmInt8Executor> mDeconvInt8Exe;
+    std::vector<std::pair<std::function<void(uint8_t*, int)>, int>> mPostFunctions;
+    std::shared_ptr<Tensor> mTempOutput;
+    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
 };
 
 class CPUDeconvolution : public CPUDeconvolutionCommon {

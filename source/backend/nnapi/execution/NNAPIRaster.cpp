@@ -138,6 +138,11 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
     regions[0].origin->printShape();
     outputs[0]->printShape();
 #endif
+    // propgate quant type to output
+    if (TensorUtils::getDescribe(region.origin)->quantAttr.get() &&
+        TensorUtils::getDescribe(outputs[0])->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+        outputs[0]->buffer().type = region.origin->getType();
+    }
     // region_size = 1: reshape, transpose
     if (regions.size() == 1) {
         int inputSize = 1, outputSize = 1;

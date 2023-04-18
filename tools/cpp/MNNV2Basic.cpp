@@ -161,11 +161,17 @@ static int test_main(int argc, const char* argv[]) {
     if (argc > 5) {
         modeNum = ::atoi(argv[5]);
     }
-
+    int precision = BackendConfig::Precision_Low;
+    int memory = BackendConfig::Memory_Normal;
+    if (argc > 6) {
+        int mask = atoi(argv[6]);
+        precision = mask % 4;
+        memory = (mask / 4) % 4;
+    }
     // input dims
     std::vector<int> inputDims;
-    if (argc > 6) {
-        std::string inputShape(argv[6]);
+    if (argc > 7) {
+        std::string inputShape(argv[7]);
         const char* delim = "x";
         std::ptrdiff_t p1 = 0, p2;
         while (1) {
@@ -183,11 +189,6 @@ static int test_main(int argc, const char* argv[]) {
         MNN_PRINT("%d ", dim);
     }
     MNN_PRINT("\n");
-
-    int precision = BackendConfig::Precision_Low;
-    if (argc > 7) {
-        precision = atoi(argv[7]);
-    }
 
     // create net
     MNN_PRINT("Open Model %s\n", fileName);
@@ -217,7 +218,7 @@ static int test_main(int argc, const char* argv[]) {
     // config.path.outputs.push_back("ResizeBilinear_2");
     // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
-    // backendConfig.memory = BackendConfig::Memory_High;
+    backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
     config.backendConfig     = &backendConfig;
     MNN::Session* session    = NULL;
     MNN::Tensor* inputTensor = nullptr;
@@ -424,7 +425,7 @@ static int test_main(int argc, const char* argv[]) {
     // benchmark. for CPU, op time means calc duration; for others, op time means schedule duration.
     {
         int t = runTime;
-        MNN_PRINT("precision:%d, Run %d time:\n", backendConfig.precision, t);
+        MNN_PRINT("precision:%d, memory: %d, Run %d time:\n", precision, memory, t);
         std::map<std::string, std::pair<float, float>> opTimes;
         std::map<std::string, std::string> opTypes;
         uint64_t opBegin = 0;

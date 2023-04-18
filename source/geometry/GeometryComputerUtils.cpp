@@ -161,6 +161,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             } else {
                 TensorUtils::getDescribeOrigin(t)->mContent->backend = nullptr;
                 if (info.type != Schedule::CONSTANT) {
+                    // TODO: If output is static and length larger than new size, don't clear mem
                     TensorUtils::getDescribeOrigin(t)->mContent->mem.reset(nullptr);
                 }
             }
@@ -279,9 +280,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             GeometryComputerUtils::makeRaster(tempBuffer, cmdBufferReal, geoContext);
             for (auto t : info.outputs) {
                 auto des = TensorUtils::getDescribe(t);
-                if (des->usage == Tensor::InsideDescribe::OUTPUT) {
-                    // TODO: If output is static and lenght larger than new size, don't clear mem
-                    des->mem.reset(nullptr);
+                if (des->usage == Tensor::InsideDescribe::OUTPUT || des->usage == Tensor::InsideDescribe::TRAINABLE) {
+                    // For output and trainable value, must directly compute the tensor
                     geoContext.getRasterCacheCreateRecursive(t, cmdBufferReal);
                 }
             }

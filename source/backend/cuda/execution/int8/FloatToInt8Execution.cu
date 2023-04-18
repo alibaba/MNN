@@ -1,3 +1,12 @@
+//
+//  FloatToInt8Execution.cu
+//  MNN
+//
+//  Created by MNN on 2023/01/03.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+#ifdef ENABLE_CUDA_QUANT
+
 #include "FloatToInt8Execution.hpp"
 #include "../MNNCUDADefine.hpp"
 #include "../MNNCUDAFunction.cuh"
@@ -225,3 +234,5 @@ static CUDACreatorRegister<FloatToInt8Creator> __init(OpType_FloatToInt8);
 
 }
 }
+
+#endif

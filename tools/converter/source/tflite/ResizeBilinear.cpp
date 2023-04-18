@@ -12,13 +12,13 @@
 using namespace tflite;
 DECLARE_OP_COVERTER(ResizeBilinear);
 
-MNN::OpType ResizeBilinear::opType(bool quantizedModel) {
+MNN::OpType ResizeBilinear::opType(int quantizedModel) {
     DCHECK(!quantizedModel);
     if (quantizedModel)
         return MNN::OpType_Interp;
     return MNN::OpType_Interp;
 }
-MNN::OpParameter ResizeBilinear::type(bool quantizedModel) {
+MNN::OpParameter ResizeBilinear::type(int quantizedModel) {
     DCHECK(!quantizedModel);
     if (quantizedModel)
         return MNN::OpParameter_Interp;
@@ -28,7 +28,7 @@ MNN::OpParameter ResizeBilinear::type(bool quantizedModel) {
 void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel) {
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, int quantizedModel) {
     DCHECK(!quantizedModel);
     auto resizeParam         = new MNN::InterpT;
     const auto &scaleTensor  = tfliteTensors[tfliteOp->inputs[1]];

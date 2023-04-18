@@ -14,14 +14,14 @@
 
 DECLARE_OP_COVERTER(Conv2DTflite);
 
-MNN::OpType Conv2DTflite::opType(bool quantizedModel) {
-    if (quantizedModel)
+MNN::OpType Conv2DTflite::opType(int quantizedModel) {
+    if (quantizedModel == 1)
         return MNN::OpType_TfQuantizedConv2D;
     return MNN::OpType_Convolution;
 }
 
-MNN::OpParameter Conv2DTflite::type(bool quantizedModel) {
-    if (quantizedModel)
+MNN::OpParameter Conv2DTflite::type(int quantizedModel) {
+    if (quantizedModel == 1)
         return MNN::OpParameter_TfQuantizedConv2D;
     return MNN::OpParameter_Convolution2D;
 }
@@ -29,14 +29,17 @@ MNN::OpParameter Conv2DTflite::type(bool quantizedModel) {
 void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     // 3|2 inputs: input tensor, weight, (bias)
     const int inputSize = tfliteOp->inputs.size();
     DCHECK(inputSize == 2 || inputSize == 3) << "tflite Conv2D input ERROR! ";
     const auto& tfliteConvOption = tfliteOp->builtin_options.AsConv2DOptions();
-    // weight index
+    const int inputIndex     = tfliteOp->inputs[0];
     const int weightIndex    = tfliteOp->inputs[1];
+    const int outputIndex    = tfliteOp->outputs[0];
+    const auto& inputTensor  = tfliteTensors[inputIndex];
     const auto& weightTensor = tfliteTensors[weightIndex];
+    const auto& outputTensor = tfliteTensors[outputIndex];
     // co kh kw ci
     const auto& weightShape = weightTensor->shape;
     DCHECK(weightShape.size() == 4) << "Conv2D weight ERROR!";
@@ -45,7 +48,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const int kw         = weightShape[2];
     const int ci         = weightShape[3];
     const int weightSize = co * kh * kw * ci;
-    if (quantizedModel) {
+    if (quantizedModel == 1) { // UINT8_QUANT
         auto conv2dParamQuan         = new MNN::TfQuantizedConv2DT;
         conv2dParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
         conv2dParamQuan->common      = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
@@ -63,8 +66,6 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         }
 
         // input
-        const int inputIndex                 = tfliteOp->inputs[0];
-        const auto& inputTensor              = tfliteTensors[inputIndex];
         conv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
         if (inputTensor->quantization->zero_point.size() > 0) {
             conv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
@@ -78,8 +79,6 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         }
 
         // output
-        const int outputIndex                 = tfliteOp->outputs[0];
-        const auto& outputTensor              = tfliteTensors[outputIndex];
         conv2dParamQuan->outputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
 
         if (outputTensor->quantization->scale.size() > 0) {
@@ -149,6 +148,82 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
 
         conv2dParamQuan->activationType = (MNN::FusedActivation)tfliteConvOption->fused_activation_function;
         dstOp->main.value               = conv2dParamQuan;
+    } else if (quantizedModel == 2) { // INT8_QUANT
+        std::unique_ptr<MNN::Convolution2DT> convolution2DQuant(new MNN::Convolution2DT);
+        convolution2DQuant->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
+        auto& common               = convolution2DQuant->common;
+
+        common->relu             = false;
+        common->relu6            = false;
+        const auto acticationFun = tfliteConvOption->fused_activation_function;
+        if (acticationFun == tflite::ActivationFunctionType_RELU) {
+            common->relu = true;
+        } else if (acticationFun == tflite::ActivationFunctionType_RELU6) {
+            common->relu6 = true;
+        } else if (acticationFun > tflite::ActivationFunctionType_NONE) {
+            DLOG(ERROR) << "MNN Convolution do not Support fused_activation_function: " << acticationFun;
+            dstOp->type = MNN::OpType_MAX;
+            return;
+        }
+
+        common->group       = 1;
+        common->outputCount = co;
+        common->inputCount  = ci;
+        common->kernelX     = kw;
+        common->kernelY     = kh;
+        common->dilateX     = tfliteConvOption->dilation_w_factor;
+        common->dilateY     = tfliteConvOption->dilation_h_factor;
+        common->strideX     = tfliteConvOption->stride_w;
+        common->strideY     = tfliteConvOption->stride_h;
+        common->padMode     = MNN::PadMode_SAME;
+        if (tfliteConvOption->padding == tflite::Padding_VALID) {
+            common->padMode = MNN::PadMode_VALID;
+        }
+
+        // weight
+        if (tfliteModelBuffer[weightTensor->buffer]->data.data() == nullptr) {
+            //MNN_ERROR("Has not const weight data for tflite convolution\n");
+            dstOp->main.value = convolution2DQuant.release();
+            return;
+        }
+
+        MNN_ASSERT(weightTensor->type == tflite::TensorType_INT8);
+        MNN_ASSERT(weightTensor->quantization->scale.size() == co);
+        MNN_ASSERT(tfliteModelBuffer[weightTensor->buffer]->data.size() == weightSize);
+        convolution2DQuant->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
+        convolution2DQuant->quanParameter.reset(new MNN::IDSTQuanT);
+        auto& quanParam = convolution2DQuant->quanParameter;
+        quanParam->type = 4;
+        quanParam->buffer.resize(weightSize);
+        quanParam->alpha.resize(co);
+        auto weight = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+        auto alpha = weightTensor->quantization->scale.data();
+        float scaleIn = inputTensor->quantization->scale[0];
+        float scaleOut = outputTensor->quantization->scale[0];
+        // [co, kh, kw, ci] -> [co, ci, kh, kw]
+        const int area = kh * kw;
+        for (int i = 0; i < co; i ++) {
+            for (int j = 0; j < ci; j++) {
+                for (int k = 0; k < area; k++) {
+                    quanParam->buffer[i * ci * area + j * area + k] = weight[i * area * ci + k * ci + j];
+                }
+            }
+        }
+        ::memcpy(quanParam->alpha.data(), alpha, co * sizeof(float));
+        quanParam->scaleIn = scaleIn;
+        quanParam->scaleOut = scaleOut;
+
+        // bias
+        convolution2DQuant->bias.resize(co);
+        if (inputSize == 3) {
+            const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+            auto bias = reinterpret_cast<const int*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
+            // int to float
+            for (int i = 0; i < co; i++) {
+                convolution2DQuant->bias[i] = bias[i] * (scaleIn * alpha[i]);
+            }
+        }
+        dstOp->main.value = convolution2DQuant.release();
     } else {
         std::unique_ptr<MNN::Convolution2DT> convolution2DFloat(new MNN::Convolution2DT);
         convolution2DFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
@@ -227,15 +302,15 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
 
 DECLARE_OP_COVERTER(TransposeConvTflite);
 
-MNN::OpType TransposeConvTflite::opType(bool quantizedModel){
+MNN::OpType TransposeConvTflite::opType(int quantizedModel){
     return MNN::OpType_Deconvolution;
 }
 
-MNN::OpParameter TransposeConvTflite::type(bool quantizedModel){
+MNN::OpParameter TransposeConvTflite::type(int quantizedModel){
     return MNN::OpParameter_Convolution2D;
 }
 
-void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel){
+void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, int quantizedModel){
 
 
     DCHECK(!quantizedModel) << "TransposeConv not support quantized model";
@@ -315,18 +390,18 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
 
 DECLARE_OP_COVERTER(FullConnectedTflite);
 
-MNN::OpType FullConnectedTflite::opType(bool quantizedModel) {
+MNN::OpType FullConnectedTflite::opType(int quantizedModel) {
     return MNN::OpType_Extra;
 }
 
-MNN::OpParameter FullConnectedTflite::type(bool quantizedModel) {
+MNN::OpParameter FullConnectedTflite::type(int quantizedModel) {
     return MNN::OpParameter_Extra;
 }
 
 void FullConnectedTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     dstOp->main.value = new MNN::ExtraT;
     auto dstP = dstOp->main.AsExtra();
     dstP->engine = "Tflite";

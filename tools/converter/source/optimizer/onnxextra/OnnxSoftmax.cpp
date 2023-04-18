@@ -22,17 +22,22 @@ public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto op = expr->get();
         MNN_ASSERT(op->type() == OpType_Extra);
-        int axis = -1;
+        int axis = -1, opsetVersion = 13;
         auto attrs  = op->main_as_Extra()->attr();
-        for (int i = 0; i < attrs->size(); ++i) {
-            auto attr = attrs->GetAs<Attribute>(i);
-            if (attr->key()->str() == "axis") {
-                axis = attr->i();
+        if (nullptr != attrs) {
+            for (int i = 0; i < attrs->size(); ++i) {
+                auto attr = attrs->GetAs<Attribute>(i);
+                if (attr->key()->str() == "axis") {
+                    axis = attr->i();
+                }
+                if (attr->key()->str() == "onnx_opset_version") {
+                    opsetVersion = attr->i();
+                }
             }
         }
-        auto input   = expr->inputs()[0];
-        if (axis == -1) {
-            auto newExpr = _Softmax(input, -1)->expr().first;
+        auto input = expr->inputs()[0];
+        if (opsetVersion >= 13 || axis == -1) {
+            auto newExpr = _Softmax(input, axis)->expr().first;
             newExpr->setName(expr->name());
             return newExpr;
         }

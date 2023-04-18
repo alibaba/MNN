@@ -33,6 +33,7 @@ public:
     std::map<std::string, const onnx::TensorProto*> mInitializers;
     std::map<std::string, const onnx::ValueInfoProto*> mInputs;
     std::map<std::string, const onnx::ValueInfoProto*> mOutputs;
+    int mOpsetVersion;
 private:
     // onnx graph and infos
     const onnx::GraphProto* mGraph;

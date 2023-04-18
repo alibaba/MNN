@@ -26,14 +26,14 @@ Model Version: < 2.0.0
 测试性能、输出结果，可检查与Caffe/Tensorflow的预期结果是否匹配。
 **注意：对非CPU后端来说，只有总耗时是准确的，单个op耗时和op耗时占比都是不准确的**
 ### 参数
-`./MNNV2Basic.out model [runLoops runMask forwardType numberThread inputSize precision]`
+`./MNNV2Basic.out model [runLoops runMask forwardType numberThread precision_memory inputSize]`
 - `model:str` 模型文件路径
 - `runLoops:int` 性能测试的循环次数，可选，默认为`1`
 - `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt），2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），可选，默认为`0`
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 low (2) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
 - `inputSize:str` 输入tensor的大小，输入格式为：`1x3x224x224`，可选，默认使用模型默认输入
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2`
 ### 默认输入与输出
 只支持单一输入、单一输出。输入为运行目录下的input_0.txt；输出为推理完成后的第一个输出tensor，转换为文本后，输出到output.txt中。
 ### 示例
@@ -64,14 +64,14 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 ### 功能
 类似`MNNV2Basic.out`，对于带控制流模型，或者多输入多输出的模型，建议采用这个工具
 ### 参数
-`./ModuleBasic.out model dir [runMask forwardType runLoops numberThread precision cacheFile]`
+`./ModuleBasic.out model dir [runMask forwardType runLoops numberThread precision_memory cacheFile]`
 - `model:str` 模型文件路径
 - `dir:str` 输入输出信息文件夹，可使用 fastTestOnnx.py / fastTestTf.py / fastTestTflite.py 等脚本生成，参考模型转换的正确性校验部分。
 - `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt），2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），可选，默认为`0`
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `runLoops:int` 性能测试的循环次数，可选，默认为`0`即不做性能测试
 - `numberThread:int` GPU的线程数，可选，默认为`1`
-- `precision:int` 测试精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`0`
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
 ### 默认输出
 在当前目录 output 文件夹下，依次打印输出为 0.txt , 1.txt , 2.txt , etc
 ### 示例

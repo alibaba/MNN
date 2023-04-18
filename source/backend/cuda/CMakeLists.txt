@@ -49,6 +49,12 @@ else()
     message(FATAL_ERROR "CUDA not found >= ${CUDA_MIN_VERSION} required)")
 endif()
 
+option(MNN_CUDA_QUANT "Enable MNN CUDA Quant File" OFF)
+
+IF (MNN_CUDA_QUANT)
+    add_definitions(-DENABLE_CUDA_QUANT)
+ENDIF()
+
 file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/cutlass/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/int8/*)
 message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
 

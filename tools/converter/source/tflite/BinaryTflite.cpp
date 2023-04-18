@@ -13,17 +13,17 @@ using namespace tflite;
 
 DECLARE_OP_COVERTER(BinaryTflite);
 
-MNN::OpType BinaryTflite::opType(bool quantizedModel) {
+MNN::OpType BinaryTflite::opType(int quantizedModel) {
     return MNN::OpType_Extra;
 }
-MNN::OpParameter BinaryTflite::type(bool quantizedModel) {
+MNN::OpParameter BinaryTflite::type(int quantizedModel) {
     return MNN::OpParameter_Extra;
 }
 
 void BinaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     auto extraOpParam = new MNN::ExtraT;
     extraOpParam->engine = "Tflite";
     extraOpParam->type = "BinaryActivation";

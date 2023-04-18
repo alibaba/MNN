@@ -16,12 +16,8 @@ NNAPIQuant::NNAPIQuant(MNN::Backend *b, const MNN::Op *op, const std::vector<Ten
 
 ErrorCode NNAPIQuant::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     outputs[0]->buffer().type = halide_type_of<int8_t>();
-    if (0) {
-        dumpTensor(inputs[0]);
-        dumpTensor(outputs[0]);
-        printf("output quant attr: %p\n", TensorUtils::getDescribe(outputs[0])->quantAttr.get());
-    }
-    return buildOperation(ANEURALNETWORKS_QUANTIZE, getTensorIdxs(inputs), getTensorIdxs(outputs));
+    return mNNAPIBackend->buildQuantOperation(inputs[0], outputs[0]);
+    // return buildOperation(ANEURALNETWORKS_QUANTIZE, getTensorIdxs(inputs), getTensorIdxs(outputs));
 }
 
 NNAPIDequant::NNAPIDequant(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : NNAPICommonExecution(b, op) {
