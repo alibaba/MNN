@@ -11,7 +11,8 @@ def_enum(dtype, DType,
         DType_DOUBLE, "double",
         DType_INT32, "int",
         DType_INT64, "int64",
-        DType_UINT8, "uint8"
+        DType_UINT8, "uint8",
+        DType_INT8, "int8"
         )
 def_enum(Padding_Mode, PaddingMode,
         CAFFE, "CAFFE",
@@ -867,6 +868,8 @@ static PyObject* PyMNNVar_read(PyMNNVar *self, PyObject *args) {
                 return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT64, dataPtr);
             case DType_UINT8:
                 return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_UINT8, dataPtr);
+            case DType_INT8:
+                return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT8, dataPtr);
             default:
                 PyMNN_ERROR("does not support this dtype");
         }
@@ -1609,9 +1612,9 @@ static PyObject* PyMNNExpr_raster(PyObject *self, PyObject *args) {
 }
 static PyObject* PyMNNExpr_quant(PyObject *self, PyObject *args) {
     PyObject *var, *scale;
-    int min = -127, max = 127;
-    if (PyArg_ParseTuple(args, "OO|ii", &var, &scale, &min, &max) && isVar(var) && isVar(scale)) {
-        return toPyObj(Express::_FloatToInt8(toVar(var), toVar(scale), min, max));
+    int min = -128, max = 127, zero = 0;
+    if (PyArg_ParseTuple(args, "OO|ii", &var, &scale, &min, &max, &zero) && isVar(var) && isVar(scale)) {
+        return toPyObj(Express::_FloatToInt8(toVar(var), toVar(scale), min, max, zero));
     }
     PyMNN_ERROR("quant require args: (Var, Var, |int, int)");
 }

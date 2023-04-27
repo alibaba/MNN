@@ -299,7 +299,10 @@ static void _computeBCA(int& batch, int& plane, int& channel, MNN_DATA_FORMAT sr
 
     if (srcDimensionFormat != MNN_DATA_FORMAT_NHWC) {
         batch = srcTensor->length(0);
-        channel = srcTensor->length(1);
+        channel = 1;
+        if(srcTensor->dimensions() > 1) {
+            channel = srcTensor->length(1);
+        }
         plane = 1;
         for (int i=2; i<srcTensor->dimensions(); ++i) {
             plane *= srcTensor->length(i);

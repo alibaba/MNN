@@ -37,7 +37,7 @@ namespace MNN {
 
 #define CL_KERNEL_WAVE_SIZE_QCOM 0xAA02
 
-enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, OTHER = 3 };
+enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, INTEL = 3, OTHER = 4 };
 enum MaliAr { MIDGARD = 0, BIFROST = 1, VALHALL = 2 };
 enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
@@ -56,10 +56,13 @@ public:
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
+    bool isSupportedIntelSubgroup() const;
     ::cl::Context &context();
     ::cl::CommandQueue &commandQueue();
     uint64_t deviceGlobalMemeryCacheSize() const;
     uint32_t deviceComputeUnits() const;
+    uint32_t MaxThreadsPerDevice() const;
+    uint32_t MaxWorkGroupSize() const;
     uint32_t maxFreq() const;
     uint64_t getMaxWorkGroupSize(const ::cl::Kernel &kernel);
     uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
@@ -129,17 +132,20 @@ private:
     std::shared_ptr<::cl::Context> mContext;
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
-    std::map<std::tuple<std::string, std::string, std::string>, ::cl::Program> mBuildProgramMap;
+    std::map<std::tuple<std::string, std::string>, ::cl::Program> mBuildProgramMap;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
     uint32_t mMaxMemAllocSize;
     uint64_t mMaxLocalMemSize;
+    uint32_t mMaxThreadsPerDevice;
+    uint32_t mMaxWorkGroupSize;
     bool mIsSupportedFP16     = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
+    bool mSupportedIntelSubgroup = false;
     GpuType mGpuType;
     MaliAr mMaliAr;
     float mCLVersion = 1.0f;

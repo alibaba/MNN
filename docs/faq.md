@@ -107,10 +107,10 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 
 - 若原始模型为 tflite / caffe（含自定义算子） ， 改成 MNN 支持较好的 Tensorflow pb 格式导出或转成 Onnx ，再转 MNN
 - 提 Issue 等待我们支持，并关注 MNN 的更新
-- 参考 [https://www.yuque.com/mnn/cn/customize_op](https://www.yuque.com/mnn/cn/customize_op) 自定义算子
+- 参考[自定义算子](./contribute/op.md) 
 
 ### 模型转换后与原框架结果不一致
-先使用MNN中的模型一致性验证脚本进行测试，确定不是调用方法或其他错误，[使用方法](./usage/convert.html#id3)
+先使用MNN中的模型一致性验证脚本进行测试，确定不是调用方法或其他错误，[使用方法](./tools/convert.html#id3)
 
 ## Pymnn
 ### import MNN 出现 import numpy error
@@ -160,7 +160,7 @@ const float* outputPtr = output->readMap<float>();
 - 如果确定输入形状正确，并且执行了`resizeTensor`和`resizeSession`；可以打开`source/shape/SizeComputer.cpp`中的宏`// #define MNN_DEBUG_TENSOR_SIZE`定义，然后执行模型推理；打开宏之后可以看到每一层的形状信息，可以逐层进行Debug
 
 ### Android 设备无法查看日志
-Android 系统有两类打印日志的方式: printf 和 logcat. 默认 MNN 的编译脚本使用 printf，这样方便在命令行中调试（[https://www.yuque.com/mnn/cn/tool_test](https://www.yuque.com/mnn/cn/tool_test)），集成到 App 上时，用 cmake  -DMNN_USE_LOGCAT=ON 将打印日志的方式改成 logcat 即可用 adb logcat 查看
+Android 系统有两类打印日志的方式: printf 和 logcat. 默认 MNN 的编译脚本使用 printf，这样方便在命令行中调试。集成到 App 上时，用 cmake  -DMNN_USE_LOGCAT=ON 将打印日志的方式改成 logcat 即可用 adb logcat 查看
 ### 
 ### 如何增加 opencl so 地址?
 MNN opencl 后端默认采用 dlopen 的方式动态打开设备的 opencl 驱动，相应位置若找不到您设备上的驱动，请修改 **OpenCLWrapper.cpp**
@@ -208,7 +208,7 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 
 - 输入输出指针为空/段错误
    - 一般是直接访问了 tensor 的 host
-   - 按 [https://www.yuque.com/mnn/cn/input](https://www.yuque.com/mnn/cn/input) 和  [https://www.yuque.com/mnn/cn/output](https://www.yuque.com/mnn/cn/output) 里面的方式建host tensor 并 copy ，参考相关文档修改使用代码
+   - 按 [输入数据](./inference/session.html#id8) 和[获取输出](./inference/session.html#id21) 里面的方式建host tensor 并 copy ，参考相关文档修改使用代码
 - 是否可基于 deviceId 直接传 GPU 地址？
    - 可以，需要理解 MNN GPU 内存布局并传上下文给 MNN ，但相关实现较复杂
    - 采用 MNN_Express 系列接口，可以支持模型之间的内存直接传递不做拷贝

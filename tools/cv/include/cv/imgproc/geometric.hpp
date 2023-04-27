@@ -43,7 +43,7 @@ enum BorderTypes {
 };
 
 MNN_PUBLIC std::pair<VARP, VARP> convertMaps(VARP map1, VARP map2, int dstmap1type,
-                                             bool nninterpolation = false);
+                                             bool interpolation = false);
 
 MNN_PUBLIC Matrix getAffineTransform(const Point src[], const Point dst[]);
 
@@ -54,6 +54,8 @@ MNN_PUBLIC VARP getRectSubPix(VARP image, Size patchSize, Point center);
 MNN_PUBLIC Matrix getRotationMatrix2D(Point center, double angle, double scale);
 
 MNN_PUBLIC Matrix invertAffineTransform(Matrix M);
+
+MNN_PUBLIC VARP remap(VARP src, VARP map1, VARP map2, int interpolation, int borderMode = BORDER_CONSTANT, int borderValue = 0);
 
 MNN_PUBLIC VARP resize(VARP src, Size dsize, double fx = 0, double fy = 0,
                        int interpolation = INTER_LINEAR, int code = -1,

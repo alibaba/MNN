@@ -13,12 +13,12 @@
 #include "CutlassGemmParam.hpp"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
-#include "cutlass/CutlassCommonExecution.hpp"
+#include "cutlass/CutlassConvCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
 
-class MultiInputConvExecution : public CutlassCommonExecution {
+class MultiInputConvExecution : public CutlassConvCommonExecution {
 public:
     MultiInputConvExecution(const MNN::Op* op, Backend* backend);
     virtual ~MultiInputConvExecution();

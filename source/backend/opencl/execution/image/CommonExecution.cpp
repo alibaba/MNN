@@ -46,7 +46,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         }
         
         int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOp->type()), idx++);
+        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOpType), idx++);
     #else
         if(lws_null == true) {
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,

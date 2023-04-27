@@ -21,6 +21,7 @@ RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, cons
     : CommonExecution(backend) {
     mOpenCLBackend = (OpenCLBackend *)backend;
     mOp = op;
+    mOpType = op->type();
     //nothing to do
 }
 

@@ -31,6 +31,7 @@ MultiInputDWDeconvExecution::MultiInputDWDeconvExecution(const MNN::Op *op, Back
     isRelu = common->relu();
     isRelu6 = common->relu6();
     mOp = op;
+    mOpType = op->type();
 }
 
 MultiInputDWDeconvExecution::~MultiInputDWDeconvExecution() {

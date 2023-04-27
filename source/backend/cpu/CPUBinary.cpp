@@ -7,6 +7,7 @@
 //
 
 #include "CPUBinary.hpp"
+#include "CPUBinaryInt8.hpp"
 #include "CPUBackend.hpp"
 #include "compute/CommonOptFunction.h"
 #include "compute/ConvOpt.h"
@@ -20,8 +21,8 @@ using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
 ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const int input0DataCount = inputs[0]->elementSize();
-    const int input1DataCount = inputs[1]->elementSize();
+    const int input0DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[0]);
+    const int input1DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[1]);
     if (input1DataCount == input0DataCount) {
         mNeedBroadcastIndex = -1;
         mTotalSize = input1DataCount;
@@ -32,7 +33,7 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         mNeedBroadcastIndex = 1;
         mTotalSize = input0DataCount;
     }
-    MNN_ASSERT(mTotalSize == outputs[0]->elementSize());
+    MNN_ASSERT(mTotalSize == ((CPUBackend*)backend())->getTensorSize(outputs[0]));
     
     if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));
@@ -42,21 +43,6 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
 }
 
 ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const int input0DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[0]);
-    const int input1DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[1]);
-//    inputs[0]->printShape();
-//    inputs[1]->printShape();
-//    MNN_PRINT("%d - %d\n", input0DataCount, input1DataCount);
-    if (input1DataCount == input0DataCount) {
-        mNeedBroadcastIndex = -1;
-        mTotalSize = input1DataCount;
-    } else if (input0DataCount == 1) {
-        mNeedBroadcastIndex = 0;
-        mTotalSize = input1DataCount;
-    } else {
-        mNeedBroadcastIndex = 1;
-        mTotalSize = input0DataCount;
-    }
     auto input  = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
@@ -231,6 +217,14 @@ public:
         int32_t type = op->main_as_BinaryOp()->opType();
         auto dataType = inputs[0]->getType();
         auto core = static_cast<CPUBackend*>(backend)->functions();
+        auto input0Ptr = inputs[0]->host<uint8_t>();
+        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+            auto func = CPUBinaryInt8::selectForInt8(type);
+            if (nullptr == func) {
+                return nullptr;
+            }
+            return new CPUBinaryInt8(backend, func, op->main_as_BinaryOp()->activationType());
+        }
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {
                 auto func = CPUBinary::selectForInt(type);

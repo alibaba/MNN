@@ -1,20 +1,21 @@
 //
-//  CutlassCommonExecution.cu
+//  CutlassConvCommonExecution.cu
 //  MNN
 //
 //  Created by MNN on 2023/03/22.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CutlassCommonExecution.hpp"
+#include "CutlassConvCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
 
-CutlassCommonExecution::CutlassCommonExecution(Backend *backend) : Execution(backend) {
+CutlassConvCommonExecution::CutlassConvCommonExecution(Backend *backend) : Execution(backend) {
+    mBackendPtr = backend;
 }
 
-ErrorCode CutlassCommonExecution::runCutlassGemmFunc() {
+ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
     if(mFp32Infer) {
         if(mActivationType == 1) {
             cutlass::Status status = mGemmCudaF32F32Relu();

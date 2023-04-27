@@ -1110,6 +1110,7 @@ inline cl_int getInfoHelper(Func f, cl_uint name, T* param, int, typename T::cl_
     F(cl_device_info, CL_DEVICE_TYPE, cl_device_type) \
     F(cl_device_info, CL_DEVICE_VENDOR_ID, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_COMPUTE_UNITS, cl_uint) \
+    F(cl_device_info, CL_DEVICE_NUM_THREADS_PER_EU_INTEL, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_WORK_GROUP_SIZE, size_type) \
     F(cl_device_info, CL_DEVICE_MAX_WORK_ITEM_SIZES, cl::vector<size_type>) \

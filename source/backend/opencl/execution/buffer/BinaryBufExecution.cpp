@@ -19,6 +19,7 @@ BinaryBufExecution::BinaryBufExecution(const std::vector<Tensor *> &inputs, cons
     : CommonExecution(backend), mCompute(compute) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
     mOp = op;
+    mOpType = op->type();
 }
 
 uint32_t BinaryBufExecution::realSize(const Tensor* tensor) {

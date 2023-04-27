@@ -263,6 +263,100 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
     }
 }
 
+template<typename Func, typename V, int pack>
+void executeVecInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    Func compute;
+    int sizeDivUnit = elementSize / pack;
+    int remainCount = elementSize - sizeDivUnit * pack;
+#ifdef MNN_USE_NEON
+    sizeDivUnit = (elementSize * 4) / pack;
+    remainCount = (elementSize * 4) - sizeDivUnit * pack;
+#endif
+    auto src0 = inputRaw0;
+    auto src1 = inputRaw1;
+    auto dst = (int8_t*)outputRaw;
+#ifdef MNN_USE_SSE
+    V zeroPointV((uint8_t)(128));
+#else
+    V zeroPointV((uint8_t)(0));
+#endif
+    if (-1 == needBroadcast) {
+        if (sizeDivUnit > 0) {
+            for (int i = 0; i < sizeDivUnit; ++i) {
+                V a = V::load(src0);
+                a -= zeroPointV;
+                V b = V::load(src1);
+                b -= zeroPointV;
+                V::save(dst, compute(a, b) + zeroPointV);
+                src0 += pack;
+                src1 += pack;
+                dst += pack;
+            }
+        }
+        if (remainCount > 0) {
+            int8_t tempSrc0[pack];
+            int8_t tempSrc1[pack];
+            int8_t tempDst[pack];
+            ::memcpy(tempSrc0, src0, remainCount * sizeof(int8_t));
+            ::memcpy(tempSrc1, src1, remainCount * sizeof(int8_t));
+            V a = V::load(tempSrc0);
+            a -= zeroPointV;
+            V b = V::load(tempSrc1);
+            b -= zeroPointV;
+            V::save(tempDst, compute(a, b) + zeroPointV);
+            ::memcpy(dst, tempDst, remainCount * sizeof(int8_t));
+        }
+    } else if (0 == needBroadcast) {
+        const int8_t srcValue0 = src0[0];
+        V a = V(srcValue0);
+        a -= zeroPointV;
+        if (sizeDivUnit > 0) {
+            for (int i = 0; i < sizeDivUnit; ++i) {
+                const auto src1Ptr = src1;
+                auto dstPtr = dst;
+                V b = V::load(src1Ptr);
+                b -= zeroPointV;
+                V::save(dstPtr, compute(a, b) + zeroPointV);
+                src1 += pack;
+                dst += pack;
+            }
+        }
+        if (remainCount > 0) {
+            int8_t tempSrc1[pack];
+            int8_t tempDst[pack];
+            ::memcpy(tempSrc1, src1, remainCount * sizeof(int8_t));
+            V b = V::load(tempSrc1);
+            b -= zeroPointV;
+            V::save(tempDst, compute(a, b) + zeroPointV);
+            ::memcpy(dst, tempDst, remainCount * sizeof(int8_t));
+        }
+    } else {
+        const int8_t srcValue1 = src1[0];
+        V b = V(srcValue1);
+        b -= zeroPointV;
+        if (sizeDivUnit > 0) {
+            for (int i = 0; i < sizeDivUnit; ++i) {
+                const auto src0Ptr = src0;
+                auto dstPtr = dst;
+                V a = V::load(src0Ptr);
+                a -= zeroPointV;
+                V::save(dstPtr, compute(a, b) + zeroPointV);
+                src0 += pack;
+                dst += pack;
+            }
+        }
+        if (remainCount > 0) {
+            int8_t tempSrc0[pack];
+            int8_t tempDst[pack];
+            ::memcpy(tempSrc0, src0, remainCount * sizeof(int8_t));
+            V a = V::load(tempSrc0);
+            a -= zeroPointV;
+            V::save(tempDst, compute(a, b) +zeroPointV);
+            ::memcpy(dst, tempDst, remainCount * sizeof(int8_t));
+        }
+    }
+}
+
 template<typename Vec>
 struct VecBinaryAdd  {
     Vec operator()(Vec& x, Vec& y) const {
@@ -325,6 +419,49 @@ void execute(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int 
     } else { // both input contains more than one element，which means no scalar input
         for (int i = 0; i < input0DataCount; i++) {
             outputData[i] = (Tout)(f(input0Data[i], input1Data[i]));
+        }
+    }
+}
+
+template<typename Tin, typename Tout, typename Func>
+void executeInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    Func f;
+    int input0DataCount = elementSize;
+    int input1DataCount = elementSize;
+#ifdef MNN_USE_NEON
+    input0DataCount = elementSize * 4;
+    input1DataCount = elementSize * 4;
+#endif
+    const Tin* input0Data = (const Tin*)inputRaw0;
+    const Tin* input1Data = (const Tin*)inputRaw1;
+    Tout* outputData = (Tout*)outputRaw;
+    
+    float inp0 = 0, inp1 = 0, output = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+    if (needBroadcast == 0) { // data count == 1, not only mean scalar input, maybe of shape (1, 1, 1, ...,1)
+        for (int i = 0; i < input1DataCount; i++) {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            output = f(inp0, inp1);
+            outputData[i] = (Tout)(output * outputScale[i] + zeroPoint);
+        }
+    } else if (needBroadcast == 1) {
+        for (int i = 0; i < input0DataCount; i++) {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            output = f(inp0, inp1);
+            outputData[i] = (Tout)(output * outputScale[i] + zeroPoint);
+        }
+    } else { // both input contains more than one element，which means no scalar input
+        for (int i = 0; i < input0DataCount; i++) {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            output = f(inp0, inp1);
+            outputData[i] = (Tout)(output * outputScale[i] + zeroPoint);
         }
     }
 }

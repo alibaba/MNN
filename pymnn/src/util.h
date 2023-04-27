@@ -114,6 +114,7 @@ inline void store_scalar(void* data, int dtype, PyObject* obj) {
     case 9: *(int64_t*)data = unpackLong(obj); break;
     case 1: *(float*)data = (float)unpackDouble(obj); break;
     case 2: *(double*)data = (double)unpackDouble(obj); break;
+    case 6: *(int8_t*)data = (int8_t)unpackLong(obj); break;
     default: PyMNN_ERROR_LOG("store_scalar: invalid type");
   }
 }
@@ -202,6 +203,9 @@ DType htype2dtype(halide_type_t type) {
     }
     if (type.code == halide_type_uint && type.bits == 8) {
         return DType_UINT8;
+    }
+    if (type.code == halide_type_int && type.bits == 8) {
+        return DType_INT8;
     }
     if (type.code == halide_type_int && type.bits == 32) {
         return DType_INT32;

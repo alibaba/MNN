@@ -129,6 +129,10 @@ public:
         return (T*)writeInternal();
     }
 
+    void writeScaleMap(float scaleValue, float zeroPoint) {
+        writeScaleInternal(scaleValue, zeroPoint);
+    }
+
     //Depecerate
     void unMap();
 
@@ -170,6 +174,7 @@ private:
     void* readInternal(bool forShape = false);
     void* writeInternal(bool inform=true);
     void informDirty();
+    void writeScaleInternal(float scaleValue, float zeroPoint, bool inform = true);
 
     friend class Expr;
     EXPRP mFrom;

@@ -300,6 +300,33 @@ cv模块提供了基础的图像处理函数，并在接口上兼容了opencv-py
   - `SOLVEPNP_SQPNP`
 
 ---
+### `cv.DECOMP_*`
+描述线性方程组求解函数`solve`的求解方法
+- 类型：`int`
+  - `DECOMP_LU`
+  - `DECOMP_SVD`
+  - `DECOMP_EIG`
+  - `DECOMP_CHOLESKY`
+  - `DECOMP_QR`
+  - `DECOMP_NORMAL`
+
+---
+### `cv.NORM_*`
+描述线归一化函数`normalize`的归一化方法
+- 类型：`int`
+  - `NORM_INF`
+  - `NORM_L1`
+  - `NORM_L2`
+  - `NORM_MINMAX`
+
+---
+### `cv.ADAPTIVE_THRESH_*`
+描述自适应阈值函数`adaptiveThreshold`的自适应方法
+- 类型：`int`
+  - `ADAPTIVE_THRESH_MEAN_C`
+  - `ADAPTIVE_THRESH_GAUSSIAN_C`
+
+---
 ### `copyTo(src, |mask, dst)`
 将src复制并返回，如果mask不为空，则只拷贝mask为1的像素；如果dst不为空，则在mask为0时拷贝dst中对应的像素，参考：[copyTo](https://docs.opencv.org/4.5.2/d2/de8/group__core__array.html#ga931a49489330f998452fc53e96e1719a)
 
@@ -515,6 +542,132 @@ True
 True
 ```
 ![rotate.jpg](../_static/images/cv/rotate.jpg)
+
+---
+### `solve(src1, src2, |method)`
+求解线性方程组，目前仅实现了LU方法；参考：[solve](https://docs.opencv.org/3.4/d2/de8/group__core__array.html#ga12b43690dbd31fed96f213eefead2373)
+
+参数：
+- `src1:Var` 线性方程组左侧矩阵
+- `src2:Var` 线性方程组右侧矩阵
+- `method:int` 求解方法，可选；默认为`cv.DECOMP_LU` (目前仅实现了LU方法)
+
+返回：能否求解，求解获得的矩阵
+
+返回类型：`Tuple(bool, Var)`
+
+示例：
+
+```python
+>>> a = np.array([2., 3., 4., 0., 1., 5., 0., 0., 3.]).reshape(3, 3)
+>>> b = np.array([1., 2., 3.]).reshape(3, 1)
+>>> cv.solve(a, b)
+(True, array([[ 3.],
+              [-3.],
+              [ 1.]], dtype=float32))
+```
+
+---
+### `normalize(src, dst, alpha, beta, norm_type, |dtype, mask)`
+对输入进行归一化；参考：[normalize](https://docs.opencv.org/3.4/d2/de8/group__core__array.html#ga87eef7ee3970f86906d69a92cbf064bd)
+
+参数：
+- `src:Var` 输入矩阵
+- `dst:Var` Python中不需要使用该参数，直接赋为`None`即可
+- `alpha:float` 归一化的下限
+- `beta:float` 归一化的上限
+- `norm_type:int` 归一化类型，如：`cv.NORM_MINMAX`
+- `dtype:dtype` 输入类型，不需要赋值
+- `mask` 兼容性参数，目前还不支持mask
+
+返回：归一化结果
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> x = np.arange(12).reshape(2, 2, 3).astype(np.uint8)
+>>> cv.normalize(x, None, -50, 270, cv.NORM_MINMAX)
+array([[[  0,   0,   8],
+        [ 37,  66,  95]],
+
+       [[125, 154, 183],
+        [212, 241, 255]]], dtype=uint8)
+```
+
+---
+### `merge(mv)`
+将多张图片沿channel合并；参考：[merge](https://docs.opencv.org/3.4/d2/de8/group__core__array.html#ga7d7b4d6c6ee504b30a20b1680029c7b4)
+
+参数：
+- `mv:[Var]` 输入矩阵数组
+
+返回：合并结果矩阵
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> x = np.arange(9).reshape(3, 3)
+>>> cv.merge([x, x])
+array([[[0, 0],
+        [1, 1],
+        [2, 2]],
+
+       [[3, 3],
+        [4, 4],
+        [5, 5]],
+
+       [[6, 6],
+        [7, 7],
+        [8, 8]]], dtype=int32)
+```
+
+---
+### `split(m)`
+将图片沿channel方向拆分；参考：[split](https://docs.opencv.org/3.4/d2/de8/group__core__array.html#ga0547c7fed86152d7e9d0096029c8518a)
+
+参数：
+- `m:Var` 待拆分图片
+
+返回：拆分出的图片
+
+返回类型：`[Var]`
+
+示例：
+
+```python
+>>> x = np.arange(12).reshape(2, 2, 3)
+>>> cv.split(x)
+[array([[0, 3],[6, 9]], dtype=int32),
+ array([[1, 4],[7, 10]], dtype=int32),
+ array([[2, 5],[8, 11]], dtype=int32)]
+```
+
+---
+### `addWeighted(src1, alpha, src2, beta, gamma)`
+对输入的两个矩阵执行权重相加：`dst = src1 * alpha + src2 * beta + gamma`；参考：[addWeighted](https://docs.opencv.org/3.4/d2/de8/group__core__array.html#gafafb2513349db3bcff51f54ee5592a19)
+
+参数：
+- `src1:Var` 第一个输入矩阵
+- `alpha:float` 第一个输入矩阵的权重
+- `src2:Var` 第二个输入矩阵
+- `beta:float` 第二个输入矩阵的权重
+- `gamma:float` 额外增加的常量
+
+返回：加权得到的和
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> x = np.arange(3.)
+>>> cv.addWeighted(x, 0.2, x, 0.5, 1)
+array([1. , 1.7, 2.4], dtype=float32)
+```
 
 ---
 ### `haveImageReader(filename)`
@@ -765,6 +918,31 @@ True
 ![cvtColorTwoPlane.jpg](../_static/images/cv/cvtColorTwoPlane.jpg)
 
 ---
+### `bilateralFilter(src, d, sigmaColor, sigmaSpace, |borderType)`
+双边滤波，直接实现未优化，速度较慢；参考: [bilateralFilter](https://docs.opencv.org/3.4/d4/d86/group__imgproc__filter.html#ga9d7064d478c95d60003cf839430737ed)
+
+参数：
+- `src:Var` 输入图像
+- `d:int` 滤波时考虑周围像素的直径，如果为负数则通过`sigmaSpace`计算
+- `sigmaColor:float` 颜色空间sigma值
+- `sigmaSpace:float` 坐标空间sigma值
+- `borderType:int` 边界模式，可选值；默认为`REFLECT`
+
+返回：滤波后的图像
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> img = cv.imread('cat.jpg')
+>>> img = cv.bilateralFilter(img, 20, 80.0, 35.0)
+>>> cv.imwrite('bilateralFilter.jpg', img)
+True
+```
+![bilateralFilter.jpg](../_static/images/cv/bilateralFilter.jpg)
+
+---
 ### `blur(src, ksize, |borderType)`
 使用归一化框滤镜模糊图像，参考: [blur](https://docs.opencv.org/4.5.2/d4/d86/group__imgproc__filter.html#ga8c45db9afe636703801b0b2e440fce37)
 
@@ -834,6 +1012,30 @@ True
 True
 ```
 ![dilate.jpg](../_static/images/cv/dilate.jpg)
+
+---
+### `erode(src, kernel, |iterations, borderType)`
+通过使用特定的结构元素对图像进行腐蚀，参考: [erode](hhttps://docs.opencv.org/3.4/d4/d86/group__imgproc__filter.html#gaeb1e0c1033e3f6b891a25d0511362aeb)
+
+参数：
+- `src:Var` 输入图像
+- `kernel:Var` 结构元素
+- `iterations:int` 迭代次数，可选，默认为1
+- `borderType:int` 边界类型，可选，默认为cv.BORDER_DEFAULT
+
+返回：腐蚀后的图像
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> img = cv.imread('cat.jpg')
+>>> img = cv.erode(img, cv.getStructuringElement(0, (3, 3)))
+>>> cv.imwrite('erode.jpg', img)
+True
+```
+![erode.jpg](../_static/images/cv/erode.jpg)
 
 ---
 ### `filter2D(src, ddepth, kernel, |delta, borderType)`
@@ -1298,6 +1500,55 @@ True
 ```
 
 ---
+### `convertMaps(map1, map2, dstmap1type, |interpolation)`
+映射map转换，为了兼容OpenCV中的[convertMaps](https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html#ga9156732fa8f01be9ebd1a194f2728b7f) 函数；但实际不进行任何操作，仍返回`map1, map2`
+
+参数：
+- `map1:Var` 原始映射关系
+- `map2:Var` 原始映射关系
+- `dstmap1type:int` 兼容性参数，不支持
+- `interpolation:int` 兼容性参数，不支持
+
+返回：(map1, map2)
+
+返回类型：类型为 `Tuple`
+
+---
+### `remap(src, map1, map2, interpolation, |borderMode, borderValue)`
+作用等同与 `OpenCV` 中 `Geometric Image Transformations` 模块的[remap](https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html#gab75ef31ce5cdfb5c44b6da5f3b908ea4) 函数，用于图像重映射。
+
+*不支持borderMode与borderValue*
+
+参数：
+- `src:Var` 输入的图像
+- `map1:Var` x坐标映射
+- `map2:Var` y坐标映射
+- `interpolation:int` 插值方式，仅支持`cv.INTER_NEAREST`和`cv.INTER_LINEAR`
+- `borderMode:int` 兼容性参数，不支持
+- `borderValue:int` 兼容性参数，不支持
+
+返回：重映射后的图像
+
+返回类型：类型为 `Var`
+
+示例：
+
+```python
+>>> img = cv.imread('cat.jpg')
+>>> row, col, ch = img.shape
+>>> mapx = np.ones(img.shape[:2], np.float32)
+>>> mapy = np.ones(img.shape[:2], np.float32)
+>>> for i in range(row):
+>>>     for j in range(col):
+>>>         mapx[i, j] = float(j)
+>>>         mapy[i, j] = float(row-i)
+>>> img = cv.remap(img, mapx, mapy, cv.INTER_LINEAR)
+>>> cv.imwrite('remap.jpg', img)
+True
+```
+![remap.jpg](../_static/images/cv/remap.jpg)
+
+---
 ### `resize(src, dsize, |fx, fy, interpolation, code, mean, norm)`
 作用等同与 `OpenCV` 中 `Geometric Image Transformations` 模块的[resize](https://docs.opencv.org/4.5.2/da/d54/group__imgproc__transform.html#ga47a974309e9102f5f08231edc7e7529d) 函数，用于放缩图像。
 
@@ -1389,10 +1640,35 @@ True
 ![warpPerspective.jpg](../_static/images/cv/warpPerspective.jpg)
 
 ---
+### `adaptiveThreshold(src, maxValue, adaptiveMethod, thresholdType, blockSize, C)`
+作用等同与 `OpenCV` 中 `Miscellaneous Image Transformations` 模块的[adaptiveThreshold](https://docs.opencv.org/3.4/d7/d1b/group__imgproc__misc.html#ga72b913f352e4a1b1b397736707afcde3) 函数，对图像逐像素进行自适应阈值变化，可以将使用此函数将图像变成二值图像。
+
+参数：
+- `src:Var` 输入的图像
+- `maxValue:float` 阈值的最大值
+- `adaptiveMethod:int` 自适应方法，如：`cv.ADAPTIVE_THRESH_MEAN_C`
+- `thresholdType:int` 阈值变化的类型，如：`cv.THRESH_BINARY`
+- `blockSize:int` 计算阈值时取邻域的大小，如：3,5,7等
+- `C:float`
+
+返回：阈值变化后的图像
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> img = cv.imread('cat.jpg')
+>>> img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+>>> img = cv.adaptiveThreshold(img, 50, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 5, 2)
+>>> cv.imwrite('adaptiveThreshold.jpg', img)
+True
+```
+![adaptiveThreshold.jpg](../_static/images/cv/adaptiveThreshold.jpg)
+
+---
 ### `blendLinear(src1, src2, weight1, weight2)`
 作用等同与 `OpenCV` 中 `Miscellaneous Image Transformations` 模块的[blendLinear](https://docs.opencv.org/4.5.2/d7/d1b/group__imgproc__misc.html#ga5e76540a679333d7c6cd0617c452c23d) 函数，对两幅图像进行线性混合。
-
-*注意：此函数实现问题，目前仅支持float32类型的输入，处理前后需要用户自行转换类型*
 
 参数：
 - `src1:Var` 输入的图像
@@ -1420,7 +1696,6 @@ array([[1.8181652 , 2.5999894 ],
 ### `threshold(src, thresh, maxval, type)`
 作用等同与 `OpenCV` 中 `Miscellaneous Image Transformations` 模块的[threshold](https://docs.opencv.org/4.5.2/d7/d1b/group__imgproc__misc.html#gae8a4a146d1ca78c626a53577199e9c57) 函数，对图像逐像素进行阈值变化，可以将使用此函数将图像变成二值图像，比如在寻找轮廓时(`findContours`)可以使用该函数。
 
-*注意：此函数实现问题，目前仅支持float32类型的输入，处理前后需要用户自行转换类型*
 
 参数：
 - `src:Var` 输入的图像
@@ -1473,10 +1748,8 @@ True
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
-cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+>>> cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 ([array([[[143, 294]],
          ...,
          [[144, 295]]], dtype=int32),
@@ -1503,9 +1776,7 @@ cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 >>> cv.contourArea(contours[0], False)
 15.5
@@ -1529,9 +1800,7 @@ cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 >>> cv.convexHull(contours[0])
 array([[[147, 295]],
@@ -1559,9 +1828,7 @@ array([[[147, 295]],
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 >>> cv.minAreaRect(contours[0])
 ((144.61766052246094, 296.5294494628906), (5.3357834815979, 4.123105525970459), 14.03624439239502)
@@ -1583,9 +1850,7 @@ array([[[147, 295]],
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 >>> cv.boundingRect(contours[0])
 [142, 294, 6, 6]
@@ -1629,9 +1894,7 @@ array([[[147, 295]],
 ```python
 >>> img = cv.imread('cat.jpg')
 >>> gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
->>> gray = gray.astype(np.float32)
 >>> binary = cv.threshold(gray, 127, 255, cv.THRESH_BINARY)
->>> binary = binary.astype(np.uint8)
 >>> contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 >>> cv.boxPoints(cv.minAreaRect(contours[0]))
 array([[141.52942, 297.8824 ],

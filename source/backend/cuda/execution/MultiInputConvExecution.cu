@@ -15,7 +15,7 @@
 namespace MNN {
 namespace CUDA {
 
-MultiInputConvExecution::MultiInputConvExecution(const MNN::Op* op, Backend* backend) : CutlassCommonExecution(backend) {
+MultiInputConvExecution::MultiInputConvExecution(const MNN::Op* op, Backend* backend) : CutlassConvCommonExecution(backend) {
     mOp = op;
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
     mPrecisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();

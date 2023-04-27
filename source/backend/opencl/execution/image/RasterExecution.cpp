@@ -20,6 +20,7 @@ RasterExecution::RasterExecution(const std::vector<Tensor *> &inputs, const MNN:
     : CommonExecution(backend) {
     mOpenCLBackend = (OpenCLBackend *)backend;
     mOp = op;
+    mOpType = op->type();
     //nothing to do
 }
 

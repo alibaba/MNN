@@ -121,7 +121,26 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 // Radeon series GPU is main product of Advanced Micro Devices (AMD)
                 mGpuType = RADEON;
                 isSetWorkGroupAttribute = true;
-            } else {
+            } else if (deviceVendor.find("Intel") != std::string::npos) {
+                mGpuType = INTEL;
+                std::string opencl_c_version = mFirstGPUDevicePtr->getInfo<CL_DEVICE_OPENCL_C_VERSION>();
+                int version = 0;
+                for (auto s : opencl_c_version) {
+                    if (s >= '0' && s <= '9') {
+                        version += (s - '0');
+                        version *= 10;
+                    }
+                }
+                if (version >= 120) {
+                    mSupportedIntelSubgroup = true;
+                    uint32_t execution_units_count = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+                    uint32_t num_threads_per_eu = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NUM_THREADS_PER_EU_INTEL>();
+                    uint32_t maxThreadsPerExecutionUnit = num_threads_per_eu > 0 ? num_threads_per_eu : 7;
+                    mMaxThreadsPerDevice =  maxThreadsPerExecutionUnit * execution_units_count;
+                    mMaxWorkGroupSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+                }
+            }
+            else {
                 mGpuType = OTHER;
             }
             const std::string extensions = platforms[0].getInfo<CL_PLATFORM_EXTENSIONS>();
@@ -182,22 +201,23 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             cl_device_fp_config fpConfig;
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
-            auto permitFloat16 = false;
-            if(precision == BackendConfig::Precision_Low) {
-                permitFloat16 = true;
-            }
-            mIsSupportedFP16     = mIsDeviceSupportedFP16 && permitFloat16;
             
             //set gpu mode, tuning level and memory object
             setGpuMode(cl_mode);
             
             if(mMemType == AUTO) {
-                if(mGpuType == MALI && precision != BackendConfig::Precision_Normal) {//buffer mode not support Normal Precision yet
+                if(mGpuType == MALI || mGpuType == INTEL) {
                     mMemType = BUFFER;
                 } else {
                     mMemType = IMAGE;
                 }
             }
+
+            auto permitFloat16 = false;
+            if (precision == BackendConfig::Precision_Low || (mMemType == BUFFER && precision == BackendConfig::Precision_Normal)) {//buffer mode not support Normal Precision yet
+                permitFloat16 = true;
+            }
+            mIsSupportedFP16 = mIsDeviceSupportedFP16 && permitFloat16;
 
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
                 mSupportDotInt8 = true;
@@ -345,7 +365,9 @@ bool OpenCLRuntime::isSupportedDotAccInt8() const {
     return mSupportDotAccInt8;
 }
 
-
+bool OpenCLRuntime::isSupportedIntelSubgroup() const {
+    return mSupportedIntelSubgroup;
+ }
 cl::Context &OpenCLRuntime::context() {
     return *mContext;
 }
@@ -360,6 +382,13 @@ uint64_t OpenCLRuntime::deviceGlobalMemeryCacheSize() const {
 
 uint32_t OpenCLRuntime::deviceComputeUnits() const {
     return mGPUComputeUnits;
+}
+
+uint32_t OpenCLRuntime::MaxThreadsPerDevice() const {
+    return mMaxThreadsPerDevice;
+}
+uint32_t OpenCLRuntime::MaxWorkGroupSize() const {
+    return mMaxWorkGroupSize;
 }
 
 uint32_t OpenCLRuntime::maxFreq() const {
@@ -403,9 +432,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
     } else {
-        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
+        buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
     }
     
     if(isSetWorkGroupAttribute) {
@@ -417,7 +446,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         buildOptionsStr += " " + option;
     }
     buildOptionsStr += mDefaultBuildParams;
-    auto key = std::make_tuple(programName, kernelName, buildOptionsStr);
+    auto key = std::make_tuple(programName, buildOptionsStr);
 
     auto buildProgramInter = mBuildProgramMap.find(key);
     cl::Program program;
@@ -551,8 +580,7 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         }
         // Only use first one
         pro->program = std::get<0>(iter.first);
-        pro->kernel = std::get<1>(iter.first);
-        pro->buildInfo = std::get<2>(iter.first);
+        pro->buildInfo = std::get<1>(iter.first);
         
         //MNN_PRINT("%s - %s - %s\n", pro->program.c_str(), pro->kernel.c_str(), pro->buildInfo.c_str());
         
@@ -601,12 +629,11 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
         auto programs = cacheBuffer->programs();
         for (int i=0; i<programs->size(); ++i) {
             auto shaderInfo = programs->GetAs<Shader>(i);
-            if (nullptr == shaderInfo->program() || nullptr == shaderInfo->kernel() || nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
+            if (nullptr == shaderInfo->program()|| nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
                 MNN_ERROR("Invalid Cache\n");
                 return false;
             }
             auto program = shaderInfo->program()->str();
-            auto kernel = shaderInfo->kernel()->str();
             // Builder Info
             std::string buildinfo = shaderInfo->buildInfo()->str();
             
@@ -615,16 +642,16 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             auto deviceId = mFirstGPUDevicePtr->get();
             auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
             if (!programRaw) {
-                MNN_ERROR("Can't load %s - %s - %s load program\n", program.c_str(), kernel.c_str(), buildinfo.c_str());
+                MNN_ERROR("Can't load %s - %s load program\n", program.c_str(), buildinfo.c_str());
                 return false;
             }
             auto pro = cl::Program(programRaw);
             auto res = buildProgram(buildinfo, &pro);
             if (!res) {
-                MNN_ERROR("Can't build %s - %s - %s load program\n", program.c_str(),  kernel.c_str(), buildinfo.c_str());
+                MNN_ERROR("Can't build %s - %s load program\n", program.c_str(), buildinfo.c_str());
                 return false;
             }
-            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, kernel, buildinfo), pro));
+            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pro));
         }
     }
 

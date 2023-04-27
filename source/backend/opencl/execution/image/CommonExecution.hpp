@@ -28,6 +28,7 @@ protected:
     };
     std::vector<Unit> mUnits;
     const MNN::Op *mOp;
+    OpType mOpType;
 };
 } // namespace OpenCL
 } // namespace MNN

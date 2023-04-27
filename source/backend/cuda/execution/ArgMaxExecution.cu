@@ -5,25 +5,81 @@
 namespace MNN {
 namespace CUDA {
 
+#define ARG_REDUCE_NUM 256
+
+template <typename T>
+__global__ void ARGMAX_FIRST_STEP(const int count, const int outside, const int inside,
+                            const int totalDims, const int dims, const int numDims,
+                            const T *input, T *outputData, int *outputIndex
+    ) {
+    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < (count); index += blockDim.x * gridDim.x) {
+        const int idx_in = index % inside;
+        const int tmp = index / inside;
+        const int idx_out = tmp % outside;
+        const int idx_num_dim = tmp / outside;
+
+        const int idx_output = (idx_out * numDims + idx_num_dim) * inside + idx_in;
+        const T* inpPtr = input + (idx_out * totalDims + idx_num_dim * dims) * inside + idx_in;
+        int maxIndex = idx_num_dim * dims;
+        T maxValue = inpPtr[0 * inside];
+        for(int j=1; j<dims; j++) {
+            const int idx_access = idx_num_dim * dims + j;
+            if(idx_access < totalDims) {
+                T value = inpPtr[j * inside];
+                if(maxValue < value) {
+                    maxIndex = idx_access;
+                    maxValue = value;
+                }
+            }
+        }
+        outputData[idx_output] = maxValue;
+        outputIndex[idx_output] = maxIndex;
+    }
+
+}
+
+template <typename T>
+__global__ void ARGMAX_SECOND_STEP(const int count, const int outside, const int inside, const int dims,
+                            const T *inputData, const int *inputIndex, int *outputIndex
+    ) {
+    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < (count); index += blockDim.x * gridDim.x) {
+        const int idx_in = index % inside;
+        const int idx_out = index / inside;
+
+        int idx_output = idx_out * inside + idx_in;
+        const T* inpPtr = inputData + idx_out * dims * inside + idx_in;
+        int maxIndex = inputIndex[0];
+        T maxValue = inpPtr[0 * inside];
+        for(int j=1; j<dims; j++) {
+            T value = inpPtr[j * inside];
+            if(maxValue < value) {
+                maxIndex = inputIndex[j];
+                maxValue = value;
+            }
+        }
+        outputIndex[idx_output] = maxIndex;
+    }
+}
+
 template <typename T>
 __global__ void ARGMAX(const int count, const int outside, const int inside, const int dim,
                          const T *input, int *output) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        const int o = i / inside;
-        const int n = i % inside;
+        const int idx_out = i / inside;
+        const int idx_in = i % inside;
 
-        int* outPtr = output + inside * o;
-        const T* inpPtr = input + inside * dim * o;
+        int* outPtr = output + idx_out * inside + idx_in;
+        const T* inpPtr = input + idx_out * inside * dim + idx_in;
         int index = 0;
-        T maxValue = inpPtr[n + 0 * inside];
+        T maxValue = inpPtr[0 * inside];
         for(int j=1; j<dim; j++) {
-            T value = inpPtr[n + j * inside];
+            T value = inpPtr[j * inside];
             if(maxValue < value) {
                 index = j;
                 maxValue = value;
             }
         }
-        outPtr[n] = index;
+        outPtr[0] = index;
     }
 
     return;
@@ -38,6 +94,7 @@ ArgMaxExecution::~ArgMaxExecution(){
 }
 
 ErrorCode ArgMaxExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     auto input  = inputs[0];
     auto output  = outputs[0];
 
@@ -54,6 +111,18 @@ ErrorCode ArgMaxExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mInside *= input->length(i);
     }
     mDim = input->length(mAxis);
+
+    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
+    mSplitKernel = (mDim > ARG_REDUCE_NUM);
+    if(mSplitKernel) {
+        mSecondArgLen = (mDim + ARG_REDUCE_NUM - 1) / ARG_REDUCE_NUM;
+        auto buffer_data = pool->alloc(mOutside * mInside * mSecondArgLen * bytes);
+        mTempDataBuffer = (void*)((uint8_t*)buffer_data.first + buffer_data.second);
+        auto buffer_index = pool->alloc(mOutside * mInside * mSecondArgLen * sizeof(int32_t));
+        mTempIndexBuffer = (void*)((uint8_t*)buffer_index.first + buffer_index.second);
+        pool->free(buffer_data);
+        pool->free(buffer_index);
+    }
     return NO_ERROR;
 }
 
@@ -62,22 +131,65 @@ ErrorCode ArgMaxExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 
     auto input = (void *)inputs[0]->deviceId();
     auto output = (void *)outputs[0]->deviceId();
-    int count = mOutside * mInside;
-    int block_num = runtime->blocks_num(count);
-    int thread_num = runtime->threads_num();
-
     auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
 
-    if(bytes == 4) {
-        ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(int *)output);
-        checkKernelErrors;
-    } else {
-        ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const half*)input,(int *)output);
-        checkKernelErrors;
-    }
+    if(mSplitKernel) {
+        if(bytes == 4) {
+            // First Step
+            {
+                int count = mOutside * mInside * mSecondArgLen;
+                int block_num = runtime->blocks_num(count);
+                int thread_num = runtime->threads_num();
+                ARGMAX_FIRST_STEP<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, ARG_REDUCE_NUM, mSecondArgLen, \
+                    (const float*)input, (float *)mTempDataBuffer, (int *)mTempIndexBuffer);
+                checkKernelErrors;
+            }
+            // Second Step
+            {
+                int count = mOutside * mInside;
+                int block_num = runtime->blocks_num(count);
+                int thread_num = runtime->threads_num();
+                ARGMAX_SECOND_STEP<<<block_num, thread_num>>>(count, mOutside, mInside, mSecondArgLen, \
+                    (const float*)mTempDataBuffer, (const int *)mTempIndexBuffer, (int *)output);
+                checkKernelErrors;
+            }
+        } else {
+            // First Step
+            {
+                int count = mOutside * mInside * mSecondArgLen;
+                int block_num = runtime->blocks_num(count);
+                int thread_num = runtime->threads_num();
+                ARGMAX_FIRST_STEP<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, ARG_REDUCE_NUM, mSecondArgLen, \
+                    (const half*)input, (half *)mTempDataBuffer, (int *)mTempIndexBuffer);
+                checkKernelErrors;
+            }
+            // Second Step
+            {
+                int count = mOutside * mInside;
+                int block_num = runtime->blocks_num(count);
+                int thread_num = runtime->threads_num();
+                ARGMAX_SECOND_STEP<<<block_num, thread_num>>>(count, mOutside, mInside, mSecondArgLen, \
+                    (const half*)mTempDataBuffer, (const int *)mTempIndexBuffer, (int *)output);
+                checkKernelErrors;
+            }
+        }
 
+    } else {
+        int count = mOutside * mInside;
+        int block_num = runtime->blocks_num(count);
+        int thread_num = runtime->threads_num();
+
+        if(bytes == 4) {
+            ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const float*)input,(int *)output);
+            checkKernelErrors;
+        } else {
+            ARGMAX<<<block_num, thread_num>>>(count, mOutside, mInside, mDim, (const half*)input,(int *)output);
+            checkKernelErrors;
+        }
+    }
     return NO_ERROR;
 }
+
 class ArgMaxCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

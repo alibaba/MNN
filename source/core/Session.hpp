@@ -31,6 +31,7 @@ public:
         Interpreter::SessionMode outputMode = Interpreter::Session_Output_Inside;
         Interpreter::SessionMode backendMode = Interpreter::Session_Backend_Fix;
         Interpreter::SessionMode resizeMode = Interpreter::Session_Resize_Direct;
+        Interpreter::SessionMode memoryUsageMode = Interpreter::Session_Memory_Collect;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
@@ -145,6 +146,7 @@ private:
     bool mValid      = true;
     bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
+    Interpreter::SessionMode mMemoryUsageMode;
     Schedule::ScheduleInfo mInfo;
     ModeGroup mMode;
 };

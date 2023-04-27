@@ -280,6 +280,126 @@ struct Vec<float, 4> {
     }
 };
 
+template<>
+struct Vec<int8_t, 16> {
+    using VecType = Vec<int8_t, 16>;
+    int8x16_t value;
+    Vec() {
+    }
+    Vec(const int8_t v) {
+        value = vdupq_n_s8(v);
+    }
+    Vec(const int8x16_t v) {
+        value = v;
+    }
+    Vec(const VecType& lr) {
+        value = lr.value;
+    }
+    Vec(const VecType&& lr) {
+        value = std::move(lr.value);
+    }
+    float operator[](size_t i) {
+        return value[i];
+    }
+    static VecType load(const int8_t* addr) {
+        VecType v = { vld1q_s8(addr) };
+        return v;
+    }
+    static VecType broadcast(const int8_t* addr) {
+        VecType dst = { vld1q_dup_s8(addr) };
+        return dst;
+    }
+    static void save(int8_t* addr, const VecType& v) {
+        vst1q_s8(addr, v.value);
+    }
+    static VecType max(const VecType& v1, const VecType& v2) {
+        VecType dst = { vmaxq_s8(v1.value, v2.value) };
+        return dst;
+    }
+    static VecType min(const VecType& v1, const VecType& v2) {
+        VecType dst = { vminq_s8(v1.value, v2.value) };
+        return dst;
+    }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlaq_s8(v1.value, v2.value, v3.value)};
+        return dst;
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        VecType dst = {vmlsq_s8(v1.value, v2.value, v3.value)};
+        return dst;
+    }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+#ifdef __aarch64__
+        auto m0 = vtrn1q_s8(reinterpret_cast<int8x16_t>(vec0.value), reinterpret_cast<int8x16_t>(vec1.value));
+        auto m1 = vtrn2q_s8(reinterpret_cast<int8x16_t>(vec0.value), reinterpret_cast<int8x16_t>(vec1.value));
+        auto m2 = vtrn1q_s8(reinterpret_cast<int8x16_t>(vec2.value), reinterpret_cast<int8x16_t>(vec3.value));
+        auto m3 = vtrn2q_s8(reinterpret_cast<int8x16_t>(vec2.value), reinterpret_cast<int8x16_t>(vec3.value));
+        vec0.value = reinterpret_cast<int8x16_t>(vtrn1q_s16(reinterpret_cast<int16x8_t>(m0), reinterpret_cast<int16x8_t>(m2)));
+        vec1.value = reinterpret_cast<int8x16_t>(vtrn1q_s16(reinterpret_cast<int16x8_t>(m1), reinterpret_cast<int16x8_t>(m3)));
+        vec2.value = reinterpret_cast<int8x16_t>(vtrn2q_s16(reinterpret_cast<int16x8_t>(m0), reinterpret_cast<int16x8_t>(m2)));
+        vec3.value = reinterpret_cast<int8x16_t>(vtrn2q_s16(reinterpret_cast<int16x8_t>(m1), reinterpret_cast<int16x8_t>(m3)));
+#else
+        auto m0m1 = vtrnq_s8(reinterpret_cast<int8x16_t>(vec0.value), reinterpret_cast<int16x8_t>(vec1.value));
+        auto m2m3 = vtrnq_s8(reinterpret_cast<int8x16_t>(vec2.value), reinterpret_cast<int16x8_t>(vec3.value));
+        vec0.value = reinterpret_cast<int8x16_t>(m0m1.val[0]);
+        vec1.value = reinterpret_cast<int8x16_t>(m0m1.val[1]);
+        vec2.value = reinterpret_cast<int8x16_t>(m2m3.val[0]);
+        vec3.value = reinterpret_cast<int8x16_t>(m2m3.val[1]);
+        vec0.value = reinterpret_cast<int8x16_t>(vsetq_lane_s16(vgetq_lane_s16(reinterpret_cast<int16x8_t>(m2m3.val[0]), 0), reinterpret_cast<int16x8_t>(vec0.value), 1));
+        vec1.value = reinterpret_cast<int8x16_t>(vsetq_lane_s16(vgetq_lane_s16(reinterpret_cast<int16x8_t>(m2m3.val[1]), 0), reinterpret_cast<int16x8_t>(vec1.value), 1));
+        vec2.value = reinterpret_cast<int8x16_t>(vsetq_lane_s16(vgetq_lane_s16(reinterpret_cast<int16x8_t>(m0m1.val[0]), 1), reinterpret_cast<int16x8_t>(vec2.value), 0));
+        vec3.value = reinterpret_cast<int8x16_t>(vsetq_lane_s16(vgetq_lane_s16(reinterpret_cast<int16x8_t>(m0m1.val[1]), 1), reinterpret_cast<int16x8_t>(vec3.value), 0));
+        /*
+        generated arm32 assembly code is almost the same as:
+            vtrn.32 d0, d2
+            vtrn.32 d1, d3
+            vtrn.32 d4, d6
+            vtrn.32 d5, d7
+            vswp d1, d4
+            vswp d3, d6
+        */
+
+#endif
+    }
+
+    VecType operator+(const VecType& lr) const {
+        VecType dst = { vaddq_s8(value, lr.value) };
+        return dst;
+    }
+    VecType operator-(const VecType& lr) const {
+        VecType dst = { vsubq_s8(value, lr.value) };
+        return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = vaddq_s8(value, lr.value);
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = vsubq_s8(value, lr.value);
+        return *this;
+    }
+//    VecType operator*(int8_t lr) const {
+//        VecType dst = { vmulq_n_s8(value, lr) };
+//        return dst;
+//    }
+    VecType operator*(const VecType& lr) const {
+        VecType dst = { vmulq_s8(value, lr.value) };
+        return dst;
+    }
+    VecType& operator=(const VecType& lr) {
+        value = lr.value;
+        return *this;
+    }
+    VecType& operator=(const VecType&& lr) {
+        value = std::move(lr.value);
+        return *this;
+    }
+    VecType operator-() {
+        VecType dst = { vnegq_s8(value) };
+        return dst;
+    }
+};
+
 #elif defined(MNN_USE_SSE)
 template<>
 struct Vec<float, 4> {

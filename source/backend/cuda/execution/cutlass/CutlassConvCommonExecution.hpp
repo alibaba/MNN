@@ -1,13 +1,13 @@
 //
-//  CutlassCommonExecution.hpp
+//  CutlassConvCommonExecution.hpp
 //  MNN
 //
 //  Created by MNN on 2023/03/22.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef CutlassCommonExecution_hpp
-#define CutlassCommonExecution_hpp
+#ifndef CutlassConvCommonExecution_hpp
+#define CutlassConvCommonExecution_hpp
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
@@ -18,10 +18,10 @@
 namespace MNN {
 namespace CUDA {
 
-class CutlassCommonExecution : public Execution {
+class CutlassConvCommonExecution : public Execution {
 public:
-    CutlassCommonExecution(Backend* backend);
-    virtual ~CutlassCommonExecution() = default;
+    CutlassConvCommonExecution(Backend* backend);
+    virtual ~CutlassConvCommonExecution() = default;
 
     ErrorCode callCutlassGemmCudaCoreFloat16(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
     ErrorCode callCutlassGemmCudaCoreFloat32(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
@@ -90,4 +90,4 @@ protected:
 } // namespace CUDA
 } // namespace MNN
 
-#endif /* CutlassCommonExecution */
+#endif /* CutlassConvCommonExecution */

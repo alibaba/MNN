@@ -553,6 +553,10 @@ class UnitTest(unittest.TestCase):
     def test_cvtColorTwoPlane(self):
         pass
     # filter
+    def test_bilateralFilter(self):
+        x = cv.bilateralFilter(self.img, 20, 80.0, 35.0)
+        y = cv2.bilateralFilter(self.img_, 20, 80.0, 35.0)
+        self.assertEqualImg(x, y)
     def test_blur(self):
         x = cv.blur(self.imgf, (3, 3))
         y = cv2.blur(self.imgf_, (3, 3))
@@ -560,6 +564,10 @@ class UnitTest(unittest.TestCase):
     def test_boxFilter(self):
         x = cv.boxFilter(self.imgf, -1, (3, 3))
         y = cv2.boxFilter(self.imgf_, -1, (3, 3))
+        self.assertEqualImg(x, y)
+    def test_erode(self):
+        x = cv.erode(self.imgf, cv.getStructuringElement(0, (3, 3)))
+        y = cv2.erode(self.imgf_, cv2.getStructuringElement(0, (3, 3)))
         self.assertEqualImg(x, y)
     def test_dilate(self):
         x = cv.dilate(self.imgf, cv.getStructuringElement(0, (3, 3)))
@@ -659,6 +667,19 @@ class UnitTest(unittest.TestCase):
         y = cv2.invertAffineTransform(cvM)
         x = np.asarray(x.read()[:6]).reshape(y.shape)
         self.assertEqualArray(x, y)
+    def test_remap(self):
+        row, col, ch = self.img_.shape
+        mapx_ = np.ones(self.img_.shape[:2], np.float32)
+        mapy_ = np.ones(self.img_.shape[:2], np.float32)
+        for i in range(row):
+            for j in range(col):
+                mapx_.itemset((i, j), j)
+                mapy_.itemset((i, j), row-i)
+        mapx = expr.const(mapx_, mapx_.shape)
+        mapy = expr.const(mapy_, mapy_.shape)
+        x = cv.remap(self.img, mapx, mapy, cv.INTER_LINEAR)
+        y = cv2.remap(self.img_, mapx_, mapy_, cv2.INTER_LINEAR)
+        self.assertEqualImg(x, y)
     def test_resize(self):
         x = cv.resize(self.img, (180, 240))
         y = cv2.resize(self.img_, (180, 240))
@@ -681,6 +702,12 @@ class UnitTest(unittest.TestCase):
         y = cv2.warpPerspective(self.img_, cvM, (480, 360))
         self.assertEqualImg(x, y)
     # miscellaneous
+    def test_adaptiveThreshold(self):
+        a = cv.cvtColor(self.img, cv.COLOR_BGR2GRAY)
+        a_ = cv2.cvtColor(self.img_, cv2.COLOR_BGR2GRAY)
+        x = cv.adaptiveThreshold(a, 50, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 5, 2)
+        y = cv2.adaptiveThreshold(a_, 50, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 5, 2)
+        self.assertEqual(x.shape[:2], list(y.shape))
     def test_blendLinear(self):
         if version_info.major < 3:
             # py2: cv2 don't have blendLinear
@@ -817,6 +844,81 @@ class UnitTest(unittest.TestCase):
         x = cv.rotate(self.img, cv.ROTATE_90_COUNTERCLOCKWISE)
         y = cv2.rotate(self.img_, cv2.ROTATE_90_COUNTERCLOCKWISE)
         self.assertEqualImg(x, y)
+    def test_solve(self):
+        a = np.array([2., 3., 4., 0., 1., 5., 0., 0., 3.]).reshape(3, 3)
+        b = np.array([1., 2., 3.]).reshape(3, 1)
+        a_ = mp.array([2., 3., 4., 0., 1., 5., 0., 0., 3.]).reshape(3, 3)
+        b_ = mp.array([1., 2., 3.]).reshape(3, 1)
+        x_, x = cv.solve(a_, b_)
+        y_, y = cv2.solve(a, b)
+        self.assertEqual(x_, y_)
+        self.assertEqualVar(x, y)
+    def test_normalize(self):
+        x = mp.arange(12).reshape(2, 2, 3).astype(mp.uint8)
+        x_ = np.arange(12).reshape(2, 2, 3).astype(np.uint8)
+        y = cv.normalize(x, None, -50, 270, cv.NORM_MINMAX)
+        y_ = cv2.normalize(x_, None, -50, 270., cv2.NORM_MINMAX)
+        self.assertEqualVar(y, y_)
+    def test_merge(self):
+        # dim = 1
+        a = mp.arange(9)
+        a_ = np.arange(9)
+        channels = [a, a, a]
+        channels_ = [a_, a_, a_]
+        x = cv.merge(channels)
+        y = cv2.merge(channels_)
+        self.assertEqualVar(x, y)
+        # dim = 2
+        a = a.reshape(3, 3)
+        a_ = a_.reshape(3, 3)
+        channels = [a, a, a]
+        channels_ = [a_, a_, a_]
+        x = cv.merge(channels)
+        y = cv2.merge(channels_)
+        self.assertEqualVar(x, y)
+        # dim = 3
+        channels = [self.img, self.img, self.img]
+        channels_ = [self.img_, self.img_, self.img_]
+        x = cv.merge(channels)
+        y = cv2.merge(channels_)
+        self.assertEqualImg(x, y)
+        # dim = 5
+        a = a.reshape(1, 3, 1, 3, 1)
+        a_ = a_.reshape(1, 3, 1, 3, 1)
+        channels = [a, a, a]
+        channels_ = [a_, a_, a_]
+        x = cv.merge(channels)
+        y = cv2.merge(channels_)
+        self.assertEqualVar(x, y)
+    def test_split(self):
+        # dim = 1
+        a = mp.arange(12.)
+        a_ = np.arange(12.)
+        channels = cv.split(a)
+        channels_ = cv2.split(a_)
+        self.assertEqualVars(channels, channels_)
+        # dim = 2
+        a = a.reshape(4, 3)
+        a_ = a_.reshape(4, 3)
+        channels = cv.split(a)
+        channels_ = cv2.split(a_)
+        self.assertEqualVars(channels, channels_)
+        # dim = 3
+        a = a.reshape(2, 2, 3)
+        a_ = a_.reshape(2, 2, 3)
+        channels = cv.split(a)
+        channels_ = cv2.split(a_)
+        self.assertEqualVars(channels, channels_)
+        # dim = 4
+        a = a.reshape(1, 2, 2, 3)
+        a_ = a_.reshape(1, 2, 2, 3)
+        channels = cv.split(a)
+        channels_ = cv2.split(a_)
+        self.assertEqualVars(channels, channels_)
+    def test_addWeight(self):
+        s = cv.addWeighted(self.img, 0.2, self.img, 0.3, 2)
+        s_ = cv2.addWeighted(self.img_, 0.2, self.img_, 0.3, 2)
+        self.assertEqualImg(s, s_)
     # numpy
     def test_from_shape_or_value(self):
         x = mp.zeros([2, 2])
@@ -957,6 +1059,14 @@ class UnitTest(unittest.TestCase):
         a_ = np.arange(9.).reshape([3,3])
         # just compare w Matrix
         self.assertEqualVar(mp.linalg.svd(a)[1], np.linalg.svd(a_)[1])
+        a = np.array([2., 3., 4., 0., 1., 5., 0., 0., 3.]).reshape(3, 3)
+        b = np.array([1., 2., 3.]).reshape(3, 1)
+        a_ = mp.array([2., 3., 4., 0., 1., 5., 0., 0., 3.]).reshape(3, 3)
+        b_ = mp.array([1., 2., 3.]).reshape(3, 1)
+        x = np.linalg.solve(a, b)
+        x_ = mp.linalg.solve(a_, b_)
+        self.assertEqualVar(x_, x)
+
     def test_Logic(self):
         x = mp.array([1,0,2,3,0])
         x_ = np.array([1,0,2,3,0])

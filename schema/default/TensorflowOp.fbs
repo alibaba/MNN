@@ -53,6 +53,9 @@ table StridedSliceParam {
     ellipsisMask:int;
     newAxisMask:int;
     shrinkAxisMask:int;
+    // type 0 --> from TF
+    // type 1 --> from Onnx/Torch
+    fromType:int;
 }
 
 table SqueezeParam {

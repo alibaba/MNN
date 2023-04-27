@@ -522,8 +522,8 @@ static void insideFormatConvert(T0* input, T1* output, MNN_DATA_FORMAT srcDataFo
 void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN_DATA_FORMAT dstDataFormat, CUDARuntime* runtime, \
     const int area, const int batch, const int channel, const Tensor* srcTensor, bool isFp16, bool srcDevice, bool dstDevice) {
 
-    //MNN_PRINT("FormatConvert size batch:%d - plane:%d - channel:%d, %d-%d, %d-%d\n", batch, area, channel, srcDataFormat, dstDataFormat, srcDevice, dstDevice);
     if(batch == 0 || area == 0 || channel == 0) {
+        MNN_PRINT("Error: formatConvert size batch:%d - plane:%d - channel:%d, format:%d->%d, device:%d->%d\n", batch, area, channel, srcDataFormat, dstDataFormat, srcDevice, dstDevice);
         return;
     }
 
@@ -561,7 +561,7 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
             const int block_num = runtime->blocks_num(maxCount);
             const int block_size = runtime->threads_num();
             if(isFp16) {
-		C4NHW4_2_NHWC8<<<block_num, block_size>>>((float *)input, (half *)output, 
+		        C4NHW4_2_NHWC8<<<block_num, block_size>>>((float *)input, (half *)output, 
                     maxCount, batch, area, channel, UP_DIV(channel, 8) * 8);
                 checkKernelErrors;
             } else {

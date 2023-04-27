@@ -26,6 +26,7 @@ MultiInputDWConvExecution::MultiInputDWConvExecution(const MNN::Op *op, Backend 
     isRelu = common->relu();
     isRelu6 = common->relu6();
     mOp = op;
+    mOpType = op->type();
 }
 
 MultiInputDWConvExecution::~MultiInputDWConvExecution() {

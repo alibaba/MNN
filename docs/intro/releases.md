@@ -1,5 +1,66 @@
 # 发布版本
-## 2.2.0 (`Latest`)
+## 2.4.0 (`Latest`)
+#### 新特性
+- NNAPI 支持int8 量化模型；
+- MNN OpenCL/Metal支持算子在线Fuse与代码生成；
+- 支持使用cibuildwheel构建Python Wheel包；
+- Github Action支持自动化构建多端库与Whl包；
+- (测试中）CUDA后端支持量化模型运行
+#### 重构/优化
+- CUDA优化Softmax/DepthwiseConv算子
+- 优化 KernelSize = 3x3 的 OpenCL 卷积算子性能
+- 优化了MaxPool/AvgPool的int8量化计算；
+- 移除原来的LLVMJit, C等Codegen后端；
+- 更新MNN.podspec, MNNBridge.podspec；
+- 增加GELU模块Fuse为GELU算子的功能，Vulkan 和 OpenCL 后端支持 GELU 算子
+- NetModule析构函数中增加gc函降低内存占用；
+- OpenCL支持设置推理低优先级配置；
+- OpenCL updateCache支持异步，降低阻塞时间；
+- fastTestOnnx.py / fastTestTf.py / fastTestTflite.py / fastTestTorch.py 分别更名为 testMNNFromOnnx.py / testMNNFromTf.py / testMNNFromTflite.py / testMNNFromTorch.py
+- Android Demo新增使用README文档；
+#### Bugfix
+- 修复Android Demo运行Crash的问题；
+- 修复Metal中的onSync的Bug;
+- 修复Metal多段模型推理的Bug；
+- 修复在Windows下MNN Train的编译问题；
+- 修复perm值非法时的Crash问题；
+- 修复Pad的输入参数为负数时（此时等效为Crop），计算出错的问题
+- 修正 Relu Int8 不支持非对称量化的问题
+- 修正部分AVX2架构的机器上运行量化模型crash的问题
+- 修正Module API 运行静态模型crash的问题
+- 修正Winograd量化过程未使用相同变换矩阵的问题
+- 修正Winograd量化计算多Batch输入错误的问题
+- 修正 OpenCL Relu 算子在 AMD GPU 上段错误的问题
+- 修正 OpenCL ROIPooling 算子实现错误
+## 2.3.0
+### 功能完善
+- CUDA 后端支持高精度模型（设置 precision = high 时使用 FP32 计算） 和 SM60 架构
+- MNN-Train 求导优化
+   - MNN-Express 支持 CONTENT 模式，该模式下基于几何计算分解算子后再构图，以降低需要实现求导的算子数
+   - 支持 Raster / Loop 算子部分情况下的求导
+   - 支持 GridSampler 的求导
+- OpenCL 后端支持低优先级运行模式（设置 power = low）
+- （实险中特性）Vulkan 后端增加基于Buffer内存布局的算子实现，目前基于编译宏决定用 Image内存布局还是 Buffer内存布局（MNN_VULKAN_IMAGE ，默认为 ON）
+- （实验中特性）支持分离模型结构与权重的选项
+   - 模型转换为 {S}.mnn 时，添加参数 --saveExternalData ，模型权重将单独保存为二进制文件 {S}.mnn.weight
+   - 模型加载运行时，通过以下方式指定权重文件路径：
+      - Session API: Interpreter::setExternalFile
+      - Module API: Executor::RuntimeManager::setExternalFile
+### 重构/优化
+- 修改嵌入式上常用的 SeqLength = 1 的 ONNX LSTM 算子的模型转换实现，改为用卷积+非线性层拼接实现，以提升性能
+- 修正部分情况下 Convolution Winograd CPU 相较之前版本变慢的问题
+- 优化 VARP 的 fix 函数，避免拷贝内存
+- 对 Raster 算子的输入进行了改造，由 region 隐式输入修改为正常的多输入单输出
+- 量化计算实现中的量化/反量化过程重构为在线插入相应算子，并修正 prearrange 为 true 时，Module API 计算量化模型的结果错误问题
+- 移除 ComputeUnit / ComputeCache ，Executor 内部的计算改为使用 Session ，并延迟内存分配时机，修正模型转换过程中部分情况下占用内存过大的问题
+- 优化模型转换静态模型的导出，移除了图中无效算子
+### Bugfix
+- 修正 convolution transpose 3d 在 pad 为空时计算 crash 问题
+- 修正 cumsum 计算 int 输入的 bug
+- 修正 Onnx GatherND 算子转换不支持 batch_dims 的问题
+- 修正 Onnx Split 算子转换的默认值问题
+- 修正 Onnx permute 算子转换不支持 axis 为空的问题
+## 2.2.0
 ### 框架通用性
 - MNN新增对`ARMv8.6-A`指令支持，支持了`smmla`和`bfmmla`指令
 - MNN新增汇编预处理脚本，能够将汇编指令转换为`.inst`指令，降低新指令对编译器的依赖

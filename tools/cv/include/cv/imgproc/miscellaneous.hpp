@@ -16,6 +16,11 @@ namespace MNN {
 namespace CV {
 using namespace Express;
 
+enum AdaptiveThresholdTypes {
+    ADAPTIVE_THRESH_MEAN_C     = 0,
+    ADAPTIVE_THRESH_GAUSSIAN_C = 1
+};
+
 enum ThresholdTypes {
   THRESH_BINARY = 0,
   THRESH_BINARY_INV = 1,

@@ -2923,6 +2923,52 @@ array([[1., 3.],
 ```
 
 ---
+### `quant(var, scale, min=-128, max=127, zero=0)`
+量化，根据`scale`把float类型的输入量化为int8类型的输出，量化公式为：`y = clamp(x / scale + zero, min, max)`
+
+参数：
+- `var : Var` 输入变量，dtype为`float`, data_format为`NC4HW4`
+- `scale : Var` 量化的scale值，dtype为`float`
+- `min : int` 输出变量的最小值，默认为-128
+- `max : int` 输出变量的最大值，默认为127
+- `zero : int` 零点值，默认为0
+
+返回：量化后的int8类型变量
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> x = expr.const([1., 2., 3. ,4.], [4])
+>>> x = expr.convert(x, expr.NC4HW4)
+>>> expr.quant(x, 0.2, -128, 127)
+array([-128, -128, -127, -127], dtype=int8)
+```
+
+---
+### `dequant(var, scale, zero=0)`
+反量化，根据`scale`把int8类型的输入反量化为float类型的输出，量化公式为：`y = (x - zero) * scale`
+
+参数：
+- `var : Var` 输入变量，dtype为int8
+- `scale : Var` 反量化的scale值，dtype为float
+- `zero : int` 反量化的zero值，默认为0
+
+返回：反量化后的float类型变量
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> x = expr.const([-128, -128, -127, -127], [4], NCHW, expr.int8)
+>>> x = expr.convert(x, expr.NC4HW4)
+>>> expr.dequant(x, 0.2, 0)
+array([0. , 0. , 0.2, 0.2], dtype=float32)
+```
+
+---
 ### `histogram(input, binNum, minVal, maxVal)`
 计算输入变量在指定范围内的直方图分布
 
@@ -2963,3 +3009,44 @@ SSD检测模型后处理函数
 返回：后处理结果
 
 返回类型：`Var`
+
+---
+### `roi_pooling(input, roi, pooledHeight, pooledWidth, spatialScale, outputGrad, backwardDiff)`
+roi_pooling
+
+参数：
+- `input : Var` 输入变量，dtype为int8
+- `roi : Var` 反量化的scale值，dtype为float
+- `pooledHeight : int` 反量化的zero值，默认为0
+- `pooledWidth : int` 反量化的zero值，默认为0
+
+返回：roipooling结果
+
+返回类型：`Var`
+
+示例：
+
+```python
+TODO
+```
+
+---
+### `roi_align(input, roi, pooledHeight, pooledWidth, spatialScale, samplingRatio, aligned, poolType, outputGrad, backwardDiff)`
+
+roialign
+
+参数：
+- `input : Var` 输入变量，dtype为int8
+- `roi : Var` 反量化的scale值，dtype为float
+- `pooledHeight : int` pooling的
+- `pooledHeight : int` 反量化的zero值，默认为0
+
+返回：roialign结果
+
+返回类型：`Var`
+
+示例：
+
+```python
+TODO
+```
