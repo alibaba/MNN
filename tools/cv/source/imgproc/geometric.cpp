@@ -14,10 +14,8 @@ namespace MNN {
 namespace CV {
 
 std::pair<VARP, VARP> convertMaps(VARP map1, VARP map2, int dstmap1type, bool nninterpolation) {
-    MNN_ERROR("convertMaps NOT support NOW!");
-    VARP dstmap1 = _Cast<float>(map1);
-    VARP dstmap2 = _Cast<float>(map2);
-    return  { dstmap1, dstmap2 };
+    // just return src map
+    return  { map1, map2 };
 }
 
 Matrix getAffineTransform(const Point src[], const Point dst[]) {
@@ -58,6 +56,32 @@ Matrix getRotationMatrix2D(Point center, double angle, double scale) {
 
 extern std::pair<CV::ImageFormat, CV::ImageFormat> getSrcDstFormat(int code);
 extern int format2Channel(CV::ImageFormat format);
+
+VARP remap(VARP src, VARP map1, VARP map2, int interpolation, int borderMode, int borderValue) {
+    int oh, ow, oc;
+    getVARPSize(map1, &oh, &ow, &oc);
+    // src need float, NC4HW4, dims = 4
+    auto original_type = src->getInfo()->type;
+    src = _Convert(_Unsqueeze(src, {0}), NC4HW4);
+    src = _Cast(src, halide_type_of<float>());
+    // change remap matrix to gridsmaple matrix: y = (2 * x + 1) / num - 1
+    map1 = (map1 * _Scalar<float>(2) + _Scalar<float>(1)) / _Scalar<float>(ow) - _Scalar<float>(1);
+    map2 = (map2 * _Scalar<float>(2) + _Scalar<float>(1)) / _Scalar<float>(oh) - _Scalar<float>(1);
+    // grid need shape = {n, h, w, 2}
+    auto m1info = map1->getInfo();
+    auto grid = _Stack({map1, map2}, -1);
+    auto ginfo = grid->getInfo();
+    grid = _Unsqueeze(grid, {0});
+    ginfo = grid->getInfo();
+    auto method = InterpolationMethod::BILINEAR;
+    if (interpolation == 0) {
+        method = InterpolationMethod::NEAREST;
+    }
+    auto dst = _GridSample(src, grid, method);
+    dst = _Squeeze(_Convert(_Cast(dst, original_type), NHWC), {0});
+    auto info = dst->getInfo();
+    return dst;
+}
 
 VARP resize(VARP src, Size dsize, double fx, double fy, int interpolation, int code, std::vector<float> mean, std::vector<float> norm) {
     int ih, iw, ic;

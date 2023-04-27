@@ -690,32 +690,40 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     bool needBTranspose = (!mTransposeB && !hAlignment);
 
     mUseRRLayout = (!mTransposeB && hAlignment);
-    mNeedATempBuffer = (mTransposeA || !lAlignment);
-    mNeedBTempBuffer = (needBTranspose || !lAlignment);
+   
+    mNeedATempBuffer = (mTransposeA || !lAlignment) || mFp16Fp32MixInfer;
+    mNeedBTempBuffer = (needBTranspose || !lAlignment) || mFp16Fp32MixInfer;
     mNeedConvertMatAB = (mNeedATempBuffer || mNeedBTempBuffer);
 
     //MNN_PRINT("trAtrB:%d-%d, tmpAB:%d-%d inps:%d, bwlh:%d-%d-%d-%d\n", mTransposeA, mTransposeB, mNeedATempBuffer, mNeedBTempBuffer, inputs.size(), mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2]);
 
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     std::pair<void*, size_t> bufferAData, bufferBData;
-    if(mNeedConvertMatAB) {
-        size_t convertBytes = 2;
-        if(mFp32Infer) {
-            convertBytes = 4;
-        }
+    size_t convertBytes = 2;
+    if(mFp32Infer) {
+        convertBytes = 4;
+    }
+    if(mNeedATempBuffer) {
         bufferAData = pool->alloc(convertBytes * mBatch * mAs * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
         mTempMatA = (void*)((uint8_t*)bufferAData.first + bufferAData.second);
-
-        bufferBData = pool->alloc(convertBytes * mBatch * mBs * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
-        mTempMatB = (void*)((uint8_t*)bufferBData.first + bufferBData.second);
-
-        pool->free(bufferAData);
-        pool->free(bufferBData);
     } else {
         mTempMatA = (void *)A->deviceId();
+    }
+
+    if(mNeedBTempBuffer) {
+        bufferBData = pool->alloc(convertBytes * mBatch * mBs * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
+        mTempMatB = (void*)((uint8_t*)bufferBData.first + bufferBData.second);
+    } else {
         mTempMatB = (void *)B->deviceId();
     }
-    
+
+    if(bufferAData.first != nullptr) {
+        pool->free(bufferAData);
+    }
+    if(bufferBData.first != nullptr) {
+        pool->free(bufferBData);
+    }
+ 
     // inputSize only two, No need Bias, Fake address for mBiasPtr is ok because beta is zero.
     if(inputs.size() == 2) {
     	mBiasPtr = (void*)B->deviceId();

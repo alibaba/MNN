@@ -20,10 +20,12 @@ bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        std::string kernelName = "nchw_buffer_to_nc4hw4_buffer";
         if(needInpTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            kernelName = "nchw_buffer_to_nc4hw4_buffer_floatin";
         }
-        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer", buildOptions);
+        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
@@ -67,10 +69,12 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        std::string kernelName = "nhwc_buffer_to_nc4hw4_buffer";
         if(needInpTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            kernelName = "nhwc_buffer_to_nc4hw4_buffer_floatin";
         }
-        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nhwc_buffer_to_nc4hw4_buffer", buildOptions);
+        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
@@ -116,17 +120,20 @@ bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        std::string kernelName = "nc4hw4_buffer_to_nc4hw4_buffer";
         switch (formatTrans) {
             case InpTrans:
-                buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+                //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+                kernelName = "nc4hw4_buffer_to_nc4hw4_buffer_floatin";
                 break;
             case OutTrans:
-                buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+                //buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+                kernelName = "nc4hw4_buffer_to_nc4hw4_buffer_floatout";
                 break;
             default:
                 break;
         }
-        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
+        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
     uint32_t idx   = 0;
     int outputImageShape[2] = {input->height(), input->width()};
@@ -190,10 +197,12 @@ bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Ke
 
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        std::string kernelName = "nc4hw4_buffer_to_nchw_buffer";
         if(needOutTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+            //buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+            kernelName = "nc4hw4_buffer_to_nchw_buffer_floatout";
         }
-        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", buildOptions);
+        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
 
     uint32_t idx = 0;
@@ -239,10 +248,12 @@ bool convertNC4HW4BufferToNHWCBuffer(const Tensor *input, Tensor *output, cl::Ke
 
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        std::string kernelName = "nc4hw4_buffer_to_nhwc_buffer";
         if(needOutTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+            //buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+            kernelName = "nc4hw4_buffer_to_nhwc_buffer_floatout";
         }
-        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nhwc_buffer", buildOptions);
+        convertBufferKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
 
     uint32_t idx = 0;
@@ -310,7 +321,8 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
         mBufferToImageKernelName = kernelName;
         std::set<std::string> buildOptions;
         if(needTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+            kernelName += "_floatin";
         }
         mBufferToImageKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }

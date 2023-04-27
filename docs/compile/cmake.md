@@ -76,6 +76,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_IMGPROC_HISTOGRAMS | 构建MNN的OpenCV功能是否开启`直方图`，默认为`ON` |
 | MNN_CALIB3D          | 构建MNN的OpenCV功能是否开启`3d`，默认为`ON` |
 | MNN_IMGCODECS        | 构建MNN的OpenCV功能是否开启`图像编解码`，默认为`OFF` |
+| MNN_CVCORE           | 构建MNN的OpenCV功能是否开启`core`功能，默认为`ON` |
 | MNN_OPENCV_TEST      | 构建MNN的OpenCV功能是否开启单元测试，默认为`OFF` |
 | MNN_OPENCV_BENCH     | 构建MNN的OpenCV功能是否开启性能benchmark，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |

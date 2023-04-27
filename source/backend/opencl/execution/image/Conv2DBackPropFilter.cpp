@@ -26,6 +26,7 @@ Conv2DBackPropFilter::Conv2DBackPropFilter(const MNN::Op *op, Backend *backend) 
         mPaddings[0] = mPaddings[1] = 0;
     }
     mOp = op;
+    mOpType = op->type();
 }
 
 Conv2DBackPropFilter::~Conv2DBackPropFilter() {

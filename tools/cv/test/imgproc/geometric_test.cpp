@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
+#include "cv/imgcodecs.hpp"
 
 #ifdef MNN_GEOMETRIC_TEST
 
@@ -16,7 +17,24 @@ static Env<uint8_t> testEnv(img_name, false);
 
 // convertMaps
 TEST(convertMaps, basic) {
-    // TODO
+    const int h = testEnv.cvSrc.rows;
+    const int w = testEnv.cvSrc.cols;
+    cv::Mat mapx, mapy, map_x, map_y;
+    mapx.create(testEnv.cvSrc.size(), CV_32FC1);
+    mapy.create(testEnv.cvSrc.size(), CV_32FC1);
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            mapx.at<float>(j, i) = w - i;
+            mapy.at<float>(j, i) = h - j;
+        }
+    }
+    VARP mapX = _Const(mapx.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    VARP mapY = _Const(mapy.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    cv::convertMaps(mapx, mapy, map_x, map_y, CV_16SC2);
+    cv::remap(testEnv.cvSrc, testEnv.cvDst, map_x, map_y, INTER_LINEAR);
+    auto mapXY = convertMaps(mapX, mapY, CV_16SC2);
+    testEnv.mnnDst = remap(testEnv.mnnSrc, mapXY.first, mapXY.second, INTER_LINEAR);
+    EXPECT_TRUE(testEnv.equal());
 }
 
 // getAffineTransform
@@ -99,6 +117,49 @@ TEST(invertAffineTransform, basic) {
     EXPECT_TRUE(testEnv.equal(cvDst, mnnDst));
 }
 
+// remap
+TEST(remap, rotate) {
+    const int h = testEnv.cvSrc.rows;
+    const int w = testEnv.cvSrc.cols;
+    cv::Mat mapx, mapy;
+    mapx.create(testEnv.cvSrc.size(), CV_32FC1);
+    mapy.create(testEnv.cvSrc.size(), CV_32FC1);
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            mapx.at<float>(j, i) = w - i;
+            mapy.at<float>(j, i) = h - j;
+        }
+    }
+    VARP mapX = _Const(mapx.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    VARP mapY = _Const(mapy.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    cv::remap(testEnv.cvSrc, testEnv.cvDst, mapx, mapy, INTER_LINEAR);
+    testEnv.mnnDst = remap(testEnv.mnnSrc, mapX, mapY, INTER_LINEAR);
+    EXPECT_TRUE(testEnv.equal());
+}
+
+TEST(remap, scale) {
+    const int h = testEnv.cvSrc.rows;
+    const int w = testEnv.cvSrc.cols;
+    cv::Mat mapx, mapy;
+    mapx.create(testEnv.cvSrc.size(), CV_32FC1);
+    mapy.create(testEnv.cvSrc.size(), CV_32FC1);
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            if (i > w * 0.25 && i < w * 0.75 && j > h * 0.25 && j < h * 0.75) {
+                mapx.at<float>(j, i) = 2 * (i - w * 0.25) + 0.5;
+                mapy.at<float>(j, i) = 2 * (j - h * 0.25) + 0.5;
+            } else {
+                mapx.at<float>(j, i) = 0;
+                mapy.at<float>(j, i) = 0;
+            }
+        }
+    }
+    VARP mapX = _Const(mapx.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    VARP mapY = _Const(mapy.ptr(), {h, w}, NHWC, halide_type_of<float>());
+    cv::remap(testEnv.cvSrc, testEnv.cvDst, mapx, mapy, INTER_LINEAR);
+    testEnv.mnnDst = remap(testEnv.mnnSrc, mapX, mapY, INTER_LINEAR);
+    EXPECT_TRUE(testEnv.equal());
+}
 // resize
 TEST(resize, x3_x0_5) {
     cv::resize(testEnv.cvSrc, testEnv.cvDst, cv::Size(), 3, 0.5);

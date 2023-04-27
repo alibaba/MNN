@@ -31,7 +31,7 @@ EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const st
     : CommonExecution(backend), mCompute(compute) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
     mOp = op;
-
+    mOpType = op->type();
 }
 
 uint32_t EltwiseExecution::realSize(const Tensor* tensor) {

@@ -236,6 +236,21 @@ ROTATE_90_COUNTERCLOCKWISE = 2
 # solvePnP
 SOLVEPNP_ITERATIVE = 0
 SOLVEPNP_SQPNP = 8
+# decomp types
+DECOMP_LU = 0
+DECOMP_SVD = 1
+DECOMP_EIG = 2
+DECOMP_CHOLESKY = 3
+DECOMP_QR = 4
+DECOMP_NORMAL = 16
+# norm tyes
+NORM_INF = 1
+NORM_L1 = 2
+NORM_L2 = 4
+NORM_MINMAX = 32
+# adaptive threshold types
+ADAPTIVE_THRESH_MEAN_C = 0
+ADAPTIVE_THRESH_GAUSSIAN_C = 1
 # helper functions
 def __to_int(x):
     dtype = x.dtype
@@ -327,3 +342,45 @@ def rotate(src, rotateMode):
     if rotateMode == ROTATE_90_COUNTERCLOCKWISE:
         return flip(src.transpose([1, 0, 2]), 0)
     return src
+def normalize(src, dst, alpha=None, beta=None, norm_type=None, dtype=None, mask=None):
+    dtype = src.dtype
+    if norm_type == NORM_INF:
+        dst = src / _expr.reduce_max(src)
+    if norm_type == NORM_L1:
+        dst = src / _expr.reduce_sum(src)
+    if norm_type == NORM_L2:
+        dst = src / _expr.sqrt(_expr.reduce_sum(src * src))
+    if norm_type == NORM_MINMAX:
+        dmin, dmax = min(alpha, beta), max(alpha, beta)
+        smin, smax = _expr.reduce_min(src), _expr.reduce_max(src)
+        scale = (dmax - dmin) * 1./(smax - smin)
+        shift = dmin - smin * scale
+        dst = src * scale + shift
+    if dtype == _np.uint8:
+        dst = _expr.minimum(_expr.maximum(_expr.round(dst), 0), 255)
+    return _expr.cast(dst, dtype)
+def merge(mv):
+    shape = mv[0].shape
+    if len(shape) > 3:
+        return _np.stack(mv, -1)
+    expand_dim = None
+    if len(shape) == 1:
+        expand_dim = [1, 2]
+    elif len(shape) == 2:
+        expand_dim = [2]
+    if expand_dim is not None:
+        mv = [_np.expand_dims(m, expand_dim) for m in mv]
+    return _np.concatenate(mv, 2)
+def split(m):
+    shape = m.shape
+    if len(shape) == 3:
+        dst = _expr.split(m, [1]*shape[2], -1)
+        dst = [_expr.squeeze(d, -1) for d in dst]
+        return dst
+    if len(shape) == 1:
+        m = _expr.unsqueeze(m, 1)
+    return (m,)
+def addWeighted(src1, alpha, src2, beta, gamma):
+    dtype = src1.dtype
+    dst = src1 * alpha + src2 * beta + gamma
+    return dst.astype(dtype)

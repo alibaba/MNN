@@ -51,6 +51,7 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     copyBufferToImage(mOpenCLBackend->getOpenCLRuntime(), preluBuffer, openCLImage(mPreluParam.get()),
                       UP_DIV(preluSize, 4), 1);
     mOp = op;
+    mOpType = op->type();
 }
 ReluExecution::~ReluExecution() {
     backend()->onReleaseBuffer(mPreluParam.get(), Backend::STATIC);

@@ -29,6 +29,9 @@ MNN_PUBLIC VARP boxFilter(VARP src, int ddepth, Size ksize,
 MNN_PUBLIC VARP dilate(VARP src, VARP kernel,
                        int iterations = 1, int borderType = CONSTANT);
 
+MNN_PUBLIC VARP erode(VARP src, VARP kernel,
+                      int iterations = 1, int borderType = CONSTANT);
+
 MNN_PUBLIC VARP filter2D(VARP src, int ddepth, VARP kernel,
                          double delta = 0, int borderType = REFLECT);
 

@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CutlassCommonExecution.hpp"
+#include "CutlassConvCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
-ErrorCode CutlassCommonExecution::callCutlassGemmTensorCore884(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
+ErrorCode CutlassConvCommonExecution::callCutlassGemmTensorCore884(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
     ElementInput_F16 *inputA_ptr = mNeedIm2Col ? (ElementInput_F16 *)mIm2ColBuffer : (ElementInput_F16 *)input->deviceId();

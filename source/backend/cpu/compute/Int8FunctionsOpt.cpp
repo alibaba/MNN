@@ -26,6 +26,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
+
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                          const QuanPostTreatParameters* post, size_t realDstCount);
@@ -1572,6 +1573,133 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
         srcPtr = srcPtr + pack* stridesx;
     }
 }
+
+void MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float sum = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            sum = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+        } else if (needBroadcast == 1) {
+            sum = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+        } else {
+            sum = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+        }
+        float value  = sum * outputScale[i];
+        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+    }
+}
+
+void MNNBinarySubInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            res = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+        } else if (needBroadcast == 1) {
+            res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+        } else {
+            res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+        }
+        float value  = res * outputScale[i];
+        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+    }
+}
+
+void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                res = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            } else if (needBroadcast == 1) {
+                res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            } else {
+                res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            }
+            float value  = res * outputScale[i];
+            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        }
+}
+
+void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                res = std::min(static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+            } else if (needBroadcast == 1) {
+                res = std::min(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i]);
+            } else {
+                res = std::min(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+            }
+            float value  = res * outputScale[i];
+            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        }
+}
+
+void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                res = std::max(static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+            } else if (needBroadcast == 1) {
+                res = std::max(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i]);
+            } else {
+                res = std::max(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+            }
+            float value  = res * outputScale[i];
+            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        }
+}
+void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0, inp0 = 0, inp1 = 0;
+#ifdef MNN_USE_SSE
+    const uint8_t zeroPoint = 128;
+#else
+    const uint8_t zeroPoint = 0;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        } else if (needBroadcast == 1) {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        } else {
+            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
+            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        }
+        float value  = res * outputScale[i];
+        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+    }
+}
+
+
 
 #endif // #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE

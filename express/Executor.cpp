@@ -119,6 +119,7 @@ void Executor::gc(GCFlag flag) {
         iter.second->onGabageCollect(level);
     }
 }
+
 Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread) {
     mRuntimes.insert(std::make_pair(std::make_pair(type, numberThread), backend));
     mAttr.reset(new ExecutorAttr);
@@ -261,6 +262,8 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
         mInside->modes.callBackMode = mode;
     } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
         mInside->modes.resizeMode = mode;
+    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
+        mInside->modes.memoryUsageMode = mode;
     }
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
@@ -544,6 +547,12 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
             opInfo.outputs[i] = tensor.get();
             auto srcTensor = expr->inside()->mOutputTensors[i];
             TensorUtils::copyShape(srcTensor, tensor.get(), true, true);
+            if (TensorUtils::getDescribe(srcTensor)->quantAttr.get()) {
+                TensorUtils::getDescribe(tensor.get())->quantAttr.reset(new QuantAttr);
+                auto quant = TensorUtils::getDescribe(tensor.get())->quantAttr.get();
+                quant->scale = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->scale;
+            }
+            
             TensorUtils::getDescribe(tensor.get())->index = (int)scheduleInfo.allTensors.size();
             scheduleInfo.allTensors.emplace_back(tensor);
         }
@@ -581,6 +590,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     group.inputMode = Interpreter::Session_Input_User;
     group.outputMode = Interpreter::Session_Output_User;
     group.callBackMode = Interpreter::Session_Release;
+    group.memoryUsageMode = Interpreter::Session_Memory_Cache;
     std::shared_ptr<ComputeCache> cahce(new ComputeCache);
     for (auto& iter : dstExpr) {
         auto expr = iter.first;

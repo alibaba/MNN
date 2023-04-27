@@ -26,6 +26,10 @@ private:
     int mInside;
     int mOutside;
     int mDim;
+    bool mSplitKernel = false;
+    int mSecondArgLen;
+    void *mTempDataBuffer;
+    void *mTempIndexBuffer;
 };
 } // namespace CUDA
 } // namespace MNN

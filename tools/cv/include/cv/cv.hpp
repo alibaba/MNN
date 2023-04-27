@@ -10,6 +10,7 @@
 #define CV_HPP
 
 #include "types.hpp"
+#include "core.hpp"
 #include "calib3d.hpp"
 #include "imgcodecs.hpp"
 #include "imgproc/imgproc.hpp"

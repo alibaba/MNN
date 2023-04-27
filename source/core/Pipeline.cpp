@@ -74,9 +74,8 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             } else {
                 return false;
             }
-        case OpType_BinaryOp:
-            return type == MNN_FORWARD_NN;
-            return false;
+       case OpType_BinaryOp:
+           return true;
     }
     return false;
 }

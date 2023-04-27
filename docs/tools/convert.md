@@ -12,6 +12,20 @@ Usage:
   -f, --framework arg           需要进行转换的模型类型, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH, JSON]
   
       --modelFile arg           需要进行转换的模型文件名, ex: *.pb,*caffemodel
+
+      --batch arg               如果模型时输入的batch是动态的，可以指定转换后的batch数
+
+      --keepInputFormat         是否保持原始模型的输入格式，默认为：否；
+
+      --optimizeLevel arg       图优化级别，默认为1：
+                                    - 0： 不执行图优化，仅针对原始模型是MNN的情况；
+                                    - 1： 保证优化后针对任何输入正确；
+                                    - 2： 保证优化后对于常见输入正确，部分输入可能出错；
+
+      --optimizePrefer arg      图优化选项，默认为0：
+                                    - 0：正常优化
+                                    - 1：优化后模型尽可能小；
+                                    - 2：优化后模型尽可能快；
       
       --prototxt arg            caffe模型结构描述文件, ex: *.prototxt
       
@@ -37,22 +51,40 @@ Usage:
                                 使用MNN模型压缩工具箱生成的模型压缩信息文件
                                 
       --saveStaticModel         固定输入形状，保存静态模型， default: false
-      
+
+      --targetVersion arg       兼容旧的推理引擎版本，例如：1.2f
+
+      --customOpLibs arg        用户自定义Op库，用于TorchScript模型中自定义算子的实现，如：libmy_add.so
+
+      --info                    当-f MNN时，打印模型基本信息（输入名、输入形状、输出名、模型版本等）
+
+      --authCode arg            认证信息，指定模型的认证信息，可用于鉴权等逻辑
+
       --inputConfigFile arg     保存静态模型所需要的配置文件, ex: ~/config.txt。文件格式为：
                                 input_names = input0,input1
                                 input_dims = 1x3x224x224,1x3x64x64
-      --JsonFile arg            当-f MNN并指定JsonFile时，可以将MNN模型转换为Json文件
-      --info                    当-f MNN时，打印模型基本信息（输入名、输入形状、输出名、模型版本等）
+
       --testdir arg             测试转换 MNN 之后，MNN推理结果是否与原始模型一致。
                                 arg 为测试数据的文件夹，生成方式参考 "正确性校验" 一节
+
       --thredhold arg           当启用 --testdir 后，设置正确性校验的误差允可范围
                                 若不设置，默认是 0.01
+
+      --JsonFile arg            当-f MNN并指定JsonFile时，可以将MNN模型转换为Json文件
+
+      --alignDenormalizedValue arg
+                                可选值：{0, 1}， 默认为1, 当`float(|x| < 1.18e-38)`会被视为0
+
+      --detectSparseSpeedUp arg
+                                可选值：{0, 1}， 默认为1, 会检测权重是否使用稀疏化加速
+
       --saveExternalData        将权重，常量等数据存储在额外文件中，默认为`false`
 ```
 **说明1: 选项benchmarkModel将模型中例如卷积的weight，BN的mean、var等参数移除，减小转换后模型文件大小，在运行时随机初始化参数，以方便测试模型的性能。**
 
 **说明2: 选项weightQuantBits，使用方式为 --weightQuantBits numBits，numBits可选2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，运行速度和float32模型一致。经内部测试8bit时精度基本无损，模型大小减小4倍。default: 0，即不进行权值量化。**
 
+**说明3：如果使用Android JNI的Java接口开发，因为接口中不提供`copyFromHost`功能，所以需要在转换模型时使用`keepInputFormat`**
 
 ## 其他模型转换到MNN
 ### TensorFlow to MNN

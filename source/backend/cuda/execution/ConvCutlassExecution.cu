@@ -88,7 +88,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 ConvCutlassExecution::Resource::~Resource() {
     // Do nothing
 }
-ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : CutlassCommonExecution(backend) {
+ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : CutlassConvCommonExecution(backend) {
     mOp = op;
     mResource = res;
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();

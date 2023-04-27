@@ -13,12 +13,12 @@
 #include "CutlassGemmParam.hpp"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
-#include "cutlass/CutlassCommonExecution.hpp"
+#include "cutlass/CutlassConvCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
 
-class ConvCutlassExecution : public CutlassCommonExecution {
+class ConvCutlassExecution : public CutlassConvCommonExecution {
 public:
     struct Resource {
         Resource(Backend* bn, const MNN::Op* op);

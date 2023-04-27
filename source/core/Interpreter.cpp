@@ -165,6 +165,8 @@ void Interpreter::setSessionMode(SessionMode mode) {
         mNet->modes.callBackMode = mode;
     } else if (mode == Session_Resize_Direct || mode == Session_Resize_Defer) {
         mNet->modes.resizeMode = mode;
+    } else if(mode == Session_Memory_Collect || mode == Session_Memory_Cache) {
+        mNet->modes.memoryUsageMode = mode;
     }
 }
 

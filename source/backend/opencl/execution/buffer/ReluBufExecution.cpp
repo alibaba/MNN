@@ -52,6 +52,7 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(preluBuffer, preluDataPtrCL);
         
     mOp = op;
+    mOpType = op->type();
 }
 
 ReluBufExecution::~ReluBufExecution() {

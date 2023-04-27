@@ -16,14 +16,8 @@ class StridedSliceComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
-        // write to input
-        if (inputs.size() == 5) {
-            TensorUtils::copyShape(inputs[0], outputs[0], true);
-            outputs[0]->buffer().type = inputs[0]->buffer().type;
-            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-            return true;
-        }
-        MNN_ASSERT(4 <= inputs.size());
+        MNN_ASSERT(3 <= inputs.size());
+        MNN_ASSERT(5 >= inputs.size());
         MNN_ASSERT(1 == outputs.size());
         
         Tensor *input            = inputs[0];
@@ -37,6 +31,15 @@ public:
         int32_t shrinkAxisMask = parameter->shrinkAxisMask();
         int32_t ellipsisMask = parameter->ellipsisMask();
         int32_t newAxisMask = parameter->newAxisMask();
+        int32_t fromType = parameter->fromType();
+
+        // write to input
+        if (fromType == 0 && inputs.size() == 5) {
+            TensorUtils::copyShape(inputs[0], outputs[0], true);
+            outputs[0]->buffer().type = inputs[0]->buffer().type;
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            return true;
+        }
         if (ellipsisMask && (ellipsisMask & (ellipsisMask - 1))) {
             MNN_ERROR("only one non-zero bit is allowed in ellipsisMask\n");
             return false;
@@ -44,24 +47,25 @@ public:
 
         Tensor *begin   = inputs[1];
         Tensor *end     = inputs[2];
-        Tensor *strided = inputs[3];
+
+        int32_t strideSize = begin->length(0);
         auto output    = outputs[0];
 
-        MNN_ASSERT(begin->buffer().dimensions == end->buffer().dimensions &&
-                   begin->buffer().dimensions == strided->buffer().dimensions);
-
+        MNN_ASSERT(begin->buffer().dimensions == end->buffer().dimensions);
         int32_t inputShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t begins[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t ends[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t strides[MNN_MAX_TENSOR_DIM] = { 0 };
+        int32_t axes[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t beginMasks[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t endMasks[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t shrinkAxisMasks[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t newAxisMasks[MNN_MAX_TENSOR_DIM] = { 0 };
-        int strideSize = begin->length(0);
+
         for (int i = 0; i < inputDim; i++) {
             inputShape[i] = input->length(i);
         }
+
         for (int i = 0; i < strideSize; i++) {
             beginMasks[i] = beginMask & (1 << i);
         }
@@ -75,62 +79,119 @@ public:
             newAxisMasks[i] = newAxisMask & (1 << i);
         }
 
-        // deal ellipsis, expand strides info
-        if (ellipsisMask > 0) {
-            int32_t beginMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
-            int32_t endMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
-            int32_t shrinkAxisMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
-            int32_t newAxisMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
-            // expand stride info
-            int ellipsisPos = -1;
+        for(int i = 0; i < inputDim; i++) {
+            begins[i] = 0;
+            ends[i] = inputShape[i];
+            strides[i] = 1;
+        }
+        
+        // broadcast begin end stride axis param
+        if (fromType == 1) {
+
+            Tensor *axis = nullptr;
+            if(inputs.size() >= 4) {
+                axis = inputs[3];
+            }
+
+            Tensor *step = nullptr;
+            if(inputs.size() == 5) {
+                step = inputs[4];
+            }
+
+            for(int i = 0; i < inputDim; i++) {
+                begins[i] = 0;
+                ends[i] = inputShape[i];
+                strides[i] = 1;
+            }
+        
             for (int i = 0; i < strideSize; i++) {
-                int temp = ellipsisMask & (1 << i);
-                if (temp != 0) {
-                    ellipsisPos = i;
-                    break;
+                auto temp_axis = i;
+                if(axis != nullptr) {
+                    temp_axis = axis->host<int>()[i];
+                    temp_axis = temp_axis < 0 ? (temp_axis + inputDim) : temp_axis;
+                    MNN_ASSERT(temp_axis < MNN_MAX_TENSOR_DIM);
                 }
-            }
-            MNN_ASSERT(ellipsisPos >= 0 && ellipsisPos < strideSize);
-            /*
-             Example: foo's dim is [2, 3, 4, 5, 6, 7], foo[0:2, :, 3:5, 3:6]:
-                1. strideSize = 4, inputDim = 6, ellipsis = 2(0010)
-                2. left part: 0:2, right part: 3:5, 3:6
-                3. expand: foo[0:2, 0:3, 0:4, 3:5, 3:6]
-             */
-            int ellpsisSize = inputDim - strideSize, strideIdx = 0;
-            for (int i = 0; i < inputDim; i++) {
-                if (i == ellipsisPos) {
-                    strideIdx++;
+                if(step != nullptr) {
+                    strides[temp_axis] = step->host<int>()[i];
                 }
-                if (i >= ellipsisPos && i <= ellipsisPos + ellpsisSize) {
-                    begins[i] = 0;
-                    ends[i] = inputShape[i];
-                    strides[i] = 1;
-                    beginMasksTmp[i] = 0;
-                    endMasksTmp[i] = 0;
-                    shrinkAxisMasksTmp[i] = 0;
-                } else {
-                    begins[i] = begin->host<int32_t>()[strideIdx];
-                    ends[i] = end->host<int32_t>()[strideIdx];
-                    strides[i] = strided->host<int32_t>()[strideIdx];
-                    beginMasksTmp[i] = beginMasks[strideIdx];
-                    endMasksTmp[i] = endMasks[strideIdx];
-                    shrinkAxisMasksTmp[i] = shrinkAxisMasks[strideIdx];
-                    newAxisMasksTmp[i] = newAxisMasks[strideIdx++];
-                }
-            }
-            for (int i = 0; i < inputDim; i++) {
-                beginMasks[i] = beginMasksTmp[i];
-                endMasks[i] = endMasksTmp[i];
-                shrinkAxisMasks[i] = shrinkAxisMasksTmp[i];
-                newAxisMasks[i] = newAxisMasksTmp[i];
+                
+                auto shape = inputShape[temp_axis];
+                auto temp_value = begin->host<int>()[i];
+                temp_value = temp_value < 0 ? (temp_value + shape) : temp_value;
+                begins[temp_axis] = temp_value;
+                
+                temp_value = end->host<int>()[i];
+                temp_value = temp_value < 0 ? (temp_value + shape) : temp_value;
+                ends[temp_axis] = temp_value;
             }
             strideSize = inputDim;
-        } else {
-            for (int i = 0; i < strideSize; i++) {
-                begins[i] = begin->host<int>()[i];
-                ends[i] = end->host<int>()[i];
-                strides[i] = strided->host<int>()[i];
+
+        } else if(fromType == 0) {
+
+            Tensor *strided = nullptr;
+            if(inputs.size() >= 4) {
+                strided = inputs[3];
+                MNN_ASSERT(begin->buffer().dimensions == strided->buffer().dimensions);
+            }
+            // deal ellipsis, expand strides info
+            if (ellipsisMask > 0) {
+                int32_t beginMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
+                int32_t endMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
+                int32_t shrinkAxisMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
+                int32_t newAxisMasksTmp[MNN_MAX_TENSOR_DIM] = { 0 };
+                // expand stride info
+                int ellipsisPos = -1;
+                for (int i = 0; i < strideSize; i++) {
+                    int temp = ellipsisMask & (1 << i);
+                    if (temp != 0) {
+                        ellipsisPos = i;
+                        break;
+                    }
+                }
+                MNN_ASSERT(ellipsisPos >= 0 && ellipsisPos < strideSize);
+                /*
+                Example: foo's dim is [2, 3, 4, 5, 6, 7], foo[0:2, :, 3:5, 3:6]:
+                    1. strideSize = 4, inputDim = 6, ellipsis = 2(0010)
+                    2. left part: 0:2, right part: 3:5, 3:6
+                    3. expand: foo[0:2, 0:3, 0:4, 3:5, 3:6]
+                */
+                int ellpsisSize = inputDim - strideSize, strideIdx = 0;
+                for (int i = 0; i < inputDim; i++) {
+                    if (i == ellipsisPos) {
+                        strideIdx++;
+                    }
+                    if (i >= ellipsisPos && i <= ellipsisPos + ellpsisSize) {
+                        begins[i] = 0;
+                        ends[i] = inputShape[i];
+                        strides[i] = 1;
+                        beginMasksTmp[i] = 0;
+                        endMasksTmp[i] = 0;
+                        shrinkAxisMasksTmp[i] = 0;
+                    } else {
+                        begins[i] = begin->host<int32_t>()[strideIdx];
+                        ends[i] = end->host<int32_t>()[strideIdx];
+                        if(strided != nullptr) {
+                            strides[i] = strided->host<int32_t>()[strideIdx];
+                        }
+                        beginMasksTmp[i] = beginMasks[strideIdx];
+                        endMasksTmp[i] = endMasks[strideIdx];
+                        shrinkAxisMasksTmp[i] = shrinkAxisMasks[strideIdx];
+                        newAxisMasksTmp[i] = newAxisMasks[strideIdx++];
+                    }
+                }
+                for (int i = 0; i < inputDim; i++) {
+                    beginMasks[i] = beginMasksTmp[i];
+                    endMasks[i] = endMasksTmp[i];
+                    shrinkAxisMasks[i] = shrinkAxisMasksTmp[i];
+                    newAxisMasks[i] = newAxisMasksTmp[i];
+                }
+                strideSize = inputDim;
+            } else {
+                for (int i = 0; i < strideSize; i++) {
+                    begins[i] = begin->host<int>()[i];
+                    ends[i] = end->host<int>()[i];
+                    strides[i] = strided->host<int>()[i];
+                }
             }
         }
 
@@ -224,10 +285,10 @@ public:
 
         output->buffer().dimensions    = outputShapeShrinkSize;
         output->buffer().type          = input->buffer().type;
-
         for (int i = 0; i < outputShapeShrinkSize; i++) {
             output->buffer().dim[i].extent = outputShapeShrinked[i];
         }
+
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }

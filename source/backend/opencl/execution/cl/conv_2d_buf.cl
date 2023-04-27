@@ -64,7 +64,7 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
     const int in_h_idx_end = min(mad24(filter_hw.x, dilate_hw.x, in_h_idx_base), in_hw.x);
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + kw_start) * 4;
@@ -141,7 +141,7 @@ void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
     const int in_h_idx_end = min(mad24(filter_hw.x, dilate_hw.x, in_h_idx_base), in_hw.x);
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
@@ -235,7 +235,7 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS
     const int in_h_idx_end = min(mad24(filter_hw.x, dilate_hw.x, in_h_idx_base), in_hw.x);
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
@@ -342,7 +342,7 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     (((out_b_idx*in_c_block)*out_h + out_h_idx)* out_w + intput_width_idx0) << 2;
     
     const int inp_add = out_h*out_w*4;
-    for (ushort in_channel_block_idx = 0; in_channel_block_idx < (ushort)IN_C_BLOCK; ++in_channel_block_idx) {
+    for (ushort in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
 
         FLOAT4 in0 = vload4(0, input+inp_offset);
         FLOAT4 in1 = vload4(1, input+inp_offset);;
@@ -450,7 +450,7 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
 
     const int intput_width_idx0 = out_w4_idx;
     
-    for (int in_channel_block_idx = 0; in_channel_block_idx < IN_C_BLOCK; ++in_channel_block_idx) {
+    for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
         int input_width_base  = mul24(in_channel_block_idx, out_w);
 
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
@@ -610,7 +610,7 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
 
     const int intput_width_idx0 = out_w2_idx;
     
-    for (int in_channel_block_idx = 0; in_channel_block_idx < IN_C_BLOCK; ++in_channel_block_idx) {
+    for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
         int input_width_base  = mul24(in_channel_block_idx, out_w);
 
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
@@ -870,7 +870,7 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
     const int in_hw_size = in_hw.x * in_hw.y;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
@@ -991,7 +991,7 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS
     const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
     const int weight_ic_offset = out_c_blocks * weight_oc_offset;
     const int in_hw_size = in_hw.x * in_hw.y;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
@@ -1167,7 +1167,7 @@ void conv_2d_c8h2w1(GLOBAL_SIZE_2_DIMS
     const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
     const int weight_ic_offset = out_c_blocks * weight_oc_offset;
     const int in_hw_size = in_hw.x * in_hw.y;
-    for(ushort in_c_idx = 0; in_c_idx < (ushort)IN_C_BLOCK; in_c_idx++) {
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
