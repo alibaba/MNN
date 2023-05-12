@@ -83,7 +83,7 @@
 - 编译命令
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_BENCHMARK=ON
+    cmake .. -DMNN_BUILD_QUANTOOLS=ON
     make -j4
     ```
 - 编译产物
