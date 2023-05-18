@@ -48,7 +48,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     if (config.benchmarkModel) {
         removeParams(netT);
     }
-
+    if (config.compressionParamsFile != "") {
+        channelPruneConvert(netT, proto);
+    }
     if (config.saveHalfFloat) {
         castParamsToHalf(netT);
     }

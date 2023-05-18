@@ -399,17 +399,21 @@ bool TensorUtils::isDepthToSpaceRegions(const Tensor* output) {
 }
 
 // compute offset through region
-static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, bool backward) {
+static inline int offsetCompute(const Tensor::InsideDescribe::Region& reg, int offset, bool backward) {
+    Tensor::InsideDescribe::View src;
+    Tensor::InsideDescribe::View dst;
     if (backward) {
-        auto tmp = reg.src;
-        reg.src = reg.dst;
-        reg.dst = tmp;
+        src = reg.dst;
+        dst = reg.src;
+    } else {
+        src = reg.src;
+        dst = reg.dst;
     }
     int res = 0;
     for (int i = 0; i < 3; i++) {
         if (reg.size[i] > 1) {
-            res += offset / reg.src.stride[i] * reg.dst.stride[i];
-            offset %= reg.src.stride[i];
+            res += offset / src.stride[i] * dst.stride[i];
+            offset %= src.stride[i];
         }
     }
     return res;
@@ -459,6 +463,23 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     dst->buffer().device = src->buffer().device;
     des->extra.offset = srcDes->extra.offset;
     return needMalloc;
+}
+
+static bool _RegionValid(int* stride, int offset, int* size, int sizeNum, size_t limitSize) {
+    int maxOffset = offset;
+    int minOffset = offset;
+    // Check start and end
+    for (int i=0; i<sizeNum; ++i) {
+        if (stride[i] > 0) {
+            maxOffset += (stride[i] * (size[i] - 1));
+        } else {
+            minOffset += (stride[i] * (size[i] - 1));
+        }
+    }
+    if (minOffset < 0 || maxOffset >= limitSize) {
+        return false;
+    }
+    return true;
 }
 
 // fuse srcRegion and dstRegion to dstRegion if return true
@@ -573,6 +594,14 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     }
     // set final size and set expandIdx if expand val is 1
     int expandIdx = -1;
+    int newSrcOffset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
+    if (nullptr != srcReg.origin) {
+        bool valid = _RegionValid(newSrc, newSrcOffset, dstSize, dstNum, TensorUtils::getRawSize(srcReg.origin));
+        if (!valid) {
+            // Exceed src range
+            return false;
+        }
+    }
     if (dstNum > sizeNum) {
         for (int i = 2; i >= 0; i--) {
             if (i < dstNum) {
@@ -654,7 +683,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         }
     }
     dstReg.origin = srcReg.origin;
-    dstReg.src.offset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
+    dstReg.src.offset = newSrcOffset;
     return true;
 }
 void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
@@ -680,70 +709,6 @@ Tensor::DimensionType TensorUtils::getDimType(const Tensor* t) {
     return Tensor::TENSORFLOW;
 }
 
-halide_type_t TensorUtils::DataTypeToHalideType(DataType t) {
-    switch (t) {
-        case DataType_DT_DOUBLE:
-        case DataType_DT_FLOAT:
-            return halide_type_of<float>();
-        case DataType_DT_BFLOAT16:
-            return halide_type_t(halide_type_float, 16);
-        case DataType_DT_QINT32:
-        case DataType_DT_INT32:
-        case DataType_DT_BOOL:
-        case DataType_DT_INT64:
-            return halide_type_of<int32_t>();
-        case DataType_DT_QINT8:
-        case DataType_DT_INT8:
-            return halide_type_of<int8_t>();
-        case DataType_DT_QUINT8:
-        case DataType_DT_UINT8:
-            return halide_type_of<uint8_t>();
-        case DataType_DT_QUINT16:
-        case DataType_DT_UINT16:
-            return halide_type_of<uint16_t>();
-        case DataType_DT_QINT16:
-        case DataType_DT_INT16:
-            return halide_type_of<int16_t>();
-        case DataType_DT_STRING:
-        default:
-            MNN_PRINT("Unsupported data type!");
-            MNN_ASSERT(false);
-            return halide_type_of<float>();
-    }
-}
-
-DataType TensorUtils::HaildeTypeToDataType(halide_type_t t) {
-    if (t == halide_type_of<int8_t>()) {
-        return DataType_DT_INT8;
-    }
-    if (t == halide_type_of<int16_t>()) {
-        return DataType_DT_INT16;
-    }
-    if (t == halide_type_of<int32_t>()) {
-        return DataType_DT_INT32;
-    }
-    if (t == halide_type_of<int64_t>()) {
-        return DataType_DT_INT64;
-    }
-    if (t == halide_type_of<uint8_t>()) {
-        return DataType_DT_UINT8;
-    }
-    if (t == halide_type_of<uint16_t>()) {
-        return DataType_DT_UINT16;
-    }
-    if (t == halide_type_t(halide_type_float, 16)) {
-        return DataType_DT_BFLOAT16;
-    }
-    if (t == halide_type_of<float>()) {
-        return DataType_DT_FLOAT;
-    }
-    if (t == halide_type_of<double>()) {
-        return DataType_DT_DOUBLE;
-    }
-    MNN_PRINT("Unsupported data type!");
-    MNN_ASSERT(false);
-    return DataType_DT_INVALID;
-}
 std::vector<float> TensorUtils::getQuantInfo(const Tensor* t) {
     float scale = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->scale : 0.0f;
     float zero = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->zero : 0.0f;

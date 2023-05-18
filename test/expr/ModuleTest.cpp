@@ -689,9 +689,18 @@ public:
         auto bufferOutput = builderOutput.GetBufferPointer();
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
+        config.numThread = 1;
+        int runTime = 5;
+        auto s0 = net->createSession(config);
+        {
+            AUTOTIME;
+            for (int t = 0; t < runTime; ++t) {
+                net->runSession(s0);
+            }
+        }
+        net->releaseSession(s0);
         config.numThread = 4;
         auto s1 = net->createSession(config);
-        int runTime = 10;
         {
             AUTOTIME;
             for (int t = 0; t < runTime; ++t) {
@@ -699,7 +708,6 @@ public:
             }
         }
         net->releaseSession(s1);
-        net = nullptr;
         std::vector<std::thread> allThreads;
         for (int i = 0; i < 4; ++i) {
             allThreads.emplace_back(std::thread([runTime, i, bufferOutput, sizeOutput] {
@@ -722,6 +730,31 @@ public:
         for (auto& t : allThreads) {
             t.join();
         }
+        for (int i=0; i<3; ++i) {
+            auto rt = Interpreter::createRuntime({config});
+            auto s0 = net->createSession(config, rt);
+            auto s1 = net->createSession(config, rt);
+            int numberThread = 0;
+            net->getSessionInfo(s0, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+            if (numberThread != 4) {
+                FUNC_PRINT(i);
+                return false;
+            }
+            net->getSessionInfo(s1, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+            if (numberThread != 4) {
+                FUNC_PRINT(i);
+                return false;
+            }
+            {
+                AUTOTIME;
+                for (int t = 0; t < runTime; ++t) {
+                    net->runSession(s0);
+                }
+            }
+            net->releaseSession(s0);
+            net->releaseSession(s1);
+        }
+
         return true;
     }
     virtual bool run(int precision) {

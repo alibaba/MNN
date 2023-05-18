@@ -8,12 +8,13 @@
 
 #include "ConvolutionCommon.hpp"
 #include <math.h>
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include "half.hpp"
 namespace MNN {
 static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
     return MNNMemoryCallocAlign(size, MNN_MEMORY_ALIGN_DEFAULT);
 }
-static int ReadBlobDim(unsigned char *&myfile, unsigned short *shape, int shapeBufCnt) {
+static int ReadBlobDim(unsigned char *&myfile, unsigned int* shape, int shapeBufCnt, bool useInt32) {
     int uSize = myfile[0];
     myfile++;
     if (uSize > 4) {
@@ -24,8 +25,16 @@ static int ReadBlobDim(unsigned char *&myfile, unsigned short *shape, int shapeB
     if (copyLength > shapeBufCnt) {
         copyLength = shapeBufCnt;
     }
-    ::memcpy(shape, myfile, sizeof(unsigned short) * copyLength);
-    myfile += copyLength * sizeof(unsigned short);
+    if (useInt32) {
+        ::memcpy(shape, myfile, sizeof(unsigned int) * copyLength);
+        myfile += copyLength * sizeof(unsigned int);
+    } else {
+        auto myfileint16 = (uint16_t*)myfile;
+        for (int i=0; i<copyLength; ++i) {
+            shape[i] = myfileint16[i];
+        }
+        myfile += copyLength * sizeof(unsigned short);
+    }
     return copyLength;
 }
 
@@ -176,18 +185,17 @@ static void StreamSizeRead(void *dst, int unit, size_t count, unsigned char *&fi
     file += (unit * count);
 }
 
-static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
+static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32) {
     int8_t *blob      = nullptr;
-    int8_t *samples   = nullptr;
     uint8_t *idxBuf   = nullptr;
     uint8_t *idxBytes = nullptr;
     uint32_t dataCnt  = 1;
 
     do {
         // blob shape
-        unsigned short shape[64] = {0};
-        uint32_t shapeDim        = (uint32_t)ReadBlobDim(s, shape, 64);
-        if (shapeDim == 0 || shapeDim > 64)
+        unsigned int shape[32] = {0};
+        uint32_t shapeDim        = (uint32_t)ReadBlobDim(s, shape, 32, shapeInt32);
+        if (shapeDim == 0 || shapeDim > 32)
             break;
         for (uint32_t i = 0; i < shapeDim; i++)
             dataCnt *= shape[i];
@@ -198,7 +206,8 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         if (0 == sampleCnt) {
             sampleCnt = 256;
         }
-        samples = (int8_t *)MNNMemoryAllocAlignZeroAlign(sampleCnt);
+        result->weightMap.resize(sampleCnt);
+        auto samples = result->weightMap.data();
         if (samples == nullptr)
             break;
         StreamSizeRead(samples, 1, sampleCnt, s);
@@ -238,8 +247,6 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         }
     } while (0);
 
-    if (samples != nullptr)
-        MNNMemoryFreeAlign(samples);
     if (idxBuf != nullptr)
         MNNMemoryFreeAlign(idxBuf);
     if (idxBytes != nullptr)
@@ -249,9 +256,9 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
     return blob;
 }
 
-static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const flatbuffers::Vector<float> *alpha) {
+static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const flatbuffers::Vector<float> *alpha, ConvolutionCommon::Int8Common* result, bool useInt32) {
     // MNN_ERROR("sparse:%d\n", 1);
-    unsigned short shape[64] = {0};
+    unsigned int shape[32];
     uint32_t ucMapSize = 0;
     PSIMPLE_SET setWeight = CreateSimpleSet(256);
     if (setWeight == nullptr) {
@@ -262,8 +269,8 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
     unsigned char iIdxNeedBits;
     int8_t *blob = nullptr;
     // 1. weights blob shape(unsigned int32)
-    int ShapeDim = ReadBlobDim(myfile, shape, 64);
-    int Size     = sizeof(int8_t);
+    int ShapeDim = ReadBlobDim(myfile, shape, 32, useInt32);
+    size_t Size     = sizeof(int8_t);
     for (int i = 0; i < ShapeDim; i++)
         Size *= shape[i];
     blob = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)Size);
@@ -295,11 +302,13 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
     if (0 == ucMapSize) {
         ucMapSize = 256;
     }
+    result->weightMap.resize(ucMapSize);
     // 6. valueset(signed char * valueset_size)
     for (int i = 0; i < ucMapSize; i++) {
         int8_t tmp;
         StreamSizeRead(&tmp, 1, 1, myfile);
         InsertSimpleSet(setWeight, tmp);
+        result->weightMap[i] = tmp;
     }
     SimpleRank(setWeight->UniSet, setWeight->CurUniCnt, 1);
     // map<unsigned char, signed char> mapWeight;
@@ -367,14 +376,61 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
 }
 std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDSTQuan *quan, bool forceFloat, bool forceInt8) {
     auto result           = std::make_shared<Int8Common>();
-    uint32_t weightLength = 0;
+    result->quan = quan;
+    if (quan->index() != nullptr) {
+        if (forceFloat) {
+            // Expand sparse to dense
+            result->weightFloat.reset(quan->weightSize());
+            if (nullptr == result->weightFloat.get()) {
+                return nullptr;
+            }
+            ::memset(result->weightFloat.get(), 0, quan->weightSize() * sizeof(float));
+            auto index = quan->index()->data();
+            auto indexSize = quan->index()->size();
+            if (nullptr == quan->alpha() || quan->alpha()->size() != indexSize) {
+                MNN_ERROR("The model is error, don't has alpha but has index\n");
+                return nullptr;
+            }
+            auto weightRaw = quan->alpha()->data();
+            for (uint32_t i=0; i<indexSize; ++i) {
+                result->weightFloat.get()[index[i]] = weightRaw[i];
+            }
+        } // Otherwise needn't treat, just return result with quan info
+        return result;
+    }
+    size_t weightLength = 0;
     int8_t *buffer        = nullptr;
     auto originBuffer     = (unsigned char *)quan->buffer()->data();
     if (1 == quan->type()) {
-        buffer = ReadQuanData_c(originBuffer, &weightLength);
+        buffer = ReadQuanData_c(originBuffer, &weightLength, result.get(), quan->shapeInt32());
     }
     if (2 == quan->type()) {
-        buffer = ReadSparseQuanData_c(originBuffer, &weightLength, quan->alpha());
+        buffer = ReadSparseQuanData_c(originBuffer, &weightLength, quan->alpha(), result.get(), quan->shapeInt32());
+    }
+    if (result->weightMap.size() > 0 && result->weightMap.size() <= 16) {
+        // Compute Remap for int4
+        result->canUseInt4 = true;
+        result->weightReverseMap.resize(256);
+        ::memset(result->weightReverseMap.data(), 0, 256 * sizeof(int8_t));
+        for (int i=0; i<result->weightMap.size(); ++i) {
+            int value = result->weightMap[i];
+            value = value + 128;
+            result->weightReverseMap[value] = i;
+        }
+#ifdef MNN_TEST_REMAPQUANT
+        // Test reverse
+        std::vector<int8_t> originBuffer(weightLength);
+        for (int i=0; i<weightLength; ++i) {
+            originBuffer[i] = buffer[i];
+            buffer[i] = result->weightReverseMap[(int)buffer[i] + 128];
+        }
+        for (int i=0; i<weightLength; ++i) {
+            buffer[i] = result->weightMap[buffer[i]];
+        }
+        for (int i=0; i<weightLength; ++i) {
+            MNN_ASSERT(buffer[i] == originBuffer[i]);
+        }
+#endif
     }
     // read fp16 data
     if (3 == quan->type()) {
@@ -406,13 +462,41 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         }
         result->weight.set(buffer, weightLength);
     }
-    result->quan = quan;
     result->alpha.reset(quan->alpha()->size());
     if (nullptr == result->alpha.get()) {
         MNN_PRINT("Alloc memory error for extract idst int8\n");
         return nullptr;
     }
     ::memcpy(result->alpha.get(), quan->alpha()->data(), quan->alpha()->size() * sizeof(float));
+    {
+        int outputCount = 0;
+        bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
+        if (quan->readType() != 0 || oldType4) {
+            result->asymmetric = true;
+            outputCount   = result->alpha.size() / 2;
+        } else {
+            result->asymmetric = false;
+            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
+        }
+        if (result->asymmetric) {
+            // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
+            // and old version clampMin is -128
+            float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
+            for (int o = 0; o < outputCount; ++o) {
+                result->alpha.get()[2 * o] = result->alpha.get()[2 * o] - clampMin * result->alpha.get()[2 * o + 1];
+            }
+        }
+        if (!quan->has_scaleInt()) {
+            float extraFactor = quan->quantScale();
+            // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
+            if (oldType4) {
+                extraFactor = 1.0f;
+            }
+            for (int o=0; o<result->alpha.size(); ++o) {
+                result->alpha.get()[o] *= extraFactor;
+            }
+        }
+    }
     if (forceInt8) {
         return result;
     }
@@ -424,42 +508,30 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
             return nullptr;
         }
         int outputCount = 0;
-        bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
-        if (quan->readType() != 0 || oldType4) {
-            outputCount   = result->alpha.size() / 2;
+        if (result->asymmetric) {
+            outputCount = result->alpha.size() / 2;
         } else {
-            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
+            outputCount = result->alpha.size();
         }
         int partWeightSize = weightLength / outputCount;
         for (int o = 0; o < outputCount; ++o) {
+            float min = 0.0f;
+            float alpha = 0.0f;
+            if (result->asymmetric) {
+                min = result->alpha.get()[2*o];
+                alpha = result->alpha.get()[2*o+1];
+            } else {
+                alpha = result->alpha.get()[o];
+            }
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
-            float extraFactor = quan->quantScale();
-            // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
-            if (oldType4) {
-                extraFactor = 1.0f;
-            }
-            if (result->alpha.size() == 2 * outputCount) {
-                float min = result->alpha.get()[2*o];
-                float alpha = result->alpha.get()[2*o+1];
-                // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
-                // and old version clampMin is -128
-                float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
-                for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * extraFactor;
-                }
-            } else {
-                float alpha = result->alpha.get()[o];
-                for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = ((float)srcW[j]) * alpha * extraFactor;
-                }
+            for (int v=0; v < partWeightSize; ++v) {
+                dstW[v] = (float)srcW[v] * alpha + min;
             }
         }
-
         result->weight.release();
         result->alpha.release();
     }
-
     return result;
 }
 

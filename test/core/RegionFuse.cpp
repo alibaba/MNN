@@ -67,6 +67,8 @@ public:
         };
         for (int i = 0; i < N; i++) {
             Region src, dst;
+            src.origin = nullptr;
+            dst.origin = nullptr;
             ::memcpy(&src, data[3 * i], 44);
             ::memcpy(&dst, data[3 * i + 1], 44);
             bool fused = TensorUtils::fuseRegion(src, dst);

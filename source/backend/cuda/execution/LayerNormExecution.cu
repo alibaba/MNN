@@ -4,36 +4,6 @@ namespace CUDA {
 
 #define CUDA_KERNEL_LOOP(i, n) for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); i += blockDim.x * gridDim.x)
 
-#define FINAL_MASK 0xffffffff
-
-template <typename T>
-__inline__ __device__
-T warpReduceSum(T val)
-{
-  for(int mask = 16; mask > 0; mask >>= 1)
-    val += __shfl_xor_sync(FINAL_MASK, val, mask, 32);
-  return val;
-}
-
-template <typename T>
-__inline__ __device__
-T blockReduceSum(T val)
-{
-  static __shared__ T shared[32];
-  int lane = threadIdx.x & 0x1f;
-  int wid = threadIdx.x >> 5;
-
-  val = warpReduceSum<T>(val);
-
-  if(lane == 0)
-    shared[wid] = val;
-  __syncthreads();
-
-  val = (threadIdx.x < (blockDim.x >> 5 )) ? shared[lane] : (T)0.0f;
-  val = warpReduceSum(val);
-  return val;
-}
-
 template <typename T>
 __global__ 
 void input_layernorm(T* out, const T* input, const float* gamma, const float* beta, int m, int n, const float epsilon, int sumPerKnl)

@@ -190,7 +190,7 @@ void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, cons
     DivModFast sy(size[1]);
     DivModFast sx(size[2]);
 
-    //printf("%d-%d-%d, %d-%d-%d,-%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
+    // MNN_PRINT("blit info size:%d-%d-%d, srcStride:%d-%d-%d, dstStride:%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
     if(bytes == 4 && count > 16384 && size[2] % 2 == 0 && srcStride[2] == 1 && dstStride[2] == 1) {
         //printf("%d-%d-%d, %d-%d-%d,-%d-%d-%d\n\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
         count /= 2;

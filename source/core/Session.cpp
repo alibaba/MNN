@@ -266,7 +266,16 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             } else {
                 *dst = 0;
             }
+            return true;
         } break;
+        case Interpreter::THREAD_NUMBER: {
+            auto dst = (int*)ptr;
+            if (mPipelines.empty()) {
+                break;
+            }
+            *dst = mPipelines[0]->getPipelineInfo().first.info.numThread;
+            return true;
+        }
         // TODO: Support other debug info
         default:
             break;

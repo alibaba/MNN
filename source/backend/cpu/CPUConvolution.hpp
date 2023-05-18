@@ -40,19 +40,21 @@ public:
 };
 class CPUConvolution : public Execution {
 public:
+    struct ResourceDequantizeInfo {
+        int bits = 32;
+        std::shared_ptr<Tensor> mScaleBias;
+        std::vector<int8_t> mLowBitWeightMap;
+    };
     struct Resource {
         std::shared_ptr<Tensor> mWeight;
         std::shared_ptr<Tensor> mBias;
+        ResourceDequantizeInfo mDequantize;
         Backend* backend;
         bool copyBiasAlign(const float* bias, int outputCount);
-        ~ Resource() {
-            if (nullptr != mBias) {
-                backend->onReleaseBuffer(mBias.get(), Backend::STATIC);
-            }
-            if (nullptr != mWeight) {
-                backend->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-            }
-        }
+        int hU;
+        int lU;
+        int lP;
+        int hP;
     };
     struct ResourceInt8 {
         std::vector<int> mInt8WeightKernelSum;

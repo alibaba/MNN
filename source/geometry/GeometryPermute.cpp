@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
 #include "geometry/GeometryComputer.hpp"
 #include "core/TensorUtils.hpp"
 namespace MNN {
@@ -21,7 +22,6 @@ public:
         MNN_ASSERT(input->dimensions() >= 1);
         MNN_ASSERT(output->dimensions() == input->dimensions());
         auto originTensor = input;
-        int basicOffset   = 0;
         int shape[MNN_MAX_TENSOR_DIM];
         if (op->type() == OpType_Permute) {
             auto shapeValue = op->main_as_Permute()->dims();
@@ -53,6 +53,7 @@ public:
                 continue;
             }
             if (axis - preAxis == 1) {
+                // Fuse dimension if possible
                 inputShape[inputShapeSize - 1] *= len;
             } else {
                 if (preAxis >= 0) {
@@ -89,7 +90,18 @@ public:
                 stride *= inputShape[i];
             }
         }
-        int basicStride = 1;
+        // Sort inputShapeSize from small to large
+        if (inputShapeSize > 3) {
+            for (int i=0; i<inputShapeSize; ++i) {
+                for (int j=i+1; j<inputShapeSize; ++j) {
+                    if (inputShape[i] > inputShape[j]) {
+                        std::swap(inputShape[i], inputShape[j]);
+                        std::swap(inputStrides[i], inputStrides[j]);
+                        std::swap(outputStrides[i], outputStrides[j]);
+                    }
+                }
+            }
+        }
         // Compute inside, outside, axis
         int inside        = 1;
         int insideStride  = 0;
@@ -99,18 +111,24 @@ public:
         int axisStride    = 0;
         int breakAxis     = -1;
         int remainSize    = 1;
+        int outputInsideStride = 0;
+        int outputAxisStride = 0;
+        int outputOutsideStride = 0;
         {
             if (inputShapeSize >= 1) {
                 inside       = inputShape[inputShapeSize-1];
                 insideStride = inputStrides[inputShapeSize-1];
+                outputInsideStride = outputStrides[inputShapeSize-1];
             }
             if (inputShapeSize >= 2) {
                 axis       = inputShape[inputShapeSize-2];
                 axisStride = inputStrides[inputShapeSize-2];
+                outputAxisStride = outputStrides[inputShapeSize-2];
             }
             if (inputShapeSize >= 3) {
                 outside       = inputShape[inputShapeSize-3];
                 outsideStride = inputStrides[inputShapeSize-3];
+                outputOutsideStride = outputStrides[inputShapeSize-3];
                 breakAxis     = inputShapeSize - 3;
                 for (int i = 0; i < inputShapeSize - 3; ++i) {
                     remainSize *= inputShape[i];
@@ -130,24 +148,26 @@ public:
         for (int indice = 0; indice < remainSize; ++indice) {
             int value       = indice;
             int inputOffset = 0;
+            int outputOffset = 0;
             for (int i = 0; i < breakAxis; ++i) {
                 auto coordinate = value / mod[i];
                 inputOffset += coordinate * inputStrides[i];
+                outputOffset += coordinate * outputStrides[i];
                 value = value % mod[i];
             }
             Tensor::InsideDescribe::Region& slice = outputDes->regions[indice];
-            slice.src.offset                      = inputOffset + basicOffset;
-            slice.src.stride[0]                   = outsideStride * basicStride;
+            slice.src.offset                      = inputOffset;
+            slice.src.stride[0]                   = outsideStride;
             slice.size[0]                         = outside;
-            slice.src.stride[1]                   = axisStride * basicStride;
+            slice.src.stride[1]                   = axisStride;
             slice.size[1]                         = axis;
-            slice.src.stride[2]                   = insideStride * basicStride;
+            slice.src.stride[2]                   = insideStride;
             slice.size[2]                         = inside;
             slice.origin                          = originTensor;
-            slice.dst.offset                      = indice * outside * axis * inside;
-            slice.dst.stride[0]                   = axis * inside;
-            slice.dst.stride[1]                   = inside;
-            slice.dst.stride[2]                   = 1;
+            slice.dst.offset                      = outputOffset;
+            slice.dst.stride[0]                   = outputOutsideStride;
+            slice.dst.stride[1]                   = outputAxisStride;
+            slice.dst.stride[2]                   = outputInsideStride;
         }
         return true;
     }

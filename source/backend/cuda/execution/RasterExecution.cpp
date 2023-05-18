@@ -168,7 +168,18 @@ static bool _equalSizeStride(const Tensor::InsideDescribe::Region& slice0, const
     return true;
 }
 
-static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Tensor::InsideDescribe::Region& slice1) {
+static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Tensor::InsideDescribe::Region& slice1, Tensor* tensor) {
+    if(tensor->dimensions() < 2) {
+        return false;
+    }
+    if(slice0.src.stride[1] == tensor->width() && slice0.src.stride[0] == tensor->width() * tensor->height()) {
+        // area pack for fast blit only
+        return false;
+    }
+    if(slice1.src.stride[1] == tensor->width() && slice1.src.stride[0] == tensor->width() * tensor->height()) {
+        // area pack for fast blit only
+        return false;
+    }
     if(slice0.size[1] % PACK_NUMBER != 0 || slice0.size[0] != 1) {
         return false;
     }
@@ -242,7 +253,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
                 mFast = false;
                 break;
             }
-            if(!_directBlitC4(slice0, slice)) {
+            if(!_directBlitC4(slice0, slice, output)) {
                 mFast = false;
                 break;
             }

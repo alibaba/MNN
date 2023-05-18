@@ -65,6 +65,10 @@ table IDSTQuan {
     aMin:int;
     readType:int;
     has_scaleInt:bool;
+    shapeInt32:bool = false;
+    // For sparse
+    weightSize:uint32;
+    index:[uint32];
 }
 
 enum QuantizeAlgo : byte {

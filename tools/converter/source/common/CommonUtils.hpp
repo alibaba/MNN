@@ -24,5 +24,6 @@ void addSparseInfo(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline 
 void fullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 void weightQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config);
 void addUUID(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
+void channelPruneConvert(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 
 #endif // COMMMON_UTILS_HPP

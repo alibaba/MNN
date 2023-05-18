@@ -31,6 +31,8 @@ public:
     }
     void onConcurrencyBegin() const;
     void onConcurrencyEnd() const;
+    virtual bool onCheckInfo(Backend::Info& info) const override;
+
 
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;

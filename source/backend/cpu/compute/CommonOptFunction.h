@@ -198,10 +198,6 @@ struct CoreFunctions {
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
     MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
 
-    // sparse matrix multiply
-    void(*MNNPackForSparseMatMul_B)(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
-    void(*MNNGetOptimalBlockShape)(size_t& weightNNZElement, size_t& weightBlockNumber, const float* source, int sparseBlockOC, size_t h, size_t l);
-
     // B matrix is sparsed
     typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
     void(*MNNAdjustOptimalSparseKernel)(int& sparseBlockOC, MNNPackedSparseMatMul& packedSparseMatMul);

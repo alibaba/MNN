@@ -13,7 +13,7 @@
 namespace MNN {
 namespace OpenCL {
 
-ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend) {
+ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ReductionExecution init !\n");
 #endif
@@ -44,7 +44,6 @@ ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : Co
             MNN_ASSERT(false);
             break;
     }
-    mOp = op;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution init !\n");
 #endif
@@ -89,7 +88,7 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
                 break;
         }
     } else { //useLocal
-        uint32_t global_x;
+        uint32_t global_x = 8;
         int size = inputShape[1];
         if (size >= 1024) {
             global_x = 256;
@@ -144,6 +143,7 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
+    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
 
     return NO_ERROR;
 }

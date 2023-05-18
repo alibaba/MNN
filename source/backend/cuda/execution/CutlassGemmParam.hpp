@@ -215,7 +215,8 @@ using GemmTensor_F16_F16_Linear_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F16_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F16_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -232,7 +233,8 @@ using GemmTensor_F16_F16_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F16_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Linear_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -249,7 +251,8 @@ using GemmTensor_F16_F32_Linear_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -266,7 +269,8 @@ using GemmTensor_F16_F32_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmCuda_F32_F32_Linear_AlignCuda = cutlass::gemm::device::Gemm<
     float,
@@ -334,7 +338,8 @@ using GemmTensor_F32_F32_Linear_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 using GemmTensor_F32_F32_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     float,
@@ -351,7 +356,8 @@ using GemmTensor_F32_F32_Linear_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Linear,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 using GemmCuda_F16_F16_Relu_AlignCuda = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -470,7 +476,8 @@ using GemmTensor_F16_F16_Relu_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F16_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F16_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -487,7 +494,8 @@ using GemmTensor_F16_F16_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F16_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Relu_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -504,7 +512,8 @@ using GemmTensor_F16_F32_Relu_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -521,7 +530,8 @@ using GemmTensor_F16_F32_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmCuda_F32_F32_Relu_AlignCuda = cutlass::gemm::device::Gemm<
     float,
@@ -589,7 +599,8 @@ using GemmTensor_F32_F32_Relu_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 using GemmTensor_F32_F32_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     float,
@@ -606,7 +617,8 @@ using GemmTensor_F32_F32_Relu_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Relu,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 using GemmCuda_F16_F16_Relu6_AlignCuda = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -725,7 +737,8 @@ using GemmTensor_F16_F16_Relu6_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F16_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F16_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -742,7 +755,8 @@ using GemmTensor_F16_F16_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F16_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -759,7 +773,8 @@ using GemmTensor_F16_F32_Relu6_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmTensor_F16_F32_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::half_t,
@@ -776,7 +791,8 @@ using GemmTensor_F16_F32_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<cutlass::half_t>::value, 128 / cutlass::sizeof_bits<cutlass::half_t>::value, true>;
 
 using GemmCuda_F32_F32_Relu6_AlignCuda = cutlass::gemm::device::Gemm<
     float,
@@ -844,7 +860,8 @@ using GemmTensor_F32_F32_Relu6_AlignCuda_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueCudaOp_F32_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 using GemmTensor_F32_F32_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     float,
@@ -861,7 +878,8 @@ using GemmTensor_F32_F32_Relu6_AlignTensor_Sm75 = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 8>,
     EpilogueTensorOp_F32_Relu6,
     SwizzleThreadBlock,
-    NumStages>;
+    NumStages,
+    128 / cutlass::sizeof_bits<float>::value, 128 / cutlass::sizeof_bits<float>::value, true>;
 
 }
 }

@@ -29,6 +29,35 @@ using namespace MNN::Express;
 using namespace MNN::Train;
 using namespace std;
 
+
+VARP getLocalLearningRate(std::string pName, std::vector<std::vector<std::string>> weightNameGroups, std::vector<std::string> lrNames,
+                        std::map<std::string, VARP> &lrMap, std::map<std::string, std::string> &extraInputs) {
+    bool hasLocalOptConf = false;
+    std::string localLrName;
+    for (int ii = 0; ii < weightNameGroups.size(); ii++) {
+        if (std::find(weightNameGroups[ii].begin(), weightNameGroups[ii].end(), pName) != weightNameGroups[ii].end()) {
+            hasLocalOptConf = true;
+            localLrName = lrNames[ii];
+            break;
+        }
+    }
+    if (!hasLocalOptConf) {
+        localLrName = "LearningRate";
+    }
+    VARP localLearningRate;
+    if (lrMap.find(localLrName) != lrMap.end()) {
+        localLearningRate = lrMap[localLrName];
+    } else {
+        auto newLr = _Input({}, NCHW);
+        newLr->setName(localLrName);
+        lrMap[localLrName] = newLr;
+        localLearningRate = newLr;
+    }
+    extraInputs[localLrName] = "float";
+    return localLearningRate;
+}
+
+
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
         MNN_PRINT("Usage: ./transformer.out temp.bin dst.bin config.json\n");
@@ -54,33 +83,58 @@ int main(int argc, const char* argv[]) {
     std::vector<std::string> onlyUpdateOps;
     std::vector<std::string> stopBackPropOps;
     std::string optimizerType = "SGD";
-    if (configObject.HasMember("Optimizor")) {
-        auto optimizor = configObject["Optimizor"].GetObject();
-        if (optimizor.HasMember("OnlyUpdateOps")) {
-            auto limitArray = optimizor["OnlyUpdateOps"].GetArray();
+    std::vector<std::string> fixAsConstOps;
+    std::vector<std::vector<std::string>> weightNameGroups;
+    std::vector<std::string> lrNames;
+    if (configObject.HasMember("Optimizer")) {
+        auto optimizer = configObject["Optimizer"].GetObject();
+        if (optimizer.HasMember("OnlyUpdateOps")) {
+            auto limitArray = optimizer["OnlyUpdateOps"].GetArray();
             for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
                 onlyUpdateOps.emplace_back(vIter->GetString());
                 MNN_PRINT("will only update: %s \n", vIter->GetString());
             }
         }
-        if (optimizor.HasMember("NoUpdateOps")) {
-            auto limitArray = optimizor["NoUpdateOps"].GetArray();
+        if (optimizer.HasMember("NoUpdateOps")) {
+            auto limitArray = optimizer["NoUpdateOps"].GetArray();
             for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
                 noUpdateOps.emplace_back(vIter->GetString());
                 if (onlyUpdateOps.empty())
                     MNN_PRINT("will not update: %s \n", vIter->GetString());
             }
         }
-        if (optimizor.HasMember("StopBackPropOps")) {
-            auto limitArray = optimizor["StopBackPropOps"].GetArray();
+        if (optimizer.HasMember("StopBackPropOps")) {
+            auto limitArray = optimizer["StopBackPropOps"].GetArray();
             for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
                 stopBackPropOps.emplace_back(vIter->GetString());
                 MNN_PRINT("will stop back prop from (also not update this op): %s \n", vIter->GetString());
             }
         }
-        if (optimizor.HasMember("type")) {
-            optimizerType = std::string(optimizor["type"].GetString());
+        if (optimizer.HasMember("type")) {
+            optimizerType = std::string(optimizer["type"].GetString());
             MNN_PRINT("optimizer type: %s\n", optimizerType.c_str());
+        }
+        if (optimizer.HasMember("FixAsConstOps")) {
+            auto limitArray = optimizer["FixAsConstOps"].GetArray();
+            for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
+                fixAsConstOps.emplace_back(vIter->GetString());
+                MNN_PRINT("this op will be fixed as Const, and maybe turn to Trainable later: %s \n", vIter->GetString());
+            }
+        }
+        if (optimizer.HasMember("ParameterOptConfig")) {
+            auto pConf = optimizer["ParameterOptConfig"].GetArray();
+            for (auto vIter = pConf.begin(); vIter != pConf.end(); vIter++) {
+                auto conf = vIter->GetObject();
+                if (conf.HasMember("WeightNames") && conf.HasMember("LrName")) {
+                    auto wn = conf["WeightNames"].GetArray();
+                    std::vector<std::string> wNames;
+                    for (auto wIter = wn.begin(); wIter != wn.end(); wIter++) {
+                        wNames.push_back(wIter->GetString());
+                    }
+                    weightNameGroups.push_back(wNames);
+                    lrNames.push_back(conf["LrName"].GetString());
+                }
+            }
         }
     }
     auto bnMomentum = new MNN::AttributeT;
@@ -99,6 +153,17 @@ int main(int argc, const char* argv[]) {
         auto inputsOutputs = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
         inputVars = inputsOutputs.first;
         outputVars = inputsOutputs.second;
+    }
+    for (auto& varIter : inputVars) {
+        auto var = varIter.second;
+        auto varInfo = var->getInfo();
+        auto vDims = varInfo->dim;
+        
+        if (!fixAsConstOps.empty()) {
+            if (std::find(fixAsConstOps.begin(), fixAsConstOps.end(), var->name()) != fixAsConstOps.end()) {
+                var.fix(VARP::CONSTANT);
+            }
+        }
     }
     Transformer::TrainConfig trainConfig;
     trainConfig.noUpdateOps = std::move(noUpdateOps);
@@ -185,14 +250,18 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
+    auto lossInfo = loss->getInfo();
     MNN_ASSERT(nullptr != loss);
     auto gradMap = OpGrad::grad(loss, parameters, stopBackPropOps);
     // Make Update
     std::map<VARP, VARP> varUpdateMap;
-    auto learningRate = _Input();
+    auto learningRate = _Input({}, NCHW);
     learningRate->setName("LearningRate");
-    auto weightDecay = _Input();
+    auto weightDecay = _Input({}, NCHW);
     weightDecay->setName("WeightDecay");
+
+    std::map<std::string, VARP> lrMap;
+    lrMap["LearningRate"] = learningRate;
 
     auto step = _Scalar<float>(1.0f);
     step->setName("optimize_step");
@@ -209,12 +278,13 @@ int main(int argc, const char* argv[]) {
     }
 
     if (optimizerType == "SGD") {
-        auto momentum = _Input();
+        auto momentum = _Input({}, NCHW);
         momentum->setName("Momentum");
         extraInputs["Momentum"] = "float";
 
         for (auto iter : gradMap) {
             auto p = iter.first;
+            MNN_PRINT("optimize variable: %s\n", p->name().c_str());
             p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
@@ -251,7 +321,9 @@ int main(int argc, const char* argv[]) {
             auto newHistory = gradWithDecay + momentum * history;
             newHistory->setName("update_" + history->name());
 
-            auto finalGrad = learningRate * history;
+            VARP localLearningRate = getLocalLearningRate(p->name(), weightNameGroups, lrNames, lrMap, extraInputs);
+            MNN_PRINT("variable: %s, lr name: %s\n", p->name().c_str(), localLearningRate->name().c_str());
+            VARP finalGrad = localLearningRate * history;
             finalGrad->setName(p->name() + "_final_grad");
 
             auto updateValue = _Subtract(p, finalGrad);
@@ -260,11 +332,11 @@ int main(int argc, const char* argv[]) {
             varUpdateMap[history] = newHistory;
         }
     } else if (optimizerType == "ADAM") {
-        auto beta1 = _Input();
+        auto beta1 = _Input({}, NCHW);
         beta1->setName("Beta1");
-        auto beta2 = _Input();
+        auto beta2 = _Input({}, NCHW);
         beta2->setName("Beta2");
-        auto eps = _Input();
+        auto eps = _Input({}, NCHW);
         eps->setName("Eps");
 
         extraInputs["Beta1"] = "float";
@@ -276,6 +348,7 @@ int main(int argc, const char* argv[]) {
         
         for (auto iter : gradMap) {
             auto p = iter.first;
+            MNN_PRINT("optimize variable: %s\n", p->name().c_str());
             p.fix(VARP::TRAINABLE);
             auto grad = iter.second;
             grad->setName(p->name()+"_grad");
@@ -317,7 +390,9 @@ int main(int argc, const char* argv[]) {
             auto newHistory2 = beta2 * history2 + (_Scalar(1.0f) - beta2) * _Square(gradWithDecay);
             newHistory2->setName("update_" + history2->name());
 
-            auto finalGrad = learningRate * correction * (history1 / (_Sqrt(history2 + _Scalar<float>(1e-8)) + eps));
+            VARP localLearningRate = getLocalLearningRate(p->name(), weightNameGroups, lrNames, lrMap, extraInputs);
+            MNN_PRINT("variable: %s, lr name: %s\n", p->name().c_str(), localLearningRate->name().c_str());
+            auto finalGrad = localLearningRate * correction * (history1 / (_Sqrt(history2 + _Scalar<float>(1e-8)) + eps));
             finalGrad->setName(p->name() + "_final_grad");
 
             auto updateValue = _Subtract(p, finalGrad);

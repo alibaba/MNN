@@ -107,6 +107,7 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
         mRuntimes[mAttr->firstType] = bn;
     }
+    _refreshRuntime();
 }
 
 int Executor::getCurrentRuntimeStatus(RuntimeStatus statusEnum) {
@@ -139,6 +140,7 @@ Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int nu
     defaultConfig.flags = 4;
     std::shared_ptr<Backend> defaultBackend(mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY]->onCreate(&defaultConfig));
     mAttr->constantBackend = defaultBackend;
+    _refreshRuntime();
 }
 Executor::~Executor(){
     // Do nothing
@@ -205,15 +207,38 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
     auto executor = new Executor(runtime, type, numberThread);
     return std::shared_ptr<Executor>(executor);
 }
+void Executor::_refreshRuntime() {
+    mRuntimeInfo.first.clear();
+    mRuntimeInfo.second = mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY];
+    auto firstIter = mRuntimes.find(getAttr()->firstType);
+    if (firstIter != mRuntimes.end()) {
+        mRuntimeInfo.first.insert(std::make_pair(firstIter->first.first, firstIter->second));
+    } else {
+        MNN_ASSERT(false);
+    }
+    for (auto& iter : mRuntimes) {
+        if (iter.first.first != getAttr()->firstType.first) {
+            mRuntimeInfo.first.insert(std::make_pair(iter.first.first, iter.second));
+        }
+    }
+}
 
 RuntimeInfo Executor::getRuntime() {
-    RuntimeInfo info;
     auto glo = ExecutorScope::Current();
-    info.second = glo->mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY];
-    for (auto& iter : glo->mRuntimes) {
-        info.first.insert(std::make_pair(iter.first.first, iter.second));
+    return glo->mRuntimeInfo;
+}
+bool Executor::getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr) {
+    if (nullptr == expr) {
+        return false;
     }
-    return info;
+    if (nullptr == expr->inside()->mCache.get()) {
+        return false;
+    }
+    auto session = expr->inside()->mCache->getSession();
+    if (nullptr == session) {
+        return false;
+    }
+    return session->getInfo(code, ptr);
 }
 
 static bool loadCache(std::shared_ptr<Runtime> &rt, const void* buffer, size_t size) {
@@ -352,6 +377,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
     } else {
         res->mInside->mUserConfig = false;
     }
+    glo->_refreshRuntime();
     return res;
 }
 ExecutorAttr* Executor::getAttr() const {
@@ -603,6 +629,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
     } else {
         scheduleInfo.pipelineInfo[0].first.info.type = current->getAttr()->firstType.first;
+        scheduleInfo.pipelineInfo[0].first.info.numThread = current->getAttr()->firstType.second;
     }
     scheduleInfo.pipelineInfo[0].first.needComputeShape = false;
     scheduleInfo.pipelineInfo[0].first.needComputeGeometry = mLazyMode != LAZY_CONTENT;

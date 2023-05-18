@@ -18,16 +18,30 @@ using namespace MNN;
 
 namespace IDSTEncoder {
 
-static void WriteBlobDim(std::ostream &out, std::vector<int> dims)
+static bool WriteBlobDim(std::ostream &out, std::vector<int> dims)
 {
     char tmp[4];
+    bool useInt32 = false;
     ((unsigned char *)tmp)[0] = (unsigned char)dims.size();
     out.write(tmp, 1);
-    for (int i = 0; i < dims.size(); i++)
-    {
-        unsigned short tmpShort = (unsigned short)dims[i];
-        out.write((const char*)(&tmpShort), 2);
+    for (int i = 0; i < dims.size(); i++) {
+        if (dims[i] > ((1<<16)-1)) {
+            useInt32 = true;
+            break;
+        }
     }
+    if (useInt32) {
+        for (int i = 0; i < dims.size(); i++) {
+            unsigned int tmpShort = (unsigned int)dims[i];
+            out.write((const char*)(&tmpShort), 4);
+        }
+    } else {
+        for (int i = 0; i < dims.size(); i++) {
+            unsigned short tmpShort = (unsigned short)dims[i];
+            out.write((const char*)(&tmpShort), 2);
+        }
+    }
+    return useInt32;
 }
 
 static void FillBuffer(char *buf, unsigned int buf_len, const char *arr, unsigned int arr_len, unsigned char iNeedBits)
@@ -174,7 +188,7 @@ static unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsi
     return best_nnz;
 }
 
-static void WriteCQBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
+static void WriteCQBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, bool& shapeUseInt32)
 {
     //push values into buffer
     //Find int values in all blobs and check;
@@ -239,7 +253,7 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
     {
         char tmp[100];
         //1. weights blob shape(unsigned int32)
-        WriteBlobDim(out, {channel, area});
+        shapeUseInt32 = WriteBlobDim(out, {channel, area});
         // 2. Avalable values Count(unsigned char)
         tmp[0] = (unsigned char)iCount;
         out.write(tmp, 1);
@@ -256,7 +270,7 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
     delete[] buf;
 }
 
-static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
+static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, bool& shapeUseInt32)
 {
     std::set<int> setWeight;
     GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
@@ -358,7 +372,7 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     { //write
         char tmp[100];
         // 1.weights blob shape(unsigned int32)
-        WriteBlobDim(out, {channel, area});
+        shapeUseInt32 = WriteBlobDim(out, {channel, area});
         // 2. nnz
         out.write((const char*) &nnz, 4);
         // 3. max_step use # bits () (unsigned char)
@@ -384,12 +398,14 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
 static std::unique_ptr<IDSTQuanT> encode(const std::vector<float>& weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
                                          bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin) {
     std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
-    WriteCQBlobs(outputStringStreamCQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-    WriteSparseQuanBlobs(outputStringStreamSQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+    bool shapeUseInt32 = false;
+    WriteCQBlobs(outputStringStreamCQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
+    WriteSparseQuanBlobs(outputStringStreamSQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
     std::unique_ptr<IDSTQuanT> idst(new IDSTQuanT);
     auto cqStr = outputStringStreamCQ.str();
     auto sqStr = outputStringStreamSQ.str();
     int int8Size = kernelNum * kernelSize;
+    idst->shapeInt32 = shapeUseInt32;
     if (quantWeightPtr && (int8Size <= cqStr.size() && int8Size <= sqStr.size())) {
         idst->type = 4;
         idst->aMax = kernelNum;

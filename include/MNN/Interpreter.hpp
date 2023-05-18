@@ -343,6 +343,9 @@ public:
 
         /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
         RESIZE_STATUS = 3,
+        
+        /** Mode / NumberThread, int* */
+        THREAD_NUMBER = 4,
 
         ALL
     };

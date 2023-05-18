@@ -7,6 +7,7 @@
 //
 
 #include "CommonUtils.hpp"
+#include "common/CommonCompute.hpp"
 #include "cpp/IDSTEncoder.hpp"
 
 static float findAbsMax(const float *weights, const int count) {
@@ -42,17 +43,26 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     const auto opType = op->type;
     // config.weightQuantBits only control weight quantization for float convolution
     // by default, do coding for convint8 and depthwiseconvint8, if there is any
-    if ((config.weightQuantBits == 0) && (
-        opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8)) {
-        return;
-    }
 
     if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
         opType != MNN::OpType_Deconvolution && opType != MNN::OpType_DeconvolutionDepthwise &&
         opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
             return;
     }
+    auto param           = op->main.AsConvolution2D();
+    auto& common = param->common;
+    if (param->quanParameter.get() != nullptr) {
+        return;
+    }
 
+    if (config.weightQuantBits == 0) {
+        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            // Do nothing
+        } else {
+            CommonCompute::compressFloatWeightToSparse(op.get());
+            return;
+        }
+    }
     int bits = 8;
     if ((config.weightQuantBits > 0) && (
         opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8)) {
@@ -61,12 +71,6 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     // Bits must from 2-8
     bits = std::max(bits, 2);
     bits = std::min(bits, 8);
-
-    auto param           = op->main.AsConvolution2D();
-    auto& common = param->common;
-    if (param->quanParameter.get() != nullptr) {
-        return;
-    }
 
     int weightSize = param->weight.size();
     // shared weights or sth else.
