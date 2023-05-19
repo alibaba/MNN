@@ -21,14 +21,15 @@ ErrorCode NPUExpandDims::onResize(const std::vector<Tensor *> &inputs, const std
     
     auto opName = mOp->name()->str();
     auto xOp = mNpuBackend->getInputOps(mOp);
-    std::vector<int64_t> shapeDims = tensorShapeFormat(outputs[0]);
+    auto shapeFormat = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shapeDims(shapeFormat.begin(), shapeFormat.end()); 
     shapeConst = hiai::op::Const(opName + "_shape_const");
     {
         ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 
             ge::FORMAT_NCHW,  ge::DT_INT32);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         filter->SetTensorDesc(fdesc);
-        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int64_t));
+        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int32_t));
 
         shapeConst.set_attr_value(filter);
     }

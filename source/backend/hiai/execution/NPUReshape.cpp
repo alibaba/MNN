@@ -37,7 +37,8 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     auto opName = mOp->name()->str();
     shared_ptr<hiai::op::Reshape> reshape(new hiai::op::Reshape(opName));
     
-    std::vector<int32_t> shape(tensorShapeFormat(outputs[0]).begin(), tensorShapeFormat(outputs[0]).end()); 
+    auto shapeFormt = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shape(shapeFormt.begin(), shapeFormt.end());
     shapeConst = hiai::op::Const(opName + "_shape_const");
     {
         ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shape.size())}), 
@@ -56,10 +57,6 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
     auto xOp        = iops.back().first;
 
-    //MNN_PRINT("input dim:%d %d %d %d\n", inputDims[0], inputDims[1], inputDims[2], inputDims[3]);
-    //MNN_PRINT("output dim:%d %d %d %d\n", shapeDims[0], shapeDims[1], shapeDims[2], shapeDims[3]);
-    //MNN_PRINT("input->dimensionFormat:%d\n", TensorUtils::getDescribe(input)->dimensionFormat);
-    //MNN_PRINT("output->dimensionFormat:%d\n", TensorUtils::getDescribe(outputs[0])->dimensionFormat);
     if ((TensorUtils::getDescribe(input)->dimensionFormat != MNN::MNN_DATA_FORMAT_NHWC) ||
         (isSameDims(input, outputs[0]) || (inputDims == shapeDims))) {
         (*reshape).set_input_x(*xOp).set_input_shape(shapeConst);

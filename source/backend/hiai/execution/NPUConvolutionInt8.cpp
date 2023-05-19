@@ -39,7 +39,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
-    auto padMode = "NOTSET"; // NOTSET
+    auto padMode = "SPECIFIC"; // NOTSET
     vector<int64_t> pad = {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()};
     if (PadMode_VALID == conv2DCommon->padMode()) {
         padMode = "VALID";

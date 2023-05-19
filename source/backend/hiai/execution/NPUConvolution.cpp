@@ -82,7 +82,7 @@ ErrorCode NPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
         mConst_b.set_attr_value(filter);
     }
 
-    auto padMode = "NOTSET"; // NOTSET
+    auto padMode = "SPECIFIC"; // NOTSET
     if (PadMode_VALID == conv2DCommon->padMode()) {
         padMode =  "VALID";
     } else if (PadMode_SAME == conv2DCommon->padMode()) {

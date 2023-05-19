@@ -32,7 +32,6 @@ ErrorCode NPUConcat::onResize(const std::vector<Tensor *> &inputs, const std::ve
         auto inputIndex = mOp->inputIndexes()->data()[i];
         auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
         auto xOp        = iops.back().first;
-
         hiai::Operator *px = (hiai::Operator *)xOp.get();
         (*concatD).set_dynamic_input_x(i + 1, *px);
     }

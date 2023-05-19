@@ -21,7 +21,6 @@ NPUDeconvolution::NPUDeconvolution(Backend *b, const Op *op, const std::vector<T
 
 ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNpuBackend->setNetworkInput(inputs, mOp);
-
     auto opName = mOp->name()->str();
 
     auto conv2D       = mOp->main_as_Convolution2D();
@@ -44,7 +43,6 @@ ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
     shared_ptr<hiai::op::ConvTranspose> deconv(new hiai::op::ConvTranspose(opName));
     
     auto xOp = mNpuBackend->getInputOps(mOp);
-
     // om input weight const op
     mConst_w = hiai::op::Const(opName + "_w_const");
     {

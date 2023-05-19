@@ -22,7 +22,8 @@ ErrorCode NPUConvertTensor::onResize(const std::vector<Tensor *> &inputs, const 
     auto opName = mOp->name()->str();
     auto xOp = mNpuBackend->getInputOps(mOp);
      //om input weight const op
-    std::vector<int32_t> shapeDims (tensorShapeFormat(outputs[0]).begin(), tensorShapeFormat(outputs[0]).end()); 
+    auto shapeFormt = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shapeDims (shapeFormt.begin(), shapeFormt.end());
     shapeConst = hiai::op::Const(opName + "_shape_const");
     {
         ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 

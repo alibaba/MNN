@@ -64,7 +64,7 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
         mConst_b.set_attr_value(bias);
     }
 
-    auto padMode = "NOTSET"; // NOTSET
+    auto padMode = "SPECIFIC"; // NOTSET
     vector<int64_t> pad = {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()};
     if (PadMode_VALID == conv2DCommon->padMode() || PadMode_CAFFE == conv2DCommon->padMode() ) {
         padMode =  "VALID";

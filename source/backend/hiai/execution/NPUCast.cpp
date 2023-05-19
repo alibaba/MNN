@@ -62,7 +62,7 @@ ErrorCode NPUCast::onResize(const std::vector<Tensor *> &inputs, const std::vect
     (*castTOp)
         .set_input_x(*xOp.get())
         .set_attr_src_dtype(mapDataType(srcT)) 
-        .set_attr_src_dtype(mapDataType(dstT));
+        .set_attr_dst_dtype(mapDataType(dstT));
     mNpuBackend->setOutputOps(mOp, {castTOp}, outputs);
     return NO_ERROR;
 }
