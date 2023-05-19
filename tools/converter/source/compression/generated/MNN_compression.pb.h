@@ -153,11 +153,12 @@ inline bool LayerQuantizeParams_QuantMethod_Parse(
 }
 enum PruneParams_PruneType : int {
   PruneParams_PruneType_RANDOM = 0,
-  PruneParams_PruneType_SIMD_OC = 1
+  PruneParams_PruneType_SIMD_OC = 1,
+  PruneParams_PruneType_FILTER = 2
 };
 bool PruneParams_PruneType_IsValid(int value);
 constexpr PruneParams_PruneType PruneParams_PruneType_PruneType_MIN = PruneParams_PruneType_RANDOM;
-constexpr PruneParams_PruneType PruneParams_PruneType_PruneType_MAX = PruneParams_PruneType_SIMD_OC;
+constexpr PruneParams_PruneType PruneParams_PruneType_PruneType_MAX = PruneParams_PruneType_FILTER;
 constexpr int PruneParams_PruneType_PruneType_ARRAYSIZE = PruneParams_PruneType_PruneType_MAX + 1;
 
 const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* PruneParams_PruneType_descriptor();
@@ -1935,6 +1936,8 @@ class PruneParams final :
     PruneParams_PruneType_RANDOM;
   static constexpr PruneType SIMD_OC =
     PruneParams_PruneType_SIMD_OC;
+  static constexpr PruneType FILTER =
+    PruneParams_PruneType_FILTER;
   static inline bool PruneType_IsValid(int value) {
     return PruneParams_PruneType_IsValid(value);
   }

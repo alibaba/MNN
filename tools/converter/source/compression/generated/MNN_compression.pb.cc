@@ -359,25 +359,26 @@ const char descriptor_table_protodef_MNN_5fcompression_2eproto[] PROTOBUF_SECTIO
   "\030\003 \003(\t\"o\n\022SIMDOCPrunerParams\022\033\n\023weight_t"
   "ensor_names\030\001 \003(\t\022\024\n\014prune_ratios\030\002 \003(\002\022"
   "\023\n\013layer_names\030\003 \003(\t\022\021\n\toc_blocks\030\004 \003(\005\""
-  "\366\001\n\013PruneParams\022<\n\004type\030\001 \001(\0162&.MNN.Comp"
+  "\202\002\n\013PruneParams\022<\n\004type\030\001 \001(\0162&.MNN.Comp"
   "ression.PruneParams.PruneType:\006RANDOM\022\?\n"
   "\023level_pruner_params\030\002 \001(\0132\".MNN.Compres"
   "sion.LevelPrunerParams\022B\n\025simd_oc_pruner"
   "_params\030\003 \001(\0132#.MNN.Compression.SIMDOCPr"
-  "unerParams\"$\n\tPruneType\022\n\n\006RANDOM\020\000\022\013\n\007S"
-  "IMD_OC\020\001\"\362\001\n\017CompressionAlgo\022H\n\004type\030\001 \001"
-  "(\01620.MNN.Compression.CompressionAlgo.Com"
-  "pressionType:\010QUANTIZE\0225\n\014quant_params\030\002"
-  " \001(\0132\037.MNN.Compression.QuantizeParams\0222\n"
-  "\014prune_params\030\003 \001(\0132\034.MNN.Compression.Pr"
-  "uneParams\"*\n\017CompressionType\022\014\n\010QUANTIZE"
-  "\020\000\022\t\n\005PRUNE\020\001\"d\n\010Pipeline\022\026\n\007version\030\001 \002"
-  "(\t:\0050.0.0\022.\n\004algo\030\002 \003(\0132 .MNN.Compressio"
-  "n.CompressionAlgo\022\020\n\010mnn_uuid\030\003 \001(\t"
+  "unerParams\"0\n\tPruneType\022\n\n\006RANDOM\020\000\022\013\n\007S"
+  "IMD_OC\020\001\022\n\n\006FILTER\020\002\"\362\001\n\017CompressionAlgo"
+  "\022H\n\004type\030\001 \001(\01620.MNN.Compression.Compres"
+  "sionAlgo.CompressionType:\010QUANTIZE\0225\n\014qu"
+  "ant_params\030\002 \001(\0132\037.MNN.Compression.Quant"
+  "izeParams\0222\n\014prune_params\030\003 \001(\0132\034.MNN.Co"
+  "mpression.PruneParams\"*\n\017CompressionType"
+  "\022\014\n\010QUANTIZE\020\000\022\t\n\005PRUNE\020\001\"d\n\010Pipeline\022\026\n"
+  "\007version\030\001 \002(\t:\0050.0.0\022.\n\004algo\030\002 \003(\0132 .MN"
+  "N.Compression.CompressionAlgo\022\020\n\010mnn_uui"
+  "d\030\003 \001(\t"
   ;
 static ::PROTOBUF_NAMESPACE_ID::internal::once_flag descriptor_table_MNN_5fcompression_2eproto_once;
 const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_MNN_5fcompression_2eproto = {
-  false, false, 1835, descriptor_table_protodef_MNN_5fcompression_2eproto, "MNN_compression.proto", 
+  false, false, 1847, descriptor_table_protodef_MNN_5fcompression_2eproto, "MNN_compression.proto", 
   &descriptor_table_MNN_5fcompression_2eproto_once, nullptr, 0, 10,
   schemas, file_default_instances, TableStruct_MNN_5fcompression_2eproto::offsets,
   file_level_metadata_MNN_5fcompression_2eproto, file_level_enum_descriptors_MNN_5fcompression_2eproto, file_level_service_descriptors_MNN_5fcompression_2eproto,
@@ -444,6 +445,7 @@ bool PruneParams_PruneType_IsValid(int value) {
   switch (value) {
     case 0:
     case 1:
+    case 2:
       return true;
     default:
       return false;
@@ -453,6 +455,7 @@ bool PruneParams_PruneType_IsValid(int value) {
 #if (__cplusplus < 201703) && (!defined(_MSC_VER) || (_MSC_VER >= 1900 && _MSC_VER < 1912))
 constexpr PruneParams_PruneType PruneParams::RANDOM;
 constexpr PruneParams_PruneType PruneParams::SIMD_OC;
+constexpr PruneParams_PruneType PruneParams::FILTER;
 constexpr PruneParams_PruneType PruneParams::PruneType_MIN;
 constexpr PruneParams_PruneType PruneParams::PruneType_MAX;
 constexpr int PruneParams::PruneType_ARRAYSIZE;

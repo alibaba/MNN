@@ -59,9 +59,11 @@ def report(*args):
 
 package_name = 'MNN'
 USE_TRT=check_env_flag('USE_TRT')
+USE_CUDA = check_env_flag("USE_CUDA")
 IS_INTERNAL_BUILD = False
 
 print ("USE_TRT ", USE_TRT)
+print("USE_CUDA:", USE_CUDA)
 
 if os.path.isdir('../../schema/private'):
     IS_INTERNAL_BUILD = args.serving
@@ -149,7 +151,8 @@ def configure_extension_build():
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "cv")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
-    if USE_TRT:
+    engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "cuda")]
+    if USE_TRT or USE_CUDA:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         engine_library_dirs += ['/usr/local/cuda/lib64/']
 
@@ -187,6 +190,7 @@ def configure_extension_build():
     engine_include_dirs += [np.get_include()]
 
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
+    cuda_depend = ['-lMNN_Cuda_Main']
     engine_depend = ['-lMNN']
 
     # enable logging & model authentication on linux.
@@ -196,12 +200,16 @@ def configure_extension_build():
     if USE_TRT:
         engine_depend += trt_depend
 
+    if USE_CUDA:
+        engine_depend += cuda_depend
+
     tools_compile_args = []
     tools_libraries = []
     tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lprotobuf']
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "cuda")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "3rd_party", "protobuf", "cmake")]
 
     # add libTorch dependency
@@ -227,7 +235,7 @@ def configure_extension_build():
                                   os.path.join(torch_lib, 'libc10.dylib')]),
                          ('.dylibs', [os.path.join(torch_path, '.dylibs', 'libiomp5.dylib')])]
             '''
-    if USE_TRT:
+    if USE_TRT or USE_CUDA:
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         tools_library_dirs += ['/usr/local/cuda/lib64/']
 
@@ -268,6 +276,9 @@ def configure_extension_build():
 
     if USE_TRT:
         tools_depend += trt_depend
+
+    if USE_CUDA:
+        tools_depend += cuda_depend
 
     if IS_DARWIN:
         engine_link_args += ['-stdlib=libc++']

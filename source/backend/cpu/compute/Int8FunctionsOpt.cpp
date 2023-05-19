@@ -1577,128 +1577,253 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
 void MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
     float sum = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            sum = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            sum =  inp0 + inp1;
         } else if (needBroadcast == 1) {
-            sum = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            sum = inp0 + inp1;
         } else {
-            sum = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] + static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            sum = inp0 + inp1;
         }
-        float value  = sum * outputScale[i];
-        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        int value = (int)roundf(sum * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
     }
 }
 
 void MNNBinarySubInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
     float res = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            res = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
         } else if (needBroadcast == 1) {
-            res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
         } else {
-            res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] - static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
         }
-        float value  = res * outputScale[i];
-        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
     }
 }
 
 void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
     float res = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
         for (int i = 0; i < elementSize; ++i) {
             if (needBroadcast == 0) {
-                res = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
             } else if (needBroadcast == 1) {
-                res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
             } else {
-                res = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i] * static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
             }
-            float value  = res * outputScale[i];
-            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
         }
 }
 
 void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
     float res = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
         for (int i = 0; i < elementSize; ++i) {
             if (needBroadcast == 0) {
-                res = std::min(static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
             } else if (needBroadcast == 1) {
-                res = std::min(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
             } else {
-                res = std::min(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
             }
-            float value  = res * outputScale[i];
-            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
         }
 }
 
 void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
     float res = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
         for (int i = 0; i < elementSize; ++i) {
             if (needBroadcast == 0) {
-                res = std::max(static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
             } else if (needBroadcast == 1) {
-                res = std::max(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
             } else {
-                res = std::max(static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i], static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i]);
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
             }
-            float value  = res * outputScale[i];
-            outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
         }
 }
 void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
-    float res = 0, inp0 = 0, inp1 = 0;
+    float res = 0;
 #ifdef MNN_USE_SSE
-    const uint8_t zeroPoint = 128;
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const uint8_t zeroPoint = 0;
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
 #endif
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            inp0 = static_cast<float>((int8_t)(inputRaw0[0] - zeroPoint)) * inputScale0[i];
-            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
             res = (inp0 - inp1) * (inp0 - inp1);
         } else if (needBroadcast == 1) {
-            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
-            inp1 = static_cast<float>((int8_t)(inputRaw1[0] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
             res = (inp0 - inp1) * (inp0 - inp1);
         } else {
-            inp0 = static_cast<float>((int8_t)(inputRaw0[i] - zeroPoint)) * inputScale0[i];
-            inp1 = static_cast<float>((int8_t)(inputRaw1[i] - zeroPoint)) * inputScale1[i];
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
             res = (inp0 - inp1) * (inp0 - inp1);
         }
-        float value  = res * outputScale[i];
-        outputRaw[i] = static_cast<uint8_t>(std::max(std::min(value, 127.0f), -127.0f)) + zeroPoint;
+        int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
     }
 }
-
 
 
 #endif // #ifndef MNN_USE_NEON

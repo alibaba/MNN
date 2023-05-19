@@ -428,20 +428,6 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
                 valid = false;
                 break;
             }
-
-            //input in raster not used, origin instead
-            auto des = TensorUtils::getDescribe(t)->regions;
-            for(auto region : des)
-            {
-                auto tensor = region.origin;
-                auto tensorShape = OpenCL::tensorShapeFormat(tensor);
-                int originHeight = tensorShape[0] * tensorShape[1];
-                int originWidth  = tensorShape[2] * UP_DIV(tensorShape[3], 4);
-                if (originHeight > maxImageSize.at(0) || originWidth > maxImageSize.at(1)) {
-                    valid = false;
-                    break;
-                }
-            }
         }
         for (auto t : outputs) {
             auto tensorShape = OpenCL::tensorShapeFormat(t);

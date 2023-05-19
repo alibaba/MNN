@@ -34,25 +34,25 @@ protected:
 class DenseConvolutionTiledExecutor : public ConvolutionTiledExecutor {
 public:
     DenseConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-                             size_t originWeightSize, const float *bias, size_t biasSize);
+                             size_t originWeightSize, const float *bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common>);
 
     DenseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, const Convolution2DCommon *common, Backend* b);
     virtual ~DenseConvolutionTiledExecutor();
 
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        return mProxy->onExecute(inputs, outputs);
-    }
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        mInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
-        return mProxy->onResize(mInputs, outputs);
-    }
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void initWeight(float *dest, const float *source, float* cache, int depth, int outputCount, int kernelSize, const CoreFunctions* function);
     static PerfConfig bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
                                           const Tensor *outputTensor, int threadNumber, Backend* b) {
         return DenseConvolutionTiledImpl::bestTileConvolutionConfig(common, inputTensor, outputTensor, threadNumber, b);
     }
+    struct DequantizeCache {
+        std::shared_ptr<MNN::Tensor> weight;
+        std::shared_ptr<MNN::Tensor> weightInt8;
+    };
 protected:
+    DequantizeCache mWeightCache;
     std::shared_ptr<DenseConvolutionTiledImpl> mProxy;
 };
 

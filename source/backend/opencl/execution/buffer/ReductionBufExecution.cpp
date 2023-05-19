@@ -15,7 +15,7 @@
 namespace MNN {
 namespace OpenCL {
 
-ReductionBufExecution::ReductionBufExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend) {
+ReductionBufExecution::ReductionBufExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ReductionBufExecution init !\n");
 #endif
@@ -46,7 +46,6 @@ ReductionBufExecution::ReductionBufExecution(const MNN::Op* op, Backend* backend
             MNN_ASSERT(false);
             break;
     }
-    mOp = op;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionBufExecution init !\n");
 #endif
@@ -70,20 +69,20 @@ ErrorCode ReductionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     std::set<std::string> buildOption;
     switch (mReductType) {
         case 0:
-            buildOption.emplace("-DOPERATE=num+in");
+            buildOption.emplace("-DOPERATE(a,b)=(a+b)");
             buildOption.emplace("-DGET_AVG");
             break;
         case 1:
-            buildOption.emplace("-DOPERATE=max(num,in)");
+            buildOption.emplace("-DOPERATE(a,b)=max(a,b)");
             break;
         case 2:
-            buildOption.emplace("-DOPERATE=min(num,in)");
+            buildOption.emplace("-DOPERATE(a,b)=min(a,b)");
             break;
         case 3:
-            buildOption.emplace("-DOPERATE=num*in");
+            buildOption.emplace("-DOPERATE(a,b)=(a*b)");
             break;
         case 4:
-            buildOption.emplace("-DOPERATE=num+in");
+            buildOption.emplace("-DOPERATE(a,b)=(a+b)");
             break;
         default:
             MNN_ASSERT(false);
@@ -103,6 +102,7 @@ ErrorCode ReductionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
+    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
 
     return NO_ERROR;
 }

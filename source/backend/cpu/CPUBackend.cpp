@@ -104,9 +104,16 @@ float CPURuntime::onGetMemoryInMB() {
     auto staticMemoryInMB = mStaticAllocator->totalSize() / 1024.0f / 1024.0f;
     return staticMemoryInMB;
 }
-
-
-
+bool CPURuntime::onCheckInfo(Backend::Info& info) const {
+#ifdef MNN_USE_THREAD_POOL
+    int threadNumber = mThreadNumber;
+    if (mTaskIndex < 0) {
+        threadNumber = 1;
+    }
+    info.numThread = threadNumber;
+#endif
+    return true;
+}
 
 Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     auto precision = mPrecision;

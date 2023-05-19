@@ -11,6 +11,7 @@
 
 #include <vector>
 #include "ReductionTemplate.cuh"
+#include "MNNCUDAFunction.cuh"
 #include "backend/cuda/core/CUDABackend.hpp"
 #include <float.h>
 

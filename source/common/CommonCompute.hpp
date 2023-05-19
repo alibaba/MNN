@@ -84,7 +84,41 @@ public:
         }
         return true;
     }
+    static bool compressFloatWeightToSparse(MNN::OpT* op) {
+        auto opType = op->type;
+        auto param = op->main.AsConvolution2D();
+        if (param->sparseParameter.get() == nullptr) {
+            return false;
+        }
+        // Encode for sparse float weight
+        size_t weightSize = param->weight.size();
 
+        if (weightSize > std::numeric_limits<uint32_t>().max()) {
+            MNN_ERROR("The weightSize exceed uint32_t, can't compress the sparse weight\n");
+            return false;
+        }
+        param->quanParameter.reset(new IDSTQuanT);
+        size_t validSize = 0;
+        std::vector<uint32_t> indexes;
+        std::vector<float> newWeights;
+
+        for (size_t i=0; i<weightSize; ++i) {
+            if (param->weight[i] != 0.0f) {
+                indexes.emplace_back(i);
+                newWeights.emplace_back(param->weight[i]);
+            }
+        }
+        // If empty, Add Single weight to avoid error, runtime can't extract full sparse convolution
+        if (indexes.empty()) {
+            indexes.emplace_back(0);
+            newWeights.emplace_back(0.0f);
+        }
+        param->weight.clear();
+        param->quanParameter->alpha = std::move(newWeights);
+        param->quanParameter->weightSize = (uint32_t)weightSize;
+        param->quanParameter->index = std::move(indexes);
+        return true;
+    }
 };
 } // namespace MNN
 

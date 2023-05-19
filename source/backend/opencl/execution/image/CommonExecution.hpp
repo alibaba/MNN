@@ -15,7 +15,7 @@ namespace OpenCL {
 
 class CommonExecution : public Execution {
 public:
-    CommonExecution(Backend *backend);
+    CommonExecution(Backend *backend, const MNN::Op *Op);
     virtual ~CommonExecution() = default;
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

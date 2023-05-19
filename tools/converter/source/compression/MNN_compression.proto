@@ -43,7 +43,7 @@ message LayerQuantizeParams {
     optional int32 clamp_min = 4 [default = -128];
     optional int32 clamp_max = 5 [default = 127];
   }
-    
+
   message WinogradParams {
     required int32 version = 1 [default = 0];
     // units_attr: {kyStart, kxStart, subKy, subKx, unitY, unitX} x N
@@ -80,6 +80,7 @@ message PruneParams {
   enum PruneType {
     RANDOM = 0;
     SIMD_OC = 1;
+    FILTER = 2;
   }
   optional PruneType type = 1 [default = RANDOM];
   optional LevelPrunerParams level_pruner_params = 2;

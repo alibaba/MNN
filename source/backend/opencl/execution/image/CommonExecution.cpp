@@ -10,7 +10,9 @@
 namespace MNN {
 namespace OpenCL {
 
-CommonExecution::CommonExecution(Backend *backend) : Execution(backend) {
+CommonExecution::CommonExecution(Backend *backend, const MNN::Op *Op)
+    : Execution(backend), mOp(Op) {
+    mOpType = Op->type();
 }
 ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();

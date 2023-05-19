@@ -35,13 +35,12 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
     }
     MNN_ASSERT(mTotalSize == ((CPUBackend*)backend())->getTensorSize(outputs[0]));
 
-    std::vector<float> scale0(mTotalSize), scale1(mTotalSize), outputScale(mTotalSize);
-    std::fill(scale0.begin(), scale0.end(), TensorUtils::getDescribe(inputs[0])->quantAttr->scale);
-    std::fill(scale1.begin(), scale1.end(), TensorUtils::getDescribe(inputs[1])->quantAttr->scale);
-    std::fill(outputScale.begin(), outputScale.end(), 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale);
-    mInputQuant0 = scale0;
-    mInputQuant1 = scale1;
-    mOutputQuant = outputScale;
+    mInputQuant0.resize(mTotalSize);
+    mInputQuant1.resize(mTotalSize);
+    mOutputQuant.resize(mTotalSize);
+    std::fill(mInputQuant0.begin(), mInputQuant0.end(), TensorUtils::getDescribe(inputs[0])->quantAttr->scale);
+    std::fill(mInputQuant1.begin(), mInputQuant1.end(), TensorUtils::getDescribe(inputs[1])->quantAttr->scale);
+    std::fill(mOutputQuant.begin(), mOutputQuant.end(), 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale);
 
     if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));
@@ -56,15 +55,10 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
     auto output = outputs[0];
     
     auto schedule = ((CPUBackend*)backend())->multiThreadDivide(mTotalSize);
-#ifdef MNN_USE_SSE
-    auto input0Ptr = input->host<uint8_t>();
-    auto input1Ptr = input1->host<uint8_t>();
-    auto outputPtr = outputs[0]->host<uint8_t>();
-#else
+
     auto input0Ptr = input->host<int8_t>();
     auto input1Ptr = input1->host<int8_t>();
     auto outputPtr = outputs[0]->host<int8_t>();
-#endif
 
     int inpBytes = 1;
     int outBytes = 1;
@@ -90,7 +84,7 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
 #ifdef MNN_USE_NEON
             mProc(out, inp0, inp1, scale0, scale1, scaleDst, realSize / 4, mNeedBroadcastIndex);
 #else
-            mProc((int8_t*)out, (int8_t*)inp0, (int8_t*)inp1, scale0, scale1, scaleDst, realSize, mNeedBroadcastIndex);
+             mProc(out, inp0, inp1, scale0, scale1, scaleDst, realSize, mNeedBroadcastIndex);
 #endif
         }
     }

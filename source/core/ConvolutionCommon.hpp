@@ -19,6 +19,10 @@ public:
         AutoStorage<float> alpha;
         AutoStorage<float> weightFloat;
         const IDSTQuan* quan;
+        bool asymmetric;
+        std::vector<int8_t> weightMap;
+        std::vector<uint8_t> weightReverseMap;
+        bool canUseInt4 = false;
     };
     static std::shared_ptr<Int8Common> load(const IDSTQuan* quan, bool forceFloat = false, bool forceInt8 = false);
     static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, const MNN::Convolution2D *conv2d, const float** originWeight, int* originWeightSize);

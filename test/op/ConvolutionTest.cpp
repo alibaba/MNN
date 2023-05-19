@@ -212,9 +212,13 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu6 = relu6;
     conv2D->common->relu = relu;
+    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->weight = std::move(weight);
+    MNN_ASSERT(bias.size() == channel[1]);
+    conv2D->bias = std::move(bias);
     if (sparese) {
         size_t weightNNZElement, weightBlockNumber = 0;
-        CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, weight.data(), bias.size(), weight.size() / bias.size(), sparseBlockOC);
+        CommonCompute::statisticWeightSparsity(weightNNZElement, weightBlockNumber, conv2D->weight.data(), conv2D->bias.size(), conv2D->weight.size() / conv2D->bias.size(), sparseBlockOC);
 
         std::unique_ptr<MNN::AttributeT> arg1(new MNN::AttributeT);
         arg1->key = "sparseBlockOC";
@@ -250,11 +254,8 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
         auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
 
         conv2D->sparseParameter.reset(sparseComPtr);
+        CommonCompute::compressFloatWeightToSparse(convOp.get());
     }
-    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
-    conv2D->weight = std::move(weight);
-    MNN_ASSERT(bias.size() == channel[1]);
-    conv2D->bias = std::move(bias);
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }
 

@@ -2,13 +2,17 @@
 ## Linux / macOS / Ubuntu
 [从源码编译](../compile/tools.html#benchmark)，然后执行如下命令:
 ```bash
-./benchmark.out models_folder loop_count warm_up_count forwardtype
+./benchmark.out models_folder loop_count warm_up_count forwardtype numberThread precision weightSparsity weightSparseBlockNumber
 ```
 参数如下:
 - models_folder: benchmark models文件夹，[benchmark models](https://github.com/alibaba/MNN/tree/master/benchmark/models)。
 - loop_count: 可选，默认是10
 - warm_up_count: 预热次数
 - forwardtype: 可选，默认是0，即CPU，forwardtype有0->CPU，1->Metal，3->OpenCL，6->OpenGL，7->Vulkan
+- numberThread: 可选，默认是4，为 CPU 线程数或者 GPU 的运行模式
+- precision: 可选，默认是 2 （precision_low）
+- weightSparsity: 可选，默认是 0.0 ，在 weightSparsity > 0.5 时且后端支持时，开启稀疏计算
+- weightSparseBlockNumber: 可选，默认是 1 ，仅当 weightSparsity > 0.5 时生效，为稀疏计算 block 大小，越大越有利于稀疏计算的加速，一般选择 1, 4, 8, 16
 ## Android
 在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark/android)下直接执行脚本`bench_android.sh`，默认编译armv7，加参数-64编译armv8，参数-p将[benchmarkModels](https://github.com/alibaba/MNN/tree/master/benchmark/models) push到机器上。
 脚本执行完成在[benchmark目录](https://github.com/alibaba/MNN/tree/master/benchmark/android)下得到测试结果`benchmark.txt`

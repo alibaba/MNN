@@ -68,6 +68,7 @@ public:
     }
 
     virtual bool run(int precision) {
+        int numberThread = 0;
         MNN::BackendConfig bnConfig;
         auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
         ExecutorScope scope(exe);
@@ -77,10 +78,31 @@ public:
         auto y = _ReduceSum(_Multiply(x, x), {});
         ::memset(x->writeMap<float>(), 0, x->getInfo()->size * sizeof(float));
         y->readMap<float>();
+        auto res = Executor::getComputeInfo(y->expr().first, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+        if (numberThread != 4 || res == false) {
+            FUNC_PRINT(1);
+            return false;
+        }
 
         exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 4);
         ::memset(x->writeMap<float>(), 0, x->getInfo()->size * sizeof(float));
         y->readMap<float>();
+        res = Executor::getComputeInfo(y->expr().first, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+        if (numberThread != 4 || res == false) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 1);
+        // Reset x, y
+        x = _Input({1, 3, 224, 224}, NC4HW4);
+        y = _ReduceSum(_Multiply(x, x), {});
+        ::memset(x->writeMap<float>(), 0, x->getInfo()->size * sizeof(float));
+        y->readMap<float>();
+        res = Executor::getComputeInfo(y->expr().first, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+        if (numberThread != 1 || res == false) {
+            FUNC_PRINT(1);
+            return false;
+        }
         return true;
     }
 };

@@ -123,15 +123,8 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 isSetWorkGroupAttribute = true;
             } else if (deviceVendor.find("Intel") != std::string::npos) {
                 mGpuType = INTEL;
-                std::string opencl_c_version = mFirstGPUDevicePtr->getInfo<CL_DEVICE_OPENCL_C_VERSION>();
-                int version = 0;
-                for (auto s : opencl_c_version) {
-                    if (s >= '0' && s <= '9') {
-                        version += (s - '0');
-                        version *= 10;
-                    }
-                }
-                if (version >= 120) {
+                const std::string extensions = mFirstGPUDevicePtr->getInfo<CL_DEVICE_EXTENSIONS>();
+                if (extensions.find("cl_intel_subgroups") != std::string::npos) {
                     mSupportedIntelSubgroup = true;
                     uint32_t execution_units_count = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
                     uint32_t num_threads_per_eu = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NUM_THREADS_PER_EU_INTEL>();

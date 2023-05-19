@@ -425,59 +425,109 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             cutlass_check(status); 
         } else {
             if(hAlignment) {
-                typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                    {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
-                    {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
-                    {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
-                    (int64_t)(0), // batch_stride_bias
-                    {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
-                    {alpha, beta},          // <- tuple of alpha and beta
-                    mBatch};                // batch_count
+                if(mConvertGemmSplitK) {
+                    int split_k_slices = 16;
+                    typename GemmTensor_F16_F16_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                        {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                        {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                        {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        split_k_slices};        // <- k-dimension split factor
+                    size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
 
-                size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
+                    if(workspace_size != 0) {
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    }
 
-                if(workspace_size != 0) {
-                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                    mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    cutlass::Status status = mGemmF16F16LnAlign8Sm75.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = mGemmF16F16LnAlign8Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                    cutlass_check(status);
+                } else {
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
+                        {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
+                        {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)(0), // batch_stride_bias
+                        {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        mBatch};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
+
+                    if(workspace_size != 0) {
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = mGemmBatchedF16F16LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                    cutlass_check(status);
                 }
-                // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75.can_implement(arguments);
-                cutlass_check(status);
-
-                // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedF16F16LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                cutlass_check(status);
             } else {
-                typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                    {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
-                    {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
-                    {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
-                    (int64_t)(0), // batch_stride_bias
-                    {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
-                    (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
-                    {alpha, beta},          // <- tuple of alpha and beta
-                    mBatch};                // batch_count
+                if(mConvertGemmSplitK) {
+                    int split_k_slices = 16;
+                    typename GemmTensor_F16_F16_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                        {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                        {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                        {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        split_k_slices};        // <- k-dimension split factor
+                    size_t workspace_size = GemmTensor_F16_F16_Linear_AlignCuda_Sm75::get_workspace_size(arguments);
 
-                size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+                    if(workspace_size != 0) {
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    }
 
-                if(workspace_size != 0) {
-                    workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                    mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                    mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    cutlass::Status status = mGemmF16F16LnAlign1Sm75.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = mGemmF16F16LnAlign1Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                    cutlass_check(status);
+                } else {
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
+                        {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
+                        {(ElementOutput_F16 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)(0), // batch_stride_bias
+                        {(ElementOutput_F16 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        mBatch};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+
+                    if(workspace_size != 0) {
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = mGemmBatchedF16F16LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                    cutlass_check(status);
                 }
-                // Check the problem size is supported or not 
-                cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75.can_implement(arguments);
-                cutlass_check(status);
-
-                // Initialize CUTLASS kernel with arguments and workspace pointer
-                status = mGemmBatchedF16F16LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                cutlass_check(status);
             }
         }
 
@@ -541,63 +591,31 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
         } else {
             if(hAlignment) {
                 if(mNeedConvertMatAB) {
-                    typename GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                        {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
-                                        {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
-                                        {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
-                                        (int64_t)(0), // batch_stride_bias
-                                        {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
-                                        {alpha, beta},          // <- tuple of alpha and beta
-                                        mBatch};                // batch_count
-
-                    size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
-
-                    if(workspace_size != 0) {
-                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
-                    }
-                    // Check the problem size is supported or not 
-                    cutlass::Status status = mGemmBatchedF16F32LnAlign8RCSm75.can_implement(arguments);
-                    cutlass_check(status);
-
-                    // Initialize CUTLASS kernel with arguments and workspace pointer
-                    status = mGemmBatchedF16F32LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                    cutlass_check(status); 
-                } else {
-                    typename GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                        {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
-                                        {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
-                                        {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
-                                        (int64_t)(0), // batch_stride_bias
-                                        {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
-                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
-                                        {alpha, beta},          // <- tuple of alpha and beta
-                                        mBatch};                // batch_count
-
-                    size_t workspace_size = GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
-
-                    if(workspace_size != 0) {
-                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
-                    }
-                    // Check the problem size is supported or not 
-                    cutlass::Status status = mGemmBatchedF32F32LnAlign8RCSm75.can_implement(arguments);
-                    cutlass_check(status);
-
-                    // Initialize CUTLASS kernel with arguments and workspace pointer
-                    status = mGemmBatchedF32F32LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                    cutlass_check(status); 
-                }
-            } else {
-                if(mNeedConvertMatAB) {
-                    typename GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                    if(mConvertGemmSplitK) {
+                        int split_k_slices = 16;
+                        typename GemmTensor_F16_F32_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                            {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                            {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                            {alpha, beta},          // <- tuple of alpha and beta
+                            split_k_slices};        // <- k-dimension split factor
+                        size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
+    
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+    
+                        cutlass::Status status = mGemmF16F32LnAlign8Sm75.can_implement(arguments);
+                        cutlass_check(status);
+    
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmF16F32LnAlign8Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
+                    } else {
+                        typename GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                             {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
                                             {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
@@ -609,47 +627,179 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                                             {alpha, beta},          // <- tuple of alpha and beta
                                             mBatch};                // batch_count
 
-                    size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+                        size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
-                    if(workspace_size != 0) {
-                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+                        // Check the problem size is supported or not 
+                        cutlass::Status status = mGemmBatchedF16F32LnAlign8RCSm75.can_implement(arguments);
+                        cutlass_check(status);
+
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmBatchedF16F32LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
                     }
-                    // Check the problem size is supported or not 
-                    cutlass::Status status = mGemmBatchedF16F32LnAlign1RCSm75.can_implement(arguments);
-                    cutlass_check(status);
-
-                    // Initialize CUTLASS kernel with arguments and workspace pointer
-                    status = mGemmBatchedF16F32LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                    cutlass_check(status); 
                 } else {
-                    typename GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                        {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
-                                                        {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
-                                                        (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
-                                                        {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
-                                                        (int64_t)(0), // batch_stride_bias
-                                                        {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
-                                                        (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
-                                                        {alpha, beta},          // <- tuple of alpha and beta
-                                                        mBatch};                // batch_count
+                    if(mConvertGemmSplitK) {
+                        int split_k_slices = 16;
+                        typename GemmTensor_F32_F32_Linear_AlignTensor_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                            {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                            {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                            {alpha, beta},          // <- tuple of alpha and beta
+                            split_k_slices};        // <- k-dimension split factor
+                        size_t workspace_size = GemmTensor_F32_F32_Linear_AlignTensor_Sm75::get_workspace_size(arguments);
+    
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+    
+                        cutlass::Status status = mGemmF32F32LnAlign8Sm75.can_implement(arguments);
+                        cutlass_check(status);
+    
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmF32F32LnAlign8Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
+                    } else {
+                        typename GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                            {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
+                                            {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
+                                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                            (int64_t)(0), // batch_stride_bias
+                                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                                            {alpha, beta},          // <- tuple of alpha and beta
+                                            mBatch};                // batch_count
 
-                    size_t workspace_size = GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+                        size_t workspace_size = GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75::get_workspace_size(arguments);
 
-                    if(workspace_size != 0) {
-                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
-                        mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
-                        mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+                        // Check the problem size is supported or not 
+                        cutlass::Status status = mGemmBatchedF32F32LnAlign8RCSm75.can_implement(arguments);
+                        cutlass_check(status);
+
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmBatchedF32F32LnAlign8RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status); 
                     }
-                    // Check the problem size is supported or not 
-                    cutlass::Status status = mGemmBatchedF32F32LnAlign1RCSm75.can_implement(arguments);
-                    cutlass_check(status);
+                }
+            } else {
+                if(mNeedConvertMatAB) {
+                    if(mConvertGemmSplitK) {
+                        int split_k_slices = 16;
+                        typename GemmTensor_F16_F32_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                            {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                            {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                            {alpha, beta},          // <- tuple of alpha and beta
+                            split_k_slices};        // <- k-dimension split factor
+                        size_t workspace_size = GemmTensor_F16_F32_Linear_AlignCuda_Sm75::get_workspace_size(arguments);
+    
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+    
+                        cutlass::Status status = mGemmF16F32LnAlign1Sm75.can_implement(arguments);
+                        cutlass_check(status);
+    
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmF16F32LnAlign1Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
+                    } else {
+                        typename GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
+                                                {(ElementInput_F16 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
+                                                {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                (int64_t)(0), // batch_stride_bias
+                                                {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                                                (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                                                {alpha, beta},          // <- tuple of alpha and beta
+                                                mBatch};                // batch_count
 
-                    // Initialize CUTLASS kernel with arguments and workspace pointer
-                    status = mGemmBatchedF32F32LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
-                    cutlass_check(status); 
+                        size_t workspace_size = GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+                        // Check the problem size is supported or not 
+                        cutlass::Status status = mGemmBatchedF16F32LnAlign1RCSm75.can_implement(arguments);
+                        cutlass_check(status);
+
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmBatchedF16F32LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status); 
+                    }
+                } else {
+                    if(mConvertGemmSplitK) {
+                        int split_k_slices = 16;
+                        typename GemmTensor_F32_F32_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                            {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                            {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
+                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                            {alpha, beta},          // <- tuple of alpha and beta
+                            split_k_slices};        // <- k-dimension split factor
+                        size_t workspace_size = GemmTensor_F32_F32_Linear_AlignCuda_Sm75::get_workspace_size(arguments);
+    
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+    
+                        cutlass::Status status = mGemmF32F32LnAlign1Sm75.can_implement(arguments);
+                        cutlass_check(status);
+    
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmF32F32LnAlign1Sm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
+                    } else {
+                        typename GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                                                            {(ElementInput_F32 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs), // batch_stride_A
+                                                            {(ElementInput_F32 *)mTempMatB, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                            (int64_t)(mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs), // batch_stride_B
+                                                            {(ElementOutput_F32 *)mBiasPtr, 0},  //  Ptr + ldm  if ldm = 0, vector,
+                                                            (int64_t)(0), // batch_stride_bias
+                                                            {(ElementOutput_F32 *)C->deviceId(), mGemmInfo.elh[2]},  //  Ptr + ldm
+                                                            (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elh[2]),  // batch_stride_C
+                                                            {alpha, beta},          // <- tuple of alpha and beta
+                                                            mBatch};                // batch_count
+
+                        size_t workspace_size = GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75::get_workspace_size(arguments);
+
+                        if(workspace_size != 0) {
+                            workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                            mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                            mWorkspace = (void *)workspaceTensor.get()->buffer().device;
+                        }
+                        // Check the problem size is supported or not 
+                        cutlass::Status status = mGemmBatchedF32F32LnAlign1RCSm75.can_implement(arguments);
+                        cutlass_check(status);
+
+                        // Initialize CUTLASS kernel with arguments and workspace pointer
+                        status = mGemmBatchedF32F32LnAlign1RCSm75.initialize(arguments, (uint8_t *)mWorkspace);
+                        cutlass_check(status);
+                    }
                 }
             }
         }
@@ -695,7 +845,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mNeedBTempBuffer = (needBTranspose || !lAlignment) || mFp16Fp32MixInfer;
     mNeedConvertMatAB = (mNeedATempBuffer || mNeedBTempBuffer);
 
-    //MNN_PRINT("trAtrB:%d-%d, tmpAB:%d-%d inps:%d, bwlh:%d-%d-%d-%d\n", mTransposeA, mTransposeB, mNeedATempBuffer, mNeedBTempBuffer, inputs.size(), mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2]);
+    // MNN_PRINT("trAtrB:%d-%d, tmpAB:%d-%d inps:%d, bwlh:%d-%d-%d-%d\n", mTransposeA, mTransposeB, mNeedATempBuffer, mNeedBTempBuffer, inputs.size(), mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2]);
 
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     std::pair<void*, size_t> bufferAData, bufferBData;
@@ -730,6 +880,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     }
     //printf("MatMulAB:%p-%p-%p-%p\n", A->host<void*>(), A->deviceId(), B->host<void*>(), B->deviceId());
 
+    mConvertGemmSplitK = ((mBatch == 1) && (mGemmInfo.elhPad[1] >= 16384));
     // Set Cutlass Param Arguments
     mResizeSetArgument = (mTempMatA != nullptr && mTempMatB != nullptr && C->deviceId() != 0);
     if(mResizeSetArgument) {
@@ -855,19 +1006,39 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         } else {
             if(hAlignment) {
                 if(mNeedConvertMatAB) {
-                    cutlass::Status status = mGemmBatchedF16F32LnAlign8RCSm75();
-                    cutlass_check(status);
+                    if(mConvertGemmSplitK) {
+                        cutlass::Status status = mGemmF16F32LnAlign8Sm75();
+                        cutlass_check(status);
+                    } else {
+                        cutlass::Status status = mGemmBatchedF16F32LnAlign8RCSm75();
+                        cutlass_check(status);
+                    }
                 } else {
-                    cutlass::Status status = mGemmBatchedF32F32LnAlign8RCSm75();
-                    cutlass_check(status);
+                    if(mConvertGemmSplitK) {
+                        cutlass::Status status = mGemmF32F32LnAlign8Sm75();
+                        cutlass_check(status);
+                    } else {
+                        cutlass::Status status = mGemmBatchedF32F32LnAlign8RCSm75();
+                        cutlass_check(status);
+                    }
                 }
             } else {
                 if(mNeedConvertMatAB) {
-                    cutlass::Status status = mGemmBatchedF16F32LnAlign1RCSm75();
-                    cutlass_check(status);
+                    if(mConvertGemmSplitK) {
+                        cutlass::Status status = mGemmF16F32LnAlign1Sm75();
+                        cutlass_check(status);
+                    } else {
+                        cutlass::Status status = mGemmBatchedF16F32LnAlign1RCSm75();
+                        cutlass_check(status);
+                    }
                 } else {
-                    cutlass::Status status = mGemmBatchedF32F32LnAlign1RCSm75();
-                    cutlass_check(status);
+                    if(mConvertGemmSplitK) {
+                        cutlass::Status status = mGemmF32F32LnAlign1Sm75();
+                        cutlass_check(status);
+                    } else {
+                        cutlass::Status status = mGemmBatchedF32F32LnAlign1RCSm75();
+                        cutlass_check(status);
+                    }
                 }
             }
         }
@@ -878,15 +1049,25 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
             cutlass_check(status);
         } else {
             if(hAlignment) {
-                cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75();
-                cutlass_check(status);
+                if(mConvertGemmSplitK) {
+                    cutlass::Status status = mGemmF16F16LnAlign8Sm75();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmBatchedF16F16LnAlign8RCSm75();
+                    cutlass_check(status);
+                }
             } else {
-                cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75();
-                cutlass_check(status);
+                if(mConvertGemmSplitK) {
+                    cutlass::Status status = mGemmF16F16LnAlign1Sm75();
+                    cutlass_check(status);
+                } else {
+                    cutlass::Status status = mGemmBatchedF16F16LnAlign1RCSm75();
+                    cutlass_check(status);
+                }
             }
         }
     }
-
+    // printf("normal:%d rrlayout:%d convertab:%d halign:%d\n", mFp16Fp32MixInfer, mUseRRLayout, mNeedConvertMatAB, hAlignment);
     return NO_ERROR;
 }
 

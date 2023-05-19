@@ -143,7 +143,11 @@ def generateGemmFile(headfile):
 
 							hpp += out_align + out_precision_name + epilogue_name + ",\n    "
 							hpp += "SwizzleThreadBlock,\n    "
-							hpp += "NumStages>;\n\n"
+							hpp += "NumStages"
+							if sm_name == "_Sm75":
+								hpp += ",\n    128 / cutlass::sizeof_bits<" + element_input_precision + ">::value, 128 / cutlass::sizeof_bits<" + element_input_precision + ">::value, true>;\n\n"
+							else :
+								hpp += ">;\n\n"
 
 	hpp += "}\n}\n#endif"
 	with open(headfile, "w") as f:

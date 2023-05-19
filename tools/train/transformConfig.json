@@ -1,19 +1,27 @@
 {
     "Train": true,
     "Loss": {
-        "op": "output"
+        "op": "loss"
     },
-    "Optimizor": {
+    "Optimizer": {
         "OnlyUpdateOps":[],
         "NoUpdateOps":[],
         "StopBackPropOps":[],
-        "type": "SGD"
+        "type": "SGD",
+        "ParameterOptConfig":[
+            {
+                "WeightNames":["example_Weight1", "example_Weight2"],
+                "LrName":"LearningRate2"
+            },
+            {
+                "WeightNames":["example_Weight3"],
+                "LrName":"LearningRate3"
+            }
+        ],
+        "FixAsConstOps":[]
     },
     "BatchNorm": {
         "momentum":0.99
-    },
-    "Debug": {
-        "L2Norm": []
     },
     "Shape": {
         "input": [1, 3, 224, 224]

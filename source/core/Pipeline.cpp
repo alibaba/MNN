@@ -189,6 +189,7 @@ Pipeline::Pipeline(Schedule::PipelineInfo&& info, bool allocInput, bool outputSt
 #else
 {
 #endif
+    rt->onCheckInfo(info.first.info);
     mRuntime = rt;
     mCpuRuntime = cpuRt;
     mTuneAttr = tune;

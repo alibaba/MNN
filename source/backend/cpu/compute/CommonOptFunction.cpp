@@ -19,7 +19,6 @@
 #include <vector>
 #include "../CPURuntime.hpp"
 #include "common/MemoryFormater.h"
-#include "common/CommonCompute.hpp"
 // TODO: Find better way to optimize it
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
@@ -172,107 +171,6 @@ void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* are
             dstZ += areaOffset[1];
         }
     }
-}
-
-/*
-    source: source matrix is h x l
-    transpose: if false, export compressed matrix as h x l, other export as l x h.
- */
-void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose) {
-    // 1. in convolution, source B layout is OC x (KH * KW * IC),
-    //    the dest layout of weight is BCSC(block compressed sparse colum) format, which is OC(!=0) x (KH*KW*IC!=0), as a canceled result, just do BCSR, transpose should be false.
-    // 2. in ordinary sparse MatMul, transpose is corresponding to BCSR or BCSC
-
-    // BCSR
-    if (transpose) {
-        int rowOffset = 0;
-        for (int i = 0; i < l; i += 1) {
-            *NNZMap = 0;
-            for(int j = 0; j < h; j += sparseBlockOC) {
-                if(!MNN::CommonCompute::checkAllZeros(source + j * l + i, l, sparseBlockOC, 1)) {
-                    *dest = *(source + j * l + l);
-                    dest++;
-                    *NNZMap = *NNZMap + 1;
-                    *dataOffsetMap = rowOffset;
-                    dataOffsetMap++;
-                    rowOffset = 0;
-                }
-                rowOffset += eP;
-            }
-            NNZMap++;
-            rowOffset -= h * eP;
-        }
-    } else { // BCSC
-        int columOffset = 0;
-        int i = 0;
-        for (; i + sparseBlockOC <= h; i += sparseBlockOC) {
-            *NNZMap = 0;
-            for(int j = 0; j < l; j += 1) {
-                if (!MNN::CommonCompute::checkAllZeros(source, l, sparseBlockOC, 1)) {
-                    for (int ioc = 0; ioc < sparseBlockOC; ioc++) {
-                        *dest = *(source + ioc * l);
-                        dest++;
-                    }
-                    *NNZMap = *NNZMap + 1;
-                    *dataOffsetMap = columOffset;
-                    dataOffsetMap++;
-                    columOffset = 0;
-                }
-                columOffset += eP;
-                source++;
-            }
-            NNZMap++;
-            source += l * (sparseBlockOC - 1);
-            columOffset -= l * eP;
-        }
-
-        for (; i < h; i++) {
-            *NNZMap = 0;
-            for(int j = 0; j < l; j++) {
-                if (*source != 0.0f) {
-                    *dest = *source;
-                    dest++;
-                    *NNZMap = *NNZMap + 1;
-                    *dataOffsetMap = columOffset;
-                    dataOffsetMap++;
-                    columOffset = 0;
-                }
-                columOffset += eP;
-                source++;
-            }
-            NNZMap++;
-            columOffset -= l * eP;
-        }
-
-        *dataOffsetMap = columOffset; //
-    }
-    return;
-}
-
-
-void MNNGetOptimalBlockShape(size_t& weightNNZElement, size_t& weightBlockNumber, const float* source, int sparseBlockOC, size_t h, size_t l) {
-    size_t nnzBlock = 0;
-    size_t nnzTail = 0;
-    int ocEven = (h / sparseBlockOC) * sparseBlockOC;
-    size_t ioc = 0;
-    for (; ioc < ocEven; ioc += sparseBlockOC) {
-        for (size_t i = 0; i < l; i++) {
-            bool isZero = MNN::CommonCompute::checkAllZeros(source, l, sparseBlockOC, 1);
-            nnzBlock += !isZero;
-            source++;
-        }
-        source += (sparseBlockOC - 1) * l;
-    }
-    for (; ioc < h; ioc++) {
-        for (size_t i = 0; i < l; i++) {
-            bool isZero = (*source) == 0.0f;
-            nnzTail += !isZero;
-            source++;
-        }
-    }
-    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
-    weightBlockNumber = nnzBlock + nnzTail;
-    return;
 }
 
 #ifndef MNN_USE_NEON
@@ -2875,8 +2773,6 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
 
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
-    gCoreFunction->MNNPackForSparseMatMul_B = MNNPackForSparseMatMul_B; // sparse packing B
-    gCoreFunction->MNNGetOptimalBlockShape = MNNGetOptimalBlockShape;
     gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;

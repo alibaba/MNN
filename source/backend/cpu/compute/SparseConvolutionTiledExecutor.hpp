@@ -67,8 +67,7 @@ public:
 
 class SparseConvolutionTiledExecutor : public ConvolutionTiledExecutor {
 public:
-    SparseConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-                                   size_t originWeightSize, const SparseCommon* sparseCommon, const float *bias, size_t biasSize);
+    SparseConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const IDSTQuan* weight, const SparseCommon* sparseCommon, const float *bias, size_t biasSize);
 
     SparseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, std::shared_ptr<SparseIndexData> mSparseIndexData,
                                   const Convolution2DCommon *common, MNNPackedSparseMatMul packedSparseMatmul, int sparseBlockOC, Backend *b);
@@ -84,24 +83,9 @@ public:
     virtual bool onClone(Backend *bn, const Op *op, Execution **dst) override;
 
     void initWeight(float *dest, unsigned int *NNZMap, int *dataOffsetMap, int sparseBlockOC, const float *source,
-                    float *cache, int depth, int outputCount, int kernelSize, int eP, size_t weightNNZElement,
+                    const uint32_t* indexes, uint32_t indexSize, int depth, int outputCount, int kernelSize, int eP, size_t weightNNZElement,
                     size_t weightBlockNumber, const CoreFunctions *function);
 
-    static bool shouldUseSparseConvolution(size_t originWeightSize, const SparseCommon* sparseCommon) {
-        auto sparseBlockOC = sparseCommon->args()->LookupByKey("sparseBlockOC")->i();
-        size_t weightNNZElement = sparseCommon->args()->LookupByKey("NNZElement")->i();
-        return shouldUseSparseConvolution((originWeightSize - weightNNZElement) / ((double)originWeightSize), sparseBlockOC);
-    }
-    static bool inline shouldUseSparseConvolution(float sparsity, int sparseBlockOC) {
-        std::vector<float> thresholds = getSparsityThreshold();
-        return sparsity > thresholds[std::min(std::max(sparseBlockOC, 0), (int)thresholds.size() - 1)];
-    }
-    static inline std::vector<float> getSparsityThreshold() {
-
-        // sparsity threadhold values, when sparseblock is
-        //     {0,   1,    2,     3,   4,    5,    6,    7,    8,    9,    10,   11,   12,   13,   14,   15,   16}
-        return {1.f, 0.6f, 0.5f, 0.4f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f};
-    }
 protected:
     std::shared_ptr<SparseConvolutionTiledImpl> mProxy;
     std::shared_ptr<SparseIndexData> mSparseIndexData;
