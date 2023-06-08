@@ -20,9 +20,9 @@ public:
     virtual ~NPUInt8ToFloat() = default;
    
 private:
-    ge::op::Const mConst_fliter;
-    ge::op::Const mConstMax;
-    ge::op::Const mConstMin;
+    hiai::op::Const mConst_fliter;
+    hiai::op::Const mConstMax;
+    hiai::op::Const mConstMin;
 };
 
 } // namespace MNN

@@ -21,7 +21,6 @@ NPUDeconvolution::NPUDeconvolution(Backend *b, const Op *op, const std::vector<T
 
 ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNpuBackend->setNetworkInput(inputs, mOp);
-
     auto opName = mOp->name()->str();
 
     auto conv2D       = mOp->main_as_Convolution2D();
@@ -44,9 +43,8 @@ ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
     shared_ptr<hiai::op::ConvTranspose> deconv(new hiai::op::ConvTranspose(opName));
     
     auto xOp = mNpuBackend->getInputOps(mOp);
-
     // om input weight const op
-    mConst_w = ge::op::Const(opName + "_w_const");
+    mConst_w = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorDesc fdesc(ge::Shape({inputCount, outputCount, kernelY, kernelX}), ge::FORMAT_NCHW,
                              ge::DT_FLOAT); // in o h w ?
@@ -58,7 +56,7 @@ ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
     }
 
     // om input bias const op
-    mConst_b = ge::op::Const(opName + "_b_const");
+    mConst_b = hiai::op::Const(opName + "_b_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, outputCount, 1, 1}), ge::FORMAT_NCHW, ge::DT_FLOAT);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -86,7 +84,7 @@ ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
             {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()})) // 上下左右
         .set_attr_pad_mode(padMode);
 
-    shared_ptr<ge::op::Activation> relu_conv(new ge::op::Activation(opName + "_Relu"));
+    shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));
     mRelu_conv = relu_conv;
 
     auto relu  = conv2DCommon->relu();

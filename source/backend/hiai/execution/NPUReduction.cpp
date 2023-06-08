@@ -55,13 +55,24 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
 
     axis = convertAxis(origAxis,inputs[0]);
 
-    mConstAxis = ge::op::Const(opName + "_axis");
+    mConstAxis = hiai::op::Const(opName + "_axis");
     {
         ge::TensorDesc fdesc(ge::Shape({static_cast<long>(axis.size())}), ge::FORMAT_ND, ge::DT_INT32);
         ge::TensorPtr constTensor = std::make_shared<ge::Tensor>();
         constTensor->SetTensorDesc(fdesc);
         constTensor->SetData((uint8_t *)(axis.data()), axis.size()*sizeof(float));
         mConstAxis.set_attr_value(constTensor);
+    }
+    std::vector<int32_t> shapeDims (tensorShapeFormat(outputs[0]).begin(), tensorShapeFormat(outputs[0]).end()); 
+    shapeConst = hiai::op::Const(opName + "_shape_const");
+    {
+        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 
+            ge::FORMAT_NCHW,  ge::DT_INT32);
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        filter->SetTensorDesc(fdesc);
+        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int32_t));
+
+        shapeConst.set_attr_value(filter);
     }
 
     if(type == ReductionType_MAXIMUM) {
@@ -82,9 +93,8 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
             .set_input_x(*xOp.get()).set_input_axes(mConstAxis)
             .set_attr_keep_dims(reduct->keepDims());
         if(reduct->keepDims() == false) {
-            auto  shapeDims = tensorShapeFormat(outputs[0]);
-            shared_ptr<ge::op::Reshape> reshape1(new ge::op::Reshape(opName+"reshape1"));
-            (*reshape1).set_input_tensor(*reduction.get()).set_attr_shape(ge::AttrValue::LIST_INT(shapeDims));
+            shared_ptr<hiai::op::Reshape> reshape1(new hiai::op::Reshape(opName+"reshape1"));
+            (*reshape1).set_input_x(*reduction.get()).set_input_shape(shapeConst);
             mNpuBackend->setOutputOps(mOp, {reduction,reshape1}, outputs);
         } else {
             mNpuBackend->setOutputOps(mOp, {reduction}, outputs);

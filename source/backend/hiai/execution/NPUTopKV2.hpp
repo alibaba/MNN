@@ -20,7 +20,7 @@ public:
     virtual ~NPUTopKV2() = default;
 
 private:
-    ge::op::Const mConst_w;
+    hiai::op::Const mConst_w;
 };
 
 } // namespace MNN

@@ -25,7 +25,7 @@ NPUStridedSlice::NPUStridedSlice(Backend *b, const Op *op, const std::vector<Ten
 
     if(isConst1 == true) {
         auto beginShape = convertShapeConstValue(begin, 0);
-        mConst_b = ge::op::Const(opName + "_b_const");
+        mConst_b = hiai::op::Const(opName + "_b_const");
         {
             ge::TensorDesc fdesc(ge::Shape({4}), ge::DT_INT32); 
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -37,7 +37,7 @@ NPUStridedSlice::NPUStridedSlice(Backend *b, const Op *op, const std::vector<Ten
 
     if(isConst2 == true) {
         auto endShape = convertShapeConstValue(end, 0);
-        mConst_e = ge::op::Const(opName + "_e_const");
+        mConst_e = hiai::op::Const(opName + "_e_const");
         {
             ge::TensorDesc fdesc(ge::Shape({4}),  ge::DT_INT32); 
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -49,7 +49,7 @@ NPUStridedSlice::NPUStridedSlice(Backend *b, const Op *op, const std::vector<Ten
 
     if(isConst3 == true) {
         auto stridedShape = convertShapeConstValue(strided);
-        mConst_s = ge::op::Const(opName + "_s_const");
+        mConst_s = hiai::op::Const(opName + "_s_const");
         {
             ge::TensorDesc fdesc(ge::Shape({4}), ge::DT_INT32); 
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -72,7 +72,7 @@ ErrorCode NPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
     auto opName = mOp->name()->str();
     auto param  = mOp->main_as_Axis();
 
-    shared_ptr<ge::op::StridedSlice> stride_slice(new ge::op::StridedSlice(opName));
+    shared_ptr<hiai::op::StridedSlice> stride_slice(new hiai::op::StridedSlice(opName));
 
     auto inputIndex = mOp->inputIndexes()->data()[0];
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x

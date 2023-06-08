@@ -39,12 +39,12 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
-    int padMode = 0; // NOTSET
+    auto padMode = "SPECIFIC"; // NOTSET
     vector<int64_t> pad = {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()};
     if (PadMode_VALID == conv2DCommon->padMode()) {
-        padMode = 5;
+        padMode = "VALID";
     } else if (PadMode_SAME == conv2DCommon->padMode()) {
-        padMode = 6;
+        padMode = "SAME";
         pad = {0,0,0,0};
     }
 
@@ -63,7 +63,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
         }
 
         // om input weight const op
-        mConst_w = ge::op::Const(opName + "_w_const");
+        mConst_w = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorDesc fdesc(ge::Shape({outputCount, inputCount, kernelY, kernelX}), ge::FORMAT_NCHW,
                                 ge::DT_FLOAT); // in o h w ?
@@ -74,7 +74,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
             mConst_w.set_attr_value(filter);
         }
         // om input bias const op
-        mConst_b = ge::op::Const(opName + "_b_const");
+        mConst_b = hiai::op::Const(opName + "_b_const");
         {
             ge::TensorDesc fdesc(ge::Shape({1, outputCount, 1, 1}), ge::FORMAT_NCHW, ge::DT_FLOAT);
             ge::TensorPtr bias = std::make_shared<ge::Tensor>();
@@ -82,23 +82,20 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
             bias->SetData((uint8_t *)biasData.data(), biasData.size()* sizeof(float));
             mConst_b.set_attr_value(bias);
         }
-        shared_ptr<ge::op::Convolution> conv(new ge::op::Convolution(opName));
+        shared_ptr<hiai::op::Convolution> conv(new hiai::op::Convolution(opName));
 
         (*conv)
             .set_input_x(*xOp.get())
-            .set_input_w(mConst_w)
-            .set_input_b(mConst_b)
-            .set_attr_kernel(ge::AttrValue::LIST_INT({kernelY, kernelX}))
-            .set_attr_mode(1) // 后续会废除，不再使用
-            .set_attr_stride(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
-            .set_attr_dilation(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
-            .set_attr_group(conv2DCommon->group())
-            .set_attr_pad(ge::AttrValue::LIST_INT(
+            .set_input_filter(mConst_w)
+            .set_input_bias(mConst_b)
+            .set_attr_strides(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
+            .set_attr_dilations(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
+            .set_attr_groups(conv2DCommon->group())
+            .set_attr_pads(ge::AttrValue::LIST_INT(
                 {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()})) // 上下左右
-            .set_attr_pad_mode(padMode)
-            .set_attr_num_output(outputCount);
+            .set_attr_pad_mode(padMode);
 
-        shared_ptr<ge::op::Activation> relu_conv(new ge::op::Activation(opName + "_Relu"));
+        shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));
         mRelu_conv = relu_conv;
 
         auto relu  = conv2DCommon->relu();
@@ -117,7 +114,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
     }else{
         vector<float> filter_scale(int32ToInt8Scale, int32ToInt8Scale + quantizedParams->scale()->size());
         // om input weight const op
-        mConst_w = ge::op::Const(opName + "_w_const");
+        mConst_w = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorDesc fdesc(ge::Shape({outputCount, inputCount, kernelY, kernelX}), ge::FORMAT_NCHW,
                                 ge::DT_INT8); // in o h w ?
@@ -128,7 +125,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
             mConst_w.set_attr_value(filter);
         }
         // om input bias const op
-        mConst_b = ge::op::Const(opName + "_b_const");
+        mConst_b = hiai::op::Const(opName + "_b_const");
         {
             ge::TensorDesc fdesc(ge::Shape({1, outputCount, 1, 1}), ge::FORMAT_NCHW, ge::DT_INT32);
             ge::TensorPtr bias = std::make_shared<ge::Tensor>();
@@ -139,25 +136,23 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
             mConst_b.set_attr_value(bias);
         }
 
-        shared_ptr<ge::op::QuantizedConvolution> conv(new ge::op::QuantizedConvolution(opName));
+        shared_ptr<hiai::op::QuantizedConvolution> conv(new hiai::op::QuantizedConvolution(opName));
         (*conv)
             .set_input_x(*xOp.get())
             .set_input_filter(mConst_w)
             .set_input_bias(mConst_b)
-            .set_attr_kernel(ge::AttrValue::LIST_INT({kernelY, kernelX}))
-            .set_attr_stride(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
-            .set_attr_dilation(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
-            .set_attr_group(conv2DCommon->group())
-            .set_attr_pad(ge::AttrValue::LIST_INT(pad)) // 上下左右
+            .set_attr_strides(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
+            .set_attr_dilations(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
+            .set_attr_groups(conv2DCommon->group())
+            .set_attr_pads(ge::AttrValue::LIST_INT(pad)) // 上下左右
             .set_attr_pad_mode(padMode)
             .set_attr_filter_quant_type(1)
             .set_attr_x_quant_type(1)
             .set_attr_x_quant_offset(127)
             // .set_attr_x_quant_offset(0)
             .set_attr_x_quant_scale(1.0)
-            .set_attr_filter_quant_scales(filter_scale)
-            .set_attr_num_output(outputCount);
-        shared_ptr<ge::op::Activation> relu_conv(new ge::op::Activation(opName + "_Relu"));
+            .set_attr_filter_quant_scales(filter_scale);
+        shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));
         mRelu_conv = relu_conv;
 
         auto relu  = conv2DCommon->relu();

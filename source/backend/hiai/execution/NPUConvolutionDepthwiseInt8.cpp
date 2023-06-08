@@ -34,7 +34,7 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
     int weightSize  = quantizedParams->weight()->size();
     int inputCount = weightSize / (kernelX * kernelY * outputCount);
 
-    shared_ptr<ge::op::QuantizedConvolutionDepthwise> conv(new ge::op::QuantizedConvolutionDepthwise(opName));
+    shared_ptr<hiai::op::QuantizedConvolutionDepthwise> conv(new hiai::op::QuantizedConvolutionDepthwise(opName));
 
     auto int32ToInt8Scale = quantizedParams->scale()->data();
 
@@ -43,7 +43,7 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
     auto xOp = mNpuBackend->getInputOps(mOp);
 
     // om input weight const op
-    mConst_w = ge::op::Const(opName + "_w_const");
+    mConst_w = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorDesc fdesc(ge::Shape({outputCount, inputCount, kernelY, kernelX}), ge::FORMAT_NCHW,
                              ge::DT_INT8); // in o h w ?
@@ -54,7 +54,7 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
         mConst_w.set_attr_value(filter);
     }
     // om input bias const op
-    mConst_b = ge::op::Const(opName + "_b_const");
+    mConst_b = hiai::op::Const(opName + "_b_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, outputCount, 1, 1}), ge::FORMAT_NCHW, ge::DT_INT32);
         ge::TensorPtr bias = std::make_shared<ge::Tensor>();
@@ -64,36 +64,31 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
         mConst_b.set_attr_value(bias);
     }
 
-    int padMode = 0; // NOTSET
+    auto padMode = "SPECIFIC"; // NOTSET
     vector<int64_t> pad = {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()};
-    if (PadMode_VALID == conv2DCommon->padMode()) {
-        padMode = 5;
+    if (PadMode_VALID == conv2DCommon->padMode() || PadMode_CAFFE == conv2DCommon->padMode() ) {
+        padMode =  "VALID";
     } else if (PadMode_SAME == conv2DCommon->padMode()) {
-        padMode = 6;
+        padMode = "SAME";
         pad = {0,0,0,0};
-    }else if(PadMode_CAFFE == conv2DCommon->padMode()){
-        padMode = 5;
     }
 
     (*conv)
         .set_input_x(*xOp.get())
         .set_input_filter(mConst_w)
         .set_input_bias(mConst_b)
-        .set_attr_kernel(ge::AttrValue::LIST_INT({kernelY, kernelX}))
-        .set_attr_stride(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
-        .set_attr_dilation(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
-        .set_attr_group(conv2DCommon->group())
-        .set_attr_pad(ge::AttrValue::LIST_INT(pad)) // 上下左右
+        .set_attr_strides(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
+        .set_attr_dilations(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
+        .set_attr_pads(ge::AttrValue::LIST_INT(pad)) // 上下左右
         .set_attr_pad_mode(padMode)
         .set_attr_filter_quant_type(1)
         .set_attr_x_quant_type(1)
         .set_attr_x_quant_offset(127)
         // .set_attr_x_quant_offset(0)
         .set_attr_x_quant_scale(1.0)
-        .set_attr_filter_quant_scales(filter_scale)
-        .set_attr_num_output(outputCount);
+        .set_attr_filter_quant_scales(filter_scale);
 
-    shared_ptr<ge::op::Activation> relu_conv(new ge::op::Activation(opName + "_Relu"));
+    shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));
     mRelu_conv = relu_conv;
 
     auto relu  = conv2DCommon->relu();

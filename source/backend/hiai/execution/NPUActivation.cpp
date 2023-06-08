@@ -31,7 +31,7 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
         auto slopePtr = mOp->main_as_PRelu()->slope()->data();
         auto slopeSize = mOp->main_as_PRelu()->slope()->size();
 
-        mConst_w = ge::op::Const(opName + "_w_const");
+        mConst_w = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorDesc fdesc(ge::Shape({1, slopeSize, 1, 1}), ge::FORMAT_NCHW,
                                 ge::DT_FLOAT); // in o h w ?
@@ -51,7 +51,7 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
             mType = 5;
         }
 
-        shared_ptr<ge::op::Activation> relu(new ge::op::Activation(opName + "_relu"));
+        shared_ptr<hiai::op::Activation> relu(new hiai::op::Activation(opName + "_relu"));
         (*relu)
             .set_input_x(*xOp.get())
             .set_attr_coef(.000000)

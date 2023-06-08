@@ -24,12 +24,12 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
     auto scaleData = param->scaleData();
     auto biasData  = param->biasData();
 
-    shared_ptr<ge::op::Scale> scale(new ge::op::Scale(opName + "_scale"));
+    shared_ptr<hiai::op::Scale> scale(new hiai::op::Scale(opName + "_scale"));
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
     // om input filter const op
-    mConst_fliter = ge::op::Const(opName + "_filter_const");
+    mConst_fliter = hiai::op::Const(opName + "_filter_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, scaleData->size(), 1, 1}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -39,7 +39,7 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
         mConst_fliter.set_attr_value(filter);
     }
     // om input bias const op
-    mConst_bias = ge::op::Const(opName + "_bias_const");
+    mConst_bias = hiai::op::Const(opName + "_bias_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, biasData->size(), 1, 1}), ge::FORMAT_NCHW, ge::DT_FLOAT);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -49,7 +49,7 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
         mConst_bias.set_attr_value(filter);
     }
 
-    (*scale).set_input_x(*xOp.get()).set_input_filter(mConst_fliter).set_input_bias(mConst_bias).set_attr_has_bias_value(true);
+    (*scale).set_input_x(*xOp.get()).set_input_scale(mConst_fliter).set_input_bias(mConst_bias);
 
     mNpuBackend->setOutputOps(mOp, {scale}, outputs);
 

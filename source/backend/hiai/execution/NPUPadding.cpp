@@ -26,7 +26,7 @@ NPUPadding::NPUPadding(Backend *b, const Op *op, const std::vector<Tensor *> &in
         mPadData = {data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]};
     }  
     // om input weight const op
-    mConst = ge::op::Const(opName + "_w_const");
+    mConst = hiai::op::Const(opName + "_w_const");
     {
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         ge::TensorDesc fdesc(ge::Shape(ge::Shape({4, 2})), ge::FORMAT_NCHW, ge::DT_INT32);

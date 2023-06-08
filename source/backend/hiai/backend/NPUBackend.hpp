@@ -10,7 +10,8 @@
 #define MNN_NPUBACKEND_H
 
 #include <graph/attr_value.h>
-#include <graph/attr_value.h>
+#include <graph/operator_hiai_reg.h>
+#include <graph/op/all_ops.h>
 #include <graph/compatible/operator_reg.h>
 #include <graph/graph.h>
 #include <graph/model.h>

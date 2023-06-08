@@ -19,7 +19,7 @@ NPUPooling::NPUPooling(MNN::Backend *b, const MNN::Op *op, const std::vector<Ten
 ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNpuBackend->setNetworkInput(inputs, mOp);
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Pooling> pooling(new ge::op::Pooling(opName));
+    shared_ptr<hiai::op::PoolingD> poolingD(new hiai::op::PoolingD(opName));
 
     auto poolParam = mOp->main_as_Pool();
 
@@ -56,7 +56,7 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     
     if (poolParam->isGlobal() == true && 
         kernelH%2 == 0 && kernelW%2==0 && kernelH*kernelW >65535) {
-        shared_ptr<ge::op::Pooling> pooling2X2(new ge::op::Pooling(opName+"_2x2"));
+        shared_ptr<hiai::op::PoolingD> pooling2X2(new hiai::op::PoolingD(opName+"_2x2"));
         (*pooling2X2)
             .set_input_x(*xOp.get()).set_attr_data_mode(0) 
             .set_attr_pad_mode(0).set_attr_ceil_mode(0) 
@@ -65,7 +65,7 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_window(ge::AttrValue::LIST_INT({2, 2}))
             .set_attr_stride(ge::AttrValue::LIST_INT({2, 2}))
             .set_attr_global_pooling(false);
-        (*pooling)
+        (*poolingD)
             .set_input_x(*pooling2X2.get())
             .set_attr_data_mode(data_mode) // data_mode, DOMI_CAFFE_DATA_MODE =0, TENSORFLOW_DATA_MODE = 1.  TODO
             .set_attr_pad_mode(pad_mode)
@@ -76,9 +76,9 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_window(ge::AttrValue::LIST_INT({kernelH/2, kernelW/2}))
             .set_attr_stride(ge::AttrValue::LIST_INT({strideHeight, strideWidth}))
             .set_attr_global_pooling(poolParam->isGlobal());
-            mNpuBackend->setOutputOps(mOp, {pooling2X2,pooling}, outputs);
+            mNpuBackend->setOutputOps(mOp, {pooling2X2,poolingD}, outputs);
     } else {
-        (*pooling)
+        (*poolingD)
             .set_input_x(*xOp.get())
             .set_attr_data_mode(data_mode) // data_mode, DOMI_CAFFE_DATA_MODE =0, TENSORFLOW_DATA_MODE = 1.  TODO
             .set_attr_pad_mode(pad_mode)
@@ -90,7 +90,7 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_stride(ge::AttrValue::LIST_INT({strideHeight, strideWidth}))
             .set_attr_global_pooling(poolParam->isGlobal());
 
-        mNpuBackend->setOutputOps(mOp, {pooling}, outputs);
+        mNpuBackend->setOutputOps(mOp, {poolingD}, outputs);
     }
     return NO_ERROR;
 }

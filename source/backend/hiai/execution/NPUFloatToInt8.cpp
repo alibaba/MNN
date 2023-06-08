@@ -25,11 +25,11 @@ ErrorCode NPUFloatToInt8::onResize(const std::vector<Tensor *> &inputs, const st
     auto scale         = mOp->main_as_QuantizedFloatParam()->tensorScale();
 
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Scale> floatToInt8(new ge::op::Scale(opName));
+    shared_ptr<hiai::op::Scale> floatToInt8(new hiai::op::Scale(opName));
     auto xOp = mNpuBackend->getInputOps(mOp);
 
     // om input filter const op
-    mConst_fliter = ge::op::Const(opName + "_filter_const");
+    mConst_fliter = hiai::op::Const(opName + "_filter_const");
     {
         ge::TensorDesc fdesc(ge::Shape({1, scale->size(), 1, 1}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -38,7 +38,7 @@ ErrorCode NPUFloatToInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConst_fliter.set_attr_value(filter);
     }
 
-    mConstMin = ge::op::Const(opName + "_clip_min");
+    mConstMin = hiai::op::Const(opName + "_clip_min");
     {
         float minData = -127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -48,7 +48,7 @@ ErrorCode NPUFloatToInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConstMin.set_attr_value(constTensor);
     }
 
-    mConstMax = ge::op::Const(opName + "_clip_max");
+    mConstMax = hiai::op::Const(opName + "_clip_max");
     {
         float maxData = 127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -61,7 +61,7 @@ ErrorCode NPUFloatToInt8::onResize(const std::vector<Tensor *> &inputs, const st
     
     (*floatToInt8)
         .set_input_x(*xOp)
-        .set_input_filter(mConst_fliter);
+        .set_input_scale(mConst_fliter);
 
     (*clip)
         .set_input_x(*floatToInt8)

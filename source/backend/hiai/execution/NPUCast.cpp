@@ -52,18 +52,18 @@ ErrorCode NPUCast::onResize(const std::vector<Tensor *> &inputs, const std::vect
     mNpuBackend->setNetworkInput(inputs, mOp);
     auto opName = mOp->name()->str();
 
-    shared_ptr<ge::op::Cast> castOp(new ge::op::Cast(opName));
+    shared_ptr<hiai::op::CastT> castTOp(new hiai::op::CastT(opName));
 
     auto xOp = mNpuBackend->getInputOps(mOp);
     auto castPara = mOp->main_as_CastParam();
     DataType srcT = castPara->srcT();
     DataType dstT = castPara->dstT();
 
-    (*castOp)
+    (*castTOp)
         .set_input_x(*xOp.get())
-        .set_attr_SrcT(mapDataType(srcT)) 
-        .set_attr_DstT(mapDataType(dstT));
-    mNpuBackend->setOutputOps(mOp, {castOp}, outputs);
+        .set_attr_src_dtype(mapDataType(srcT)) 
+        .set_attr_dst_dtype(mapDataType(dstT));
+    mNpuBackend->setOutputOps(mOp, {castTOp}, outputs);
     return NO_ERROR;
 }
 

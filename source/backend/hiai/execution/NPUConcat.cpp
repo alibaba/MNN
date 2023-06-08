@@ -22,25 +22,25 @@ ErrorCode NPUConcat::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto opName = mOp->name()->str();
     auto param  = mOp->main_as_Axis();
 
-    shared_ptr<ge::op::Concat> concat(new ge::op::Concat(opName));
+    shared_ptr<hiai::op::ConcatD> concatD(new hiai::op::ConcatD(opName));
 
     auto inputSize = mOp->inputIndexes()->size();
-    (*concat).create_dynamic_input_x(inputSize).set_attr_axis(axisFormat(inputs[0], param->axis()));
+    (*concatD).create_dynamic_input_x(inputSize)
+    .set_attr_concat_dim(axisFormat(inputs[0], param->axis()));
 
     for (int i = 0; i < inputSize; ++i) {
         auto inputIndex = mOp->inputIndexes()->data()[i];
         auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
         auto xOp        = iops.back().first;
-
-        ge::Operator *px = (ge::Operator *)xOp.get();
-        (*concat).set_dynamic_input_x(i + 1, *px);
+        hiai::Operator *px = (hiai::Operator *)xOp.get();
+        (*concatD).set_dynamic_input_x(i + 1, *px);
     }
 
-    mNpuBackend->setOutputOps(mOp, {concat}, outputs);
+    mNpuBackend->setOutputOps(mOp, {concatD}, outputs);
 
     return NO_ERROR;
 }
 
-NPUCreatorRegister<TypedCreator<NPUConcat>> __concat_op(OpType_Concat);
+NPUCreatorRegister<TypedCreator<NPUConcat>> __concatD_op(OpType_Concat);
 
 } // namespace MNN
