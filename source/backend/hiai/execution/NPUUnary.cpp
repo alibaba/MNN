@@ -21,25 +21,25 @@ ErrorCode NPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vec
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
-    shared_ptr<ge::Operator> xOp2; 
+    shared_ptr<hiai::Operator> xOp2; 
 
     auto unary_type = mOp->main_as_UnaryOp()->opType();
 
     if(unary_type == UnaryOpOperation_EXP){
-        shared_ptr<ge::op::Exp> unary(new ge::op::Exp(opName));
+        shared_ptr<hiai::op::Exp> unary(new hiai::op::Exp(opName));
         (*unary).set_input_x(*xOp.get());
         mNpuBackend->setOutputOps(mOp, {unary}, outputs);
     }else if(unary_type == UnaryOpOperation_NEG){
-        shared_ptr<ge::op::Neg> unary(new ge::op::Neg(opName));
+        shared_ptr<hiai::op::Neg> unary(new hiai::op::Neg(opName));
         (*unary).set_input_x(*xOp.get());
         mNpuBackend->setOutputOps(mOp, {unary}, outputs);
     }else if(unary_type == UnaryOpOperation_ABS){
-        shared_ptr<ge::op::Activation> unary(new ge::op::Activation(opName));
+        shared_ptr<hiai::op::Activation> unary(new hiai::op::Activation(opName));
         (*unary).set_input_x(*xOp.get())
                 .set_attr_mode(6);
         mNpuBackend->setOutputOps(mOp, {unary}, outputs);
     }else if(unary_type == UnaryOpOperation_SQRT){
-        shared_ptr<ge::op::Sqrt> unary(new ge::op::Sqrt(opName));
+        shared_ptr<hiai::op::Sqrt> unary(new hiai::op::Sqrt(opName));
         (*unary).set_input_x(*xOp.get());
         mNpuBackend->setOutputOps(mOp, {unary}, outputs);
     }else{

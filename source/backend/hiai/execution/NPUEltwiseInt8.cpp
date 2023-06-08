@@ -32,7 +32,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
     auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
     auto xOp1        = iops1.back().first;
 
-    mConst_scale0 = ge::op::Const(opName + "_scale0_const");
+    mConst_scale0 = hiai::op::Const(opName + "_scale0_const");
     {
         int size = param->inputQuan0()->tensorScale()->size();
         auto inScalePtr = param->inputQuan0()->tensorScale()->data();
@@ -50,7 +50,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConst_scale0.set_attr_value(filter);
     }
 
-    mConst_scale1 = ge::op::Const(opName + "_scale1_const");
+    mConst_scale1 = hiai::op::Const(opName + "_scale1_const");
     {
         int size = param->inputQuan1()->tensorScale()->size();
         auto inScalePtr = param->inputQuan1()->tensorScale()->data();
@@ -68,7 +68,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConst_scale1.set_attr_value(filter);
     }
 
-    mConstMin0 = ge::op::Const(opName + "_clip_min0");
+    mConstMin0 = hiai::op::Const(opName + "_clip_min0");
     {
         float minData = -127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -78,7 +78,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConstMin0.set_attr_value(constTensor);
     }
 
-    mConstMax0 = ge::op::Const(opName + "_clip_max0");
+    mConstMax0 = hiai::op::Const(opName + "_clip_max0");
     {
         float maxData = 127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -92,10 +92,10 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
 
     (*clip0).set_input_x(*xOp0.get()).set_input_clip_value_min(mConstMin0).set_input_clip_value_max(mConstMax0);
     
-    shared_ptr<ge::op::Scale> scale0(new ge::op::Scale(opName + "_scale0"));
-    (*scale0).set_input_x(*clip0.get()).set_input_filter(mConst_scale0);
+    shared_ptr<hiai::op::Scale> scale0(new hiai::op::Scale(opName + "_scale0"));
+    (*scale0).set_input_x(*clip0.get()).set_input_scale(mConst_scale0);
 
-    mConstMin1 = ge::op::Const(opName + "_clip_min1");
+    mConstMin1 = hiai::op::Const(opName + "_clip_min1");
     {
         float minData = -127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -105,7 +105,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConstMin1.set_attr_value(constTensor);
     }
 
-    mConstMax1 = ge::op::Const(opName + "_clip_max1");
+    mConstMax1 = hiai::op::Const(opName + "_clip_max1");
     {
         float maxData = 127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -119,18 +119,20 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
 
     (*clip1).set_input_x(*xOp1.get()).set_input_clip_value_min(mConstMin1).set_input_clip_value_max(mConstMax1);
 
-    shared_ptr<ge::op::Scale> scale1(new ge::op::Scale(opName + "_scale1"));
-    (*scale1).set_input_x(*clip1.get()).set_input_filter(mConst_scale1);
+    shared_ptr<hiai::op::Scale> scale1(new hiai::op::Scale(opName + "_scale1"));
+    (*scale1).set_input_x(*clip1.get()).set_input_scale(mConst_scale1);
 
-    shared_ptr<ge::op::Eltwise> eltwise(new ge::op::Eltwise(opName));
+    shared_ptr<hiai::op::Eltwise> eltwise(new hiai::op::Eltwise(opName));
     int type = 1;
     (*eltwise)
-        .set_input_x1(*scale0.get())
-        .set_input_x2(*scale1.get())
+        .create_dynamic_input_x(2)
+        .set_dynamic_input_x(1, *scale0.get())
+        .set_dynamic_input_x(2, *scale1.get())
+        .set_attr_N(2)
         .set_attr_coeff(ge::AttrValue::LIST_FLOAT({1, 1}))
         .set_attr_mode(type); // mode  : Either 0 (product), 1 (sum), or 2 (max). Defaults to 1 (sum).
 
-    mConstMin = ge::op::Const(opName + "_clip_min");
+    mConstMin = hiai::op::Const(opName + "_clip_min");
     {
         float minData = -127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);
@@ -140,7 +142,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         mConstMin.set_attr_value(constTensor);
     }
 
-    mConstMax = ge::op::Const(opName + "_clip_max");
+    mConstMax = hiai::op::Const(opName + "_clip_max");
     {
         float maxData = 127;
         ge::TensorDesc fdesc(ge::Shape(), ge::FORMAT_NCHW, ge::DT_FLOAT);

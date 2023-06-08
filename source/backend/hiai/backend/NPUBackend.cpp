@@ -296,25 +296,51 @@ namespace MNN {
 
     }
 
-    void NPUBackend::setNetworkInput(const std::vector<Tensor *> &inputs, const Op* op){
-        Tensor *inputTensor = inputs[0];
+    void NPUBackend::setNetworkInput(const std::vector<Tensor *> &inputs, const Op* op) {
+       for (size_t i = 0; i < op->inputIndexes()->size(); i++) {
+            auto inputIndex = op->inputIndexes()->data()[i];
+            auto outputIndex = op->outputIndexes()->data()[i];
+            Tensor *inputTensor = inputs[i];
+            bool isInput = TensorUtils::getDescribe(inputTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
+            if (isInput && mGrapMap.find(inputIndex) == mGrapMap.end()) {
+                auto opName = string("input") + to_string(inputIndex);
+                shared_ptr<hiai::op::Data> data(new hiai::op::Data(opName));
+                auto shape = tensorShapeFormat(inputTensor);
+                ge::TensorDesc desc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                data->update_input_desc_x(desc);
+                // map
+                vector<pair<shared_ptr<ge::Operator>, string>> ops;
+                ops.emplace_back(make_pair(data, ""));
+                mGrapMap.insert(make_pair(inputIndex, ops));
+                std::pair<int, std::vector<ge::Operator>> item(outputIndex, {*data.get()});
+                mInputOps.insert(item);
+            }
 
-        auto inputIndex = op->inputIndexes()->data()[0];
-        auto outputIndex = op->outputIndexes()->data()[0];
-        bool isInput = TensorUtils::getDescribe(inputTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
-        if (isInput && mGrapMap.find(inputIndex) == mGrapMap.end()) {
-            auto opName = string("input") + to_string(inputIndex);
-            shared_ptr<ge::op::Data> data(new ge::op::Data(opName));    
-            auto shape = tensorShapeFormat(inputTensor);
-            ge::TensorDesc desc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT); 
-            data->update_input_desc_x(desc);
-            
-            // map
-            vector<pair<shared_ptr<ge::Operator>, string>> ops;
-            ops.emplace_back(make_pair(data, ""));  
-            mGrapMap.insert(make_pair(inputIndex, ops));
-            std::pair<int, std::vector<ge::Operator>> item(outputIndex, {*data.get()});
-            mInputOps.insert(item);
+            bool isConst = TensorUtils::getDescribe(inputTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
+            if (isConst && mGrapMap.find(inputIndex) == mGrapMap.end()) {
+                auto opName = string("Const") + to_string(inputIndex);
+                shared_ptr<hiai::op::Const> mConst(new hiai::op::Const(opName));
+                {
+                    ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+                    auto shape = tensorShapeFormat(inputTensor);
+                    ge::TensorDesc fdesc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                    filter->SetTensorDesc(fdesc);
+                    if (TensorUtils::getDescribe(inputTensor)->dimensionFormat == MNN::MNN_DATA_FORMAT_NCHW) {
+                        filter->SetData((uint8_t *)inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
+                        mConst->set_attr_value(filter);
+                    } else {
+                        vector<float> temp(inputTensor->elementSize(), 0);
+                        NHWC2NCHW((float*)inputTensor->host<float>(), (float*)temp.data(), shape[0], shape[1], shape[2]*shape[3]);
+                        filter->SetData((uint8_t *)temp.data(), temp.size() * sizeof(float));
+                        mConst->set_attr_value(filter);
+                    }
+                    filter->SetData((uint8_t *)inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
+                    mConst->set_attr_value(filter);
+                }
+                vector<pair<shared_ptr<ge::Operator>, string>> ops;
+                ops.emplace_back(make_pair(mConst, ""));
+                mGrapMap.insert(make_pair(inputIndex, ops));
+            }
         }
     }
 
@@ -377,7 +403,11 @@ namespace MNN {
         bool isOutputCopy = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         bool isConst = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT || TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-        if(isConst){ return; }
+        if (isConst) {
+            Tensor* tmpTensor = const_cast<Tensor*>(dstTensor);
+            tmpTensor->buffer().host = srcTensor->buffer().host;
+            return;
+        }
         
         if (isInputCopy) {
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));

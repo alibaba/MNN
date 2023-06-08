@@ -21,8 +21,8 @@ public:
     virtual ~NPUSliceTf() = default;
 
 private:
-    ge::op::Const mConst_start;
-    ge::op::Const mConst_size;
+    hiai::op::Const mConst_start;
+    hiai::op::Const mConst_size;
 
 };
 } // namespace MNN

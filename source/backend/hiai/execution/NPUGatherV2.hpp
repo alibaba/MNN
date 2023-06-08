@@ -19,7 +19,7 @@ public:
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUGatherV2() = default;
 private:
-    ge::op::Const mConst;
+    hiai::op::Const mConst;
 };
 
 } // namespace MNN

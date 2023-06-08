@@ -20,9 +20,9 @@ public:
     virtual ~NPUStridedSlice() = default;
 
 private:
-    ge::op::Const mConst_b;
-    ge::op::Const mConst_e;
-    ge::op::Const mConst_s;
+    hiai::op::Const mConst_b;
+    hiai::op::Const mConst_e;
+    hiai::op::Const mConst_s;
     bool isConst1;
     bool isConst2;
     bool isConst3;

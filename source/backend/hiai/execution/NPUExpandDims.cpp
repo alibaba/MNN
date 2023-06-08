@@ -21,15 +21,25 @@ ErrorCode NPUExpandDims::onResize(const std::vector<Tensor *> &inputs, const std
     
     auto opName = mOp->name()->str();
     auto xOp = mNpuBackend->getInputOps(mOp);
+    auto shapeFormat = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shapeDims(shapeFormat.begin(), shapeFormat.end()); 
+    shapeConst = hiai::op::Const(opName + "_shape_const");
+    {
+        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 
+            ge::FORMAT_NCHW,  ge::DT_INT32);
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        filter->SetTensorDesc(fdesc);
+        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int32_t));
 
-    shared_ptr<ge::op::Reshape> prob(new ge::op::Reshape(opName));
+        shapeConst.set_attr_value(filter);
+    }
+
+    shared_ptr<hiai::op::Reshape> prob(new hiai::op::Reshape(opName));
 
     auto output = outputs[0];
 
-    auto shape = tensorShapeFormat(outputs[0]);
-    
-    (*prob).set_input_tensor(*xOp.get()).set_attr_shape(ge::AttrValue::LIST_INT(shape));
-    
+    (*prob).set_input_x(*xOp.get()).set_input_shape(shapeConst);
+
     mNpuBackend->setOutputOps(mOp, {prob}, outputs);
 
     return NO_ERROR;

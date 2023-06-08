@@ -19,13 +19,13 @@ ErrorCode NPUPack::onResize(const std::vector<Tensor *> &inputs, const std::vect
     mNpuBackend->setNetworkInput(inputs, mOp);
 
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Pack> pack(new ge::op::Pack(opName));
+    shared_ptr<hiai::op::Pack> pack(new hiai::op::Pack(opName));
 
     auto param = mOp->main_as_PackParam();
     
     auto xOp = mNpuBackend->getInputOps(mOp);
     (*pack)
-        .set_dynamic_input_values(0, *xOp.get())
+        .set_dynamic_input_x(0, *xOp.get())
         .set_attr_axis(axisFormat(inputs[0], param->axis()));
 
     mNpuBackend->setOutputOps(mOp, {pack}, outputs);

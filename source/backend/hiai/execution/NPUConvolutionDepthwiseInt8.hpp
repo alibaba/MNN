@@ -22,10 +22,10 @@ public:
     virtual ~NPUConvolutionDepthwiseInt8() = default;
    
 private:
-    ge::op::Const mConst_w;
-    ge::op::Const mConst_b;
+    hiai::op::Const mConst_w;
+    hiai::op::Const mConst_b;
 
-    shared_ptr<ge::op::Activation> mRelu_conv;
+    shared_ptr<hiai::op::Activation> mRelu_conv;
 };
 
 } // namespace MNN

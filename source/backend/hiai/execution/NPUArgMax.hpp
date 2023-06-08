@@ -19,7 +19,7 @@ public:
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUArgMax() = default;
 private:
-    ge::op::Const mConst_axis;
+    hiai::op::Const mConst_axis;
 };
 
 } // namespace MNN

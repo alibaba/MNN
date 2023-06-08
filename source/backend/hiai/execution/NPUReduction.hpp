@@ -22,7 +22,8 @@ public:
 
 private:
     vector<int64_t> convertAxis(vector<int64_t> origAxis, Tensor * input);
-    ge::op::Const mConstAxis;
+    hiai::op::Const mConstAxis;
+    hiai::op::Const shapeConst;
  
     int axisMap[8][4] = {{0},{1},                   //mNCHW1d,mNHWC1d
                          {0, 1},{2, 1},             //mNCHW2d,mNHWC2d
