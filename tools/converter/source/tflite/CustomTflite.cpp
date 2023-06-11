@@ -12,19 +12,19 @@
 
 DECLARE_OP_COVERTER(CustomTflite);
 
-MNN::OpType CustomTflite::opType(bool quantizedModel) {
+MNN::OpType CustomTflite::opType(int quantizedModel) {
     DCHECK(!quantizedModel) << "Not support quantized model";
     return MNN::OpType_DetectionPostProcess;
 }
 
-MNN::OpParameter CustomTflite::type(bool quantizedModel) {
+MNN::OpParameter CustomTflite::type(int quantizedModel) {
     return MNN::OpParameter_DetectionPostProcessParam;
 }
 
 void CustomTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp,
                        const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
                        const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
-                       const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel) {
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, int quantizedModel) {
     auto &customOPCode = tfliteOpSet[tfliteOp->opcode_index]->custom_code;
     DCHECK(customOPCode == "TFLite_Detection_PostProcess")
         << "Now Only support Custom op of 'TFLite_Detection_PostProcess'";

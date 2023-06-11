@@ -15,7 +15,7 @@
 namespace MNN {
 namespace OpenCL {
 
-MultiInputDWConvExecution::MultiInputDWConvExecution(const MNN::Op *op, Backend *backend) : CommonExecution(backend) {
+MultiInputDWConvExecution::MultiInputDWConvExecution(const MNN::Op *op, Backend *backend) : CommonExecution(backend, op) {
     auto common = op->main_as_Convolution2D()->common();
     mPadMode = common->padMode();
     mStrides = {common->strideY(), common->strideX()};
@@ -25,7 +25,6 @@ MultiInputDWConvExecution::MultiInputDWConvExecution(const MNN::Op *op, Backend 
     }
     isRelu = common->relu();
     isRelu6 = common->relu6();
-    mOp = op;
 }
 
 MultiInputDWConvExecution::~MultiInputDWConvExecution() {

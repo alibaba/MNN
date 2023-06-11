@@ -832,6 +832,7 @@ typedef struct _cl_buffer_region {
 #define CL_PROFILING_COMMAND_COMPLETE               0x1284
 #endif
 
+#define CL_DEVICE_NUM_THREADS_PER_EU_INTEL 0x4255
 /********************************************************************************************************/
 
 /* Platform API */

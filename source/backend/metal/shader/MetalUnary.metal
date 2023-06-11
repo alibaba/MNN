@@ -14,9 +14,10 @@ static inline float4 hardswish(float4 value) {
     return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
 }
 static inline float4 gelu(float4 value) {
-    float4 temp = (float4)0.044715f * value * value * value;
-    temp = 0.79788458f * (temp + value);
-    float4 result = ((float4)1.0f + tanh(temp)) * value * (float4)0.5f;
+    float4 temp = (float4)0.044715 * value * value * value;
+    temp = (float4)0.79788458 * (temp + value);
+    temp = clamp(temp, (float4)-5.0, (float4)5.0);
+    float4 result = ((float4)1.0 + tanh(temp)) * value * (float4)0.5;
     return result;
 }
 

@@ -22,7 +22,7 @@ NPUGatherV2::NPUGatherV2(Backend *b, const Op *op, const std::vector<Tensor *> &
     if(!isConst0 && isConst1){
         auto input1 = inputs[1];
         // om input weight const op
-        mConst = ge::op::Const(opName + "_w_const");
+        mConst = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorDesc fdesc(ge::Shape({input1->batch(), input1->channel(), input1->height(), input1->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -34,7 +34,7 @@ NPUGatherV2::NPUGatherV2(Backend *b, const Op *op, const std::vector<Tensor *> &
     }else if(isConst0 && !isConst1){
         auto input0 = inputs[0];
         // om input weight const op
-        mConst = ge::op::Const(opName + "_w_const");
+        mConst = hiai::op::Const(opName + "_w_const");
         {
             ge::TensorDesc fdesc(ge::Shape({input0->batch(), input0->channel(), input0->height(), input0->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
             ge::TensorPtr filter = std::make_shared<ge::Tensor>();
@@ -54,8 +54,8 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
     auto opName = mOp->name()->str();
     auto param  = mOp->main_as_GatherV2();
 
-    shared_ptr<ge::op::Gather> prob(new ge::op::Gather(opName));
-    vector<pair<shared_ptr<ge::Operator>, string>> ops;
+    shared_ptr<hiai::op::GatherV2D> prob(new hiai::op::GatherV2D(opName));
+    vector<pair<shared_ptr<hiai::Operator>, string>> ops;
 
     bool isConst0 = TensorUtils::getDescribe(inputs[0])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
     bool isConst1 = TensorUtils::getDescribe(inputs[1])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
@@ -77,7 +77,7 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
         auto xOp0        = iops0.back().first;
         (*prob)
             .set_input_indices(*xOp0.get())
-            .set_input_params(mConst)
+            .set_input_x(mConst)
             .set_attr_axis(axis);
     }else if(isConst0 && !isConst1){
         // 
@@ -87,7 +87,7 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
 
         (*prob)
             .set_input_indices(mConst)
-            .set_input_params(*xOp1.get())
+            .set_input_x(*xOp1.get())
             .set_attr_axis(axis);        
     }else{
         auto inputIndex = mOp->inputIndexes()->data()[0];
@@ -100,7 +100,7 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
 
         (*prob)
             .set_input_indices(*xOp.get())
-            .set_input_params(*xOp1.get())
+            .set_input_x(*xOp1.get())
             .set_attr_axis(axis);
     }
 

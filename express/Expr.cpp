@@ -829,6 +829,18 @@ void* Variable::writeInternal(bool inform) {
     return mFrom->inside()->mOutputTensors[0]->host<void>();
 }
 
+void Variable::writeScaleInternal(float scaleValue, float zeroPoint, bool inform) {
+    MNN_ASSERT(TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->quantAttr == nullptr || TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->type == DataType_DT_FLOAT);
+    if (inform) {
+       informDirty();
+    }
+    mFrom->mInside->mContentDirty = true;
+    TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->quantAttr.reset(new QuantAttr);
+    auto quant = TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->quantAttr.get();
+    quant->scale = scaleValue;
+    quant->zero = zeroPoint;
+}
+
 void Variable::unMap() {
     //mFrom->inside()->onUnMapContent(mFromIndex);
 }

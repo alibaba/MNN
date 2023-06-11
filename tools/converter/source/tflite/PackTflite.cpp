@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(PackTflite);
-MNN::OpType PackTflite::opType(bool quantizedModel) {
+MNN::OpType PackTflite::opType(int quantizedModel) {
     return MNN::OpType_Pack;
 }
-MNN::OpParameter PackTflite::type(bool quantizedModel) {
+MNN::OpParameter PackTflite::type(int quantizedModel) {
     return MNN::OpParameter_PackParam;
 }
 
 void PackTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
   auto param = new MNN::PackParamT;
   auto opt=tfliteOp->builtin_options.AsPackOptions();
   param->axis=opt->axis;
@@ -28,17 +28,17 @@ void PackTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& 
 }
 
 DECLARE_OP_COVERTER(SplitTflite);
-MNN::OpType SplitTflite::opType(bool quantizedModel) {
+MNN::OpType SplitTflite::opType(int quantizedModel) {
     return MNN::OpType_Slice;
 }
-MNN::OpParameter SplitTflite::type(bool quantizedModel) {
+MNN::OpParameter SplitTflite::type(int quantizedModel) {
     return MNN::OpParameter_Slice;
 }
 
 void SplitTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto param = new MNN::SliceT;
     param->sourceType = MNN::NetSource_TENSORFLOW;
     auto opt=tfliteOp->builtin_options.AsSplitOptions();
@@ -56,17 +56,17 @@ void SplitTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
 }
 
 DECLARE_OP_COVERTER(StridedSliceTflite);
-MNN::OpType StridedSliceTflite::opType(bool quantizedModel) {
+MNN::OpType StridedSliceTflite::opType(int quantizedModel) {
     return MNN::OpType_StridedSlice;
 }
-MNN::OpParameter StridedSliceTflite::type(bool quantizedModel) {
+MNN::OpParameter StridedSliceTflite::type(int quantizedModel) {
     return MNN::OpParameter_StridedSliceParam;
 }
 
 void StridedSliceTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto param = new MNN::StridedSliceParamT;
     param->T = MNN::DataType_DT_FLOAT;
     auto opt=tfliteOp->builtin_options.AsStridedSliceOptions();

@@ -79,6 +79,11 @@ public:
         for (int i = 0; i < expr->outputSize(); ++i) {
             output[i] = Variable::create(expr, i);
         }
+        int activateType = op->main_as_BinaryOp()->activationType();
+        if (activateType == 1) { // relu
+            auto mask = _Cast<float>(_Greater(output[0], _Scalar(0.0f)));
+            outputDiff = mask * backwardOutput[0];
+        }
         switch (op->main_as_BinaryOp()->opType()) {
             case BinaryOpOperation_ADD: {
                 res[0] = outputDiff;

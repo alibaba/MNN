@@ -37,15 +37,11 @@ CUDARuntime::CUDARuntime(int device_id) {
     }
     // printf("use GPU device id:%d\n", id);
     // id = selectDeviceMaxFreeMemory();
-    // cuda_check(cudaSetDevice(id));
+    cuda_check(cudaSetDevice(id));
 
     mDeviceId = id;
     cuda_check(cudaGetDeviceProperties(&mProp, id));
     MNN_ASSERT(mProp.maxThreadsPerBlock > 0);
-#ifdef MNN_CUDA_USE_BLAS
-    cublas_check(cublasCreate(&mCublasHandle));
-    cublas_check(cublasSetPointerMode(mCublasHandle, CUBLAS_POINTER_MODE_HOST));
-#endif
 }
 
 CUDARuntime::~CUDARuntime() {

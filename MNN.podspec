@@ -74,6 +74,6 @@ Pod::Spec.new do |s|
   end
 
   s.compiler_flags = '-arch arm64 -march=armv8.2-a+simd+fp16'
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half" "$(PODS_TARGET_SRCROOT)/source/backend/coreml/mlmodel/include" "$(PODS_TARGET_SRCROOT)/tools/cv/include"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1 MNN_COREML_ENABLED=1 USE_LZ4_FLAG=1 MNN_INTERNAL_ENABLED=1'}
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half" "$(PODS_TARGET_SRCROOT)/source/backend/coreml/mlmodel/include" "$(PODS_TARGET_SRCROOT)/tools/cv/include"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1 MNN_SUPPORT_BF16=1 MNN_COREML_ENABLED=1 USE_LZ4_FLAG=1 MNN_INTERNAL_ENABLED=1 MNN_USE_SPARSE_COMPUTE=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include"' }
 end

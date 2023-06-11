@@ -89,6 +89,17 @@ static PyObject* PyMNNCV_solvePnP(PyObject *self, PyObject *args) {
     PyMNN_ERROR("solvePnP require args: (Var, Var, Var, Var, |bool)");
 }
 #endif
+// core
+#if defined(PYMNN_CVCORE) || (!defined(PYMNN_USE_ALINNPYTHON))
+static PyObject* PyMNNCV_solve(PyObject *self, PyObject *args) {
+    PyObject *src1, *src2;
+    int method = 0;
+    if (PyArg_ParseTuple(args, "OO|i", &src1, &src2, &method) && isVar(src1) && isVar(src2)) {
+        return toPyObj<bool, toPyObj, VARP, toPyObj>(CV::solve(toVar(src1), toVar(src2), method));
+    }
+    PyMNN_ERROR("solve require args: (Var, Var, |int)");
+}
+#endif
 // color
 #if defined(PYMNN_IMGPROC_COLOR) || (!defined(PYMNN_USE_ALINNPYTHON))
 static PyObject* PyMNNCV_cvtColor(PyObject *self, PyObject *args) {
@@ -111,6 +122,15 @@ static PyObject* PyMNNCV_cvtColorTwoPlane(PyObject *self, PyObject *args) {
 #endif
 // filter
 #if defined(PYMNN_IMGPROC_FILTER) || (!defined(PYMNN_USE_ALINNPYTHON))
+static PyObject* PyMNNCV_bilateralFilter(PyObject *self, PyObject *args) {
+    PyObject *src;
+    int d, borderType = 1;
+    float sigmaColor, sigmaSpace;
+    if (PyArg_ParseTuple(args, "Oiff|i", &src, &d, &sigmaColor, &sigmaSpace, &borderType) && isVar(src)) {
+        return toPyObj(CV::bilateralFilter(toVar(src), d, sigmaColor, sigmaSpace, borderType));
+    }
+    PyMNN_ERROR("bilateralFilter require args: (Var, int, float, float, |BorderTypes)");
+}
 static PyObject* PyMNNCV_blur(PyObject *self, PyObject *args) {
     PyObject *src, *ksize;
     int borderType = 1;
@@ -140,6 +160,16 @@ static PyObject* PyMNNCV_dilate(PyObject *self, PyObject *args) {
         return toPyObj(CV::dilate(toVar(src), toVar(kernel), iterations, borderType));
     }
     PyMNN_ERROR("dilate require args: (Var, Var, |int, BorderTypes)");
+}
+static PyObject* PyMNNCV_erode(PyObject *self, PyObject *args) {
+    PyObject *src, *kernel;
+    int iterations = 1;
+    int borderType = 1;
+    if (PyArg_ParseTuple(args, "OO|ii", &src, &kernel, &iterations, &borderType) &&
+        isVar(src) && isVar(kernel)) {
+        return toPyObj(CV::erode(toVar(src), toVar(kernel), iterations, borderType));
+    }
+    PyMNN_ERROR("erode require args: (Var, Var, |int, BorderTypes)");
 }
 static PyObject* PyMNNCV_filter2D(PyObject *self, PyObject *args) {
     PyObject *src, *kernel;
@@ -286,6 +316,15 @@ static PyObject* PyMNNCV_sqrBoxFilter(PyObject *self, PyObject *args) {
 #endif
 // geometric
 #if defined(PYMNN_IMGPROC_GEOMETRIC) || (!defined(PYMNN_USE_ALINNPYTHON))
+static PyObject* PyMNNCV_convertMaps(PyObject *self, PyObject *args) {
+    PyObject *map1, *map2;
+    int dstmap1type;
+    bool nninterpolation = false;
+    if (PyArg_ParseTuple(args, "OOi|i", &map1, &map2, &dstmap1type, &nninterpolation) && isVar(map1) && isVar(map2)) {
+        return toPyObj<VARP, toPyObj, VARP, toPyObj>(CV::convertMaps(toVar(map1), toVar(map2), dstmap1type, nninterpolation));
+    }
+    PyMNN_ERROR("convertMaps require args: (Var, Var, int, |bool)");
+}
 static PyObject* PyMNNCV_getAffineTransform(PyObject *self, PyObject *args) {
     PyObject *src, *dst;
     if (PyArg_ParseTuple(args, "OO", &src, &dst) && isPoints(src) && isPoints(dst)) {
@@ -322,6 +361,15 @@ static PyObject* PyMNNCV_invertAffineTransform(PyObject *self, PyObject *args) {
         return toPyObj(CV::invertAffineTransform(toMatrix(M)));
     }
     PyMNN_ERROR("invertAffineTransform require args: (Matrix)");
+}
+static PyObject* PyMNNCV_remap(PyObject *self, PyObject *args) {
+    PyObject *src, *map1, *map2;
+    int interpolation, borderMode = 0, borderValue = 0;
+    if (PyArg_ParseTuple(args, "OOOi|ii", &src, &map1, &map2, &interpolation, &borderMode, &borderValue) &&
+        isVar(src) && isVar(map1) && isVar(map2)) {
+        return toPyObj(CV::remap(toVar(src), toVar(map1), toVar(map2), interpolation, borderMode, borderValue));
+    }
+    PyMNN_ERROR("remap require args: (Var, Var, Var, int, |int, int)");
 }
 static PyObject* PyMNNCV_resize(PyObject *self, PyObject *args) {
     std::vector<float> default_floats = {};
@@ -366,6 +414,15 @@ static PyObject* PyMNNCV_warpPerspective(PyObject *self, PyObject *args) {
 #endif
 // miscellaneous
 #if defined(PYMNN_IMGPROC_MISCELLANEOUS) || (!defined(PYMNN_USE_ALINNPYTHON))
+static PyObject* PyMNNCV_adaptiveThreshold(PyObject *self, PyObject *args) {
+    PyObject *src;
+    float maxValue, C;
+    int adaptiveMethod, thresholdType, blockSize;
+    if (PyArg_ParseTuple(args, "Ofiiif", &src, &maxValue, &adaptiveMethod, &thresholdType, &blockSize, &C) && isVar(src)) {
+        return toPyObj(CV::adaptiveThreshold(toVar(src), maxValue, adaptiveMethod, thresholdType, blockSize, C));
+    }
+    PyMNN_ERROR("adaptiveThreshold require args: (Var, float, int, int, int, float)");
+}
 static PyObject* PyMNNCV_blendLinear(PyObject *self, PyObject *args) {
     PyObject *src1, *src2, *weight1, *weight2;
     if (PyArg_ParseTuple(args, "OOOO", &src1, &src2, &weight1, &weight2) &&
@@ -627,6 +684,12 @@ static PyMethodDef PyMNNCV_methods[] = {
         imwrite, "imwrite"
     )
 #endif
+#if defined(PYMNN_CVCORE) || (!defined(PYMNN_USE_ALINNPYTHON))
+    // core
+    register_methods(CV,
+        solve, "solve"
+    )
+#endif
 #if defined(PYMNN_CALIB3D) || (!defined(PYMNN_USE_ALINNPYTHON))
     // calib3d
     register_methods(CV,
@@ -644,9 +707,11 @@ static PyMethodDef PyMNNCV_methods[] = {
 #if defined(PYMNN_IMGPROC_FILTER) || (!defined(PYMNN_USE_ALINNPYTHON))
     // filter
     register_methods(CV,
+        bilateralFilter, "bilateralFilter",
         blur, "blur",
         boxFilter, "boxFilter",
         dilate, "dilate",
+        erode, "erode",
         filter2D, "filter2D",
         GaussianBlur, "GaussianBlur",
         getDerivKernels, "getDerivKernels",
@@ -666,11 +731,13 @@ static PyMethodDef PyMNNCV_methods[] = {
 #if defined(PYMNN_IMGPROC_GEOMETRIC) || (!defined(PYMNN_USE_ALINNPYTHON))
     // geometric
     register_methods(CV,
+        convertMaps, "convertMaps",
         getAffineTransform, "getAffineTransform",
         getPerspectiveTransform, "getPerspectiveTransform",
         getRectSubPix, "getRectSubPix",
         getRotationMatrix2D, "getRotationMatrix2D",
         invertAffineTransform, "invertAffineTransform",
+        remap, "remap",
         resize, "resize",
         warpAffine, "warpAffine",
         warpPerspective, "warpPerspective"
@@ -679,6 +746,7 @@ static PyMethodDef PyMNNCV_methods[] = {
 #if defined(PYMNN_IMGPROC_MISCELLANEOUS) || (!defined(PYMNN_USE_ALINNPYTHON))
     // miscellaneous
     register_methods(CV,
+        adaptiveThreshold, "adaptiveThreshold",
         blendLinear, "blendLinear",
         threshold, "threshold"
     )

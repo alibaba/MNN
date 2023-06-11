@@ -19,12 +19,12 @@ public class MNNNetInstance {
     public static MNNNetInstance createFromBuffer(byte[] buffer) {
         long instance = MNNNetNative.nativeCreateNetFromBuffer(buffer);
         if (0 == instance) {
-            Log.e(TAG, "Create Net Failed from buffer, size= " + buffer.length);
+            Log.e(TAG, "Create Net Failed from buffer, buffer maybe null or invalide");
             return null;
         }
         return new MNNNetInstance(instance);
     }
-    
+
     public static class Config {
         public int forwardType = MNNForwardType.FORWARD_CPU.type;
         public int numThread = 4;

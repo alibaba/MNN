@@ -19,7 +19,7 @@ public:
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUActivation() = default;
 private:
-    ge::op::Const mConst_w;
+    hiai::op::Const mConst_w;
     int mType;
 };
 

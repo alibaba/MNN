@@ -14,23 +14,6 @@
 using namespace MNN;
 using namespace MNN::Express;
 
-static VARP _ROIAlign(VARP intput, VARP rois, int pooledWidth, int pooledHeight, int samplingRatio, float spatialScale,
-                      bool aligned, PoolType poolType) {
-    std::unique_ptr<RoiParametersT> roiAlign(new RoiParametersT);
-    roiAlign->pooledWidth   = pooledWidth;
-    roiAlign->pooledHeight  = pooledHeight;
-    roiAlign->samplingRatio = samplingRatio;
-    roiAlign->spatialScale  = spatialScale;
-    roiAlign->aligned       = aligned;
-    roiAlign->poolType      = poolType;
-
-    std::unique_ptr<OpT> op(new OpT);
-    op->type       = OpType_ROIAlign;
-    op->main.type  = OpParameter_RoiParameters;
-    op->main.value = roiAlign.release();
-
-    return (Variable::create(Expr::create(op.get(), {intput, rois})));
-}
 
 class ROIAlignTest : public MNNTestCase {
 public:
@@ -44,8 +27,7 @@ protected:
                      PoolType poolType, float samplingRatio, float spatialScale, bool aligned, int precision) {
         auto input  = _Input({batch, channel, height, width}, NCHW, halide_type_of<float>());
         auto rois   = _Input({numRoi, 5}, NCHW, halide_type_of<float>());
-        auto output = _ROIAlign(_Convert(input, NC4HW4), rois, outputWidth, outputHeight, samplingRatio,
-                                spatialScale, aligned, poolType);
+        auto output = _ROIAlign(_Convert(input, NC4HW4), rois, outputHeight, outputWidth, spatialScale, samplingRatio, aligned, (PoolingMode)poolType);
         output      = _Convert(output, NCHW);
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         ::memcpy(rois->writeMap<float>(), roiData.data(), roiData.size() * sizeof(float));

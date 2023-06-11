@@ -19,7 +19,8 @@ static void fillFloat(float* dst, int h, int w, ConvertFP32 functor, float offse
     for (int y = 0; y < h; ++y) {
         auto dstY = dst + w * y;
         for (int x = 0; x < w; ++x) {
-            dstY[x] = functor((float)x * 0.1f + (float)y + offset);
+            int temp = (x + y) % 31;
+            dstY[x] = functor(((float)temp + offset) * 0.01f);
         }
     }
 }
@@ -38,7 +39,7 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
             }
             expected = functor(expected);
             auto diff = fabsf(expected - computed);
-            if (diff > 0.1f) {
+            if (diff / fabsf(expected) > 0.005f) {
                 MNN_PRINT("%f -> %f\n", expected, computed);
                 res = false;
             }
@@ -269,6 +270,50 @@ public:
                     return false;
                 }
             }
+        }
+        // BatchMatMul batch = 1 with large K
+        {
+            std::vector<std::vector<int>> values = {
+                {16, 262144, 15},
+                {3, 262144, 16}
+            };
+            for(auto value : values) {
+                e = value[0];
+                l = value[1];
+                h = value[2];
+                
+                std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+                op->type       = MNN::OpType_BatchMatMul;
+                op->main.type  = MNN::OpParameter_BatchMatMulParam;
+                op->main.value = new MNN::BatchMatMulParamT;
+                auto param     = op->main.AsBatchMatMulParam();
+                param->adjX    = false;
+                param->adjY    = true;
+
+                int batch = 1;
+                auto x0   = _Input({}, NHWC, halide_type_of<float>());
+                auto x1   = _Input({}, NHWC, halide_type_of<float>());
+                x0->resize({batch, h, l});
+                x1->resize({batch, l, e});
+                auto x0Ptr = x0->writeMap<float>();
+                auto x1Ptr = x1->writeMap<float>();
+                for (int b = 0; b < batch; ++b) {
+                    fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
+                    fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
+                }
+                auto tranposeB = _Transpose(x1, {0, 2, 1});
+                auto y         = Variable::create(Expr::create(op.get(), {x0, tranposeB}));
+
+                auto yPtr = y->readMap<float>();
+                for (int b = 0; b < batch; ++b) {
+                    auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
+                    if (!res) {
+                        FUNC_PRINT(1);
+                        return false;
+                    }
+                }
+            }
+
         }
         return true;
     }

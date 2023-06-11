@@ -1,6 +1,8 @@
 #ifndef MNNCUDAFunction_cuh
 #define MNNCUDAFunction_cuh
 
+#include <stdint.h>
+
 struct DivModFast {
     DivModFast(int d = 1)
     {
@@ -35,4 +37,68 @@ struct DivModFast {
     uint32_t l_; // ceil(log2(d_))
     uint32_t m_; // m' in the papaer
 };
+
+
+#define FINAL_MASK 0xffffffff
+
+template <typename T>
+__inline__ __device__
+T warpReduceSum(T val)
+{
+    for(int mask = 16; mask > 0; mask >>= 1) {
+        val += __shfl_xor_sync(FINAL_MASK, val, mask, 32);
+    }
+    return val;
+}
+
+template <typename T>
+__inline__ __device__
+T blockReduceSum(T val)
+{
+    static __shared__ T shared[32];
+    int lane = threadIdx.x & 0x1f;
+    int wid = threadIdx.x >> 5;
+
+    val = warpReduceSum<T>(val);
+
+    if(lane == 0) {
+        shared[wid] = val;
+    }
+    __syncthreads();
+
+    val = (threadIdx.x < (blockDim.x >> 5 )) ? shared[lane] : (T)0.0f;
+    val = warpReduceSum(val);
+    return val;
+}
+
+template <typename T>
+__inline__ __device__
+T warpReduceMax(T val)
+{
+    for(int mask = 16; mask > 0; mask >>= 1) {
+        val = max(val, __shfl_xor_sync(FINAL_MASK, val, mask, 32));
+    }
+    return val;
+}
+
+template <typename T>
+__inline__ __device__
+T blockReduceMax(T val)
+{
+    static __shared__ T shared[32];
+    int lane = threadIdx.x & 0x1f;
+    int wid = threadIdx.x >> 5;
+
+    val = warpReduceMax<T>(val);
+
+    if(lane == 0) {
+        shared[wid] = val;
+    }
+    __syncthreads();
+
+    val = (threadIdx.x < (blockDim.x >> 5 )) ? shared[lane] : (T)0.0f;
+    val = warpReduceMax(val);
+    return val;
+}
+
 #endif

@@ -11,7 +11,8 @@ def_enum(dtype, DType,
         DType_DOUBLE, "double",
         DType_INT32, "int",
         DType_INT64, "int64",
-        DType_UINT8, "uint8"
+        DType_UINT8, "uint8",
+        DType_INT8, "int8"
         )
 def_enum(Padding_Mode, PaddingMode,
         CAFFE, "CAFFE",
@@ -867,6 +868,8 @@ static PyObject* PyMNNVar_read(PyMNNVar *self, PyObject *args) {
                 return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT64, dataPtr);
             case DType_UINT8:
                 return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_UINT8, dataPtr);
+            case DType_INT8:
+                return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT8, dataPtr);
             default:
                 PyMNN_ERROR("does not support this dtype");
         }
@@ -1607,6 +1610,22 @@ static PyObject* PyMNNExpr_raster(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("raster require args: ([Var], [int], [int])");
 }
+static PyObject* PyMNNExpr_quant(PyObject *self, PyObject *args) {
+    PyObject *var, *scale;
+    int min = -128, max = 127, zero = 0;
+    if (PyArg_ParseTuple(args, "OO|ii", &var, &scale, &min, &max, &zero) && isVar(var) && isVar(scale)) {
+        return toPyObj(Express::_FloatToInt8(toVar(var), toVar(scale), min, max, zero));
+    }
+    PyMNN_ERROR("quant require args: (Var, Var, |int, int)");
+}
+static PyObject* PyMNNExpr_dequant(PyObject *self, PyObject *args) {
+    PyObject *var, *scale;
+    int zero;
+    if (PyArg_ParseTuple(args, "OOi", &var, &scale, &zero) && isVar(var) && isVar(scale)) {
+        return toPyObj(Express::_Int8ToFloat(toVar(var), toVar(scale), zero));
+    }
+    PyMNN_ERROR("dequant require args: (Var, Var, int)");
+}
 static PyObject* PyMNNExpr_nms(PyObject *self, PyObject *args) {
     PyObject *boxes, *scores;
     int max_detections;
@@ -1634,6 +1653,38 @@ static PyObject* PyMNNExpr_detection_post_process(PyObject *self, PyObject *args
         return toPyObj<VARP, toPyObj>(res);
     }
     PyMNN_ERROR("detection_post_process require args: (Var, Var, Var, int, int, int, int, float, float, bool, [float])");
+}
+static PyObject* PyMNNExpr_roi_pooling(PyObject *self, PyObject *args) {
+    PyObject *input, *roi;
+    int pooledHeight, pooledWidth;
+    float spatialScale;
+    int outputGrad = 0;
+    PyObject *backwardDiff = nullptr;
+    if (PyArg_ParseTuple(args, "OOiifpO", &input, &roi, &pooledHeight, &pooledWidth,
+        &spatialScale, &outputGrad, &backwardDiff) && isVar(input) && isVar(roi) && isVar(backwardDiff)) {
+        auto res = Express::_ROIPooling(toVar(input), toVar(roi), pooledHeight, pooledWidth, spatialScale, outputGrad, toVar(backwardDiff));
+        return toPyObj(res);
+    }
+    PyMNN_ERROR("roi_pooling require args: (Var, Var, int, int, float, [bool, Var])");
+}
+static PyObject* PyMNNExpr_roi_align(PyObject *self, PyObject *args) {
+    PyObject *input, *roi;
+    int pooledHeight, pooledWidth;
+    float spatialScale;
+    int samplingRatio;
+    int aligned;
+    PyObject *poolType;
+    int outputGrad = 0;
+    PyObject *backwardDiff = nullptr;
+    if (PyArg_ParseTuple(args, "OOiifipOpO", &input, &roi, &pooledHeight, &pooledWidth,
+        &spatialScale, &samplingRatio, &aligned, &poolType, &outputGrad, &backwardDiff)
+        && isVar(input) && isVar(roi) && isPooling_Mode(poolType) && isVar(backwardDiff)) {
+        auto res = Express::_ROIAlign(toVar(input), toVar(roi), pooledHeight, pooledWidth, spatialScale,
+                                    samplingRatio, aligned, toEnum<PoolingMode>(poolType),
+                                    outputGrad, toVar(backwardDiff));
+        return toPyObj(res);
+    }
+    PyMNN_ERROR("roi_align require args: (Var, Var, int, int, float, int, bool, PoolingMode, [bool, Var])");
 }
 static PyMethodDef PyMNNExpr_methods[] = {
     register_methods_kw(Expr,
@@ -1747,7 +1798,9 @@ static PyMethodDef PyMNNExpr_methods[] = {
         conv2d, "build conv2d expr",
         conv2d_transpose, "build conv2d_transpose expr",
         max_pool, "build max_pool expr",
-        avg_pool, "build avg_pool expr"
+        avg_pool, "build avg_pool expr",
+        quant, "build quant expr",
+        dequant, "build dequant expr"
     )
     {"reshape",  PyMNNExpr_reshape, METH_VARARGS, "build reshape: (Var, [int], |data_format)"},
     register_methods(Expr,
@@ -1803,7 +1856,9 @@ static PyMethodDef PyMNNExpr_methods[] = {
         sort, "build sort expr",
         raster, "build raster expr",
         nms, "build nms expr",
-        detection_post_process, "build detection_post_process expr"
+        detection_post_process, "build detection_post_process expr",
+        roi_pooling, "build roi_pooling expr",
+        roi_align, "build roi_align expr"
     )
 };
 // Expr Module End

@@ -21,6 +21,7 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 //    const int32_t* bias;
 //    int32_t maxValue;
 //    int32_t minValue;
+//    int32_t useInt8;
 //};
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
@@ -38,11 +39,28 @@ ldr r6, [sp, #36]
 ldr r10, [sp, #40]
 ldr r8, [r6, #0]
 ldr lr, [r6, #4]
-ldr r7, [r6, #8]
-ldr r6, [r6, #12]
 
 vpush {q4-q7}
 
+// Branch1: input is int8_t, output is float32, DO NOT USE "scale".
+// Branch2: input is int8_t, output is float32. USE "scale", DO NOT USE "minValue" and "maxValue".
+// Branch3: input is int8_t, output is int8_t.  USE "scale", "minValue" and "maxValue".
+
+
+ldr r7, [r6, #16]  // r7: useInt8
+cmp r7, #1
+beq InitBranch3
+
+InitBranch2:
+mov r7, #-0x80       // Branch2 do not use "minValue", so set r7 as a flag to decide the branch.
+b Start
+
+InitBranch3:
+ldr r7, [r6, #8]
+ldr r6, [r6, #12]
+b Start
+
+Start:
 cmp r10, #2
 blt L1LoopDz
 
@@ -124,28 +142,6 @@ L2LoopDz:
 
     L2LoopSzEnd:
 
-    cmp r8, #0
-    bne L2Quan
-    vld1.s32 {q4}, [lr]!
-    vpadd.s32 d16, d16, d17
-    vpadd.s32 d20, d20, d21
-    vpadd.s32 d18, d18, d19
-    vpadd.s32 d22, d22, d23
-    vpadd.s32 d24, d24, d25
-    vpadd.s32 d28, d28, d29
-    vpadd.s32 d26, d26, d27
-    vpadd.s32 d30, d30, d31
-    vpadd.s32 d16, d16, d18
-    vpadd.s32 d17, d20, d22
-    vpadd.s32 d18, d24, d26
-    vpadd.s32 d19, d28, d30
-    vaddq.s32 q0, q8, q4
-    vaddq.s32 q1, q9, q4
-    vcvt.f32.s32 q0, q0
-    vcvt.f32.s32 q1, q1
-    vst1.f32 {q0, q1}, [r0], r4
-    b L2LoopCheck
-
     L2Quan:
     vld1.s32 {q4}, [lr]!
     vld1.f32 {q5}, [r8]!
@@ -180,6 +176,12 @@ L2LoopDz:
     vmulq.f32 q0, q0, q5
     vmulq.f32 q1, q1, q5
 
+    cmp r7, #-0x80
+    bne L2QuanUseInt8
+    vst1.f32 {q0, q1}, [r0], r4
+    b L2LoopCheck
+
+    L2QuanUseInt8:
     vcgt.f32 q12, q0, #0
     vcgt.f32 q13, q1, #0
     vbsl.f32 q12, q10, q11
@@ -256,20 +258,6 @@ L1LoopDz:
         bne L1LoopSz
 
     L1LoopSzEnd:
-    cmp r8, #0
-    bne L1Quan
-    vld1.s32 {q4}, [lr]!
-    vpadd.s32 d16, d16, d17
-    vpadd.s32 d20, d20, d21
-    vpadd.s32 d18, d18, d19
-    vpadd.s32 d22, d22, d23
-    vpadd.s32 d16, d16, d18
-    vpadd.s32 d17, d20, d22
-    vaddq.s32 q0, q8, q4
-    vcvt.f32.s32 q0, q0
-    vst1.f32 {q0}, [r0], r4
-    b L1LoopCheck
-
     L1Quan:
     vld1.s32 {q4}, [lr]!
     vld1.f32 {q5}, [r8]!
@@ -294,6 +282,12 @@ L1LoopDz:
 
     vmulq.f32 q0, q0, q5
 
+    cmp r7, #-0x80
+    bne L1QuanUseInt8
+    vst1.f32 {q0}, [r0], r4
+    b L1LoopCheck
+
+    L1QuanUseInt8:
     vcgt.f32 q12, q0, #0
     vbsl.f32 q12, q10, q11
     vbsl.f32 q13, q10, q11

@@ -207,9 +207,11 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
     };
     int8_t zeroPoint = 0;
     
+    std::vector<float> fakeScale(ocC4 * UNIT, 1.0f);
     QuanPostTreatParameters quanParam;
     quanParam.bias = mFakeBias->host<int32_t>();
-    quanParam.scale = nullptr;
+    quanParam.scale = fakeScale.data();
+    quanParam.useInt8 = 0;
 
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);

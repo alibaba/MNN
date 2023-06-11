@@ -15,7 +15,7 @@ namespace MNN {
 namespace OpenCL {
 
 ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : CommonExecution(backend) {
+    : CommonExecution(backend, op) {
     mOpenCLBackend       = static_cast<OpenCLBackend *>(backend);
     auto mPreluParamPtr       = op->main_as_PRelu();
     int preluSize             = mPreluParamPtr->slopeCount();
@@ -50,8 +50,6 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
         MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
     }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(preluBuffer, preluDataPtrCL);
-        
-    mOp = op;
 }
 
 ReluBufExecution::~ReluBufExecution() {

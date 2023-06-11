@@ -163,8 +163,6 @@ public:
     static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
     static void adjustTensorForCompability(Tensor* t);
     static Tensor::DimensionType getDimType(const Tensor* t);
-    static halide_type_t DataTypeToHalideType(DataType t);
-    static DataType HaildeTypeToDataType(halide_type_t t);
     static std::vector<float> getQuantInfo(const Tensor* t);
     
     static size_t getRawSize(const Tensor* t);

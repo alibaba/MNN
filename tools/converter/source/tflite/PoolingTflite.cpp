@@ -12,12 +12,12 @@
 
 DECLARE_OP_COVERTER(PoolingTflite);
 
-MNN::OpType PoolingTflite::opType(bool quantizedModel) {
+MNN::OpType PoolingTflite::opType(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedAvgPool;
     return MNN::OpType_Pooling;
 }
-MNN::OpParameter PoolingTflite::type(bool quantizedModel) {
+MNN::OpParameter PoolingTflite::type(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_QuantizedAvgPool;
     return MNN::OpParameter_Pool;
@@ -26,7 +26,7 @@ MNN::OpParameter PoolingTflite::type(bool quantizedModel) {
 void PoolingTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                         const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                         const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                        const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+                        const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     const auto& tflitePoolOption = tfliteOp->builtin_options.AsPool2DOptions();
 
     if (quantizedModel) {

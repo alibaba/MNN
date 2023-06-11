@@ -127,7 +127,7 @@ struct BinaryPow {
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryAtan2 {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return atan(x / y);
+        return atan2(x, y);
     }
 };
 
@@ -326,6 +326,55 @@ void execute(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int 
         for (int i = 0; i < input0DataCount; i++) {
             outputData[i] = (Tout)(f(input0Data[i], input1Data[i]));
         }
+    }
+}
+
+template<typename Tin, typename Tout, typename Func>
+void executeInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    Func f;
+    int size = elementSize;
+#ifdef MNN_USE_NEON
+    size *= 4;
+#endif
+
+    float inp0 = 0, inp1 = 0, output = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = (int8_t*)inputRaw0;
+    const int8_t* inputData1 = (int8_t*)inputRaw1;
+    int8_t* outputData = (int8_t*)outputRaw;
+#endif
+    for (int i = 0; i < size; ++i) {
+        if (needBroadcast == 0) {
+            inp0 = (inputData0[0]- zeroPoint) * inputScale0[i];
+            inp1 = (inputData1[i]- zeroPoint) * inputScale1[i];
+            output = f(inp0, inp1);
+        } else if (needBroadcast == 1) {
+            inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            output = f(inp0, inp1);
+        } else {
+            inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            output = f(inp0, inp1);
+        }
+        int value = (int)roundf(output * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
     }
 }
 

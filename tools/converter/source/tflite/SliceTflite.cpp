@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(SliceTflite);
-MNN::OpType SliceTflite::opType(bool quantizedModel) {
+MNN::OpType SliceTflite::opType(int quantizedModel) {
     return MNN::OpType_SliceTf;
 }
-MNN::OpParameter SliceTflite::type(bool quantizedModel) {
+MNN::OpParameter SliceTflite::type(int quantizedModel) {
     return MNN::OpParameter_NONE;
 }
 
 void SliceTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     // Do nothing
 }
 

@@ -270,9 +270,12 @@ if __name__ == '__main__':
     t = TestModel(modelName)
     if len(sys.argv) > 2:
         if sys.argv[2] == 'DEBUG':
-            debugMode = len(sys.argv) > 2
-            print('Debug Mode: ', debugMode)
-            t.Debug()
+            message = t.Test()
+            print(message)
+            if message.find("TEST_SUCCESS") < 0:
+                debugMode = len(sys.argv) > 2
+                print('Debug Mode: ', debugMode)
+                t.Debug()
         else:
             specifyOpName = sys.argv[2]
             t.TestName(specifyOpName)

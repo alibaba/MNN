@@ -46,6 +46,19 @@ public:
     static void loadExternalData(Backend* backend, char* addr,  int64_t offset, int64_t size);
     static void loadExternalDatas(Backend* backend, std::vector<char*> addrs, const int64_t* external);
     static bool loadConvData(Backend* backend, const Op* op, std::unique_ptr<Tensor>& weight, std::unique_ptr<Tensor>& bias, int& weightSize, int& biasSize);
+    struct TensorConvertParameter {
+        int batch;
+        int channel;
+        int area;
+        int type;
+    };
+
+    // Detect if the region is a convert
+    static void turnRegion2Convert(const Tensor::InsideDescribe::Region& region, const Tensor* dest, TensorConvertParameter& info);
+
+    // Detect if the region is a transpose
+    static bool isTranspose(const Tensor::InsideDescribe::Region& region, int& srcOne, int& dstOne);
+
 };
 } // namespace MNN
 

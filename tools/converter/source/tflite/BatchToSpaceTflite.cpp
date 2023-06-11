@@ -10,17 +10,17 @@
 #include "liteOpConverter.hpp"
 
 DECLARE_OP_COVERTER(BatchToSpaceTflite);
-MNN::OpType BatchToSpaceTflite::opType(bool quantizedModel) {
+MNN::OpType BatchToSpaceTflite::opType(int quantizedModel) {
     return MNN::OpType_Extra;
 }
-MNN::OpParameter BatchToSpaceTflite::type(bool quantizedModel) {
+MNN::OpParameter BatchToSpaceTflite::type(int quantizedModel) {
     return MNN::OpParameter_Extra;
 }
 
 void BatchToSpaceTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto extraOpParam = new MNN::ExtraT;
     extraOpParam->engine = "Tflite";
     extraOpParam->type = "BatchToSpace";
@@ -28,17 +28,17 @@ void BatchToSpaceTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Oper
 }
 
 DECLARE_OP_COVERTER(SpaceToBatchTflite);
-MNN::OpType SpaceToBatchTflite::opType(bool quantizedModel) {
+MNN::OpType SpaceToBatchTflite::opType(int quantizedModel) {
     return MNN::OpType_Extra;
 }
-MNN::OpParameter SpaceToBatchTflite::type(bool quantizedModel) {
+MNN::OpParameter SpaceToBatchTflite::type(int quantizedModel) {
     return MNN::OpParameter_Extra;
 }
 
 void SpaceToBatchTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
-                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto extraOpParam = new MNN::ExtraT;
     extraOpParam->engine = "Tflite";
     extraOpParam->type = "SpaceToBatch";

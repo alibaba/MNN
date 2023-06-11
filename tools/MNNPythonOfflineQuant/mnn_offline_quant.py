@@ -14,7 +14,7 @@ except:
 
 nn = MNN.nn
 F = MNN.expr
-
+F.lazy_eval(True)
 
 def get_mnn_format(format_str):
     fmt = str.lower(format_str)

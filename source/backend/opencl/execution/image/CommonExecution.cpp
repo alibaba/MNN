@@ -10,7 +10,9 @@
 namespace MNN {
 namespace OpenCL {
 
-CommonExecution::CommonExecution(Backend *backend) : Execution(backend) {
+CommonExecution::CommonExecution(Backend *backend, const MNN::Op *Op)
+    : Execution(backend), mOp(Op) {
+    mOpType = Op->type();
 }
 ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
@@ -46,7 +48,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         }
         
         int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOp->type()), idx++);
+        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOpType), idx++);
     #else
         if(lws_null == true) {
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,

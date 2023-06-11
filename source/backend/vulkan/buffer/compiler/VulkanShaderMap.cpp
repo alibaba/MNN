@@ -39,7 +39,6 @@ mMaps.insert(std::make_pair("glsl_matmulunit_HAS_BIAS_comp", std::make_pair(glsl
 mMaps.insert(std::make_pair("glsl_convolution_comp", std::make_pair(glsl_convolution_comp,glsl_convolution_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution_RELU_comp", std::make_pair(glsl_convolution_RELU_comp,glsl_convolution_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution_RELU6_comp", std::make_pair(glsl_convolution_RELU6_comp,glsl_convolution_RELU6_comp_len)));
-mMaps.insert(std::make_pair("glsl_gemm16x16_bias_comp", std::make_pair(glsl_gemm16x16_bias_comp,glsl_gemm16x16_bias_comp_len)));
 mMaps.insert(std::make_pair("glsl_roipooling_comp", std::make_pair(glsl_roipooling_comp,glsl_roipooling_comp_len)));
 mMaps.insert(std::make_pair("glsl_blit_comp", std::make_pair(glsl_blit_comp,glsl_blit_comp_len)));
 mMaps.insert(std::make_pair("glsl_blit_C4_comp", std::make_pair(glsl_blit_C4_comp,glsl_blit_C4_comp_len)));
@@ -92,7 +91,6 @@ mMaps.insert(std::make_pair("glsl_range_comp", std::make_pair(glsl_range_comp,gl
 mMaps.insert(std::make_pair("glsl_avgpool_comp", std::make_pair(glsl_avgpool_comp,glsl_avgpool_comp_len)));
 mMaps.insert(std::make_pair("glsl_maxpool_comp", std::make_pair(glsl_maxpool_comp,glsl_maxpool_comp_len)));
 mMaps.insert(std::make_pair("glsl_onehot_comp", std::make_pair(glsl_onehot_comp,glsl_onehot_comp_len)));
-mMaps.insert(std::make_pair("glsl_gemm16x16_comp", std::make_pair(glsl_gemm16x16_comp,glsl_gemm16x16_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_comp", std::make_pair(glsl_deconvolutionDepthwise_comp,glsl_deconvolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU_comp,glsl_deconvolutionDepthwise_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU6_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU6_comp,glsl_deconvolutionDepthwise_RELU6_comp_len)));

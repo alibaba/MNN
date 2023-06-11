@@ -2,7 +2,7 @@
 
 ## 编译
 ### MNN 编译与安装
-- MNN 编译时打开 MNN_SUPPORT_TRAIN 开关：cmake .. -DMNN_SUPPORT_TRAIN=true
+- MNN 编译时打开 MNN_BUILD_TRAIN 开关：cmake .. -DMNN_BUILD_TRAIN=true
 
 ### 产物
 - transformer.out
@@ -11,6 +11,7 @@
 - train.out
 - backendTest.out
 - backwardTest.out
+- runTrainDemo.out
 
 
 ## 使用

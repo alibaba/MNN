@@ -170,9 +170,11 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                 int cacheLineSize = y - mPadY + maxKernelH;
                 if (cacheLineSize <= 0) {
                     ::memset(outputY, 0, core->bytes * ow * core->pack);
+                    core->MNNAxByClampBroadcastUnit((float*)outputY, (float*)outputY, biasPtr, ow, 0, 0, 1,  mPostParameters.data());
                     continue;
                 }
                 auto kernelPtr = kernelZ + (maxKernelH - cacheLineSize) * 4 * core->pack * core->bytes;
+                cacheLineSize = std::min(cacheLineSize, ih);
                 core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelPtr, (float*)outputY, cacheLineSize, ow, biasPtr, mPostParameters.data());
             }
 
@@ -197,6 +199,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                 int cacheLineSize = (ih - y + mPadY);
                 if (cacheLineSize <= 0) {
                     ::memset(outputY, 0, ow * core->bytes * core->pack);
+                    core->MNNAxByClampBroadcastUnit((float*)outputY, (float*)outputY, biasPtr, ow, 0, 0, 1,  mPostParameters.data());
                     continue;
                 }
                 core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelZ, (float*)outputY, cacheLineSize, ow, biasPtr, mPostParameters.data());

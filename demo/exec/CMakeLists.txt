@@ -28,9 +28,6 @@ list(APPEND MNN_EXEC_DEMOS expressMakeModel.out)
 add_executable(transformerDemo.out ${CMAKE_CURRENT_LIST_DIR}/transformerDemo.cpp)
 list(APPEND MNN_EXEC_DEMOS transformerDemo.out)
 
-add_executable(rasterDemo.out ${CMAKE_CURRENT_LIST_DIR}/rasterDemo.cpp)
-list(APPEND MNN_EXEC_DEMOS rasterDemo.out)
-
 add_executable(nluDemo.out ${CMAKE_CURRENT_LIST_DIR}/nluDemo.cpp)
 list(APPEND MNN_EXEC_DEMOS nluDemo.out)
 

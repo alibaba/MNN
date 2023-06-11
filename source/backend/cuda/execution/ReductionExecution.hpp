@@ -25,7 +25,6 @@ private:
     ReductionType mType;
     int mAxis;
     ReduceParam mCpuParam;
-    std::pair<void*, int> mParam;
 };
 } // namespace CUDA
 } // namespace MNN

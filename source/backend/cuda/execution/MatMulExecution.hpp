@@ -12,13 +12,14 @@
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "MNNCUDADefine.hpp"
 #include "CutlassGemmBatchedParam.hpp"
+#include "CutlassGemmParam.hpp"
 #include "MNNCUDAFunction.cuh"
 
 namespace MNN {
 namespace CUDA {
 class MatMulExecution : public Execution {
 public:
-    MatMulExecution(bool transposeA, bool transposeB, Backend *backend);
+    MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS = 1, int bS = 1, int cS = 1);
     virtual ~MatMulExecution();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -27,16 +28,25 @@ public:
 private:
     bool mTransposeA;
     bool mTransposeB;
+    int mAs;
+    int mBs;
+    int mCs;
     Backend* mBackend = nullptr;
 
     std::shared_ptr<Tensor> mBiasTensor;
     GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F16LnAlign1RCSm75;
+    GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16F16LnAlign1Sm75;
     GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF32F32LnAlign1RCSm75;
+    GemmTensor_F32_F32_Linear_AlignCuda_Sm75 mGemmF32F32LnAlign1Sm75;
     GemmBatchedTensor_F16_F32_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F32LnAlign1RCSm75;
+    GemmTensor_F16_F32_Linear_AlignCuda_Sm75 mGemmF16F32LnAlign1Sm75;
 
     GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F16LnAlign8RCSm75;
+    GemmTensor_F16_F16_Linear_AlignTensor_Sm75 mGemmF16F16LnAlign8Sm75;
     GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF32F32LnAlign8RCSm75;
+    GemmTensor_F32_F32_Linear_AlignTensor_Sm75 mGemmF32F32LnAlign8Sm75;
     GemmBatchedTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm75 mGemmBatchedF16F32LnAlign8RCSm75;
+    GemmTensor_F16_F32_Linear_AlignTensor_Sm75 mGemmF16F32LnAlign8Sm75;
 
     GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF16F16LnAlign8RRSm75;
     GemmBatchedTensor_F32_F32_Linear_AlignTensor_Row_Row_Sm75 mGemmBatchedF32F32LnAlign8RRSm75;
@@ -66,6 +76,7 @@ private:
     bool mFp16Infer = false;
     bool mFp32Infer = false;
     bool mFp16Fp32MixInfer = false;
+    bool mConvertGemmSplitK = false;
 };
 } // namespace CUDA
 } // namespace MNN

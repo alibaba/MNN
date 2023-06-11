@@ -14,7 +14,7 @@ namespace MNN {
 namespace OpenCL {
 
 ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : CommonExecution(backend) {
+    : CommonExecution(backend, op) {
     auto mOpenCLBackend       = static_cast<OpenCLBackend *>(backend);
     auto mPreluParamPtr       = op->main_as_PRelu();
     int preluSize             = mPreluParamPtr->slopeCount();
@@ -50,7 +50,6 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mOpenCLBackend->onAcquireBuffer(mPreluParam.get(), Backend::STATIC);
     copyBufferToImage(mOpenCLBackend->getOpenCLRuntime(), preluBuffer, openCLImage(mPreluParam.get()),
                       UP_DIV(preluSize, 4), 1);
-    mOp = op;
 }
 ReluExecution::~ReluExecution() {
     backend()->onReleaseBuffer(mPreluParam.get(), Backend::STATIC);

@@ -16,6 +16,7 @@
 #include "common/MemoryFormater.h"
 #include <fstream>
 #include <sstream>
+#include <numeric>
 #include <cmath>
 #include "ExprDebug.hpp"
 
@@ -58,14 +59,18 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         MNN_PRINT("%d, ", info->dim[i]);
     }
     MNN_PRINT(")\n");
-    auto targetValue = _Input({info->dim}, info->order, info->type);
+    auto targetValue = _Input(info->dim, info->order, info->type);
     auto targetPtr = targetValue->writeMap<float>();
     auto outputPtr = output->readMap<float>();
 #define MNN_IS_INF(x) (fabs(x) == INFINITY)
 #define MNN_IS_NAN(x) ((x) != (x))
+    for (int i=0; i<info->size; ++i) {
+        double targetValue;
+        outputOrigin >> targetValue;
+        targetPtr[i] = targetValue;
+    }
 
     for (int i=0; i<info->size; ++i) {
-        outputOrigin >> targetPtr[i];
         if (MNN_IS_INF(outputPtr[i]) || MNN_IS_NAN(outputPtr[i])) {
             MNN_ERROR("TESTERROR %s value error:%f\n", name.c_str(), outputPtr[i]);
             return false;
@@ -85,7 +90,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision] [cacheFile]\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile]\n");
         return 0;
     }
     std::string modelName = argv[1];
@@ -168,14 +173,18 @@ int main(int argc, char *argv[]) {
     }
 
     int precision = BackendConfig::Precision_Normal;
+    int memory = BackendConfig::Memory_Normal;
     if (argc > 7) {
-        precision = atoi(argv[7]);
+        int mask = atoi(argv[7]);
+        precision = mask % 4;
+        memory = (mask / 4) % 4;
     }
     const char* cacheFileName = ".tempcache";
     if (argc > 8) {
         cacheFileName = argv[8];
     }
     FUNC_PRINT(precision);
+    FUNC_PRINT(memory);
     FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;
@@ -188,7 +197,7 @@ int main(int argc, char *argv[]) {
     // config.path.outputs.push_back("ResizeBilinear_2");
     // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
-    // backendConfig.memory = BackendConfig::Memory_High;
+    backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
     config.backendConfig     = &backendConfig;
 
     MNN::Express::Module::Config mConfig;
@@ -196,6 +205,11 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     if (runMask & 1) {
+        // Need dump tensor, open debug
+        rtmgr->setMode(Interpreter::Session_Debug);
+    }
+    if (runMask & 128) {
+        // Need time trace for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
     if (runMask & 8) {
@@ -238,7 +252,9 @@ int main(int argc, char *argv[]) {
             continue;\
         }\
         for (int i=0; i<info->size; ++i) {\
-            inputOs >> ptr[i];\
+            double tempValue;\
+            inputOs >> tempValue;\
+            ptr[i] = tempValue;\
         }\
     }
 
@@ -341,12 +357,26 @@ int main(int argc, char *argv[]) {
     if (runTime > 0) {
         int t = runTime;
         std::vector<float> times(t, 0.0f);
-
+        if (runMask & 128) {
+            _initTimeTrace();
+        }
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
             times[i] = _l.durationInUs() / 1000.0f;
-
+        }
+        if (nullptr != gTimeTraceInfo) {
+            float opSummer = 0.0f;
+            for (auto& iter : gTimeTraceInfo->mTypes) {
+                float summer = 0.0f;
+                for (auto& t : iter.second) {
+                    summer += std::accumulate(t.second.begin(), t.second.end(), 0.0f);
+                }
+                summer = summer / (float)t;
+                MNN_PRINT("%s : %.7f\n", iter.first.c_str(), summer);
+                opSummer += summer;
+            }
+            MNN_PRINT("OP Summer: %.7f\n", opSummer);
         }
         auto minTime = std::min_element(times.begin(), times.end());
         auto maxTime = std::max_element(times.begin(), times.end());

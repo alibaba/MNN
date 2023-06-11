@@ -21,27 +21,36 @@ ErrorCode NPUConvertTensor::onResize(const std::vector<Tensor *> &inputs, const 
 
     auto opName = mOp->name()->str();
     auto xOp = mNpuBackend->getInputOps(mOp);
+     //om input weight const op
+    auto shapeFormt = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shapeDims (shapeFormt.begin(), shapeFormt.end());
+    shapeConst = hiai::op::Const(opName + "_shape_const");
+    {
+        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 
+            ge::FORMAT_NCHW,  ge::DT_INT32);
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        filter->SetTensorDesc(fdesc);
+        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int32_t));
+
+        shapeConst.set_attr_value(filter);
+    }
 
     if (outputs[0]->buffer().dimensions==2) { //These conditions require special processing dimensions, not simple reshape, but equivalent transposes
-        shared_ptr<ge::op::Permute> permute1(new ge::op::Permute(opName));
+        shared_ptr<hiai::op::Permute> permute1(new hiai::op::Permute(opName));
         (*permute1)
             .set_input_x(*xOp.get())
             .set_attr_order(ge::AttrValue::LIST_INT({2,1,0,3}));
         mNpuBackend->setOutputOps(mOp, {permute1}, outputs);
     } else {
-        shared_ptr<ge::op::Reshape> convertTensor(new ge::op::Reshape(opName));
-
-        vector<int64_t>  shapeDims = {outputs[0]->batch(), outputs[0]->channel(), outputs[0]->height(), outputs[0]->width()};
+        shared_ptr<hiai::op::Reshape> convertTensor(new hiai::op::Reshape(opName));
 
         int index = mOp->inputIndexes()->data()[0];
         auto iter = mNpuBackend->mSclipMap.find(index);
         if(iter != mNpuBackend->mSclipMap.end()){
             (*convertTensor).SetInput(0, *xOp, mNpuBackend->mSclipMap[index]);
-            (*convertTensor).set_attr_shape(
-                ge::AttrValue::LIST_INT(shapeDims));
+            (*convertTensor).set_input_shape(shapeConst);
         }else{
-            (*convertTensor).set_input_tensor(*xOp).set_attr_shape(
-                ge::AttrValue::LIST_INT(shapeDims));
+            (*convertTensor).set_input_x(*xOp).set_input_shape(shapeConst);
         }
         mNpuBackend->setOutputOps(mOp, {convertTensor}, outputs);
     }

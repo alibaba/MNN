@@ -42,6 +42,7 @@ int main(int argc, char* argv[]) {
         MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, thread);
+        FUNC_PRINT(thread);
         precisionInTestUtil = getTestPrecision(type, config.precision, MNN::Express::Executor::getGlobalExecutor()->getCurrentRuntimeStatus(MNN::STATUS_SUPPORT_FP16));
         MNN_PRINT("After update, precision in TestUtil:%d\n", precisionInTestUtil);
     }

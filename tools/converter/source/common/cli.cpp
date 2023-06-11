@@ -588,7 +588,9 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
     auto targetValue = _Input({info->dim}, info->order, info->type);
     auto targetPtr = targetValue->writeMap<float>();
     for (int i=0; i<info->size; ++i) {
-        outputOrigin >> targetPtr[i];
+        double tempValue;
+        outputOrigin >> tempValue;
+        targetPtr[i] = tempValue;
     }
 
     auto absMax = MNN::Express::_ReduceMax(MNN::Express::_Abs(targetValue), {});
@@ -690,7 +692,8 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
             continue;\
         }\
         for (int i=0; i<info->size; ++i) {\
-            inputOs >> ptr[i];\
+            double tempValue;inputOs >> tempValue;\
+            ptr[i] = tempValue;\
         }\
     }
     // Load inputs

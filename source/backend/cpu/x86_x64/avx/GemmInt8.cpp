@@ -47,9 +47,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             const auto weight_dz = weight + dz * src_depth_quad * (16 * 8);
             const auto bias_dz = post->bias + dz * 8;
             const float* scale_dz = nullptr;
-            if (post->scale != nullptr) {
-                scale_dz  = post->scale + dz * 8;
-            }
+            scale_dz  = post->scale + dz * 8;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
@@ -135,16 +133,19 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             auto D0 = _mm256_add_epi32(c0, c1);
             auto D1 = _mm256_add_epi32(e0, e1);
 
-            if (post->scale != nullptr) {
-                auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
-                D0 = _mm256_add_epi32(D0, biasValue0);
-                D1 = _mm256_add_epi32(D1, biasValue0);
+            auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
+            D0 = _mm256_add_epi32(D0, biasValue0);
+            D1 = _mm256_add_epi32(D1, biasValue0);
 
-                auto scaleValue = _mm256_loadu_ps(scale_dz);
-                auto f0 = _mm256_cvtepi32_ps(D0);
-                auto f1 = _mm256_cvtepi32_ps(D1);
-                f0 = _mm256_mul_ps(f0, scaleValue);
-                f1 = _mm256_mul_ps(f1, scaleValue);
+            auto scaleValue = _mm256_loadu_ps(scale_dz);
+            auto f0 = _mm256_cvtepi32_ps(D0);
+            auto f1 = _mm256_cvtepi32_ps(D1);
+            f0 = _mm256_mul_ps(f0, scaleValue);
+            f1 = _mm256_mul_ps(f1, scaleValue);
+            if (post->useInt8 == 0) {
+                _mm256_storeu_ps(((float*)dst_x), f0);
+                _mm256_storeu_ps(((float*)dst_x) + 8, f1);
+            } else {
                 f0 = _mm256_min_ps(f0, maxValue);
                 f1 = _mm256_min_ps(f1, maxValue);
                 f0 = _mm256_max_ps(f0, minValue);
@@ -156,6 +157,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
 
                 f0 = _mm256_add_ps(f0, m0);
                 f1 = _mm256_add_ps(f1, m1);
+
                 // 3: _MM_FROUND_TO_ZERO
                 D0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
                 D1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
@@ -170,12 +172,6 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
                 auto d1 = _mm_packus_epi16(_mm256_castsi256_si128(D1), _mm256_castsi256_si128(_mm256_castps_si256(zero128)));
                 MNN__mm_storeu_si64(dst_x, d0);
                 MNN__mm_storeu_si64(dst_x + 8, d1);
-            } else {
-                auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
-                auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue0));
-                auto f1 = _mm256_cvtepi32_ps(_mm256_add_epi32(D1, biasValue0));
-                _mm256_storeu_ps(((float*)dst_x), f0);
-                _mm256_storeu_ps(((float*)dst_x) + 8, f1);
             }
         }
         return;
@@ -244,19 +240,19 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
         auto c1 = _mm256_castps_si256(_mm256_permute2f128_ps(_mm256_castsi256_ps(D00), _mm256_castsi256_ps(D04), 49));
         auto D0 = _mm256_add_epi32(c0, c1);
 
-        if (post->scale != nullptr) {
-            auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
-            D0 = _mm256_add_epi32(D0, biasValue0);
+        auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
+        D0 = _mm256_add_epi32(D0, biasValue0);
 
-            auto scaleValue = _mm256_loadu_ps(scale_dz);
-            auto f0 = _mm256_cvtepi32_ps(D0);
-            f0 = _mm256_mul_ps(f0, scaleValue);
+        auto scaleValue = _mm256_loadu_ps(scale_dz);
+        auto f0 = _mm256_cvtepi32_ps(D0);
+        f0 = _mm256_mul_ps(f0, scaleValue);
+        if (post->useInt8 == 1) {
             f0 = _mm256_min_ps(f0, maxValue);
             f0 = _mm256_max_ps(f0, minValue);
             auto m0 = _mm256_cmp_ps(f0, zero128, 1);
             m0 = _mm256_blendv_ps(plus, minus, m0);
-
             f0 = _mm256_add_ps(f0, m0);
+
             // 3: _MM_FROUND_TO_ZERO
             D0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
             auto offset = _mm256_set1_epi32(128);
@@ -267,8 +263,6 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             auto d0 = _mm_packus_epi16(_mm256_castsi256_si128(D0), _mm256_castsi256_si128(_mm256_castps_si256(zero128)));
             MNN__mm_storeu_si64(dst_x, d0);
         } else {
-            auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
-            auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue0));
             _mm256_storeu_ps(((float*)dst_x), f0);
         }
     }
@@ -330,15 +324,15 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             D0 = _mm256_hadd_epi32(_mm256_permute2f128_si256(D0, D1, 32), _mm256_permute2f128_si256(D0, D1, 49));
             D2 = _mm256_hadd_epi32(_mm256_permute2f128_si256(D2, D3, 32), _mm256_permute2f128_si256(D2, D3, 49));
 
-            if (post->scale != nullptr) {
-                auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)bias_dz));
-                D0 = _mm256_add_epi32(D0, biasValue);
-                D2 = _mm256_add_epi32(D2, biasValue);
-                auto scaleValue = _mm256_loadu_ps(scale_dz);
-                auto f0 = _mm256_cvtepi32_ps(D0);
-                auto f1 = _mm256_cvtepi32_ps(D2);
-                f0 = _mm256_mul_ps(f0, scaleValue);
-                f1 = _mm256_mul_ps(f1, scaleValue);
+            auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)bias_dz));
+            D0 = _mm256_add_epi32(D0, biasValue);
+            D2 = _mm256_add_epi32(D2, biasValue);
+            auto scaleValue = _mm256_loadu_ps(scale_dz);
+            auto f0 = _mm256_cvtepi32_ps(D0);
+            auto f1 = _mm256_cvtepi32_ps(D2);
+            f0 = _mm256_mul_ps(f0, scaleValue);
+            f1 = _mm256_mul_ps(f1, scaleValue);
+            if (post->useInt8 == 1) {
                 f0 = _mm256_min_ps(f0, maxValue);
                 f1 = _mm256_min_ps(f1, maxValue);
                 f0 = _mm256_max_ps(f0, minValue);
@@ -349,6 +343,8 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
                 m1 = _mm256_blendv_ps(plus, minus, m1);
                 f0 = _mm256_add_ps(f0, m0);
                 f1 = _mm256_add_ps(f1, m1);
+
+            
                 // 3: _MM_FROUND_TO_ZERO
                 D0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
                 D2 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
@@ -367,9 +363,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
                 d0 = _mm_packus_epi16(d0, d2);
                 _mm_storeu_si128((__m128i*)dst_x, d0);
             } else {
-                auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)(bias_dz)));
-                auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue));
-                auto f1 = _mm256_cvtepi32_ps(_mm256_add_epi32(D1, biasValue));
                 _mm256_storeu_ps(((float*)dst_x), f0);
                 _mm256_storeu_ps(((float*)dst_x + 8), f1);
             }
@@ -420,15 +413,14 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             D0 = _mm256_hadd_epi32(_mm256_permute2f128_si256(D0, D1, 32), _mm256_permute2f128_si256(D0, D1, 49));
             D2 = _mm256_hadd_epi32(_mm256_permute2f128_si256(D2, D3, 32), _mm256_permute2f128_si256(D2, D3, 49));
 
-            if (post->scale != nullptr) {
-                auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)bias_dz));
-                D0 = _mm256_add_epi32(D0, biasValue);
-                D2 = _mm256_add_epi32(D2, biasValue);
-                auto scaleValue = _mm256_loadu_ps(scale_dz);
-                auto f0 = _mm256_cvtepi32_ps(D0);
-                auto f1 = _mm256_cvtepi32_ps(D2);
-                f0 = _mm256_mul_ps(f0, scaleValue);
-                f1 = _mm256_mul_ps(f1, scaleValue);
+            auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)bias_dz));
+            D0 = _mm256_add_epi32(D0, biasValue);
+            D2 = _mm256_add_epi32(D2, biasValue);
+            auto scaleValue = _mm256_loadu_ps(scale_dz);
+            auto f0 = _mm256_cvtepi32_ps(D0);
+            auto f1 = _mm256_cvtepi32_ps(D2);
+            f0 = _mm256_mul_ps(f0, scaleValue);
+            if (post-> useInt8 == 1) {
                 f0 = _mm256_min_ps(f0, maxValue);
                 f1 = _mm256_min_ps(f1, maxValue);
                 f0 = _mm256_max_ps(f0, minValue);
@@ -439,6 +431,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
                 m1 = _mm256_blendv_ps(plus, minus, m1);
                 f0 = _mm256_add_ps(f0, m0);
                 f1 = _mm256_add_ps(f1, m1);
+
                 // 3: _MM_FROUND_TO_ZERO
                 D0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
                 D2 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
@@ -457,8 +450,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
                 d0 = _mm_packus_epi16(d0, d2);
                 MNN__mm_storeu_si64((__m128i*)dst_x, d0);
             } else {
-                auto biasValue = _mm256_castps_si256(_mm256_loadu_ps((const float*)(bias_dz)));
-                auto f0 = _mm256_cvtepi32_ps(_mm256_add_epi32(D0, biasValue));
                 _mm256_storeu_ps(((float*)dst_x), f0);
             }
         }

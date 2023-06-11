@@ -9,15 +9,16 @@
 #include <gtest/gtest.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include "test_env.hpp"
+#include "cv/imgcodecs.hpp"
 
 #ifdef MNN_TEST_FILTER
-static Env<float> testEnv(img_name, true);
+static Env<uint8_t> testEnv(img_name, false);
 
 // bilateralFilter
 TEST(bilateralFilter, basic) {
-    //cv::bilateralFilter(testEnv.cvSrc, testEnv.cvDst, 15, 12.5, 50);
-    //bilateralFilter(testEnv.mnnSrc, testEnv.mnnDst, 15, 12.5, 50);
-    //EXPECT_TRUE(testEnv.equal());
+    cv::bilateralFilter(testEnv.cvSrc, testEnv.cvDst, 20, 80, 35);
+    testEnv.mnnDst = bilateralFilter(testEnv.mnnSrc, 20, 80, 35);
+    EXPECT_TRUE(testEnv.equal());
 }
 
 // blur
@@ -46,10 +47,19 @@ TEST(boxFilter, ksize_3x3_norm) {
     EXPECT_TRUE(testEnv.equal());
 }
 
+// erode
+TEST(erode, basic) {
+    cv::erode(testEnv.cvSrc, testEnv.cvDst, cv::getStructuringElement(0, {3, 3}));
+    testEnv.mnnDst = erode(testEnv.mnnSrc, getStructuringElement(0, {3, 3}));
+    EXPECT_TRUE(testEnv.equal());
+}
+
 // dilate
 TEST(dilate, basic) {
     cv::dilate(testEnv.cvSrc, testEnv.cvDst, cv::getStructuringElement(0, {3, 3}));
     testEnv.mnnDst = dilate(testEnv.mnnSrc, getStructuringElement(0, {3, 3}));
+    auto src_info = testEnv.mnnSrc->getInfo();
+    auto dst_info = testEnv.mnnDst->getInfo();
     EXPECT_TRUE(testEnv.equal());
 }
 
@@ -254,7 +264,6 @@ TEST(spatialGradient, basic) {
 TEST(sqrBoxFilter, basic) {
     cv::sqrBoxFilter(testEnv.cvSrc, testEnv.cvDst, -1, {1, 1}, {-1, -1});
     testEnv.mnnDst = sqrBoxFilter(testEnv.mnnSrc, -1, {1, 1});
-    EXPECT_TRUE((_equal<double, float>(testEnv.cvDst, testEnv.mnnDst)));
+    EXPECT_TRUE(testEnv.equal());
 }
-
 #endif

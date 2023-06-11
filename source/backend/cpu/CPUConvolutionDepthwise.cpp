@@ -148,7 +148,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     int kernel_width   = layer->kernelX();
     int padX           = mPadX;
     int padY           = mPadY;
-    if (src_width == 1 && dst_width == 1 && dst_height > 1) {
+    if (src_width == 1 && dst_width == 1 && dst_height > 1 && kernel_width == 1) {
         // Swap x, y
         dst_width = dst_height;
         dst_height = 1;

@@ -4,8 +4,5 @@
         "OnlyUpdateOps":[],
         "NoUpdateOps":[],
         "type": "SGD"
-    },
-    "Debug": {
-        "L2Norm": []
     }
 }

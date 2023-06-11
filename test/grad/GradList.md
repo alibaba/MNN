@@ -130,7 +130,7 @@
 - [x] Deconvolution
 - [x] DeconvolutionDepthwise
 - [x] Dropout
-- [ ] Interp
+- [x] Interp
 - [x] MatMul
 - [x] Pooling
 - [x] PReLU
@@ -144,13 +144,13 @@
 - [x] TanH
 - [x] TopKV2
 - [x] MatrixBandPart
-- [ ] ROIPooling
-- [ ] ROIAlign
+- [x] ROIPooling
+- [x] ROIAlign
 - [ ] Det
 - [x] Select
 - [ ] BatchNorm
 - [ ] LayerNorm
 - [ ] InstanceNorm
-- [ ] GridSample
+- [x] GridSample
 - [ ] While
 - [ ] If

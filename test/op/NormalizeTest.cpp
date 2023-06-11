@@ -5,7 +5,7 @@
 //  Created by MNN on 2021/10/22.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#include <cmath>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
@@ -14,6 +14,23 @@
 using namespace MNN::Express;
 class NormalizeTest : public MNNTestCase {
 public:
+    static void _refNormalize(float* dst, const float* src, int batch, int channel, int area, float* scale, float eps) {
+        // Normalize
+        for (int b=0; b<batch; ++b) {
+            for (int x=0; x<area; ++x) {
+                auto dstX = dst + b * area * channel + x;
+                auto srcX = src + b * area * channel + x;
+                float sumSquare = 0.0f;
+                for (int c=0; c<channel; ++c) {
+                    sumSquare += (srcX[area * c] * srcX[area * c]);
+                }
+                float normalValue = 1.0f / sqrtf(sumSquare + eps);
+                for (int c=0; c<channel; ++c) {
+                    dstX[area*c] = srcX[area * c] * normalValue * scale[c];
+                }
+            }
+        }
+    }
     virtual ~NormalizeTest() = default;
     virtual bool run(int precision) {
         auto input = _Input({1, 2, 2, 1}, NCHW);
@@ -22,9 +39,12 @@ public:
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, inpudata, 4 * sizeof(float));
         input = _Convert(input, NC4HW4);
-        auto output = _Normalize(input, 0, 0, 0.00, {0.5, 0.5});
+        std::vector<float> scaleData = {0.5f, 0.5f};
+        float eps = 0.00f;
+        auto output = _Normalize(input, 0, 0, eps, scaleData);
         output = _Convert(output, NCHW);
-        const std::vector<float> expectedOutput = {-0.223607, -0.447214, 0.300000, 0.400000};
+        std::vector<float> expectedOutput(4);
+        _refNormalize(expectedOutput.data(), inpudata, 1, 2, 2, scaleData.data(), eps);
         auto gotOutput                        = output->readMap<float>();
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 1000;
         if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 4, 1e-5 * errorScale)) {

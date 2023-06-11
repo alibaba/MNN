@@ -23,7 +23,7 @@ public:
 private:
     const Pool *mParameter;
     std::function<void(const Tensor *src, Tensor *dst)> mThreadFunction;
-    // nhwc buffer
+    // C16NHW16 buffer
     std::shared_ptr<Tensor> mInputTemp;
     std::shared_ptr<Tensor> mOutputTemp;
 };

@@ -11,15 +11,15 @@
 
 DECLARE_OP_COVERTER(CastTflite);
 
-MNN::OpType CastTflite::opType(bool quantizedModel){
+MNN::OpType CastTflite::opType(int quantizedModel){
     return MNN::OpType_Cast;
 }
 
-MNN::OpParameter CastTflite::type(bool quantizedModel){
+MNN::OpParameter CastTflite::type(int quantizedModel){
     return MNN::OpParameter_CastParam;
 }
 
-void CastTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel){
+void CastTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, int quantizedModel){
     
     auto param = new MNN::CastParamT;
     

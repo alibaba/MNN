@@ -107,6 +107,7 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
         mRuntimes[mAttr->firstType] = bn;
     }
+    _refreshRuntime();
 }
 
 int Executor::getCurrentRuntimeStatus(RuntimeStatus statusEnum) {
@@ -119,6 +120,7 @@ void Executor::gc(GCFlag flag) {
         iter.second->onGabageCollect(level);
     }
 }
+
 Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread) {
     mRuntimes.insert(std::make_pair(std::make_pair(type, numberThread), backend));
     mAttr.reset(new ExecutorAttr);
@@ -138,6 +140,7 @@ Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int nu
     defaultConfig.flags = 4;
     std::shared_ptr<Backend> defaultBackend(mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY]->onCreate(&defaultConfig));
     mAttr->constantBackend = defaultBackend;
+    _refreshRuntime();
 }
 Executor::~Executor(){
     // Do nothing
@@ -204,15 +207,38 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
     auto executor = new Executor(runtime, type, numberThread);
     return std::shared_ptr<Executor>(executor);
 }
+void Executor::_refreshRuntime() {
+    mRuntimeInfo.first.clear();
+    mRuntimeInfo.second = mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY];
+    auto firstIter = mRuntimes.find(getAttr()->firstType);
+    if (firstIter != mRuntimes.end()) {
+        mRuntimeInfo.first.insert(std::make_pair(firstIter->first.first, firstIter->second));
+    } else {
+        MNN_ASSERT(false);
+    }
+    for (auto& iter : mRuntimes) {
+        if (iter.first.first != getAttr()->firstType.first) {
+            mRuntimeInfo.first.insert(std::make_pair(iter.first.first, iter.second));
+        }
+    }
+}
 
 RuntimeInfo Executor::getRuntime() {
-    RuntimeInfo info;
     auto glo = ExecutorScope::Current();
-    info.second = glo->mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY];
-    for (auto& iter : glo->mRuntimes) {
-        info.first.insert(std::make_pair(iter.first.first, iter.second));
+    return glo->mRuntimeInfo;
+}
+bool Executor::getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr) {
+    if (nullptr == expr) {
+        return false;
     }
-    return info;
+    if (nullptr == expr->inside()->mCache.get()) {
+        return false;
+    }
+    auto session = expr->inside()->mCache->getSession();
+    if (nullptr == session) {
+        return false;
+    }
+    return session->getInfo(code, ptr);
 }
 
 static bool loadCache(std::shared_ptr<Runtime> &rt, const void* buffer, size_t size) {
@@ -261,6 +287,8 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
         mInside->modes.callBackMode = mode;
     } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
         mInside->modes.resizeMode = mode;
+    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
+        mInside->modes.memoryUsageMode = mode;
     }
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
@@ -349,6 +377,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
     } else {
         res->mInside->mUserConfig = false;
     }
+    glo->_refreshRuntime();
     return res;
 }
 ExecutorAttr* Executor::getAttr() const {
@@ -544,6 +573,12 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
             opInfo.outputs[i] = tensor.get();
             auto srcTensor = expr->inside()->mOutputTensors[i];
             TensorUtils::copyShape(srcTensor, tensor.get(), true, true);
+            if (TensorUtils::getDescribe(srcTensor)->quantAttr.get()) {
+                TensorUtils::getDescribe(tensor.get())->quantAttr.reset(new QuantAttr);
+                auto quant = TensorUtils::getDescribe(tensor.get())->quantAttr.get();
+                quant->scale = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->scale;
+            }
+            
             TensorUtils::getDescribe(tensor.get())->index = (int)scheduleInfo.allTensors.size();
             scheduleInfo.allTensors.emplace_back(tensor);
         }
@@ -581,6 +616,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     group.inputMode = Interpreter::Session_Input_User;
     group.outputMode = Interpreter::Session_Output_User;
     group.callBackMode = Interpreter::Session_Release;
+    group.memoryUsageMode = Interpreter::Session_Memory_Cache;
     std::shared_ptr<ComputeCache> cahce(new ComputeCache);
     for (auto& iter : dstExpr) {
         auto expr = iter.first;
@@ -593,6 +629,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
     } else {
         scheduleInfo.pipelineInfo[0].first.info.type = current->getAttr()->firstType.first;
+        scheduleInfo.pipelineInfo[0].first.info.numThread = current->getAttr()->firstType.second;
     }
     scheduleInfo.pipelineInfo[0].first.needComputeShape = false;
     scheduleInfo.pipelineInfo[0].first.needComputeGeometry = mLazyMode != LAZY_CONTENT;

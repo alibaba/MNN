@@ -15,19 +15,6 @@
 using namespace MNN;
 using namespace MNN::Express;
 
-static VARP _ROIPooling(VARP input, VARP roi, int pooledHeight, int pooledWidth, float spatialScale) {
-    std::unique_ptr<RoiParametersT> roiPooling(new RoiParametersT);
-    roiPooling->pooledHeight = pooledHeight;
-    roiPooling->pooledWidth  = pooledWidth;
-    roiPooling->spatialScale = spatialScale;
-
-    std::unique_ptr<OpT> op(new OpT);
-    op->type       = OpType_ROIPooling;
-    op->main.type  = OpParameter_RoiParameters;
-    op->main.value = roiPooling.release();
-
-    return (Variable::create(Expr::create(op.get(), {input, roi})));
-}
 
 class ROIPoolingTest : public MNNTestCase {
 public:

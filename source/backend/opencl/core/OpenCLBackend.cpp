@@ -39,41 +39,6 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     
     mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
     mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
-    #ifndef MNN_OPENCL_BUFFER_CLOSED
-    if(mOpenCLRuntime->getGpuMemType() == BUFFER)
-    {
-        std::set<std::string> buildOptions;
-        //when input or output need buffer2image transformation, open macro BUFFER_IMAGE_IO_TRANS
-        //because cpu input and output are fp32
-        buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
-        mNCHWBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer", buildOptions);
-        mNHWCBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nhwc_buffer_to_nc4hw4_buffer", buildOptions);
-        mNC4HW4BufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
-
-        buildOptions.clear();
-        buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
-
-        mNC4HW4BufferToNHWCBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nhwc_buffer", buildOptions);
-        mNC4HW4BufferToNCHWBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", buildOptions);
-        mNC4HW4BufferToNC4HW4BufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
-
-        buildOptions.clear();
-        mNC4HW4BufferToNC4HW4Buffer = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
-    }
-    else
-    #endif /* MNN_OPENCL_BUFFER_CLOSED */
-    {
-        std::set<std::string> buildOptions;
-        //when input or output need buffer2image transformation, open macro BUFFER_IMAGE_IO_TRANS
-        //because cpu input and output are fp32
-        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
-        mNC4HW4BufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
-        mNCHWBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nchw_buffer_to_image", buildOptions);
-        mNHWCBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
-        mImageToNC4HW4BufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
-        mImageToNHWCBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", buildOptions);
-        mImageToNCHWBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nchw_buffer", buildOptions);
-    }
 }
 
 CLRuntime::~CLRuntime() {
@@ -205,7 +170,44 @@ bool CLRuntime::onSetCache(const void* buffer, size_t size) {
             mTunedInfo->mInfos.emplace_back(std::move(dst));
         }
     }
-    return mOpenCLRuntime->setCache(std::make_pair(buffer, size));
+    bool res = mOpenCLRuntime->setCache(std::make_pair(buffer, size));
+    
+    #ifndef MNN_OPENCL_BUFFER_CLOSED
+    if(mOpenCLRuntime->getGpuMemType() == BUFFER)
+    {
+        std::set<std::string> buildOptions;
+        //when input or output need buffer2image transformation, open macro BUFFER_IMAGE_IO_TRANS
+        //because cpu input and output are fp32
+        //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+        mNCHWBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer_floatin", buildOptions);
+        mNHWCBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nhwc_buffer_to_nc4hw4_buffer_floatin", buildOptions);
+        mNC4HW4BufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer_floatin", buildOptions);
+
+        //buildOptions.clear();
+        //buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+
+        mNC4HW4BufferToNHWCBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nhwc_buffer_floatout", buildOptions);
+        mNC4HW4BufferToNCHWBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer_floatout", buildOptions);
+        mNC4HW4BufferToNC4HW4BufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer_floatout", buildOptions);
+
+        //buildOptions.clear();
+        mNC4HW4BufferToNC4HW4Buffer = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
+    }
+    else
+    #endif /* MNN_OPENCL_BUFFER_CLOSED */
+    {
+        std::set<std::string> buildOptions;
+        //when input or output need buffer2image transformation, open macro BUFFER_IMAGE_IO_TRANS
+        //because cpu input and output are fp32
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
+        mNC4HW4BufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
+        mNCHWBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nchw_buffer_to_image", buildOptions);
+        mNHWCBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
+        mImageToNC4HW4BufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
+        mImageToNHWCBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", buildOptions);
+        mImageToNCHWBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nchw_buffer", buildOptions);
+    }
+    return res;
 }
 
 std::pair<const void*, size_t> CLRuntime::onGetCache() {
@@ -425,20 +427,6 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
             if (imageHeight > maxImageSize.at(0) || imageWidth > maxImageSize.at(1)) {
                 valid = false;
                 break;
-            }
-
-            //input in raster not used, origin instead
-            auto des = TensorUtils::getDescribe(t)->regions;
-            for(auto region : des)
-            {
-                auto tensor = region.origin;
-                auto tensorShape = OpenCL::tensorShapeFormat(tensor);
-                int originHeight = tensorShape[0] * tensorShape[1];
-                int originWidth  = tensorShape[2] * UP_DIV(tensorShape[3], 4);
-                if (originHeight > maxImageSize.at(0) || originWidth > maxImageSize.at(1)) {
-                    valid = false;
-                    break;
-                }
             }
         }
         for (auto t : outputs) {

@@ -20,6 +20,7 @@
 #define MNN_DRAW_TEST
 #define MNN_HISTOGRAMS_TEST
 #define MNN_CALIB3D_TEST
+#define MNN_CORE_TEST
 
 #include <iostream>
 #include <opencv2/core/core.hpp>
@@ -39,7 +40,7 @@ template <typename T> static void _dump(std::string name, const T* ptr, std::vec
         for (int j = ids[2]; j < ids[3]; j++) {
             for (int k = ids[4]; k < ids[5]; k++) {
                 if (sizeof(T) != 1) {
-                    printf("%f, ", reinterpret_cast<const T*>(ptr)[i * stride_h + j * stride_w + k]);
+                    std::cout << reinterpret_cast<const T*>(ptr)[i * stride_h + j * stride_w + k] << ", ";
                 } else {
                     printf("%d, ", static_cast<int>(ptr[i * stride_h + j * stride_w + k]));
                 }
@@ -61,10 +62,10 @@ template <typename Tx, typename Ty> static bool _compare(Tx x, Ty y) {
 template <typename Tx, typename Ty> static bool _equal(cv::Mat cv, VARP mnn) {
     auto xPtr = reinterpret_cast<const Tx*>(cv.data);
     auto yPtr = mnn->readMap<Ty>();
-    // _dump<Tx>("cv:", xPtr, {5, 16, 8, 16, 0, 1}, cv.channels(), cv.cols * cv.channels());
-    // _dump<Ty>("mnn:", yPtr, {5, 16, 8, 16, 0, 1}, cv.channels(), cv.cols * cv.channels());
+    // _dump<Tx>("cv:", xPtr, {0, 4, 0, 4, 0, 3}, cv.channels(), cv.cols * cv.channels());
+    // _dump<Ty>("mnn:", yPtr, {0, 4, 0, 4, 0, 3}, cv.channels(), cv.cols * cv.channels());
     float deta = 0.f;
-    for (int i = 0; i < mnn->getInfo()->size; i++) {
+    for (int i = 0; i < mnn->getInfo()->size / sizeof(Ty); i++) {
         Tx x = xPtr[i];
         Ty y = yPtr[i];
         if (_compare<Tx, Ty>(x, y)) {

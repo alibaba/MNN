@@ -151,6 +151,10 @@ public:
         /** Determine the Execution's forward type is determine by user or auto determine */
         Session_Backend_Fix = 8, // Use the backend user set, when not support use default backend
         Session_Backend_Auto = 9, // Auto Determine the Op type by MNN
+
+        /** Determine static memory whether recyle in resizeSession or just cache the memory */
+        Session_Memory_Collect = 10, // Recycle static memory when session resize in case memory explosion 
+        Session_Memory_Cache = 11, // Cache the static memory for next forward usage
     };
     /**
      * @brief The API shoud be called before create session.
@@ -339,6 +343,9 @@ public:
 
         /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
         RESIZE_STATUS = 3,
+        
+        /** Mode / NumberThread, int* */
+        THREAD_NUMBER = 4,
 
         ALL
     };

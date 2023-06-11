@@ -9,7 +9,10 @@
 #include "ConvSingleInputExecution.hpp"
 #include "ConvWinogradExecution.hpp"
 #include "ConvCutlassExecution.hpp"
+#include "MultiInputConvExecution.hpp"
+#ifdef ENABLE_CUDA_QUANT
 #include "int8/ConvInt8CutlassExecution.hpp"
+#endif
 #include "backend/cuda/core/CUDATools.hpp"
 
 namespace MNN {
@@ -27,6 +30,10 @@ public:
                     return nullptr;
                 }
             }
+        }
+
+        if (inputs.size() == 2 || inputs.size() == 3) {
+            return new MultiInputConvExecution(op, backend);
         }
 
 #ifdef USE_MNN_CONV
@@ -50,7 +57,7 @@ public:
     }
 };
 
-
+#ifdef ENABLE_CUDA_QUANT
 class CUDAConvolutionInt8Creator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -60,8 +67,10 @@ public:
     }
 };
 
-CUDACreatorRegister<CUDAConvolutionCreator> __ConvExecution(OpType_Convolution);
 CUDACreatorRegister<CUDAConvolutionInt8Creator> __ConvInt8Execution(OpType_ConvInt8);
+#endif
+
+CUDACreatorRegister<CUDAConvolutionCreator> __ConvExecution(OpType_Convolution);
 
 }// namespace CUDA
 }// namespace MNN

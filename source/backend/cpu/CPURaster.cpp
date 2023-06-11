@@ -10,7 +10,6 @@
 #include "compute/CommonOptFunction.h"
 #include "CPUTensorConvert.hpp"
 #include "math/Vec.hpp"
-#include "core/OpCommonUtils.hpp"
 #include "core/Concurrency.h"
 #include "compute/ConvOpt.h"
 #include "CPUMatMul.hpp"
@@ -21,168 +20,6 @@
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
-
-static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& area) {
-    batch = t->batch();
-    if (t->dimensions() == 4) {
-        channel = t->channel();
-        area = t->width() * t->height();
-    } else if (t->dimensions() == 3) {
-        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
-        if (format == MNN_DATA_FORMAT_NHWC) {
-            channel = t->length(2);
-            area    = t->length(1);
-        } else {
-            channel = t->length(1);
-            area    = t->length(2);
-        }
-    } else if (t->dimensions() == 5) {
-        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
-        if (format == MNN_DATA_FORMAT_NHWC) {
-            channel = t->length(4);
-            area    = t->length(1) * t->length(2) * t->length(3);
-        } else {
-            channel = t->length(1);
-            area    = t->length(2) * t->length(3) * t->length(4);
-        }
-    } else {
-        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
-        if (format == MNN_DATA_FORMAT_NHWC) {
-            for (int i = t->dimensions() - 1; i > 0; i--) {
-                int len = t->length(i);
-                if (len > 1) {
-                    if (channel == 1) {
-                        channel = len;
-                    } else {
-                        area *= len;
-                    }
-                }
-            }
-        } else {
-            for (int i = 1; i < t->dimensions(); i++) {
-                int len = t->length(i);
-                if (len > 1) {
-                    if (channel == 1) {
-                        channel = len;
-                    } else {
-                        area *= len;
-                    }
-                }
-            }
-        }
-    }
-}
-// Detect if the region is a transpose
-static bool _transpose(const Tensor::InsideDescribe::Region& region) {
-    int srcOne = -1, dstOne = -1;
-    for (int i = 0; i < 3; i++) {
-        if (region.src.stride[i] == 1 && region.size[i] != 1) {
-            if (srcOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            srcOne = i;
-        }
-        if (region.dst.stride[i] == 1 && region.size[i] != 1) {
-            if (dstOne >= 0 || region.size[i] < 4) {
-                return false;
-            }
-            dstOne = i;
-        }
-    }
-    return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
-}
-
-static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
-    auto origin = region.origin;
-    auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
-    auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    if (srcFormat == dstFormat) {
-        return 0;
-    }
-    if (0 != region.src.offset || 0 != region.dst.offset) {
-        return 0;
-    }
-    int dstBatch = 1, dstChannel = 1, dstArea = 1,
-        srcBatch = 1, srcChannel = 1, srcArea = 1;
-    getBatchChannelArea(origin, srcBatch, srcChannel, srcArea);
-    getBatchChannelArea(dest, dstBatch, dstChannel, dstArea);
-    if (dstBatch != srcBatch) {
-        return 0;
-    }
-    if (dstChannel != srcChannel) {
-        return 0;
-    }
-    if (dstArea != srcArea) {
-        return 0;
-    }
-    // just support : [N,C,A] => [N,A,C] or [N,A,C] => [N,C,A]
-    // not support :  [N, X, Y, A] => [N, A, Y, X]
-    if (region.src.stride[1] != 1 && region.size[0] > 1 && region.size[1] > 1 && region.size[2] > 1) {
-        return 0;
-    }
-    auto totalSize = dstBatch * dstChannel * dstArea;
-    int srcSize = 1;
-    int dstSize = 1;
-    int res = 1;
-    for (int i=0; i<3; ++i) {
-        if (region.size[i] == 1) {
-            continue;
-        }
-        if (region.src.stride[i] != region.dst.stride[i]) {
-            if (dstArea == 1) {
-                // Batch / Channel transpose
-                return 0;
-            }
-            res = 2;
-        }
-        srcSize += (region.size[i] - 1) * region.src.stride[i];
-        dstSize += (region.size[i] - 1) * region.dst.stride[i];
-    }
-    if (srcSize != totalSize || dstSize != totalSize ) {
-        return 0;
-    }
-    // Check If it can be described as NHWC <-> NC4HW4 transpose
-    if (2 == res) {
-        int srcChannelStride;
-        int dstChannelStride;
-        int srcAreaStride;
-        int dstAreaStride;
-        if (MNN_DATA_FORMAT_NC4HW4 == srcFormat) {
-            srcChannelStride = srcArea;
-            srcAreaStride = 1;
-            dstChannelStride = 1;
-            dstAreaStride = srcChannel;
-        } else {
-            srcChannelStride = 1;
-            srcAreaStride = srcChannel;
-            dstAreaStride = 1;
-            dstChannelStride = srcArea;
-        }
-        for (int i=0; i<3; ++i) {
-            if (region.size[i] == 1) {
-                continue;
-            }
-            if (region.size[i] == dstBatch) {
-                if (region.src.stride[i] != region.dst.stride[i]) {
-                    return 0;
-                }
-                continue;
-            }
-            if (region.size[i] == srcChannel) {
-                if (region.src.stride[i] != srcChannelStride || region.dst.stride[i] != dstChannelStride) {
-                    return 0;
-                }
-            }
-            if (region.size[i] == srcArea) {
-                if (region.src.stride[i] != srcAreaStride || region.dst.stride[i] != dstAreaStride) {
-                    return 0;
-                }
-            }
-        }
-        return 2;
-    }
-    return 1;
-}
 
 ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(outputs.size() == 1);
@@ -208,6 +45,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     mOutputPtr = output->host<void>();
     mFast = false;
     auto core = static_cast<CPUBackend*>(backend())->functions();
+    mSingleConvert.type = 0;
     // all_srcFormat == dstFormat == NC4HW4 : Fast Exe
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         mFast = true;
@@ -235,11 +73,10 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             return NO_ERROR;
         }
     }
-    mSingleConvert = 0;
     // srcNum == 1 && srcFormat != dstFormat : Single Convert
     if (des->regions.size() == 1) {
-        mSingleConvert = _singleConvert(des->regions[0], output);
-        if (mSingleConvert > 0) {
+        OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
+        if (mSingleConvert.type > 0) {
             return NO_ERROR;
         }
     }
@@ -657,7 +494,8 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
         }
         return;
     }
-    if (_transpose(slice) && 4 == bytes) {
+    int srcOne, dstOne;
+    if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && 4 == bytes) {
         _transpose4Bit((int32_t*)dstPtr, (const int32_t*)srcPtr, slice);
         return;
     }
@@ -714,10 +552,9 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     auto bytes = CPUBackend::getBytes(backend(), output);
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
-    if (mSingleConvert > 0) {
+    if (mSingleConvert.type > 0) {
         auto realInput = TensorUtils::getDescribe(output)->regions[0].origin;
-        int srcBatch = 1, srcChannel = 1, srcArea = 1;
-        getBatchChannelArea(realInput, srcBatch, srcChannel, srcArea);
+        int srcBatch = mSingleConvert.batch, srcChannel = mSingleConvert.channel, srcArea = mSingleConvert.area;
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
         auto destFormat = TensorUtils::getDescribe(output)->dimensionFormat;
         auto channelC4 = UP_DIV(srcChannel, core->pack);
@@ -731,18 +568,21 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
                 return NO_ERROR;
             }
             inputBatchStride = batchStrideC4;
-            if (2 == mSingleConvert) {
+            if (2 == mSingleConvert.type) {
                 destFormat = MNN_DATA_FORMAT_NHWC;
+            } else {
+                destFormat = MNN_DATA_FORMAT_NCHW;
             }
-        }
-        if (MNN_DATA_FORMAT_NC4HW4 == destFormat) {
+        } else if (MNN_DATA_FORMAT_NC4HW4 == destFormat) {
             if (output->dimensions() <= 1) {
                 ::memcpy(output->host<uint8_t>(), realInput->host<uint8_t>(), realInput->elementSize() * bytes);
                 return NO_ERROR;
             }
             outputBatchStride = batchStrideC4;
-            if (2 == mSingleConvert) {
+            if (2 == mSingleConvert.type) {
                 sourceFormat = MNN_DATA_FORMAT_NHWC;
+            } else {
+                sourceFormat = MNN_DATA_FORMAT_NCHW;
             }
         }
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {

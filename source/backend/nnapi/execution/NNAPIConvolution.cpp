@@ -32,6 +32,7 @@ static void NCHW2NHWC(const T* source, T* dest, int b, int c, int area) {
     }
 }
 ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    bool isQuantInt8 = TensorUtils::getDescribe(inputs[0])->quantAttr.get();
     auto conv2D     = mOp->main_as_Convolution2D();
     auto common     = conv2D->common();
     int kernelX     = common->kernelX();
@@ -76,7 +77,10 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     if (inputs.size() < 3) {
         const void *weightPtr, *biasPtr;
         int weightSize, biasSize;
-        if (nullptr != conv2D->quanParameter()) {
+        if (isQuantInt8) {
+            weightPtr = conv2D->quanParameter()->buffer()->data();
+            weightSize = conv2D->quanParameter()->buffer()->size();
+        } else if (nullptr != conv2D->quanParameter()) {
             quanCommon = ConvolutionCommon::load(conv2D->quanParameter(), true);
             if (nullptr == quanCommon) {
                 MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", mOp->name()->c_str());
@@ -104,11 +108,32 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         std::vector<uint32_t> weightDims {n, h, w, c};
         std::vector<uint32_t> biasDims {outputCount};
-        nhwcWeight.reset(new float[weightSize]);
-        // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
-        NCHW2NHWC<float>(reinterpret_cast<const float*>(weightPtr), nhwcWeight.get(), n, c, h * w);
-        inputIdxs.push_back(buildConstant(nhwcWeight.get(), weightSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, weightDims));
-        inputIdxs.push_back(buildConstant(biasPtr, biasSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, biasDims));
+        if (isQuantInt8) {
+            outputs[0]->buffer().type = halide_type_of<int8_t>();
+            quantWeight.reset(new int8_t[weightSize]);
+            quantBias.reset(new int32_t[biasSize]);
+            // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
+            NCHW2NHWC<int8_t>(reinterpret_cast<const int8_t*>(weightPtr), quantWeight.get(), n, c, h * w);
+            // bias to int32
+            auto alpha = conv2D->quanParameter()->alpha()->data();
+            auto scaleIn = conv2D->quanParameter()->scaleIn();
+            auto scaleOut = conv2D->quanParameter()->scaleOut();
+            auto scaleAlpha  = scaleIn / scaleOut;
+            for (int i = 0; i < outputCount; i++) {
+                quantBias[i] = static_cast<int32_t>(((float*)biasPtr)[i] / (scaleIn * alpha[i]));
+            }
+            weightPtr = quantWeight.get();
+            biasPtr = quantBias.get();
+            inputIdxs.push_back(buildConstant(weightPtr, weightSize, ANEURALNETWORKS_TENSOR_QUANT8_SYMM_PER_CHANNEL, weightDims, alpha, 0));
+            inputIdxs.push_back(buildConstant(biasPtr, biasSize * sizeof(int), ANEURALNETWORKS_TENSOR_INT32, biasDims));
+        } else {
+            // std::unique_ptr<float[]> nhwcWeight(new float[weightSize]);
+            nhwcWeight.reset(new float[weightSize]);
+            // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
+            NCHW2NHWC<float>(reinterpret_cast<const float*>(weightPtr), nhwcWeight.get(), n, c, h * w);
+            inputIdxs.push_back(buildConstant(nhwcWeight.get(), weightSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, weightDims));
+            inputIdxs.push_back(buildConstant(biasPtr, biasSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, biasDims));
+        }
     }
     // pad
     inputIdxs.push_back(buildScalar(left));

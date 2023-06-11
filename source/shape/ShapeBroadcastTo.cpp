@@ -30,27 +30,37 @@ class ShapeBroadcastTo : public SizeComputer {
                 output->setLength(i, shapeData[i]);
             }
         } else {
-            for (int i = 1; i <= dimension; ++i) {
-                int inputDim = 1, shapeDim = 1;
-                if (i <= inputDims) {
-                    inputDim = input->length(inputDims - i);
+            int offset;
+            int alignShape[MNN_MAX_TENSOR_DIM];
+            if (inputDims > shapeDims) {
+                for (int i = 0; i < input->dimensions(); ++i) {
+                    output->setLength(i, input->length(i));
                 }
-                if (i <= shapeDims) {
-                    shapeDim = shapeData[shapeDims - i];
+                offset = inputDims - shapeDims;
+                for (int i=0; i<shapeDims; ++i) {
+                    alignShape[i] = shapeData[i];
                 }
-                if (shapeDim <= 1) {
-                    // shapeDim is {-1,0,1}, keep inputDim
-                    output->setLength(dimension - i, inputDim);
-                } else {
-                    // broadcast inputDim to shapeDim, need shapDim % inputDim == 0
-                    // inputDim == 0, need shapeDim <= 0 keep dim
-                    if (inputDim == 0) {
-                        return false;
-                    }
-                    if (shapeDim % inputDim != 0) {
-                        return false;
-                    }
-                    output->setLength(dimension - i, shapeDim);
+            } else {
+                for (int i = 0; i < shapeDims; ++i) {
+                    output->setLength(i, shapeData[i]);
+                }
+                for (int i=0; i<input->dimensions(); ++i) {
+                    alignShape[i] = input->length(i);
+                }
+                offset = shapeDims - inputDims;
+            }
+            for (int i = offset; i < output->dimensions(); ++i) {
+                int dim1 = alignShape[i - offset];
+                int dim2 = output->length(i);
+                if (dim1 != dim2 && (dim1 != 1 && dim2 != 1)) {
+                    MNN_ERROR("Broad cast error, dim1 = %d, dim2 = %d\n", dim1, dim2);
+                    return false;
+                }
+                if (dim1 == dim2) {
+                    continue;
+                }
+                if (dim1 != 1) {
+                    output->setLength(i, dim1);
                 }
             }
         }

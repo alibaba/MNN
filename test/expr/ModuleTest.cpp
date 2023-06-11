@@ -11,6 +11,7 @@
 #include <thread>
 #include "MNNTestSuite.h"
 #include "core/Backend.hpp"
+#include "RuntimeAttr.hpp"
 #include <MNN/expr/Executor.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -394,6 +395,57 @@ public:
 };
 MNNTestSuiteRegister(ModuleCloneTest, "expr/ModuleClone");
 
+class ModuleReleaseTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto y = _mobileNetV1Expr();
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        // Force use CPU Runtime
+        BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        auto rtInfo = exe->getRuntime();
+        float memory;
+        auto countMemory = [&rtInfo, &memory]() {
+            memory = 0.0f;
+            for (auto& iter : rtInfo.first) {
+                memory += iter.second->onGetMemoryInMB();
+            }
+            memory += rtInfo.second->onGetMemoryInMB();
+        };
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        Module::Config config;
+        config.shapeMutable = false;
+        config.rearrange = true;
+        std::shared_ptr<Module> interp0;
+        {
+            MNN::ScheduleConfig sconfig;
+            sconfig.numThread = 1;
+            std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+            std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+            interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+        }
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        interp0.reset();
+        countMemory();
+        FUNC_PRINT_ALL(memory, f);
+        if (memory > 1.0f) {
+            return false;
+        }
+        return true;
+    };
+};
+MNNTestSuiteRegister(ModuleReleaseTest, "expr/ModuleReleaseTest");
+
 
 class ModuleTestSpeed : public MNNTestCase {
 public:
@@ -506,6 +558,121 @@ public:
 };
 MNNTestSuiteRegister(SpecialSessionTest, "expr/SpecialSessionTest");
 
+class SessionCircleTest : public MNNTestCase {
+public:
+    bool _run(int precision, bool loop) {
+        int channel = 10;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            auto x = _Input({2, channel, 1, 1}, NC4HW4);
+            x->setName("x");
+            auto ox = x * x;
+            ox->setName("ox");
+            auto y = _Const(1.0f, {1, channel, 1, 1}, NC4HW4);
+            y->setName("y");
+            y.fix(VARP::TRAINABLE);
+            auto z = x * y;
+            z->setName("xy");
+            z = _ReduceMean(z);
+            z->setName("l");
+            z = y + z;
+            z = _Convert(z, NCHW);
+            z = _Unsqueeze(z, {0});
+            z = _Squeeze(z, {0});
+            z = _Convert(z, NC4HW4);
+            z->setName("z");
+            std::unique_ptr<MNN::NetT> net(new NetT);
+            Variable::save({z, ox}, net.get());
+            z = nullptr;
+            if (loop) {
+                // Make Loop
+                // Find x index
+                int yIndex = -1;
+                int zIndex = -1;
+                for (int i=0; i<net->tensorName.size(); ++i) {
+                    if (net->tensorName[i] == "y") {
+                        yIndex = i;
+                    } else if (net->tensorName[i] == "z") {
+                        zIndex = i;
+                    }
+                }
+                if (yIndex == -1 || zIndex == -1) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+                for (auto& op : net->oplists) {
+                    for (int i=0; i<op->outputIndexes.size(); ++i) {
+                        if (op->outputIndexes[i] == zIndex) {
+                            op->outputIndexes[i] = yIndex;
+                        }
+                    }
+                }
+            }
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        net->setSessionMode(Interpreter::Session_Output_User);
+        ScheduleConfig config;
+        config.numThread = 4;
+        config.saveTensors = {"l", "ox", "xy"};
+        BackendConfig bnConfig;
+        bnConfig.precision = MNN::BackendConfig::Precision_Low;
+        config.backendConfig = &bnConfig;
+        auto session = net->createSession(config);
+        auto x = net->getSessionInput(session, "x");
+        auto l = net->getSessionOutput(session, "l");
+        auto z2 = net->getSessionOutput(session, "xy");
+        if (nullptr == x || nullptr == l || nullptr == z2) {
+            return false;
+        }
+        std::vector<float> values(10);
+        std::vector<float> z2values(10);
+        float basicValue = 0.5f;
+        for (int range=0; range<10; ++range) {
+            int curSize = range+1;
+            net->resizeTensor(x, {curSize, channel, 1, 1});
+            net->resizeSession(session);
+            std::shared_ptr<MNN::Tensor> xh(new Tensor(x));
+            for (int i=0; i<curSize*channel; ++i) {
+                xh->host<float>()[i] = basicValue;
+            }
+            x->copyFromHostTensor(xh.get());
+            net->runSession(session);
+            std::shared_ptr<MNN::Tensor> lh(new Tensor(l));
+            l->copyToHostTensor(lh.get());
+            values[range] = lh->host<float>()[0];
+            std::shared_ptr<MNN::Tensor> z2h(new Tensor(z2));
+            z2->copyToHostTensor(z2h.get());
+            auto z2hSize = z2h->elementSize();
+            float summer = 0.0f;
+            for (int i=0; i<z2hSize; ++i) {
+                summer += z2h->host<float>()[i];
+            }
+            z2values[range] = summer;
+        }
+        MNN_PRINT("loop: %d, %f -> %f, %f -> %f\n", loop, values[0], values[9], z2values[0], z2values[9]);
+        if (fabsf(values[0] - basicValue) > 0.001f) {
+            return false;
+        }
+        if (loop && values[9] <= values[0] + basicValue) {
+            return false;
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        auto res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        return _run(precision, false);
+    }
+};
+MNNTestSuiteRegister(SessionCircleTest, "expr/SessionCircleTest");
+
 class SessionTest : public MNNTestCase {
 public:
     bool _run(int precision, bool lazy) {
@@ -523,8 +690,17 @@ public:
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
         config.numThread = 1;
+        int runTime = 5;
+        auto s0 = net->createSession(config);
+        {
+            AUTOTIME;
+            for (int t = 0; t < runTime; ++t) {
+                net->runSession(s0);
+            }
+        }
+        net->releaseSession(s0);
+        config.numThread = 4;
         auto s1 = net->createSession(config);
-        int runTime = 10;
         {
             AUTOTIME;
             for (int t = 0; t < runTime; ++t) {
@@ -532,26 +708,53 @@ public:
             }
         }
         net->releaseSession(s1);
-        std::vector<Session*> sessions;
-        for (int i = 0; i < 4; ++i) {
-            auto s = net->createSession(config);
-            sessions.emplace_back(s);
-        }
         std::vector<std::thread> allThreads;
         for (int i = 0; i < 4; ++i) {
-            auto s = sessions[i];
-            allThreads.emplace_back(std::thread([s, net, config, runTime] {
+            allThreads.emplace_back(std::thread([runTime, i, bufferOutput, sizeOutput] {
                 {
+                    std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+                    ScheduleConfig config;
+                    config.numThread = 4 - i;
+                    BackendConfig bnConfig;
+                    bnConfig.power = MNN::BackendConfig::Power_Normal;
+                    config.backendConfig = &bnConfig;
+                    auto s = net->createSession(config);
                     AUTOTIME;
                     for (int t = 0; t < runTime; ++t) {
                         net->runSession(s);
                     }
+                    net->releaseSession(s);
                 }
             }));
         }
         for (auto& t : allThreads) {
             t.join();
         }
+        for (int i=0; i<3; ++i) {
+            auto rt = Interpreter::createRuntime({config});
+            auto s0 = net->createSession(config, rt);
+            auto s1 = net->createSession(config, rt);
+            int numberThread = 0;
+            net->getSessionInfo(s0, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+            if (numberThread != 4) {
+                FUNC_PRINT(i);
+                return false;
+            }
+            net->getSessionInfo(s1, MNN::Interpreter::THREAD_NUMBER, &numberThread);
+            if (numberThread != 4) {
+                FUNC_PRINT(i);
+                return false;
+            }
+            {
+                AUTOTIME;
+                for (int t = 0; t < runTime; ++t) {
+                    net->runSession(s0);
+                }
+            }
+            net->releaseSession(s0);
+            net->releaseSession(s1);
+        }
+
         return true;
     }
     virtual bool run(int precision) {
@@ -568,3 +771,80 @@ public:
     }
 };
 MNNTestSuiteRegister(SessionTest, "expr/SessionTest");
+
+class MultiThreadOneSessionTest : public MNNTestCase {
+public:
+    bool _run(int precision, bool lazy) {
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            auto y = _mobileNetV1Expr();
+            std::unique_ptr<MNN::NetT> net(new NetT);
+            Variable::save({y}, net.get());
+            y = nullptr;
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        ScheduleConfig config;
+        config.numThread = 4;
+        auto s1 = net->createSession(config);
+        std::vector<std::thread> allThreads;
+        for (int i = 0; i < 4; ++i) {
+            allThreads.emplace_back(std::thread([net, s1] {
+                net->runSession(s1);
+            }));
+        }
+        for (auto& t : allThreads) {
+            t.join();
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        auto res = _run(precision, true);
+        return res;
+    }
+};
+MNNTestSuiteRegister(MultiThreadOneSessionTest, "expr/MultiThreadOneSessionTest");
+
+class MemeoryUsageTest : public MNNTestCase {
+public:
+    bool _run(int precision, bool lazy) {
+        auto func = [](VARP y) {
+            flatbuffers::FlatBufferBuilder builderOutput(1024);
+            {
+                std::unique_ptr<MNN::NetT> net(new NetT);
+                Variable::save({y}, net.get());
+                auto len = MNN::Net::Pack(builderOutput, net.get());
+                builderOutput.Finish(len);
+            }
+            int sizeOutput    = builderOutput.GetSize();
+            auto bufferOutput = builderOutput.GetBufferPointer();
+            std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+            ScheduleConfig config;
+            config.numThread = 1;
+            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            auto s1 = net->createSession(config);
+            float memory = 0.0f;
+            net->getSessionInfo(s1, MNN::Interpreter::MEMORY, &memory);
+            FUNC_PRINT_ALL(memory, f);
+        };
+        auto y = _mobileNetV1Expr();
+        func(y);
+        auto x = _Input({1, 3, 1024, 1024}, NC4HW4);
+        y = _Sigmoid(x);
+        func(y);
+
+        return true;
+    }
+    virtual bool run(int precision) {
+        auto res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        return res;
+    }
+};
+MNNTestSuiteRegister(MemeoryUsageTest, "expr/MemeoryUsageTest");

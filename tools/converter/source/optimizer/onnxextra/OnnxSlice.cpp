@@ -83,47 +83,22 @@ public:
                 strideVar = inputs[4];
             }
         }
-        // Use TF's stridedslice, turn onnx slice attribute to tf format
-        auto rank = _Unsqueeze(_Rank(input), {0});
-        auto shape = _Shape(input, true), zero = _Scalar<int>(0);
-        if (nullptr != axisVar) {
-            auto axisPtr = axisVar->readMap<int>();
-            if (nullptr != axisPtr) {
-                if (0 > axisPtr[0]) {
-                    axisVar = axisVar + _Rank(input);
-                }
-            }
-            auto axisVarScatter = _Unsqueeze(axisVar, {1});
-            if (nullptr != axisPtr) {
-                axisVarScatter.fix(VARP::CONSTANT);
-            }
-            auto defaultVar = _Fill(_Shape(axisVar, true), _Scalar<int>(1));
-            auto mask       = _Scalar<int>(1) - _ScatterNd(axisVarScatter, defaultVar, rank);
-            startVar        = _ScatterNd(axisVarScatter, startVar, rank);
-            endVar          = _ScatterNd(axisVarScatter, endVar, rank) + mask * shape;
-            if (nullptr != strideVar) {
-                strideVar = _ScatterNd(axisVarScatter, strideVar - _Scalar<int>(1), rank) + _Fill(rank, _Scalar<int32_t>(1));
-            }
-        }
-        if (nullptr == strideVar) {
-            strideVar = _Fill(rank, _Scalar<int32_t>(1));
-        }
-        // according to onnx spec, negative index should be added dim before clamp(into [0, dim-1]).
-        // Adjustment of MNN runtime engine is not agree with spec, so do this here manually
-        auto adjustIndexIfNeg = [=](VARP index) {
-            return _Select(_Less(index, zero), index + shape, index);
-        };
-        startVar = adjustIndexIfNeg(startVar);
-        endVar = adjustIndexIfNeg(endVar);
-
+        
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
         sliceOp->name = op->name()->str();
 
         sliceOp->type       = OpType_StridedSlice;
         sliceOp->main.type  = OpParameter_StridedSliceParam;
         auto param          = new StridedSliceParamT;
+        param->fromType     = 1;
         sliceOp->main.value = param;
-        return Expr::create(sliceOp.get(), {input, startVar, endVar, strideVar}, expr->outputSize());
+        if(nullptr != axisVar && nullptr != strideVar) {
+            return Expr::create(sliceOp.get(), {input, startVar, endVar, axisVar, strideVar}, expr->outputSize());
+        }
+        if(nullptr != axisVar) {
+            return Expr::create(sliceOp.get(), {input, startVar, endVar, axisVar}, expr->outputSize());
+        }
+        return Expr::create(sliceOp.get(), {input, startVar, endVar}, expr->outputSize());    
     }
 };
 

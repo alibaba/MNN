@@ -22,8 +22,8 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
 
     auto opName = mOp->name()->str();
     shared_ptr<hiai::op::DepthToSpace> depthToSpace(new hiai::op::DepthToSpace(opName));
-    shared_ptr<ge::op::Permute> permuteBefore(new ge::op::Permute(opName+"_before"));
-    shared_ptr<ge::op::Permute> permuteAfter(new ge::op::Permute(opName+"_after"));
+    shared_ptr<hiai::op::Permute> permuteBefore(new hiai::op::Permute(opName+"_before"));
+    shared_ptr<hiai::op::Permute> permuteAfter(new hiai::op::Permute(opName+"_after"));
 
     /*
      * set om op
@@ -39,7 +39,7 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
     (*permuteBefore)
         .set_input_x(*xOp1.get())
         .set_attr_order({0,2,3,1})
-        .SetAttr("NCHW_to_NHWC", ge::AttrValue::CreateFrom<ge::AttrValue::INT>(1));
+        .SetAttr("NCHW_to_NHWC", ge::AttrValue::CreateFrom(static_cast<int64_t>(1)));
     
     (*depthToSpace)
         .set_input_x(*permuteBefore.get())
@@ -49,7 +49,7 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
     (*permuteAfter)
         .set_input_x(*depthToSpace.get())
         .set_attr_order({0,3,1,2})
-        .SetAttr("NHWC_to_NCHW", ge::AttrValue::CreateFrom<ge::AttrValue::INT>(1));
+        .SetAttr("NHWC_to_NCHW", ge::AttrValue::CreateFrom(static_cast<int64_t>(1)));
 
     mNpuBackend->setOutputOps(mOp, {permuteBefore, depthToSpace, permuteAfter}, outputs);
     return NO_ERROR;

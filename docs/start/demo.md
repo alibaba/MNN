@@ -209,7 +209,11 @@ $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_trai
 
 **欢迎开发者提供示例，可以在issue中提交自己的示例项目，审核通过后可以再此处展示**
 
-以下示例为Github开发者贡献，具体用法需参考相关代码；
+### 以下示例为Github开发者贡献，具体用法需参考相关代码；
+- [mobilenet-mnn](https://github.com/wangzhaode/mobilenet-mnn)
+- [yolov8-mnn](https://github.com/wangzhaode/yolov8-mnn)
+- [stable-diffusion-mnn](https://github.com/wangzhaode/stable-diffusion-mnn)
+- [ChatGLM-MNN](https://github.com/wangzhaode/ChatGLM-MNN)
 - [图像算法工具箱](https://github.com/DefTruth/lite.ai.toolkit)
 - [嵌入式设备部署示例](https://github.com/xindongzhang/MNN-APPLICATIONS)
 - [车道线检测](https://github.com/MaybeShewill-CV/MNN-LaneNet)
@@ -220,4 +224,3 @@ $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_trai
 - [视频抠图](https://github.com/DefTruth/RobustVideoMatting.lite.ai.toolkit)
 - [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
 - [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)
-- [stable-diffusion](https://github.com/wangzhaode/stable-diffusion-mnn)

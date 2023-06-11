@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/Macro.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 
 extern "C" {
 
@@ -26,7 +27,7 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
 
 void MNNHardSwish(float* dst, const float* src, size_t size);
 
-void MNNGelu(float* dst, const float* src, size_t size);
+void MNNGelu(float* dst, const float* src, size_t size, float* parameters);
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
@@ -165,7 +166,7 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
-
+typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast);
 
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 
@@ -196,10 +197,6 @@ struct CoreFunctions {
     // For Atomic Op
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
     MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
-
-    // sparse matrix multiply
-    void(*MNNPackForSparseMatMul_B)(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
-    void(*MNNGetOptimalBlockShape)(size_t& weightNNZElement, size_t& weightBlockNumber, const float* source, int sparseBlockOC, size_t h, size_t l);
 
     // B matrix is sparsed
     typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);

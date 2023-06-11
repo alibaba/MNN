@@ -25,7 +25,7 @@ ErrorCode NPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     auto shape = tensorShapeFormat(inputs[0]);
     if(shape[1] > 10000 && shape[0] == shape[2] == shape[3] == 1){
-        mConstSub = ge::op::Const(opName + "_sub_n");
+        mConstSub = hiai::op::Const(opName + "_sub_n");
         {
             ge::TensorDesc fdesc(ge::Shape({1,shape[1],1,1}), ge::FORMAT_NCHW, ge::DT_FLOAT);
             ge::TensorPtr constTensor = std::make_shared<ge::Tensor>();
@@ -35,13 +35,13 @@ ErrorCode NPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
             mConstSub.set_attr_value(constTensor);
         }
 
-        shared_ptr<ge::op::Sub> sub(new ge::op::Sub(opName + "_sub"));
+        shared_ptr<hiai::op::Sub> sub(new hiai::op::Sub(opName + "_sub"));
         (*sub).set_input_x1(*xOp.get()).set_input_x2(mConstSub);
 
-        shared_ptr<ge::op::Exp> exp(new ge::op::Exp(opName + "_exp"));
+        shared_ptr<hiai::op::Exp> exp(new hiai::op::Exp(opName + "_exp"));
         (*exp).set_input_x(*sub.get());
 
-        mConstAxis = ge::op::Const(opName + "_axis");
+        mConstAxis = hiai::op::Const(opName + "_axis");
         {
             ge::TensorDesc fdesc(ge::Shape({1}), ge::FORMAT_ND, ge::DT_INT32);
             ge::TensorPtr constTensor = std::make_shared<ge::Tensor>();
@@ -50,21 +50,21 @@ ErrorCode NPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
             constTensor->SetData((uint8_t *)(&x), sizeof(int));
             mConstAxis.set_attr_value(constTensor);
         }
-        shared_ptr<ge::op::ReduceSum> sum(new ge::op::ReduceSum(opName + "_sum"));
-        (*sum).set_input_x(*exp.get()).set_input_w(mConstAxis).set_attr_keep_dims(true);
+        shared_ptr<hiai::op::ReduceSum> sum(new hiai::op::ReduceSum(opName + "_sum"));
+        (*sum).set_input_x(*exp.get()).set_input_axes(mConstAxis).set_attr_keep_dims(true);
 
-        shared_ptr<ge::op::Reciprocal> rec(new ge::op::Reciprocal(opName + "_rec"));
+        shared_ptr<hiai::op::Reciprocal> rec(new hiai::op::Reciprocal(opName + "_rec"));
         (*rec).set_input_x(*sum.get());
 
-        shared_ptr<ge::op::Mul> mul(new ge::op::Mul(opName + "_mul"));
-        (*mul).set_input_x(*exp.get()).set_input_y(*rec.get());
+        shared_ptr<hiai::op::Mul> mul(new hiai::op::Mul(opName + "_mul"));
+        (*mul).set_input_x1(*exp.get()).set_input_x2(*rec.get());
 
         mNpuBackend->setOutputOps(mOp, {sub, exp, sum, rec, mul}, outputs);
 
     }else{
-        shared_ptr<ge::op::Softmax> softmax(new ge::op::Softmax(opName));
+        shared_ptr<hiai::op::Softmax> softmax(new hiai::op::Softmax(opName));
 
-        (*softmax).set_input_x(*xOp.get()).set_attr_axis(axisFormat(inputs[0], param->axis())).set_attr_algo(1);
+        (*softmax).set_input_x(*xOp.get()).set_attr_axis(axisFormat(inputs[0], param->axis()));
 
         mNpuBackend->setOutputOps(mOp, {softmax}, outputs);
     }

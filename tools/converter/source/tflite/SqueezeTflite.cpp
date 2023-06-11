@@ -12,13 +12,13 @@
 
 DECLARE_OP_COVERTER(SqueezeTflite);
 
-MNN::OpType SqueezeTflite::opType(bool quantizedModel) {
+MNN::OpType SqueezeTflite::opType(int quantizedModel) {
     DCHECK(!quantizedModel);
     if (quantizedModel)
         return MNN::OpType_Squeeze;
     return MNN::OpType_Squeeze;
 }
-MNN::OpParameter SqueezeTflite::type(bool quantizedModel) {
+MNN::OpParameter SqueezeTflite::type(int quantizedModel) {
     DCHECK(!quantizedModel);
     if (quantizedModel)
         return MNN::OpParameter_SqueezeParam;
@@ -28,7 +28,7 @@ MNN::OpParameter SqueezeTflite::type(bool quantizedModel) {
 void SqueezeTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp,
                         const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
                         const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
-                        const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel) {
+                        const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, int quantizedModel) {
     DCHECK(!quantizedModel);
     auto squeezeParam         = new MNN::SqueezeParamT;
     const auto &squeezeOption = tfliteOp->builtin_options.AsSqueezeOptions();

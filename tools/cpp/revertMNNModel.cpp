@@ -59,6 +59,7 @@ void Revert::packMNNNet() {
 void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
     if (mMNNNet->bizCode == "benchmark" || rewrite) {
         randStart();
+        bool useSparse = spasity > 0.5f;
         for (auto& op : mMNNNet->oplists) {
             const auto opType = op->type;
             switch (opType) {
@@ -71,51 +72,53 @@ void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
                     const int oc = convCommon->outputCount / convCommon->group;
                     param->weight.resize(oc * weightReduceStride);
                     ::memset(param->weight.data(), 0, param->weight.size() * sizeof(float));
-                    size_t weightNNZElement, weightBlockNumber = 0;
-                    MNN::CommonCompute::fillRandValueAsSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), oc, weightReduceStride, spasity, sparseBlockOC);
-
-                    MNN::AttributeT* arg1(new MNN::AttributeT);
-                    arg1->key = "sparseBlockOC";
-                    arg1->i = sparseBlockOC;
-
-                    MNN::AttributeT* arg2(new MNN::AttributeT);
-                    arg2->key = "sparseBlockKernel";
-                    arg2->i = 1;
-
-                    MNN::AttributeT* arg3(new MNN::AttributeT);
-                    arg3->key = "NNZElement";
-                    arg3->i = weightNNZElement;
-
-                    MNN::AttributeT* arg4(new MNN::AttributeT);
-                    arg4->key = "blockNumber";
-                    arg4->i = weightBlockNumber;
-
-                    flatbuffers::FlatBufferBuilder builder;
-                    std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
-                    auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
-                    auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
-                    auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
-                    auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
-
-                    argsVector.emplace_back(sparseArg1);
-                    argsVector.emplace_back(sparseArg2);
-                    argsVector.emplace_back(sparseArg3);
-                    argsVector.emplace_back(sparseArg4);
-
-                    auto sparseArgs = builder.CreateVectorOfSortedTables<MNN::Attribute>(&argsVector);
-                    MNN::SparseAlgo prune_algo_type;
-                    if (sparseBlockOC == 4) {
-                        prune_algo_type = MNN::SparseAlgo_SIMD_OC;
-                    } else {
-                        prune_algo_type = MNN::SparseAlgo_RANDOM;
-                    }
-                    auto sparseCom = MNN::CreateSparseCommon(builder, prune_algo_type, sparseArgs);
-                    builder.Finish(sparseCom);
-                    auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
-                    param->sparseParameter.reset(sparseComPtr);
-
                     param->bias.resize(convCommon->outputCount);
                     ::memset(param->bias.data(), 0, param->bias.size() * sizeof(float));
+                    if (useSparse) {
+                        size_t weightNNZElement, weightBlockNumber = 0;
+                        MNN::CommonCompute::fillRandValueAsSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), oc, weightReduceStride, spasity, sparseBlockOC);
+
+                        MNN::AttributeT* arg1(new MNN::AttributeT);
+                        arg1->key = "sparseBlockOC";
+                        arg1->i = sparseBlockOC;
+
+                        MNN::AttributeT* arg2(new MNN::AttributeT);
+                        arg2->key = "sparseBlockKernel";
+                        arg2->i = 1;
+
+                        MNN::AttributeT* arg3(new MNN::AttributeT);
+                        arg3->key = "NNZElement";
+                        arg3->i = weightNNZElement;
+
+                        MNN::AttributeT* arg4(new MNN::AttributeT);
+                        arg4->key = "blockNumber";
+                        arg4->i = weightBlockNumber;
+
+                        flatbuffers::FlatBufferBuilder builder;
+                        std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
+                        auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
+                        auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
+                        auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
+                        auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+
+                        argsVector.emplace_back(sparseArg1);
+                        argsVector.emplace_back(sparseArg2);
+                        argsVector.emplace_back(sparseArg3);
+                        argsVector.emplace_back(sparseArg4);
+
+                        auto sparseArgs = builder.CreateVectorOfSortedTables<MNN::Attribute>(&argsVector);
+                        MNN::SparseAlgo prune_algo_type;
+                        if (sparseBlockOC == 4) {
+                            prune_algo_type = MNN::SparseAlgo_SIMD_OC;
+                        } else {
+                            prune_algo_type = MNN::SparseAlgo_RANDOM;
+                        }
+                        auto sparseCom = MNN::CreateSparseCommon(builder, prune_algo_type, sparseArgs);
+                        builder.Finish(sparseCom);
+                        auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
+                        param->sparseParameter.reset(sparseComPtr);
+                        MNN::CommonCompute::compressFloatWeightToSparse(op.get());
+                    }
                     break;
                 }
                 case MNN::OpType_Scale: {

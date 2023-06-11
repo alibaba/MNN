@@ -256,6 +256,10 @@ public:
     virtual int onGetRuntimeStatus(RuntimeStatus statusEnum) const {
         return 0;
     }
+    // If the info user set can't be match by runtime, return false and set real info
+    virtual bool onCheckInfo(Backend::Info& info) const {
+        return true;
+    }
     struct OpInfo {
         bool initCostLong;
         float exeutionCost; // In ms

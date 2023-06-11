@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 namespace MNN {
 class CPURaster : public Execution {
 public:
@@ -33,7 +34,7 @@ private:
     void* mOutputPtr;
     bool mNeedZero = false;
     bool mFast = false;
-    int mSingleConvert = 0;
+    OpCommonUtils::TensorConvertParameter mSingleConvert;
     std::vector<std::shared_ptr<Tensor::InsideDescribe::Region>> mCacheRegions;
     int32_t mZeroPoint = 0;
 };

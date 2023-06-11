@@ -118,7 +118,8 @@ namespace MNN {
             memcpy((void*)&mInputTensors[iter->second], &srcTensor, sizeof(void*));
         } else if (isOutputCopy) {
             // MNN_ASSERT(mOutputIdxMap.find(srcTensor) != mOutputIdxMap.end());
-            memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min((int)TensorUtils::getRawSize(srcTensor), dstTensor->size()));
+            int srcSize = static_cast<int>(TensorUtils::getRawSize(srcTensor) * srcTensor->getType().bytes());
+            memcpy(dstTensor->host<void>(), srcTensor->host<void>(), std::min(srcSize, dstTensor->size()));
         }
     }
 
@@ -147,6 +148,9 @@ namespace MNN {
             constantLayer->loadconstantnd = create<CoreML__Specification__LoadConstantNDLayerParams>();
             core_ml__specification__load_constant_ndlayer_params__init(constantLayer->loadconstantnd);
             auto shape = t->shape();
+            if (shape.size() == 0) {
+                shape = {1};
+            }
             constantLayer->loadconstantnd->n_shape = shape.size();
             constantLayer->loadconstantnd->shape = create<uint64_t>(constantLayer->loadconstantnd->n_shape);
             for (int i = 0; i < shape.size(); i++) {

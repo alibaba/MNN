@@ -18,11 +18,14 @@
 #include "core/ConvolutionCommon.hpp"
 #include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUResizeCache.hpp"
+#define MNN_USER_SET_DEVICE
+#include "MNN/MNNSharedContext.h"
+
 namespace MNN {
 namespace CUDA {
 class MNN_PUBLIC CUDARuntimeWrapper : public Runtime {
 public:
-    CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power);
+    CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, int deviceId = 0);
     virtual ~CUDARuntimeWrapper();
     virtual Backend *onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;

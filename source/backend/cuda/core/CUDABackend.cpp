@@ -46,9 +46,9 @@ public:
 private:
     CUDARuntime* mRuntime;
 };
-CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power) {
+CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, int deviceId) {
     // TODO: Search CUDA Device info and use best one
-    mCUDARuntime.reset(new CUDARuntime(-1));
+    mCUDARuntime.reset(new CUDARuntime(deviceId));
 #ifdef LOG_VERBOSE
     MNN_PRINT("create cuda runtime:%p\n", mCUDARuntime.get());
 #endif
@@ -299,7 +299,10 @@ static void _computeBCA(int& batch, int& plane, int& channel, MNN_DATA_FORMAT sr
 
     if (srcDimensionFormat != MNN_DATA_FORMAT_NHWC) {
         batch = srcTensor->length(0);
-        channel = srcTensor->length(1);
+        channel = 1;
+        if(srcTensor->dimensions() > 1) {
+            channel = srcTensor->length(1);
+        }
         plane = 1;
         for (int i=2; i<srcTensor->dimensions(); ++i) {
             plane *= srcTensor->length(i);
@@ -339,8 +342,8 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     auto dstDimensionFormat = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcIndex = TensorUtils::getDescribe(srcTensor)->index;
     auto dstIndex = TensorUtils::getDescribe(dstTensor)->index;
-    auto srcDevice          = srcTensor->deviceId() != 0;
-    auto dstDevice          = dstTensor->deviceId() != 0;
+    auto srcDevice = (srcTensor->deviceId() != 0 && srcTensor->deviceId() != 1);
+    auto dstDevice = (dstTensor->deviceId() != 0 && dstTensor->deviceId() != 1);    
     MNN_ASSERT(srcDevice || dstDevice);
     uint8_t* srcPtr = nullptr;
     std::pair<void*, int> tempSrcStorage;

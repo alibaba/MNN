@@ -16,9 +16,8 @@ namespace MNN {
 namespace OpenCL {
 
 BinaryBufExecution::BinaryBufExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend)
-    : CommonExecution(backend), mCompute(compute) {
+    : CommonExecution(backend, op), mCompute(compute) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
-    mOp = op;
 }
 
 uint32_t BinaryBufExecution::realSize(const Tensor* tensor) {

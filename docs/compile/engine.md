@@ -3,12 +3,12 @@
 ## Linux/MacOS
 - 环境要求
   - cmake >= 3.10
-  - protobuf >= 3.0
   - gcc >= 4.9
 - 相关编译选项
   - `MNN_ONEDNN` 是否使用oneDNN库来加速卷积运算
-  - `MNN_AVX512` 是否使用AVX512指令
-  - `MNN_OPENCL` 是否使用OpenCL后端，针对AMD GPU设备
+  - `MNN_AVX512` 是否使用AVX512指令，需要gcc9以上版本编译
+  - `MNN_OPENCL` 是否使用OpenCL后端，针对GPU设备
+  - `MNN_VULKAN` 是否使用Vulkan后端，针对GPU设备
   - `MNN_CUDA`  是否使用CUDA后端，针对Nivida GPU设备
   - `MNN_TENSORRT` 是否使用TensorRT后端，针对Nivida GPU设备
 - 具体步骤
@@ -42,27 +42,26 @@
   2. 编译
      - 64位编译：在设置中找到vcvars64.bat（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
      - 32位编译：在设置中找到vcvarsamd64_x86.bat（VS 2017的 x64_x86 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境 
+     - 在虚拟环境中执行如下编译命令：
         ```bash
         cd /path/to/MNN
-        powershell # 运行该命令从cmd环境进入powershell环境，后者功能更强大
-        ./schema/generate.ps1
-        # CPU, 64位编译
-        .\package_scripts\win\build_lib.ps1 -path MNN-CPU/lib/x64
-        # CPU, 32位编译
-        .\package_scripts\win\build_lib.ps1 -path MNN-CPU/lib/x86
-        # CPU+OpenCL+Vulkan, 64位编译
-        .\package_scripts\win\build_lib.ps1 -path MNN-CPU-OPENCL/lib/x64 -backends "opencl,vulkan"
-        # CPU+OpenCL+Vulkan, 32位编译
-        .\package_scripts\win\build_lib.ps1 -path MNN-CPU-OPENCL/lib/x86 -backends "opencl,vulkan"
+        ./schema/generate.ps1 # 非必须
+        mkdir build && cd build
+        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
+        ninja
         ```
+     - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
+     - 若需要编译 MNN CUDA，MNN_WIN_RUNTIME_MT 和 MNN_BUILD_SHARED_LIBS 需要设成 ON ，另外加上 -DMNN_CUDA=ON: cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=ON -DMNN_WIN_RUNTIME_MT=ON -DMNN_CUDA=ON
+     - Windows 上建议使用 Interpreter::destroy , Tensor::destroy , Module::destroy 等方法进行 MNN 相关内存对象的析构，不要直接使用 delete （直接使用 delete 在 -DMNN_WIN_RUNTIME_MT=ON 时会出问题）
 ## Android
 - 环境要求
   - cmake >= 3.10
-  - protobuf >= 3.0
   - ndk
 - 相关编译选项
   - `MNN_OPENCL` 是否使用OpenCL后端，OpenCL后端可以利用GPU加速
-  - `MNN_ARM82`  是否使用Arm82后端，Arm82后端支持低精度(fp16)推理，同时uint8量化模型加速也需要ARM82
+  - `MNN_NNAPI` 是否使用NNAPI后端，NNAPI后端会尝试使用设备上的NPU进行加速
+  - `MNN_ARM82`  是否支持fp16推理，开启该编译选项后，在precision设成Precision_Low时，会在支持的设备（ARMv8.2 及以上架构）上启用低精度(fp16)推理，减少内存占用，提升性能
+  - `MNN_SUPPORT_BF16`  是否支持bf16推理，开启该编译选项后，在precision设成Precision_Low_BF16 时，会启用bf16推理，减少内存占用，提升性能
 - 具体步骤
   1. 在[NDK download](https://developer.android.com/ndk/downloads/)下载安装NDK，建议使用最新稳定版本；
   2. 在 .bashrc 或者 .bash_profile 中设置NDK环境变量，例如：export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b
@@ -85,7 +84,7 @@
 - 相关编译选项
   - `MNN_METAL` 是否使用Metal后端，Metal后端可以利用GPU加速
   - `MNN_COREML`  是否使用CoreML后端，CoreML后端可以利用ANE硬件加速
-  - `MNN_ARM82`  是否使用Arm82后端，Arm82后端支持低精度(fp16)推理，同时uint8量化模型加速也需要ARM82
+  - `MNN_ARM82`  是否支持fp16推理，开启该编译选项后，在precision设成Precision_Low时，会在支持的设备（ARMv8.2 及以上架构）上启用低精度(fp16)推理，减少内存占用，提升性能
 - 具体步骤
   - 在macOS下，用Xcode打开project/ios/MNN.xcodeproj，点击编译即可
 ## 其他平台交叉编译
@@ -106,7 +105,7 @@
         cmake .. \
         -DCMAKE_SYSTEM_NAME=宿主系统，例如Linux \
         -DCMAKE_SYSTEM_VERSION=1 \
-        -DCMAKE_SYSTEM_PROCESSOR=交叉编译目标处理器的信息。例如arm或aarch64 \
+        -DCMAKE_SYSTEM_PROCESSOR=交叉编译目标处理器的信息。例如armv7或aarch64 \
         -DCMAKE_C_COMPILER=交叉编译器中C编译器的路径 \
         -DCMAKE_CXX_COMPILER=交叉编译器中C++编译器的路径
         ```

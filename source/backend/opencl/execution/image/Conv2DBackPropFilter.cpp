@@ -15,7 +15,7 @@
 namespace MNN {
 namespace OpenCL {
 
-Conv2DBackPropFilter::Conv2DBackPropFilter(const MNN::Op *op, Backend *backend) : CommonExecution(backend) {
+Conv2DBackPropFilter::Conv2DBackPropFilter(const MNN::Op *op, Backend *backend) : CommonExecution(backend, op) {
     auto common = op->main_as_Convolution2D()->common();
     mStrides = {common->strideY(), common->strideX()};
     mDilations = {common->dilateY(), common->dilateX()};
@@ -25,7 +25,6 @@ Conv2DBackPropFilter::Conv2DBackPropFilter(const MNN::Op *op, Backend *backend) 
     if (common->padMode() == PadMode_VALID) {
         mPaddings[0] = mPaddings[1] = 0;
     }
-    mOp = op;
 }
 
 Conv2DBackPropFilter::~Conv2DBackPropFilter() {

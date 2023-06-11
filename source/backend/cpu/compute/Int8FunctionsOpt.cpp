@@ -26,6 +26,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
+
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                          const QuanPostTreatParameters* post, size_t realDstCount);
@@ -1430,14 +1431,12 @@ static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, fl
 
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
-    const int bytes = (post->scale != nullptr ? 1 : 4);
+    const int bytes = ((post->useInt8 == 1) ? 1 : 4);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
         const float* scale_dz = nullptr;
-        if (post->scale != nullptr) {
-            scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
-        }
+        scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
@@ -1457,10 +1456,13 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
             }
 
             for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                if (post->scale != nullptr) {
+                if (!post->scale) {
+                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
+                } else if (post->useInt8 == 1) {
                     dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
                 } else {
-                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
+                    float value = (float)(dstTemp[j] + bias_dz[j]) * scale_dz[j];
+                    ((float*)dst_x)[j] = value;
                 }
             }
         }
@@ -1571,6 +1573,258 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
         srcPtr = srcPtr + pack* stridesx;
     }
 }
+
+void MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float sum = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            sum =  inp0 + inp1;
+        } else if (needBroadcast == 1) {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            sum = inp0 + inp1;
+        } else {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            sum = inp0 + inp1;
+        }
+        int value = (int)roundf(sum * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
+    }
+}
+
+void MNNBinarySubInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
+        } else if (needBroadcast == 1) {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
+        } else {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = inp0 - inp1;
+        }
+        int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
+    }
+}
+
+void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
+            } else if (needBroadcast == 1) {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
+            } else {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = inp0 * inp1;
+            }
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
+        }
+}
+
+void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
+            } else if (needBroadcast == 1) {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
+            } else {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::min(inp0, inp1);
+            }
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
+        }
+}
+
+void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+        for (int i = 0; i < elementSize; ++i) {
+            if (needBroadcast == 0) {
+                float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
+            } else if (needBroadcast == 1) {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
+            } else {
+                float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+                float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+                res = std::max(inp0, inp1);
+            }
+            int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            if (value < minValue) {
+                value = minValue;
+            }
+            outputData[i] = value;
+        }
+}
+void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+    float res = 0;
+#ifdef MNN_USE_SSE
+    const int zeroPoint = 128;
+    const int maxValue = 255;
+    const int minValue = 0;
+    const uint8_t* inputData0 = (uint8_t*)inputRaw0;
+    const uint8_t* inputData1 = (uint8_t*)inputRaw1;
+    uint8_t* outputData = (uint8_t*)outputRaw;
+#else
+    const int zeroPoint = 0;
+    const int maxValue = 127;
+    const int minValue = -128;
+    const int8_t* inputData0 = inputRaw0;
+    const int8_t* inputData1 = inputRaw1;
+    int8_t* outputData = outputRaw;
+#endif
+    for (int i = 0; i < elementSize; ++i) {
+        if (needBroadcast == 0) {
+            float inp0 = (inputData0[0] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        } else if (needBroadcast == 1) {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        } else {
+            float inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
+            float inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            res = (inp0 - inp1) * (inp0 - inp1);
+        }
+        int value = (int)roundf(res * outputScale[i]) + zeroPoint;
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        if (value < minValue) {
+            value = minValue;
+        }
+        outputData[i] = value;
+    }
+}
+
 
 #endif // #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE
@@ -1942,16 +2196,18 @@ static void _fastIm2ColI8mm(int8_t* colAddr, const int8_t* inputOrigin, int32_t 
                               size_t realDstCount) {
     const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, inputZeroPoint, col_buffer_size);
-    const int icDiv4    = im2colParameter->icDiv4;
-    const int srcZStep = im2colParameter->iw * im2colParameter->ih * GEMM_INT8_UNIT;
+    const int icDiv8    = im2colParameter->icDiv4 / 2;
+    const int srcZStep = im2colParameter->srcZStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
     inputOrigin += xIndexStart * GEMM_INT8_UNIT;
     for (int i = 0; i < realDstCount; ++i) {
-        auto colAddrI = colAddr + GEMM_INT8_UNIT * i;
+        auto colAddrI = colAddr + GEMM_INT8_SRC_UNIT * i;
         auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
-        for (int sz = 0; sz < icDiv4; ++sz) {
-            auto inputZ0       = inputK + srcZStep * sz;
-            auto dstK0         = colAddrI + sz * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
-            *((int32_t*)dstK0) = *((int32_t*)inputZ0);
+        for (int sz = 0; sz < icDiv8; ++sz) {
+            auto inputZ0       = inputK + srcZStep * sz * 2;
+            auto dstK0         = (int32_t*)colAddrI + sz * dstXStepInt32;
+            dstK0[0]           = *((int32_t*)inputZ0);
+            dstK0[1]           = *((int32_t*)(inputZ0 + srcZStep));
         }
     }
 }
@@ -1995,6 +2251,7 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
     gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
     gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnit;
+
     // Im2Col
     gCoreFunc->chooseIm2Col = chooseIm2Col;
     // conv depthwise

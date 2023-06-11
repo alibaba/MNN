@@ -38,29 +38,44 @@ bool CoreMLRaster::buildPermute(CoreML__Specification__NeuralNetworkLayer* layer
         core_ml__specification__neural_network_layer__init(permuteLayer);
         reshapeLayer = layer;
     }
-    mCoreMLBackend->setLayerName(permuteLayer, "Permute");
-    permuteLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_PERMUTE;
-    permuteLayer->permute = mCoreMLBackend->create<CoreML__Specification__PermuteLayerParams>();
-    core_ml__specification__permute_layer_params__init(permuteLayer->permute);
-    permuteLayer->permute->n_axis = 4;
-    permuteLayer->permute->axis = mCoreMLBackend->create<uint64_t>(permuteLayer->permute->n_axis);
+    mCoreMLBackend->setLayerName(permuteLayer, "Transpose");
+    permuteLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_TRANSPOSE;
+    permuteLayer->transpose = mCoreMLBackend->create<CoreML__Specification__TransposeLayerParams>();
+    core_ml__specification__transpose_layer_params__init(permuteLayer->transpose);
+    permuteLayer->transpose->n_axes = 4;
+    permuteLayer->transpose->axes = mCoreMLBackend->create<uint64_t>(permuteLayer->transpose->n_axes);
     auto srcFormat = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dstFormat = TensorUtils::getDescribe(output)->dimensionFormat;
     // NCHW -> NHWC
     if ((srcFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
         && dstFormat == MNN_DATA_FORMAT_NHWC) {
-        permuteLayer->permute->axis[0] = 0;
-        permuteLayer->permute->axis[1] = 2;
-        permuteLayer->permute->axis[2] = 3;
-        permuteLayer->permute->axis[3] = 1;
+        permuteLayer->transpose->axes[0] = 0;
+        permuteLayer->transpose->axes[1] = 2;
+        permuteLayer->transpose->axes[2] = 3;
+        permuteLayer->transpose->axes[3] = 1;
     }
     // NHWC -> NCHW
     if ((dstFormat == MNN_DATA_FORMAT_NC4HW4 || srcFormat == MNN_DATA_FORMAT_NCHW)
         && srcFormat == MNN_DATA_FORMAT_NHWC) {
-        permuteLayer->permute->axis[0] = 0;
-        permuteLayer->permute->axis[1] = 3;
-        permuteLayer->permute->axis[2] = 1;
-        permuteLayer->permute->axis[3] = 2;
+        permuteLayer->transpose->axes[0] = 0;
+        permuteLayer->transpose->axes[1] = 3;
+        permuteLayer->transpose->axes[2] = 1;
+        permuteLayer->transpose->axes[3] = 2;
+    }
+    if (srcFormat == dstFormat) {
+        auto inputShape = input->shape();
+        auto outputShape = output->shape();
+        for (int i = 0; i < outputShape.size(); i++) {
+            auto dimVal = outputShape[i];
+            auto axis = -1;
+            for (int j = 0; j < inputShape.size(); j++) {
+                if (inputShape[j] == dimVal) {
+                    axis = j;
+                    break;
+                }
+            }
+            permuteLayer->transpose->axes[i] = axis;
+        }
     }
     mCoreMLBackend->setLayerInputs(permuteLayer, {mCoreMLBackend->getTensorName(input)});
     if (reshapeLayer) {

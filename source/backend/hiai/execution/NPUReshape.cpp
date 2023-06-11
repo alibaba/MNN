@@ -35,7 +35,20 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     auto input = inputs[0];
     auto opName = mOp->name()->str();
-    shared_ptr<ge::op::Reshape> reshape(new ge::op::Reshape(opName));
+    shared_ptr<hiai::op::Reshape> reshape(new hiai::op::Reshape(opName));
+    
+    auto shapeFormt = tensorShapeFormat(outputs[0]);
+    std::vector<int32_t> shape(shapeFormt.begin(), shapeFormt.end());
+    shapeConst = hiai::op::Const(opName + "_shape_const");
+    {
+        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shape.size())}), 
+            ge::FORMAT_NCHW,  ge::DT_INT32);
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        filter->SetTensorDesc(fdesc);
+        filter->SetData((uint8_t *)shape.data(), shape.size() * sizeof(int32_t));
+
+        shapeConst.set_attr_value(filter);
+    }
  
     auto inputDims = tensorShapeFormat(inputs[0]);
     auto shapeDims = tensorShapeFormat(outputs[0]);
@@ -44,24 +57,30 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
     auto xOp        = iops.back().first;
 
-    //MNN_PRINT("input dim:%d %d %d %d\n", inputDims[0], inputDims[1], inputDims[2], inputDims[3]);
-    //MNN_PRINT("output dim:%d %d %d %d\n", shapeDims[0], shapeDims[1], shapeDims[2], shapeDims[3]);
-    //MNN_PRINT("input->dimensionFormat:%d\n", TensorUtils::getDescribe(input)->dimensionFormat);
-    //MNN_PRINT("output->dimensionFormat:%d\n", TensorUtils::getDescribe(outputs[0])->dimensionFormat);
     if ((TensorUtils::getDescribe(input)->dimensionFormat != MNN::MNN_DATA_FORMAT_NHWC) ||
         (isSameDims(input, outputs[0]) || (inputDims == shapeDims))) {
-        (*reshape).set_input_tensor(*xOp).set_attr_shape(ge::AttrValue::LIST_INT(shapeDims));
+        (*reshape).set_input_x(*xOp).set_input_shape(shapeConst);
         mNpuBackend->setOutputOps(mOp, {reshape}, outputs);
     } else {
-        shared_ptr<ge::op::Permute> permute1(new ge::op::Permute(opName+"_perm1"));
-        shared_ptr<ge::op::Permute> permute2(new ge::op::Permute(opName+"_perm2"));
+        shared_ptr<hiai::op::Permute> permute1(new hiai::op::Permute(opName+"_perm1"));
+        shared_ptr<hiai::op::Permute> permute2(new hiai::op::Permute(opName+"_perm2"));
         (*permute1)
             .set_input_x(*xOp.get())
             .set_attr_order(ge::AttrValue::LIST_INT({0,2,3,1}));
-        vector<int64_t> nhwcShape = {shapeDims[0],shapeDims[2],shapeDims[3],shapeDims[1]};
+        vector<int32_t> nhwcShape = {static_cast<int32_t>(shapeDims[0]), static_cast<int32_t>(shapeDims[2]),
+            static_cast<int32_t>(shapeDims[3]), static_cast<int32_t>(shapeDims[1])}; 
+        nhwshapeConst = hiai::op::Const(opName + "_nhwshape_const");
+        {
+            ge::TensorDesc fdesc(ge::Shape({4}), ge::FORMAT_NCHW,  ge::DT_INT32);
+            ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+            filter->SetTensorDesc(fdesc);
+            filter->SetData((uint8_t *)nhwcShape.data(), nhwcShape.size() * sizeof(int32_t));
+
+            nhwshapeConst.set_attr_value(filter);
+        }
         (*reshape)
-            .set_input_tensor(*permute1.get())
-            .set_attr_shape(ge::AttrValue::LIST_INT(nhwcShape));
+            .set_input_x(*permute1.get())
+            .set_input_shape(nhwshapeConst);
         (*permute2)
             .set_input_x(*reshape.get())
             .set_attr_order(ge::AttrValue::LIST_INT({0,3,1,2}));

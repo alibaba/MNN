@@ -732,6 +732,7 @@ struct StridedSliceParamT : public flatbuffers::NativeTable {
   int32_t ellipsisMask;
   int32_t newAxisMask;
   int32_t shrinkAxisMask;
+  int32_t fromType;
   StridedSliceParamT()
       : Index(DataType_DT_INVALID),
         T(DataType_DT_INVALID),
@@ -739,7 +740,8 @@ struct StridedSliceParamT : public flatbuffers::NativeTable {
         endMask(0),
         ellipsisMask(0),
         newAxisMask(0),
-        shrinkAxisMask(0) {
+        shrinkAxisMask(0),
+        fromType(0) {
   }
 };
 
@@ -769,6 +771,9 @@ struct StridedSliceParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t shrinkAxisMask() const {
     return GetField<int32_t>(16, 0);
   }
+  int32_t fromType() const {
+    return GetField<int32_t>(18, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
@@ -778,6 +783,7 @@ struct StridedSliceParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int32_t>(verifier, 12) &&
            VerifyField<int32_t>(verifier, 14) &&
            VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
            verifier.EndTable();
   }
   StridedSliceParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -809,6 +815,9 @@ struct StridedSliceParamBuilder {
   void add_shrinkAxisMask(int32_t shrinkAxisMask) {
     fbb_.AddElement<int32_t>(16, shrinkAxisMask, 0);
   }
+  void add_fromType(int32_t fromType) {
+    fbb_.AddElement<int32_t>(18, fromType, 0);
+  }
   explicit StridedSliceParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -829,8 +838,10 @@ inline flatbuffers::Offset<StridedSliceParam> CreateStridedSliceParam(
     int32_t endMask = 0,
     int32_t ellipsisMask = 0,
     int32_t newAxisMask = 0,
-    int32_t shrinkAxisMask = 0) {
+    int32_t shrinkAxisMask = 0,
+    int32_t fromType = 0) {
   StridedSliceParamBuilder builder_(_fbb);
+  builder_.add_fromType(fromType);
   builder_.add_shrinkAxisMask(shrinkAxisMask);
   builder_.add_newAxisMask(newAxisMask);
   builder_.add_ellipsisMask(ellipsisMask);
@@ -3569,6 +3580,7 @@ inline void StridedSliceParam::UnPackTo(StridedSliceParamT *_o, const flatbuffer
   { auto _e = ellipsisMask(); _o->ellipsisMask = _e; };
   { auto _e = newAxisMask(); _o->newAxisMask = _e; };
   { auto _e = shrinkAxisMask(); _o->shrinkAxisMask = _e; };
+  { auto _e = fromType(); _o->fromType = _e; };
 }
 
 inline flatbuffers::Offset<StridedSliceParam> StridedSliceParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StridedSliceParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -3586,6 +3598,7 @@ inline flatbuffers::Offset<StridedSliceParam> CreateStridedSliceParam(flatbuffer
   auto _ellipsisMask = _o->ellipsisMask;
   auto _newAxisMask = _o->newAxisMask;
   auto _shrinkAxisMask = _o->shrinkAxisMask;
+  auto _fromType = _o->fromType;
   return MNN::CreateStridedSliceParam(
       _fbb,
       _Index,
@@ -3594,7 +3607,8 @@ inline flatbuffers::Offset<StridedSliceParam> CreateStridedSliceParam(flatbuffer
       _endMask,
       _ellipsisMask,
       _newAxisMask,
-      _shrinkAxisMask);
+      _shrinkAxisMask,
+      _fromType);
 }
 
 inline SqueezeParamT *SqueezeParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5003,6 +5017,7 @@ inline const flatbuffers::TypeTable *StridedSliceParamTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5015,10 +5030,11 @@ inline const flatbuffers::TypeTable *StridedSliceParamTypeTable() {
     "endMask",
     "ellipsisMask",
     "newAxisMask",
-    "shrinkAxisMask"
+    "shrinkAxisMask",
+    "fromType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

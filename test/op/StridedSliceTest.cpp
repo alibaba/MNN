@@ -168,3 +168,73 @@ public:
     }
 };
 MNNTestSuiteRegister(StridedSliceTest, "op/stridedslice");
+
+class SplitC4Test : public MNNTestCase {
+public:
+    virtual ~SplitC4Test() = default;
+    virtual bool run(int precision) {
+        int N = 1; int C = 32; int W = 3; int H = 4;
+        auto x = _Input({N, C, H, W}, NCHW, halide_type_of<int>());
+        auto xPtr = x->writeMap<int>();
+        for (int x=0; x<N; ++x) {
+            for (int y=0; y<C; ++y) {
+                for (int z=0; z<H; ++z) {
+                    for (int w=0; w<W; ++w) {
+                        auto pos = x * C * H * W + y * H * W + z * W + w;
+                        xPtr[pos] = pos;
+                    }
+                }
+            }
+        }
+        x = _Convert(x, NC4HW4);
+        x.fix(VARP::CONSTANT);
+        
+        auto y = _Split(x, {2}, 1)[1];
+        auto yInfo = y->getInfo();
+        if (yInfo->dim[0] != N || yInfo->dim[1] != C/2 || yInfo->dim[2] != H || yInfo->dim[3] != W) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        y = _Add(y, _Scalar<int>(0));
+        y = _Convert(y, NCHW);
+        {
+            auto yPtr = y->readMap<int>();
+            for (int x=0; x<N; ++x) {
+                for (int y=0; y<C/2; ++y) {
+                    for (int z=0; z<H; ++z) {
+                        for (int w=0; w<W; ++w) {
+                            auto pos = x * C/2 * H * W + y * H * W + z * W + w;
+                            auto value = x * C * H * W + (y+C/2) * H * W + z * W + w;
+                            if (yPtr[pos] != value) {
+                                FUNC_PRINT(1);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (1 == N) {
+            auto y2 = _RasterRaw({x}, {C/2*H*W, 0, 0, 1, 0, 0, 0, 1, 1, 1, C/2*H*W}, {N, C/2, H, W}, halide_type_of<int>(), NC4HW4);
+            y2 = _Add(y2, _Scalar<int>(0));
+            y2 = _Convert(y2, NCHW);
+            auto yPtr = y2->readMap<int>();
+            for (int x=0; x<N; ++x) {
+                for (int y=0; y<C/2; ++y) {
+                    for (int z=0; z<H; ++z) {
+                        for (int w=0; w<W; ++w) {
+                            auto pos = x * C/2 * H * W + y * H * W + z * W + w;
+                            auto value = x * C * H * W + (y+C/2) * H * W + z * W + w;
+                            if (yPtr[pos] != value) {
+                                FUNC_PRINT(1);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SplitC4Test, "op/splitc4");

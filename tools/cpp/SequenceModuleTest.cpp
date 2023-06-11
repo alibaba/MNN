@@ -73,12 +73,14 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 5) {
-        MNN_ERROR("Usage: ./SequenceModuleTest.out ${test.mnn} [forwardType] [shapeMutable] ${Dir} ${Dir1} ......\n");
+        MNN_ERROR("Usage: ./SequenceModuleTest.out ${test.mnn} [forwardType] [shapeMutable] ${testTime} ${Dir} ${Dir1} ......\n");
         return 0;
     }
     std::string modelName = argv[1];
     auto type = (MNNForwardType)atoi(argv[2]);
     auto shapeMutable = atoi(argv[3]);
+    int testTime = atoi(argv[4]);
+    int offset = 5;
     MNN_PRINT("Test %s, type = %d\n", modelName.c_str(), type);
     // create session
     MNN::ScheduleConfig config;
@@ -96,7 +98,7 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     std::shared_ptr<Module> net;
 
-    for (int index = 4; index < argc; ++index) {
+    for (int index = offset; index < argc; ++index) {
         MNN_PRINT("Test for %s\n", argv[index]);
         std::string directName = argv[index];
         rapidjson::Document document;
@@ -169,7 +171,8 @@ int main(int argc, char *argv[]) {
             continue;\
         }\
         for (int i=0; i<info->size; ++i) {\
-            inputOs >> ptr[i];\
+            double tempV; inputOs >> tempV;\
+            ptr[i] = tempV;\
         }\
     }
         std::vector<VARP> inputs(mInfo->inputs.size());
@@ -198,7 +201,6 @@ int main(int argc, char *argv[]) {
             }
             inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
         }
-#undef LOAD_DATA
         bool modelError = false;
         // Module Branch
         auto outputs = net->onForward(inputs);
@@ -210,6 +212,103 @@ int main(int argc, char *argv[]) {
                 MNN_ERROR("Error for output %s\n", outputNames[i].c_str());
             }
         }
+    }
+    if (testTime > 0) {
+        // Prepare All Input
+        std::vector<std::vector<MNN::Express::VARP>> allInputs;
+        for (int index = offset; index < argc; ++index) {
+            std::string directName = argv[index];
+            rapidjson::Document document;
+            std::map<std::string, float> inputInfo;
+            std::map<std::string, std::vector<int>> inputShape;
+            std::vector<std::string> inputNames;
+            std::vector<std::string> outputNames;
+            std::ostringstream jsonNameOs;
+            jsonNameOs << argv[index] << "/input.json";
+            std::ifstream fileNames(jsonNameOs.str().c_str());
+            std::ostringstream output;
+            output << fileNames.rdbuf();
+            auto outputStr = output.str();
+            document.Parse(outputStr.c_str());
+            if (document.HasParseError()) {
+                MNN_ERROR("Invalid json\n");
+                continue;
+            }
+            if (document.HasMember("inputs")) {
+                auto inputsInfo = document["inputs"].GetArray();
+                for (auto iter = inputsInfo.begin(); iter !=inputsInfo.end(); iter++) {
+                    auto obj = iter->GetObject();
+                    std::string name = obj["name"].GetString();
+                    inputNames.emplace_back(name);
+                    MNN_PRINT("%s\n", name.c_str());
+                    if (obj.HasMember("value")) {
+                        float value = obj["value"].GetFloat();
+                        inputInfo.insert(std::make_pair(name, value));
+                    }
+                    if (obj.HasMember("shape")) {
+                        auto dims = obj["shape"].GetArray();
+                        std::vector<int> shapes;
+                        for (auto iter = dims.begin(); iter != dims.end(); iter++) {
+                            shapes.emplace_back(iter->GetInt());
+                        }
+                        inputShape.insert(std::make_pair(name, shapes));
+                    }
+                }
+            }
+            if (document.HasMember("outputs")) {
+                auto array = document["outputs"].GetArray();
+                for (auto iter = array.begin(); iter !=array.end(); iter++) {
+                    std::string name = iter->GetString();
+                    MNN_PRINT("output: %s\n", name.c_str());
+                    outputNames.emplace_back(name);
+                }
+            }
+            auto mInfo = net->getInfo();
+            
+            std::vector<VARP> inputs(mInfo->inputs.size());
+            for (int i=0; i<inputs.size(); ++i) {
+                inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
+            }
+            // Load inputs
+            for (int i=0; i<inputs.size(); ++i) {
+                auto inputName = inputNames[i];
+                // Resize
+                auto shapeIter = inputShape.find(inputName);
+                if (shapeIter != inputShape.end()) {
+                    auto s = shapeIter->second;
+                    inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+                }
+                auto info = inputs[i]->getInfo();
+                if (info->type == halide_type_of<float>()){
+                    auto ptr = inputs[i]->writeMap<float>();
+                    LOAD_DATA(float)
+                } else {
+                    auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
+                    auto ptr = floatVar->writeMap<float>();
+                    LOAD_DATA(float)
+                    auto temp = _Cast(floatVar, info->type);
+                    inputs[i]->input(temp);
+                }
+                inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
+                inputs[i].fix(VARP::CONSTANT);
+            }
+            allInputs.emplace_back(inputs);
+        }
+        std::vector<float> times(testTime, 0.0f);
+        for (int t=0; t<testTime; ++t) {
+            Timer _l;
+            for (auto& v : allInputs) {
+                auto output = net->onForward(v);
+            }
+            times[t] = _l.durationInUs() / 1000.0f;
+        }
+        auto minTime = std::min_element(times.begin(), times.end());
+        auto maxTime = std::max_element(times.begin(), times.end());
+        float sum    = 0.0f;
+        for (auto time : times) {
+            sum += time;
+        }
+        MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)testTime, *minTime, *maxTime);
     }
 
     return 0;

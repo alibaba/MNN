@@ -204,6 +204,8 @@ public:
 #endif // MNN_INTERNAL_ENABLED
     }
     virtual ~ NetModule(){
+        mModule.reset();
+        mInfo.reset();
         auto exe = ExecutorScope::Current();
         exe->gc(Executor::FULL);
     }

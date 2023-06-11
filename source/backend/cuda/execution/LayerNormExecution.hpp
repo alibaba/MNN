@@ -10,7 +10,7 @@
 #define LayerNormExecution_hpp
 
 #include "core/Execution.hpp"
-
+#include "MNNCUDAFunction.cuh"
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 

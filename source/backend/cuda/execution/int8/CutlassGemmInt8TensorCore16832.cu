@@ -1,5 +1,11 @@
-#ifndef CutlassGemmInt8TensorCore16832_cuh
-#define CutlassGemmInt8TensorCore16832_cuh
+//
+//  CutlassGemmInt8TensorCore16832.cu
+//  MNN
+//
+//  Created by MNN on 2023/01/15.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+#ifdef ENABLE_CUDA_QUANT
 
 #include "ConvInt8CutlassExecution.hpp"
 
@@ -10,16 +16,16 @@ ErrorCode ConvInt8CutlassExecution::callCutlassGemmInt8TensorCore16832(const std
     auto output = outputs[0];
     int8_t *inputA_ptr = mNeedIm2Col ? (int8_t *)mIm2ColBuffer : (int8_t *)input->deviceId();
 
-    ElementComputeEpilogue clamp_max = ElementComputeEpilogue(mResource->mClampMax);
-    ElementComputeEpilogue clamp_min = ElementComputeEpilogue(mResource->mClampMin);
+    int8_t clamp_max = int8_t(mResource->mClampMax);
+    int8_t clamp_min = int8_t(mResource->mClampMin);
     // Split K dimension into 1 partitions
     int split_k_slices = 1;
     cutlass::gemm::GemmCoord problem_size(mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);// m n k
     if(mActivationType == 1) {
-        clamp_min = ElementComputeEpilogue(0);
+        clamp_min = int8_t(0);
     } else if(mActivationType == 2) {
-        clamp_max = ElementComputeEpilogue(6);
-        clamp_min = ElementComputeEpilogue(0);
+        clamp_max = int8_t(6);
+        clamp_min = int8_t(0);
     }
 
     // printf("Gemm16832 Int8 size:%d-%d-%d\n", mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
@@ -55,4 +61,4 @@ ErrorCode ConvInt8CutlassExecution::callCutlassGemmInt8TensorCore16832(const std
 
 }
 }
-#endif //CutlassGemmInt8TensorCore_cuh
+#endif

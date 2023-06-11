@@ -165,6 +165,8 @@ void Interpreter::setSessionMode(SessionMode mode) {
         mNet->modes.callBackMode = mode;
     } else if (mode == Session_Resize_Direct || mode == Session_Resize_Defer) {
         mNet->modes.resizeMode = mode;
+    } else if(mode == Session_Memory_Collect || mode == Session_Memory_Cache) {
+        mNet->modes.memoryUsageMode = mode;
     }
 }
 
@@ -404,6 +406,7 @@ void Interpreter::logForRunSession(const Session* session, float timeInMs, const
 #endif
 
 ErrorCode Interpreter::runSession(Session* session) const {
+    std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif
@@ -497,6 +500,7 @@ void Interpreter::waitSessionFinish(const Session* session) const {
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
 
+    std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif

@@ -573,35 +573,6 @@ std::unordered_map<std::string, Session *> *sessionCacheMap() {
     return tlsData->sessionCacheMap;
 }
 
-namespace ec {
-    int getVectorByKey(PyObject* dict, const char *key, std::vector<std::string>& result){
-        PyObject *saveTensors = PyDict_GetItemString(dict, key);
-        int count = 0;
-        if (saveTensors) {
-            if (!PyTuple_Check(saveTensors)) {
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: saveTensors must be a tuple");
-                return -1;
-            }
-
-            size_t saveTensorsCount = PyTuple_Size(saveTensors);
-            for (size_t i = 0; i < saveTensorsCount; i++) {
-                PyObject *tensorNameItem = PyTuple_GetItem(saveTensors, i);
-                if (!checkString(tensorNameItem)) {
-                    PyErr_SetString(PyExc_Exception,
-                                    "PyMNNInterpreter_createSession: saveTensors's member must be string");
-                    return -1;
-                }
-
-
-                result.push_back(object2String(tensorNameItem));
-                count++;
-            }
-        }
-        return count;
-    }
-}
-
 static void _runtime_capsule_deleter(PyObject *obj) {
     auto info = (RuntimeInfo*)PyCapsule_GetPointer(obj, NULL);
     if (info != nullptr) {

@@ -19,6 +19,7 @@ class OperatorInfo;
 struct Command : public RefCount {
     const Op* op;
     std::vector<Tensor*> workInputs;
+    std::vector<Tensor*> workOutputs;
     std::vector<Tensor*> inputs;
     std::vector<Tensor*> outputs;
     std::shared_ptr<BufferStorage> buffer;

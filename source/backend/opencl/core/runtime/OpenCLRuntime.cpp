@@ -47,29 +47,27 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             mDeviceName = deviceName;
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
-            static std::map<std::string, float> gFlopsMap {
-                {"Mali-T860", 6.83f},
-                {"Mali-T880", 6.83f},
-                {"Mali-G51", 6.83f},
-                {"Mali-G52", 6.83f},
-                {"Mali-G71", 31.61f},
-                {"Mali-G72", 31.61f},
-                {"Mali-G76", 31.61f},
-                {"Adreno (TM) 505", 3.19f},
-                {"Adreno (TM) 506", 4.74f},
-                {"Adreno (TM) 512", 14.23f},
-                {"Adreno (TM) 530", 25.40f},
-                {"Adreno (TM) 540", 42.74f},
-                {"Adreno (TM) 615", 16.77f},
-                {"Adreno (TM) 616", 18.77f},
-                {"Adreno (TM) 618", 18.77f},
-                {"Adreno (TM) 630", 42.74f},
-                {"Adreno (TM) 640", 42.74f},
+            std::map<std::string, MNN::MaliAr> maliArMap {
+                {"Mali-T860", MIDGARD},
+                {"Mali-T880", MIDGARD},
+                {"Mali-G31", BIFROST},
+                {"Mali-G51", BIFROST},
+                {"Mali-G52", BIFROST},
+                {"Mali-G71", BIFROST},
+                {"Mali-G72", BIFROST},
+                {"Mali-G76", BIFROST},
+                {"Mali-G57", VALHALL},
+                {"Mali-G68", VALHALL},
+                {"Mali-G77", VALHALL},
+                {"Mali-G78", VALHALL},
+                {"Mali-G310", VALHALL},
+                {"Mali-G510", VALHALL},
+                {"Mali-G610", VALHALL},
+                {"Mali-G615", VALHALL},
+                {"Mali-G710", VALHALL},
+                {"Mali-G715", VALHALL},
             };
         
-            if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
-                mFlops = gFlopsMap[deviceName];
-            }
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
             cl_command_queue_properties properties = 0;
 
@@ -114,11 +112,28 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 }
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
+                if(maliArMap.find(deviceName) != maliArMap.end()){
+                    mMaliAr = maliArMap[deviceName];
+                }else{
+                    mMaliAr = VALHALL;
+                }
             } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
                 // Radeon series GPU is main product of Advanced Micro Devices (AMD)
                 mGpuType = RADEON;
                 isSetWorkGroupAttribute = true;
-            } else {
+            } else if (deviceVendor.find("Intel") != std::string::npos) {
+                mGpuType = INTEL;
+                const std::string extensions = mFirstGPUDevicePtr->getInfo<CL_DEVICE_EXTENSIONS>();
+                if (extensions.find("cl_intel_subgroups") != std::string::npos) {
+                    mSupportedIntelSubgroup = true;
+                    uint32_t execution_units_count = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+                    uint32_t num_threads_per_eu = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NUM_THREADS_PER_EU_INTEL>();
+                    uint32_t maxThreadsPerExecutionUnit = num_threads_per_eu > 0 ? num_threads_per_eu : 7;
+                    mMaxThreadsPerDevice =  maxThreadsPerExecutionUnit * execution_units_count;
+                    mMaxWorkGroupSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+                }
+            }
+            else {
                 mGpuType = OTHER;
             }
             const std::string extensions = platforms[0].getInfo<CL_PLATFORM_EXTENSIONS>();
@@ -179,22 +194,23 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             cl_device_fp_config fpConfig;
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
-            auto permitFloat16 = false;
-            if(precision == BackendConfig::Precision_Low) {
-                permitFloat16 = true;
-            }
-            mIsSupportedFP16     = mIsDeviceSupportedFP16 && permitFloat16;
             
             //set gpu mode, tuning level and memory object
             setGpuMode(cl_mode);
             
             if(mMemType == AUTO) {
-                if(mGpuType == MALI && precision != BackendConfig::Precision_Normal) {//buffer mode not support Normal Precision yet
+                if(mGpuType == MALI || mGpuType == INTEL) {
                     mMemType = BUFFER;
                 } else {
                     mMemType = IMAGE;
                 }
             }
+
+            auto permitFloat16 = false;
+            if (precision == BackendConfig::Precision_Low || (mMemType == BUFFER && precision == BackendConfig::Precision_Normal)) {//buffer mode not support Normal Precision yet
+                permitFloat16 = true;
+            }
+            mIsSupportedFP16 = mIsDeviceSupportedFP16 && permitFloat16;
 
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
                 mSupportDotInt8 = true;
@@ -342,7 +358,9 @@ bool OpenCLRuntime::isSupportedDotAccInt8() const {
     return mSupportDotAccInt8;
 }
 
-
+bool OpenCLRuntime::isSupportedIntelSubgroup() const {
+    return mSupportedIntelSubgroup;
+ }
 cl::Context &OpenCLRuntime::context() {
     return *mContext;
 }
@@ -357,6 +375,13 @@ uint64_t OpenCLRuntime::deviceGlobalMemeryCacheSize() const {
 
 uint32_t OpenCLRuntime::deviceComputeUnits() const {
     return mGPUComputeUnits;
+}
+
+uint32_t OpenCLRuntime::MaxThreadsPerDevice() const {
+    return mMaxThreadsPerDevice;
+}
+uint32_t OpenCLRuntime::MaxWorkGroupSize() const {
+    return mMaxWorkGroupSize;
 }
 
 uint32_t OpenCLRuntime::maxFreq() const {
@@ -400,9 +425,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
     } else {
-        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
+        buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
     }
     
     if(isSetWorkGroupAttribute) {
@@ -414,7 +439,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         buildOptionsStr += " " + option;
     }
     buildOptionsStr += mDefaultBuildParams;
-    auto key = std::make_tuple(programName, kernelName, buildOptionsStr);
+    auto key = std::make_tuple(programName, buildOptionsStr);
 
     auto buildProgramInter = mBuildProgramMap.find(key);
     cl::Program program;
@@ -548,8 +573,7 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         }
         // Only use first one
         pro->program = std::get<0>(iter.first);
-        pro->kernel = std::get<1>(iter.first);
-        pro->buildInfo = std::get<2>(iter.first);
+        pro->buildInfo = std::get<1>(iter.first);
         
         //MNN_PRINT("%s - %s - %s\n", pro->program.c_str(), pro->kernel.c_str(), pro->buildInfo.c_str());
         
@@ -598,12 +622,11 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
         auto programs = cacheBuffer->programs();
         for (int i=0; i<programs->size(); ++i) {
             auto shaderInfo = programs->GetAs<Shader>(i);
-            if (nullptr == shaderInfo->program() || nullptr == shaderInfo->kernel() || nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
+            if (nullptr == shaderInfo->program()|| nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
                 MNN_ERROR("Invalid Cache\n");
                 return false;
             }
             auto program = shaderInfo->program()->str();
-            auto kernel = shaderInfo->kernel()->str();
             // Builder Info
             std::string buildinfo = shaderInfo->buildInfo()->str();
             
@@ -612,16 +635,16 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             auto deviceId = mFirstGPUDevicePtr->get();
             auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
             if (!programRaw) {
-                MNN_ERROR("Can't load %s - %s - %s load program\n", program.c_str(), kernel.c_str(), buildinfo.c_str());
+                MNN_ERROR("Can't load %s - %s load program\n", program.c_str(), buildinfo.c_str());
                 return false;
             }
             auto pro = cl::Program(programRaw);
             auto res = buildProgram(buildinfo, &pro);
             if (!res) {
-                MNN_ERROR("Can't build %s - %s - %s load program\n", program.c_str(),  kernel.c_str(), buildinfo.c_str());
+                MNN_ERROR("Can't build %s - %s load program\n", program.c_str(), buildinfo.c_str());
                 return false;
             }
-            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, kernel, buildinfo), pro));
+            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pro));
         }
     }
 
