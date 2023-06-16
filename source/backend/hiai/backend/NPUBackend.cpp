@@ -7,6 +7,9 @@
 //
 
 #include "NPUBackend.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
 #include <core/Macro.h>
 #include <core/TensorUtils.hpp>
 #include <stdlib.h>
@@ -378,7 +381,11 @@ namespace MNN {
     }
     
     void NPUBackend::onExecuteEnd() const {
+#ifdef HIAI_IR_V2
+        processV2();
+#else
         process(0);
+#endif
     }
 
     Backend::MemObj* NPUBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
@@ -412,15 +419,26 @@ namespace MNN {
         if (isInputCopy) {
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));
             MNN_ASSERT(index != mInputMap.end());
+#ifdef HIAI_IR_V2
+            shared_ptr<hiai::INDTensorBuffer> input = inputTensors[index->second];
+#else
             shared_ptr<hiai::AiTensor> input = mInputTensors[index->second];
-            
+#endif
             if(TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
              ||TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
+#ifdef HIAI_IR_V2
+                memcpy(input->GetData(), srcTensor->host<float>(), (size_t)input->GetSize());
+#else
                 memcpy(input->GetBuffer(), srcTensor->host<float>(), (size_t)input->GetSize());
+#endif
             } else {
                 shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true));
                 tensorConvert(srcTensor, tmpTensor.get());
+#ifdef HIAI_IR_V2
+                memcpy(input->GetData(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
+#else
                 memcpy(input->GetBuffer(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
+#endif
             }
         } else if(isOutputCopy){
             int index;
@@ -435,18 +453,32 @@ namespace MNN {
                 MNN_PRINT("MNNTensor and HIAITensor mismatch!");
                 return;
             }
-            
+#ifdef HIAI_IR_V2
+            shared_ptr<hiai::INDTensorBuffer> output = outputTensors[index];
+#else
             shared_ptr<hiai::AiTensor> output = mOutputTensors[index];
+#endif
             if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
              ||TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
+#ifdef HIAI_IR_V2
+                memcpy(dstTensor->buffer().host, output->GetData(), (size_t)output->GetSize());
+#else
                 memcpy(dstTensor->buffer().host, output->GetBuffer(), (size_t)output->GetSize());
+#endif
             } else {
                 auto tmpShape = tensorShapeFormat(srcTensor);
                 vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
+#ifdef HIAI_IR_V2
+                shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
+                                                            (void*)(output->GetData()), 
+                                                            Tensor::DimensionType::CAFFE));
+                auto shape = output->GetTensorDesc(); 
+#else
                 shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
                                                             (void*)(output->GetBuffer()), 
                                                             Tensor::DimensionType::CAFFE));// nchw
                 auto shape = output->GetTensorDimension(); 
+#endif
                 tensorConvert(tmpTensor.get(), dstTensor);
             }
         }
@@ -461,6 +493,10 @@ namespace MNN {
         mInputOps.clear();
         mInputTensors.clear();
         mOutputTensors.clear();
+#ifdef HIAI_IR_V2
+        inputTensors.clear();
+        outputTensors.clear();
+#endif
         mMNNOutTensors.clear();
         mSclipMap.clear();
         if (mMgrClient != nullptr) {
@@ -469,7 +505,11 @@ namespace MNN {
     }
 
     void NPUBackend::onResizeEnd() {
+#ifdef HIAI_IR_V2
+        bulidIRModelAndLoadV2();
+#else
         bulidIRModelAndLoad();
+#endif
     }
 
 
@@ -578,6 +618,96 @@ namespace MNN {
                
     }
 
+#ifdef HIAI_IR_V2
+    void NPUBackend::bulidIRModelAndLoadV2() {
+        std::vector<ge::Operator> inputs;
+        for (auto input : mInputOps){
+            inputs.push_back(input.second[0]);
+        }
+        std::vector<ge::Operator> outputOps;
+        for (auto outOp : mOutGEOpMap) {
+            outputOps.push_back(*outOp.first.get());
+        }
+        MNN_PRINT("mOutputOps : %lu \n", outputOps.size());
+
+        string graphName = string("Graph1");
+        string version = string("model_v000011");
+        string modelName = to_string(0);
+        mModelName.push_back(modelName);
+        ge::Graph graph(graphName);
+        graph.SetInputs(inputs).SetOutputs(outputOps);
+
+        std::shared_ptr<ge::Model> model = std::make_shared<ge::Model>("model", graphName);
+        if (model == nullptr) {
+            MNN_ERROR("Create model fail.");
+            return;
+        }
+
+        model->SetGraph(graph);
+
+        hiai::ModelBuildOptions buildOptions;
+
+        std::ifstream file("quant_param", std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            MNN_PRINT("no quant_param config file, build non-quantized model.\n");
+        } else {
+            MNN_PRINT("find quant_param config file, build quantized model.\n");
+            std::streamsize size = file.tellg();
+            file.seekg(0, std::ios::beg);
+            std::string buffer(size, ' ');
+            if (!file.read(&buffer[0], size)) {
+                MNN_ERROR("Failed to read file.\n");
+                return;
+            }
+            file.close();
+            buildOptions.quantizeConfig = buffer;
+        }
+        domi::HiaiIrBuild modelBuilder;
+        auto ret = modelBuilder.Build(buildOptions, modelName, model, builtModel);
+        if (ret != hiai::SUCCESS || builtModel == nullptr) {
+            MNN_ERROR("model build fail !\n");
+            return;
+        }
+#ifdef HIAI_DEBUG
+        ret = builtModel->SaveToFile("/data/local/tmp/test_quant.om");
+        if (ret != hiai::SUCCESS) {
+            MNN_ERROR("builtModel SaveToFile failed\n");
+            return;
+        }
+#endif
+        modelManager = hiai::CreateModelManager();
+        hiai::ModelInitOptions initOptions;
+        ret = modelManager->Init(initOptions, builtModel, nullptr);
+        if (ret != hiai::SUCCESS) {
+            MNN_ERROR("modelManager Init failed");
+            return;
+        }
+        ret = modelManager->SetPriority(hiai::ModelPriority::PRIORITY_HIGH);
+        if (ret != hiai::SUCCESS) {
+            MNN_ERROR("modelManager SetPriority failed");
+            return;
+        }
+        std::vector<hiai::NDTensorDesc> inputDesc = builtModel->GetInputTensorDescs();
+        for (size_t i = 0; i < inputDesc.size(); i++) {
+            std::shared_ptr<hiai::INDTensorBuffer> inputTensorBuffer = hiai::CreateNDTensorBuffer(inputDesc[i]);
+            inputTensors.push_back(inputTensorBuffer);
+        }
+        std::vector<hiai::NDTensorDesc> outputDesc = builtModel->GetOutputTensorDescs();
+        for (size_t i = 0; i < outputDesc.size(); i++) {
+            std::shared_ptr<hiai::INDTensorBuffer> outputTensorBuffer = hiai::CreateNDTensorBuffer(outputDesc[i]);
+            outputTensors.push_back(outputTensorBuffer);
+        }
+        auto index = 0;
+        for (auto opMap : mOutGEOpMap) {
+            for (auto tensor : opMap.second) {
+                mMNNOutTensors.push_back(tensor);
+                index++;
+            }
+        }
+        return;
+    }
+#endif
+
     int NPUBackend::process(int modelIndex) const {
 #ifdef HIAI_DEBUG
         ATrace_beginSection("HIAI process");
@@ -595,6 +725,13 @@ namespace MNN {
 #endif
         return ret;
     }
+
+#ifdef HIAI_IR_V2
+    int NPUBackend::processV2() const {
+        auto ret = modelManager->Run(*(const_cast<vector<shared_ptr<hiai::INDTensorBuffer>>*>(&inputTensors)), *(const_cast<vector<shared_ptr<hiai::INDTensorBuffer>>*>(&outputTensors)));
+        return ret;
+    }
+#endif
 
     shared_ptr<ge::Operator> NPUBackend::getInputOps(const Op *op, int index) {
         vector<shared_ptr<ge::Operator>> ops;
