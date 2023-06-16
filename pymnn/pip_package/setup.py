@@ -77,7 +77,7 @@ if os.path.isdir('../../schema/private'):
 print ('Building with python wheel with package name ', package_name)
 
 version = args.version
-depend_pip_packages = ['flatbuffers', 'numpy', 'aliyun-log-python-sdk']
+depend_pip_packages = ['numpy']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
     long_description = f.read()
