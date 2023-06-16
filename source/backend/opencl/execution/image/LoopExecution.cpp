@@ -1,4 +1,4 @@
-﻿//
+//
 //  LoopExecution.cpp
 //  MNN
 //
@@ -35,6 +35,8 @@ static void _TileTensor(Tensor *input, cl::Buffer *output, cl::Kernel& kernel, c
 
     globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    
+    recordKernel3d(kernel, mGlobalWorkSize, mLocalWorkSize, runTime);
 }
 
 static void _PackTensor(cl::Buffer *input, Tensor *output, cl::Kernel& kernel, cl::NDRange &globalWorkSize,
@@ -58,6 +60,7 @@ static void _PackTensor(cl::Buffer *input, Tensor *output, cl::Kernel& kernel, c
 
     globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    recordKernel3d(kernel, mGlobalWorkSize, mLocalWorkSize, runTime);
 }
 
 static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Tensor *> &inputs,
@@ -78,12 +81,12 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
      mLoop = loop;
      mTensors.resize(mLoop->tensorNumber());
      auto cmd = loop->commands()->GetAs<RegionCommand>(0);
-     mOpType = op->type();
  }
  ErrorCode LoopGatherExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
      auto cmd                      = mLoop->commands()->GetAs<RegionCommand>(0);
      OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
      auto runTime                  = mOpenCLBackend->getOpenCLRuntime();
+     startRecord(runTime, mRecording);
      auto bufferPool               = mOpenCLBackend->getBufferPool();
      auto bufferUnitSize           = runTime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
      _setTensorStack(mTensors, inputs, outputs, mLoop);
@@ -171,6 +174,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+        recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, runTime);
         mUnits.emplace_back(unit);
      }
 
@@ -193,6 +197,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
      for (int i = 0; i < mOffsetBuffers.size(); ++i) {
         bufferPool->recycle(mOffsetBuffers[i]);
      }
+     endRecord(runTime, mRecording);
 
      return NO_ERROR;
  }
@@ -211,6 +216,7 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
      auto cmd     = mLoop->commands()->GetAs<RegionCommand>(0);
      OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
      auto runTime = mOpenCLBackend->getOpenCLRuntime();
+     startRecord(runTime, mRecording);
      auto bufferPool = mOpenCLBackend->getBufferPool();
      auto bufferUnitSize = runTime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
      _setTensorStack(mTensors, inputs, outputs, mLoop);
@@ -313,6 +319,7 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
         mUnits.emplace_back(unit);
+        recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, runTime);
      }
 
      //pack output
@@ -334,6 +341,7 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
     for (int i = 0; i < mOffsetBuffers.size(); ++i) {
          bufferPool->recycle(mOffsetBuffers[i]);
     }
+    endRecord(runTime, mRecording);
 
     return NO_ERROR;
 }

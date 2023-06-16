@@ -15,10 +15,11 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class NormalizeExecution : public Execution {
+class NormalizeExecution : public Execution, public CommonExtension {
 public:
     NormalizeExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~NormalizeExecution();

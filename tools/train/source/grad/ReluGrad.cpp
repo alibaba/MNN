@@ -19,7 +19,7 @@ public:
         std::vector<Express::VARP> result(1, nullptr);
         auto op = expr->get();
         auto input = expr->inputs()[0];
-        auto mask = _Cast<float>(_Greater(input, _Scalar(0.0f)));
+        auto mask = _Relu(_Sign(input));
         auto prelu = op->main_as_PRelu();
         if (prelu->slope()->size() == 1) {
             auto slope = prelu->slope()->data()[0];
@@ -53,7 +53,7 @@ public:
         std::vector<Express::VARP> result(1, nullptr);
         auto op = expr->get();
         auto input = expr->inputs()[0];
-        auto mask = _Cast<float>(_Greater(input, _Scalar(0.0f)));
+        auto mask = _Relu(_Sign(input));
         if (nullptr != op->main_as_Relu() && op->main_as_Relu()->slope() != 0.0f) {
             auto mask2 = _Cast<float>(_Less(input, _Scalar(0.0f)));
             result[0] = (mask + mask2 * _Scalar<float>(op->main_as_Relu()->slope())) * backwardOutput[0];

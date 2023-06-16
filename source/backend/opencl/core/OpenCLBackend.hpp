@@ -22,6 +22,8 @@
 #include "backend/opencl/core/ImageBufferConvertor.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include "half.hpp"
+#define MNN_USER_SET_DEVICE
+#include "MNN/MNNSharedContext.h"
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
 #define MNN_OPEN_TIME_TRACE
@@ -33,7 +35,7 @@ namespace OpenCL {
 struct TuneInfo;
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info);
+    CLRuntime(const Backend::Info& info, int deviceId = 0);
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;

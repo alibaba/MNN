@@ -144,7 +144,6 @@ __global__ void CONV_DW_HALF2_OPT(const half2* input,
     }
 }
 
-
 __global__ void CONV_DW3x3_HALF2_OPT(const half2* input, 
     const half2* kernel, 
     const half2* bias, 
@@ -504,11 +503,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         return nullptr;
     }
     res->mFilter = (void *)res->weightTensor.get()->buffer().device;
-    FuseRegion reg;
-    int offset[8 * PACK_NUMBER];
-    auto regionStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(FuseRegion));
-    auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(offset));
-    auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
+
     //weight host->device
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
@@ -518,28 +513,46 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     auto tempWeight = (uint8_t*)tempWeightStorage.first + tempWeightStorage.second;
     cuda_check(cudaMemset(tempWeight, 0, depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float)));
     cuda_check(cudaMemcpy(tempWeight, filterDataPtr, weightSize*sizeof(float), cudaMemcpyHostToDevice));
-    reg.size[0] = 1;
-    reg.size[1] = kernelY * kernelX;
-    reg.size[2] = depthC * PACK_NUMBER;
-    reg.srcStride[0] = 0;
-    reg.srcStride[1] = 1;
-    reg.srcStride[2] = kernelY * kernelX;
-    reg.dstStride[0] = 0;
-    reg.dstStride[1] = depthC * PACK_NUMBER;
-    reg.dstStride[2] = 1;
-    offset[0] = 1;
-    offset[1] = kernelY * kernelX;
-    offset[2] = depth;
-    offset[3] = 0;
-    offset[4] = 1;
-    offset[5] = reg.size[1];
-    offset[6] = reg.size[2];
-    offset[7] = 0;
-    reg.fuseNumber = 1;
 
-    runtime->memcpy((uint8_t*)regionStorage.first + regionStorage.second, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
-    runtime->memcpy(offsetGpu, offset, 8 * sizeof(int), MNNMemcpyHostToDevice, true);
-    FuseRasterBlitFloatToHalf((uint8_t*)res->mFilter, (uint8_t*)tempWeight, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime);
+    FuseRegion reg;
+    int offset[8 * PACK_NUMBER];
+    auto regionStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(FuseRegion));
+    auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(offset));
+    auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
+    
+    if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
+        // [Oc, Kh*Kw] -> [Kh*Kw, Oc(p)]
+        DivModFast d_ocp(depthC * PACK_NUMBER);
+        auto count =  depthC * PACK_NUMBER * kernelY * kernelX;
+        int block_num = runtime->blocks_num(count);
+        int threads_num = runtime->threads_num();
+        WeightTransToBf16<<<block_num, threads_num>>>((const float*)tempWeight, (__nv_bfloat16*)res->mFilter, count,\
+            kernelY * kernelX, depth, d_ocp);
+        checkKernelErrors;
+    } else {
+        reg.size[0] = 1;
+        reg.size[1] = kernelY * kernelX;
+        reg.size[2] = depthC * PACK_NUMBER;
+        reg.srcStride[0] = 0;
+        reg.srcStride[1] = 1;
+        reg.srcStride[2] = kernelY * kernelX;
+        reg.dstStride[0] = 0;
+        reg.dstStride[1] = depthC * PACK_NUMBER;
+        reg.dstStride[2] = 1;
+        offset[0] = 1;
+        offset[1] = kernelY * kernelX;
+        offset[2] = depth;
+        offset[3] = 0;
+        offset[4] = 1;
+        offset[5] = reg.size[1];
+        offset[6] = reg.size[2];
+        offset[7] = 0;
+        reg.fuseNumber = 1;
+
+        runtime->memcpy((uint8_t*)regionStorage.first + regionStorage.second, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
+        runtime->memcpy(offsetGpu, offset, 8 * sizeof(int), MNNMemcpyHostToDevice, true);
+        FuseRasterBlitFloatToHalf((uint8_t*)res->mFilter, (uint8_t*)tempWeight, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime);
+    }
     pool->free(tempWeightStorage);
     res->biasTensor.reset(Tensor::createDevice<float>({depthC * PACK_NUMBER}));
     success = bn->onAcquireBuffer(res->biasTensor.get(), Backend::STATIC);
@@ -551,27 +564,36 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         auto tempBiasStorage = pool->alloc(depth * sizeof(float));
         auto tempBias = (uint8_t*)tempBiasStorage.first + tempBiasStorage.second;
         cuda_check(cudaMemcpy(tempBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
-        reg.size[0] = 1;
-        reg.size[1] = 1;
-        reg.size[2] = depthC * PACK_NUMBER;
-        reg.srcStride[0] = 0;
-        reg.srcStride[1] = 0;
-        reg.srcStride[2] = 1;
-        reg.dstStride[0] = 0;
-        reg.dstStride[1] = 0;
-        reg.dstStride[2] = 1;
-        offset[0] = 1;
-        offset[1] = 1;
-        offset[2] = conv->bias()->size();
-        offset[3] = 0;
-        offset[4] = 1;
-        offset[5] = 1;
-        offset[6] = reg.size[2];
-        offset[7] = 0;
-        reg.fuseNumber = 1;
-        runtime->memcpy((uint8_t*)regionStorage.first + regionStorage.second, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
-        runtime->memcpy(offsetGpu, offset, 8 * sizeof(int), MNNMemcpyHostToDevice, true);
-        FuseRasterBlitFloatToHalf((uint8_t*)res->mBias, (uint8_t*)tempBias, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime);
+
+        if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
+            auto countBias = depthC * PACK_NUMBER;
+            int block_num = runtime->blocks_num(countBias);
+            int threads_num = runtime->threads_num();
+            BiasTransToBf16<<<block_num, threads_num>>>((const float*)tempBias, (__nv_bfloat16*)res->mBias, countBias, depth);
+            checkKernelErrors;
+        } else {
+            reg.size[0] = 1;
+            reg.size[1] = 1;
+            reg.size[2] = depthC * PACK_NUMBER;
+            reg.srcStride[0] = 0;
+            reg.srcStride[1] = 0;
+            reg.srcStride[2] = 1;
+            reg.dstStride[0] = 0;
+            reg.dstStride[1] = 0;
+            reg.dstStride[2] = 1;
+            offset[0] = 1;
+            offset[1] = 1;
+            offset[2] = conv->bias()->size();
+            offset[3] = 0;
+            offset[4] = 1;
+            offset[5] = 1;
+            offset[6] = reg.size[2];
+            offset[7] = 0;
+            reg.fuseNumber = 1;
+            runtime->memcpy((uint8_t*)regionStorage.first + regionStorage.second, &reg, sizeof(FuseRegion), MNNMemcpyHostToDevice, true);
+            runtime->memcpy(offsetGpu, offset, 8 * sizeof(int), MNNMemcpyHostToDevice, true);
+            FuseRasterBlitFloatToHalf((uint8_t*)res->mBias, (uint8_t*)tempBias, (FuseRegion*)((uint8_t*)regionStorage.first + regionStorage.second), offsetGpu, runtime);
+        }
         pool->free(tempBiasStorage);
     }
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(regionStorage);
@@ -657,6 +679,43 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     const int ph = parameters.pad[1];
     const int total = parameters.total;
 
+    if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
+        if(kw==3 && kh==3 && sw==1 && sh==1 && pw==1 && ph==1 && ow % 2 ==0) {
+            DivModFast d_ow2(ow/2);
+            CONV_DW3x3_BF162_OPT<<<block_num, threads_num>>>((const __nv_bfloat162*)inputs[0]->deviceId(), (const __nv_bfloat162*)mResource->mFilter,
+                (const __nv_bfloat162*)mResource->mBias, (__nv_bfloat162*)outputs[0]->deviceId(),
+                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow2, d_oh);
+            checkKernelErrors;
+            return NO_ERROR;
+        }
+        if(dw == 1 && dh == 1) {
+            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0 && ow % 4 == 0) {                
+                DivModFast d_oc(c * PACK_NUMBER);
+                DivModFast d_ow(ow/4);
+                CONV_DW_BF16_MULTI_WIDTH4<<<block_num, threads_num>>>((const __nv_bfloat16*)inputs[0]->deviceId(), (const __nv_bfloat16*)mResource->mFilter,
+                    (const __nv_bfloat16*)mResource->mBias, (__nv_bfloat16*)outputs[0]->deviceId(),
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            } else {
+                CONV_DW_BF162_OPT<<<block_num, threads_num>>>((const __nv_bfloat162*)inputs[0]->deviceId(), (const __nv_bfloat162*)mResource->mFilter,
+                    (const __nv_bfloat162*)mResource->mBias, (__nv_bfloat162*)outputs[0]->deviceId(),
+                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            }
+        } else {
+            CONV_DW_BF16<<<block_num, threads_num>>>((const __nv_bfloat16*)inputs[0]->deviceId(), (const __nv_bfloat16*)mResource->mFilter,
+                (const __nv_bfloat16*)mResource->mBias, (__nv_bfloat16*)outputs[0]->deviceId(),
+                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow, d_oh);
+            checkKernelErrors;
+        }
+        return NO_ERROR;
+
+    }
+
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         if(parameters.kernelSize[0]==3 && parameters.kernelSize[1]==3 && parameters.stride[0]==1 && parameters.stride[1]==1 && parameters.pad[0]==1 && parameters.pad[1]==1 && parameters.outputSize[0] % 2 ==0) {
             DivModFast d_ow2(parameters.outputSize[0]/2);
@@ -716,7 +775,13 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
                         maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
                         d_oc, d_ow, d_oh);
                     checkKernelErrors;
-                }
+                } else {
+                    CONV_DW_OPT<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
+                        (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
+                        maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                        d_oc, d_ow, d_oh);
+                    checkKernelErrors;
+		}
             } else {
                 CONV_DW_OPT<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
                     (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),

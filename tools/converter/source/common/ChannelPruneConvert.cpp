@@ -14,7 +14,6 @@
 #include <algorithm>
 
 using namespace MNN;
-using namespace MNN::Express;
 using namespace std;
 
 // TODO: add more unsafe ops
@@ -198,10 +197,10 @@ void analyzePruneInfo(std::unique_ptr<MNN::OpT>& op, std::unique_ptr<MNN::NetT>&
             const int kh = common->kernelY;
             const int kw = common->kernelX;
 
-            VARP weightVar      = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
+            MNN::Express::VARP weightVar      = MNN::Express::_Const(weightFloat.data(), {ko, ki, kh, kw}, MNN::Express::NCHW);
 
-            VARP weightMask = _Greater(_ReduceSum(_Abs(weightVar), {1, 2, 3}), _Scalar<float>(1e-6));
-            VARP maskSum = _ReduceSum(weightMask);
+            MNN::Express::VARP weightMask = MNN::Express::_Greater(MNN::Express::_ReduceSum(MNN::Express::_Abs(weightVar), {1, 2, 3}), MNN::Express::_Scalar<float>(1e-6));
+            MNN::Express::VARP maskSum = MNN::Express::_ReduceSum(weightMask);
             auto maskInfo = weightMask->getInfo();
             auto maskPtr = weightMask->readMap<int>();
 

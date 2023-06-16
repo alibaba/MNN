@@ -50,7 +50,7 @@ public:
             int UNIT, SRC_UNIT, DST_XUNIT;
             core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
             const auto kEleCnt = mCommon->kernelX() * mCommon->kernelY();
-            const int ocDiv4 = UP_DIV(common->outputCount() * kEleCnt, UNIT); 
+            const int ocDiv4 = UP_DIV(common->outputCount(), UNIT) * kEleCnt; 
             const int icDiv4 = UP_DIV(common->inputCount(), SRC_UNIT);
             const int oc4 = ocDiv4 / kEleCnt;
             const int bias_elesize = ocDiv4 * UNIT;

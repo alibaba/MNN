@@ -16,11 +16,11 @@
 #include "backend/cpu/CPUConvolution.hpp"
 
 namespace MNN {
-class ConvolutionInt8Executor : public CPUConvolution {
+class IdstConvolutionInt8 : public CPUConvolution {
 public:
-    ConvolutionInt8Executor(const Convolution2DCommon *convOp, Backend *b,
+    IdstConvolutionInt8(const Convolution2DCommon *convOp, Backend *b,
                             const ConvolutionCommon::Int8Common *common, const float *bias, size_t biasSize);
-    virtual ~ConvolutionInt8Executor();
+    virtual ~IdstConvolutionInt8();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
@@ -32,7 +32,6 @@ private:
     Tensor mSrcCopyBuffer;
 
     Tensor mTempBuffer;
-    Tensor mTempDstBuffer;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mSrcCount;
     float mAMin;
@@ -41,6 +40,8 @@ private:
     std::vector<float> mPostParameters;
     // mFakeBias used by GemmKernel
     std::shared_ptr<Tensor> mFakeBias;
+    std::pair<void*, int> mBlitInfo;
+    std::pair<size_t, size_t> mBlitInfoStride;
 };
 } // namespace MNN
 

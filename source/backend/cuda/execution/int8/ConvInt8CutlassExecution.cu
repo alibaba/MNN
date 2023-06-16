@@ -70,7 +70,7 @@ __global__ void Im2Col_packC_16(
 template<typename T>
 __global__ void WeightInt8PackFill(const int8_t* param,
     T* output,
-    const size_t maxCount,
+    const int maxCount,
     const int l,
     const int h,
     const int hp,
@@ -80,7 +80,7 @@ __global__ void WeightInt8PackFill(const int8_t* param,
     DivModFast d_icp,
     const bool ocMajor
 ) {
-    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+    for (int index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
         if(ocMajor) { // Depthwise Weight
             int lIndex, hpIndex;
             d_hp.divmod(index, lIndex, hpIndex);
@@ -105,55 +105,42 @@ __global__ void WeightInt8PackFill(const int8_t* param,
 }
 
 void ConvInt8CutlassExecution::Resource::updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
-    std::call_once(flag, [&](){
-        // new scales and zero points
-        float inputScale = inputQuantInfo[0];
-        float outputScale = outputQuantInfo[0];
-        float inputZeroPoint = inputQuantInfo[1];
-        float outputZeroPoint = outputQuantInfo[1];
+    if(mUseConvQuan) {
+        return;
+    }
+    // new scales and zero points
+    float inputScale = inputQuantInfo[0];
+    float outputScale = outputQuantInfo[0];
+    float inputZeroPoint = inputQuantInfo[1];
+    float outputZeroPoint = outputQuantInfo[1];
+    mClampMin = int8_t(outputQuantInfo[2]);
+    mClampMax = int8_t(outputQuantInfo[3]);
 
-        if (inputScale == 0.f || outputScale == 0.f) {
-            return;
+    if (inputScale == 0.f || outputScale == 0.f) {
+        return;
+    }
+
+    mInputScale = inputScale;
+    mOutputScale = outputScale;
+    mInputZeroPoint = int8_t(inputZeroPoint);
+    mOutputZeroPoint = int8_t(outputZeroPoint);
+    const int kernelNum = static_cast<int>(mInt8WeightKernelSum.size());
+
+    auto alphaScale  = inputScale / outputScale;
+    auto alphaData = mScaleFloatVec;
+    auto biasData = (float *)mBiasInt32Vec;
+
+    for (int i = 0; i < kernelNum; i++) {
+        auto alphaValue = alphaData[i];
+        if (fabs(alphaValue) < 1e-6) {
+            alphaValue = 1e-6;
         }
-        if (mInputScale == inputScale && mOutputScale == outputScale) {
-            return;
-        }
-        auto scalePtr = mScaleFloatVec;
-        auto biasPtr = mBiasInt32Vec;
-        int size = mOutputChannelPack;
-        float is = mInputScale / inputScale;
-        float os = mOutputScale / outputScale;
+        mScaleFloatVec[i] = alphaValue * alphaScale;
+        // compute outputZeroPointFused in asymmetric quant
+        int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / mScaleFloatVec[i]);
+        mBiasInt32Vec[i] = static_cast<int32_t>(biasData[i] / (alphaScale * alphaValue)) - mInt8WeightKernelSum[i] * inputZeroPoint + outputZeroPointFused;
+    }
 
-        const int kernelNum = mInt8WeightKernelSum.size();
-
-        // compute remains used in asymmetric quant
-        std::vector<int> remainsCorrection;
-        for (int i = 0; i < kernelNum; i++) {
-            int temp = (int(inputZeroPoint) - mInputZeroPoint) * mInt8WeightKernelSum[i];
-            remainsCorrection.emplace_back(temp);
-        }
-
-        for (int i = kernelNum; i < size; i++) {
-            remainsCorrection.emplace_back(0);
-        }
-
-        for (int i = 0; i < size; i++) {
-            // compute outputZeroPointFused in asymmetric quant
-            int correction1 = static_cast<int32_t>(mOutputZeroPoint / scalePtr[i]);
-            scalePtr[i] = scalePtr[i] * os / is;
-            int correction2 = static_cast<int32_t>(outputZeroPoint / scalePtr[i]);
-            int outputZeroPointFusedCorrection = correction2 - correction1;
-
-            biasPtr[i] = biasPtr[i] - remainsCorrection[i] + outputZeroPointFusedCorrection;
-            biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is);
-        }
-        mInputScale = inputScale;
-        mOutputScale = outputScale;
-        mInputZeroPoint = int8_t(inputZeroPoint);
-        mOutputZeroPoint = int8_t(outputZeroPoint);
-        mClampMin = int8_t(outputQuantInfo[2]);
-        mClampMax = int8_t(outputQuantInfo[3]);
-    });
 }
 
 ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
@@ -191,7 +178,7 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     static_cast<CUDABackend*>(bn)->onAcquireBuffer(mBiasInt32Tensor.get(), Backend::STATIC);
     mBiasInt32Ptr = (void *)mBiasInt32Tensor.get()->buffer().device;
 
-    // printf("resource init %p-%p\n", mScaleFloatPtr, mBiasInt32Ptr);
+    // MNN_PRINT("resource init %p-%p\n", mScaleFloatPtr, mBiasInt32Ptr);
 
     //weight host->device
     const int8_t* filterDataPtr = nullptr;
@@ -206,6 +193,7 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
                                     // conv->symmetricQuan()->zeroPoint(),
                                     // conv->symmetricQuan()->outputZeroPoint());
     if(!res) {
+        MNN_PRINT("CUDA Error getConvInt8Parameters!\n");
         return;
     }
 
@@ -219,6 +207,11 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         }
         mInt8WeightKernelSum.emplace_back(temp);
     }
+
+    if (conv->bias() && conv->quanParameter() && conv->quanParameter()->alpha()) {
+        mUseConvQuan = false;
+    }
+
 
     mInputZeroPoint = conv->symmetricQuan()->zeroPoint();
     mOutputZeroPoint = conv->symmetricQuan()->outputZeroPoint();
@@ -234,7 +227,7 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     int lp = (l / ic) * ic_p;
     int hp = UP_DIV(h, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
 
-    if(op->type() == OpType_DepthwiseConvInt8) {
+    if(op->type() == OpType_DepthwiseConvInt8  || op->type() == OpType_ConvolutionDepthwise) {
         lp = l;
     }
     // Reorder weight
@@ -256,9 +249,10 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         // DepthwiseConv --> [KhKw, (Oc)p]
         // Conv          --> [(Oc)p, KhKw(Ic)p]
         bool ocMajor = false;
-        if(op->type() == OpType_DepthwiseConvInt8) {
+        if(op->type() == OpType_DepthwiseConvInt8 || op->type() == OpType_ConvolutionDepthwise) {
             ocMajor = true;
         }
+        
         WeightInt8PackFill<<<block_num, block_size>>>((int8_t*)cacheWeight, (int8_t*)mWeightInt8Ptr, lp*hp, l, h, hp, ic, lpD, hpD, icpD, ocMajor);
         checkKernelErrors;
 
@@ -407,7 +401,7 @@ ErrorCode ConvInt8CutlassExecution::onExecute(const std::vector<Tensor*> &inputs
     const int ic = input->channel();
     const int icp = UP_DIV(ic, INT8_PACK_NUMBER) * INT8_PACK_NUMBER;
 
-    //printf("%d-%d-%d-%d-%d, %d-%d\n", cpuIm2Col->icDiv4, cpuIm2Col->ih, cpuIm2Col->iw, cpuIm2Col->oh, cpuIm2Col->ow, eAlign, lAlign);
+    //MNN_PRINT("%d-%d-%d-%d-%d, %d-%d\n", cpuIm2Col->icDiv4, cpuIm2Col->ih, cpuIm2Col->iw, cpuIm2Col->oh, cpuIm2Col->ow, eAlign, lAlign);
     // Im2col in Block
     for(int block_idx = 0; block_idx < mBlockNum; block_idx++) {
         if (mNeedIm2Col) {
@@ -444,7 +438,6 @@ ErrorCode ConvInt8CutlassExecution::onExecute(const std::vector<Tensor*> &inputs
         cutlass::Status status = mGemmInt8ClampLarge();
         cutlass_check(status);
     }
-
     return NO_ERROR;
 }
 

@@ -101,7 +101,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         }
 
         if (conv2d->quanParameter()->has_scaleInt()) {
-            if (backend->type() != MNN_FORWARD_CPU) {
+            if (bytes < 4) {
                 // From BF16 / FP16
                 return nullptr;
             }

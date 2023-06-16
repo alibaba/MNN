@@ -35,12 +35,19 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
     }
     MNN_ASSERT(mTotalSize == ((CPUBackend*)backend())->getTensorSize(outputs[0]));
 
-    mInputQuant0.resize(mTotalSize);
-    mInputQuant1.resize(mTotalSize);
-    mOutputQuant.resize(mTotalSize);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+
+    mInputQuant0.resize(core->pack); // prepare for arm neon. float32x4
+    mInputQuant1.resize(core->pack);
+    mOutputQuant.resize(core->pack);
     std::fill(mInputQuant0.begin(), mInputQuant0.end(), TensorUtils::getDescribe(inputs[0])->quantAttr->scale);
     std::fill(mInputQuant1.begin(), mInputQuant1.end(), TensorUtils::getDescribe(inputs[1])->quantAttr->scale);
-    std::fill(mOutputQuant.begin(), mOutputQuant.end(), 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale);
+    if (TensorUtils::getDescribe(outputs[0])->quantAttr->scale != 0) {
+        std::fill(mOutputQuant.begin(), mOutputQuant.end(), 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale);
+    } else {
+        std::fill(mOutputQuant.begin(), mOutputQuant.end(), 0);
+    }
+    
 
     if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));

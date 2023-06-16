@@ -37,7 +37,8 @@ def inference():
     input_var.write(image)
     input_var = MNN.expr.convert(input_var, MNN.expr.NC4HW4)
     #inference
-    output_var = net.forward(input_var)
+    output_var = net.forward([input_var])
+    output_var = output_var[0]
     output_var = MNN.expr.convert(output_var, MNN.expr.NHWC)
     print("expect 983")
     print("output belong to class: {}".format(np.argmax(output_var.read())))

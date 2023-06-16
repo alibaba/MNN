@@ -50,7 +50,7 @@
         cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
         ninja
         ```
-     - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
+     - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=ON
      - 若需要编译 MNN CUDA，MNN_WIN_RUNTIME_MT 和 MNN_BUILD_SHARED_LIBS 需要设成 ON ，另外加上 -DMNN_CUDA=ON: cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=ON -DMNN_WIN_RUNTIME_MT=ON -DMNN_CUDA=ON
      - Windows 上建议使用 Interpreter::destroy , Tensor::destroy , Module::destroy 等方法进行 MNN 相关内存对象的析构，不要直接使用 delete （直接使用 delete 在 -DMNN_WIN_RUNTIME_MT=ON 时会出问题）
 ## Android

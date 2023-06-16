@@ -2841,6 +2841,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNC1ToFloatC1 = MNNC1ToFloatC1;
     gCoreFunction->MNNC3ToFloatC3 = MNNC3ToFloatC3;
     gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
+    gCoreFunction->MNNSamplerC4Nearest = MNNSamplerC4Nearest;
+    gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear;
 
     cpuinfo_arm_isa gCPUInfo;
     cpuinfo_arm_init(&gCPUInfo);
@@ -2878,6 +2880,15 @@ void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int*
     MNNUnpackC2Common<double>(dst, src, area, depth, areaOffset);
 }
 
+void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNPackC2Common<float>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNUnpackC2Common<float>(dst, src, area, depth, areaOffset);
+}
+
+
 void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
     int offset[] = {
         areaOffset,
@@ -2891,4 +2902,19 @@ void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, 
         areaOffset,
     };
     MNNPackC2(dst, src, area, depth, offset);
+}
+
+void MNNUnpackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNUnpackInt8C2(dst, src, area, depth, offset);
+}
+void MNNPackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNPackInt8C2(dst, src, area, depth, offset);
 }

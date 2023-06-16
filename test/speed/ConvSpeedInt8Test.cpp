@@ -193,11 +193,24 @@ public:
             {1, 1}, {3, 3}, {5, 5}, {7, 1}, {1, 7} // {w, h}
         };
         std::vector<std::string> titles = {"3x3", "5x5", "1x7", "7x1"};
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
-                return false;
+        std::vector<int> weightBits = {8, 7};
+        for (auto& bits : weightBits) {
+            MNN_PRINT("Bits=%d\n", bits);
+            inputShape = {28, 28};
+            for (int i = 0; i < kernels.size(); ++i) {
+                auto res = testKernel("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate, bits);
+                if (!res) {
+                    MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
+                    return false;
+                }
+            }
+            inputShape = {129, 412};
+            for (int i = 0; i < 1; ++i) {
+                auto res = testKernel("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate, bits);
+                if (!res) {
+                    MNN_ERROR("Error for test kernel %s for convint8 129,412 (im2col + gemm)\n", titles[i].c_str());
+                    return false;
+                }
             }
         }
         return true;

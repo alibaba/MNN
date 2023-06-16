@@ -19,6 +19,7 @@ public:
     const size_t getBufferSize() const;
     void initialize(float sparsity = 0.0f, int sparseBlockOC = 1, bool rewrite = false);
     static void fillRandValue(float * data, size_t size);
+    void writeExtraDescribeTensor(float* scales, float* offsets);
 private:
     Revert();
     std::unique_ptr<MNN::NetT> mMNNNet;

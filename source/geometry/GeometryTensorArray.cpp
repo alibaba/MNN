@@ -151,27 +151,35 @@ public:
             writeIndex += (writeIndex < 0 ? inDes->tensorArrayAttr->arraySize: 0); // [-n, n]
         }
         auto elemSize = getElemSize(output, writeIndex);
+        outDes->regions.clear();
         // support insertMode=true/false, easier to understand
         int regionSize = (writeIndex > 0) + 1 + (writeIndex < outDes->tensorArrayAttr->arraySize - 1);
-        outDes->regions.resize(regionSize);
+        outDes->regions.reserve(regionSize);
         /*
          src: [leftData][writeIndex][rightData]
          dst: [leftData][writeTensor][rightData]
          */
         // 1. write Tensor to dst TensorArray [must]
-        auto& writeTensorRegion = outDes->regions[0];
-        writeTensorRegion.origin = inputs[2];
-        writeTensorRegion.src.offset = 0;
-        writeTensorRegion.src.stride[0] = 1;
-        writeTensorRegion.src.stride[1] = 1;
-        writeTensorRegion.src.stride[2] = 1;
-        writeTensorRegion.dst.offset = elemSize.first;
-        writeTensorRegion.dst.stride[0] = 1;
-        writeTensorRegion.dst.stride[1] = 1;
-        writeTensorRegion.dst.stride[2] = 1;
-        writeTensorRegion.size[0] = elemSize.second;
-        writeTensorRegion.size[1] = 1;
-        writeTensorRegion.size[2] = 1;
+        if (elemSize.second == 0) {
+            return true;
+        }
+        {
+            Tensor::InsideDescribe::Region writeTensorRegion;
+            writeTensorRegion.origin = inputs[2];
+            writeTensorRegion.src.offset = 0;
+            writeTensorRegion.src.stride[0] = 1;
+            writeTensorRegion.src.stride[1] = 1;
+            writeTensorRegion.src.stride[2] = 1;
+            writeTensorRegion.dst.offset = elemSize.first;
+            writeTensorRegion.dst.stride[0] = 1;
+            writeTensorRegion.dst.stride[1] = 1;
+            writeTensorRegion.dst.stride[2] = 1;
+            writeTensorRegion.size[0] = elemSize.second;
+            writeTensorRegion.size[1] = 1;
+            writeTensorRegion.size[2] = 1;
+            MNN_ASSERT(elemSize.second > 0);
+            outDes->regions.emplace_back(std::move(writeTensorRegion));
+        }
         if (regionSize == 1) {
             return true;
         }
@@ -188,8 +196,8 @@ public:
             tensorArrayInput = zeroConst.get();
         }
         // 2. copy TensorArray leftData [optional]
-        if (writeIndex > 0) {
-            auto& leftDataRegion = outDes->regions[1];
+        if (writeIndex > 0 && elemSize.first > 0) {
+            Tensor::InsideDescribe::Region leftDataRegion;
             leftDataRegion.origin = tensorArrayInput;
             leftDataRegion.src.offset = 0;
             leftDataRegion.src.stride[0] = !firstWrite;
@@ -202,6 +210,7 @@ public:
             leftDataRegion.size[0] = elemSize.first;
             leftDataRegion.size[1] = 1;
             leftDataRegion.size[2] = 1;
+            outDes->regions.emplace_back(std::move(leftDataRegion));
         }
         // 3. copy TensorArray rightData [optional]
         int rightSize = oldSize - writeIndex - (mInsertMode ? 0 : 1);
@@ -210,19 +219,23 @@ public:
             int totalSize = last.first + last.second;
             int offset = elemSize.first + elemSize.second;
             int offsetSrc = offset - (mInsertMode ? elemSize.second: 0);
-            auto& rightDataRegion = outDes->regions[1 + (writeIndex > 0)];
-            rightDataRegion.origin = tensorArrayInput;
-            rightDataRegion.src.offset = (!firstWrite) * offsetSrc;
-            rightDataRegion.src.stride[0] = !firstWrite;
-            rightDataRegion.src.stride[1] = 1;
-            rightDataRegion.src.stride[2] = 1;
-            rightDataRegion.dst.offset = offset;
-            rightDataRegion.dst.stride[0] = 1;
-            rightDataRegion.dst.stride[1] = 1;
-            rightDataRegion.dst.stride[2] = 1;
-            rightDataRegion.size[0] = totalSize - offsetSrc;
-            rightDataRegion.size[1] = 1;
-            rightDataRegion.size[2] = 1;
+            int rightRegionSize = totalSize - offsetSrc;
+            if (rightRegionSize > 0) {
+                Tensor::InsideDescribe::Region rightDataRegion;
+                rightDataRegion.origin = tensorArrayInput;
+                rightDataRegion.src.offset = (!firstWrite) * offsetSrc;
+                rightDataRegion.src.stride[0] = !firstWrite;
+                rightDataRegion.src.stride[1] = 1;
+                rightDataRegion.src.stride[2] = 1;
+                rightDataRegion.dst.offset = offset;
+                rightDataRegion.dst.stride[0] = 1;
+                rightDataRegion.dst.stride[1] = 1;
+                rightDataRegion.dst.stride[2] = 1;
+                rightDataRegion.size[0] = rightRegionSize;
+                rightDataRegion.size[1] = 1;
+                rightDataRegion.size[2] = 1;
+                outDes->regions.emplace_back(std::move(rightDataRegion));
+            }
         }
         return true;
     }

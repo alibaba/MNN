@@ -72,6 +72,7 @@ private:
 
     // For gpu or other backend
     std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
+    std::map<Tensor*, std::shared_ptr<Tensor>> mShapeFixConstCache;
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;

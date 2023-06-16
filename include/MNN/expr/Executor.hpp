@@ -146,6 +146,7 @@ private:
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;
     LazyMode mLazyMode = LAZY_FULL;
     std::shared_ptr<ExecutorAttr> mAttr;
+    std::mutex mMutex;
 };
 } // namespace Express
 } // namespace MNN

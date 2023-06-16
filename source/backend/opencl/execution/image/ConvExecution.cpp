@@ -264,6 +264,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution onResize !\n");
 #endif
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -306,6 +307,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
                 kernel->setArg(idx++, static_cast<int>(inputChannelBlocks));
                 kernel->setArg(idx++, height);
                 kernel->setArg(idx++, width);
+                recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
             }else{
                 mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
                            static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
@@ -322,6 +324,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
                 
                 std::string kernelName = "conv_2d_1x1_mali";
                 mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+                recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
             }
 
 
@@ -348,6 +351,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
             kernel->setArg(idx++, UP_DIV(width, 4));
             std::string kernelName = "conv_2d_1x1";
             mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+            recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
         }
     }else {
         int inputImageShape[2]  = {inputHeight, inputWidth};
@@ -424,8 +428,10 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
         mKernel.setArg(idx++, UP_DIV(width, itemW[min_index]));
         mKernel.setArg(idx++, UP_DIV(outputShape.at(3), 4));
         mKernel.setArg(idx++, UP_DIV(height, itemH[min_index]));
+        recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     }
 
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvExecution onResize !\n");
 #endif
@@ -445,6 +451,13 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         float costTime = mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
         MNN_PRINT("kernel cost:%f    us Conv UseLocalMem\n",costTime);
     #else
+        if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end ConvExecution onExecute !\n");
+#endif
+            return NO_ERROR;
+        }
         run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime());
     #endif
@@ -458,6 +471,13 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Conv2D\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("end ConvExecution onExecute !\n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());
 #endif

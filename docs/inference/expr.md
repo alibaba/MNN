@@ -1,17 +1,30 @@
 # Expr API使用
 ## 概念说明
-表达式是一个延迟计算引擎，它提供如下功能：
-1. 模型推理
-2. 数值计算
-3. 模型搭建
 
-API 设计上使用"响应式编程"，修改输入的值之后，在对应的输出节点取值即可，没有显示的计算调用。
+### 表达式
+表达式是一个延迟计算引擎，它提供如下功能：
+1. 数值计算
+2. 模型搭建
+
+基于数值计算的能力，Expr API 可用于模型推理，但效率相比session/module 较低，不建议采用这种方式做模型推理。
+
+表达式计算原理如下：
 ![expr.png](../_static/images/inference/expr.png)
+
+表达式可以设置为Defer(延迟计算)模式或Eager(立即计算)模式：Defer模式下，调用表达式相关API不直接计算，而是搭建模型，在需要获取输出值时才执行；Eager模式下，直接进行计算，对应地无法搭建模型。
+
+C++环境默认为Defer模式，Python环境默认为Eager模式，可通过当前的执行器(Executor)切换计算模式。
+
+
+### 数据类型
 
 用户操作的数据类型为 VARP，可按Tensor去读取它的值，按保存时的方式不同，分成三类
 - `Input`: 由 `_Input`创建，或者加载模型而得，在保存时仅存储维度信息（shape），可以写入值
 - `Const/Trainable`: 由`_Const`或`_TrainableParam`创建，或者加载模型而得，在保存时存储数值，不能写入，只能读取
 - `Function`: 非输入或者常量，一切由计算而得的变量，不能写入，在保存时存储与之相关的计算图 `Function` 变量可通过`fix`调用转换为相应类型，转换时将值计算出来，并去除前置节点依赖。
+
+### 执行器
+表达式在搭建模型或进行计算时，使用与[Module API](module.md)同样一个执行器（Executor） ，可配置表达式的执行模式、计算所用资源等。
 
 ## 表达式接口能力
 ### 模型存取与修改
@@ -156,6 +169,61 @@ void demo() {
         printf("%f, ", input->readMap<float>()[i]);
     }
 }
+```
+
+## 计算模式
+表达式可以设置为Defer(延迟计算)模式或Eager(立即计算)模式：Defer模式下，调用表达式相关API不直接计算，而是搭建模型，在需要获取输出值时才执行；Eager模式下，直接进行计算，无法搭建模型。
+
+C++环境默认为Defer模式，Python环境默认为Eager模式，可通过当前的执行器(Executor)切换计算模式。
+
+参考如下代码切换Eager(立即计算)模式和Defer(延迟计算)模式：
+
+C++ 代码:
+```cpp
+void demo() {
+    // Set Defer mode
+    ExecutorScope::Current()->lazyEval = true;
+    {
+        // Defer Compute Begin
+        VARP x = _Input();
+        x->writeMap<float>[0] = 1.0f;
+        VARP y = x + x;
+        y = y * x;
+        // Compute Only readMap
+        const float* yPtr = y->readMap<float>();
+        // Will save graph
+        Variable::save([y], "graph.mnn");
+        // Defer Compute End
+    }
+
+    // Set Eager mode
+    ExecutorScope::Current()->lazyEval = false;
+    {
+        // Eager Compute Begin
+        VARP x = _Input();
+        x->writeMap<float>[0] = 1.0f;
+        // Compute Directly
+        VARP y = x + x;
+        y = y * x;
+        // Just Read value
+        const float* yPtr = y->readMap<float>();
+        // Will save constant value, can't save graph
+        Variable::save([y], "graph.mnn");
+        // Eager Compute End
+    }
+}
+```
+
+Python 代码:
+```python
+import MNN
+F = MNN.expr
+
+# Set Defer mode
+F.lazy_eval(True)
+
+# Set Eager mode
+F.lazy_eval(False)
 ```
 
 ## 示例代码

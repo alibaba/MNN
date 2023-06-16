@@ -31,6 +31,8 @@ protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     CPUConvolution::MutableResourceInt8 mMutableResource;
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
+    std::pair<void*, int> mBlitInfo;
+    std::pair<size_t, size_t> mBlitInfoStride;
 };
 } // namespace MNN
 #endif /* DeconvInt8Executor_hpp */

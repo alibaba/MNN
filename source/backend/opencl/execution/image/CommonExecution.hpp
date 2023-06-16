@@ -10,10 +10,12 @@
 #define CommonExecution_hpp
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class CommonExecution : public Execution {
+class CommonExecution : public Execution, public CommonExtension {
 public:
     CommonExecution(Backend *backend, const MNN::Op *Op);
     virtual ~CommonExecution() = default;

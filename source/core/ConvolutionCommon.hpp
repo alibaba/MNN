@@ -56,6 +56,7 @@ public:
         int32_t srcYStep;
         int32_t packCUnit;
         int32_t destICStride;
+        int32_t ic;
     };
 };
 } // namespace MNN

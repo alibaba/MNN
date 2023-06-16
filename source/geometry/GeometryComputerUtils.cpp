@@ -86,6 +86,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
         auto dims = SizeComputer::needInputContent(info.op, info.inputs.size());
         for (auto index : dims) {
             if (index < info.inputs.size()) {
+                TensorUtils::getDescribe(info.inputs[index])->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                 if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::CONSTANT) {
                     breakIndex = infoIndex;
                     TensorUtils::getDescribe(info.inputs[index])->usage = Tensor::InsideDescribe::CONSTANT;
@@ -111,9 +112,11 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
                 if (turnConst) {
                     for (auto t : info.outputs) {
                         TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                        TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                     }
                     for (auto t : info.inputs) {
                         TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                        TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                     }
                     info.type = Schedule::CONSTANT;
                     hasConst  = true;
@@ -159,8 +162,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 t->buffer().dim = TensorUtils::getDescribe(t)->dims;
                 TensorUtils::getDescribe(t)->usage = usage;
             } else {
-                TensorUtils::getDescribeOrigin(t)->mContent->backend = nullptr;
-                if (info.type != Schedule::CONSTANT) {
+                if (info.type != Schedule::CONSTANT && usage != Tensor::InsideDescribe::TRAINABLE) {
+                    TensorUtils::getDescribeOrigin(t)->mContent->setBackend(nullptr);
                     // TODO: If output is static and length larger than new size, don't clear mem
                     TensorUtils::getDescribeOrigin(t)->mContent->mem.reset(nullptr);
                 }
@@ -221,14 +224,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
                 for (auto t : c.outputs) {
                     auto des = TensorUtils::getDescribe(t);
-                    if (des->backend == nullptr) {
-                        TensorUtils::setLinearLayout(t);
-                        auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
-                        if (!res) {
-                            return OUT_OF_MEMORY;
-                        }
-                        des->backend = backupBackend.get();
+                    TensorUtils::setLinearLayout(t);
+                    auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
+                    if (!res) {
+                        return OUT_OF_MEMORY;
                     }
+                    des->setBackend(backupBackend.get());
                 }
                 auto code = exe->onResize(c.inputs, c.outputs);
                 if (NO_ERROR != code) {

@@ -19,6 +19,7 @@ MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN:
 }
 ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     Tensor *input0 = inputs[0];
     Tensor *input1 = inputs[1];
@@ -91,11 +92,13 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
+
+    recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 
 ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start MatMulExecution onExecute... \n");
 #endif
@@ -109,6 +112,13 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
         MNN_PRINT("kernel cost:%d    us Matmul\n",costTime);
     #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End MatMulExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
     #endif
     

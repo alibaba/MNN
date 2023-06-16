@@ -560,5 +560,105 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
     comandQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(w, h, 1));
 }
 
+void startRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!runtime->isUseRecordQueue()){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start startRecord !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    if(recording != NULL){
+        clReleaseRecordingQCOM(recording);
+    }
+    recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+    MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end startRecord !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void endRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!runtime->isUseRecordQueue()){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start endRecord !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    res = clEndRecordingQCOM(recording);
+    MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end endRecord !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+                 OpenCLRuntime *runtime) {
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!runtime->isUseRecordQueue()){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start recordKernel !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    std::vector<uint32_t> internalGlobalWS = gws;
+    for (size_t i = 0; i < 2; ++i) {
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+    }
+
+    if(lws[0]==0 || lws[1]==0){
+        res = runtime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, nullptr);
+
+    }else{
+        res = runtime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws[0], lws[1]), nullptr, nullptr);
+    }
+    MNN_CHECK_CL_SUCCESS(res, "recordKernel2d");
+
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end recordKernel !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+                 OpenCLRuntime *runtime) {
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!runtime->isUseRecordQueue()){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start recordKernel !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    std::vector<uint32_t> internalGlobalWS = gws;
+    for (size_t i = 0; i < 3; ++i) {
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+    }
+
+
+    if(lws[0]==0 || lws[1]==0 || lws[2]==0){
+        res = runtime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NullRange, nullptr, nullptr);
+
+    }else{
+        res = runtime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NDRange(lws[0], lws[1], lws[2]), nullptr, nullptr);
+    }
+    MNN_CHECK_CL_SUCCESS(res, "recordKernel3d");
+    
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end recordKernel !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
 } // namespace OpenCL
 } // namespace MNN

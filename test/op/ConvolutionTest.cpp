@@ -340,7 +340,7 @@ public:
     virtual void generateWeight(std::vector<float>& weightData, int ic, int oc, int kh, int kw, int dilation, int group, int sparseBlockOC) {
         for (int i = 0; i < group * (oc / group) * (ic / group) * kw * kh; i++) {
             auto data      = ((((i / kw)% 1317) * ((i / kh) % 1317)) % 1317 + i / ic + i / oc + (((oc - i) % 1317) * ic) % 1317 + i * ((oc - i) % 1317)) % 1317;
-            auto floatData      = (float)(data % 255) / 255.0f;
+            auto floatData      = (float)(data % 255) / 255.0f / 1000.0f;
             weightData.push_back(floatData);
         }
 
@@ -504,7 +504,7 @@ public:
                         weightData[index] = 0;
                     } else {
                         auto data      = (index / kw) * (index / kh) + index / ic + index / oc + (oc - index) * ic + index * (oc - index);
-                        weightData[index] = (float)(data % 255) / 255.0f;
+                        weightData[index] = (float)(data % 255) / 255.0f / 1000.0f;
                     }
                     index += reduceDimLength;
                 }

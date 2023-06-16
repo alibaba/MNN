@@ -452,6 +452,16 @@ android_unit_test() {
         echo '### Android单元测试失败，测试终止！'
         failed
     fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 0 0 4 multi$1"
+    if [ $? -ne 0 ]; then
+        echo '### Android单元测试多线程失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution 0 2 4 fp16multi$1"
+    if [ $? -ne 0 ]; then
+        echo '### Android单元测试卷积FP16多线程失败，测试终止！'
+        failed
+    fi
 }
 android_model_test() {
     fail_num=0
@@ -518,7 +528,7 @@ android_test() {
     # 3. build Android64
     mkdir build_64
     pushd build_64
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true
     android64_build_wrong=$[$? > 0]
     mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')

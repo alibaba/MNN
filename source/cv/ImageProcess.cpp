@@ -17,9 +17,6 @@
 #include "backend/cpu/CPUImageProcess.hpp"
 #include <MNN/MNNForwardType.h>
 #include "core/Backend.hpp"
-#ifdef MNN_USE_SSE
-#include "backend/cpu/x86_x64/AVX2Functions.hpp"
-#endif
 
 #include <MNN/Tensor.hpp>
 #include <MNN/Interpreter.hpp>
@@ -60,12 +57,7 @@ ImageProcess::ImageProcess(const Config& config) {
         mInside->config.normal[i] = config.normal[i];
     }
     registerBackend();
-    auto coreFunctions =
-#ifdef MNN_USE_SSE
-    AVX2Functions::get();
-#else
-    nullptr;
-#endif
+    auto coreFunctions = MNNGetCoreFunctions();
     mInside->execution.reset(new CPUImageProcess(config, coreFunctions));
 }
 
@@ -144,7 +136,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
         MNN_ERROR("null dest or source for image process\n");
         return INPUT_DATA_ERROR;
     }
-    if (TensorUtils::getDescribe(dest)->backend == nullptr && destOrigin->buffer().host == nullptr) {
+    if (TensorUtils::getDescribe(dest)->getBackend() == nullptr && destOrigin->buffer().host == nullptr) {
         MNN_ERROR("Invalid Tensor, the session may not be ready\n");
         return INPUT_DATA_ERROR;
     }
@@ -153,7 +145,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     auto oh              = dest->height();
     auto bpp             = dest->channel();
     auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    auto tensorBn = TensorUtils::getDescribe(dest)->backend;
+    auto tensorBn = TensorUtils::getDescribe(dest)->getBackend();
     auto bnType = MNN_FORWARD_CPU;
     if(tensorBn){
         bnType = tensorBn->type();

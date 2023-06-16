@@ -69,3 +69,21 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size);
 void _SSE_ExtraInit(void* functions);
 void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
 void _SSE_ImageProcessInit(void* functions, int cpuFlags);
+
+/* Image process functions */
+void _SSE_MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToRGB(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToRGBA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToBGRA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNC1ToFloatC1(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNC3ToFloatC3(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNSamplerC4Nearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void _SSE_MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta, size_t count,
+                            size_t iw, size_t ih, size_t yStride, int bpp);
+void _SSE_MNNSampleC4Bilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                          size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void _SSE_MNNSampleBilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                  size_t iw, size_t ih, size_t yStride, size_t bpp);

@@ -37,6 +37,7 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -73,6 +74,8 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     
     std::string name = "interp";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, name, mKernel).first;
+    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 
 }
@@ -90,6 +93,13 @@ ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Interp\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End InterpExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
 

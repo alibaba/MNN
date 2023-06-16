@@ -189,6 +189,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     const int padX  = pad.first;
     
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runTime, mRecording);
 
     auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
@@ -283,6 +284,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_S[b] = {static_cast<uint32_t>(wUnit * hUnit), static_cast<uint32_t>(icC4)};
             std::string kernelName = "winogradTransformSource";
             mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
+            recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b], mOpenCLBackend->getOpenCLRuntime());
         }
 
         /*MatMul*/
@@ -291,6 +293,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(wUnit, 4) * hUnit), static_cast<uint32_t>(alpha * alpha * ocC4)};
             std::string kernelName = "gemmWinograd";
             mLWS_M[b] = localWS2DDefault(mGWS_M[b], mMaxWGS_M[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mMatMul[b]).first;
+            recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b], mOpenCLBackend->getOpenCLRuntime());
         }
 
         // Dest Transform
@@ -298,8 +301,10 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_D[b] = {static_cast<uint32_t>(wUnit*hUnit), static_cast<uint32_t>(ocC4)};
             std::string kernelName = "winogradTransformDest";
             mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
+            recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b], mOpenCLBackend->getOpenCLRuntime());
         }
     }
+    endRecord(runTime, mRecording);
     
     return NO_ERROR;
 }
@@ -310,6 +315,11 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
 
     #ifdef ENABLE_OPENCL_TIME_PROFILER
     int costTime = 0;
+    #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        return NO_ERROR;
+    }
     #endif
     for (int b = 0; b < input->batch(); ++b) {
         /*Source Transform*/

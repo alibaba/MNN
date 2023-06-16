@@ -16,6 +16,20 @@ CutlassConvCommonExecution::CutlassConvCommonExecution(Backend *backend) : Execu
 }
 
 ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
+    if(mBf16Infer) {
+        if(mActivationType == 1) {
+            cutlass::Status status = mGemmBF16BF16ReluSm80();
+            cutlass_check(status);
+        } else if(mActivationType == 2) {
+            cutlass::Status status = mGemmBF16BF16Relu6Sm80();
+            cutlass_check(status);
+        } else {
+            cutlass::Status status = mGemmBF16BF16LnSm80();
+            cutlass_check(status);
+        }
+        return NO_ERROR;
+    }
+
     if(mFp32Infer) {
         if(mActivationType == 1) {
             cutlass::Status status = mGemmCudaF32F32Relu();

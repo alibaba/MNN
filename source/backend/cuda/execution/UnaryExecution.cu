@@ -52,7 +52,6 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     return NO_ERROR;
 }
 
-
 __global__ void RELU(const float *input, float *output, size_t count, float slope) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
     float x = input[i];
@@ -71,6 +70,15 @@ __global__ void RELU_Half(const half *input, half *output, size_t count, float s
   return;
 }
 
+__global__ void RELU_INT8(const int8_t *input, int8_t *output, size_t count, int8_t zeroPoint) {
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+      int8_t x = input[i];
+      int8_t y = x > zeroPoint ? x : zeroPoint;
+      output[i] = y;
+    }
+    return;
+  }
+
 class ReluExecution : public Execution {
 public:
     ReluExecution(Backend* bn, float slope) : Execution(bn) {
@@ -84,10 +92,27 @@ public:
         int threads_num = runtime->threads_num();
         auto input = inputs[0]->deviceId();
         auto output = outputs[0]->deviceId();
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+            auto inInfo = TensorUtils::getQuantInfo(inputs[0]);
+            auto outInfo = TensorUtils::getQuantInfo(outputs[0]);
+            if (inInfo != outInfo) {
+                MNN_PRINT("this relu int8 implementation has error when input output quant info mismatch\n");
+            }
+            if(mSlope > 0.0f || mSlope < 0.0f) {
+                MNN_PRINT("Warning, CUDA only support Relu int8, PReLU int8 not support yet!\n");
+            }
+            int8_t zeroPoint = int8_t(outInfo[1]);
+            RELU_INT8<<<block_num, threads_num>>>((const int8_t*)input, (int8_t*)output, count, zeroPoint);
+            checkKernelErrors;
+            return NO_ERROR;
+        }
+
         if (static_cast<CUDABackend*>(backend())->useFp16()) {
             RELU_Half<<<block_num, threads_num>>>((half*)input, (half*)output, count, mSlope);
+            checkKernelErrors;
         } else {
             RELU<<<block_num, threads_num>>>((float*)input, (float*)output, count, mSlope);
+            checkKernelErrors;
         }
         return NO_ERROR;
     }
@@ -131,111 +156,6 @@ private:
     float mMaxV;
 };
 
-template <typename T1, typename T2>
-__global__ void CAST(T1 *input, T2 *output, size_t count) {
-  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-    output[i] = (T2)(input[i]);
-  }
-  return;
-}
-
-template <typename T1, typename T2>
-__global__ void CASTMIDFLOAT(T1 *input, T2 *output, size_t count) {
-  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-    output[i] = (T2)((float)input[i]);
-  }
-  return;
-}
-
-__global__ void CASTBOOL(int32_t *input, int32_t *output, size_t count) {
-  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-    output[i] = input[i] > 0 ? 1 : 0;
-  }
-  return;
-}
-
-static DataType _mapDataType(DataType src) {
-    if (DataType_DT_BOOL == src) {
-        return DataType_DT_INT32;
-    }
-    if (DataType_DT_INT64 == src) {
-        return DataType_DT_INT32;
-    }
-    if (DataType_DT_DOUBLE == src) {
-        return DataType_DT_FLOAT;
-    }
-    return src;
-}
-class CastExecution : public Execution {
-public:
-    CastExecution(Backend* bn, DataType dstType) : Execution(bn) {
-        mDst = dstType;
-    }
-    virtual ~CastExecution() = default;
-    ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
-        auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-        auto count = CUDABackend::realSize(inputs[0]);
-        int block_num = runtime->blocks_num(count);
-        int threads_num = runtime->threads_num();
-        auto input = inputs[0]->deviceId();
-        auto output = outputs[0]->deviceId();
-        auto dstT = _mapDataType(mDst);
-
-        const auto &inputDataType = inputs[0]->getType();
-        if (inputDataType.bytes() == 4 && mDst == MNN::DataType_DT_BOOL) {
-            CASTBOOL<<<block_num, threads_num>>>((int32_t*)input, (int32_t*)output, count);
-            return NO_ERROR;
-        }
-        if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
-            runtime->memcpy((void*)output, (void*)input, count * static_cast<CUDABackend*>(backend())->getBytes(inputs[0]), MNNMemcpyDeviceToDevice, true);
-            return NO_ERROR;
-        }
-        if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((int8_t*)input, (int32_t*)output, count);
-            return NO_ERROR;
-        } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<int32_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((int32_t*)input, (uint8_t*)output, count);
-            return NO_ERROR;
-        } else if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
-            CAST<<<block_num, threads_num>>>((uint8_t*)input, (int32_t*)output, count);
-            return NO_ERROR;
-        }
-        if (static_cast<CUDABackend*>(backend())->useFp16()) {
-            if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (int*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((int*)input, (half*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((uint8_t*)input, (half*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((int8_t*)input, (half*)output, count);
-            } else if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (int8_t*)output, count);
-            } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (uint8_t*)output, count);
-            }
-        } else {
-            if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (int*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((int*)input, (float*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((uint8_t*)input, (float*)output, count);
-            } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((int8_t*)input, (float*)output, count);
-            } else if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (int8_t*)output, count);
-            } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
-                CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (uint8_t*)output, count);
-            }
-        }
-        return NO_ERROR;
-    }
-private:
-    DataType mDst;
-};
-
-
 class UnaryCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -266,9 +186,6 @@ public:
             }
             return new Relu6Execution(backend, minV, maxV);
         }
-        if (op->type() == OpType_Cast) {
-            return new CastExecution(backend, op->main_as_CastParam()->dstT());
-        }
         return nullptr;
     }
 };
@@ -278,6 +195,5 @@ CUDACreatorRegister<UnaryCreator> __SigmoidExecution(OpType_Sigmoid);
 CUDACreatorRegister<UnaryCreator> __TanhExecution(OpType_TanH);
 CUDACreatorRegister<UnaryCreator> __ReluExecution(OpType_ReLU);
 CUDACreatorRegister<UnaryCreator> __Relu6Execution(OpType_ReLU6);
-CUDACreatorRegister<UnaryCreator> __CastExecution(OpType_Cast);
 } // namespace CUDA
 } // namespace MNN

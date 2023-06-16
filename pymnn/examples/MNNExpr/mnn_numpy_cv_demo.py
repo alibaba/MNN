@@ -9,7 +9,7 @@ import sys
 
 def inference():
     """ inference mobilenet_v1 using a specific picture """
-    net = MNN.nn.load_module_from_file(sys.argv[1], ["input"], ["MobilenetV1/Predictions/Reshape_1"])
+    net = MNN.nn.load_module_from_file(sys.argv[1], [], [])
     image = cv2.imread(sys.argv[2])
     #cv2 read as bgr format
     image = image[..., ::-1]
@@ -20,8 +20,8 @@ def inference():
     image = image * (0.017, 0.017, 0.017)
     #change numpy data type as np.float32 to match tensor's format
     image = image.astype(np.float32)
-    #Make var to save numpy
-    input_var = image
+    #Make var to save numpy; [h, w, c] -> [n, h, w, c]
+    input_var = np.expand_dims(image, [0])
     #cv2 read shape is NHWC, Module's need is NC4HW4, convert it
     input_var = MNN.expr.convert(input_var, MNN.expr.NC4HW4)
     #inference

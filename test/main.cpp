@@ -24,7 +24,6 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     int precision = (int)MNN::BackendConfig::Precision_High;
-    int precisionInTestUtil = getTestPrecision(MNNForwardType::MNN_FORWARD_CPU, (MNN::BackendConfig::PrecisionMode)precision, MNN::Express::Executor::getGlobalExecutor()->getCurrentRuntimeStatus(MNN::STATUS_SUPPORT_FP16));
     int thread = 1;
     const char* flag = "";
     if (argc > 2) {
@@ -42,19 +41,17 @@ int main(int argc, char* argv[]) {
         MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, thread);
-        FUNC_PRINT(thread);
-        precisionInTestUtil = getTestPrecision(type, config.precision, MNN::Express::Executor::getGlobalExecutor()->getCurrentRuntimeStatus(MNN::STATUS_SUPPORT_FP16));
-        MNN_PRINT("After update, precision in TestUtil:%d\n", precisionInTestUtil);
+        MNN_PRINT("After update, precision in TestUtil:%d\n", precision);
     }
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {
-            return MNNTestSuite::runAll(precisionInTestUtil, flag);
+            return MNNTestSuite::runAll(precision, flag);
         } else {
-            return MNNTestSuite::run(name, precisionInTestUtil, flag);
+            return MNNTestSuite::run(name, precision, flag);
         }
     } else {
-        return MNNTestSuite::runAll(precisionInTestUtil, flag);
+        return MNNTestSuite::runAll(precision, flag);
     }
     return 0;
 }

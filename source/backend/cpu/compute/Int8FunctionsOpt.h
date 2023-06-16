@@ -58,6 +58,7 @@ void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
 void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast);
 void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast);
 void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast);
+void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha, int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, ssize_t zeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack = 4);
 #ifdef __cplusplus
 }
 #endif
@@ -68,19 +69,14 @@ struct CoreInt8Functions {
     void(*Int8GemmKernel)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
     void(*Int8GemmKernelFast)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
     void(*MNNGetGemmUnit)(int* UNIT, int* SRC_UNIT, int* DST_XUNIT);
-    // Im2Col
-    typedef void(*Im2ColFunc)(int8_t* colAddr, const int8_t* inputOrigin, int32_t inputZeroPoint,
-                              const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
-                              size_t realDstCount);
-    Im2ColFunc(*chooseIm2Col)(const ConvolutionCommon::Im2ColParameter* im2colParam, size_t inputChannel);
+    void(*MNNPackC4Int8ForMatMul_A)(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el);
 
     // sparse
     void(*MNNGetSparseQuantMatMulPackMode)(int* eP, int *lP, int* hP);
     void(*MNNPackForSparseQuantMatMul_B)(int8_t* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const int8_t* source, size_t h, size_t kernelCount, size_t icCount, const int eP);
     void(*MNNPackedSparseQuantMatMulEpx1)(int8_t* C, const int8_t* A, const int8_t* B, const size_t* sparseQuantParam, const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap);
     void(*MNNPackedSparseQuantMatMulEpx4)(int8_t* C, const int8_t* A, const int8_t* B, const size_t* sparseQuantParam, const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap);
-    void(*MNNSparseQuantIm2col)(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
-                              const ConvolutionCommon::Im2ColParameter* im2colParameter, const size_t* sparseQuantParam, size_t xIndexStart);
+    void(*MNNPackC4Int8ForMatMul_ASparse)(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el);
 
     void(*ConvDepthwiseLineInt8)(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                  size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
@@ -89,7 +85,7 @@ struct CoreInt8Functions {
     void(*MNNInt8ScaleToFloat)(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint);
 
     void(*MNNScaleAndAddBias)(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber, size_t biasNumber);
-    
+
     // Pooling
     void (*MNNMaxPoolInt8)(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 

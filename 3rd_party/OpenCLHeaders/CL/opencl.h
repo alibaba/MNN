@@ -39,6 +39,7 @@ extern "C" {
 #include <CL/cl_gl.h>
 #include <CL/cl_gl_ext.h>
 #include <CL/cl_ext.h>
+#include <CL/cl_ext_qcom.h>
 
 #ifdef __cplusplus
 }

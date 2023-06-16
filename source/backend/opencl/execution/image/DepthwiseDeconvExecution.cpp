@@ -88,6 +88,7 @@ DepthwiseDeconvExecution::~DepthwiseDeconvExecution() {
 }
 ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs,
                                              const std::vector<Tensor *> &outputs) {
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -150,7 +151,8 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
     
     std::string name = "depthwiseDeconv";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-
+    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -169,6 +171,13 @@ ErrorCode DepthwiseDeconvExecution::onExecute(const std::vector<Tensor *> &input
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us DepthwiseDeconv\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End DepthwiseDeconvExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

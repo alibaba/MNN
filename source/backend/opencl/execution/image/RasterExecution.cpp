@@ -26,6 +26,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
 #ifdef LOG_VERBOSE
     MNN_PRINT("start RasterExecution onResize !\n");
 #endif
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     mTempInput.clear();
     mTempOutput = nullptr;
     MNN_ASSERT(outputs.size() == 1);
@@ -82,6 +83,10 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             {
                 MNN_PRINT("setArg err %d\n", (int)ret);
             }
+            recordKernel2d(unit.kernel,
+                {(uint32_t)UP_DIV((region[1] * region[3]), 16)*16,
+                (uint32_t)UP_DIV((region[0] * region[2]), 16)*16},
+                {8, 8}, runtime);
         }
         
         // image raster
@@ -134,6 +139,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
                                    ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
                                    ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+            recordKernel3d(unit.kernel, gws, lws, runtime);
         }
         if(mNeedZero)
         {
@@ -143,6 +149,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         {
             MNN_ASSERT((regionNum==kernel_idx));
         }
+        endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
         return NO_ERROR;
     }
 
@@ -201,6 +208,8 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
             ROUND_UP(gws[1], std::max((uint32_t)1, lws[1]))};
+        
+        recordKernel2d(unit.kernel, gws, lws, runtime);
     }
 
     //image to buffer
@@ -246,6 +255,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
             ROUND_UP(gws[1], std::max((uint32_t)1, lws[1]))};
+        recordKernel2d(unit.kernel, gws, lws, runtime);
     }
     
     // buffer raster
@@ -291,6 +301,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
                                ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
                                ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+        recordKernel3d(unit.kernel, gws, lws, runtime);
     }
     
     //buffer to image
@@ -333,6 +344,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
             ROUND_UP(gws[1], std::max((uint32_t)1, lws[1]))};
+        recordKernel2d(unit.kernel, gws, lws, runtime);
     }
     
     //kernel num check
@@ -345,6 +357,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         MNN_ASSERT((kernel_idx==regionNum + originNum + 1));
     }
     
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end RasterExecution onResize !\n");
 #endif

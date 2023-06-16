@@ -39,6 +39,7 @@ bool SoftmaxExecution::buildSoftmaxKernel() {
 }
 
 ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
 
@@ -92,7 +93,8 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mKernel.setArg(1, openCLImage(output));
         mKernel.setArg(2, shape);
     }
-
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -109,6 +111,13 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End SoftmaxExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif
 

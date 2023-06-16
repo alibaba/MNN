@@ -135,34 +135,24 @@ FloatToInt8Execution::FloatToInt8Execution(Backend *backend, const std::vector<T
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
     auto scale         = param->main_as_QuantizedFloatParam();
 
-    if(scale == nullptr) {
-        auto quantAttr = MNN::TensorUtils::getDescribe(inputs[0])->quantAttr;
-        mZeroPoint = quantAttr->zero;
-        mClampMax  = quantAttr->max;
-        mClampMin  = quantAttr->min;
+    const int scaleLen = scale->tensorScale()->size();
+    mClipBits = scale->nbits();
 
+    if (1 == scaleLen) {
         mSingle = true;
-        mSingleScale = quantAttr->scale;
+        mSingleScale = scale->tensorScale()->data()[0];
     } else {
-        const int scaleLen = scale->tensorScale()->size();
-        mClipBits = scale->nbits();
+        auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+        mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
+        mScales = (void *)((uint8_t*)mScaleStorage.first + mScaleStorage.second);
+        runtime->memset(mScales, 0, UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
 
-        if (1 == scaleLen) {
-            mSingle = true;
-            mSingleScale = scale->tensorScale()->data()[0];
-        } else {
-            auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-            mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
-            mScales = (void *)((uint8_t*)mScaleStorage.first + mScaleStorage.second);
-            runtime->memset(mScales, 0, UP_DIV(scaleLen, INT8_PACK_NUMBER) * INT8_PACK_NUMBER * sizeof(float));
-    
-            runtime->memcpy(mScales, scale->tensorScale()->data(), scaleLen * sizeof(float), MNNMemcpyHostToDevice);
-        }
-
-        mZeroPoint = scale->zeroPoint();
-        mClampMin = scale->clampMin();
-        mClampMax = scale->clampMax();
+        runtime->memcpy(mScales, scale->tensorScale()->data(), scaleLen * sizeof(float), MNNMemcpyHostToDevice);
     }
+
+    mZeroPoint = scale->zeroPoint();
+    mClampMin = scale->clampMin();
+    mClampMax = scale->clampMax();
 }
 FloatToInt8Execution::~FloatToInt8Execution() {
     if(!mSingle) {
@@ -175,13 +165,29 @@ ErrorCode FloatToInt8Execution::onResize(const std::vector<Tensor *> &inputs, co
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
     auto input = inputs[0];
-    mArea      = input->length(0);
-    mChannel = input->channel();
-    for (int i = 2; i < input->dimensions(); ++i) {
-        mArea *= input->length(i);
+    auto dims = input->dimensions();
+    MNN_ASSERT(dims >= 2);
+
+    auto format = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (format == MNN_DATA_FORMAT_NHWC) {
+        mChannel = input->length(dims-1);
+        mArea = 1;
+        for(int i = 0; i < dims-1; i++) {
+            mArea *= input->length(i);
+        }
+    } else if(format == MNN_DATA_FORMAT_NCHW || format == MNN_DATA_FORMAT_NC4HW4) {
+        mChannel = input->length(1);
+        mArea = input->length(0);
+        for(int i = 2; i < dims; i++) {
+            mArea *= input->length(i);
+        }
+    } else {
+        MNN_ERROR("FloatToInt8Execution not support format:%d\n", format);
+        MNN_ASSERT(false);
     }
+    
     mCount = mArea * UP_DIV(mChannel, INT8_PACK_NUMBER) * 4;
-    //printf("mBatch:%d- mChannel:%d- mArea:%d- mCount:%d\n", mBatch,mChannel,mArea, mCount);
+    // printf("mChannel:%d- mArea:%d- mCount:%d, format:%d\n",mChannel,mArea, mCount, format);
     return NO_ERROR;
 }
 
@@ -192,7 +198,7 @@ ErrorCode FloatToInt8Execution::onExecute(const std::vector<Tensor *> &inputs, c
     int threads_num = runtime->threads_num();
     auto input_addr = (void*)inputs[0]->deviceId();
     auto output_addr = (void*)outputs[0]->deviceId();
-
+    
     auto channelPackInt8 = UP_DIV(mChannel, INT8_PACK_NUMBER) * 4;
     auto channelPackFloat = UP_DIV(mChannel, PACK_NUMBER) * PACK_NUMBER;
     DivModFast cpD(channelPackInt8);
@@ -226,6 +232,9 @@ class FloatToInt8Creator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        if(op->main_as_QuantizedFloatParam() == nullptr) {
+            return new CastWrapExecution(backend, DataType_DT_INT8);
+        }
         return new FloatToInt8Execution(backend, inputs, op);
     }
 };

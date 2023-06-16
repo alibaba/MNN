@@ -219,11 +219,15 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         auto input0Ptr = inputs[0]->host<uint8_t>();
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-            auto func = CPUBinaryInt8::selectForInt8(type);
-            if (nullptr == func) {
-                return nullptr;
+            if (CPUBackend::getDataType(inputs[1]) == DataType_DT_INT8 || inputs[1]->getType().bytes() == 1) {
+                if (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1) {
+                    auto func = CPUBinaryInt8::selectForInt8(type);
+                    if (nullptr == func) {
+                        return nullptr;
+                    }
+                    return new CPUBinaryInt8(backend, func, op->main_as_BinaryOp()->activationType());
+                }
             }
-            return new CPUBinaryInt8(backend, func, op->main_as_BinaryOp()->activationType());
         }
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {

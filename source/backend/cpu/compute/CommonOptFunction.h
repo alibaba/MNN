@@ -16,6 +16,7 @@
 
 #include "core/Macro.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "MNN/ImageProcess.hpp"
 
 extern "C" {
 
@@ -34,6 +35,8 @@ void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, in
 
 void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
 void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
+void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNPackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
 void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
@@ -44,6 +47,9 @@ void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, 
 
 void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
 void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
+
+void MNNUnpackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNUnpackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
 void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
@@ -283,6 +289,16 @@ struct CoreFunctions {
     void(*MNNC1ToFloatC1)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
     void(*MNNC3ToFloatC3)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
     void(*MNNC3ToFloatRGBA)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+    void(*MNNsampleBilinearCommon)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                size_t iw, size_t ih, size_t yStride, size_t bpp);
+    void(*MNNSamplerC4Nearest)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                         size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSamplerC4Bilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                          size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSampleC4Bilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSampleBilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                      size_t iw, size_t ih, size_t yStride, size_t bpp);
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

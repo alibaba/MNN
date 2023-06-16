@@ -355,19 +355,19 @@ void executeInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* input
 #endif
     for (int i = 0; i < size; ++i) {
         if (needBroadcast == 0) {
-            inp0 = (inputData0[0]- zeroPoint) * inputScale0[i];
-            inp1 = (inputData1[i]- zeroPoint) * inputScale1[i];
+            inp0 = (inputData0[0]- zeroPoint) * inputScale0[0];
+            inp1 = (inputData1[i]- zeroPoint) * inputScale1[0];
             output = f(inp0, inp1);
         } else if (needBroadcast == 1) {
-            inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
-            inp1 = (inputData1[0] - zeroPoint) * inputScale1[i];
+            inp0 = (inputData0[i] - zeroPoint) * inputScale0[0];
+            inp1 = (inputData1[0] - zeroPoint) * inputScale1[0];
             output = f(inp0, inp1);
         } else {
-            inp0 = (inputData0[i] - zeroPoint) * inputScale0[i];
-            inp1 = (inputData1[i] - zeroPoint) * inputScale1[i];
+            inp0 = (inputData0[i] - zeroPoint) * inputScale0[0];
+            inp1 = (inputData1[i] - zeroPoint) * inputScale1[0];
             output = f(inp0, inp1);
         }
-        int value = (int)roundf(output * outputScale[i]) + zeroPoint;
+        int value = (int)roundf(output * outputScale[0]) + zeroPoint;
         if (value > maxValue) {
             value = maxValue;
         }

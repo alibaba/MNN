@@ -137,7 +137,7 @@ void TensorUtils::setLinearLayout(Tensor* tensor) {
 static const Tensor* createHostPlanar(const Tensor* source) {
     // check
     auto bnType        = MNN_FORWARD_CPU;
-    auto tensorBackend = TensorUtils::getDescribe(source)->backend;
+    auto tensorBackend = TensorUtils::getDescribe(source)->getBackend();
     if (tensorBackend) {
         bnType = tensorBackend->type();
     }
@@ -458,7 +458,7 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     auto des = TensorUtils::getDescribe(dst);
     auto srcDes = TensorUtils::getDescribe(src);
     bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || des->extra.offset != srcDes->extra.offset;
-    des->backend = srcDes->backend;
+    des->setBackend(srcDes->getBackend());
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
     des->extra.offset = srcDes->extra.offset;
@@ -732,6 +732,11 @@ void TensorUtils::setRasterInputs(Command* cmd) {
     auto& regions = TensorUtils::getDescribe(cmd->outputs[0])->regions;
     cmd->inputs.resize(regions.size());
     for (int i=0; i<regions.size(); ++i) {
+#ifdef DEBUG
+        for (int j=0; j<3; ++j) {
+            MNN_ASSERT(regions[i].size[j] > 0);
+        }
+#endif
         cmd->inputs[i] = regions[i].origin;
         auto des = getDescribe(regions[i].origin);
     }

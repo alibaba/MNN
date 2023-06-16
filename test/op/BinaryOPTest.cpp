@@ -22,7 +22,7 @@ protected:
     template<typename Tin, typename Tout>
     bool test(VARP (*opFunc)(VARP, VARP), string name, float threshold,
               const vector<Tin>& data_x, const vector<Tin>& data_y, const vector<Tout>& data_out,
-              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={}, const vector<float> zeroPoints={}) {
+              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={-100, -100, -100}, const vector<float> zeroPoints={-100, -100, -100}) {
         int size_x = 1, size_y = 1, size_out = 1;
         for (int i = 0; i < shape_x.size(); ++i) {
             size_x *= shape_x[i];
@@ -38,9 +38,11 @@ protected:
         auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
         input_x->setName("input_x");
         input_y->setName("input_y");
-        if (quantScales.size() > 1) {
-        input_x->writeScaleMap(quantScales[0], zeroPoints[0]);
-        input_y->writeScaleMap(quantScales[1], zeroPoints[1]);
+        if (quantScales[0] != -100) { // -100 means invalid scale.
+            input_x->writeScaleMap(quantScales[0], zeroPoints[0]);
+        }
+        if (quantScales[1] != -100) {
+            input_y->writeScaleMap(quantScales[1], zeroPoints[1]);
         }
         // set input data
         auto ptr_x = input_x->template writeMap<Tin>();
@@ -51,7 +53,7 @@ protected:
         input_x->unMap();
         input_y->unMap();
         auto output = opFunc(input_x, input_y);
-        if (quantScales.size() > 0){
+        if (quantScales[2] != -100){
             output->writeScaleMap(quantScales[2], zeroPoints[2]);
         }
         auto gotOutput = output->template readMap<Tout>();
@@ -111,9 +113,13 @@ class SubtractTest : public BinaryTestCommon {
 public:
     virtual ~SubtractTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
+        bool result = test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
                     {4}, {4}, {4});
+        result = result && test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
+                    {4}, {4}, {4}, {0.2, -100, 0.2}, {0, 0, 0});
+        return result;
     }
 };
 class SubtractInt8Test : public BinaryTestCommon {
@@ -174,9 +180,13 @@ public:
     virtual ~PowTest() = default;
     virtual bool run(int precision) {
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
-        return test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
+        bool result = test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
                     {4}, {4}, {4});
+        result = result && test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
+                    {4}, {4}, {4}, {0.3, 0.3, -100}, {0, 0, 0});
+        return result;
     }
 };
 class PowInt8Test : public BinaryTestCommon {

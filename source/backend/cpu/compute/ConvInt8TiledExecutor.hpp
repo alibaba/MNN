@@ -22,6 +22,8 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
+    static void reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount);
+
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
@@ -29,7 +31,9 @@ protected:
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
     std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
     CPUConvolution::MutableResourceInt8 mMutableResource;
-
+    std::pair<void*, int> mBlitInfo;
+    std::pair<size_t, size_t> mBlitInfoStride;
+    int mIm2ColCount;
 };
 
 //
@@ -54,7 +58,6 @@ private:
     DenseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const DenseConvInt8TiledExecutor& exe);
 
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
-
 };
 
 } // namespace MNN

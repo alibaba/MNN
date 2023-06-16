@@ -841,8 +841,8 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
 
     mUseRRLayout = (!mTransposeB && hAlignment);
    
-    mNeedATempBuffer = (mTransposeA || !lAlignment) || mFp16Fp32MixInfer;
-    mNeedBTempBuffer = (needBTranspose || !lAlignment) || mFp16Fp32MixInfer;
+    mNeedATempBuffer = (mTransposeA || !lAlignment);
+    mNeedBTempBuffer = (needBTranspose || !lAlignment);
     mNeedConvertMatAB = (mNeedATempBuffer || mNeedBTempBuffer);
 
     // MNN_PRINT("trAtrB:%d-%d, tmpAB:%d-%d inps:%d, bwlh:%d-%d-%d-%d\n", mTransposeA, mTransposeB, mNeedATempBuffer, mNeedBTempBuffer, inputs.size(), mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2]);
@@ -853,14 +853,14 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     if(mFp32Infer) {
         convertBytes = 4;
     }
-    if(mNeedATempBuffer) {
+    if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedATempBuffer) {
         bufferAData = pool->alloc(convertBytes * mBatch * mAs * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
         mTempMatA = (void*)((uint8_t*)bufferAData.first + bufferAData.second);
     } else {
         mTempMatA = (void *)A->deviceId();
     }
 
-    if(mNeedBTempBuffer) {
+    if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedBTempBuffer) {
         bufferBData = pool->alloc(convertBytes * mBatch * mBs * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
         mTempMatB = (void*)((uint8_t*)bufferBData.first + bufferBData.second);
     } else {

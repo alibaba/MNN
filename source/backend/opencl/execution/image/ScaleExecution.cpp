@@ -119,10 +119,8 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleExecution onResize !\n");
 #endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ScaleExecution onResize !\n");
-#endif
+    
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
 
     const int batch    = inputShape.at(0);
@@ -153,6 +151,12 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
     for (size_t i = 0; i < gws.size(); ++i) {
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }
+    
+    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end ScaleExecution onResize !\n");
+#endif
     return NO_ERROR;
 }
 
@@ -168,6 +172,13 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End ScaleExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
 

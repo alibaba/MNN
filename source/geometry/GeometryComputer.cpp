@@ -55,7 +55,7 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
     if (!res) {
         return nullptr;
     }
-    TensorUtils::getDescribe(tensor.get())->backend = mBackend.get();
+    TensorUtils::getDescribe(tensor.get())->setBackend(mBackend.get());
     auto iter = mConstTensors.find(key);
     if (iter != mConstTensors.end()) {
         iter->second.emplace_back(tensor);
@@ -71,7 +71,7 @@ bool GeometryComputer::Context::allocTensor(Tensor* tensor) {
         return false;
     }
     TensorUtils::getDescribe(tensor)->usage = Tensor::InsideDescribe::CONSTANT;
-    TensorUtils::getDescribe(tensor)->backend = mBackend.get();
+    TensorUtils::getDescribe(tensor)->setBackend(mBackend.get());
     return true;
 }
 

@@ -48,6 +48,7 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     Tensor *roi    = inputs[1];
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -87,7 +88,8 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     mKernel.setArg(idx++, openCLImage(output));
     
     mLWS = roiPoolingLocalWS(mGWS, mMaxWorkGroupSize);
-
+    recordKernel3d(mKernel, mGWS, mLWS, runtime);
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 
@@ -129,6 +131,13 @@ ErrorCode RoiPooling::onExecute(const std::vector<Tensor *> &inputs, const std::
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us RoiPooling\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End RoiPooling onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
     
