@@ -253,11 +253,11 @@ protected:
             auto error = (int32_t)targetValue - (int32_t)computeResult;
             if (error * error > 1) {
                 MNN_PRINT("%d x %d, ConvInt8 result %d Error: %d -> %d\n", ow, oh, i, targetValue, computeResult);
-                MNN_PRINT("\nexpected output:");
-                formatMatrix(targetValues.data(), {yInfo->dim[0], yInfo->dim[1]/4, yInfo->dim[2], yInfo->dim[3], 4});
-                MNN_PRINT("\nreal output:");
-                formatMatrix(yPtr, {yInfo->dim[0], yInfo->dim[1]/4, yInfo->dim[2], yInfo->dim[3], 4});
-
+#ifdef DEBUG
+                x->writeMap<int8_t>();
+                auto ptr = y->readMap<int8_t>();
+                FUNC_PRINT_ALL(ptr, p);
+#endif
                 return false;
             }
         }
@@ -269,38 +269,55 @@ class ConvInt8Im2colGemmTest : public ConvInt8TestCommon {
 public:
 
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {34, 23}; // {w, h}
-        INTS channel = {64, 64}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
             {4, 2}, {1, 5}, {7, 1}
         };
+        int iw = 34; int ih = 23;
         std::vector<std::string> titles = {"4x2", "1x5", "7x1"};
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
-                return false;
-            }
-        }
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 3, MNN::SparseAlgo_RANDOM, 1, false);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
-                return false;
-            }
-        }
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 5, MNN::SparseAlgo_RANDOM, 1, false);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
-                return false;
-            }
-        }
-        for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
-            if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
-                return false;
+        for (int sx=1; sx<2; ++sx) {
+            for (int sy=1; sy<2; ++sy) {
+                for (int dx=1; dx<2; ++dx) {
+                    for (int dy=1; dy<2; ++dy) {
+                        for (int px=2; px<4; ++px) {
+                            for (int py=3; py<4; ++py) {
+                                for (int ic=1; ic<=64; ic*=8) {
+                                    for (int oc=1; oc<=64; oc*=8) {
+                                        INTS strides = {sx, sy}, dilate = {dx, dy}, pad = {px, py}, inputShape = {iw, ih};
+                                        INTS channel = {ic, oc};
+                                        for (int i = 0; i < kernels.size(); ++i) {
+                                            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
+                                            if (!res) {
+                                                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
+                                                return false;
+                                            }
+                                        }
+                                        for (int i = 0; i < kernels.size(); ++i) {
+                                            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 3, MNN::SparseAlgo_RANDOM, 1, false);
+                                            if (!res) {
+                                                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                                                return false;
+                                            }
+                                        }
+                                        for (int i = 0; i < kernels.size(); ++i) {
+                                            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 5, MNN::SparseAlgo_RANDOM, 1, false);
+                                            if (!res) {
+                                                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
+                                                return false;
+                                            }
+                                        }
+                                        for (int i = 0; i < kernels.size(); ++i) {
+                                            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
+                                            if (!res) {
+                                                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         return true;

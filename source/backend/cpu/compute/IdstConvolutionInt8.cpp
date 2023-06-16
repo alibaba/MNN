@@ -1,19 +1,22 @@
 //
-//  ConvolutionInt8Executor.cpp
+//  IdstConvolutionInt8.cpp
 //  MNN
 //
 //  Created by MNN on 2018/07/16.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/compute/ConvolutionInt8Executor.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "IdstConvolutionInt8.hpp"
+#include "ConvInt8TiledExecutor.hpp"
+#include "ConvolutionTiledExecutor.hpp"
+#include "CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "backend/cpu/compute/ConvOpt.h"
-#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "core/BufferAllocator.hpp"
+#include "ConvOpt.h"
+#include "ConvolutionIntFactory.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "Int8FunctionsOpt.h"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 
@@ -29,14 +32,15 @@ void MNNInt8ToUInt8(void* ptr, int count);
 
 namespace MNN {
 
-ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* convOp, Backend* b,
+IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Backend* b,
                                                  const ConvolutionCommon::Int8Common* common, const float* bias,
                                                  size_t biasSize) : MNN::CPUConvolution(convOp, b) {
     auto core = static_cast<CPUBackend*>(b)->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    int PackUnit = static_cast<CPUBackend*>(b)->functions()->pack;
     
-    mBias.reset(ROUND_UP(biasSize, UNIT));
+    mBias.reset(ROUND_UP(biasSize, PackUnit));
     mBias.clear();
     auto biasDest = mBias.get();
     mAMin         = common->quan->aMin();
@@ -50,7 +54,7 @@ ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* conv
     int outputCount = (int)biasSize;
     mQuan           = common->quan;
     MNN_ASSERT(nullptr != mQuan);
-    mAlpha.reset(ROUND_UP(common->alpha.size(), UNIT));
+    mAlpha.reset(ROUND_UP(common->alpha.size(), PackUnit));
     mAlpha.clear();
     ::memcpy(mAlpha.get(), common->alpha.get(), common->alpha.size() * sizeof(float));
 
@@ -60,41 +64,22 @@ ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* conv
     auto ky                 = mCommon->kernelY();
     auto kernelCount        = kx * ky;
     auto srcCount           = mSrcCount;
-    auto outputCountUnit    = UP_DIV(outputCount, UNIT);
-    auto srcCountUnit       = UP_DIV(srcCount, UNIT);
-    auto totalKernelCountD8 = UP_DIV(srcCountUnit * kx * ky, SRC_UNIT / UNIT);
-    mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{outputCountUnit, totalKernelCountD8, UNIT, SRC_UNIT}));
-    mFakeBias.reset(Tensor::createDevice<int32_t>({(int)ROUND_UP(biasSize, UNIT)}));
+    std::vector<int> shape;
+    if (SRC_UNIT > UNIT) {
+        MNN_ASSERT(SRC_UNIT % UNIT == 0);
+        shape = {UP_DIV(outputCount, UNIT), UP_DIV(UP_DIV(srcCount, UNIT) * kernelCount, SRC_UNIT / UNIT), UNIT, SRC_UNIT};
+    } else {
+        shape = {UP_DIV(outputCount, UNIT), UP_DIV(srcCount, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
+    }
+    mWeight.reset(Tensor::createDevice<int8_t>(shape));
+    mFakeBias.reset(Tensor::createDevice<int32_t>({(int)ROUND_UP(biasSize, PackUnit)}));
     mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     mValid &= b->onAcquireBuffer(mFakeBias.get(), Backend::STATIC);
     if (!mValid) {
         MNN_ERROR("Memory not enough\n");
         return;
     }
-    ::memset(mWeight->host<int8_t>(), 0, mWeight->size());
-    auto dst = mWeight->host<int8_t>();
-    for (int k = 0; k < kernelCount; ++k) {
-        auto srcK = common->weight.get() + k;
-        for (int y = 0; y < srcCount; ++y) {
-            int yOutSide    = y / UNIT;
-            int yInside     = y % UNIT;
-            int yIndex      = yOutSide + k * srcCountUnit;
-            int ySubOutside = yIndex / (SRC_UNIT / UNIT);
-            int ySubInside  = yIndex % (SRC_UNIT / UNIT);
-
-            auto dstY = dst + ySubOutside * mWeight->stride(1) + ySubInside * UNIT + yInside;
-            auto srcY = srcK + y * kernelCount;
-            for (int x = 0; x < outputCount; ++x) {
-                int xOutSide = x / UNIT;
-                int xInside  = x % UNIT;
-
-                auto dstX = dstY + xOutSide * mWeight->stride(0) + xInside * SRC_UNIT;
-                auto srcX = srcY + x * kernelCount * srcCount;
-
-                dstX[0] = srcX[0];
-            }
-        }
-    }
+    ConvInt8TiledExecutor::reorderWeight(mWeight.get(), (uint8_t*)common->weight.get(), SRC_UNIT, UNIT, srcCount, outputCount, kernelCount);
     ::memset(mFakeBias->host<int32_t>(), 0, mFakeBias->size());
 #ifdef MNN_USE_SSE
     for (int oz = 0; oz < outputCount; ++oz) {
@@ -108,43 +93,24 @@ ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* conv
 #endif
 }
 
-ConvolutionInt8Executor::~ConvolutionInt8Executor() {
-    if (mWeight != nullptr) {
-        backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-    }
-    if (mFakeBias != nullptr) {
-        backend()->onReleaseBuffer(mFakeBias.get(), Backend::STATIC);
-    }
+IdstConvolutionInt8::~IdstConvolutionInt8() {
+    // Do nothing
 }
 
-ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode IdstConvolutionInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+    int PackUnit = static_cast<CPUBackend*>(backend())->functions()->pack;
+
     CPUConvolution::onResize(inputs, outputs);
-    int tileCount           = UP_DIV(outputs[0]->width() * outputs[0]->height(), DST_XUNIT);
-    auto outputCountUnit    = UP_DIV(outputs[0]->channel(), UNIT);
+    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, static_cast<CPUBackend*>(backend())->functions(), core);
+    auto ow = mIm2ColParamter.ow;
+    auto oh = mIm2ColParamter.oh;
+    int tileCount           = UP_DIV(ow * oh, DST_XUNIT);
+    auto outputCountUnit    = UP_DIV(outputs[0]->channel(), PackUnit);
     int number              = std::max(((CPUBackend*)backend())->threadNumber(), 1);
     number                  = std::min(number, tileCount);
-    mIm2ColParamter.dilateX = mCommon->dilateX();
-    mIm2ColParamter.dilateY = mCommon->dilateY();
-    mIm2ColParamter.strideX = mCommon->strideX();
-    mIm2ColParamter.strideY = mCommon->strideY();
-    mIm2ColParamter.padX    = mPadX;
-    mIm2ColParamter.padY    = mPadY;
-    mIm2ColParamter.ih      = inputs[0]->height();
-    mIm2ColParamter.iw      = inputs[0]->width();
-    mIm2ColParamter.icDiv4  = UP_DIV(inputs[0]->channel(), UNIT);
-    mIm2ColParamter.ow      = outputs[0]->width();
-    mIm2ColParamter.oh      = outputs[0]->height();
-    mIm2ColParamter.kernelX = mCommon->kernelX();
-    mIm2ColParamter.kernelY = mCommon->kernelY();
-    mIm2ColParamter.kernelCountUnit =
-        UP_DIV(mIm2ColParamter.icDiv4 * mIm2ColParamter.kernelY * mIm2ColParamter.kernelX, (SRC_UNIT / UNIT));
-    mIm2ColParamter.srcZStep = inputs[0]->stride(1) * UNIT;
-    mIm2ColParamter.srcYStep = inputs[0]->stride(2) * UNIT;
-
     TensorUtils::copyShape(inputs[0], &mSrcCopyBuffer, true);
     mSrcCopyBuffer.buffer().dim[0].extent = 1;
     mSrcCopyBuffer.buffer().type          = halide_type_of<int8_t>();
@@ -156,47 +122,48 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
     mTempBuffer.buffer().dim[2].extent = mWeight->length(1) * SRC_UNIT;
     TensorUtils::setLinearLayout(&mTempBuffer);
 
-    mTempDstBuffer.buffer().type          = halide_type_of<float>();
-    mTempDstBuffer.buffer().dimensions    = 3;
-    mTempDstBuffer.buffer().dim[0].extent = number;
-    mTempDstBuffer.buffer().dim[1].extent = DST_XUNIT;
-    mTempDstBuffer.buffer().dim[2].extent = outputCountUnit * UNIT;
-    TensorUtils::setLinearLayout(&mTempDstBuffer);
-
     bool success = backend()->onAcquireBuffer(&mSrcCopyBuffer, Backend::DYNAMIC);
     success &= backend()->onAcquireBuffer(&mTempBuffer, Backend::DYNAMIC);
-    success &= backend()->onAcquireBuffer(&mTempDstBuffer, Backend::DYNAMIC);
     if (!success) {
         return OUT_OF_MEMORY;
     }
+    auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
+    auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(DST_XUNIT, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, number);
+    mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
+    if (nullptr == mBlitInfo.first) {
+        return OUT_OF_MEMORY;
+    }
+    bufferAlloc->free(mBlitInfo);
+    mBlitInfoStride = blitInfoSize.second;
+    
     backend()->onReleaseBuffer(&mSrcCopyBuffer, Backend::DYNAMIC);
-    backend()->onReleaseBuffer(&mTempDstBuffer, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mTempBuffer, Backend::DYNAMIC);
 
     mPostParameters = getPostParameters();
     return NO_ERROR;
 }
 
-ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto coreFloat = static_cast<CPUBackend*>(backend())->functions();
     auto coreInt = static_cast<CPUBackend*>(backend())->int8Functions();
-    int UNIT, SRC_UNIT, DST_XUNIT;
-    coreInt->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+    int UNIT__, SRC_UNIT, DST_XUNIT;
+    coreInt->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
+    int PackUnit = static_cast<CPUBackend*>(backend())->functions()->pack;
+
     auto gemmKernel = coreInt->Int8GemmKernel;
     
     //        AUTOTIME;
     auto input        = inputs[0];
     auto output       = outputs[0];
     auto weightOrigin = mWeight->host<int8_t>();
-    auto dstZStep     = output->width() * output->height() * UNIT;
+    auto dstZStep     = mIm2ColParamter.ow * mIm2ColParamter.oh * PackUnit * input->batch();
     int threadNumber  = 1;
     
-    auto im2ColProc = coreInt->chooseIm2Col(&mIm2ColParamter, input->channel());
+    auto blitProc = coreInt->MNNPackC4Int8ForMatMul_A;
     int batch            = input->batch();
-    int width            = output->width();
-    int height           = output->height();
-    auto ocC4            = UP_DIV(output->channel(), UNIT);
+    int width            = mIm2ColParamter.ow;
+    int height           = mIm2ColParamter.oh;
+    auto ocC4            = UP_DIV(output->channel(), PackUnit);
     auto kernelCountUnit = mIm2ColParamter.kernelCountUnit;
     int count            = width * height;
     float quantScale[] = {
@@ -207,7 +174,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
     };
     int8_t zeroPoint = 0;
     
-    std::vector<float> fakeScale(ocC4 * UNIT, 1.0f);
+    std::vector<float> fakeScale(ocC4 * PackUnit, 1.0f);
     QuanPostTreatParameters quanParam;
     quanParam.bias = mFakeBias->host<int32_t>();
     quanParam.scale = fakeScale.data();
@@ -216,8 +183,10 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);
 
-    int inputTotalSize = mSrcCopyBuffer.elementSize();
+    auto bn = static_cast<CPUBackend*>(backend());
+    int inputTotalSize = bn->getTensorSize(&mSrcCopyBuffer, true);
     int8_t* srcCopy    = mSrcCopyBuffer.host<int8_t>();
+    const int col_buffer_size = mIm2ColParamter.kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
         auto srcOrigin = input->host<float>() + input->stride(0) * batchIndex;
         auto dstOrigin = output->host<float>() + output->stride(0) * batchIndex;
@@ -230,17 +199,29 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         auto outputOrigin   = output->host<float>() + batchIndex * output->stride(0);
         auto threadFunction = [&](int tId) {
             auto colAddr        = mTempBuffer.host<int8_t>() + tId * mTempBuffer.buffer().dim[0].stride;
-            auto gemmOutputAddr = mTempDstBuffer.host<float>() + tId * mTempDstBuffer.buffer().dim[0].stride;
+            auto srcPtr     = (int8_t const **)((uint8_t *)mBlitInfo.first + mBlitInfo.second + tId * mBlitInfoStride.first);
+            auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
+
+            int32_t info[4];
+            info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih;
+            info[2] = DST_XUNIT;
+            info[3] = mIm2ColParamter.strideX;
 
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndexStart  = tIndex * DST_XUNIT;
                 int realDstCount = ALIMIN(count - xIndexStart, DST_XUNIT);
-
-                im2ColProc(colAddr, srcCopy, zeroPoint, &mIm2ColParamter, xIndexStart, realDstCount);
-                
-                auto outputInTile = outputOrigin + xIndexStart * UNIT;
+                auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, xIndexStart, realDstCount, mIm2ColParamter, (const uint8_t*)srcCopy, sizeof(int8_t));
+                int number = res.first;
+                bool needZero = res.second;
+                if (needZero) {
+                    ::memset(colAddr, zeroPoint, col_buffer_size);
+                }
+                info[0] = number;
+                if (number > 0) {
+                    blitProc(colAddr, srcPtr, info, el);
+                }
+                auto outputInTile = outputOrigin + xIndexStart * PackUnit;
                 // GEMM
-                
 #ifdef MNN_USE_SSE
                 const int col_buffer_size = mIm2ColParamter.kernelCountUnit * DST_XUNIT * SRC_UNIT;
                 MNNInt8ToUInt8(colAddr, col_buffer_size);
@@ -258,9 +239,9 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         threadNumber = std::min(threadNumber, ocC4);
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             for (int z = (int)tId; z < ocC4; z += threadNumber) {
-                coreFloat->MNNScaleAndAddBias(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + UNIT * z,
-                                   mAlpha.get() + UNIT * z, width * height, 1);
-                coreFloat->MNNAxByClampBroadcastUnit(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + UNIT * z, width * height, 0, 0, 1, mPostParameters.data());
+                coreFloat->MNNScaleAndAddBias(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + PackUnit * z,
+                                   mAlpha.get() + PackUnit * z, width * height, 1);
+                coreFloat->MNNAxByClampBroadcastUnit(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + PackUnit * z, width * height, 0, 0, 1, mPostParameters.data());
             }
         }
         MNN_CONCURRENCY_END();

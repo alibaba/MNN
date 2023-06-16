@@ -10,17 +10,10 @@
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUResize.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/TensorUtils.hpp"
+#include "core/Macro.h"
 namespace MNN {
-
-static int CLAMP(int v, int min, int max) {
-    if ((v) < min) {
-        (v) = min;
-    } else if ((v) > max) {
-        (v) = max;
-    }
-    return v;
-}
 
 CPUInterp3D::CPUInterp3D(Backend *backend, int resizeType,
                      float widthScale, float heightScale, float depthScale,
@@ -48,13 +41,34 @@ CPUInterp3D::~CPUInterp3D() {
 }
 //TODO: wtd interp3d
 ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto &input  = inputs[0]->buffer();
-    auto &output = outputs[0]->buffer();
-
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    auto channel_input = inputs[0]->channel();
+    int inD = inputs[0]->buffer().dim[2].extent;
+    int outD = outputs[0]->buffer().dim[2].extent;
+    auto plane_in = inD * inputs[0]->width() * inputs[0]->height() * inputs[0]->batch();
+    auto plane_out = outD * outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
+    auto depth = UP_DIV(channel_input, core->pack);
     if (mResizeType == 1) {
         // Nearstneighbor
-        CPUResizeNearestneighbor3DC4(input, output, mWidthScale, mHeightScale, mDepthScale,
-                                     mWidthOffset, mHeightOffset, mDepthOffset);
+        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) { // int8_t
+            if (core->pack == 8) {
+                MNNPackC2Origin(mInputTemp.get()->host<double>(), inputs[0]->host<double>(), plane_in, depth, plane_in);
+                CPUResizeNearestneighborC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+                MNNUnpackC2Origin(outputs[0]->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
+            }
+            else if (core->pack == 4) {
+                MNNPackC4Origin(mInputTemp.get()->host<float>(), inputs[0]->host<float>(), plane_in, depth, plane_in);
+                CPUResizeNearestneighborC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+                MNNUnpackC4Origin(outputs[0]->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
+            }
+            else if (core->pack == 16) {
+                CPUResizeNearestneighborC4<int8_t>(inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+            }
+        } else {
+            CPUResizeNearestneighbor3DC4<float>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale,
+                                                 mWidthOffset, mHeightOffset, mDepthOffset);
+        }
+        
     } else if (mResizeType == 2) {
         // bilinear
         //CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),
@@ -67,18 +81,30 @@ ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std:
         MNN_ERROR("cubic interpolation is not implemented in interp3D. Do nothing...");
     } else if (mResizeType == 4) {
         // Nearstneighbor
-        CPUResizeNearestneighbor3DRoundC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) { // int8_t
+            if (core->pack == 8) {
+                MNNPackC2Origin(mInputTemp.get()->host<double>(), inputs[0]->host<double>(), plane_in, depth, plane_in);
+                CPUResizeNearestneighbor3DRoundC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);
+                MNNUnpackC2Origin(outputs[0]->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
+            }
+            else if (core->pack == 4) {
+                MNNPackC4Origin(mInputTemp.get()->host<float>(), inputs[0]->host<float>(), plane_in, depth, plane_in);
+                CPUResizeNearestneighbor3DRoundC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);
+                MNNUnpackC4Origin(outputs[0]->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
+            }
+            else if (core->pack == 16) {
+                CPUResizeNearestneighbor3DRoundC4<int8_t>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);
+            }
+        } else {
+            CPUResizeNearestneighbor3DRoundC4<float>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);
+        }
     } else {
         return NOT_SUPPORT;
     }
-    auto outPtr = outputs[0]->host<float>();
     return NO_ERROR;
 }
 
 ErrorCode CPUInterp3D::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if (mResizeType != 2) {
-        return NO_ERROR;
-    }
     const int inW  = inputs[0]->buffer().dim[4].extent;
     const int inH  = inputs[0]->buffer().dim[3].extent;
     const int inD  = inputs[0]->buffer().dim[2].extent;
@@ -88,6 +114,21 @@ ErrorCode CPUInterp3D::onResize(const std::vector<Tensor *> &inputs, const std::
     const float xScaling = mWidthScale;
     const float yScaling = mHeightScale;
     const float zScaling = mDepthScale;
+    
+    mInputTemp.reset(Tensor::createDevice<int8_t>({inputs[0]->batch(), UP_DIV(inputs[0]->channel(), 16) * 16, inD, inH, inW}));
+    mOutputTemp.reset(Tensor::createDevice<int8_t>({outputs[0]->batch(), UP_DIV(outputs[0]->channel(), 16) * 16,outD, outH, outW}));
+    bool allocSucc = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC);
+    allocSucc      = allocSucc && backend()->onAcquireBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+    if (!allocSucc) {
+        return OUT_OF_MEMORY;
+    }
+    if (mResizeType != 2) {
+        if (mInputTemp.get()) {
+            backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
+            backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+        }
+        return NO_ERROR;
+    }
 
     mWidthPosition.buffer().dim[0].extent = 2 * outW;
     mWidthPosition.buffer().dimensions    = 1;

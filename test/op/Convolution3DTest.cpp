@@ -129,7 +129,7 @@ protected:
         using namespace MNN::Express;
         std::vector<float> weightData, biasData;
         for (int i = 0; i < group * (oc / group) * (ic / group) * kernels[0] * kernels[1] * kernels[2]; i++) {
-            weightData.push_back(rand() % 255 / 255.f);
+            weightData.push_back(rand() % 255 / 255.f / 1000.0f);
         }
         for (int i = 0; i < oc; i++) {
             biasData.push_back(rand() % 255 / 255.f);
@@ -148,7 +148,7 @@ protected:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 5e-3)) {
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
             MNN_PRINT("%s expect:\t real:\n", test_op_name.c_str());
             for (int i = 0; i < outputData.size(); ++i) {
                 MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);

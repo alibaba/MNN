@@ -53,8 +53,7 @@ public:
         float mOutputScale;
         int mOutputChannelPack;
         std::vector<int> mInt8WeightKernelSum;
-
-        std::once_flag flag;
+        bool mUseConvQuan = true;
         void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
     };
     ConvInt8CutlassExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);

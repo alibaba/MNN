@@ -12,6 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 
 #include "backend/cpu/compute/OptimizedComputer.hpp"
 #include <string.h>
@@ -235,3 +236,5 @@ void Logistic(const uint8_t* input_data, const std::vector<int>& input_dims, int
 
 } // namespace Optimized
 } // namespace MNN
+
+#endif

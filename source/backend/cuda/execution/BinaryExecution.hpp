@@ -11,6 +11,10 @@
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
+#ifdef ENABLE_CUDA_QUANT
+#include "int8/BinaryInt8Execution.hpp"
+#endif
+
 namespace MNN {
 namespace CUDA {
 class BinaryExecution : public Execution {

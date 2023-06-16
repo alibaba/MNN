@@ -15,9 +15,11 @@
 #include <memory>
 #include <vector>
 #include "backend/opencl/execution/image/ConvExecution.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
-class ConvWinograd : public Execution {
+class ConvWinograd : public Execution, public CommonExtension {
 public:
     virtual ~ConvWinograd() = default;
 

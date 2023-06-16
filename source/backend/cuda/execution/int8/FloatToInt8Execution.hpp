@@ -14,6 +14,7 @@
 #include "core/TensorUtils.hpp"
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
+#include "../CastExecution.hpp"
 
 namespace MNN {
 namespace CUDA {

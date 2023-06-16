@@ -72,6 +72,7 @@ void Executor::Profiler::addFlops(const std::string& opType, float flops) {
 #endif
 
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
+    std::lock_guard<std::mutex> _l(mMutex);
     if(type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
@@ -343,6 +344,7 @@ Executor::RuntimeManager::~RuntimeManager() {
 Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
     auto res = new RuntimeManager;
     auto glo = ExecutorScope::Current();
+    std::lock_guard<std::mutex> _l(glo->mMutex);
     auto& originRt = glo->mRuntimes;
     Backend::Info compute;
     compute.type      = Schedule::getApprociateType(config);

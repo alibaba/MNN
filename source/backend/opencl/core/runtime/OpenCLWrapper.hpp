@@ -31,6 +31,8 @@
 #include "CL/cl2.hpp"
 #endif
 
+#include "CL/cl_ext_qcom.h"
+
 #define MNN_CHECK_NOTNULL(X) MNN_ASSERT(X != NULL)
 
 #define MNN_CHECK_CL_SUCCESS(error, info)                  \
@@ -51,6 +53,7 @@ public:
     bool isError();
     bool isSvmError();
     bool isPropError();
+    bool isQcomError();
     
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
@@ -155,7 +158,17 @@ public:
     using clEnqueueSVMUnmapFunc = cl_int (*)(cl_command_queue, void *, cl_uint,
                                              const cl_event *, cl_event *);
     using clSetKernelArgSVMPointerFunc = cl_int (*)(cl_kernel, cl_uint, const void *);
-
+    
+    using clNewRecordingQCOMFunc = cl_recording_qcom(*)(cl_command_queue, cl_int *);
+    using clEndRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
+    using clReleaseRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
+    using clRetainRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
+    using clEnqueueRecordingQCOMFunc = cl_int (*)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_offset_qcom*,
+                                                  size_t, const cl_workgroup_qcom*, size_t, const cl_workgroup_qcom*, cl_uint, const cl_event*, cl_event*);
+    using clEnqueueRecordingSVMQCOMFunc = cl_int (*)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_array_arg_qcom*,
+                                                     size_t, const cl_offset_qcom*, size_t, const cl_workgroup_qcom*, size_t, const cl_workgroup_qcom*,
+                                                     size_t, const cl_array_kernel_exec_info_qcom*, cl_uint, const cl_event*, cl_event*);
+    
 #define MNN_CL_DEFINE_FUNC_PTR(func) func##Func func = nullptr
 
     MNN_CL_DEFINE_FUNC_PTR(clGetPlatformIDs);
@@ -212,6 +225,13 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMMap);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMUnmap);
     MNN_CL_DEFINE_FUNC_PTR(clSetKernelArgSVMPointer);
+    
+    MNN_CL_DEFINE_FUNC_PTR(clNewRecordingQCOM);
+    MNN_CL_DEFINE_FUNC_PTR(clEndRecordingQCOM);
+    MNN_CL_DEFINE_FUNC_PTR(clReleaseRecordingQCOM);
+    MNN_CL_DEFINE_FUNC_PTR(clRetainRecordingQCOM);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueRecordingQCOM);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueRecordingSVMQCOM);
 
 #undef MNN_CL_DEFINE_FUNC_PTR
 
@@ -225,6 +245,7 @@ private:
     bool mIsError{false};
     bool mSvmError{false};
     bool mPropError{false};
+    bool mQcomError{false};
 };
 
 class OpenCLSymbolsOperator {

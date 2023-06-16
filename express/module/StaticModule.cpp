@@ -313,7 +313,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
                 std::get<3>(cacheIter->second) = true;
                 mPrevInputTensor[i] = inputTensor;
                 if (std::get<1>(*cacheTensor) != nullptr) {
-                    if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribe(std::get<0>(*cacheTensor))->backend)) {
+                    if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribe(std::get<0>(*cacheTensor))->getBackend())) {
                         // No need copy now, reset it
                         cacheIter->second = std::make_tuple(nullptr, nullptr, true, true);
                     }
@@ -340,10 +340,9 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             if (needCopy) {
                 auto srcPtr = (uint8_t*)inputs[i]->readMap<uint8_t>();
                 needMalloc = mInputTensors[i]->buffer().host != srcPtr;
-                des->backend = srcDes->backend;
                 mInputTensors[i]->buffer().host = srcPtr;
                 mInputTensors[i]->buffer().device = 0;
-                des->backend = pipelineInfo.first.cache.second.get();
+                des->setBackend(pipelineInfo.first.cache.second.get());
                 if (nullptr == srcDes->quantAttr.get()) {
                     // For device need copy, cache device tensor
                     auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
@@ -424,7 +423,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     for (int i = 0; i < mOutputTensors.size(); ++i) {
         auto tensor = Tensor::clone(mOutputTensors[i]);
         outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
-        auto backend = TensorUtils::getDescribe(tensor)->backend;
+        auto backend = TensorUtils::getDescribe(tensor)->getBackend();
         if (backend == pipelineInfo.first.cache.first.get()) {
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
         } else if (backend == pipelineInfo.first.cache.second.get()) {

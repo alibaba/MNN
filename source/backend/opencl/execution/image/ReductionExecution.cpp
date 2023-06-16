@@ -55,6 +55,7 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     MNN_ASSERT(mAxis[0] == 1);
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
     auto input = inputs[0];
     auto output = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -144,7 +145,12 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
     mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
-
+    if(mUseLocal){
+        recordKernel3d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    }else{
+        recordKernel2d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    }
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 
@@ -165,6 +171,13 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
         MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
     #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End ReductionExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     if(mUseLocal) {
         run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime());

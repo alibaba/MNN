@@ -73,6 +73,7 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 #ifdef LOG_VERBOSE
     MNN_PRINT("start PoolExecution onResize !\n");
 #endif
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -129,6 +130,8 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     mKernel.setArg(idx++, sizeof(strideShape), strideShape);
     mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
     mKernel.setArg(idx++, openCLImage(output));
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end PoolExecution onResize !\n");
 #endif
@@ -148,6 +151,13 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Pooling\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End PoolExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

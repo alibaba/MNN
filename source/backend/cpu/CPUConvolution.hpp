@@ -99,11 +99,6 @@ public:
 
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC);
 
-    /* Inefficient because of not use memcpy to support different type copy (T -> U), use it when speed insensitive (init, onResize)
-       return: False if acquire failed
-     */
-    template<typename T, typename U> static bool acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend*);
-
     std::vector<float> getPostParameters() const;
 public:
     PerfConfig mConvPerfconfig;

@@ -94,6 +94,62 @@ static void dumpTensor2File(const Tensor* tensor, const char* file, std::ofstrea
     }
 }
 
+static void _loadInputFromFile(Tensor* inputTensor, std::string pwd, std::string name) {
+    MNN::Tensor givenTensor(inputTensor, inputTensor->getDimensionType());
+    {
+        int size_w = inputTensor->width();
+        int size_h = inputTensor->height();
+        int bpp    = inputTensor->channel();
+        int batch  = inputTensor->batch();
+        MNN_PRINT("Input size:%d\n", inputTensor->elementSize());
+        inputTensor->printShape();
+
+        std::ostringstream fileName;
+        fileName << pwd << name;
+        std::ifstream input(fileName.str().c_str());
+        FUNC_PRINT_ALL(fileName.str().c_str(), s);
+
+        if (givenTensor.getType().code == halide_type_int) {
+            auto size           = givenTensor.elementSize();
+            const auto bytesLen = givenTensor.getType().bytes();
+            if (bytesLen == 4) {
+                auto inputData = givenTensor.host<int32_t>();
+                double temp;
+                for (int i = 0; i < size; ++i) {
+                    input >> temp;
+                    inputData[i] = temp;
+                }
+            } else if (bytesLen == 1) {
+                auto inputData = givenTensor.host<int8_t>();
+                double pixel      = 0;
+                for (int i = 0; i < size; ++i) {
+                    input >> pixel;
+                    inputData[i] = static_cast<int8_t>(pixel);
+                }
+            }
+        } else if (givenTensor.getType().code == halide_type_uint) {
+            auto size = givenTensor.elementSize();
+            {
+                FUNC_PRINT(givenTensor.getType().bytes());
+                auto inputData = givenTensor.host<uint8_t>();
+                for (int i = 0; i < size; ++i) {
+                    double p;
+                    input >> p;
+                    inputData[i] = (uint8_t)p;
+                }
+            }
+        } else if (givenTensor.getType().code == halide_type_float) {
+            auto inputData = givenTensor.host<float>();
+            auto size      = givenTensor.elementSize();
+            for (int i = 0; i < size; ++i) {
+                input >> inputData[i];
+                // inputData[i] = 1.0f;
+            }
+        }
+        inputTensor->copyFromHostTensor(&givenTensor);
+    }
+}
+
 static inline int64_t getTimeInUs() {
     uint64_t time;
 #if defined(_MSC_VER)
@@ -267,65 +323,14 @@ static int test_main(int argc, const char* argv[]) {
     if (type == MNN_FORWARD_CPU || (!autoBackend)) {
         net->releaseModel();
     }
+    _loadInputFromFile(inputTensor, pwd, "input_0.txt");
 
     // input
     auto dimType = inputTensor->getDimensionType();
     if (inputTensor->getType().code == halide_type_uint || inputTensor->getType().code == halide_type_int) {
         dimType = Tensor::TENSORFLOW;
     }
-    MNN::Tensor givenTensor(inputTensor, dimType);
-    {
-        int size_w = inputTensor->width();
-        int size_h = inputTensor->height();
-        int bpp    = inputTensor->channel();
-        int batch  = inputTensor->batch();
-        MNN_PRINT("Input size:%d\n", inputTensor->elementSize());
-        inputTensor->printShape();
 
-        std::ostringstream fileName;
-        fileName << pwd << "input_0"
-                 << ".txt";
-        std::ifstream input(fileName.str().c_str());
-
-        if (givenTensor.getType().code == halide_type_int) {
-            auto size           = givenTensor.elementSize();
-            const auto bytesLen = givenTensor.getType().bytes();
-            if (bytesLen == 4) {
-                auto inputData = givenTensor.host<int32_t>();
-                double temp;
-                for (int i = 0; i < size; ++i) {
-                    input >> temp;
-                    inputData[i] = temp;
-                }
-            } else if (bytesLen == 1) {
-                auto inputData = givenTensor.host<int8_t>();
-                double pixel      = 0;
-                for (int i = 0; i < size; ++i) {
-                    input >> pixel;
-                    inputData[i] = static_cast<int8_t>(pixel);
-                }
-            }
-        } else if (givenTensor.getType().code == halide_type_uint) {
-            auto size = givenTensor.elementSize();
-            {
-                FUNC_PRINT(givenTensor.getType().bytes());
-                auto inputData = givenTensor.host<uint8_t>();
-                for (int i = 0; i < size; ++i) {
-                    double p;
-                    input >> p;
-                    inputData[i] = (uint8_t)p;
-                }
-            }
-        } else if (givenTensor.getType().code == halide_type_float) {
-            auto inputData = givenTensor.host<float>();
-            auto size      = givenTensor.elementSize();
-            for (int i = 0; i < size; ++i) {
-                input >> inputData[i];
-                // inputData[i] = 1.0f;
-            }
-        }
-        inputTensor->copyFromHostTensor(&givenTensor);
-    }
     std::ofstream orderFileOs;
     orderFileOs.open(".order");
     if (saveOutput) {
@@ -453,17 +458,29 @@ static int test_main(int argc, const char* argv[]) {
         if (t > 0) {
 
             for (int i = 0; i < 3; ++i) { // warmup
-                inputTensor->copyFromHostTensor(&givenTensor);
+                {
+                    auto ptr = inputTensor->map(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType());
+                    inputTensor->unmap(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType(), ptr);
+                }
                 net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
-                outputTensor->copyToHostTensor(&expectTensor);
+                {
+                    auto ptr = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType());
+                    outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType(), ptr);
+                }
             }
 
             std::vector<float> times(t, 0.0f);
             for (int i = 0; i < t; ++i) {
                 auto begin = getTimeInUs();
-                inputTensor->copyFromHostTensor(&givenTensor);
+                {
+                    auto ptr = inputTensor->map(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType());
+                    inputTensor->unmap(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType(), ptr);
+                }
                 net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
-                outputTensor->copyToHostTensor(&expectTensor);
+                {
+                    auto ptr = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType());
+                    outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType(), ptr);
+                }
                 auto end = getTimeInUs();
                 times[i] = (end - begin) / 1000.0f;
             }

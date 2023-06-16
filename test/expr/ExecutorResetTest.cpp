@@ -7,6 +7,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <thread>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -107,3 +108,21 @@ public:
     }
 };
 MNNTestSuiteRegister(ExecutorResetTest, "expr/ExecutorReset");
+class ExecutorConfigTest : public MNNTestCase {
+    virtual bool run(int precision) {
+        std::vector<std::thread> threads;
+        int threadNumber = 5;
+        for (int i=0; i<threadNumber; ++i) {
+            threads.emplace_back(([] {
+                for (int u=0; u<10; ++u) {
+                    MNN::ScheduleConfig config;
+                    std::shared_ptr<Executor::RuntimeManager> rt(Executor::RuntimeManager::createRuntimeManager(config));
+                }
+            }));
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+        return true;
+    }};
+MNNTestSuiteRegister(ExecutorConfigTest, "expr/ExecutorConfigTest");

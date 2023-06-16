@@ -64,6 +64,7 @@ void MNNFunctionInit() {
         }
         gFunc.MNNNorm = _AVX_MNNNorm;
     }
+    _SSE_ImageProcessInit(coreFunction, cpuFlags);
 }
 
 void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
@@ -123,6 +124,24 @@ void MNNInt8FunctionInit() {
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+    }
+}
+
+
+void _SSE_ImageProcessInit(void* functions, int cpuFlags) {
+    auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
+    coreFunction->MNNRGBAToBGRA = _SSE_MNNRGBAToBGRA;
+    coreFunction->MNNNV21ToRGBA = _SSE_MNNNV21ToRGBA;
+    coreFunction->MNNNV21ToRGB = _SSE_MNNNV21ToRGB;
+    coreFunction->MNNNV21ToBGRA = _SSE_MNNNV21ToBGRA;
+    coreFunction->MNNNV21ToBGR = _SSE_MNNNV21ToBGR;
+    //coreFunction->MNNsampleBilinearCommon = _SSE_sampleBilinearCommon;
+    if (cpuFlags & libyuv::kCpuHasSSE41) {
+        coreFunction->MNNC1ToFloatC1 = _SSE_MNNC1ToFloatC1;
+        coreFunction->MNNC3ToFloatC3 = _SSE_MNNC3ToFloatC3;
+        coreFunction->MNNC3ToFloatRGBA = _SSE_MNNC3ToFloatRGBA;
+        coreFunction->MNNSamplerC4Nearest = _SSE_MNNSamplerC4Nearest;
+        coreFunction->MNNSamplerC4Bilinear = _SSE_MNNSampleC4Bilinear;
     }
 }
 

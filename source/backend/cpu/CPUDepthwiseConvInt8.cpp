@@ -50,8 +50,7 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
     mPads = std::make_pair(padX, padY);
     
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-    int UNIT, SRC_UNIT, DST_XUNIT;
-    core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    auto UNIT = static_cast<CPUBackend*>(backend())->functions()->pack;
 
     const int src_width      = input->width();
     const int src_height     = input->height();
@@ -84,8 +83,7 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
 
 ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-    int UNIT, SRC_UNIT, DST_XUNIT;
-    core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    auto UNIT = static_cast<CPUBackend*>(backend())->functions()->pack;
     
     auto input           = inputs[0];
     auto output          = outputs[0];
@@ -163,8 +161,7 @@ public:
         auto convOp = op->main_as_Convolution2D();
         auto res = CPUConvolution::makeResourceInt8(backend, convOp);
         auto core = static_cast<CPUBackend*>(backend)->int8Functions();
-        int UNIT, SRC_UNIT, DST_XUNIT;
-        core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+        auto UNIT = static_cast<CPUBackend*>(backend)->functions()->pack;
         auto common = convOp->common();
 
         const int kernelSize      = common->kernelX() * common->kernelY();

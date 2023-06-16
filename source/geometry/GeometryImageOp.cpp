@@ -86,7 +86,7 @@ public:
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
-        } else if (inputs[0]->dimensions() == 5) {
+        } else if (OpType_Interp == op->type() && inputs[0]->dimensions() == 5) {
             // Compute cord transform for interp
             auto resize                           = op->main_as_Interp();
             auto inShape = newInputs[0]->shape();

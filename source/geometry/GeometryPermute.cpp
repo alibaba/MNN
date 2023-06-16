@@ -90,15 +90,56 @@ public:
                 stride *= inputShape[i];
             }
         }
-        // Sort inputShapeSize from small to large
+        /** Move max three inputShapeSize to last three location. 
+         * Don't change max three number relative position
+         * */
         if (inputShapeSize > 3) {
-            for (int i=0; i<inputShapeSize; ++i) {
-                for (int j=i+1; j<inputShapeSize; ++j) {
-                    if (inputShape[i] > inputShape[j]) {
-                        std::swap(inputShape[i], inputShape[j]);
-                        std::swap(inputStrides[i], inputStrides[j]);
-                        std::swap(outputStrides[i], outputStrides[j]);
+            int max1 = inputShape[0], max2 = -1, max3 = -1;
+            // Find Max Three Number
+            for (int i = 1; i < inputShapeSize; i++) {
+                if (inputShape[i] > max1) {
+                    max3 = max2;
+                    max2 = max1;
+                    max1 = inputShape[i];
+                } else if (inputShape[i] > max2) {
+                    max3 = max2;
+                    max2 = inputShape[i];
+                }
+                else if (inputShape[i] > max3) {
+                    max3 = inputShape[i];
+                }
+            }
+            
+            // Move Max Three Number to Last Location
+            int lastIndex = inputShapeSize-1;
+            for (int i = inputShapeSize-1; i >= 0; i--) {
+                if (inputShape[i] == max1) {
+                    if(i != lastIndex) {
+                        std::swap(inputShape[i], inputShape[lastIndex]);
+                        std::swap(inputStrides[i], inputStrides[lastIndex]);
+                        std::swap(outputStrides[i], outputStrides[lastIndex]);
                     }
+                    max1 = -1;
+                    lastIndex--;
+                } else if (inputShape[i] == max2) {
+                    if(i != lastIndex) {
+                        std::swap(inputShape[i], inputShape[lastIndex]);
+                        std::swap(inputStrides[i], inputStrides[lastIndex]);
+                        std::swap(outputStrides[i], outputStrides[lastIndex]);
+                    }
+                    max2 = -1;
+                    lastIndex--;
+                } else if (inputShape[i] == max3) {
+                    if(i != lastIndex) {
+                        std::swap(inputShape[i], inputShape[lastIndex]);
+                        std::swap(inputStrides[i], inputStrides[lastIndex]);
+                        std::swap(outputStrides[i], outputStrides[lastIndex]);
+                    }
+                    max3 = -1;
+                    lastIndex--;
+                }
+                if(lastIndex < inputShapeSize-3) {
+                    break;
                 }
             }
         }

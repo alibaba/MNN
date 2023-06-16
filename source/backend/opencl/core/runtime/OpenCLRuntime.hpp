@@ -45,7 +45,7 @@ enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int deviceId);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
@@ -59,6 +59,7 @@ public:
     bool isSupportedIntelSubgroup() const;
     ::cl::Context &context();
     ::cl::CommandQueue &commandQueue();
+    ::cl::CommandQueue &recordableQueue();
     uint64_t deviceGlobalMemeryCacheSize() const;
     uint32_t deviceComputeUnits() const;
     uint32_t MaxThreadsPerDevice() const;
@@ -68,6 +69,15 @@ public:
     uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
+    std::vector<cl_recording_qcom> *getRecordings(){
+        return &mRecordings;
+    }
+    uint32_t getMaxRecordableQueueSize(){
+        return mMaxRecordableQueueSize;
+    }
+    bool isUseRecordQueue(){
+        return mUseRecordQueue;
+    }
     GpuType getGpuType() {
         return mGpuType;
     }
@@ -94,6 +104,7 @@ public:
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
+    void clearRecord();
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
@@ -133,6 +144,8 @@ private:
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
     std::map<std::tuple<std::string, std::string>, ::cl::Program> mBuildProgramMap;
+    std::shared_ptr<::cl::CommandQueue> mRecordableQueuePtr;
+    std::vector<cl_recording_qcom> mRecordings;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
@@ -140,6 +153,8 @@ private:
     uint64_t mMaxLocalMemSize;
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
+    uint32_t mMaxRecordableQueueSize;
+    bool mUseRecordQueue = false;
     bool mIsSupportedFP16     = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;

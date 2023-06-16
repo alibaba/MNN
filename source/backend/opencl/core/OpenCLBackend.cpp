@@ -20,7 +20,7 @@
 namespace MNN {
 namespace OpenCL {
 
-CLRuntime::CLRuntime(const Backend::Info& info){
+CLRuntime::CLRuntime(const Backend::Info& info, int deviceId){
     mInfo = info;
 
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
@@ -31,7 +31,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     }
 
     // Shader precision
-    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode));
+    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, deviceId));
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
@@ -487,10 +487,12 @@ void OpenCLBackend::onResizeEnd() {
 void OpenCLBackend::onExecuteBegin() const {
     mOpenCLRuntime->mQueueCount = 0;
     mOpenCLRuntime->mKernelTime = 0;
+    mOpenCLRuntime->clearRecord();
 }
 
 void OpenCLBackend::onExecuteEnd() const {
     mOpenCLRuntime->mQueueCount = 0;
+    mOpenCLRuntime->clearRecord();
 }
 
 
@@ -638,7 +640,9 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
     MNN::Tensor interTensor(dstTensor, dstTensor->getDimensionType(), false);
     interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
 
-    MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;;
+    MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+    
+    mOpenCLRuntime->clearRecord();
     //Convert format
     mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, data_format, false);
 
@@ -787,6 +791,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     }
     #else
+    mOpenCLRuntime->clearRecord();
     mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     #endif
 
@@ -805,6 +810,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
 }
 
 void CLRuntime::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
+    mOpenCLRuntime->clearRecord();
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
@@ -894,7 +900,7 @@ void* OpenCLBackend::allocMapTensorMemory(int length, bool svmFlag, cl_device_sv
 
 void* OpenCLBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
     auto needSize = srcTensor->size();
-
+    mOpenCLRuntime->clearRecord();
 #ifdef MNN_OPENCL_SVM_ENABLE
     auto svm_cap_ = mOpenCLRuntime->getSvmCapabilities();
     bool use_svm = (svm_cap_ & CL_DEVICE_SVM_FINE_GRAIN_BUFFER);//support fine grain svm
@@ -1024,7 +1030,13 @@ class CLRuntimeCreator : public RuntimeCreator {
             return nullptr;
         }
     #endif
-        auto rt = new CLRuntime(info);
+        int device_id = 0;
+        if (nullptr != info.user) {
+            if (info.user->sharedContext != nullptr) {
+                device_id = ((MNNDeviceContext*)info.user->sharedContext)->deviceId;
+            }
+        }
+        auto rt = new CLRuntime(info, device_id);
         if(rt->isCLRuntimeError() == true) {
             delete rt;
             return nullptr;

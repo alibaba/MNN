@@ -284,7 +284,7 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
 }
 
 const Backend* Session::getBackEnd(const Tensor* tensor) const {
-    return TensorUtils::getDescribe(tensor)->backend;
+    return TensorUtils::getDescribe(tensor)->getBackend();
 }
 
 Tensor* Session::getInput(const char* name) const {

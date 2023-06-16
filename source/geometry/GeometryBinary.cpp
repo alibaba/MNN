@@ -58,7 +58,6 @@ public:
             if (!cacheTensor.empty()) {
                 newTensor = cacheTensor[cacheTensor.size() - 1];
                 cacheTensor.erase(cacheTensor.begin() + cacheTensor.size() - 1);
-                TensorUtils::getDescribe(newTensor.get())->backend = nullptr;
             } else {
                 newTensor.reset(new Tensor);
             }
@@ -73,7 +72,6 @@ public:
             if (!cacheTensor.empty()) {
                 newTensor = cacheTensor[cacheTensor.size() - 1];
                 cacheTensor.erase(cacheTensor.begin() + cacheTensor.size() - 1);
-                TensorUtils::getDescribe(newTensor.get())->backend = nullptr;
             } else {
                 newTensor.reset(new Tensor);
             }

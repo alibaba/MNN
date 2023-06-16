@@ -106,7 +106,7 @@ static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, c
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
     int oc = common->outputCount(), ic = common->inputCount(), kernelCount = common->kernelX() * common->kernelY();
-    std::vector<int> shape = {UP_DIV(oc, UNIT) * kernelCount, UP_DIV(UP_DIV(ic, UNIT), SRC_UNIT / UNIT), UNIT, SRC_UNIT};
+    std::vector<int> shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
 
     weight.reset(Tensor::createDevice<int8_t>(shape));
     bool succ = bn->onAcquireBuffer(weight.get(), Backend::STATIC);
@@ -115,6 +115,7 @@ static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, c
         return;
     }
     auto dstPtr = weight->host<int8_t>();
+    ::memset(dstPtr, 0, weight->size());
 
     int icDiv = UP_DIV(ic, SRC_UNIT);
      for (int k = 0; k < kernelCount; ++k) {
@@ -192,15 +193,13 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     int srcCount            = mSrcCount;
     
     auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+    
     std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
-    bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
-                   backend->onAcquireBuffer(cache.get(), Backend::STATIC);
+    bool success =  backend->onAcquireBuffer(cache.get(), Backend::STATIC);
     if (!success) {
         mValid = false;
         return;
     }
-    auto dest = mWeight->host<uint8_t>();
     AutoStorage<uint8_t> lowpWeight;
     if (core->bytes < 4) {
         lowpWeight.reset(outputCount * srcCount * fh * fw * core->bytes);
@@ -212,8 +211,21 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
         tempWeight = (float*)lowpWeight.get();
     }
     if (!ModeInt8) {
+        mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+        success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        if (!success) {
+            mValid = false;
+            return;
+        }
+        auto dest = mWeight->host<uint8_t>();
         _transformWeight((uint8_t*)tempWeight, dest, outputCount, srcCount, fh, fw, cache->host<uint8_t>(), core);
     } else {
+        mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+        success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        if (!success) {
+            mValid = false;
+            return;
+        }
         _reorderWeightInt8(backend, layer, quanWeightInt8, mWeight);
     }
     backend->onReleaseBuffer(cache.get(), Backend::STATIC);
@@ -277,7 +289,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         outi8 = 1;
     }
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-        mTempOutput.reset(Tensor::createDevice<uint8_t>({batch, ocC4 * kw * kh * core->pack, height, width, core->bytes}, Tensor::CAFFE_C4));
+        mTempOutput.reset(Tensor::createDevice<float>({batch, height, width, ocC4 * kw * kh * core->pack}));
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
@@ -301,7 +313,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto threadNumber = ((CPUBackend*)backend())->threadNumber();
     std::vector<float> scales(core->pack * src_height * src_width * batch, scale);
     
-    std::shared_ptr<Tensor> OutputFloat(Tensor::createDevice<float>(output->shape()));
+    std::shared_ptr<Tensor> OutputFloat(Tensor::createDevice<float>({batch, src_height, src_width, ocC4 * core->pack}));
     auto res = backend()->onAcquireBuffer(OutputFloat.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;

@@ -68,6 +68,11 @@ struct Tensor::InsideDescribe {
         /** Whether the tensor is a trainable parameter. Trainable parameter should be stored in a different area. */
         TRAINABLE,
     };
+    // For Mask
+    enum StageInfo {
+        GEOMETRY_STAGE = 1,
+        CONVERTED_STAGE = 1 << 4
+    };
     /** extra tensor info container */
     struct NativeInsideDescribe : public RefCount {
     public:
@@ -81,8 +86,6 @@ struct Tensor::InsideDescribe {
             void (*handleFreeFunction)(void*);
         } extra;
         MemoryType memoryType = MEMORY_BACKEND;
-        /** for DEVICE tensor only. backend used to manage tensor's device memory. */
-        Backend* backend = nullptr;
         /** for DEVICE tensor only. */
         int useCount = 0;
         Usage usage = NORMAL;
@@ -97,6 +100,17 @@ struct Tensor::InsideDescribe {
         AutoRelease<Backend::MemObj> mem;
         bool isMutable = true;
         int index;
+        // For isMutable = false Tensor , determine whether the content can be convert to main backend
+        uint32_t stageMask = 0;
+        inline Backend* getBackend() const {
+            return backend;
+        }
+        inline void setBackend(Backend* bn) {
+            backend = bn;
+        }
+    private:
+        /** for DEVICE tensor only. backend used to manage tensor's device memory. */
+        Backend* backend = nullptr;
     };
     SharedPtr<NativeInsideDescribe> mContent;
 };

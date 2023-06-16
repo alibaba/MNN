@@ -38,7 +38,8 @@ ErrorCode Conv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, co
     auto originLayout = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
     auto openclBackend = static_cast<OpenCLBackend *>(backend());
     auto runtime = openclBackend->getOpenCLRuntime();
-
+    startRecord(runtime, mRecording);
+    
     const int weightSize = inputs[0]->elementSize();
     auto bufferPool = openclBackend->getBufferPool();
     auto bufferPtr = bufferPool->alloc(weightSize * sizeof(float), false);
@@ -95,6 +96,7 @@ ErrorCode Conv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, co
         mUnits[0].kernel = kernel;
         mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
         mUnits[0].globalWorkSize = {gws[0], gws[1], gws[2]};
+        recordKernel3d(mUnits[0].kernel, gws, lws, runtime);
     }
     // transform kernel from normal format (oc,ic,kh,kw) to image2d (NHCW)
     {
@@ -128,9 +130,11 @@ ErrorCode Conv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, co
         mUnits[1].kernel = kernel;
         mUnits[1].localWorkSize = {lws[0], lws[1]};
         mUnits[1].globalWorkSize = {gws[0], gws[1]};
+        recordKernel2d(mUnits[1].kernel, gws, lws, runtime);
     }
     //MNN_PRINT("flag\n");
-
+    
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 

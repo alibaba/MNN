@@ -498,42 +498,16 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     getPackParameter(&eP, &lP, &hP, core);
     auto matmulUnit   = core->MNNPackedMatMul;
     auto matmulRemain = core->MNNPackedMatMulRemain;
-    auto strideX           = mCommon->strideX();
-    auto strideY           = mCommon->strideY();
-    auto dilateX           = mCommon->dilateX();
-    auto dilateY           = mCommon->dilateY();
-    auto padY              = mPadY;
-    auto padX              = mPadX;
-    auto kernel_width      = mCommon->kernelX();
-    auto kernel_height     = mCommon->kernelY();
     auto output      = outputs[0];
     auto batch       = output->batch();
-    auto width       = output->width();
-    auto height      = output->height();
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
-    auto src_width                = input->width();
-    auto src_height               = input->height();
     auto icC4                     = UP_DIV(input->channel(), unit);
     auto ic                       = input->channel();
     auto L                        = ic * mCommon->kernelY() * mCommon->kernelX();
     int  LRoundup = ROUND_UP(L, lP);
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
-    if (src_width == 1 && width == 1 && height > 1 && kernel_width == 1 && mPadX == 0) {
-        /* Convolution only work for Height. Swap x, y*/
-        width         = height;
-        height        = 1;
-        padX          = mPadY;
-        padY          = mPadX;
-        strideX       = strideY;
-        strideY       = 1; /* Don't need stride */
-        src_width     = src_height;
-        src_height    = 1;
-        dilateX       = dilateY;
-        dilateY       = 1;
-        kernel_width  = kernel_height;
-        kernel_height = 1;
-    }
+    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParameters, mCommon, input, output, mPadX, mPadY, core, nullptr);
     const float *biasPtr = nullptr;
     if (inputs.size() > 2) {
         bias    = inputs[2];
@@ -546,7 +520,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
     mTempBufferTranspose.buffer().dim[1].extent = UP_DIV(L, lP) * lP * eP * bytes;
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
-    auto plane    = width * height * batch;
+    auto plane    = mIm2ColParameters.ow * mIm2ColParameters.oh * batch;
     int tileCount = UP_DIV(plane, eP);
     auto oC4           = UP_DIV(outputChannel, unit);
     mConvPerfconfig = bestTileConvolutionConfig(mCommon, input, output, threadNumber, backend());
@@ -558,7 +532,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     }
 
     auto bufferAlloc   = static_cast<CPUBackend *>(backend())->getBufferAllocator();
-    auto maxLine       = UP_DIV(eP, width) + 1;
+    auto maxLine       = UP_DIV(eP, mIm2ColParameters.ow) + 1;
     auto tempPtr = bufferAlloc->alloc(kernelSize * maxLine * threadNumber * (4 * sizeof(int32_t) + sizeof(float *)));
     if (nullptr == tempPtr.first) {
         return OUT_OF_MEMORY;
@@ -586,9 +560,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         constexpr int InfoSize = 4;
         int32_t shapeInfo[InfoSize];
         int32_t* info = shapeInfo;
-        info[1] = src_width * src_height * batch;
+        info[1] = mIm2ColParameters.iw * mIm2ColParameters.ih * batch;
         info[2] = eP;
-        info[3] = strideX;
+        info[3] = mIm2ColParameters.strideX;
         size_t shapeParameters[PARAMETERSIZE];
         size_t* parameters = shapeParameters;
         parameters[0]          = eP * bytes;
@@ -613,57 +587,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             int start  = (int)x * eP;
             int remain = plane - start;
             int xC     = remain > eP ? eP : remain;
-            /* Compute Pack position */
-            int oyBegin   = start / width;
-            int oxBegin   = start % width;
-            int oyEnd     = (start + xC - 1) / width;
-            remain        = xC;
-            int number    = 0;
-            bool needZero = false;
-            int eStart    = 0;
-            int indexThread = std::min(threadNumberFirst, oyEnd - oyBegin + 1);
-
-            for (int oyb = oyBegin; oyb <= oyEnd; ++oyb) {
-                int step    = std::min(width - oxBegin, remain);
-                int oy      = oyb % height;
-                int ob      = oyb / height;
-                int sySta   = oy * strideY - padY;
-                int kyStart = std::max(0, UP_DIV(-sySta, dilateY));
-                int kyEnd   = std::min(kernel_height, UP_DIV(src_height - sySta, dilateY));
-                if (kyEnd - kyStart < kernel_height) {
-                    needZero = true;
-                }
-                auto srcStart = srcOrigin + ((ob * src_height + sySta) * src_width) * bytes * unit;
-                for (int ky = kyStart; ky < kyEnd; ++ky) {
-                    auto lKYOffset = ky * kernel_width * ic;
-                    auto srcKy     = srcStart + ky * dilateY * src_width * bytes * unit;
-                    for (int kx = 0; kx < kernel_width; ++kx) {
-                        /* Compute x range:*/
-                        /* 0 <= (oxBegin + x) * strideX - padX + dilateX * kx < src_width*/
-                        /* 0 <= x <= step*/
-                        int end = std::min(
-                            step, (src_width - oxBegin * strideX - dilateX * kx + padX + strideX - 1) / strideX);
-                        int sta = std::max(0, UP_DIV((padX - oxBegin * strideX - dilateX * kx), strideX));
-                        if (end - sta < step) {
-                            needZero = true;
-                        }
-                        if (end > sta) {
-                            auto lOffset = lKYOffset + (kx * ic);
-                            auto srcKx   = srcKy + ((oxBegin + sta) * strideX + dilateX * kx - padX) * bytes * unit;
-                            srcPtr[number]     = (const float*)srcKx;
-                            el[4 * number + 0] = end - sta;
-                            el[4 * number + 1] = ic;
-                            el[4 * number + 2] = eStart + sta;
-                            el[4 * number + 3] = lOffset;
-                            number++;
-                        }
-                    }
-                }
-                oxBegin = 0;
-                remain -= step;
-                eStart += step;
-            }
-
+            auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo(srcPtr, el, start, xC, mIm2ColParameters, srcOrigin, bytes);
+            int number    = res.first;
+            bool needZero = res.second;
             info[0] = number;
             if (needZero || lP != 1) {
                 ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
@@ -695,16 +621,20 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             timer[0].reset();
 #endif
 
+            auto tileC    = std::max(unit, hP);
+            auto oC4      = UP_DIV(outputChannel, tileC);
+            auto weightBytes = core->bytes;
             if (xC == eP) {
                 MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
-                        auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
-                        int ocIndex = t_oc * unit;
-                        auto _weightFloatPtr = (const float*)(weightPtr + ((ocIndex / hP) * LRoundup * hP + ocIndex % hP) * bytes);
-                        paraParameters[2] = std::min(outputChannel - (t_oc * unit), unit);
-                        matmulUnit(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, paraParameters, postParameters.data(), biasPtr + ocIndex);
+                        int ocIndex = t_oc * tileC;
+                        auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
+                        auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
+                        auto _biasFloatPtr = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(biasPtr) + ocIndex * bytes);
+                        paraParameters[2] = std::min(outputChannel - ocIndex, tileC);
+                        matmulUnit(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, paraParameters, postParameters.data(), _biasFloatPtr);
                     }
                 }
                 MNN_CONCURRENCY_END();
@@ -713,11 +643,12 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
-                        auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
-                        int ocIndex = t_oc * unit;
-                        auto _weightFloatPtr = (const float*)(weightPtr + ((ocIndex / hP) * LRoundup * hP + ocIndex % hP) * bytes);
-                        paraParameters[2] = std::min(outputChannel - (t_oc * unit), unit);
-                        matmulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, paraParameters, postParameters.data(), biasPtr + ocIndex);
+                        int ocIndex = t_oc * tileC;
+                        auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
+                        auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
+                        auto _biasFloatPtr = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(biasPtr) + ocIndex * bytes);
+                        paraParameters[2] = std::min(outputChannel - ocIndex, tileC);
+                        matmulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, paraParameters, postParameters.data(), _biasFloatPtr);
                     }
                 }
                 MNN_CONCURRENCY_END();
@@ -756,9 +687,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
             auto weightPtr = weight->host<float>();
             int32_t info[4];
-            info[1] = src_width * src_height * batch;
+            info[1] = mIm2ColParameters.iw * mIm2ColParameters.ih * batch;
             info[2] = eP;
-            info[3] = strideX;
+            info[3] = mIm2ColParameters.strideX;
             size_t parameters[6];
             parameters[0]          = eP * bytes;
             parameters[1]          = L;
@@ -781,55 +712,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 int start  = (int)x * eP;
                 int remain = plane - start;
                 int xC     = remain > eP ? eP : remain;
-                /* Compute Pack position */
-                int oyBegin   = start / width;
-                int oxBegin   = start % width;
-                int oyEnd     = (start + xC - 1) / width;
-                remain        = xC;
-                int number    = 0;
-                bool needZero = false;
-                int eStart    = 0;
-                for (int oyb = oyBegin; oyb <= oyEnd; ++oyb) {
-                    int step    = std::min(width - oxBegin, remain);
-                    int oy      = oyb % height;
-                    int ob      = oyb / height;
-                    int sySta   = oy * strideY - padY;
-                    int kyStart = std::max(0, UP_DIV(-sySta, dilateY));
-                    int kyEnd   = std::min(kernel_height, UP_DIV(src_height - sySta, dilateY));
-                    if (kyEnd - kyStart < kernel_height) {
-                        needZero = true;
-                    }
-                    auto srcStart = srcOrigin + ((ob * src_height + sySta) * src_width) * bytes * unit;
-                    for (int ky = kyStart; ky < kyEnd; ++ky) {
-                        auto lKYOffset = ky * kernel_width * ic;
-                        auto srcKy     = srcStart + ky * dilateY * src_width * bytes * unit;
-                        for (int kx = 0; kx < kernel_width; ++kx) {
-                            /* Compute x range:*/
-                            /* 0 <= (oxBegin + x) * strideX - padX + dilateX * kx < src_width*/
-                            /* 0 <= x <= step*/
-                            int end = std::min(
-                                step, (src_width - oxBegin * strideX - dilateX * kx + padX + strideX - 1) / strideX);
-                            int sta = std::max(0, UP_DIV((padX - oxBegin * strideX - dilateX * kx), strideX));
-                            if (end - sta < step) {
-                                needZero = true;
-                            }
-                            if (end > sta) {
-                                auto lOffset = lKYOffset + (kx * ic);
-                                auto srcKx   = srcKy + ((oxBegin + sta) * strideX + dilateX * kx - padX) * bytes * unit;
-                                srcPtr[number]     = (const float *)srcKx;
-                                el[4 * number + 0] = end - sta;
-                                el[4 * number + 1] = ic;
-                                el[4 * number + 2] = eStart + sta;
-                                el[4 * number + 3] = lOffset;
-                                number++;
-                            }
-                        }
-                    }
-                    oxBegin = 0;
-                    remain -= step;
-                    eStart += step;
-                }
-
+                auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo(srcPtr, el, start, xC, mIm2ColParameters, srcOrigin, bytes);
+                auto number = res.first;
+                bool needZero = res.second;
                 info[0] = number;
                 if (needZero || lP != 1) {
                     ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));

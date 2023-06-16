@@ -35,13 +35,15 @@ cmake .. \
 -DMNN_USE_SSE=OFF \
 -DMNN_OPENCL=ON \
 -DMNN_VULKAN=ON \
+-DMNN_BUILD_OPENCV=ON \
+-DMNN_IMGCODECS=ON \
 -DMNN_JNI=ON \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
 -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
 
 make -j8
 libc_32=`find $ANDROID_NDK -name "libc++_shared.so" | grep "arm-linux-androideabi/libc++_shared.so" | head -n 1`
-cp *.so source/jni/libmnncore.so $libc_32 $PACKAGE_PATH/armeabi-v7a
+cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so $libc_32 $PACKAGE_PATH/armeabi-v7a
 popd
 
 # build android_64
@@ -58,6 +60,8 @@ cmake .. \
 -DMNN_OPENCL=ON \
 -DMNN_VULKAN=ON \
 -DMNN_JNI=ON \
+-DMNN_BUILD_OPENCV=ON \
+-DMNN_IMGCODECS=ON \
 -DMNN_SUPPORT_BF16=ON \
 -DANDROID_NATIVE_API_LEVEL=android-21  \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
@@ -65,5 +69,5 @@ cmake .. \
 
 make -j8
 libc_64=`find $ANDROID_NDK -name "libc++_shared.so" | grep "aarch64-linux-android/libc++_shared.so" | head -n 1`
-cp *.so source/jni/libmnncore.so $libc_64 $PACKAGE_PATH/arm64-v8a
+cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so $libc_64 $PACKAGE_PATH/arm64-v8a
 popd

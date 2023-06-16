@@ -78,10 +78,7 @@ print ('Building with python wheel with package name ', package_name)
 
 version = args.version
 depend_pip_packages = ['flatbuffers', 'numpy', 'aliyun-log-python-sdk']
-if package_name == 'MNN':
-    README = os.path.join(os.getcwd(), "README.md")
-else:
-    README = os.path.join(os.getcwd(), "README_Internal.md")
+README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
     long_description = f.read()
 

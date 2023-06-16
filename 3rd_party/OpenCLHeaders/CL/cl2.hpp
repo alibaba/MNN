@@ -897,6 +897,8 @@ static inline cl_int errHandler (cl_int err, const char * errStr = NULL)
  */
 #if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 #define __CREATE_COMMAND_QUEUE_ERR          CL_HPP_ERR_STR_(clCreateCommandQueue)
+#define __NEW_RECOEDING_QCOM_ERR            CL_HPP_ERR_STR_(clNewRecordingQCOM)
+#define __ENQUEUE_RECORDING_QCOM_ERR        CL_HPP_ERR_STR_(clEnqueueRecordingQCOM)
 #define __ENQUEUE_TASK_ERR                  CL_HPP_ERR_STR_(clEnqueueTask)
 #define __CREATE_SAMPLER_ERR                CL_HPP_ERR_STR_(clCreateSampler)
 #endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS)
@@ -1124,6 +1126,7 @@ inline cl_int getInfoHelper(Func f, cl_uint name, T* param, int, typename T::cl_
     F(cl_device_info, CL_DEVICE_ADDRESS_BITS, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_READ_IMAGE_ARGS, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_WRITE_IMAGE_ARGS, cl_uint) \
+    F(cl_device_info, CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE, cl_uint) \
     F(cl_device_info, CL_DEVICE_MAX_MEM_ALLOC_SIZE, cl_ulong) \
     F(cl_device_info, CL_DEVICE_IMAGE2D_MAX_WIDTH, size_type) \
     F(cl_device_info, CL_DEVICE_IMAGE2D_MAX_HEIGHT, size_type) \
@@ -7062,6 +7065,47 @@ public:
         return param;
     }
 
+    cl_recording_qcom NewRecordingQCOM(
+        cl_int *errcode_ret)
+    {
+        cl_int error;
+        cl_recording_qcom recording = ::clNewRecordingQCOM(object_, &error);
+        detail::errHandler(error, __NEW_RECOEDING_QCOM_ERR);
+        if(errcode_ret != NULL){
+            *errcode_ret = error;
+        }
+        return recording;
+    }
+    
+    cl_int EnqueueRecordingQCOM(
+        cl_recording_qcom recording,
+        size_t num_args,
+        const cl_array_arg_qcom *arg_array,
+        size_t num_global_offsets,
+        const cl_offset_qcom *global_offset_array,
+        size_t num_global_workgroups,
+        const cl_workgroup_qcom *global_workgroup_array,
+        size_t num_local_workgroups,
+        const cl_workgroup_qcom *local_workgroups_array,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event)
+    {
+        cl_event tmp;
+        cl_int err = detail::errHandler(
+            ::clEnqueueRecordingQCOM(
+                object_, recording, num_args, arg_array, num_global_offsets,
+                global_offset_array, num_global_workgroups, global_workgroup_array,
+                num_local_workgroups, local_workgroups_array, num_events_in_wait_list,
+                event_wait_list, &tmp),
+            __ENQUEUE_READ_BUFFER_ERR);
+
+        if (event != NULL && err == CL_SUCCESS)
+            *event = tmp;
+
+        return err;
+    }
+    
     cl_int enqueueReadBuffer(
         const Buffer& buffer,
         cl_bool blocking,

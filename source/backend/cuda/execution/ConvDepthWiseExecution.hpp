@@ -12,6 +12,7 @@
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
+#include "bf16/ConvDepthWiseBf16.cuh"
 namespace MNN {
 namespace CUDA {
 

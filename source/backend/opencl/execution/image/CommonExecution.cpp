@@ -18,6 +18,11 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     int idx = 0;
+#else
+    if(runtime->isUseRecordQueue()){
+        runtime->getRecordings()->emplace_back(mRecording);
+        return NO_ERROR;
+    }
 #endif
     auto res = CL_SUCCESS;
     for (auto &unit : mUnits) {

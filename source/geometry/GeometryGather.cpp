@@ -336,7 +336,6 @@ public:
         auto des = TensorUtils::getDescribe(reshapeIndice.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        des->backend = nullptr;
         des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
         // recompute broadcast
         broadcastStride->buffer().device = 0;
@@ -344,7 +343,6 @@ public:
         des = TensorUtils::getDescribe(broadcastStride.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        des->backend = nullptr;
         des->regions[0].origin = constStride.get();
         des->regions[0].size[0] = 1;
         des->regions[0].size[1] = mSliceN;

@@ -85,9 +85,9 @@ bool VARP::fix(VARP::InputType type) const {
     VARP newVARP = Express::Variable::create(Express::Expr::create(tensor, true));
     newVARP->expr().first->mType = type;
     auto& pipelineInfo = inside->mCache->getSession()->getPipelineInfo(0);
-    if (TensorUtils::getDescribe(tensor)->backend == pipelineInfo.first.cache.first.get()) {
+    if (TensorUtils::getDescribe(tensor)->getBackend() == pipelineInfo.first.cache.first.get()) {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
-    } else if (TensorUtils::getDescribe(tensor)->backend == pipelineInfo.first.cache.second.get()) {
+    } else if (TensorUtils::getDescribe(tensor)->getBackend() == pipelineInfo.first.cache.second.get()) {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
     }
     Variable::replace(VARP(mContent), newVARP);
@@ -538,7 +538,7 @@ const Tensor* Variable::getTensor() const {
     return inputTensor;
 }
 bool Variable::input(VARP src) {
-    if (nullptr != mFrom->get() || VARP::CONSTANT == mFrom->mType) {
+    if (nullptr != mFrom->get()) {
         MNN_ERROR("Can't input to no-input op\n");
         return false;
     }

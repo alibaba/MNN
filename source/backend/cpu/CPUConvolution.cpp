@@ -113,9 +113,9 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
     }
 }
 std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam) {
-    auto core = static_cast<CPUBackend*>(backend)->int8Functions();
-    int UNIT, SRC_UNIT, DST_XUNIT;
-    core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    // TODO: use different pack from float
+    int UNIT = core->pack;
 
     std::shared_ptr<CPUConvolution::ResourceInt8> resource(new ResourceInt8);
     // TODO: ConvInt8Winograd need in/out scale, which isn't exist in quantinfo when model construct by V3 API

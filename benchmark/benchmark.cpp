@@ -116,8 +116,12 @@ static inline uint64_t getTimeInUs() {
 }
 
 std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward = MNN_FORWARD_CPU, bool only_inference = true,
-                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1) {
+                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
+    if (testQuantModel) {
+        float scale = 0.003, offset = 0.f;
+        revertor->writeExtraDescribeTensor(&scale, &offset);
+    }
     revertor->initialize(sparsity, sparseBlockOC);
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
@@ -377,12 +381,13 @@ int main(int argc, const char* argv[]) {
     int loop               = 10;
     int warmup             = 10;
     MNNForwardType forward = MNN_FORWARD_CPU;
+    int testQuantizedModel = 0;
     int numberThread       = 4;
     int precision = 2;
     float sparsity = 0.0f;
     int sparseBlockOC = 1;
     if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity] [testQuantizedModel]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
@@ -397,20 +402,20 @@ int main(int argc, const char* argv[]) {
     if (argc >= 6) {
         numberThread = atoi(argv[5]);
     }
-
     if (argc >= 7) {
         precision = atoi(argv[6]);
     }
-
-    if(argc >= 8) {
+    if (argc >= 8) {
         sparsity = atof(argv[7]);
     }
-
     if(argc >= 9) {
         sparseBlockOC = atoi(argv[8]);
     }
+    if(argc >= 10) {
+        testQuantizedModel = atoi(argv[9]);
+    }
 
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << std::endl;
+    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << "** testQuantizedModel=" << testQuantizedModel << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
@@ -419,8 +424,14 @@ int main(int argc, const char* argv[]) {
     // set_cpu_affinity();
 
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC);
+        printf("Float model test...\n");
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, false);
         displayStats(m.name, costs);
+        if (testQuantizedModel) {
+            printf("Quantized model test...\n");
+            costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, true);
+            displayStats(m.name, costs);
+        }
     }
 }
 #endif

@@ -51,11 +51,13 @@ ErrorCode BinaryExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int stride0[3] = {0, 0, s0};
     int stride1[3] = {0, 0, s1};
     int stride2[3] = {0, 0, 1};
+
     auto type = outputs[0]->getType();
     if (type.code == halide_type_float) {
         // Use Half or float
         type.bits = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]) * 8;
     }
+
     auto computeFunction = [&](Tensor* input0T, Tensor* input1T, Tensor* outputT) {
         auto input0 = (uint8_t*)input0T->deviceId();
         auto input1 = (uint8_t*)input1T->deviceId();
@@ -73,7 +75,12 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         if (op->type() == OpType_BinaryOp) {
-            //MNN_PRINT("binary act:%d\n", op->main_as_BinaryOp()->activationType());
+        #ifdef ENABLE_CUDA_QUANT
+            if (CUDABackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+                return new BinaryInt8Execution(op, backend);
+            }
+        #endif
+            // MNN_PRINT("binary act:%d %d\n", op->main_as_BinaryOp()->opType(), op->main_as_BinaryOp()->activationType());
             return new BinaryExecution(op->main_as_BinaryOp()->opType(), backend, op->main_as_BinaryOp()->activationType());
         }
         if (op->type() == OpType_Eltwise) {

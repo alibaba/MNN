@@ -85,6 +85,7 @@ ErrorCode NormalizeExecution::onResize(const std::vector<Tensor *> &inputs, cons
     MNN_PRINT("Start NormalizeExecution onResize !\n");
 #endif
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     if (mKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
@@ -122,7 +123,8 @@ ErrorCode NormalizeExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mKernel.setArg(idx++, remainChannels);
     mKernel.setArg(idx++, openCLImage(output));
     mLocalWorkSize = normalizeLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
-    
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(runtime, mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end NormalizeExecution onResize !\n");
 #endif
@@ -142,6 +144,13 @@ ErrorCode NormalizeExecution::onExecute(const std::vector<Tensor *> &inputs, con
     int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     MNN_PRINT("kernel cost:%d    us Normalize\n",costTime);
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End NormalizeExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

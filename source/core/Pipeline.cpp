@@ -44,11 +44,6 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
         // case OpType_Eltwise:
         case OpType_Raster:
         {
-            /*for (auto& r : TensorUtils::getDescribe(outputs[0])->regions) {
-                if (TensorUtils::getDescribe(r.origin)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
-                    return false;
-                }
-            }*/
             for (auto input : inputs) {
                 if (TensorUtils::getDescribe(input)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
                     return false;
@@ -76,6 +71,14 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             }
        case OpType_BinaryOp:
            return true;
+        case OpType_Softmax:
+            return true;
+        case OpType_Scale:
+            return true;
+        case OpType_Interp:
+            return true;
+        default:
+            break;
     }
     return false;
 }
@@ -130,7 +133,7 @@ static void _releaseTensor(Tensor* origin, bool mAllocInput) {
     if (0 == TensorUtils::getDescribe(origin)->useCount &&
         TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
         auto needRelease = _needRelease(origin, !mAllocInput);
-        auto bn          = TensorUtils::getDescribe(origin)->backend;
+        auto bn          = TensorUtils::getDescribe(origin)->getBackend();
         if (nullptr != bn && needRelease) {
             // For zeroshape may not has bn
             bn->onReleaseBuffer(origin, Backend::DYNAMIC);
@@ -140,7 +143,7 @@ static void _releaseTensor(Tensor* origin, bool mAllocInput) {
 
 static bool _allocTensor(Tensor* t, Backend* curBackend, bool outputStatic) {
     auto memoryType = _getTensorStorageType(t, outputStatic);
-    auto bn         = TensorUtils::getDescribe(t)->backend;
+    auto bn         = TensorUtils::getDescribe(t)->getBackend();
     auto des = TensorUtils::getDescribe(t);
     if (nullptr == des->mem.get()) {
         MNN_ASSERT(des->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
@@ -612,14 +615,14 @@ static void _SetTensorBackend(Schedule::PipelineInfo& mInfo, bool ownInputs) {
                 for (auto t : iter.inputs) {
                     auto des = TensorUtils::getDescribe(t);
                     if (nullptr == des->mem.get()) {
-                        des->backend = nullptr;
+                        des->setBackend(nullptr);
                     }
                 }
             }
             for (auto t : iter.outputs) {
                 auto des = TensorUtils::getDescribe(t);
                 if (nullptr == des->mem.get()) {
-                    des->backend = nullptr;
+                    des->setBackend(nullptr);
                 }
             }
         }
@@ -638,15 +641,15 @@ static void _SetTensorBackend(Schedule::PipelineInfo& mInfo, bool ownInputs) {
             if (ownInputs) {
                 for (auto t : iter.inputs) {
                     auto des = TensorUtils::getDescribe(t);
-                    if (nullptr == des->mem.get() && nullptr == des->backend) {
-                        des->backend = curBackend;
+                    if (nullptr == des->mem.get() && nullptr == des->getBackend()) {
+                        des->setBackend(curBackend);
                     }
                 }
             }
             for (auto t : iter.outputs) {
                 auto des = TensorUtils::getDescribe(t);
-                if (nullptr == des->mem.get() && nullptr == des->backend) {
-                    des->backend = curBackend;
+                if (nullptr == des->mem.get() && nullptr == des->getBackend()) {
+                    des->setBackend(curBackend);
                 }
             }
         }
@@ -662,10 +665,10 @@ static void _makeCopyOp(std::shared_ptr<BufferStorage>& copyOp) {
         copyOp->storage = builder.ReleaseRaw(copyOp->allocated_size, copyOp->offset);
     }
 }
-static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, bool ownInput) {
+static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, std::map<Tensor*, std::shared_ptr<Tensor>>& shapeFixConstCache, bool ownInput) {
     std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>> wrapCache;
-    std::map<Tensor*, std::shared_ptr<Tensor>> shapeFixConstCache;
     std::shared_ptr<BufferStorage> copyOp;
+    shapeFixConstCache.clear();
     for (auto& info : mInfo.second) {
         auto& buffer = info.executeBuffer;
         if (buffer.command.empty()) {
@@ -690,15 +693,14 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                 auto des = TensorUtils::getDescribe(t);
                 if (WrapExecution::needWrap(t, curBackend)) {
                     do {
-                        std::shared_ptr<Tensor> newTensor;
-                        if (!des->isMutable && (des->usage != Tensor::InsideDescribe::TRAINABLE)) {
+                        Tensor* newTensor = nullptr;
+                        if (!des->isMutable) {
                             newTensor = WrapExecution::copyConstCache(t, curBackend, mCacheConstTensors);
                         } else if (des->usage == Tensor::InsideDescribe::CONSTANT) {
                             newTensor = WrapExecution::copyConstCache(t, curBackend, shapeFixConstCache);
-                            buffer.extras.emplace_back(newTensor);
                         }
                         if (nullptr != newTensor) {
-                            iter.workInputs[v] = newTensor.get();
+                            iter.workInputs[v] = newTensor;
                             break;
                         }
                         if (!ownInput) {
@@ -867,7 +869,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
     _SetTensorBackend(mInfo, mAllocInput);
     // Insert Wrap If needed
     {
-        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mAllocInput);
+        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mShapeFixConstCache, mAllocInput);
         if (NO_ERROR != insertCode) {
             return insertCode;
         }
@@ -964,9 +966,9 @@ void Pipeline::_copyInputs() {
         if (!std::get<3>(tensorCache)) {
             continue;
         }
-        auto curBackend = TensorUtils::getDescribe(std::get<0>(tensorCache))->backend;
+        auto curBackend = TensorUtils::getDescribe(std::get<0>(tensorCache))->getBackend();
         if (curBackend->type() == MNN_FORWARD_CPU) {
-            TensorUtils::getDescribe(iter.first)->backend->onCopyBuffer(iter.first, std::get<0>(tensorCache));
+            TensorUtils::getDescribe(iter.first)->getBackend()->onCopyBuffer(iter.first, std::get<0>(tensorCache));
         } else {
             curBackend->onCopyBuffer(iter.first, std::get<0>(tensorCache));
         }
@@ -980,9 +982,35 @@ ErrorCode Pipeline::execute() {
     mBackend->onExecuteBegin();
     for (auto& info : mInfo.second) {
         auto& buffer = info.executeBuffer;
+//#define LOG_VERPOSE
+#ifdef LOG_VERPOSE
+        FUNC_PRINT_ALL(info.op->name()->c_str(), s);
+#endif
         for (auto& cmdP : buffer.command) {
             auto& cmd = *cmdP;
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
+#ifdef LOG_VERPOSE
+            MNN_PRINT("%s Input begin:\n", EnumNameOpType(cmd.op->type()));
+            for (auto t : cmd.workInputs) {
+                auto ptr = (float*)t->map(Tensor::MAP_TENSOR_READ, t->getDimensionType());
+                auto size = TensorUtils::getRawSize(t);
+                for (int i=0; i<size; ++i) {
+                    MNN_PRINT("%f, ", ptr[i]);
+                }
+                MNN_PRINT("\n");
+                t->unmap(Tensor::MAP_TENSOR_READ, Tensor::CAFFE, ptr);
+            }
+            MNN_PRINT("%s Output begin:\n", EnumNameOpType(cmd.op->type()));
+            for (auto t : cmd.workOutputs) {
+                auto ptr = (float*)t->map(Tensor::MAP_TENSOR_READ, t->getDimensionType());
+                auto size = TensorUtils::getRawSize(t);
+                for (int i=0; i<size; ++i) {
+                    MNN_PRINT("%f, ", ptr[i]);
+                }
+                MNN_PRINT("\n");
+                t->unmap(Tensor::MAP_TENSOR_READ, Tensor::CAFFE, ptr);
+            }
+#endif
             if (NO_ERROR != code) {
                 mBackend->onExecuteEnd();
                 return code;
@@ -1037,6 +1065,7 @@ Pipeline::~Pipeline() {
     backupbn->onClearBuffer();
     mInfo.second.clear();
     mCacheConstTensors.clear();
+    mShapeFixConstCache.clear();
 }
 
 } // namespace MNN

@@ -18,7 +18,13 @@ extern "C" {
 void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, size_t number);
 void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t,
                     size_t number);
-
+void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, size_t number);
+void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, size_t number);
+void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, size_t number);
+void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
+                     size_t number);
+void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, size_t number);
+void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, size_t number);
 #ifdef __cplusplus
 }
 #endif

@@ -48,29 +48,6 @@ void dispatch(std::function<void(MNNForwardType)> payload, MNNForwardType backen
             break;
     }
 }
-
-int getTestPrecision(MNNForwardType forwardType, MNN::BackendConfig::PrecisionMode precision, bool isSupportFp16) {
-    switch (forwardType) {
-        case MNN_FORWARD_CPU: {
-            return isSupportFp16 && precision == MNN::BackendConfig::Precision_Low ?
-                MNN::BackendConfig::Precision_Low + 1 : precision;
-            break;
-        }
-        case MNN_FORWARD_OPENCL:
-        case MNN_FORWARD_OPENGL:
-        case MNN_FORWARD_VULKAN: {
-            return isSupportFp16 && precision != MNN::BackendConfig::Precision_High ?
-                MNN::BackendConfig::Precision_Low + 1 : precision;
-            break;
-        }
-        default: {
-            return isSupportFp16 && precision != MNN::BackendConfig::Precision_High ?
-                MNN::BackendConfig::Precision_Low + 1 : precision;
-            break;
-        }
-    }
-}
-
 // simulate bf16, prune fp32 tailing precision to bf16 precision
 float convertFP32ToBF16(float fp32Value) {
     uint32_t& s32Value = *(uint32_t*)(&fp32Value);

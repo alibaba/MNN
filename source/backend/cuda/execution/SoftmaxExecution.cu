@@ -21,11 +21,17 @@ __global__ void SOFTMAX(const T *input, T *output,
         }
         float sumValue = 0.0;
         for (int z=0; z<axis; ++z) {
-            sumValue = sumValue + exp((float)src[z * inside] - maxValue);
+            float tmpSub = (float)src[z * inside] - maxValue;
+            // EXP CUTOFF
+            tmpSub = ((tmpSub < -87.0) ? -87.0 : tmpSub);
+            sumValue = sumValue + exp(tmpSub);
         }
         sumValue = 1.0 / sumValue;
         for (int z=0; z<axis; ++z) {
-            dst[z*inside] = (T)(exp((float)src[z * inside] - maxValue) * sumValue);
+            float tmpSub = (float)src[z * inside] - maxValue;
+            // EXP CUTOFF
+            tmpSub = ((tmpSub < -87.0) ? -87.0 : tmpSub);
+            dst[z*inside] = (T)(exp(tmpSub) * sumValue);
         }
     }
 }
@@ -56,7 +62,10 @@ __global__ void SOFTMAX_WARP_32(const T *input, T *output,
 
     float local_exp = 0.0f;
     if(tid < axis) {
-        local_exp = exp(local_src - maxValue);
+        float tmpSub = local_src - maxValue;
+        // EXP CUTOFF
+        tmpSub = ((tmpSub < -87.0) ? -87.0 : tmpSub);
+        local_exp = exp(tmpSub);
     }
 
     float sumRes = warpReduceSum<float>(local_exp);
@@ -104,7 +113,10 @@ __global__ void SOFTMAX_AXIS_REDUCE(const T *input, T *output,
 
     for(int i=0; i<calc_multi_num; i++) {
         if(tid + i * per_block_size < axis) {
-            local_exp += exp( (float)(src[(tid + i * per_block_size) * inside]) - maxValue);
+            float tmpSub = (float)(src[(tid + i * per_block_size) * inside]) - maxValue;
+            // EXP CUTOFF
+            tmpSub = ((tmpSub < -87.0) ? -87.0 : tmpSub);
+            local_exp += exp(tmpSub);
         }
     }
 
@@ -117,7 +129,10 @@ __global__ void SOFTMAX_AXIS_REDUCE(const T *input, T *output,
 
     for(int i=0; i<calc_multi_num; i++) {
         if(tid + i * per_block_size < axis) {
-            float  tmp_exp = exp( (float)(src[(tid + i * per_block_size) * inside]) - maxValue);
+            float tmpSub = (float)(src[(tid + i * per_block_size) * inside]) - maxValue;
+            // EXP CUTOFF
+            tmpSub = ((tmpSub < -87.0) ? -87.0 : tmpSub);
+            float tmp_exp = exp(tmpSub);
             dst[(tid + i * per_block_size) * inside] = (T)(tmp_exp * divSumValue);
         }
     }

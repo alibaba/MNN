@@ -111,6 +111,10 @@ bool OpenCLSymbols::isPropError() {
     return mPropError;
 }
     
+bool OpenCLSymbols::isQcomError() {
+    return mQcomError;
+}
+    
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #if defined(WIN32)
     handle_ = LoadLibraryA(library_path.c_str());
@@ -130,6 +134,11 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #define MNN_LOAD_PROP_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mPropError = true; \
+    }
+    
+#define MNN_LOAD_QCOM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
+    if(func_name == nullptr){ \
+        mQcomError = true; \
     }
     
 #else
@@ -169,6 +178,15 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mPropError = true; \
     }
+    
+#define MNN_LOAD_QCOM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
+        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
+    } \
+    if(func_name == nullptr){ \
+        mQcomError = true; \
+    }
+    
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -225,6 +243,13 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_SVM_PTR(clEnqueueSVMMap);
     MNN_LOAD_SVM_PTR(clEnqueueSVMUnmap);
     MNN_LOAD_SVM_PTR(clSetKernelArgSVMPointer);
+
+    MNN_LOAD_QCOM_PTR(clNewRecordingQCOM);
+    MNN_LOAD_QCOM_PTR(clEndRecordingQCOM);
+    MNN_LOAD_QCOM_PTR(clReleaseRecordingQCOM);
+    MNN_LOAD_QCOM_PTR(clRetainRecordingQCOM);
+    MNN_LOAD_QCOM_PTR(clEnqueueRecordingQCOM);
+    MNN_LOAD_QCOM_PTR(clEnqueueRecordingSVMQCOM);
 #undef MNN_LOAD_FUNCTION_PTR
 
     return true;
@@ -660,5 +685,47 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel, cl_uint index, con
     MNN_CHECK_NOTNULL(func);
     return func(kernel, index, host_ptr);
 }
+
+cl_recording_qcom CL_API_CALL clNewRecordingQCOM(cl_command_queue command_queue, cl_int *errcode_ret){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clNewRecordingQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, errcode_ret);
+}
+cl_int CL_API_CALL clEndRecordingQCOM(cl_recording_qcom recording){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEndRecordingQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(recording);
+}
+cl_int CL_API_CALL clReleaseRecordingQCOM(cl_recording_qcom recording){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clReleaseRecordingQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(recording);
+}
+cl_int CL_API_CALL clRetainRecordingQCOM(cl_recording_qcom recording){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clRetainRecordingQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(recording);
+}
+
+cl_int CL_API_CALL clEnqueueRecordingQCOM(cl_command_queue command_queue, cl_recording_qcom recording, size_t num_args,
+                       const cl_array_arg_qcom *arg_array, size_t num_global_offsets, const cl_offset_qcom *global_offset_array,
+                       size_t num_global_workgroups, const cl_workgroup_qcom *global_workgroup_array, size_t num_local_workgroups,
+                       const cl_workgroup_qcom * local_workgroups_array, cl_uint num_events_in_wait_list, const cl_event *event_wait_list, cl_event *event){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueRecordingQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, recording, num_args, arg_array, num_global_offsets, global_offset_array, num_global_workgroups, global_workgroup_array, num_local_workgroups, local_workgroups_array, num_events_in_wait_list, event_wait_list, event);
+}
+
+cl_int CL_API_CALL
+clEnqueueRecordingSVMQCOM(cl_command_queue command_queue, cl_recording_qcom recording, size_t num_args, const cl_array_arg_qcom *arg_array, size_t num_svm_args,
+                          const cl_array_arg_qcom *arg_svm_array, size_t num_global_offsets, const cl_offset_qcom *global_offset_array, size_t num_global_workgroups,
+                          const cl_workgroup_qcom *global_workgroup_array, size_t num_local_workgroups, const cl_workgroup_qcom *local_workgroups_array,
+                          size_t num_non_arg_objs, const cl_array_kernel_exec_info_qcom *non_arg_obj_array, cl_uint num_events_in_wait_list,
+                          const cl_event *event_wait_list, cl_event *event){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueRecordingSVMQCOM;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, recording, num_args, arg_array, num_svm_args, arg_svm_array, num_global_offsets, global_offset_array, num_global_workgroups, global_workgroup_array, num_local_workgroups, local_workgroups_array, num_non_arg_objs, non_arg_obj_array, num_events_in_wait_list, event_wait_list, event);
+}
+
 
 #endif //MNN_USE_LIB_WRAPPER

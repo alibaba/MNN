@@ -73,31 +73,23 @@ Int8ToFloatExecution::Int8ToFloatExecution(Backend *backend, const std::vector<T
     auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
     auto scale         = param->main_as_QuantizedFloatParam();
 
-    if(scale == nullptr) {
-        auto quantAttr = MNN::TensorUtils::getDescribe(inputs[0])->quantAttr;
-        mZeroPoint = quantAttr->zero;
+    const int scaleLen = scale->tensorScale()->size();
+    mClipBits = scale->nbits();
 
+    if (1 == scaleLen) {
         mSingle = true;
-        mSingleScale = quantAttr->scale;
+        mSingleScale = scale->tensorScale()->data()[0];
     } else {
-        const int scaleLen = scale->tensorScale()->size();
-        mClipBits = scale->nbits();
 
-        if (1 == scaleLen) {
-            mSingle = true;
-            mSingleScale = scale->tensorScale()->data()[0];
-        } else {
+        auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
+        mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
+        mScales = (void*)((uint8_t*)mScaleStorage.first + mScaleStorage.second);
+        runtime->memset(mScales, 0, UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
 
-            auto staticPool = static_cast<CUDABackend*>(backend)->getStaticBufferPool();
-            mScaleStorage = staticPool->alloc(UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
-            mScales = (void*)((uint8_t*)mScaleStorage.first + mScaleStorage.second);
-            runtime->memset(mScales, 0, UP_DIV(scaleLen, PACK_NUMBER) * PACK_NUMBER * sizeof(float));
-
-            runtime->memcpy(mScales, scale->tensorScale()->data(), scaleLen * sizeof(float), MNNMemcpyHostToDevice);
-        }
-
-        mZeroPoint = scale->zeroPoint();
+        runtime->memcpy(mScales, scale->tensorScale()->data(), scaleLen * sizeof(float), MNNMemcpyHostToDevice);
     }
+
+    mZeroPoint = scale->zeroPoint();
 }
 Int8ToFloatExecution::~Int8ToFloatExecution() {
     if(!mSingle) {
@@ -110,11 +102,27 @@ ErrorCode Int8ToFloatExecution::onResize(const std::vector<Tensor *> &inputs, co
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
     auto input = inputs[0];
-    mArea      = input->length(0);
-    mChannel = input->channel();
-    for (int i = 2; i < input->dimensions(); ++i) {
-        mArea *= input->length(i);
+
+    auto dims = input->dimensions();
+    MNN_ASSERT(dims >= 2);
+    auto format = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (format == MNN_DATA_FORMAT_NHWC) {
+        mChannel = input->length(dims-1);
+        mArea = 1;
+        for(int i = 0; i < dims-1; i++) {
+            mArea *= input->length(i);
+        }
+    } else if(format == MNN_DATA_FORMAT_NCHW || format == MNN_DATA_FORMAT_NC4HW4) {
+        mChannel = input->length(1);
+        mArea = input->length(0);
+        for(int i = 2; i < dims; i++) {
+            mArea *= input->length(i);
+        }
+    } else {
+        MNN_ERROR("Int8ToFloatExecution not support format:%d\n", format);
+        MNN_ASSERT(false);
     }
+
     mCount = mArea * UP_DIV(mChannel, PACK_NUMBER) * 2;
     // printf("Int8_2_Float size:%d-%d-%d\n\n", mArea, mChannel, mCount);
     return NO_ERROR;
@@ -161,6 +169,9 @@ class Int8ToFloatCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        if(op->main_as_QuantizedFloatParam() == nullptr) {
+            return new CastWrapExecution(backend, DataType_DT_FLOAT);
+        }
         return new Int8ToFloatExecution(backend, inputs, op);
     }
 };

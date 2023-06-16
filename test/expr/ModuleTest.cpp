@@ -614,12 +614,21 @@ public:
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        auto rt = MNN::Express::Executor::getGlobalExecutor()->getRuntime().first;
+        auto type = MNN_FORWARD_CPU;
+        for (auto& iter : rt) {
+            if (iter.first != MNN_FORWARD_CPU) {
+                type = iter.first;
+                break;
+            }
+        }
         net->setSessionMode(Interpreter::Session_Output_User);
         ScheduleConfig config;
+        config.type = type;
         config.numThread = 4;
         config.saveTensors = {"l", "ox", "xy"};
         BackendConfig bnConfig;
-        bnConfig.precision = MNN::BackendConfig::Precision_Low;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
         config.backendConfig = &bnConfig;
         auto session = net->createSession(config);
         auto x = net->getSessionInput(session, "x");
@@ -811,7 +820,7 @@ MNNTestSuiteRegister(MultiThreadOneSessionTest, "expr/MultiThreadOneSessionTest"
 class MemeoryUsageTest : public MNNTestCase {
 public:
     bool _run(int precision, bool lazy) {
-        auto func = [](VARP y) {
+        auto func = [precision](VARP y, float limit) {
             flatbuffers::FlatBufferBuilder builderOutput(1024);
             {
                 std::unique_ptr<MNN::NetT> net(new NetT);
@@ -823,19 +832,60 @@ public:
             auto bufferOutput = builderOutput.GetBufferPointer();
             std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
             ScheduleConfig config;
+            BackendConfig bnConfig;
+            bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
             config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.backendConfig = &bnConfig;
             auto s1 = net->createSession(config);
             float memory = 0.0f;
             net->getSessionInfo(s1, MNN::Interpreter::MEMORY, &memory);
+            if (memory < 0.01f) {
+                FUNC_PRINT(precision);
+                return false;
+            }
+            if (memory > limit) {
+                MNN_ERROR("memory %f larger than limit: %f, precision=%d\n", memory, limit, precision);
+                return false;
+            }
             FUNC_PRINT_ALL(memory, f);
+            return true;
         };
         auto y = _mobileNetV1Expr();
-        func(y);
-        auto x = _Input({1, 3, 1024, 1024}, NC4HW4);
+        bool res = func(y, 60.0f);
+        if (!res) {
+            return false;
+        }
+        auto x = _Input({1, 3, 1024, 1024}, NCHW);
         y = _Sigmoid(x);
-        func(y);
-
+        res = func(y, 35.0f);
+        if (!res) {
+            return false;
+        }
+        auto weightVar = MNN::Express::_Const(0.0f, {100, 10000}, NCHW);
+        x = MNN::Express::_Input({1, 100}, NCHW);
+        auto x2 = MNN::Express::_Input({1, 10000}, NCHW);
+        y = MNN::Express::_MatMul(x, weightVar);
+        auto weightVar2 = MNN::Express::_Const(0.0f, {10000, 100}, NCHW);
+        y = MNN::Express::_MatMul(y, weightVar2);
+        res = func(y, 8.0f);
+        if (!res) {
+            return false;
+        }
+        weightVar = MNN::Express::_Const(0.0f, {100, 10000, 1, 1}, NC4HW4);
+        x = MNN::Express::_Input({100, 10000, 1, 1}, NC4HW4);
+        y = MNN::Express::_Add(x, weightVar);
+        res = func(y, 12.0f);
+        if (!res) {
+            return false;
+        }
+        auto w2 = weightVar * weightVar;
+        y = MNN::Express::_Add(x, w2);
+        // TODO: Optimize the memory to 10.0f
+        res = func(y, 20.0f);
+        if (!res) {
+            return false;
+        }
         return true;
     }
     virtual bool run(int precision) {

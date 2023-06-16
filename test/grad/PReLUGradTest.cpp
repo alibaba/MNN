@@ -31,8 +31,9 @@ public:
         auto opExpr = output->expr().first;
 
         auto grad = OpGrad::get(opExpr->get()->type());
-        float outputDiff[len] = {0.1, -0.2, -0.3, 0.4, 0.5};
-        auto inputGrad = grad->onGrad(opExpr, {_Const(outputDiff, {1, len, 1, 1}, NCHW)});
+        std::vector<float> outputDiff = {0.1, -0.2, -0.3, 0.4, 0.5};
+        auto outputDiffVar = _Const(outputDiff.data(), {1, len, 1, 1}, NCHW);
+        auto inputGrad = grad->onGrad(opExpr, {_Convert(outputDiffVar, NC4HW4)});
 
         const std::vector<float> expectedOutput = {0.025, -0.1, 0.09, 0.4, 0.05};
         auto gotOutput = _Convert(inputGrad[0], NCHW)->readMap<float>();

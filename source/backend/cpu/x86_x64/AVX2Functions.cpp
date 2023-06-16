@@ -56,8 +56,6 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1FMA;
         _AVX_ExtraInitFMA(coreFunction);
     }
-    // For ImageProcess Functions
-    _SSE_ImageProcessInit(coreFunction, cpuFlags);
 #ifdef MNN_AVX512
     if ((cpuFlags & libyuv::kCpuHasAVX512VNNI)
         || (cpuFlags & libyuv::kCpuHasAVX512VL)

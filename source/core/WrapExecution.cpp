@@ -23,7 +23,7 @@ bool WrapExecution::needWrap(const Tensor* input, Backend* curBackend) {
         return false;
     }
     auto des = TensorUtils::getDescribe(input);
-    auto bn = des->backend;
+    auto bn = des->getBackend();
     MNNForwardType type = MNN_FORWARD_CPU;
     int pack = 4;
     int bytes = 4;
@@ -65,8 +65,8 @@ public:
         // Do nothing
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        auto inputBn = TensorUtils::getDescribe(inputs[0])->backend;
-        auto outputBn = TensorUtils::getDescribe(outputs[0])->backend;
+        auto inputBn = TensorUtils::getDescribe(inputs[0])->getBackend();
+        auto outputBn = TensorUtils::getDescribe(outputs[0])->getBackend();
         auto inputForwardtype = MNN_FORWARD_CPU;
         auto outputForwardtype = MNN_FORWARD_CPU;
         if (nullptr != inputBn) {
@@ -88,8 +88,8 @@ public:
         return NO_ERROR;
     }
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        auto inputBn = TensorUtils::getDescribe(inputs[0])->backend;
-        auto outputBn = TensorUtils::getDescribe(outputs[0])->backend;
+        auto inputBn = TensorUtils::getDescribe(inputs[0])->getBackend();
+        auto outputBn = TensorUtils::getDescribe(outputs[0])->getBackend();
         auto outputForwardtype = MNN_FORWARD_CPU;
         if (nullptr != mMidCPUTensor.get()) {
             inputBn->onCopyBuffer(inputs[0], mMidCPUTensor.get());
@@ -117,7 +117,8 @@ std::shared_ptr<Tensor> WrapExecution::makeCopyTensor(Tensor* t, Backend* target
     wrapTensor->buffer().type = t->buffer().type;
     TensorUtils::adjustTensorForCompability(wrapTensor.get());
     TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(t)->quantAttr;
-    TensorUtils::getDescribe(wrapTensor.get())->backend = targetBackend;
+    TensorUtils::getDescribe(wrapTensor.get())->type = TensorUtils::getDescribe(t)->type;
+    TensorUtils::getDescribe(wrapTensor.get())->setBackend(targetBackend);
     return wrapTensor;
 }
 
@@ -137,29 +138,47 @@ std::pair<Execution*, std::shared_ptr<Tensor>> WrapExecution::makeCopyExecution(
     return std::make_pair(copyExe, wrapTensor);
 }
 
-std::shared_ptr<Tensor> WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache) {
+Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache) {
     auto des = TensorUtils::getDescribe(t);
     if (curBackend->type() != MNN_FORWARD_CPU) {
         auto constCacheiter = cache.find(t);
         if (constCacheiter != cache.end()) {
             // The tensor has been copy by op before, just use it
-            return constCacheiter->second;
+            return constCacheiter->second.get();
         } else {
             // search or create const for new backend
             std::shared_ptr<Tensor> wrapTensor(new Tensor);
+            auto outDes = TensorUtils::getDescribe(wrapTensor.get());
             TensorUtils::copyShape(t, wrapTensor.get(), true);
             wrapTensor->buffer().type = t->buffer().type;
             TensorUtils::adjustTensorForCompability(wrapTensor.get());
-            TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(t)->quantAttr;
-            TensorUtils::getDescribe(wrapTensor.get())->usage = Tensor::InsideDescribe::CONSTANT;
+            outDes->quantAttr = des->quantAttr;
+            outDes->usage = des->usage;
+            outDes->stageMask = des->stageMask;
             auto tempRes = curBackend->onAcquireBuffer(wrapTensor.get(), Backend::STATIC);
             if (!tempRes) {
                 return nullptr;
             }
-            TensorUtils::getDescribe(wrapTensor.get())->backend = curBackend;
+            outDes->setBackend(curBackend);
             curBackend->onCopyBuffer(t, wrapTensor.get());
-            cache.insert(std::make_pair(t, wrapTensor));
-            return wrapTensor;
+            bool canReplace = !des->isMutable;
+            if (des->stageMask & Tensor::InsideDescribe::GEOMETRY_STAGE) {
+                canReplace = false;
+            }
+            if (des->stageMask & Tensor::InsideDescribe::CONVERTED_STAGE) {
+                canReplace = false;
+            }
+            if (canReplace) {
+                outDes->stageMask |= Tensor::InsideDescribe::CONVERTED_STAGE;
+                TensorUtils::getDescribeOrigin(t)->mContent = TensorUtils::getDescribeOrigin(wrapTensor.get())->mContent;
+                t->buffer().host = wrapTensor->buffer().host;
+                t->buffer().device = wrapTensor->buffer().device;
+                t->buffer().dim = TensorUtils::getDescribe(wrapTensor.get())->dims;
+                return t;
+            } else {
+                cache.insert(std::make_pair(t, wrapTensor));
+            }
+            return wrapTensor.get();
         }
     }
     return nullptr;

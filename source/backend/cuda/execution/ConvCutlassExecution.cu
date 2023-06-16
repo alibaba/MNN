@@ -59,17 +59,17 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     // Copy Bias
     {
         if(static_cast<CUDABackend*>(bn)->useFp16()) {
-            auto tempBiasStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(conv->bias()->size()*sizeof(float));
-            auto biasTemp = (float*)((uint8_t*)tempBiasStorage.first + tempBiasStorage.second);
-            cuda_check(cudaMemcpy(biasTemp, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
-
             int biasSize = conv->bias()->size();
             int hp = UP_DIV(biasSize, 8) * 8;
+
+            auto tempBiasStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(hp*sizeof(float));
+            auto biasTemp = (float*)((uint8_t*)tempBiasStorage.first + tempBiasStorage.second);
+            runtime->memset(biasTemp, 0, hp * sizeof(int32_t));
+            cuda_check(cudaMemcpy(biasTemp, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
+
             biasTensor.reset(Tensor::createDevice<int16_t>({hp}));
             bn->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
             mBias = (void *)biasTensor.get()->buffer().device;
-            runtime->memset(mBias, 0, hp * sizeof(int16_t));
-
             callFloat2Half((const void*)biasTemp, (void*)mBias, hp, runtime);
 
             static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempBiasStorage);
@@ -96,6 +96,7 @@ ConvCutlassExecution::ConvCutlassExecution(Backend* backend, const MNN::Op* op, 
     mFp16Infer = (mPrecisonLevel == 2);
     mFp32Infer = (mPrecisonLevel == 1);
     mFp16Fp32MixInfer = (mPrecisonLevel == 0);
+    mBf16Infer = (mPrecisonLevel == 3);
 }
 
 ConvCutlassExecution::~ConvCutlassExecution() {

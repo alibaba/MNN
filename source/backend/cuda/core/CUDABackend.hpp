@@ -72,6 +72,7 @@ public:
     };
 
     static bool addCreator(OpType t, Creator *c);
+    static DataType getDataType(const Tensor* tensor);
 
     BufferAllocator *getBufferPool() const {
         return mBufferPool.get();
@@ -101,6 +102,16 @@ public:
         CUDABackend::addCreator(type, t);
     }
     ~CUDACreatorRegister() = default;
+};
+
+/** execution cast wrapper. insert tensor cast dynamic. */
+class CastWrapExecution : public Execution {
+public:
+    CastWrapExecution(Backend* backend, DataType runT)
+                    : Execution(backend), mRunType(runT) {}
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+private:
+    DataType mRunType;
 };
 
 template <typename T>

@@ -15,136 +15,6 @@
 namespace MNN {
 namespace CUDA {
 
-
-static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& area) {
-    batch = t->batch();
-    if (t->dimensions() == 4) {
-        channel = t->channel();
-        area = t->width() * t->height();
-    } else if (t->dimensions() == 3) {
-        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
-        if (format == MNN_DATA_FORMAT_NHWC) {
-            channel = t->length(2);
-            area    = t->length(1);
-        } else {
-            channel = t->length(1);
-            area    = t->length(2);
-        }
-    } else {
-        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
-        if (format == MNN_DATA_FORMAT_NHWC) {
-            for (int i = t->dimensions() - 1; i > 0; i--) {
-                int len = t->length(i);
-                if (len > 1) {
-                    if (channel == 1) {
-                        channel = len;
-                    } else {
-                        area *= len;
-                    }
-                }
-            }
-        } else {
-            for (int i = 1; i < t->dimensions(); i++) {
-                int len = t->length(i);
-                if (len > 1) {
-                    if (channel == 1) {
-                        channel = len;
-                    } else {
-                        area *= len;
-                    }
-                }
-            }
-        }
-    }
-}
-
-static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
-    auto origin = region.origin;
-    auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
-    auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    if (srcFormat == dstFormat) {
-        return 0;
-    }
-    if (0 != region.src.offset || 0 != region.dst.offset) {
-        return 0;
-    }
-    int dstBatch = 1, dstChannel = 1, dstArea = 1,
-        srcBatch = 1, srcChannel = 1, srcArea = 1;
-    getBatchChannelArea(origin, srcBatch, srcChannel, srcArea);
-    getBatchChannelArea(dest, dstBatch, dstChannel, dstArea);
-    if (dstBatch != srcBatch) {
-        return 0;
-    }
-    if (dstChannel != srcChannel) {
-        return 0;
-    }
-    if (dstArea != srcArea) {
-        return 0;
-    }
-    auto totalSize = dstBatch * dstChannel * dstArea;
-    int srcSize = 1;
-    int dstSize = 1;
-    int res = 1;
-    for (int i=0; i<3; ++i) {
-        if (region.size[i] == 1) {
-            continue;
-        }
-        if (region.src.stride[i] != region.dst.stride[i]) {
-            if (dstArea == 1) {
-                // Batch / Channel transpose
-                return 0;
-            }
-            res = 2;
-        }
-        srcSize += (region.size[i] - 1) * region.src.stride[i];
-        dstSize += (region.size[i] - 1) * region.dst.stride[i];
-    }
-    if (srcSize != totalSize || dstSize != totalSize ) {
-        return 0;
-    }
-    // Check If it can be described as NHWC <-> NC4HW4 transpose
-    if (2 == res) {
-        int srcChannelStride;
-        int dstChannelStride;
-        int srcAreaStride;
-        int dstAreaStride;
-        if (MNN_DATA_FORMAT_NC4HW4 == srcFormat) {
-            srcChannelStride = srcArea;
-            srcAreaStride = 1;
-            dstChannelStride = 1;
-            dstAreaStride = srcChannel;
-        } else {
-            srcChannelStride = 1;
-            srcAreaStride = srcChannel;
-            dstAreaStride = 1;
-            dstChannelStride = srcArea;
-        }
-        for (int i=0; i<3; ++i) {
-            if (region.size[i] == 1) {
-                continue;
-            }
-            if (region.size[i] == dstBatch) {
-                if (region.src.stride[i] != region.dst.stride[i]) {
-                    return 0;
-                }
-                continue;
-            }
-            if (region.size[i] == srcChannel) {
-                if (region.src.stride[i] != srcChannelStride || region.dst.stride[i] != dstChannelStride) {
-                    return 0;
-                }
-            }
-            if (region.size[i] == srcArea) {
-                if (region.src.stride[i] != srcAreaStride || region.dst.stride[i] != dstAreaStride) {
-                    return 0;
-                }
-            }
-        }
-        return 2;
-    }
-    return 1;
-}
-
 static bool _equalSizeStride(const Tensor::InsideDescribe::Region& slice0, const Tensor::InsideDescribe::Region& slice1) {
     if (slice0.src.stride[0] != slice1.src.stride[0] || slice0.dst.stride[0] != slice1.dst.stride[0]) {
         //MNN_PRINT("Raster total:%d, index:%d, src stride0:%d-%d, , dst stride0:%d-%d\n", mTempInputCopy.size(), i, slice.src.stride[0], slice0.src.stride[0], slice.dst.stride[0], slice0.dst.stride[0]);
@@ -229,6 +99,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
     auto input = outputs[0];
     auto output = outputs[0];
     OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
+    mSingleConvert.type = 0;
 
     auto des = TensorUtils::getDescribe(input);
     auto outputDes = TensorUtils::getDescribe(output);
@@ -301,62 +172,73 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         }
     }
 
-    mSingleConvert = 0;
     // srcNum == 1 && srcFormat != dstFormat : Single Convert
     if (des->regions.size() == 1) {
-        mSingleConvert = _singleConvert(des->regions[0], output);
-        if (mSingleConvert > 0) {
+        OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
+        if (mSingleConvert.type > 0) {
             return NO_ERROR;
         }
     }
 
+    std::vector<Tensor*> forRelease;
     for(int i = 0; i < des->regions.size(); i++) {
         auto& slice = des->regions[i];
         auto origin = slice.origin;
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
             continue;
         }
-        if (mTempInput.find(origin)!=mTempInput.end()) {
-            continue;
+        auto cache = static_cast<CUDABackend*>(backend())->getCache();
+        auto tempTensor = cache->findCacheTensor(origin, MNN_DATA_FORMAT_NCHW);
+        if (nullptr == tempTensor) {
+            std::shared_ptr<Tensor> newTensor(new Tensor);
+            TensorUtils::copyShape(origin, newTensor.get());
+            TensorUtils::getDescribe(newTensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+            newTensor->buffer().type = origin->getType();
+            TensorUtils::setLinearLayout(newTensor.get());
+            // Propagate quant info if necessary
+            auto des = TensorUtils::getDescribe(newTensor.get());
+            auto originDes = TensorUtils::getDescribe(origin);
+            if (originDes->quantAttr != nullptr) {
+                des->quantAttr.reset(new QuantAttr);
+                *des->quantAttr = *originDes->quantAttr;
+                des->type = static_cast<CUDABackend*>(backend())->getDataType(origin);
+            }
+
+            auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
+            if (!res) {
+                return OUT_OF_MEMORY;
+            }
+            tempTensor = newTensor.get();
+            TensorUtils::getDescribe(tempTensor)->useCount = TensorUtils::getDescribe(origin)->useCount;
+            cache->pushCacheTensor(newTensor, origin, MNN_DATA_FORMAT_NCHW);
+            mTempInput.insert(std::make_pair(origin, tempTensor));
         }
-        std::shared_ptr<Tensor> newTensor(new Tensor);
-        TensorUtils::copyShape(origin, newTensor.get());
-        TensorUtils::getDescribe(newTensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        newTensor->buffer().type = origin->getType();
-        TensorUtils::setLinearLayout(newTensor.get());
-        mTempInput.insert(std::make_pair(origin, newTensor));
+        if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
+            forRelease.emplace_back(tempTensor);
+        }
+        mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
 
     if (MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat) {
         mTempOutput.reset(new Tensor);
         TensorUtils::setupTensorInfo(output, mTempOutput.get(), MNN_DATA_FORMAT_NCHW);
+
+        // Propagate quant info if necessary
+        auto des = TensorUtils::getDescribe(mTempOutput.get());
+        auto originDes = TensorUtils::getDescribe(output);
+        if (originDes->quantAttr != nullptr) {
+            des->quantAttr.reset(new QuantAttr);
+            *des->quantAttr = *originDes->quantAttr;
+            des->type = static_cast<CUDABackend*>(backend())->getDataType(output);
+        }
+
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
         }
         mOutputPtr = mTempOutput.get();
     }
-
-    for (auto& iter : mTempInput) {
-        auto res = backend()->onAcquireBuffer(iter.second.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
-        }
-    }
-
-    for (int i = 0; i < des->regions.size(); ++i) {
-        auto& slice = des->regions[i];
-        if (nullptr == slice.origin) {
-            continue;
-        }
-        auto iter = mTempInput.find(slice.origin);
-        if (iter != mTempInput.end()) {
-            mTempInputCopy.emplace_back(std::make_pair(iter->second.get(), &slice));
-            continue;
-        }
-        mTempInputCopy.emplace_back(std::make_pair(slice.origin, &slice));
-    }
-
 
     //MNN_PRINT("Raster copy size:%d\n", mTempInputCopy.size());
     if(mTempInputCopy.size() > 1) {
@@ -389,19 +271,18 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             if (temp[i] % 4 != 0 || temp[regionSize+i] % 4 != 0) {
                 mFuseRaster.first = 1;
             }
-            //printf("%d-%d-%d\n", regionSize, temp[i], temp[regionSize+i]);
+            //MNN_PRINT("%d-%d-%d\n", regionSize, temp[i], temp[regionSize+i]);
         }
         //save srcOffset/dstOffset to Device
-        offsetTensor.reset(Tensor::createDevice<int32_t>({2*regionSize}));
-        backend()->onAcquireBuffer(offsetTensor.get(), Backend::STATIC);
-        mOffset = (void *)offsetTensor.get()->buffer().device;
+        mOffsetTensor.reset(Tensor::createDevice<int32_t>({2*regionSize}));
+        backend()->onAcquireBuffer(mOffsetTensor.get(), Backend::STATIC);
+        mOffset = (void *)mOffsetTensor.get()->buffer().device;
         cuda_check(cudaMemcpy(mOffset, temp.data(), 2*regionSize*sizeof(int32_t), cudaMemcpyHostToDevice));
         mTempInputCopy.clear();
         mTempInputCopy.emplace_back(std::make_pair(tensor, &slice0));
     }
-
-    for (auto& iter : mTempInput) {
-        backend()->onReleaseBuffer(iter.second.get(), Backend::DYNAMIC);
+    for (auto t : forRelease) {
+        backend()->onReleaseBuffer(t, Backend::DYNAMIC);
     }
     if (nullptr != mTempOutput) {
         backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
@@ -437,28 +318,23 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto output = outputs[0];
     auto bytes = bn->getBytes(output);
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    // printf("raster format:%d -> %d, addr:%p %p\n", TensorUtils::getDescribe(input)->dimensionFormat, \
+    // MNN_PRINT("raster format:%d -> %d, addr:%p %p bytes:%d\n", TensorUtils::getDescribe(input)->dimensionFormat, \
     //     TensorUtils::getDescribe(output)->dimensionFormat, \
-    //     input->deviceId(), output->deviceId());
+    //     input->deviceId(), output->deviceId(), bytes);
 
-    if (mSingleConvert > 0) {
+    if (mSingleConvert.type > 0) {
         auto realInput = TensorUtils::getDescribe(input)->regions[0].origin;
-        int srcBatch = 1, srcChannel = 1, srcArea = 1;
-        getBatchChannelArea(realInput, srcBatch, srcChannel, srcArea);
+        int srcBatch = mSingleConvert.batch, srcChannel = mSingleConvert.channel, srcArea = mSingleConvert.area;
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
-        auto destFormat = TensorUtils::getDescribe(output)->dimensionFormat;
-        int batchStride = srcChannel * srcArea * bytes;
-        int inputBatchStride = batchStride;
-        int outputBatchStride = batchStride;
         PackInfo pack;
         pack.inside = srcArea;
         pack.axis = srcChannel;
         pack.unit = PACK_NUMBER;
         pack.outside = srcBatch;
-        if (mSingleConvert == 1) {
+        if (mSingleConvert.type == 1) {
             pack.axisStride = srcArea;
             pack.insideStride = 1;
-        } else if (mSingleConvert == 2) {
+        } else if (mSingleConvert.type == 2) {
             pack.axisStride = 1;
             pack.insideStride = srcChannel;
         }
@@ -485,16 +361,16 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         cudaMemset((uint8_t*)mOutputPtr->deviceId(), 0, size);
     }
     for (auto& iter : mTempInput) {
-        backend()->onCopyBuffer(iter.first, iter.second.get());
+        backend()->onCopyBuffer(iter.first, iter.second);
     }
-    //printf("\n%d\n", mFuseRaster.first);
+    //MNN_PRINT("\n%d\n", mFuseRaster.first);
     if(mFuseRaster.first > 0) {
         MNN_ASSERT(mTempInputCopy.size() == 1);
         auto& iter  = mTempInputCopy[0];
         auto& slice = *(iter.second);
         auto srcPtr = (uint8_t*)iter.first->deviceId();
         auto dstPtr = (uint8_t*)mOutputPtr->deviceId();
-        //printf("fuseRaster:%p-%p\n", mSrcOffset, mDstOffset);
+        //MNN_PRINT("fuseRaster:%p-%p\n", mSrcOffset, mDstOffset);
 
         FuseRasterBlit(dstPtr, srcPtr, slice.size, slice.src.stride, slice.dst.stride, mFuseRaster.second, mOffset, bytes, runtime, mFuseRaster.first);
     } else {

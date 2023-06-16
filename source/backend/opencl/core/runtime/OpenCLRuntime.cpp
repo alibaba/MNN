@@ -29,7 +29,7 @@ bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const c
     return (pos != std::string::npos);
 }
 
-OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode) {
+OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int deviceId) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
 #endif
@@ -38,12 +38,29 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
     cl_int res = cl::Platform::get(&platforms);
     MNN_CHECK_CL_SUCCESS(res, "getPlatform");
     if(platforms.size() > 0 && res == CL_SUCCESS){
-        cl::Platform::setDefault(platforms[0]);
         std::vector<cl::Device> gpuDevices;
-        res = platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+	if (deviceId == 0) {
+            cl::Platform::setDefault(platforms[0]);
+            res = platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+            mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[0]);
+        } else {
+            int device_cur_id = 0;
+            for (int i = 0; i < platforms.size() && device_cur_id <= deviceId; ++i) {
+                cl::Platform::setDefault(platforms[i]);
+                res = platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+                for (int j = 0; j < gpuDevices.size() && res == CL_SUCCESS; ++j) {
+                    if (device_cur_id == deviceId) {
+                        mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[j]);
+                        device_cur_id++;
+                        break;
+                    } else {
+                        device_cur_id++;
+                    }
+                }
+            }
+        }
 
-        if(1 <= gpuDevices.size() && res == CL_SUCCESS){
-            mFirstGPUDevicePtr              = std::make_shared<cl::Device>(gpuDevices[0]);
+        if (mFirstGPUDevicePtr != nullptr && res == CL_SUCCESS) {
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             mDeviceName = deviceName;
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
@@ -218,6 +235,24 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_accumulate_int8")){
                 mSupportDotAccInt8 = true;
             }
+            
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+            {
+                if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")){
+                    mMaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
+                    cl_int err;
+                    if(mMaxRecordableQueueSize > 0){
+                        mUseRecordQueue = true;
+                        mRecordableQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_RECORDABLE_QCOM, &err);
+                        if(err != CL_SUCCESS){
+                            mIsCreateError = true;
+                            return;
+                        }
+                    }
+                }
+            }
+#endif
+            
         }else{
             mIsCreateError = true;
             MNN_ASSERT(1 <= gpuDevices.size());
@@ -317,6 +352,8 @@ OpenCLRuntime::~OpenCLRuntime() {
     mCommandQueuePtr.reset();
     mContext.reset();
     mFirstGPUDevicePtr.reset();
+    mRecordableQueuePtr.reset();
+    mRecordings.clear();
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~OpenCLRuntime !\n");
 #endif
@@ -367,6 +404,10 @@ cl::Context &OpenCLRuntime::context() {
 
 cl::CommandQueue &OpenCLRuntime::commandQueue() {
     return *mCommandQueuePtr;
+}
+
+cl::CommandQueue &OpenCLRuntime::recordableQueue(){
+    return *mRecordableQueuePtr;
 }
 
 uint64_t OpenCLRuntime::deviceGlobalMemeryCacheSize() const {
@@ -672,4 +713,17 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
     return true;
 }
 
+void OpenCLRuntime::clearRecord(){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = mCommandQueuePtr->EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
+                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
+        }
+        mCommandQueuePtr->finish();
+        mRecordings.clear();
+    }
+#endif
+}
 } // namespace MNN
