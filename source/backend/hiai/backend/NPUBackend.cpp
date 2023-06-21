@@ -182,83 +182,6 @@ namespace MNN {
 
         return NO_ERROR;
     }
-#ifdef HIAI_DEBUG
-    bool WriteToBufferFile(ge::Buffer& buffer,std::string om_file_path)
-    {
-        FILE *fp;
-        fp = fopen(om_file_path.c_str(), "wb");
-        if (fp == NULL) {
-            printf("%s open failed !!!",om_file_path.c_str());
-            return false;
-        }
-
-        uint32_t write_size = (uint32_t)fwrite(buffer.data(), 1, buffer.size(), fp);
-        if (write_size != buffer.size()) {
-            fclose(fp);
-            printf("write om file failed !!!");
-            return false;
-        }
-        fclose(fp);
-        return true;
-    }
-    
-    bool WriteToOMFile(domi::ModelBufferData om_model_buff,std::string om_file_path)
-    {
-        FILE *fp;
-        fp = fopen(om_file_path.c_str(), "wb");
-        if (fp == NULL) {
-            printf("%s open failed !!!",om_file_path.c_str());
-            return false;
-        }
-
-        uint32_t write_size = (uint32_t)fwrite(om_model_buff.data, 1, om_model_buff.length, fp);
-        if (write_size != om_model_buff.length) {
-            fclose(fp);
-            printf("write om file failed !!!");
-            return false;
-        }
-        fclose(fp);
-        return true;
-    }
-#endif
-
-    shared_ptr<hiai::AiModelMngerClient> LoadModelSync(domi::ModelBufferData modelBufferData, string model_name)
-    {
-        shared_ptr<hiai::AiModelMngerClient> mngerClient = make_shared<hiai::AiModelMngerClient>();
-        if (mngerClient == nullptr) {
-            MNN_ERROR("[NPU] Model Manager Client make_shared error.");
-            return nullptr;
-        }
-
-        int ret = mngerClient->Init(nullptr);
-        if (ret != 0) {
-            MNN_ERROR("[NPU] Model Manager Init Failed.");
-            return nullptr;
-        }
-
-        shared_ptr<hiai::AiModelBuilder> mcbuilder = make_shared<hiai::AiModelBuilder>(mngerClient);
-        hiai::MemBuffer* buffer = mcbuilder->InputMemBufferCreate(modelBufferData.data, modelBufferData.length);
-        if (buffer == nullptr) {
-            MNN_ERROR("[NPU] create MemBuffer failed");
-            return nullptr;
-        }
-
-        shared_ptr<hiai::AiModelDescription> desc = make_shared<hiai::AiModelDescription>(model_name, 3, 0, 0, 0);
-        desc->SetModelBuffer(buffer->GetMemBufferData(), buffer->GetMemBufferSize());
-
-        vector<shared_ptr<hiai::AiModelDescription>> model_desc;
-        model_desc.push_back(desc);
-
-
-        ret = mngerClient->Load(model_desc);
-        if (ret != 0) {
-            MNN_ERROR("[NPU] Model Load Failed.");
-            mngerClient = nullptr;
-        }
-
-        mcbuilder->MemBufferDestroy(buffer);
-        return mngerClient;
-    }
 
     static inline std::map<OpType, NPUBackend::Creator*>* getCreatorMap() {
         static std::once_flag of;
@@ -381,11 +304,7 @@ namespace MNN {
     }
     
     void NPUBackend::onExecuteEnd() const {
-#ifdef HIAI_IR_V2
-        processV2();
-#else
-        process(0);
-#endif
+        process();
     }
 
     Backend::MemObj* NPUBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
@@ -419,26 +338,14 @@ namespace MNN {
         if (isInputCopy) {
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));
             MNN_ASSERT(index != mInputMap.end());
-#ifdef HIAI_IR_V2
             shared_ptr<hiai::INDTensorBuffer> input = inputTensors[index->second];
-#else
-            shared_ptr<hiai::AiTensor> input = mInputTensors[index->second];
-#endif
             if(TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
              ||TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
-#ifdef HIAI_IR_V2
                 memcpy(input->GetData(), srcTensor->host<float>(), (size_t)input->GetSize());
-#else
-                memcpy(input->GetBuffer(), srcTensor->host<float>(), (size_t)input->GetSize());
-#endif
             } else {
                 shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true));
                 tensorConvert(srcTensor, tmpTensor.get());
-#ifdef HIAI_IR_V2
                 memcpy(input->GetData(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
-#else
-                memcpy(input->GetBuffer(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
-#endif
             }
         } else if(isOutputCopy){
             int index;
@@ -453,32 +360,17 @@ namespace MNN {
                 MNN_PRINT("MNNTensor and HIAITensor mismatch!");
                 return;
             }
-#ifdef HIAI_IR_V2
             shared_ptr<hiai::INDTensorBuffer> output = outputTensors[index];
-#else
-            shared_ptr<hiai::AiTensor> output = mOutputTensors[index];
-#endif
             if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
              ||TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
-#ifdef HIAI_IR_V2
                 memcpy(dstTensor->buffer().host, output->GetData(), (size_t)output->GetSize());
-#else
-                memcpy(dstTensor->buffer().host, output->GetBuffer(), (size_t)output->GetSize());
-#endif
             } else {
                 auto tmpShape = tensorShapeFormat(srcTensor);
                 vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
-#ifdef HIAI_IR_V2
                 shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
                                                             (void*)(output->GetData()), 
                                                             Tensor::DimensionType::CAFFE));
                 auto shape = output->GetTensorDesc(); 
-#else
-                shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
-                                                            (void*)(output->GetBuffer()), 
-                                                            Tensor::DimensionType::CAFFE));// nchw
-                auto shape = output->GetTensorDimension(); 
-#endif
                 tensorConvert(tmpTensor.get(), dstTensor);
             }
         }
@@ -491,135 +383,17 @@ namespace MNN {
         mGrapMap.clear();
         mOutGEOpMap.clear();
         mInputOps.clear();
-        mInputTensors.clear();
-        mOutputTensors.clear();
-#ifdef HIAI_IR_V2
         inputTensors.clear();
         outputTensors.clear();
-#endif
         mMNNOutTensors.clear();
         mSclipMap.clear();
-        if (mMgrClient != nullptr) {
-            mMgrClient->UnLoadModel();
-        }
     }
 
     void NPUBackend::onResizeEnd() {
-#ifdef HIAI_IR_V2
-        bulidIRModelAndLoadV2();
-#else
         bulidIRModelAndLoad();
-#endif
     }
-
-
-    int NPUBackend::getInOutTensorInfo(string modelName) {
-        if (mMgrClient == nullptr) {
-            return -1;
-        }
-
-        int ret = mMgrClient->GetModelIOTensorDim(modelName, mInputDimension, mOutputDimension);
-        if (ret != hiai::AI_SUCCESS) {
-            MNN_ERROR("[NPU] Get model IO Tensor failed：%d \n", ret);
-            return -1;
-        }
-
-        MNN_PRINT("mInputDimension : %lu , mOutputDimension : %lu \n", mInputDimension.size(), mOutputDimension.size());
-
-        for (auto in_dim : mInputDimension)
-        {
-            shared_ptr<hiai::AiTensor> input = make_shared<hiai::AiTensor>();
-            input->Init(&in_dim);
-            mInputTensors.push_back(input);
-        }
-        auto index =0;
-        for (auto out_dim : mOutputDimension)
-        {
-            shared_ptr<hiai::AiTensor> output = make_shared<hiai::AiTensor>();
-            MNN_PRINT("%d HiAiTensor output DIM:%u,%u,%u,%u\n", index, 
-                      out_dim.GetNumber(), out_dim.GetChannel(), 
-                      out_dim.GetHeight(), out_dim.GetWidth());
-            output->Init(&out_dim);
-            mOutputTensors.push_back(output);
-            index++;
-        }
-        index = 0;
-        for(auto opMap : mOutGEOpMap){
-            for(auto tensor: opMap.second){
-                mMNNOutTensors.push_back(tensor);
-                MNN_PRINT("%d MNNTensor output DIM:%d,%d,%d,%d\n",index,
-                          tensor->batch(),tensor->channel(),tensor->height(),tensor->width());
-                index++;
-            }
-        }
-        return 0;
-    }
-
-    int i = 0;
 
     void NPUBackend::bulidIRModelAndLoad() {
-        MNN_PRINT("mInputOps : %lu \n", mInputOps.size());
-        std::vector<ge::Operator> inputs;
-        for (auto input : mInputOps){
-            inputs.push_back(input.second[0]);
-        }
-        std::vector<ge::Operator> outputOps;
-        for(auto outOp : mOutGEOpMap) {
-            outputOps.push_back(*outOp.first.get());
-        }
-        MNN_PRINT("mOutputOps : %lu \n", outputOps.size());
-
-        string graphName = string("Graph1");
-        string version = string("model_v000011");
-        string modelName = to_string(0);
-        mModelName.push_back(modelName);
-        ge::Graph graph(graphName);
-        graph.SetInputs(inputs).SetOutputs(outputOps);
-
-        ge::Model model(modelName, version);
-        model.SetGraph(graph);
-
-        
-        domi::HiaiIrBuild ir_build;
-        domi::ModelBufferData om_model_buff;
-
-        ge::Buffer buffer;
-        ge::GraphErrCodeStatus geret = model.Save(buffer);
-        if(geret != 0) {
-            MNN_ERROR("[NPU] Model save failed \n");
-        }
-#ifdef HIAI_DEBUG
-        WriteToBufferFile(buffer, "/data/local/tmp/test.irpb");
-#endif
-        bool createBufferSuc = ir_build.CreateModelBuff(model, om_model_buff);
-
-        if (!createBufferSuc) {
-            MNN_ERROR("[NPU] Create Model Buff failed \n");
-        }
-        bool buildIRSuc = ir_build.BuildIRModel(model, om_model_buff);
-        if(!buildIRSuc){
-            MNN_ERROR("[NPU] IR model build failed  \n");
-        }
-#ifdef HIAI_DEBUG
-        WriteToOMFile(om_model_buff, "/data/local/tmp/test.om");
-#endif
-        mMgrClient = LoadModelSync(om_model_buff, modelName);
-
-        if (mMgrClient==nullptr) {
-            MNN_ERROR("[NPU] Model Manager Client is null \n");
-            ir_build.ReleaseModelBuff(om_model_buff);
-        }
-
-        ir_build.ReleaseModelBuff(om_model_buff);
-
-        int result = getInOutTensorInfo(modelName);
-
-        MNN_ASSERT(result == 0);
-               
-    }
-
-#ifdef HIAI_IR_V2
-    void NPUBackend::bulidIRModelAndLoadV2() {
         std::vector<ge::Operator> inputs;
         for (auto input : mInputOps){
             inputs.push_back(input.second[0]);
@@ -706,32 +480,11 @@ namespace MNN {
         }
         return;
     }
-#endif
 
-    int NPUBackend::process(int modelIndex) const {
-#ifdef HIAI_DEBUG
-        ATrace_beginSection("HIAI process");
-#endif
-        hiai::AiContext context;
-        string key = "model_name";
-        string value = to_string(modelIndex);
-        context.AddPara(key, value);
-
-        int istamp;
-
-        int ret = mMgrClient->Process(context,*(const_cast<vector<shared_ptr<hiai::AiTensor>>*>(&mInputTensors)), *(const_cast<vector<shared_ptr<hiai::AiTensor>>*>(&mOutputTensors)), 1000, istamp);
-#ifdef HIAI_DEBUG
-        ATrace_endSection();
-#endif
-        return ret;
-    }
-
-#ifdef HIAI_IR_V2
-    int NPUBackend::processV2() const {
+    int NPUBackend::process() const {
         auto ret = modelManager->Run(*(const_cast<vector<shared_ptr<hiai::INDTensorBuffer>>*>(&inputTensors)), *(const_cast<vector<shared_ptr<hiai::INDTensorBuffer>>*>(&outputTensors)));
         return ret;
     }
-#endif
 
     shared_ptr<ge::Operator> NPUBackend::getInputOps(const Op *op, int index) {
         vector<shared_ptr<ge::Operator>> ops;
