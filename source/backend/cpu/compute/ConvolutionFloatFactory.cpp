@@ -28,7 +28,11 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                               const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize,
                               const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse) {
     auto cpuBackend = (CPUBackend*)backend;
+#ifdef MNN_LOW_MEMORY
     bool lowMemory = cpuBackend->memoryMode() == BackendConfig::Memory_Low;
+#else
+    bool lowMemory = false;
+#endif
     auto common = conv2d->common();
 #ifdef MNN_USE_ONEDNN
     return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -70,7 +74,11 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         // Multi Input
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
-    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low && static_cast<CPUBackend*>(backend)->functions()->bytes == 4;
+#ifdef MNN_LOW_MEMORY
+    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low;
+#else
+    bool lowMemory = false;
+#endif
     const float* originWeight = nullptr;
     const float* originBias   = nullptr;
     int originWeightSize   = 0;

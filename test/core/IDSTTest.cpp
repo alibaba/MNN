@@ -22,7 +22,7 @@ public:
         std::vector<float> scale(kernelNum, 0.f);
         std::vector<int8_t> quantWeight(kernelNum * kernelSize, 0);
         // IDST encode
-        std::unique_ptr<IDSTQuanT> idstQuantT = IDSTEncoder::encode(weight, scale, kernelSize, kernelNum, false, quantWeight.data(), -127);
+        std::unique_ptr<IDSTQuanT> idstQuantT = IDSTEncoder::encode(weight.data(), scale, kernelSize, kernelNum, false, quantWeight.data(), -127);
         flatbuffers::FlatBufferBuilder builder;
         auto lastOffset = IDSTQuan::Pack(builder, idstQuantT.get());
         builder.Finish(lastOffset);

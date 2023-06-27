@@ -36,6 +36,8 @@
 #include "train/source/optimizer/SGD.hpp"
 #include "train/source/transformer/Transformer.hpp"
 #include "cpp/ConvertToFullQuant.hpp"
+#include "core/ConvolutionCommon.hpp"
+
 
 using namespace MNN::CV;
 using namespace MNN::Train;
@@ -704,15 +706,30 @@ void Calibration::_insertScale() {
         const int channles        = param->common->outputCount;
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         param->symmetricQuan->nbits = _quant_bits;
-        const int weightSize      = param->weight.size();
+        const float* originWeight = param->weight.data();
+        int originWeightSize   = param->weight.size();
+        auto conv2d = param;
+        std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+        std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
+        if (nullptr != conv2d->quanParameter.get()) {
+            flatbuffers::FlatBufferBuilder tempBuilder;
+            tempBuilder.Finish(IDSTQuan::Pack(tempBuilder, conv2d->quanParameter.get()));
+            auto quanP = flatbuffers::GetRoot<IDSTQuan>( tempBuilder.GetBufferPointer());
+            bool forceFloat = true;
+            quanCommon = ConvolutionCommon::load(quanP, true, true);
+            // Back to float
+            originWeight     = quanCommon->weightFloat.get();
+            originWeightSize = quanCommon->weightFloat.size();
+        }
+        const int weightSize      = originWeightSize;
         std::vector<int8_t> quantizedWeight(weightSize);
         std::vector<float> quantizedWeightScale(outputChannel);
         if (_weightQuantizeMethod == "MAX_ABS"){
-            SymmetricQuantizeWeight(param->weight.data(), weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
+            SymmetricQuantizeWeight(originWeight, weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
         } else if (_weightQuantizeMethod == "ADMM") {
-            QuantizeWeightADMM(param->weight.data(), weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
+            QuantizeWeightADMM(originWeight, weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
         }
-        param->quanParameter = IDSTEncoder::encode(param->weight, quantizedWeightScale, weightSize/channles, channles, false, quantizedWeight.data(), -_weightClampValue);
+        param->quanParameter = IDSTEncoder::encode(originWeight, quantizedWeightScale, weightSize/channles, channles, false, quantizedWeight.data(), -_weightClampValue);
         param->quanParameter->scaleIn = inputScale;
         param->quanParameter->scaleOut = outputScale;
         if (param->common->relu6) {

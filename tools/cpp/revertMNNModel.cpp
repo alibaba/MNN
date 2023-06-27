@@ -77,8 +77,8 @@ void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
         const int weightSize = param->weight.size();
         param->common->inputCount = weightSize / (channels * param->common->kernelX * param->common->kernelY);
         std::vector<int8_t> quantizedWeight(weightSize, 1);
-        std::vector<float> quantizedWeightScale(outputChannel, 0.008);
-        param->quanParameter = IDSTEncoder::encode(param->weight, quantizedWeightScale, weightSize/channels, channels, false, quantizedWeight.data(), -127.0f);
+        std::vector<float> quantizedWeightScale(channels, 0.008);
+        param->quanParameter = IDSTEncoder::encode(param->weight.data(), quantizedWeightScale, weightSize/channels, channels, false, quantizedWeight.data(), -127.0f);
         param->quanParameter->scaleIn = *scale;
         param->quanParameter->scaleOut = *scale;
         if (param->common->relu6) {
@@ -99,7 +99,7 @@ void Revert::packMNNNet() {
     mMNNNet.reset();
 }
 
-void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
+void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite, bool quantizedModel) {
     if (mMNNNet->bizCode == "benchmark" || rewrite) {
         randStart();
         bool useSparse = spasity > 0.5f;
@@ -177,7 +177,10 @@ void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
             }
         }
     }
-
+    if (quantizedModel) {
+        float scale = 0.008, offset = 0;
+        writeExtraDescribeTensor(&scale, &offset);
+    }
     packMNNNet();
 }
 

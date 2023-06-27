@@ -40,7 +40,7 @@ bool Arm82Backend::addArm82Creator(OpType t, Arm82Creator* ct) {
     return true;
 }
 
-Arm82Backend::Arm82Backend(const CPURuntime* runtime) : CPUBackend(runtime, BackendConfig::Precision_Low, BackendConfig::Memory_Normal, MNN_FORWARD_CPU_EXTENSION) {
+Arm82Backend::Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION) {
     mCoreFunctions = Arm82Functions::get();
 }
 

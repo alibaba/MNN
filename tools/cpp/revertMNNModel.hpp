@@ -17,7 +17,7 @@ public:
     ~Revert();
     void* getBuffer() const;
     const size_t getBufferSize() const;
-    void initialize(float sparsity = 0.0f, int sparseBlockOC = 1, bool rewrite = false);
+    void initialize(float sparsity = 0.0f, int sparseBlockOC = 1, bool rewrite = false, bool quantizedModel = false);
     static void fillRandValue(float * data, size_t size);
     void writeExtraDescribeTensor(float* scales, float* offsets);
 private:

@@ -328,7 +328,7 @@ ErrorCode ConvolutionPackFreeWinograd::onExecute(const std::vector<Tensor *> &in
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
                         auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
                         auto gemmBufferPtr = (const float*)(gemmBuffer + i * ePack * ic_roundup * bytes);
-                        core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBufferPtr, _weightFloatPtr, parameters.data(), nullptr, nullptr);
+                        core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBufferPtr, _weightFloatPtr, parameters.data(), nullptr, nullptr, nullptr, nullptr);
                     }
                 } else {
                     for (int i = tId; i < srcUnit2; i+=threadNumber) {
@@ -340,7 +340,7 @@ ErrorCode ConvolutionPackFreeWinograd::onExecute(const std::vector<Tensor *> &in
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
                         auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
                         auto gemmBufferPtr = (const float*)(gemmBuffer + i * ePack * ic_roundup * bytes);
-                        core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBufferPtr, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
+                        core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBufferPtr, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr, nullptr, nullptr);
                     }
                 }
             };

@@ -120,11 +120,11 @@ void AVX2GemmPostTreatBF16(float* CO, size_t eSize, const size_t* parameter, con
 }
 
 void _AVX_MNNPackedMatMulFMA_BF16(float* C, const float* A, const float* B, const size_t* parameter,
-                             const float* postParameters, const float* bias) {
+                             const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackedMatMul_3<int16_t>((int16_t*)C, (const int16_t*)A, (const int16_t*)B, parameter);
     AVX2GemmPostTreatBF16(C, 3, parameter, postParameters, bias);
 }
-void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackednMatMulRemainCommon<int16_t>((int16_t*)C, (const int16_t*)A, (const int16_t*)B, eSize, parameter);
     AVX2GemmPostTreatBF16(C, eSize, parameter, postParameters, bias);
 }

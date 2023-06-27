@@ -119,10 +119,12 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
                            int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
     if (testQuantModel) {
-        float scale = 0.003, offset = 0.f;
-        revertor->writeExtraDescribeTensor(&scale, &offset);
+        printf("Auto set sparsity=0 when test quantized model in benchmark...\n");
+        revertor->initialize(0, sparseBlockOC, false, true);
+    } else {
+        revertor->initialize(sparsity, sparseBlockOC);
     }
-    revertor->initialize(sparsity, sparseBlockOC);
+
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));

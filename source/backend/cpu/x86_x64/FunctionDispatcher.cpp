@@ -50,6 +50,12 @@ void MNNFunctionInit() {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
         coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
+#ifdef MNN_LOW_MEMORY
+        coreFunction->MNNPackedMatMul_int4       = _SSE_MNNPackedMatMul_int4;
+        coreFunction->MNNPackedMatMulRemain_int4 = _SSE_MNNPackedMatMulRemain_int4;
+        coreFunction->MNNPackedMatMul_int8       = _SSE_MNNPackedMatMul_int8;
+        coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
+#endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
     }

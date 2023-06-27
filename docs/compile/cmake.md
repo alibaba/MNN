@@ -80,3 +80,4 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_OPENCV_TEST      | 构建MNN的OpenCV功能是否开启单元测试，默认为`OFF` |
 | MNN_OPENCV_BENCH     | 构建MNN的OpenCV功能是否开启性能benchmark，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |
+| MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |

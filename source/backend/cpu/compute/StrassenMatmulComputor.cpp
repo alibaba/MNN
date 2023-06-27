@@ -106,7 +106,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
                 int xStart    = i * eP;
                 auto aStart   = aHost + xStart * packUnit;
                 core->MNNPackC4ForMatMul_A((float*)(tileHost), (const float**)(&aStart), info, stride);
-                core->MNNPackedMatMul((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, parameters, postParametersPtr, (const float*)biasPtr);
+                core->MNNPackedMatMul((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, parameters, postParametersPtr, (const float*)biasPtr, nullptr, nullptr);
             }
             if (tId != numberThread -1) {
                 return;
@@ -120,7 +120,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
                 auto aStart   = aHost + xStart * packUnit;
                 // Copy
                 core->MNNPackC4ForMatMul_A((float*)(tileHost), (const float**)(&aStart), info, stride);
-                core->MNNPackedMatMulRemain((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, xCount, parameters, postParametersPtr, (const float*)biasPtr);
+                core->MNNPackedMatMulRemain((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, xCount, parameters, postParametersPtr, (const float*)biasPtr, nullptr, nullptr);
             }
         }, numberThread));
     static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(tileBufferBasic);

@@ -209,6 +209,10 @@ void CPUSoftmaxInt8::QuantizedSoftmax(const uint8_t* inputData, int outerSize, i
     #endif
 
             int numBitsOverUnit        = kAccumulationIntegerBits - headroomPlusOne;
+
+            if (numBitsOverUnit + 31 - 8 > 31) {
+                numBitsOverUnit = 8;
+            }
             int32_t shiftedSumMinusOne = static_cast<int32_t>((static_cast<uint32_t>(fixedSumOfExps) << headroomPlusOne) -
                                                               (static_cast<uint32_t>(1) << 31));
             FixedPoint0 shiftedScale   = one_over_one_plus_x_for_x_in_0_1(FixedPoint0::FromRaw(shiftedSumMinusOne));
