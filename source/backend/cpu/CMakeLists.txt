@@ -1,5 +1,7 @@
 # CPU
 option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
+option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
+
 FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/* ${CMAKE_CURRENT_LIST_DIR}/compute/*)
 add_library(MNNCPU OBJECT ${MNN_CPU_SRC})
 if (MNN_SUPPORT_BF16)
@@ -15,6 +17,10 @@ option(MNN_SSE_USE_FP16_INSTEAD "Use fp16 instead of bf16 for x86op" OFF)
 
 if(MNN_USE_SPARSE_COMPUTE)
   target_compile_options(MNNCPU PRIVATE -DMNN_USE_SPARSE_COMPUTE)
+endif()
+
+if(MNN_LOW_MEMORY)
+  target_compile_options(MNNCPU PRIVATE -DMNN_LOW_MEMORY)
 endif()
 
 # X86_64 AVX/SSE

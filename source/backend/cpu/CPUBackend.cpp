@@ -131,7 +131,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
 #ifdef MNN_USE_ARMV82
     auto core = MNNGetCoreFunctions();
     if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-        return new Arm82Backend(this);
+        return new Arm82Backend(this, memory);
     }
 #endif
 #ifdef MNN_SUPPORT_BF16

@@ -29,7 +29,7 @@ namespace MNN {
 class Arm82Backend : public CPUBackend {
 public:
     virtual ~Arm82Backend();
-    Arm82Backend(const CPURuntime* runtime);
+    Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory);
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
     virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;

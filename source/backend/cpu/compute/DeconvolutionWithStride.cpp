@@ -82,7 +82,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto tempColAddr    = destAddr + i * unit.dstBuffer->stride(1);
         auto weightAddr     = unit.weight->host<float>() + unit.weight->stride(0) * i;
         MNNPackC4ForMatMul_A(cachePackBuffer, &tempSourceAddr, info, el);
-        MNNPackedMatMul(tempColAddr, cachePackBuffer,weightAddr, parameters, nullptr, nullptr);
+        MNNPackedMatMul(tempColAddr, cachePackBuffer,weightAddr, parameters, nullptr, nullptr, nullptr, nullptr);
     }
     auto B       = unit.winogradInfo.B.get();
     auto midAddr = unit.winogradInfo.dstTransformedBuffer->host<float>() +
@@ -144,7 +144,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
                 for (int fx = 0; fx < unit.xUnit; ++fx) {
                     auto ucolAddr = tempColAddr + dc_4 * eP * 4 * (fx + fy * unit.xUnit);
                     auto uwAddr = weightAddr + unit.weight->stride(0) * (fx + fy * unit.xUnit);
-                    MNNPackedMatMul(ucolAddr, cachePackBuffer, uwAddr, parameters, nullptr, nullptr);
+                    MNNPackedMatMul(ucolAddr, cachePackBuffer, uwAddr, parameters, nullptr, nullptr, nullptr, nullptr);
                 }
             }
             // FUNC_PRINT_ALL(tempColAddr[0], f);

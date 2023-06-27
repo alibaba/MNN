@@ -144,7 +144,7 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
 
     bool asymmetricQuantFlag = false;
     std::vector<float> fakeScales(kernelNum, 1.0f);
-    convParams->quanParameter = IDSTEncoder::encode(quantWeightFloat, fakeScales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), wClampMin);
+    convParams->quanParameter = IDSTEncoder::encode(quantWeightFloat.data(), fakeScales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), wClampMin);
     convParams->weight.clear();
     convParams->quanParameter->alpha = std::move(scale);
     convParams->quanParameter->scaleIn = inputParams.scales(0);

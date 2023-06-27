@@ -28,6 +28,7 @@ protected:
     Tensor mTempBufferTranspose;
     ConvolutionCommon::Im2ColParameter mIm2ColParameters;
     std::pair<int, std::function<void(int)>> mFunction;
+    const CPUConvolution::Resource* mResource = nullptr;
 };
 
 class ConvolutionTiledExecutor : public Execution {

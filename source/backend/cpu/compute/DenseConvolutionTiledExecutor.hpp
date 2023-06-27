@@ -17,8 +17,8 @@
 namespace MNN {
 class DenseConvolutionTiledImpl : public ConvolutionTiledImpl {
 public:
-    DenseConvolutionTiledImpl(const Convolution2DCommon *common, Backend *b) : ConvolutionTiledImpl(common, b) {
-        // Do nothing
+    DenseConvolutionTiledImpl(const Convolution2DCommon *common, Backend *b, CPUConvolution::Resource* resource = nullptr) : ConvolutionTiledImpl(common, b) {
+        mResource = resource;
     }
     ErrorCode onResize(const std::vector<Tensor*>& inputs,
                                          const std::vector<Tensor*>& outputs) override;

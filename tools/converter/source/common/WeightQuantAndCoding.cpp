@@ -151,11 +151,11 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     }
 
     if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
-        param->quanParameter = IDSTEncoder::encode(weightData, scales, kernelSize, kernelNum, false, param->symmetricQuan->weight.data(), int(clampMin));
+        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, false, param->symmetricQuan->weight.data(), int(clampMin));
         param->symmetricQuan->weight.clear();
         param->quanParameter->alpha = {1.0f}; // fake scales
     } else {
-        param->quanParameter = IDSTEncoder::encode(weightData, scales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), int(clampMin));
+        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), int(clampMin));
         param->weight.clear();
     }
 };

@@ -10,6 +10,7 @@
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "half.hpp"
+
 namespace MNN {
 static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
     return MNNMemoryCallocAlign(size, MNN_MEMORY_ALIGN_DEFAULT);
@@ -185,6 +186,21 @@ static void StreamSizeRead(void *dst, int unit, size_t count, unsigned char *&fi
     file += (unit * count);
 }
 
+static bool isFastSample(const std::vector<int8_t>& sample, int bit) {
+    if (bit != 4) {
+        return false;
+    }
+    if (sample.size() != (1 << bit) - 1) {
+        return false;
+    }
+    for (int i = 0; i < sample.size(); i++) {
+        if (static_cast<int>(sample[i]) != i - 7) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32) {
     int8_t *blob      = nullptr;
     uint8_t *idxBuf   = nullptr;
@@ -222,28 +238,40 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
             break;
         }
         StreamSizeRead(idxBuf, 1, idxBufSize, s);
-        // split index value into bytes
-        idxBytes = (uint8_t *)MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t));
-        if (idxBitsCnt == 0 || nullptr == idxBytes) {
-            break;
-        }
-        SplitBufToArray(idxBuf, (uint32_t)idxBufSize, idxBytes, (uint32_t)dataCnt, (uint32_t)idxBitsCnt);
-        int i = 0;
         blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
         if (nullptr == blob) {
             break;
         }
-        for (i = 0; i < dataCnt; i++) {
-            if (idxBytes[i] >= sampleCnt) {
-                MNN_PRINT("iNeedBits is %u\nRead quan weights error with idx:%d\n", idxBitsCnt, (int)idxBytes[i]);
+        if (isFastSample(result->weightMap, idxBitsCnt)) {
+            for (int i = 0; i < idxBufSize; i++) {
+                int val = idxBuf[i];
+                int x1 = val / 16;
+                int x2 = val % 16;
+                blob[2 * i] = x1 - 7;
+                blob[2 * i + 1] = x2 - 7;
+            }
+        } else {
+            // split index value into bytes
+            idxBytes = (uint8_t *)MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t));
+            if (idxBitsCnt == 0 || nullptr == idxBytes) {
                 break;
             }
-            blob[i] = samples[idxBytes[i]];
-        }
-        if (i < dataCnt) {
-            MNNMemoryFreeAlign(blob);
-            blob = nullptr;
-            break;
+            SplitBufToArray(idxBuf, (uint32_t)idxBufSize, idxBytes, (uint32_t)dataCnt, (uint32_t)idxBitsCnt);
+            int i = 0;
+            for (; i < dataCnt; i++) {
+                if (idxBytes[i] >= sampleCnt) {
+                    MNN_PRINT("iNeedBits is %u\nRead quan weights error with idx:%d\n", idxBitsCnt, (int)idxBytes[i]);
+                    break;
+                }
+                blob[i] = samples[idxBytes[i]];
+            }
+            if (i < dataCnt) {
+                MNNMemoryFreeAlign(blob);
+                blob = nullptr;
+                break;
+            }
+            MNNMemoryFreeAlign(idxBytes);
+            idxBytes = nullptr;
         }
     } while (0);
 

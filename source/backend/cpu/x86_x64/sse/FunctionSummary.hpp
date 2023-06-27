@@ -46,9 +46,19 @@ void _SSE_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c
                                     size_t length, size_t hSub);
 
 void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias);
+                          const float* postParameters, const float* bias, const float* k, const float* b);
 void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                 const float* postParameters, const float* bias);
+                                 const float* postParameters, const float* bias, const float* k, const float* b);
+#ifdef MNN_LOW_MEMORY
+void _SSE_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+#endif
 void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,

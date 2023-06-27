@@ -48,12 +48,13 @@ __global__ void ARGMAX_SECOND_STEP(const int count, const int outside, const int
 
         int idx_output = idx_out * inside + idx_in;
         const T* inpPtr = inputData + idx_out * dims * inside + idx_in;
-        int maxIndex = inputIndex[0];
+        const int* baseInputIndex = inputIndex + idx_out * dims * inside + idx_in;
+        int maxIndex = baseInputIndex[0];
         T maxValue = inpPtr[0 * inside];
         for(int j=1; j<dims; j++) {
             T value = inpPtr[j * inside];
             if(maxValue < value) {
-                maxIndex = inputIndex[j];
+                maxIndex = baseInputIndex[j];
                 maxValue = value;
             }
         }

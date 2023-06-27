@@ -34,9 +34,19 @@
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
 void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias);
+                          const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                const float* postParameters, const float* bias);
+                                const float* postParameters, const float* bias, const float* k, const float* b);
+#ifdef MNN_LOW_MEMORY
+void _AVX_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
+                          const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
+                          const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+#endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
 void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8);

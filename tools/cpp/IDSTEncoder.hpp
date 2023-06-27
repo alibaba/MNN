@@ -395,12 +395,12 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     delete[] data_buf;
 }
 
-static std::unique_ptr<IDSTQuanT> encode(const std::vector<float>& weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
+static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
                                          bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin) {
     std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
     bool shapeUseInt32 = false;
-    WriteCQBlobs(outputStringStreamCQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
-    WriteSparseQuanBlobs(outputStringStreamSQ, weight.data(), scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
+    WriteCQBlobs(outputStringStreamCQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
+    WriteSparseQuanBlobs(outputStringStreamSQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32);
     std::unique_ptr<IDSTQuanT> idst(new IDSTQuanT);
     auto cqStr = outputStringStreamCQ.str();
     auto sqStr = outputStringStreamSQ.str();

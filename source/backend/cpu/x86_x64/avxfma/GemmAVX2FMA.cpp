@@ -28,7 +28,7 @@ void _AVX_MNNGemmFloatUnitMainFMA_Fused(float* C, const float* A, const float* B
 #endif
 
 void _AVX_MNNPackedMatMulFMA(float* C, const float* A, const float* B, const size_t* parameter,
-                             const float* postParameters, const float* bias) {
+                             const float* postParameters, const float* bias, const float* k, const float* b) {
     auto h       = parameter[2];
     auto cStride = parameter[3] / sizeof(float);
 #ifdef MNN_X86_USE_ASM
@@ -54,7 +54,7 @@ void _AVX_MNNPackedMatMulFMA(float* C, const float* A, const float* B, const siz
 #endif
 }
 
-void _AVX_MNNPackedMatMulRemainFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+void _AVX_MNNPackedMatMulRemainFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackednMatMulRemainCommon(C, A, B, eSize, parameter);
     AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
 }
