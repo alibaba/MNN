@@ -21,21 +21,24 @@ vcvt.s32.f32 \x, q13
 .endm
 
 asm_function MNNCubicLineC16
-// void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-//                     size_t number);
+// void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+//                     size_t number, ssize_t minValue, ssize_t maxValue);
 // Auto load: r0: dst, r1: A, r2: B, r3: C
-// r4:  D, r11: t, lr: number
+// r4:  D, r11: t, r5: zeroPoint, lr: number, r6:minValue, r7:maxValue
 
 push {r4-r8, r10-r11, lr}
 ldr r4, [sp, #32]
 ldr r11, [sp, #36]
-
-ldr lr, [sp, #40]
+ldr r5, [sp, #40]
+ldr lr, [sp, #44]
+ldr r6, [sp, #48]
+ldr r7, [sp, #52]
 vpush {q4-q7}
 
 cmp lr, #0
 beq END
 ldr r10, [r11, #0]
+
 L1Loop:
 //B
 vld1.32 {q3, q4}, [r2]!
@@ -119,10 +122,10 @@ vmla.f32 q13, q6, d4[1]
 
 vmov.f32 q1, #0.5
 vmov.f32 q2, #-0.5
-vmov.s8  d14, #127
-vmov.s8  d15, #0
-vsub.s8  d15, d15, d14
-
+vdup.s8  q7, r7
+vdup.s8  q8, r6
+vld1.8 {d0[0]}, [r5]
+vdup.8 d0, d0[0]
 
 _vroundq_f32 q1, q2, q10
 _vroundq_f32 q1, q2, q11
@@ -133,13 +136,15 @@ vqmovn.s32 d20, q10
 vqmovn.s32 d21, q11
 vqmovn.s32 d22, q12
 vqmovn.s32 d23, q13
-vqmovn.s16 d20, q10 // Store in q15.
+
+vaddw.s8 q10, q10, d0
+vaddw.s8 q11, q11, d0
+
+vqmovn.s16 d20, q10
 vqmovn.s16 d21, q11
 
-vmax.s8 d20, d20, d15
-vmin.s8 d20, d20, d14
-vmax.s8 d21, d21, d15
-vmin.s8 d21, d21, d14
+vmax.s8 q10, q10, q8
+vmin.s8 q10, q10, q7
 
 vst1.8 {q10}, [r0]!
 

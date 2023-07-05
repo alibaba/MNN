@@ -13,6 +13,7 @@
 #include "core/Execution.hpp"
 #include "core/Concurrency.h"
 #include "backend/cpu/CPUBackend.hpp"
+#include "core/TensorUtils.hpp"
 #include "math/Vec.hpp"
 #include "core/Macro.h"
 #include <math.h>
@@ -21,16 +22,16 @@ using Vec4 = MNN::Math::Vec<float, 4>;
 #ifdef __cplusplus
 extern "C" {
 #endif
-void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, size_t number);
-void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, size_t number);
-void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, size_t number);
-void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, size_t number);
-void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, size_t number);
-void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-                    size_t number);
-void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, size_t number);
-void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-                     size_t number);
+void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
+void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, int8_t* zeroPoint, size_t number);
+void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
+void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint, size_t number);
+void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
+void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+                    size_t number, ssize_t minValue, ssize_t maxValue);
+void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
+void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+                     size_t number, ssize_t minValue, ssize_t maxValue);
 #ifdef __cplusplus
 }
 #endif
@@ -54,8 +55,8 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs)  = 0;
 
     template<typename T, typename U>
-    void CPUResizeBilinearC4(void sampleFunction(const T*, U*, const int32_t*, const float*, size_t), void lineFunction(T*, const U*, const U*, const float*, size_t), const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const int* widthPosition, const float* widthFactor, const int* heightPosition,
-        const float* heightFactor, U* lineBuffer, int threadNumber) {
+    void CPUResizeBilinearC4(void sampleFunction(const T*, U*, const int32_t*, const float*, int8_t*, size_t), void lineFunction(T*, const U*, const U*, const float*, int8_t*, size_t), const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const int* widthPosition, const float* widthFactor, const int* heightPosition,
+        const float* heightFactor, U* lineBuffer, int threadNumber, int8_t* inputQuantZero, int8_t* outputQuantZero) {
         auto input = inputs[0];
         auto output = outputs[0];
         const int batches         = input->batch();
@@ -106,7 +107,7 @@ public:
                                     yCache[k]     = yp[j];
                                     yUsed[k]      = 1;
                                     yCacheLine[j] = yCacheStorage[k];
-                                    sampleFunction(bottomY0, yCacheLine[j], widthPosition, widthFactor, outW);
+                                    sampleFunction(bottomY0, yCacheLine[j], widthPosition, widthFactor, inputQuantZero, outW);
                                     break;
                                 }
                             }
@@ -114,7 +115,7 @@ public:
                     }
                     T* topY = topData + outW * pack * dy;
                     // Sample Input
-                    lineFunction(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outW);
+                    lineFunction(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outputQuantZero, outW);
                     
                 }
             }
@@ -126,8 +127,8 @@ public:
     }
 
     template<typename T>
-    void CPUResizeCubicC4(void sampleFunction(const T*, float*, int32_t*, const float*, size_t), void lineFunction(T*, const float*, const float*, const float*, const float*, float*, size_t),
-                          const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, float xFactor, float yFactor, float wOffset, float hOffset) {
+    void CPUResizeCubicC4(void sampleFunction(const T*, float*, int32_t*, const float*, int8_t*, size_t), void lineFunction(T*, const float*, const float*, const float*, const float*, float*, int8_t*, size_t, ssize_t, ssize_t),
+                          const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, float xFactor, float yFactor, float wOffset, float hOffset, int8_t* inputQuantZero, int8_t* outputQuantZero, ssize_t minValue, ssize_t maxValue) {
         auto input = inputs[0];
         auto output = outputs[0];
         const int batches      = input->batch();
@@ -202,7 +203,7 @@ public:
                                     yCache[k]     = yp[j];
                                     yUsed[k]      = 1;
                                     yCacheLine[j] = yCacheStorage[k];
-                                    sampleFunction(bottomY0, yCacheLine[j], _linePosition, _lineFactor, outW);
+                                    sampleFunction(bottomY0, yCacheLine[j], _linePosition, _lineFactor, inputQuantZero, outW);
                                     break;
                                 }
                             }
@@ -212,7 +213,7 @@ public:
                     // Sample Input
                     float yFract = (float)(y - floor(y));
                     auto topY    = topData + outW * pack * dy;
-                    lineFunction(topY, yCacheLine[0], yCacheLine[1], yCacheLine[2], yCacheLine[3], &yFract, outW);
+                    lineFunction(topY, yCacheLine[0], yCacheLine[1], yCacheLine[2], yCacheLine[3], &yFract, outputQuantZero, outW, minValue, maxValue);
                 }
             }
             MNN_CONCURRENCY_END();

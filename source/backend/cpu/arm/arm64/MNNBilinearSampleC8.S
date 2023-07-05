@@ -11,10 +11,10 @@
 .text
 .align 5
 asm_function MNNBilinearSampleC8
-// void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, size_t number);
+// void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
 
 // Auto load:
-// x0: src, x1: dst, x2: position, x3: factor, x4: number
+// x0: src, x1: dst, x2: position, x3: factor, x4:zeroPoint, x5: number
 
 stp d14, d15, [sp, #(-16 * 7)]!
 stp d12, d13, [sp, #16]
@@ -28,11 +28,11 @@ mov w15, #8       // w15: pack
 uxtw x15, w15
 movi v14.4s, #128
 
-cmp x4, #0
+cmp x5, #0
 beq END
-cmp x4, #2
+cmp x5, #2
 blt L1Loop
-cmp x4, #4
+cmp x5, #4
 blt L2Loop
 
 
@@ -104,6 +104,10 @@ ld1 {v5.8b}, [x10]
 ld1 {v6.8b}, [x13]
 ld1 {v7.8b}, [x14]
 
+cmp w4, #0
+beq L4COMPUTE
+
+L4COMPUTE:
 smull v8.8h, v0.8b,  v30.8b
 smlal v8.8h, v1.8b,  v31.8b
 smull v9.8h, v2.8b,  v28.8b
@@ -115,12 +119,12 @@ smlal v11.8h, v7.8b, v25.8b
 
 st1 {v8.8h, v9.8h, v10.8h, v11.8h}, [x1], #64
 
-sub x4, x4, #4
-cmp x4, #4
+sub x5, x5, #4
+cmp x5, #4
 bge L4Loop
-cmp x4, #0
+cmp x5, #0
 beq END
-cmp x4, #2
+cmp x5, #2
 blt L1Loop
 
 L2Loop:
@@ -160,6 +164,9 @@ ld1 {v1.8b}, [x8]
 ld1 {v2.8b}, [x11]
 ld1 {v3.8b}, [x12]
 
+cmp w4, #0
+beq L2COMPUTE
+L2COMPUTE:
 smull v4.8h, v0.8b, v30.8b
 smlal v4.8h, v1.8b, v31.8b
 
@@ -168,17 +175,15 @@ smlal v5.8h, v3.8b, v29.8b
 
 st1 {v4.8h, v5.8h}, [x1], #32
 
-sub x4, x4, #2
-cmp x4, #2
+sub x5, x5, #2
+cmp x5, #2
 bge L2Loop
-cmp x4, #0
+cmp x5, #0
 beq END
 
 L1Loop:
-ldr w5, [x3, #0]
-add x3, x3, #4
-
-dup v31.4s, w5             
+ld1 {v31.s}[0], [x3], #4
+dup v31.4s, v31.s[0]          
 fmov s30, #1.0
 fsub s30, s30, s31
 fmul s30, s30, s14     // (float)t -> (int16)t
@@ -200,14 +205,13 @@ add x10, x0, x8
 
 ld1 {v0.8b}, [x9]
 ld1 {v8.8b}, [x10]
-
 smull v1.8h, v0.8b, v30.8b
 smlal v1.8h, v8.8b, v31.8b
 
 st1 {v1.8h}, [x1], #16
 
-sub x4, x4, #1
-cmp x4, #1
+sub x5, x5, #1
+cmp x5, #1
 bge L1Loop
 
 END:

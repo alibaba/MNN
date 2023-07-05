@@ -520,6 +520,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(offset));
     auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
     
+    #ifdef ENABLE_CUDA_BF16
     if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
         // [Oc, Kh*Kw] -> [Kh*Kw, Oc(p)]
         DivModFast d_ocp(depthC * PACK_NUMBER);
@@ -529,7 +530,10 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         WeightTransToBf16<<<block_num, threads_num>>>((const float*)tempWeight, (__nv_bfloat16*)res->mFilter, count,\
             kernelY * kernelX, depth, d_ocp);
         checkKernelErrors;
-    } else {
+    } 
+    else
+    #endif
+    {
         reg.size[0] = 1;
         reg.size[1] = kernelY * kernelX;
         reg.size[2] = depthC * PACK_NUMBER;
@@ -565,13 +569,18 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         auto tempBias = (uint8_t*)tempBiasStorage.first + tempBiasStorage.second;
         cuda_check(cudaMemcpy(tempBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
 
-        if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
+        #ifdef ENABLE_CUDA_BF16
+        if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) 
+        {
             auto countBias = depthC * PACK_NUMBER;
             int block_num = runtime->blocks_num(countBias);
             int threads_num = runtime->threads_num();
             BiasTransToBf16<<<block_num, threads_num>>>((const float*)tempBias, (__nv_bfloat16*)res->mBias, countBias, depth);
             checkKernelErrors;
-        } else {
+        } 
+        else 
+        #endif
+        {
             reg.size[0] = 1;
             reg.size[1] = 1;
             reg.size[2] = depthC * PACK_NUMBER;
@@ -679,6 +688,7 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     const int ph = parameters.pad[1];
     const int total = parameters.total;
 
+    #ifdef ENABLE_CUDA_BF16
     if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
         if(kw==3 && kh==3 && sw==1 && sh==1 && pw==1 && ph==1 && ow % 2 ==0) {
             DivModFast d_ow2(ow/2);
@@ -715,6 +725,7 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
         return NO_ERROR;
 
     }
+    #endif
 
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         if(parameters.kernelSize[0]==3 && parameters.kernelSize[1]==3 && parameters.stride[0]==1 && parameters.stride[1]==1 && parameters.pad[0]==1 && parameters.pad[1]==1 && parameters.outputSize[0] % 2 ==0) {

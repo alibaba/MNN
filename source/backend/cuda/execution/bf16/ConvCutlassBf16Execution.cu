@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/05/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_BF16
 
 #include "ConvCutlassBf16Execution.hpp"
 #include "../ConvBaseKernel.cuh"
@@ -214,3 +215,4 @@ ErrorCode ConvCutlassBf16Execution::onExecute(const std::vector<Tensor*> &inputs
 
 }// namespace CUDA
 }// namespace MNN
+#endif

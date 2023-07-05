@@ -11,22 +11,25 @@
 .text
 .align 5
 asm_function MNNCubicLineC16
-// void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-//                     size_t number);
+// void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+//                     size_t number, ssize_t minValue, ssize_t maxValue);
 
 // Auto load:
-// x0: dst, x1: A, x2: B, x3: C, x4: D, x5: t, x6: number
-
+// x0: dst, x1: A, x2: B, x3: C, x4: D, x5: t, x6: zeroPoint, x7: number
+// Load from sp: x8: minValue, x9: maxValue
+ldr x8, [sp, #0]
+ldr x9, [sp, #8]
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
-cmp x6, #0
+cmp x7, #0
 beq END
 
 ldr w5, [x5, #0]
 fmov s1, #1.0
+ld1r {v0.8b}, [x6]
 
 dup v31.4s, w5    // v31: t
 fmov s30, #1.0
@@ -100,25 +103,27 @@ fcvtas v5.4s, v5.4s
 fcvtas v6.4s, v6.4s
 fcvtas v7.4s, v7.4s
 
-movi v18.16b, #0
-movi v19.16b, #127
-sub v18.16b, v18.16b, v19.16b
+dup v18.16b, w8
+dup v19.16b, w9
 
 sqxtn  v4.4h, v4.4s
 sqxtn2 v4.8h, v5.4s
 sqxtn  v6.4h, v6.4s
 sqxtn2 v6.8h, v7.4s
 
-sqxtn  v4.8b, v4.8h
-sqxtn2 v4.16b, v6.8h
+saddw v4.8h, v4.8h, v0.8b
+saddw v6.8h, v6.8h, v0.8b
 
-smin v4.16b, v4.16b, v19.16b
-smax v4.16b, v4.16b, v18.16b
+sqxtn  v10.8b, v4.8h
+sqxtn2 v10.16b, v6.8h
 
-st1 {v4.16b}, [x0], #16
+smin v10.16b, v10.16b, v19.16b
+smax v10.16b, v10.16b, v18.16b
 
-sub x6, x6, #1
-cmp x6, #1
+st1 {v10.16b}, [x0], #16
+
+sub x7, x7, #1
+cmp x7, #1
 bge L1Loop
 
 END:

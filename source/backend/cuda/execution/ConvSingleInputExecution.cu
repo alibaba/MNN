@@ -51,10 +51,12 @@ public:
             return new ConvWinogradExecution(backend, op, resource);
         }
 
+        #ifdef ENABLE_CUDA_BF16
         if (static_cast<CUDABackend*>(backend)->getPrecision() == 3) {
             std::shared_ptr<ConvCutlassBf16Execution::Resource> resource(new ConvCutlassBf16Execution::Resource(backend, op));
             return new ConvCutlassBf16Execution(backend, op, resource);
         }
+        #endif
         std::shared_ptr<ConvCutlassExecution::Resource> resource(new ConvCutlassExecution::Resource(backend, op));
         return new ConvCutlassExecution(backend, op, resource);
 #endif

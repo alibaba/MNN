@@ -47,6 +47,7 @@
    :maxdepth: 1
    :caption: 表达式
    :name: expr
+
    inference/expr
 
 .. toctree::

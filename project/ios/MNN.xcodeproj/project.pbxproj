@@ -763,6 +763,8 @@
 		C4F906B327688C3A0026B847 /* NMSModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C4F906B127688C3A0026B847 /* NMSModule.hpp */; };
 		C4F906B427688C3A0026B847 /* NMSModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4F906B227688C3A0026B847 /* NMSModule.cpp */; };
 		C4FB6CB22769DF0800963B07 /* GeometryCumSum.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */; };
+		CE125CC82A52BF6B003698C9 /* MNNBilinearSampleC8.S in Sources */ = {isa = PBXBuildFile; fileRef = CE125CC62A52BF6B003698C9 /* MNNBilinearSampleC8.S */; };
+		CE125CC92A52BF6B003698C9 /* MNNBilinearLineC8.S in Sources */ = {isa = PBXBuildFile; fileRef = CE125CC72A52BF6B003698C9 /* MNNBilinearLineC8.S */; };
 		CE7DC00028E2DE6B00797689 /* ShapeConvTranspose3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CE7DBFFF28E2DE6B00797689 /* ShapeConvTranspose3D.cpp */; };
 		CE9AFED628E54E3300566949 /* CPUInterp3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CE9AFED428E54E3300566949 /* CPUInterp3D.cpp */; };
 		CE9AFED728E54E3300566949 /* CPUInterp3D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CE9AFED528E54E3300566949 /* CPUInterp3D.hpp */; };
@@ -785,9 +787,7 @@
 		CEDB211C2846D59C00AE9DC4 /* mobilenet_v2.caffe.mnn in Resources */ = {isa = PBXBuildFile; fileRef = CEDB211B2846D59C00AE9DC4 /* mobilenet_v2.caffe.mnn */; };
 		CEDB211D284706F900AE9DC4 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F1465B71FA18D1000F9860A /* MNN.framework */; };
 		CEDB211E2847070600AE9DC4 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F1465B71FA18D1000F9860A /* MNN.framework */; };
-		CEE9B9522A3AA4C4006438F2 /* MNNBilinearSampleC16.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B94E2A3AA4C4006438F2 /* MNNBilinearSampleC16.S */; };
 		CEE9B9532A3AA4C4006438F2 /* MNNCubicLineC16.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B94F2A3AA4C4006438F2 /* MNNCubicLineC16.S */; };
-		CEE9B9542A3AA4C4006438F2 /* MNNBilinearLineC16.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B9502A3AA4C4006438F2 /* MNNBilinearLineC16.S */; };
 		CEE9B9552A3AA4C4006438F2 /* MNNCubicSampleC16.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B9512A3AA4C4006438F2 /* MNNCubicSampleC16.S */; };
 		CEE9B95A2A3AA4D4006438F2 /* MNNCubicLineC16.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B9562A3AA4D4006438F2 /* MNNCubicLineC16.S */; };
 		CEE9B95B2A3AA4D4006438F2 /* MNNBilinearLineC8.S in Sources */ = {isa = PBXBuildFile; fileRef = CEE9B9572A3AA4D4006438F2 /* MNNBilinearLineC8.S */; };
@@ -1590,6 +1590,8 @@
 		C4F906B127688C3A0026B847 /* NMSModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = NMSModule.hpp; sourceTree = "<group>"; };
 		C4F906B227688C3A0026B847 /* NMSModule.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NMSModule.cpp; sourceTree = "<group>"; };
 		C4FB6CB12769DF0800963B07 /* GeometryCumSum.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryCumSum.cpp; sourceTree = "<group>"; };
+		CE125CC62A52BF6B003698C9 /* MNNBilinearSampleC8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearSampleC8.S; sourceTree = "<group>"; };
+		CE125CC72A52BF6B003698C9 /* MNNBilinearLineC8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearLineC8.S; sourceTree = "<group>"; };
 		CE7DBFFF28E2DE6B00797689 /* ShapeConvTranspose3D.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeConvTranspose3D.cpp; sourceTree = "<group>"; };
 		CE9AFED428E54E3300566949 /* CPUInterp3D.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUInterp3D.cpp; sourceTree = "<group>"; };
 		CE9AFED528E54E3300566949 /* CPUInterp3D.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUInterp3D.hpp; sourceTree = "<group>"; };
@@ -1614,9 +1616,7 @@
 		CEDB21172846D58200AE9DC4 /* testcat.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; name = testcat.jpg; path = ../../../demo/model/MobileNet/testcat.jpg; sourceTree = "<group>"; };
 		CEDB21182846D58200AE9DC4 /* synset_words.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = synset_words.txt; path = ../../../demo/model/MobileNet/synset_words.txt; sourceTree = "<group>"; };
 		CEDB211B2846D59C00AE9DC4 /* mobilenet_v2.caffe.mnn */ = {isa = PBXFileReference; lastKnownFileType = file; name = mobilenet_v2.caffe.mnn; path = ../../../resource/model/MobileNet/v2/mobilenet_v2.caffe.mnn; sourceTree = "<group>"; };
-		CEE9B94E2A3AA4C4006438F2 /* MNNBilinearSampleC16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearSampleC16.S; sourceTree = "<group>"; };
 		CEE9B94F2A3AA4C4006438F2 /* MNNCubicLineC16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNCubicLineC16.S; sourceTree = "<group>"; };
-		CEE9B9502A3AA4C4006438F2 /* MNNBilinearLineC16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearLineC16.S; sourceTree = "<group>"; };
 		CEE9B9512A3AA4C4006438F2 /* MNNCubicSampleC16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNCubicSampleC16.S; sourceTree = "<group>"; };
 		CEE9B9562A3AA4D4006438F2 /* MNNCubicLineC16.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNCubicLineC16.S; sourceTree = "<group>"; };
 		CEE9B9572A3AA4D4006438F2 /* MNNBilinearLineC8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearLineC8.S; sourceTree = "<group>"; };
@@ -2501,8 +2501,8 @@
 		92FF013A23AA0B4E00AC97F6 /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
-				CEE9B9502A3AA4C4006438F2 /* MNNBilinearLineC16.S */,
-				CEE9B94E2A3AA4C4006438F2 /* MNNBilinearSampleC16.S */,
+				CE125CC72A52BF6B003698C9 /* MNNBilinearLineC8.S */,
+				CE125CC62A52BF6B003698C9 /* MNNBilinearSampleC8.S */,
 				CEE9B94F2A3AA4C4006438F2 /* MNNCubicLineC16.S */,
 				CEE9B9512A3AA4C4006438F2 /* MNNCubicSampleC16.S */,
 				950B28DF29F627E00002F454 /* MNNBinaryAddInt8.S */,
@@ -3356,6 +3356,7 @@
 				950B28ED29F627F70002F454 /* MNNBinaryMulInt8.S in Sources */,
 				481FA853259C27E00047F01F /* ShapeTensorArray.cpp in Sources */,
 				6A131E3F25823349002EC3D6 /* PluginShapeInference.cpp in Sources */,
+				CE125CC82A52BF6B003698C9 /* MNNBilinearSampleC8.S in Sources */,
 				92FF025723AA0B5A00AC97F6 /* CPUQuanConvolutionDepthwise.cpp in Sources */,
 				48034563254157CE004738E3 /* MNNNV21ToBGRAUnit.S in Sources */,
 				48FA474823AA127B00172C3B /* Expr.cpp in Sources */,
@@ -3375,7 +3376,6 @@
 				48747D61245D9E33000B9709 /* ConvertUtils.cpp in Sources */,
 				92FF043B23AA0B7100AC97F6 /* ShapeDetectionPostProcess.cpp in Sources */,
 				48417FF124D13BF50056D9A7 /* GeometryELU.cpp in Sources */,
-				CEE9B9522A3AA4C4006438F2 /* MNNBilinearSampleC16.S in Sources */,
 				48C84B9A250F720C00EE7666 /* CPULayerNorm.cpp in Sources */,
 				4DF87C4A2887D3560003E2D4 /* calib3d.cpp in Sources */,
 				48F34734273A7C8400C45394 /* ImageProcessFunction.cpp in Sources */,
@@ -3515,6 +3515,7 @@
 				CECF8C7D299CAD9400D3875B /* md5.c in Sources */,
 				92FF041923AA0B7100AC97F6 /* ShapeQuantizedMaxPool.cpp in Sources */,
 				92FF038A23AA0B5A00AC97F6 /* CPURange.cpp in Sources */,
+				CE125CC92A52BF6B003698C9 /* MNNBilinearLineC8.S in Sources */,
 				92FF03A123AA0B5A00AC97F6 /* Int8FunctionsOpt.cpp in Sources */,
 				92FF026523AA0B5A00AC97F6 /* CPUQuantizedAvgPool.cpp in Sources */,
 				92FF029423AA0B5A00AC97F6 /* CPUMatMul.cpp in Sources */,
@@ -3555,7 +3556,6 @@
 				482BFBD028351BA1009210E4 /* AllShader.cpp in Sources */,
 				92FF04BA23AA0BFB00AC97F6 /* WrapExecution.cpp in Sources */,
 				11A01A06258785EA00745FA7 /* MNNVectorTop1Int32.S in Sources */,
-				CEE9B9542A3AA4C4006438F2 /* MNNBilinearLineC16.S in Sources */,
 				48FB9DC124A8445A008E1A2D /* MNNAxByClampBroadcastC4.S in Sources */,
 				EBD4842F2485FF660083CE95 /* Arm82Interp.cpp in Sources */,
 				4819FB3B24C69E680050BD09 /* GeometrySpatialProduct.cpp in Sources */,

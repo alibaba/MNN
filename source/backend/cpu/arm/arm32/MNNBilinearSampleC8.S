@@ -14,12 +14,13 @@
 .align 5
 
 asm_function MNNBilinearSampleC8
-// void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, size_t number);
+// void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
 // Auto load: r0: src, r1: dst, r2: position, r3: factor
-// r4:  number
+// r12: zeroPoint, r4:  number
 
 push {r4-r8, r10, lr}
-ldr r4, [sp, #28]
+ldr r12, [sp, #28]
+ldr r4, [sp, #32]
 mov lr, #8
 vpush {q4-q7}
 

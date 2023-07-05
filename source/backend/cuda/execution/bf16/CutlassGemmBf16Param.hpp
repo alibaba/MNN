@@ -1,3 +1,5 @@
+#ifdef ENABLE_CUDA_BF16
+
 #ifndef CutlassGemmBF16Param_hpp
 #define CutlassGemmBF16Param_hpp
 
@@ -83,4 +85,5 @@ using GemmTensor_BF16_BF16_Relu6_AlignTensor_Sm80 = cutlass::gemm::device::Gemm<
 
 }
 }
+#endif
 #endif

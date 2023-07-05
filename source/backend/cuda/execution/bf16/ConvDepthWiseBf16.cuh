@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/05/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_BF16
 
 #ifndef CONV_DEPTHWISE_BF16_CUH_
 #define CONV_DEPTHWISE_BF16_CUH_
@@ -402,4 +403,5 @@ __global__ void BiasTransToBf16(const T0* param,
 
 } //namespace CUDA
 } //namespace MNN
+#endif
 #endif

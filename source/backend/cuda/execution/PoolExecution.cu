@@ -166,6 +166,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     int threads_num = prop.maxThreadsPerBlock;
     int block_num = prop.multiProcessorCount;
 
+    #ifdef ENABLE_CUDA_BF16
     if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
         auto inputPtr = (const __nv_bfloat16*)inputs[0]->deviceId();
         auto outputPtr = (__nv_bfloat16*)outputs[0]->deviceId();
@@ -193,6 +194,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         }        
         return NO_ERROR;
     }
+    #endif
 
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         auto inputPtr = (const half*)inputs[0]->deviceId();

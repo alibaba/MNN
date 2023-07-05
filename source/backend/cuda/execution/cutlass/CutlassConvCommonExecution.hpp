@@ -79,10 +79,11 @@ protected:
     GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
     GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
 
+    #ifdef ENABLE_CUDA_BF16
     GemmTensor_BF16_BF16_Linear_AlignTensor_Sm80 mGemmBF16BF16LnSm80;
     GemmTensor_BF16_BF16_Relu_AlignTensor_Sm80 mGemmBF16BF16ReluSm80;
     GemmTensor_BF16_BF16_Relu6_AlignTensor_Sm80 mGemmBF16BF16Relu6Sm80;
-
+    #endif
     int mGpuComputeCap = 75;
     int mActivationType = 0;
     bool mFp16Infer = false;
