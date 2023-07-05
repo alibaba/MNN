@@ -11,29 +11,28 @@
 .text
 .align 5
 asm_function MNNCubicSampleC16
-// void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, size_t number)
+// void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number)
 
 // Auto load:
-// x0: src, x1: dst, x2: position, x3: factor, x4: number
+// x0: src, x1: dst, x2: position, x3: factor, x4: zeroPoint, x5: number
 
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
-cmp x4, #0
+cmp x5, #0
 beq END
 
 mov w15, #16
 uxtw x15, w15
 
 L1Loop:
-ldr w5, [x3, #0]
-add x3, x3, #4
+ld1 {v31.s}[0], [x3], #4
 
 fmov s1, #1.0
 
-dup v31.4s, w5    // v31: t
+dup v31.4s, v31.s[0]    // v31: t
 fmov s30, #1.0
 fsub s30, s30, s31  // 1-t
 
@@ -86,6 +85,8 @@ uxtw x8, w8
 uxtw x9, w9
 uxtw x10, w10
 
+ld1r {v11.8b}, [x4]
+
 mul x7, x7, x15
 mul x8, x8, x15
 mul x9, x9, x15
@@ -108,6 +109,15 @@ sxtl v16.8h, v15.8b
 sxtl2 v17.8h, v15.16b
 sxtl v23.8h, v22.8b
 sxtl2 v24.8h, v22.16b
+
+ssubw v1.8h, v1.8h, v11.8b
+ssubw v2.8h, v2.8h, v11.8b
+ssubw v9.8h, v9.8h, v11.8b
+ssubw v10.8h, v10.8h, v11.8b
+ssubw v16.8h, v16.8h, v11.8b
+ssubw v17.8h, v17.8h, v11.8b
+ssubw v23.8h, v23.8h, v11.8b
+ssubw v24.8h, v24.8h, v11.8b
 
 sxtl v4.4s, v1.4h
 sxtl2 v5.4s, v1.8h
@@ -162,8 +172,8 @@ fmla v6.4s, v27.4s, v31.s[0]
 fmla v7.4s, v28.4s, v31.s[0]
 st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x1], #64
 
-sub x4, x4, #1
-cmp x4, #1
+sub x5, x5, #1
+cmp x5, #1
 bge L1Loop
 
 END:

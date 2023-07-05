@@ -149,23 +149,23 @@ public:
     using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
 
     // opencl 2.0 get sub group info and wave size.
-    using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (*)(cl_context, cl_device_id,
+    using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (CL_API_CALL *)(cl_context, cl_device_id,
                                                     const cl_queue_properties *, cl_int *);
-    using clSVMAllocFunc = void *(*)(cl_context, cl_mem_flags, size_t size, cl_uint);
-    using clSVMFreeFunc = void (*)(cl_context, void *);
-    using clEnqueueSVMMapFunc = cl_int (*)(cl_command_queue, cl_bool, cl_map_flags,
+    using clSVMAllocFunc = void *(CL_API_CALL *)(cl_context, cl_mem_flags, size_t size, cl_uint);
+    using clSVMFreeFunc = void (CL_API_CALL *)(cl_context, void *);
+    using clEnqueueSVMMapFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_bool, cl_map_flags,
                                            void *, size_t, cl_uint, const cl_event *, cl_event *);
-    using clEnqueueSVMUnmapFunc = cl_int (*)(cl_command_queue, void *, cl_uint,
+    using clEnqueueSVMUnmapFunc = cl_int (CL_API_CALL *)(cl_command_queue, void *, cl_uint,
                                              const cl_event *, cl_event *);
-    using clSetKernelArgSVMPointerFunc = cl_int (*)(cl_kernel, cl_uint, const void *);
+    using clSetKernelArgSVMPointerFunc = cl_int (CL_API_CALL *)(cl_kernel, cl_uint, const void *);
     
-    using clNewRecordingQCOMFunc = cl_recording_qcom(*)(cl_command_queue, cl_int *);
-    using clEndRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
-    using clReleaseRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
-    using clRetainRecordingQCOMFunc = cl_int (*)(cl_recording_qcom);
-    using clEnqueueRecordingQCOMFunc = cl_int (*)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_offset_qcom*,
+    using clNewRecordingQCOMFunc = cl_recording_qcom(CL_API_CALL *)(cl_command_queue, cl_int *);
+    using clEndRecordingQCOMFunc = cl_int (CL_API_CALL *)(cl_recording_qcom);
+    using clReleaseRecordingQCOMFunc = cl_int (CL_API_CALL *)(cl_recording_qcom);
+    using clRetainRecordingQCOMFunc = cl_int (CL_API_CALL *)(cl_recording_qcom);
+    using clEnqueueRecordingQCOMFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_offset_qcom*,
                                                   size_t, const cl_workgroup_qcom*, size_t, const cl_workgroup_qcom*, cl_uint, const cl_event*, cl_event*);
-    using clEnqueueRecordingSVMQCOMFunc = cl_int (*)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_array_arg_qcom*,
+    using clEnqueueRecordingSVMQCOMFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_recording_qcom, size_t, const cl_array_arg_qcom*, size_t, const cl_array_arg_qcom*,
                                                      size_t, const cl_offset_qcom*, size_t, const cl_workgroup_qcom*, size_t, const cl_workgroup_qcom*,
                                                      size_t, const cl_array_kernel_exec_info_qcom*, cl_uint, const cl_event*, cl_event*);
     

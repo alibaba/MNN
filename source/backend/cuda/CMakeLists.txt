@@ -79,9 +79,14 @@ else()
 endif()
 
 option(MNN_CUDA_QUANT "Enable MNN CUDA Quant File" OFF)
+option(MNN_CUDA_BF16 "Enable MNN CUDA Bfloat16 File" OFF)
 
 IF (MNN_CUDA_QUANT)
     add_definitions(-DENABLE_CUDA_QUANT)
+ENDIF()
+
+IF (MNN_CUDA_BF16)
+    add_definitions(-DENABLE_CUDA_BF16)
 ENDIF()
 
 file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)

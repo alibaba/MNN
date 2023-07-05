@@ -14,15 +14,15 @@
 
 asm_function MNNScaleAndAddBiasInt8
 // MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha, int32_t mShiftBits,
-//                        ssize_t minValue, ssize_t maxValue, ssize_t zeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack)
+//                        ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint, int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack)
 
-//Auto: x0:dst, x1:src, x2:bias, x3:alpha, x4:mShiftBits, x5:minValue, x6:maxValue, x7:zeroPoint
-//Load from sp: x8:planeNumber, x9:biasNumber
+//Auto: x0:dst, x1:src, x2:bias, x3:alpha, x4:mShiftBits, x5:minValue, x6:maxValue, x7:inputZeroPoint
+//Load from sp: x11:outputZeroPoint, x8:planeNumber, x9:biasNumber
 //avoid to touch platform-register x-18
 
-
-ldr x8, [sp, #0]
-ldr x9, [sp, #8]
+ldr x11, [sp, #0]
+ldr x8, [sp, #8]
+ldr x9, [sp, #16]
 
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
@@ -38,9 +38,7 @@ beq BSEnd
 dup v27.16b, w5                // min
 dup v28.16b, w6                // max
 
-dup v29.4s, w4
-neg v29.4s, v29.4s
-
+ld1r {v29.8b}, [x7]            // inputZeroPoint
 
 BSLoopZ:
     mov x10, x8
@@ -66,6 +64,15 @@ BSLoopP16:
         sxtl  v10.8h, v3.8b
         sxtl2 v11.8h, v3.16b
 
+        ssubw v4.8h, v4.8h, v29.8b
+        ssubw v5.8h, v5.8h, v29.8b
+        ssubw v6.8h, v6.8h, v29.8b
+        ssubw v7.8h, v7.8h, v29.8b
+        ssubw v8.8h, v8.8h, v29.8b
+        ssubw v9.8h, v9.8h, v29.8b
+        ssubw v10.8h, v10.8h, v29.8b
+        ssubw v11.8h, v11.8h, v29.8b
+
         sxtl  v12.4s, v4.4h
         sxtl2 v13.4s, v4.8h
         sxtl  v14.4s, v5.4h
@@ -82,6 +89,8 @@ BSLoopP16:
         sxtl2 v25.4s, v10.8h
         sxtl  v26.4s, v11.4h
         sxtl2 v11.4s, v11.8h
+
+        ld1r {v0.8b}, [x11]
 
         mul v12.4s, v12.4s, v30.4s
         mul v13.4s, v13.4s, v30.4s
@@ -134,6 +143,15 @@ BSLoopP16:
         sqrshrn  v26.4h, v26.4s, #15
         sqrshrn2 v26.8h, v11.4s, #15
 
+        saddw  v12.8h, v12.8h, v0.8b
+        saddw  v14.8h, v14.8h, v0.8b
+        saddw  v16.8h, v16.8h, v0.8b
+        saddw  v18.8h, v18.8h, v0.8b
+        saddw  v20.8h, v20.8h, v0.8b
+        saddw  v22.8h, v22.8h, v0.8b
+        saddw  v24.8h, v24.8h, v0.8b
+        saddw  v26.8h, v26.8h, v0.8b
+
         sqxtn  v12.8b,  v12.8h
         sqxtn2 v12.16b, v14.8h
         sqxtn  v13.8b,  v16.8h
@@ -172,6 +190,11 @@ BSLoopP16:
         sxtl  v4.8h, v1.8b
         sxtl2 v5.8h, v1.16b
 
+        ssubw v2.8h, v2.8h, v29.8b
+        ssubw v3.8h, v3.8h, v29.8b
+        ssubw v4.8h, v4.8h, v29.8b
+        ssubw v5.8h, v5.8h, v29.8b
+
         sxtl  v16.4s, v2.4h
         sxtl2 v17.4s, v2.8h
         sxtl  v18.4s, v3.4h
@@ -180,6 +203,7 @@ BSLoopP16:
         sxtl2 v21.4s, v4.8h
         sxtl  v22.4s, v5.4h
         sxtl2 v23.4s, v5.8h
+        ld1r {v24.8b}, [x11]
 
         mul v16.4s, v16.4s, v30.4s
         mul v17.4s, v17.4s, v30.4s
@@ -208,6 +232,11 @@ BSLoopP16:
         sqrshrn  v22.4h, v22.4s, #15
         sqrshrn2 v22.8h, v23.4s, #15
 
+        saddw v16.8h, v16.8h, v24.8b
+        saddw v18.8h, v18.8h, v24.8b
+        saddw v20.8h, v20.8h, v24.8b
+        saddw v22.8h, v22.8h, v24.8b
+
         sqxtn  v0.8b,  v16.8h
         sqxtn2 v0.16b, v18.8h
         sqxtn  v1.8b,  v20.8h
@@ -233,6 +262,9 @@ BSLoopP16:
 
         sxtl  v2.8h, v0.8b
         sxtl2 v3.8h, v0.16b
+
+        ssubw v2.8h, v2.8h, v29.8b
+        ssubw v3.8h, v2.8h, v29.8b
         sxtl  v16.4s, v2.4h
         sxtl2 v17.4s, v2.8h
         sxtl  v18.4s, v3.4h
@@ -242,6 +274,7 @@ BSLoopP16:
         mul v17.4s, v17.4s, v30.4s
         mul v18.4s, v18.4s, v30.4s
         mul v19.4s, v19.4s, v30.4s
+        ld1r {v20.8b}, [x11]
 
         add v16.4s, v16.4s, v31.4s
         add v17.4s, v17.4s, v31.4s
@@ -253,6 +286,8 @@ BSLoopP16:
         sqrshrn  v18.4h, v18.4s, #15
         sqrshrn2 v18.8h, v19.4s, #15
 
+        saddw v16.8h, v16.8h, v20.8b
+        saddw v18.8h, v18.8h, v20.8b
         sqxtn  v0.8b,  v16.8h
         sqxtn2 v0.16b, v18.8h
 
@@ -271,8 +306,10 @@ BSLoopP16:
     BSLoopP1:
         ld1 {v0.s}[0], [x1], #4
         dup v0.4s, v0.s[0]
+        ld1r {v20.8b}, [x11]
 
         sxtl  v2.8h, v0.8b
+        ssubw v2.8h, v2.8h, v29.8b
         sxtl  v1.4s, v2.4h
 
         mul v1.4s, v1.4s, v30.4s
@@ -280,6 +317,7 @@ BSLoopP16:
 
         sqrshrn v1.4h, v1.4s, #15
         dup    v1.2d, v1.d[0]
+        saddw v1.8h, v1.8h, v20.8b
         sqxtn v1.8b, v1.8h
 
         smax v1.8b, v1.8b, v27.8b

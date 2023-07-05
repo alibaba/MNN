@@ -31,9 +31,11 @@ private:
     int mTotalSize;
     int mActivationType = 0;
     std::shared_ptr<Execution> mActivationExe;
-    std::vector<float> mInputQuant0;
-    std::vector<float> mInputQuant1;
-    std::vector<float> mOutputQuant;
+    std::vector<ssize_t> mQuantScalesInt32; // input0 and input1
+    std::vector<float> mQuantScalesFp32;  // input0, input1 and output
+    std::vector<int8_t> mInputOffset0;
+    std::vector<int8_t> mInputOffset1;
+    std::vector<int8_t> mOutputOffset;
 };
 } // namespace MNN
 #endif /* CPUBinary_hpp */

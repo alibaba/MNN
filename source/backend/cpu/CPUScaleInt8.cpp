@@ -17,15 +17,6 @@
 
 namespace MNN {
 
-static int minPow2GeaterThanN(int n) {
-    int k = 0, pow = 1;
-    while (pow < n) {
-        k++;
-        pow = pow<<1;
-    }
-    return 20 - k;
-}
-
 CPUScaleInt8::CPUScaleInt8(const Op* op, Backend* bn) : MNN::Execution(bn) {
     auto scale      = op->main_as_Scale();
     auto core = static_cast<CPUBackend*>(bn)->functions();
@@ -132,11 +123,6 @@ ErrorCode CPUScaleInt8::onResize(const std::vector<Tensor *> &inputs, const std:
     ::memcpy(biasPtr_, bias_.data(), outputCount * sizeof(int32_t));
 
     mOutputQuantInfo[0] = outputScale;
-    int planeNumber = 1;
-    for (int i = 2; i < input->buffer().dimensions; ++i) {
-        planeNumber *= input->length(i);
-    }
-    auto depthStride = planeNumber * core->pack;
 
     return NO_ERROR;
 }
@@ -161,12 +147,14 @@ ErrorCode CPUScaleInt8::onExecute(const std::vector<Tensor*>& inputs, const std:
     int numberThread = ((CPUBackend*)backend())->threadNumber();
 
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        int8_t inputZeroPoint = (int8_t)mInputQuantInfo[1];
+        int8_t outputZeroPoint = (int8_t)mOutputQuantInfo[1];
         for (int i = tId; i < totalDepth; i+=numberThread) {
             auto depthIndex = i / batch;
             const int8_t* inputPtr      = input->host<int8_t>() + depthStride * i;
             const int32_t* biasPtr_      = (const int32_t*)(biasPtr + core->pack * core->bytes * depthIndex);
             const int32_t* scalePtr_     = (const int32_t*)(scalePtr + core->pack * core->bytes * depthIndex);
-            MNNScaleAndAddBiasInt8(output->host<int8_t>() + depthStride * i, inputPtr, biasPtr_, scalePtr_, mShiftBits, (ssize_t)mOutputQuantInfo[2], (ssize_t)mOutputQuantInfo[3], (ssize_t)mOutputQuantInfo[1], planeNumber, 1, core->pack);
+            MNNScaleAndAddBiasInt8(output->host<int8_t>() + depthStride * i, inputPtr, biasPtr_, scalePtr_, mShiftBits, (ssize_t)mOutputQuantInfo[2], (ssize_t)mOutputQuantInfo[3], &inputZeroPoint, &outputZeroPoint, planeNumber, 1, core->pack);
         }
     }
     MNN_CONCURRENCY_END();

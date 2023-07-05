@@ -11,20 +11,20 @@
 .text
 .align 5
 asm_function MNNBilinearLineC8
-// void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, size_t number)
+// void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint, size_t number)
 // Auto load:
-// x0: dst, x1: src0, x2: src1, x3: factor, x4: number
+// x0: dst, x1: src0, x2: src1, x3: factor, x4: zeroPoint, x5: number
 
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
-cmp x4, #0
+cmp x5, #0
 beq END
 
-ldr w5, [x3, #0]   // factor
-dup v31.4s, w5     // v31: df
+ld1 {v31.s}[0], [x3]
+dup v31.4s, v31.s[0]     // v31: df
 fmov s30, #1.0     // v30: sf=1-df
 fsub s30, s30, s31
 movi v1.4s, #128   // s1=128
@@ -33,13 +33,13 @@ fmul s30, s30, s1
 dup v31.8h, v31.h[0]
 dup v30.8h, v30.h[0]
 
-cmp x4, #0
+cmp x5, #0
 beq END
-cmp x4, #2
+cmp x5, #2
 blt L1Loop
-cmp x4, #4
+cmp x5, #4
 blt L2Loop
-cmp x4, #8
+cmp x5, #8
 blt L4Loop
 
 L8Loop:
@@ -93,7 +93,6 @@ smull2 v1.4s, v19.8h, v30.8h
 smlal  v0.4s, v23.4h, v31.4h
 smlal2 v1.4s, v23.8h, v31.8h
 
-
 shrn  v8.4h, v8.4s, #14
 shrn2 v8.8h, v9.4s, #14
 
@@ -118,33 +117,32 @@ shrn2 v28.8h, v29.4s, #14
 shrn  v0.4h, v0.4s, #14
 shrn2 v0.8h, v1.4s, #14
 
-sqxtn v8.8b, v8.8h
-sqxtn2 v8.16b, v10.8h
-sqxtn v9.8b, v12.8h
-sqxtn2 v9.16b, v14.8h
+sqxtn v2.8b, v8.8h
+sqxtn2 v2.16b, v10.8h
+sqxtn v3.8b, v12.8h
+sqxtn2 v3.16b, v14.8h
 
-sqxtn v10.8b, v24.8h
-sqxtn2 v10.16b, v26.8h
-sqxtn v11.8b, v28.8h
-sqxtn2 v11.16b, v0.8h
+sqxtn v4.8b, v24.8h
+sqxtn2 v4.16b, v26.8h
+sqxtn v5.8b, v28.8h
+sqxtn2 v5.16b, v0.8h
 
-st1 {v8.16b, v9.16b, v10.16b, v11.16b}, [x0], #64
+st1 {v2.16b, v3.16b, v4.16b, v5.16b}, [x0], #64
 
-sub x4, x4, #8
-cmp x4, #8
+sub x5, x5, #8
+cmp x5, #8
 bge L8Loop
-cmp x4, #0
+cmp x5, #0
 beq END
-cmp x4, #2
+cmp x5, #2
 blt L1Loop
-cmp x4, #4
+cmp x5, #4
 blt L2Loop
 
 L4Loop:
 
 ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x1], #64
 ld1 {v4.8h, v5.8h, v6.8h, v7.8h}, [x2], #64
-
 
 smull v8.4s, v0.4h, v30.4h
 smull2 v9.4s, v0.8h, v30.8h
@@ -185,12 +183,12 @@ sqxtn2 v9.16b, v14.8h
 
 st1 {v8.16b, v9.16b}, [x0], #32
 
-sub x4, x4, #4
-cmp x4, #4
+sub x5, x5, #4
+cmp x5, #4
 bge L4Loop
-cmp x4, #0
+cmp x5, #0
 beq END
-cmp x4, #2
+cmp x5, #2
 blt L1Loop
 
 L2Loop:
@@ -216,17 +214,15 @@ shrn2 v10.8h, v11.4s, #14
 
 sqxtn v8.8b, v8.8h
 sqxtn2 v8.16b, v10.8h
-
 st1 {v8.16b}, [x0], #16
 
-sub x4, x4, #2
-cmp x4, #2
+sub x5, x5, #2
+cmp x5, #2
 bge L2Loop
-cmp x4, #0
+cmp x5, #0
 beq END
 
 L1Loop:
-
 ld1 {v0.8h}, [x1], #16
 ld1 {v1.8h}, [x2], #16
 
@@ -237,13 +233,12 @@ smlal2 v9.4s, v1.8h, v31.8h
 
 shrn  v8.4h, v8.4s, #14
 shrn2 v8.8h, v9.4s, #14
-
 sqxtn v8.8b, v8.8h
 
 st1 {v8.8b}, [x0], #8
 
-sub x4, x4, #1
-cmp x4, #1
+sub x5, x5, #1
+cmp x5, #1
 bge L1Loop
 
 END:

@@ -330,7 +330,7 @@ void execute(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int 
 }
 
 template<typename Tin, typename Tout, typename Func>
-void executeInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast) {
+void executeInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const int8_t* inputOffset0, const int8_t* inputOffset1, const int8_t* outputOffset, size_t elementSize, size_t needBroadcast) {
     Func f;
     int size = elementSize;
 #ifdef MNN_USE_NEON
@@ -355,19 +355,19 @@ void executeInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* input
 #endif
     for (int i = 0; i < size; ++i) {
         if (needBroadcast == 0) {
-            inp0 = (inputData0[0]- zeroPoint) * inputScale0[0];
-            inp1 = (inputData1[i]- zeroPoint) * inputScale1[0];
+            inp0 = (inputData0[0]- zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[i]- zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         } else if (needBroadcast == 1) {
-            inp0 = (inputData0[i] - zeroPoint) * inputScale0[0];
-            inp1 = (inputData1[0] - zeroPoint) * inputScale1[0];
+            inp0 = (inputData0[i] - zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[0] - zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         } else {
-            inp0 = (inputData0[i] - zeroPoint) * inputScale0[0];
-            inp1 = (inputData1[i] - zeroPoint) * inputScale1[0];
+            inp0 = (inputData0[i] - zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[i] - zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         }
-        int value = (int)roundf(output * outputScale[0]) + zeroPoint;
+        int value = (int)roundf(output * inputScalesFp32[2]) + zeroPoint + outputOffset[0];
         if (value > maxValue) {
             value = maxValue;
         }

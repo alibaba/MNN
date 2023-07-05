@@ -14,17 +14,21 @@
 .align 5
 
 asm_function MNNCubicSampleC16
-// void MNNCubicSampleC16(const int8_t* src, float* dst, const int32_t* position, const float* factor, size_t number);
+// void MNNCubicSampleC16(const int8_t* src, float* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
 // Auto load: r0: src, r1: dst, r2: position, r3: factor
-// r4:  number
+// r10, zeroPoint, r4:  number
 
 push {r4-r8, r10, lr}
-ldr r4, [sp, #28]
+ldr r10, [sp, #28]
+ldr r4, [sp, #32]
 mov lr, #16
 vpush {q4-q7}
 
 cmp r4, #0
 beq END
+
+vld1.8 {d30[0]}, [r10]
+vdup.8 d30, d30[0]  // zeroPoint
 
 L1Loop:
 ldr r5, [r2, #0]
@@ -46,6 +50,8 @@ add r8, r8, r0
 vld1.8 {q0}, [r6]
 vmovl.s8 q1, d0
 vmovl.s8 q2, d1
+vsubw.s8 q1, q1, d30
+vsubw.s8 q2, q2, d30
 vmovl.s16 q3, d2
 vmovl.s16 q4, d3
 vmovl.s16 q5, d4
@@ -54,6 +60,8 @@ vmovl.s16 q6, d5
 vld1.8 {q7}, [r7]
 vmovl.s8 q8, d14
 vmovl.s8 q9, d15
+vsubw.s8 q8, q8, d30
+vsubw.s8 q9, q9, d30
 vmovl.s16 q10, d16
 vmovl.s16 q11, d17
 vmovl.s16 q12, d18
@@ -101,6 +109,8 @@ vmla.f32 q13, q6, d1[1]
 vld1.8 {q0}, [r5]
 vmovl.s8 q1, d0
 vmovl.s8 q2, d1
+vsubw.s8 q1, q1, d30
+vsubw.s8 q2, q2, d30
 vmovl.s16 q3, d2
 vmovl.s16 q4, d3
 vmovl.s16 q5, d4
@@ -145,6 +155,8 @@ vmla.f32 q13, q6, d3[1]
 vld1.8 {q7}, [r8]
 vmovl.s8 q8, d14
 vmovl.s8 q9, d15
+vsubw.s8 q8, q8, d30
+vsubw.s8 q9, q9, d30
 vmovl.s16 q3, d16
 vmovl.s16 q4, d17
 vmovl.s16 q5, d18

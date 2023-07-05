@@ -262,7 +262,7 @@ public:
                                   9.5616,5.1855,3.1104,3.7267,5.2157,9.8103,9.8155,6.3442,8.2376,3.6553,5.3901};
 
             const float quantScales[] = {0.102, 0.00784};
-            const float zeroPoints[]  = {0., 0.};
+            const float zeroPoints[]  = {1., 2.};
             input->writeScaleMap(quantScales[0], zeroPoints[0]);
             auto inputPtr          = input->writeMap<float>();
             memcpy(inputPtr, inputData, 48 * sizeof(float));
@@ -289,7 +289,7 @@ public:
             // set input data
             const float inpudata[] = {1.0, 2.0, 3.0, 4.0, 5.0, -1.0, -2.0, -3.0, -4.0, -5.0};
             const float quantScales[] = {1.0, 0.00784};
-            const float zeroPoints[]  = {0., 0.};
+            const float zeroPoints[]  = {1., 2.};
             input->writeScaleMap(quantScales[0], zeroPoints[0]);
             auto inputPtr          = input->writeMap<float>();
             memcpy(inputPtr, inpudata, 10 * sizeof(float));
@@ -312,7 +312,7 @@ public:
             // set input data
             const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
             const float quantScales[] = {1.0, 0.00784};
-            const float zeroPoints[]  = {0., 0.};
+            const float zeroPoints[]  = {1., 2.};
             input->writeScaleMap(quantScales[0], zeroPoints[0]);
             auto inputPtr          = input->writeMap<float>();
             memcpy(inputPtr, inpudata, 4 * sizeof(float));

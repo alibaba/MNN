@@ -51,10 +51,10 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
             case 2:
                 CPUResizeBilinearC4<float, float>(CPUBilinearSampleC4, CPUBilinearLineC4, inputs, outputs, mWidthPosition.host<int>(),
                                                   mWidthFactor.host<float>(), mHeightPosition.host<int>(), mHeightFactor.host<float>(),
-                                                  mLineBuffer.host<float>(), ((CPUBackend *)backend())->threadNumber());
+                                                  mLineBuffer.host<float>(), ((CPUBackend *)backend())->threadNumber(), &mInputQuantZero, &mOutputQuantZero);
                 break;
             case 3:
-                CPUResizeCubicC4<float>(MNNCubicSampleC4, MNNCubicLineC4, inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+                CPUResizeCubicC4<float>(MNNCubicSampleC4, MNNCubicLineC4, inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset, &mInputQuantZero, &mOutputQuantZero, mOutputQuantMIn, mOutputQuantMax);
                 break;
             case 4:
                 CPUResizeNearestneighborRoundC4<float>(inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
@@ -92,10 +92,10 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
             CPUResizeNearestneighborC4<int8_t>(int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
             break;
         case 2:
-            CPUResizeBilinearC4<int8_t, int16_t>(MNNBilinearSampleC8, MNNBilinearLineC8, int8ExeInputs, int8ExeOutputs, mWidthPosition.host<int>(), mWidthFactor.host<float>(), mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<int16_t>(), ((CPUBackend *)backend())->threadNumber());
+            CPUResizeBilinearC4<int8_t, int16_t>(MNNBilinearSampleC8, MNNBilinearLineC8, int8ExeInputs, int8ExeOutputs, mWidthPosition.host<int>(), mWidthFactor.host<float>(), mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<int16_t>(), ((CPUBackend *)backend())->threadNumber(), &mInputQuantZero, &mOutputQuantZero);
             break;
         case 3:
-            CPUResizeCubicC4<int8_t>(MNNCubicSampleC16, MNNCubicLineC16, int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+            CPUResizeCubicC4<int8_t>(MNNCubicSampleC16, MNNCubicLineC16, int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset, &mInputQuantZero, &mOutputQuantZero, mOutputQuantMIn, mOutputQuantMax);
             break;
         case 4:
             CPUResizeNearestneighborRoundC4<int8_t>(int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
@@ -126,7 +126,8 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     if (mResizeType == 3 || mResizeType == 4) {
         packInt8 = 16;
     }
-    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+    bool useInt8 = (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) && (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1);
+    if (useInt8) {
         mInputTemp.reset(Tensor::createDevice<int8_t>({inputs[0]->batch(), inH, inW, UP_DIV(inputs[0]->channel(), packInt8) * packInt8}));
         mOutputTemp.reset(Tensor::createDevice<int8_t>({outputs[0]->batch(), outH, outW, UP_DIV(outputs[0]->channel(), packInt8) * packInt8}));
         bool allocSucc = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC);
@@ -134,6 +135,10 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
         if (!allocSucc) {
             return OUT_OF_MEMORY;
         }
+        mInputQuantZero = TensorUtils::getQuantInfo(inputs[0])[1];
+        mOutputQuantZero = TensorUtils::getQuantInfo(outputs[0])[1];
+        mOutputQuantMIn = TensorUtils::getQuantInfo(outputs[0])[2];
+        mOutputQuantMax = TensorUtils::getQuantInfo(outputs[0])[3];
     }
 
     if (mResizeType != 2) {

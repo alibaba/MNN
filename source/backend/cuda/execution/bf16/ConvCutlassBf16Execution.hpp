@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/05/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_BF16
 
 #ifndef ConvCutlassBf16Execution_hpp
 #define ConvCutlassBf16Execution_hpp
@@ -44,3 +45,4 @@ private:
 } // namespace MNN
 
 #endif /* ConvCutlassBf16Execution */
+#endif

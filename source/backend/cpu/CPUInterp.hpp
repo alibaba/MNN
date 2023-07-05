@@ -36,6 +36,10 @@ private:
     bool mInit = false;
     std::shared_ptr<Tensor> mInputTemp;
     std::shared_ptr<Tensor> mOutputTemp;
+    int8_t mInputQuantZero = 0;
+    int8_t mOutputQuantZero = 0;
+    ssize_t mOutputQuantMIn = -127;
+    ssize_t mOutputQuantMax = 127;
 };
 
 } // namespace MNN

@@ -16,8 +16,6 @@
 #include "BinaryUtils.hpp"
 #include "math/Vec.hpp"
 
-using Vec16 = MNN::Math::Vec<int8_t, 16>;
-
 namespace MNN {
 
 ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -37,22 +35,24 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
 
     auto core = static_cast<CPUBackend*>(backend())->functions();
 
-    mInputQuant0.resize(core->pack); // prepare for arm neon. float32x4
-    mInputQuant1.resize(core->pack);
-    mOutputQuant.resize(core->pack);
-    std::fill(mInputQuant0.begin(), mInputQuant0.end(), TensorUtils::getDescribe(inputs[0])->quantAttr->scale);
-    std::fill(mInputQuant1.begin(), mInputQuant1.end(), TensorUtils::getDescribe(inputs[1])->quantAttr->scale);
+    mInputOffset0.resize(1);
+    mInputOffset1.resize(1);
+    mOutputOffset.resize(1);
+    mQuantScalesInt32.resize(2); // When use int32 scales computing, output scale is needless.
+    mQuantScalesFp32.resize(3);
+    mQuantScalesInt32[0] = TensorUtils::getDescribe(inputs[0])->quantAttr->scale * (1 << 16);
+    mQuantScalesInt32[1] = TensorUtils::getDescribe(inputs[1])->quantAttr->scale * (1 << 16);
+    mQuantScalesFp32[0] =  TensorUtils::getDescribe(inputs[0])->quantAttr->scale;
+    mQuantScalesFp32[1] =  TensorUtils::getDescribe(inputs[1])->quantAttr->scale;
     if (TensorUtils::getDescribe(outputs[0])->quantAttr->scale != 0) {
-        std::fill(mOutputQuant.begin(), mOutputQuant.end(), 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale);
+        mQuantScalesFp32[2] = 1 / TensorUtils::getDescribe(outputs[0])->quantAttr->scale;
     } else {
-        std::fill(mOutputQuant.begin(), mOutputQuant.end(), 0);
+        mQuantScalesFp32[2] = 0;
     }
-    
+    mInputOffset0[0] = (int8_t)TensorUtils::getDescribe(inputs[0])->quantAttr->zero;
+    mInputOffset1[0] = (int8_t)TensorUtils::getDescribe(inputs[1])->quantAttr->zero;
+    mOutputOffset[0] = (int8_t)TensorUtils::getDescribe(outputs[0])->quantAttr->zero;
 
-    if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
-        mActivationExe.reset(new CPURelu(backend(), 0.0));
-        mActivationExe->onResize(outputs, outputs);
-    }
     return NO_ERROR;
 }
 
@@ -79,9 +79,9 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
         if (realSize > 0) {
             auto inp0 = input0Ptr + start * inpBytes;
             auto inp1 = input1Ptr + start * inpBytes;
-            auto scale0 = mInputQuant0.data() + start;
-            auto scale1 = mInputQuant1.data() + start;
-            auto scaleDst = mOutputQuant.data() + start;
+            auto offset0 = mInputOffset0.data();
+            auto offset1 = mInputOffset1.data();
+            auto offsetDst = mOutputOffset.data();
             if (mNeedBroadcastIndex == 0) {
                 inp0 = input0Ptr;
             } else if (mNeedBroadcastIndex == 1) {
@@ -89,17 +89,14 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
             }
             auto out = outputPtr + start * outBytes;
 #ifdef MNN_USE_NEON
-            mProc(out, inp0, inp1, scale0, scale1, scaleDst, realSize / 4, mNeedBroadcastIndex);
+            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), offset0, offset1, offsetDst, realSize / 4, mNeedBroadcastIndex);
 #else
-             mProc(out, inp0, inp1, scale0, scale1, scaleDst, realSize, mNeedBroadcastIndex);
+            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), offset0, offset1, offsetDst, realSize, mNeedBroadcastIndex);
 #endif
         }
     }
     MNN_CONCURRENCY_END();
-    
-    if(mActivationType == 1 && output->getType().code == halide_type_float) {
-        mActivationExe->onExecute(outputs, outputs);;
-    }
+
     return NO_ERROR;
 }
 

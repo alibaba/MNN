@@ -5,6 +5,7 @@
 //  Created by MNN on 2023/05/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifdef ENABLE_CUDA_BF16
 
 #ifndef CONV_DEPTHWISE_BF16_CUH_
 #define CONV_DEPTHWISE_BF16_CUH_
@@ -120,4 +121,5 @@ __global__ void avgpool_C8_BF16(const T* uInput, T* uOutput,
 }
 } //namespace CUDA
 } //namespace MNN
+#endif
 #endif

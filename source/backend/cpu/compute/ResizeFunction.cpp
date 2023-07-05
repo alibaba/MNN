@@ -39,7 +39,7 @@ static Vec<T, pack> CubicInterpolation2(Vec<T, pack>& A, Vec<T, pack>& B, Vec<T,
     return A * a0 + B * b0 + C * c0 + D * d0;
 }
 
-void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor,
+void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, int8_t* zeroPoint,
                                 size_t number) {
     int pack = 4;
     for (int i = 0; i < number; ++i) {
@@ -53,7 +53,7 @@ void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, 
     }
 }
 
-void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, size_t number) {
+void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, int8_t* zeroPoint, size_t number) {
     int pack = 4;
     Vec4 df(*t);
     Vec4 sf(1.0f - *t);
@@ -63,7 +63,7 @@ void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* 
     }
 }
 
-void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, size_t number) {
+void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number) {
     for (int i = 0; i < number; ++i) {
         float f = factor[i];
         auto A        = Vec4::load(src + 4 * position[4 * i + 0]);
@@ -74,8 +74,8 @@ void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const flo
     }
 }
 
-void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-                    size_t number) {
+void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+                    size_t number, ssize_t minValue, ssize_t maxValue) {
     float f = *t;
     for (int i = 0; i < number; ++i) {
         auto a = Vec4::load(A + 4 * i);
@@ -87,14 +87,14 @@ void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, 
 }
 
 #ifndef MNN_USE_NEON
-void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, size_t number) {
+void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number) {
     int pack = 16;
     using  Vec16 = Vec<float, 16>;
 #ifdef MNN_USE_SSE
-    Vec16 zeroPointV(128);
+    Vec16 zeroPointV(128 + (*zeroPoint));
     const uint8_t* srcPtr = (uint8_t*)src;
 #else
-    Vec16 zeroPointV(0);
+    Vec16 zeroPointV(*zeroPoint);
     const int8_t* srcPtr = src;
 #endif
     for (int i = 0; i < number; ++i) {
@@ -108,20 +108,20 @@ void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const f
     }
 }
 
-void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
-                    size_t number) {
+void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
+                    size_t number, ssize_t minValue, ssize_t maxValue) {
     int pack = 16;
     using  Vec16 = Vec<float, 16>;
 #ifdef MNN_USE_SSE
     uint8_t* dstPtr = (uint8_t*)dst;
-    int offset = 128;
-    int minValue = 0;
-    int maxValue = 255;
+    int offset = 128 + (*zeroPoint);
+    int minVal = 128 + minValue;
+    int maxVal = 128 + maxValue;
 #else
     int8_t* dstPtr = dst;
-    int offset = 0;
-    int minValue = -128;
-    int maxValue = 127;
+    int offset = *zeroPoint;
+    int minVal = (int)minValue;
+    int maxVal = (int)maxValue;
 #endif
     float f = *t;
     for (int i = 0; i < number; ++i) {
@@ -132,24 +132,24 @@ void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C
         auto val16 = CubicInterpolation2<float, 16>(a, b, c, d, f);
         for (int j = 0; j < pack; ++j) {
             int val = (int)roundf(val16[j]) + offset;
-            if (val > maxValue) {
-                val = maxValue;
+            if (val > maxVal) {
+                val = maxVal;
             }
-            if (val < minValue) {
-                val = minValue;
+            if (val < minVal) {
+                val = minVal;
             }
             *(dstPtr + pack * i + j) = val;
         }
     }
 }
 
-void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor,
+void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, int8_t* zeroPoint,
                                 size_t number) {
 #ifdef MNN_USE_SSE
-    int offset = 128;
+    int offset = 128 + *zeroPoint;
     const uint8_t* srcPtr = (uint8_t*)src;
 #else
-    int offset = 0;
+    int offset = *zeroPoint;
     const int8_t* srcPtr = src;
 #endif
     int pack = 8;
@@ -167,12 +167,12 @@ void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* positio
     }
 }
 
-void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, size_t number) {
+void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint, size_t number) {
 #ifdef MNN_USE_SSE
-    int offset = 128;
+    int offset = 128 + (*zeroPoint);
     uint8_t* dstPtr = (uint8_t*)dst;
 #else
-    int offset = 0;
+    int offset = *zeroPoint;
     int8_t* dstPtr = dst;
 #endif
     int pack = 8;

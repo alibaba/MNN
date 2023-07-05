@@ -16,6 +16,7 @@ CutlassConvCommonExecution::CutlassConvCommonExecution(Backend *backend) : Execu
 }
 
 ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
+    #ifdef ENABLE_CUDA_BF16
     if(mBf16Infer) {
         if(mActivationType == 1) {
             cutlass::Status status = mGemmBF16BF16ReluSm80();
@@ -29,7 +30,7 @@ ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
         }
         return NO_ERROR;
     }
-
+    #endif
     if(mFp32Infer) {
         if(mActivationType == 1) {
             cutlass::Status status = mGemmCudaF32F32Relu();

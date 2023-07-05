@@ -569,9 +569,11 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
                     maxCount, batch, area, channel, UP_DIV(channel, 8) * 8);
                 checkKernelErrors;
             } else if(isBf16) {
+                #ifdef ENABLE_CUDA_BF16
 		        C4NHW4_2_NHWC8<<<block_num, block_size>>>((float *)input, (__nv_bfloat16 *)output, 
                     maxCount, batch, area, channel, UP_DIV(channel, 8) * 8);
                 checkKernelErrors;
+                #endif
             } else {
                 C4NHW4_2_NHWC8<<<block_num, block_size>>>((float *)input, (float *)output, 
                     maxCount, batch, area, channel, UP_DIV(channel, 8) * 8);
@@ -589,9 +591,11 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
                     maxCount, batch, channel, area, UP_DIV(channel, 4) * 4);
                 checkKernelErrors;
             } else if(isBf16) {
+                #ifdef ENABLE_CUDA_BF16
                 NHWC8_2_C4NHW4<<<block_num, block_size>>>((__nv_bfloat16 *)input, (float *)output, 
                     maxCount, batch, channel, area, UP_DIV(channel, 4) * 4);
                 checkKernelErrors;
+                #endif
             } else {
                 NHWC8_2_C4NHW4<<<block_num, block_size>>>((float *)input, (float *)output, 
                     maxCount, batch, channel, area, UP_DIV(channel, 4) * 4);
@@ -619,7 +623,9 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
         if(isFp16) {
             insideFormatConvert<float, half>((float *)input, (half *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         } else if(isBf16) {
+            #ifdef ENABLE_CUDA_BF16
             insideFormatConvert<float, __nv_bfloat16>((float *)input, (__nv_bfloat16 *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
+            #endif
         } else {
             insideFormatConvert<float, float>((float *)input, (float *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         }
@@ -627,7 +633,9 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
         if(isFp16) {
             insideFormatConvert<half, float>((half *)input, (float *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         } else if(isBf16) {
+            #ifdef ENABLE_CUDA_BF16
             insideFormatConvert<__nv_bfloat16, float>((__nv_bfloat16 *)input, (float *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
+            #endif
         } else {
             insideFormatConvert<float, float>((float *)input, (float *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         }
@@ -635,7 +643,9 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
         if(isFp16) {
             insideFormatConvert<half, half>((half *)input, (half *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         } else if(isBf16) {
+            #ifdef ENABLE_CUDA_BF16
             insideFormatConvert<__nv_bfloat16, __nv_bfloat16>((__nv_bfloat16 *)input, (__nv_bfloat16 *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
+            #endif
         } else {
             insideFormatConvert<float, float>((float *)input, (float *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel);
         }

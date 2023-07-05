@@ -93,7 +93,7 @@ void CPUSoftmaxInt8::QuantizedSoftmax(const uint8_t* inputData, int outerSize, i
 #endif
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         auto inputDataPtr = src_ + tId * depth;
-        auto outputDataPtr = dst_ + tId * depth;
+        uint8_t* outputDataPtr = (uint8_t*)dst_ + tId * depth;
         for (int b = (int)tId; b < outerSize; b += threadNum, inputDataPtr += depth * threadNum, outputDataPtr += depth * threadNum) {
             // Determine the largest entry in the current row
             int8_t maxInRow = -128;
@@ -227,7 +227,7 @@ void CPUSoftmaxInt8::QuantizedSoftmax(const uint8_t* inputData, int outerSize, i
                         vsubq_s16(input_s16, max_in_row_s16);
                     int32x4_t input_diff_s32_0 = vmovl_s16(vget_low_s16(input_diff_s16));
                     int32x4_t input_diff_s32_1 = vmovl_s16(vget_high_s16(input_diff_s16));
-                    int8x8_t mask = vmovn_s16(vcgeq_s16(input_diff_s16, diff_min_s16));
+                    uint8x8_t mask = vmovn_u16(vcgeq_s16(input_diff_s16, diff_min_s16));
                     FixedPointScaledDiffInt32x4 scaled_diff_0 =
                         input_beta_multiplier_f0 *
                         FixedPointScaledDiffInt32x4::FromRaw(
@@ -246,9 +246,9 @@ void CPUSoftmaxInt8::QuantizedSoftmax(const uint8_t* inputData, int outerSize, i
                         numBitsOverUnit + 31 - 8);
                     int16x8_t output_s16 =
                         vcombine_s16(vqmovn_s32(output_s32_0), vqmovn_s32(output_s32_1));
-                    int8x8_t output_s8 = vqmovn_s16(output_s16);
-                    int8x8_t masked_output = vbsl_s8(mask, output_s8, vdup_n_s8(0));
-                    vst1_s8(outputDataPtr + c, masked_output);
+                    uint8x8_t output_s8 = vqmovun_s16(output_s16);
+                    uint8x8_t masked_output = vbsl_u8(mask, output_s8, vdup_n_u8(0));
+                    vst1_u8(outputDataPtr + c, masked_output);
                 }
 #endif
                 for (; c < depth; ++c) {

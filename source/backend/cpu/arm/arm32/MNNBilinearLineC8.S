@@ -14,13 +14,14 @@
 .align 5
 
 asm_function MNNBilinearLineC8
-// void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, size_t number)
+// void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint, size_t number)
 // Auto load: r0: dst, r1: A, r2: B, r3: t
-// r4: number
+// r5: zeroPoint, r4: number
  
 push {r4-r8, r10, lr} // avoid to touch platform-register r-9
 
-ldr r4, [sp, #28]
+ldr r5, [sp, #28]
+ldr r4, [sp, #32]
 ldr r3, [r3, #0]
 
 vpush {q4-q7}
@@ -57,6 +58,7 @@ vshr.s32 q3, q3, #14
 
 vqmovn.s32 d4, q2
 vqmovn.s32 d5, q3
+
 vqmovn.s16 d4, q2
 
 vst1.8 {d4}, [r0]!

@@ -70,7 +70,12 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
                 return false;
             }
        case OpType_BinaryOp:
-           return true;
+            if (op->main_as_BinaryOp()->activationType() == 1) {
+                return false;
+            } else {
+                return true;
+            }
+           
         case OpType_Softmax:
             return true;
         case OpType_Scale:
