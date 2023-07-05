@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include "core/Macro.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
