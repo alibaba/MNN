@@ -119,7 +119,7 @@ MyCustomOpTflite::run(MNN::OpT *dstOp,
                       int quantizedModel)
 ```
 
-其中，`run`函数相比TensorFlow的版本，多一个`quantizedModel`参数。若`qu``antizedModel`为true，则模型为量化模型，需转为相应的量化Op；若为false，转为浮点Op。在run函数中需要设置输入、输出tensor的index：
+其中，`run`函数相比TensorFlow的版本，多一个`quantizedModel`参数。若`quantizedModel`为true，则模型为量化模型，需转为相应的量化Op；若为false，转为浮点Op。在run函数中需要设置输入、输出tensor的index：
 ```cpp
 // set input output index
 dstOp->inputIndexes.resize(1);
