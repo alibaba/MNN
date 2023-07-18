@@ -31,8 +31,9 @@ std::string OpenCLTarget::macro() {
 std::string OpenCLTarget::number(float val) {
     return numval(val);
 }
-std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op) {
+std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Command* cmd, std::string& inpName) {
     std::stringstream ss; 
+    auto op = cmd->op;
     switch (op->type()) {
         case MNN::OpType_BinaryOp:
         {
@@ -40,28 +41,28 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
             auto type = static_cast<MNN::BinaryOpOperation>(op->main_as_BinaryOp()->opType());
             switch (type) {
                 case BinaryOpOperation_ADD:
-                    ss << "(" << lhs << "+" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "+" << rhs << ")";
                     break;
                 case BinaryOpOperation_SUB:
-                    ss << "(" << lhs << "-" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "-" << rhs << ")";
                     break;
                 case BinaryOpOperation_MUL:
-                    ss << "(" << lhs << "*" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "*" << rhs << ")";
                     break;
                 case BinaryOpOperation_POW:
-                    ss << "pow(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=pow(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_DIV:
-                    ss << "(" << lhs << "/" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "/" << rhs << ")";
                     break;
                 case BinaryOpOperation_MAXIMUM:
-                    ss << "fmax(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=fmax(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_MINIMUM:
-                    ss << "fmin(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=fmin(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_REALDIV:
-                    ss << "(" << lhs << "/" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "/" << rhs << ")";
                     break;
                 default:
                     break;
@@ -79,7 +80,7 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
                     std::unordered_map<int, std::string> elemToOp = {
                         {EltwiseType_PROD, "*"}, {EltwiseType_SUM, "+"}, {EltwiseType_SUB, "-"}
                     };
-                    ss << "(" << inputs[0] << elemToOp[type] << inputs[1];
+                    ss << inpName << "=(" << inputs[0] << elemToOp[type] << inputs[1];
                     for (int i = 2; i < inputs.size(); i++) {
                         ss << elemToOp[type] << inputs[i];
                     }
@@ -94,7 +95,7 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
                         }
                         return "fmax(" + inputs[d] + ", " + fmax(d+1) + ")";
                     };
-                    ss << fmax(0);
+                    ss << inpName << "=" << fmax(0);
                     break;
                 }
                 default:
@@ -109,64 +110,64 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
             auto operand = inputs[0];
             switch (type) {
                 case UnaryOpOperation_SQUARE:
-                    ss << operand << " * " << operand;
+                    ss << inpName << "=" << operand << " * " << operand;
                     break;
                 case UnaryOpOperation_ERF:
-                    ss << "erf(convert_float4(" << operand << "))";
+                    ss << inpName << "=erf(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_ERFC:
-                    ss << "erfc(convert_float4(" << operand << "))";
+                    ss << inpName << "=erfc(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_SQRT:
-                    ss << "sqrt(convert_float4(" << operand << "))";
+                    ss << inpName << "=sqrt(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_RSQRT:
-                    ss << "rsqrt(convert_float4(" << operand << "))";
+                    ss << inpName << "=rsqrt(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_ABS:
-                    ss << "fabs(convert_float4(" << operand << "))";
+                    ss << inpName << "=fabs(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_SIN:
-                    ss << "sin(convert_float4(" << operand << "))";
+                    ss << inpName << "=sin(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_COS:
-                    ss << "cos(convert_float4(" << operand << "))";
+                    ss << inpName << "=cos(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_SIGN:
-                    ss << "sign(convert_float4(" << operand << "))";
+                    ss << inpName << "=sign(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_EXP:
-                    ss << "exp(convert_float4(" << operand << "))";
+                    ss << inpName << "=exp(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_NEG:
-                    ss << "-(" << operand << ")";
+                    ss << inpName << "=-(" << operand << ")";
                     break;
                 case UnaryOpOperation_TAN:
-                    ss << "tan(convert_float4(" << operand << "))";
+                    ss << inpName << "=tan(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_CEIL:
-                    ss << "ceil(convert_float4(" << operand << "))";
+                    ss << inpName << "=ceil(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_LOG1P:
-                    ss << "log1p(convert_float4(" << operand << "))";
+                    ss << inpName << "=log1p(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_FLOOR:
-                    ss << "floor(convert_float4(" << operand << "))";
+                    ss << inpName << "=floor(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_ROUND:
-                    ss << "round(convert_float4(" << operand << "))";
+                    ss << inpName << "=round(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_SIGMOID:
-                    ss << "native_recip((float4)1+native_exp(convert_float4(-" << operand << ")))";
+                    ss << inpName << "=native_recip((float4)1+native_exp(convert_float4(-" << operand << ")))";
                     break;
                 case UnaryOpOperation_TANH:
-                    ss << "tanh(convert_float4(" << operand << "))";
+                    ss << inpName << "=tanh(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_RECIPROCAL:
-                    ss << "native_recip(convert_float4(" << operand << "))";
+                    ss << inpName << "=native_recip(convert_float4(" << operand << "))";
                     break;
                 case UnaryOpOperation_LOG:
-                    ss << "native_log(convert_float4(" << operand << "+(float4)((float)0.0000001)))";
+                    ss << inpName << "=native_log(convert_float4(" << operand << "+(float4)((float)0.0000001)))";
                     break;
                 default:
                     MNN_ASSERT(false);
@@ -180,7 +181,7 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
             auto relu6 = op->main_as_Relu6();
             float minv = relu6->minValue();
             float maxv = relu6->maxValue();
-            ss << "fmin(fmax(" << operand << "," << numval(minv) << "), " << numval(maxv) << ")";
+            ss << inpName << "=fmin(fmax(" << operand << "," << numval(minv) << "), " << numval(maxv) << ")";
             break;
         }
         case MNN::OpType_ReLU:
@@ -188,7 +189,7 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
             auto operand = inputs[0];
             auto relu = op->main_as_Relu();
             float slope = relu->slope();
-            ss << "fmax(" << operand << "," << numval(0) << ")";
+            ss << inpName << "=fmax(" << operand << "," << numval(0) << ")";
             break;
         }
         default:
@@ -196,19 +197,21 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Op* op
     }
     return ss.str();
 }
-std::string OpenCLTarget::load(const std::string& base, const std::string& offset) {
-    return "read_imagef(" + base + ", SAMPLER, " + offset + ")";
+std::string OpenCLTarget::load(const std::string& base, const std::string& offset, const Command* cmd, std::string& inpName) {
+    return "FLOAT4 " + inpName + "=read_imagef(" + base + ", SAMPLER, " + offset + ")";
 }
-std::string OpenCLTarget::loadscalar(const std::string& base) {
-    return "((float4)read_imagef(" + base + ", SAMPLER, (int2)(0, 0)).x)";
+std::string OpenCLTarget::loadscalar(const std::string& base, std::string& inpName) {
+    return "FLOAT4 " + inpName + "=((float4)read_imagef(" + base + ", SAMPLER, (int2)(0, 0)).x)";
 }
 std::string OpenCLTarget::store(const std::string base, const std::string& offset, const std::string& data) {
     return "write_imagef(" + base + ", " + offset + ", " + data + ");\n";
 }
 
-std::string OpenCLTarget::proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs) {
+std::string OpenCLTarget::proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool hasSingleConvertRaster) {
     std::stringstream proto;
-    proto << "__kernel void " << name << "(";
+    std::string begin = "__kernel void ";
+    mKernelBeginSize = begin.size();
+    proto << begin << "(";
     for (auto& input : inputs) {
         proto << "__read_only image2d_t " << input << ", ";
     }

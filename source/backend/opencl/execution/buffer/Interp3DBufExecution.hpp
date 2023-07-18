@@ -1,5 +1,5 @@
 //
-//  InterpBufExecution.hpp
+//  Interp3DBufExecution.hpp
 //  MNN
 //
 //  Created by MNN on 2019/02/02.

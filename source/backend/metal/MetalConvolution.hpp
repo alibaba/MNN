@@ -24,6 +24,7 @@ protected:
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
 
 private:
+    std::string mParam;
     int mThreadgroupMemory = 0;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;

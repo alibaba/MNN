@@ -29,7 +29,7 @@ public:
     MNN_PUBLIC static ErrorCode shapeComputeAndGeometryTransform(std::vector<Schedule::OpCacheInfo>& infos,
                                                       GeometryComputer::Context& geoContext,
                                                       std::shared_ptr<Backend> backupBackend,
-                                                                 Runtime::CompilerType compileType, bool skipShapeCompute = false);
+                                                                 Runtime::CompilerType compileType, bool skipShapeCompute = false, bool permitCodegen = false);
 };
 }; // namespace MNN
 

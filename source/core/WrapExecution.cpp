@@ -138,7 +138,7 @@ std::pair<Execution*, std::shared_ptr<Tensor>> WrapExecution::makeCopyExecution(
     return std::make_pair(copyExe, wrapTensor);
 }
 
-Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache) {
+Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache, bool permitCodegen) {
     auto des = TensorUtils::getDescribe(t);
     if (curBackend->type() != MNN_FORWARD_CPU) {
         auto constCacheiter = cache.find(t);
@@ -168,6 +168,11 @@ Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<T
             if (des->stageMask & Tensor::InsideDescribe::CONVERTED_STAGE) {
                 canReplace = false;
             }
+            #ifdef MNN_BUILD_CODEGEN
+            if(permitCodegen) {
+                canReplace = false;
+            }
+            #endif
             if (canReplace) {
                 outDes->stageMask |= Tensor::InsideDescribe::CONVERTED_STAGE;
                 TensorUtils::getDescribeOrigin(t)->mContent = TensorUtils::getDescribeOrigin(wrapTensor.get())->mContent;

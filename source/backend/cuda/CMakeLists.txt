@@ -103,9 +103,15 @@ else()
       target_link_libraries(MNN_Cuda_Main  ${CUDA_INCLUDE_DIRS}/../lib/libnvToolsExt.so)
     endif()
 
+    if(MNN_CODEGEN_CUDA)
+        add_definitions(-DMNN_CODEGEN_CUDA)
+        target_link_libraries(MNN_Cuda_Main ${CUDA_INCLUDE_DIRS}/../lib/libnvrtc.so ${CUDA_INCLUDE_DIRS}/../lib/stubs/libcuda.so)
+    endif()
+
     set(MNN_CUDA_LIBS MNN_Cuda_Main PARENT_SCOPE)
     add_library(MNN_CUDA OBJECT Register.cpp)
 endif()
+
 
 include_directories(
     ${CMAKE_CURRENT_LIST_DIR}/

@@ -322,6 +322,6 @@ namespace MNN {
             return;
         }
         registerCoreMLOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new CoreMLBackendCreator, true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new CoreMLBackendCreator, false);
     }
 }

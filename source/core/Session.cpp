@@ -64,6 +64,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mCallBackMode = mode.callBackMode;
     mMemoryUsageMode = mode.memoryUsageMode;
+    mCodegenMode = mode.codegenMode;
 }
 
 Session::~Session() {
@@ -172,11 +173,13 @@ ErrorCode Session::resize() {
         MNN_PRINT("\n");
     }
 #endif
+    bool permitCodegen = mCodegenMode == Interpreter::Session_Codegen_Enable;
+
     bool firstMalloc = false;
     if (mNeedResize) {
         bool debug = mCallBackMode == Interpreter::Session_Debug;
         for (auto& iter : mPipelines) {
-            auto error = iter->encode(debug);
+            auto error = iter->encode(debug, permitCodegen);
             if (NO_ERROR != error) {
                 return error;
             }
@@ -191,12 +194,11 @@ ErrorCode Session::resize() {
         // Turn Pipeline to Command Buffer and Malloc resource
         // TODO: Separate Schedule and Malloc
         for (auto& iter : mPipelines) {
-            auto error = iter->allocMemory(firstMalloc);
+            auto error = iter->allocMemory(firstMalloc, permitCodegen);
             if (NO_ERROR != error) {
                 return error;
             }
         }
-
         if(mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
             #ifdef LOG_VERBOSE
             float memory = 0.0f;

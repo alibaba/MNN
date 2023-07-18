@@ -574,6 +574,6 @@ namespace MNN {
             return;
         }
         registerNNAPIOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new NNAPIBackendCreator, true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new NNAPIBackendCreator, false);
     }
 }

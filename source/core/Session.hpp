@@ -32,6 +32,7 @@ public:
         Interpreter::SessionMode backendMode = Interpreter::Session_Backend_Fix;
         Interpreter::SessionMode resizeMode = Interpreter::Session_Resize_Direct;
         Interpreter::SessionMode memoryUsageMode = Interpreter::Session_Memory_Collect;
+        Interpreter::SessionMode codegenMode = Interpreter::Session_Codegen_Disable;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
@@ -147,6 +148,7 @@ private:
     bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
     Interpreter::SessionMode mMemoryUsageMode;
+    Interpreter::SessionMode mCodegenMode;
     Schedule::ScheduleInfo mInfo;
     ModeGroup mMode;
 };

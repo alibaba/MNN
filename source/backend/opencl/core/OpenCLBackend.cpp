@@ -1051,7 +1051,7 @@ class CLRuntimeCreator : public RuntimeCreator {
 bool placeholder = []() {
     static std::once_flag createOnce;
     std::call_once(createOnce, []() {
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENCL, new CLRuntimeCreator, true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENCL, new CLRuntimeCreator, false);
     });
     return true;
 }();

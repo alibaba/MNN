@@ -2,10 +2,9 @@
 //  LoopExecution.cpp
 //  MNN
 //
-//  Created by MNN on 2019/02/28.
+//  Created by MNN on 2023/05/04.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
 
 #include "backend/opencl/execution/image/LoopExecution.hpp"
 #include "core/Macro.h"

@@ -12,6 +12,7 @@
 #import "backend/metal/MetalConvolution1x1.hpp"
 #import "backend/metal/MetalConvolutionGEMM.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
+#include <string>
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -66,82 +67,88 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
+    mParam = "_ic" + std::to_string(ic_4) + "oc" + std::to_string(oc_4) +
+             "k" + std::to_string(mKernelX) + "x" + std::to_string(mKernelY) +
+             "s" + std::to_string(mStrideX) + "x" + std::to_string(mStrideY) +
+             "d" + std::to_string(mDilateX) + "x" + std::to_string(mDilateY);
+
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
-    bool isMuchComputer = (ow * oh >= 32 ? oc_4 >= 4 : oc_4 >= 128);
+    bool isS1D1 = (mStrideX==1 && mStrideY==1 && mDilateX==1 && mDilateY==1);
+    bool isS1D1P0 = isS1D1 && (padX==0 && padY==0 && mKernelX>1 && mKernelX%2==1);
     bool is3x3s1Conv = (mKernelX==3 && mKernelY==3 && mStrideX==1 && mStrideY==1 && padX==1 && padY==1 && mDilateX==1 && mDilateY==1);
-    
-    if(isMuchComputer && is3x3s1Conv) {
-        mPipeline = [context pipelineWithName:@"convk3s1d1p1_w2z4"];
-        
-        NSUInteger gid_x = UP_DIV(ow, 2);
+
+    // printf("isS1D1P0: %d, c:%d %d, K:%d %d, s:%d %d, p:%d %d, iwh:%d %d, owh:%d %d\n", isS1D1P0, ic_4, oc_4, mKernelX, mKernelY, mStrideX, mStrideY, padX, padY, iw, ih, ow, oh);
+
+    if(rt->getTuneLevel() == Never) {
+        int packW = 1;
+        int packC = 2;
+        NSString* kernelName = @"conv_z2";
+        if(isS1D1P0) {
+            packW = 2;
+            packC = 1;
+            kernelName = @"conv_s1d1p0_w2";
+        }
+        NSUInteger gid_x = UP_DIV(ow, packW);
         NSUInteger gid_y = oh;
-        NSUInteger gid_z = UP_DIV(oc_4, 4) * ob;
-            
+        NSUInteger gid_z = UP_DIV(oc_4, packC) * ob;
+
+        mPipeline = [context pipelineWithName:kernelName];
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                         mConstBuffer, mWeight, mBias, nil];
         
-        std::string name = "convk3s1d1p1_w2z4";
-        MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+        std::string name = [kernelName UTF8String] + mParam;
         auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
-
-        //printf("conv3x3_w2z4, cost:%d\n", (int)std::get<2>(ret));
     } else {
-        if(rt->getTuneLevel() == Never) {
-            int packC = 1;
-            NSString* kernelName = @"conv";
-            if(isMuchComputer) {
-                packC = 4;
-                kernelName = @"conv_z4";
+        const int total_kernel = 5;
+        NSString* shaderName[total_kernel] = {@"conv",  @"conv_z4", @"conv_z2", @"conv_s1d1p0_w2", @"conv_s1d1p0_w4"};
+        int itemW[total_kernel] = {1, 1, 1, 2, 4};
+        int itemH[total_kernel] = {1, 1, 1, 1, 1};
+        int itemC[total_kernel] = {1, 4, 2, 1, 1};
+        
+        int actual_kernel = 3;
+        if(isS1D1P0) {
+            actual_kernel = 4;
+            if(mKernelX == 3) {
+                actual_kernel = 5;
             }
-            NSUInteger gid_x = ow;
-            NSUInteger gid_y = oh;
-            NSUInteger gid_z = UP_DIV(oc_4, packC) * ob;
-
-            mPipeline = [context pipelineWithName:kernelName];
-            NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
-                            (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                            mConstBuffer, mWeight, mBias, nil];
-            
-            std::string name = [kernelName UTF8String];
-            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
-            mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+        } else if(is3x3s1Conv) {
+            actual_kernel = 4;
+            shaderName[3] = @"convk3s1d1p1_w2z4";
+            itemW[3] = 2;
+            itemH[3] = 1;
+            itemC[3] = 4;
         } else {
-            // {"conv_2d_c4h1w4", "conv_2d_c4h1w2", "conv_2d_c4h1w1", "conv_2d_c8h1w1", };
-            const int total_kernel = 2;
-            NSString* shaderName[total_kernel] = {@"conv", @"conv_z4"};
-            int itemW[total_kernel] = {1, 1};
-            int itemH[total_kernel] = {1, 1};
-            int itemC[total_kernel] = {1, 4};
-            
-            int actual_kernel = 2;
-            std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
-            
-            NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
-                            (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                            mConstBuffer, mWeight, mBias, nil];
-
-            for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-                id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
-                NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
-                NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
-                NSUInteger gid_z = UP_DIV(oc_4, itemC[knl_idx]) * ob;
-
-                std::string name = [shaderName[knl_idx] UTF8String];
-                auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
-                
-                if(min_cost.first > std::get<2>(ret)) {
-                    min_cost.first = std::get<2>(ret);
-                    min_cost.second = knl_idx;
-                    mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
-                }
-                //printf("conv1x1 idx:%d, global:%d %d %d, local:%d %d %d, min_cost:%d\n", knl_idx, (int)retTune.second.first.width, (int)retTune.second.first.height, (int)retTune.second.first.depth, (int)retTune.second.second.width, (int)retTune.second.second.height, (int)retTune.second.second.depth, (int)retTune.first);
-            }
-            //printf("conv idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
-
-            mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
+            actual_kernel = 3;
         }
+
+        std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
+        
+        NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
+                        (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
+                        mConstBuffer, mWeight, mBias, nil];
+
+        for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
+            NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
+            NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
+            NSUInteger gid_z = UP_DIV(oc_4, itemC[knl_idx]) * ob;
+
+            std::string name = [shaderName[knl_idx] UTF8String] + mParam;
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            
+            if(min_cost.first > std::get<2>(ret)) {
+                min_cost.first = std::get<2>(ret);
+                min_cost.second = knl_idx;
+                mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+            }
+            // printf("conv idx:%d %s, global:%d %d %d, local:%d %d %d, min_cost: %d -> %d\n", knl_idx, name.c_str(), (int)std::get<0>(ret).width, (int)std::get<0>(ret).height, (int)std::get<0>(ret).depth, (int)std::get<1>(ret).width, (int)std::get<1>(ret).height, (int)std::get<1>(ret).depth, std::get<2>(ret), (int)min_cost.first);
+        }
+        // printf("conv idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
+        // std::string tmp = [shaderName[min_cost.second] UTF8String];
+        // printf("!!~ %s\n", tmp.c_str());
+        mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
     }
     return NO_ERROR;
 }

@@ -95,7 +95,8 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
         }
         auto alignC = ROUND_UP(channel, 4);
         auto hR = ROUND_UP(height, 4) - height;
-        auto wR = ROUND_UP(width, 4) - width;
+        // width parallel 4, may exceed 3 elements
+        auto wR = ROUND_UP(width + 3, 4) - width;
         size = batch * alignC * width * height;
         size = size + hR * width * 4 + wR * 4;
     } else {
@@ -890,7 +891,7 @@ void registerMetalRuntimeCreator() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
         registerMetalOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
     } else {
         MNN_ERROR("Init Metal Error\n");
     }
