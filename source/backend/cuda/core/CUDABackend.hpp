@@ -20,6 +20,9 @@
 #include "backend/cpu/CPUResizeCache.hpp"
 #define MNN_USER_SET_DEVICE
 #include "MNN/MNNSharedContext.h"
+#ifdef MNN_CODEGEN_CUDA
+#include "backend/cuda/core/compiler/CUDACompiler.hpp"
+#endif
 
 namespace MNN {
 namespace CUDA {
@@ -85,6 +88,9 @@ public:
     CPUResizeCache* getCache();
     bool useFp16() const;
     int getPrecision() const;
+    #ifdef MNN_CODEGEN_CUDA
+    std::map<std::pair<std::string, std:: string>, CUmodule> kernelCuModuleMap();
+    #endif
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mStaticBufferPool;
@@ -92,6 +98,10 @@ private:
     CPUResizeCache mCache;
     bool mUseFp16AsFp32 = false;
     int mPrecision = 0;
+    #ifdef MNN_CODEGEN_CUDA
+    CUmodule mCuModule;
+    std::map<std::pair<std::string, std:: string>, CUmodule> mKernelCuModuleMap;
+    #endif
 };
 
 template <class T>

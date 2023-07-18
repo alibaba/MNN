@@ -154,6 +154,14 @@ protected:
                 MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
             }
             MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+#ifdef DEBUG
+            auto subinput  = _Input({batch, ic, inputShape[0], inputShape[1], inputShape[2]}, NCHW, halide_type_of<float>());
+            subinput->writeMap<float>();
+            auto suboutput = _Conv3D(_Convert(subinput, NC4HW4), weightData, biasData, {ic, oc}, kernels, mode, pads, strides,
+                                  dilations, group);
+            suboutput      = _Convert(suboutput, NCHW);
+            suboutput->readMap<float>();
+#endif
             return false;
         }
         return true;

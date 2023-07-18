@@ -18,7 +18,7 @@
 
 // TODO: Find better way for debug
 //#define MNN_OP_SEPERATE
-
+//#define MNN_PIPELINE_DEBUG
 namespace MNN {
 
 
@@ -193,7 +193,7 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
 
 Pipeline::Pipeline(Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt)
 #ifndef MNN_BUILD_MINI
-    : mContext(info.first.cache.second, info.first.cache.first->type()), mUseGeometry(rt->onGetCompilerType()) {
+    : mContext(info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal), mUseGeometry(rt->onGetCompilerType()) {
 #else
 {
 #endif
@@ -224,7 +224,7 @@ Pipeline::Pipeline(Schedule::PipelineInfo&& info, bool allocInput, bool outputSt
     }
 
 }
-ErrorCode Pipeline::encode(bool supportDebug) {
+ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
     // Static Model just copy info to command buffer
@@ -252,7 +252,7 @@ ErrorCode Pipeline::encode(bool supportDebug) {
 #ifndef MNN_BUILD_MINI
         mContext.clear();
         /** Size Compute and compute Const Begin */
-        auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo.second, mContext, mInfo.first.cache.second, mUseGeometry);
+        auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo.second, mContext, mInfo.first.cache.second, mUseGeometry, false, permitCodegen);
         if (res != NO_ERROR) {
             return res;
         }
@@ -670,7 +670,7 @@ static void _makeCopyOp(std::shared_ptr<BufferStorage>& copyOp) {
         copyOp->storage = builder.ReleaseRaw(copyOp->allocated_size, copyOp->offset);
     }
 }
-static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, std::map<Tensor*, std::shared_ptr<Tensor>>& shapeFixConstCache, bool ownInput) {
+static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, std::map<Tensor*, std::shared_ptr<Tensor>>& shapeFixConstCache, bool ownInput, bool permitCodegen) {
     std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>> wrapCache;
     std::shared_ptr<BufferStorage> copyOp;
     shapeFixConstCache.clear();
@@ -700,9 +700,9 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                     do {
                         Tensor* newTensor = nullptr;
                         if (!des->isMutable) {
-                            newTensor = WrapExecution::copyConstCache(t, curBackend, mCacheConstTensors);
+                            newTensor = WrapExecution::copyConstCache(t, curBackend, mCacheConstTensors, permitCodegen);
                         } else if (des->usage == Tensor::InsideDescribe::CONSTANT) {
-                            newTensor = WrapExecution::copyConstCache(t, curBackend, shapeFixConstCache);
+                            newTensor = WrapExecution::copyConstCache(t, curBackend, shapeFixConstCache, permitCodegen);
                         }
                         if (nullptr != newTensor) {
                             iter.workInputs[v] = newTensor;
@@ -789,7 +789,7 @@ void Pipeline::_recycleDynamicMemory(Command* command) {
     }
 }
 
-ErrorCode Pipeline::allocMemory(bool firstMalloc) {
+ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
     // MNN_PRINT("allocMemory mtype:%d, cpubackendType:%d, cpuBackend runtime:%p\n", mBackend->type(), mBackupBackend->type(), mBackupBackend->getRuntime());
     if (!firstMalloc) {
         // For session setNeedMalloc, if session's output is set as some input, It may cause error
@@ -874,7 +874,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
     _SetTensorBackend(mInfo, mAllocInput);
     // Insert Wrap If needed
     {
-        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mShapeFixConstCache, mAllocInput);
+        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mShapeFixConstCache, mAllocInput, permitCodegen);
         if (NO_ERROR != insertCode) {
             return insertCode;
         }
@@ -909,14 +909,13 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
     mBackend->onResizeBegin();
     for (auto& info : mInfo.second) {
         auto& buffer = info.executeBuffer;
-        for (auto iterP = buffer.command.begin(); iterP != buffer.command.end(); ++iterP) {
-            auto& iter = **iterP;
+        for (int cmdIndex=0; cmdIndex < buffer.command.size(); ++cmdIndex) {
+            auto& iterP = buffer.command[cmdIndex];
+            auto& iter = *iterP;
 #ifdef MNN_PIPELINE_DEBUG
             auto memory = const_cast<Runtime*>(mRuntime)->onGetMemoryInMB();
-            if (iter.op->name() != nullptr) {
-                MNN_PRINT("%f, before Resize: %s - %s\n", memory, iter.op->name()->c_str(), EnumNameOpType(iter.op->type()));
-            } else {
-                MNN_PRINT("%f, before Resize: %s\n", memory, EnumNameOpType(iter.op->type()));
+            if (nullptr != info.op->name()) {
+                MNN_PRINT("%f, before Resize: %s - %d\n", memory, info.op->name()->c_str(), cmdIndex);
             }
 #endif
 
@@ -939,7 +938,11 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc) {
                     }
                 }
             }
-             // MNN_PRINT("before Resize 2, calling: %s \n", iter.info->name().c_str());
+#ifdef MNN_PIPELINE_DEBUG
+            if (iter.info != nullptr) {
+                MNN_PRINT("before Resize 2, calling: %s - %d \n", iter.info->name().c_str(), cmdIndex);
+            }
+#endif
             auto code = iter.execution->onResize(iter.workInputs, iter.workOutputs);
             if (NO_ERROR != code && (!iter.info.get())) {
                 MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());

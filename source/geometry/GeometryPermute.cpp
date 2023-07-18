@@ -93,7 +93,13 @@ public:
         /** Move max three inputShapeSize to last three location. 
          * Don't change max three number relative position
          * */
-        if (inputShapeSize > 3) {
+	bool isReorderShape = false;
+	isReorderShape = (inputShapeSize > 4);
+        if (inputShapeSize == 4) {
+            // TODO: Opt this logic
+	    isReorderShape = (inputShape[0] > inputShape[1] + inputShape[2] + inputShape[3]); 
+        }
+        if (isReorderShape) {
             int max1 = inputShape[0], max2 = -1, max3 = -1;
             // Find Max Three Number
             for (int i = 1; i < inputShapeSize; i++) {
@@ -143,7 +149,7 @@ public:
                 }
             }
         }
-        // Compute inside, outside, axis
+	// Compute inside, outside, axis
         int inside        = 1;
         int insideStride  = 0;
         int outside       = 1;

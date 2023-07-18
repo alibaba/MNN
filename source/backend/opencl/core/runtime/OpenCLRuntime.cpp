@@ -349,11 +349,11 @@ OpenCLRuntime::~OpenCLRuntime() {
     MNN_PRINT("start ~OpenCLRuntime !\n");
 #endif
     mBuildProgramMap.clear();
+    mRecordings.clear();
     mCommandQueuePtr.reset();
+    mRecordableQueuePtr.reset();
     mContext.reset();
     mFirstGPUDevicePtr.reset();
-    mRecordableQueuePtr.reset();
-    mRecordings.clear();
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~OpenCLRuntime !\n");
 #endif

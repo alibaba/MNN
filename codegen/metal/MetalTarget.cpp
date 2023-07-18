@@ -18,7 +18,7 @@
 
 namespace MNN {
 std::string MetalTarget::type() {
-    return "auto ";
+    return "M4 ";
 }
 std::string MetalTarget::macro() {
     return
@@ -35,8 +35,9 @@ std::string MetalTarget::macro() {
 std::string MetalTarget::number(float val) {
     return numval(val);
 }
-std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op) {
+std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Command* cmd, std::string& inpName) {
     std::stringstream ss; 
+    auto op = cmd->op;
     switch (op->type()) {
         case MNN::OpType_BinaryOp:
         {
@@ -44,28 +45,28 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
             auto type = static_cast<MNN::BinaryOpOperation>(op->main_as_BinaryOp()->opType());
             switch (type) {
                 case BinaryOpOperation_ADD:
-                    ss << "(" << lhs << "+" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "+" << rhs << ")";
                     break;
                 case BinaryOpOperation_SUB:
-                    ss << "(" << lhs << "-" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "-" << rhs << ")";
                     break;
                 case BinaryOpOperation_MUL:
-                    ss << "(" << lhs << "*" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "*" << rhs << ")";
                     break;
                 case BinaryOpOperation_POW:
-                    ss << "pow(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=pow(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_DIV:
-                    ss << "(" << lhs << "/" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "/" << rhs << ")";
                     break;
                 case BinaryOpOperation_MAXIMUM:
-                    ss << "fmax(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=fmax(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_MINIMUM:
-                    ss << "fmin(" << lhs << "," << rhs << ")";
+                    ss << inpName << "=fmin(" << lhs << "," << rhs << ")";
                     break;
                 case BinaryOpOperation_REALDIV:
-                    ss << "(" << lhs << "/" << rhs << ")";
+                    ss << inpName << "=(" << lhs << "/" << rhs << ")";
                     break;
                 default:
                     break;
@@ -83,7 +84,7 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
                     std::unordered_map<int, std::string> elemToOp = {
                         {EltwiseType_PROD, "*"}, {EltwiseType_SUM, "+"}, {EltwiseType_SUB, "-"}
                     };
-                    ss << "(" << inputs[0] << elemToOp[type] << inputs[1];
+                    ss << inpName << "=(" << inputs[0] << elemToOp[type] << inputs[1];
                     for (int i = 2; i < inputs.size(); i++) {
                         ss << elemToOp[type] << inputs[i];
                     }
@@ -98,7 +99,7 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
                         }
                         return "fmax(" + inputs[d] + ", " + fmax(d+1) + ")";
                     };
-                    ss << fmax(0);
+                    ss << inpName << "=" << fmax(0);
                     break;
                 }
                 default:
@@ -113,58 +114,58 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
             auto operand = inputs[0];
             switch (type) {
                 case UnaryOpOperation_SQUARE:
-                    ss << "(" << operand << " * " << operand << ")";
+                    ss << inpName << "=(" << operand << " * " << operand << ")";
                     break;
                 case UnaryOpOperation_SQRT:
-                    ss << "sqrt(" << operand << ")";
+                    ss << inpName << "=sqrt(" << operand << ")";
                     break;
                 case UnaryOpOperation_RSQRT:
-                    ss << "rsqrt(" << operand << ")";
+                    ss << inpName << "=rsqrt(" << operand << ")";
                     break;
                 case UnaryOpOperation_ABS:
-                    ss << "abs(" << operand << ")";
+                    ss << inpName << "=abs(" << operand << ")";
                     break;
                 case UnaryOpOperation_SIN:
-                    ss << "sin(" << operand << ")";
+                    ss << inpName << "=sin(" << operand << ")";
                     break;
                 case UnaryOpOperation_COS:
-                    ss << "cos(" << operand << ")";
+                    ss << inpName << "=cos(" << operand << ")";
                     break;
                 case UnaryOpOperation_SIGN:
-                    ss << "sign(" << operand << ")";
+                    ss << inpName << "=sign(" << operand << ")";
                     break;
                 case UnaryOpOperation_EXP:
-                    ss << "exp(" << operand << ")";
+                    ss << inpName << "=exp(" << operand << ")";
                     break;
                 case UnaryOpOperation_NEG:
-                    ss << "-(" << operand << ")";
+                    ss << inpName << "=-(" << operand << ")";
                     break;
                 case UnaryOpOperation_TAN:
-                    ss << "tan(" << operand << ")";
+                    ss << inpName << "=tan(" << operand << ")";
                     break;
                 case UnaryOpOperation_CEIL:
-                    ss << "ceil(" << operand << ")";
+                    ss << inpName << "=ceil(" << operand << ")";
                     break;
                 case UnaryOpOperation_LOG1P:
-                    ss << "log(1.f + " << operand << ")";
+                    ss << inpName << "=log(1.f + " << operand << ")";
                     break;
                 case UnaryOpOperation_FLOOR:
-                    ss << "floor(" << operand << ")";
+                    ss << inpName << "=floor(" << operand << ")";
                     break;
                 case UnaryOpOperation_ROUND:
-                    ss << "round(" << operand << ")";
+                    ss << inpName << "=round(" << operand << ")";
                     break;
                 case UnaryOpOperation_SIGMOID:
-                    ss << "(1.f / (1.f + exp(-" << operand << ")))";
+                    ss << inpName << "=(1.f / (1.f + exp(-" << operand << ")))";
                     break;
                 case UnaryOpOperation_TANH:
-                    ss << "tanh(" << operand << ")";
+                    ss << inpName << "=tanh(" << operand << ")";
                     break;
                 case UnaryOpOperation_RECIPROCAL:
-                    ss << "(1.0 / " << operand << ")";
+                    ss << inpName << "=(1.0 / " << operand << ")";
                     break;
                 case UnaryOpOperation_LOG:
-                    ss << "log(" << operand << ")";
+                    ss << inpName << "=log(" << operand << ")";
                     break;
                 default:
                     break;
@@ -177,7 +178,7 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
             auto relu6 = op->main_as_Relu6();
             float minv = relu6->minValue();
             float maxv = relu6->maxValue();
-            ss << "clamp(" << operand << ", " << numval(minv) << ", " << numval(maxv) << ")";
+            ss << inpName << "=clamp(" << operand << ", " << numval(minv) << ", " << numval(maxv) << ")";
             break;
         }
         case MNN::OpType_ReLU:
@@ -185,7 +186,7 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
             auto operand = inputs[0];
             auto relu = op->main_as_Relu();
             float slope = relu->slope();
-            ss << "fmax(" << operand << "," << numval(0) << ")";
+            ss << inpName << "=fmax(" << operand << "," << numval(0) << ")";
             break;
         }
         default:
@@ -193,20 +194,22 @@ std::string MetalTarget::codegen(std::vector<std::string>& inputs, const Op* op)
     }
     return ss.str();
 }
-std::string MetalTarget::load(const std::string& base, const std::string& offset) {
-    return "(M4)(" + base + "[" + offset + "])";
+std::string MetalTarget::load(const std::string& base, const std::string& offset, const Command* cmd, std::string& inpName) {
+    return "auto " + inpName + "=(M4)(" + base + "[" + offset + "])";
 }
-std::string MetalTarget::loadscalar(const std::string& base) {
-    return "(M4)(" + base + "[0])";
+std::string MetalTarget::loadscalar(const std::string& base, std::string& inpName) {
+    return "auto " + inpName + "=(M4)(" + base + "[0])";
 }
 std::string MetalTarget::store(const std::string base, const std::string& offset, const std::string& data) {
     return base + "[" + offset + "] = " + data + ";\n";
 }
 
-std::string MetalTarget::proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs) {
+std::string MetalTarget::proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool hasSingleConvertRaster) {
     std::stringstream proto;
     int buffer_idx = 0;
-    proto << "kernel void " << name << "(";
+    std::string begin = "kernel void ";
+    mKernelBeginSize = begin.size();
+    proto << begin << "(";
     for (auto& input : inputs) {
         proto << "const device M4* " << input << " [[buffer(" << buffer_idx++ << ")]], ";
     }

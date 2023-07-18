@@ -65,6 +65,7 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     mKernel.setArg(idx++, mGlobalWorkSize[0]);
     mKernel.setArg(idx++, mGlobalWorkSize[1]);
     mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);

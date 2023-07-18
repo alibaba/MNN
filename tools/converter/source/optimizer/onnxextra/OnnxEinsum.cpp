@@ -12,6 +12,16 @@
 namespace MNN {
 namespace Express {
 
+static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
+    MNN_ASSERT(nullptr != x);
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type                      = OpType_Reshape;
+    reshape->main.type                 = OpParameter_Reshape;
+    reshape->main.value                = new ReshapeT;
+    reshape->main.AsReshape()->dimType = format;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
+
 class OnnxEinsumTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
@@ -141,7 +151,9 @@ public:
                         transpose.emplace_back(iter->second);
                     }
                 }
-                var0 = _Permute(_Reshape(var0, reshapeDims), transpose);
+                auto _shape  = _Const(reshapeDims.data(), {static_cast<int32_t>(right.size())}, NHWC, halide_type_of<int>());
+                var0 = _ReshapeF(var0, _shape, MNN::MNN_DATA_FORMAT_NCHW);
+                var0 = _Permute(var0, transpose);
             }
             {
                 // Reshape + Transpose
@@ -158,7 +170,9 @@ public:
                         transpose.emplace_back(iter->second);
                     }
                 }
-                var1 = _Permute(_Reshape(var1, reshapeDims), transpose);
+                auto _shape  = _Const(reshapeDims.data(), {static_cast<int>(right.size())}, NHWC, halide_type_of<int>());
+                var1 = _ReshapeF(var1, _shape, MNN::MNN_DATA_FORMAT_NCHW);
+                var1 = _Permute(var1, transpose);
             }
             auto output = var0 * var1;
             output->setName(expr->name());
@@ -200,9 +214,22 @@ public:
         bPos = tempB;
         // outside and sum is common for A and B
         VARP outsideLength = _Unsqueeze(_Scalar<int>(1), {0});
+        int needBroadcast0 = 0, needBroadcast1 = 0;
         for (int i=0; i<bothPos.size(); ++i) {
-            outsideLength = outsideLength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one);
+            auto size0 = _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one);
+            auto size1 = _Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bothPos[i]]), {0}), one);
+            auto bothsize = size0;
+            if (size0 < size1) {
+                bothsize = size1;
+                needBroadcast0 = 1;
+            } else if (size0 == size1) {
+                // do nothing.
+            } else {
+                needBroadcast1 = 1;
+            }
+            outsideLength = outsideLength * bothsize;
         }
+        
         VARP sumLength = _Unsqueeze(_Scalar<int>(1), {0});
         for (int i=0; i<sumPos.size(); ++i) {
             sumLength = sumLength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[sumPos[i]]), {0}), one);
@@ -223,7 +250,11 @@ public:
                 transpose.emplace_back(input0Pos[sumPos[i]]);
             }
             var0 = _Permute(var0, transpose);
-            var0 = _Reshape(var0, _Concat({outsideLength, ALength, sumLength}, 0));
+            if (needBroadcast0) {
+                var0 = _BroadcastTo(var0, _Concat({outsideLength, ALength, sumLength}, 0));
+            } else {
+                var0 = _ReshapeF(var0, _Concat({outsideLength, ALength, sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            } 
         }
         {
             // Transpose
@@ -241,7 +272,11 @@ public:
                 transpose.emplace_back(input1Pos[sumPos[i]]);
             }
             var1 = _Permute(var1, transpose);
-            var1 = _Reshape(var1, _Concat({outsideLength, BLength, sumLength}, 0));
+            if (needBroadcast1) {
+                var1 = _BroadcastTo(var1, _Concat({outsideLength, BLength, sumLength}, 0));
+            } else {
+                var1 = _ReshapeF(var1, _Concat({outsideLength, BLength, sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            }
         }
         auto output = _MatMul(var0, var1, false, true);
         std::vector<VARP> cShapeGroup;
@@ -261,7 +296,7 @@ public:
             cShapeGroup.emplace_back(_Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one));
         }
         auto cShape = _Concat(cShapeGroup, 0);
-        output = _Reshape(output, cShape);
+        output = _ReshapeF(output, cShape, MNN::MNN_DATA_FORMAT_NCHW);
         bool needPermute = false;
         std::vector<int> transpose(right.size());
         for (int i=0; i<right.size(); ++i) {

@@ -476,7 +476,7 @@ class TRTRuntimeCreator : public RuntimeCreator {
 };
 
 static bool gResistor = []() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_USER_1, new TRTRuntimeCreator, true);
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_USER_1, new TRTRuntimeCreator, false);
     return false;
 }();
 } // namespace MNN

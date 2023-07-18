@@ -126,6 +126,13 @@ const Runtime* CUDABackend::getRuntime() {
 bool CUDABackend::useFp16() const {
     return mUseFp16AsFp32;
 }
+
+#ifdef MNN_CODEGEN_CUDA
+std::map<std::pair<std::string, std:: string>, CUmodule> CUDABackend::kernelCuModuleMap() {
+    return mKernelCuModuleMap;
+}
+#endif
+
 int CUDABackend::getPrecision() const {
     return mPrecision;
 }
@@ -250,6 +257,27 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
         }
         return NULL;
     }
+
+    #ifdef MNN_CODEGEN_CUDA
+    if(op->type() == OpType_Extra) {
+        auto extra = op->main_as_Extra();
+        std::string source(reinterpret_cast<const char*>(extra->info()->data()));
+        auto kernel_name = extra->type()->c_str();
+        std::string kernel_source = source;
+
+        std::pair<std::string, std::string> kernelInfo = std::make_pair<std::string, std::string>(kernel_name, kernel_source.c_str());
+        if(mKernelCuModuleMap.find(kernelInfo) == mKernelCuModuleMap.end()) {
+            // printf("\n%s\n\n%s !!!!\n", kernel_source.c_str(), kernel_name);
+            std::vector<const char *> param;
+            bool includeHeadFile = mUseFp16AsFp32;
+            auto ptx_code =
+                CUDANVRTCCompile(kernelInfo, param, mCUDARuntime->compute_capability(), includeHeadFile);
+            
+            MNN_CUDA_SAFE_CALL(cuModuleLoadDataEx(&mCuModule, ptx_code.c_str(), 0, 0, 0));
+            mKernelCuModuleMap.insert(std::pair<std::pair<std::string, std:: string>, CUmodule>(kernelInfo, mCuModule));
+        }
+    }
+    #endif
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {

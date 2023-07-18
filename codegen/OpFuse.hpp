@@ -7,8 +7,8 @@
 //
 
 #include "geometry/GeometryComputerUtils.hpp"
-
+#include <map>
 namespace MNN {
-    bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type);
+    bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type, BackendConfig::PrecisionMode precision);
 } // namespace MNN
 

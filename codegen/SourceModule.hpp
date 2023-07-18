@@ -26,22 +26,32 @@ struct Node {
     std::vector<Node*> succ;
     std::vector<Node*> domainateSucc;
     Node* domainatePred;
-    const Command* cmd;
+    Command* cmd;
     int topoIndex;
 };
 
 class Target {
 public:
-    Target() = default;
+    Target(const BackendConfig::PrecisionMode precision) : mPrecision(precision){
+        // Nothing
+    }
     ~Target() = default;
-    virtual std::string codegen(std::vector<std::string>& inputs, const Op* op) = 0;
+    virtual std::string codegen(std::vector<std::string>& inputs, const Command* cmd, std::string& inpName) = 0;
     virtual std::string type() = 0;
     virtual std::string macro() = 0;
     virtual std::string number(float val) = 0;
-    virtual std::string load(const std::string& base, const std::string& offset) = 0;
-    virtual std::string loadscalar(const std::string& base) = 0;
+    virtual std::string load(const std::string& base, const std::string& offset, const Command* cmd, std::string& inpName) = 0;
+    virtual std::string loadscalar(const std::string& base, std::string& inpName) = 0;
     virtual std::string store(const std::string base, const std::string& offset, const std::string& data) = 0;
-    virtual std::string proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs) = 0;
+    virtual std::string proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool hasSingleConvertRaster = false) = 0;
+    void setFuseKernelVectorize(bool vector) {
+        mVectorize = vector;
+    }
+    int beginSize() {return mKernelBeginSize; };
+protected:
+    BackendConfig::PrecisionMode mPrecision;
+    bool mVectorize = false;
+    int mKernelBeginSize;
 };
 
 class SourceModule {
@@ -52,6 +62,7 @@ public:
     std::string codegen();
     std::string kernelName();
     std::string opName();
+    int strIndexForKernelNum();
 private:
     void down();
     void up();
@@ -65,6 +76,7 @@ private:
     std::string mKernelCode, mKernelName, mOpName;
     std::map<std::string, std::pair<std::string, std::string>> mCacheKernel;
     int mIndent = 0;
+    int mKernelNumIndex;
 };
 
 }

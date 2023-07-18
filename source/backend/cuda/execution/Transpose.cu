@@ -74,6 +74,30 @@ __global__ void PACKCOMMON_4(const T0 *input, T1 *output,
         }
     }
 }
+
+template<typename T0, typename T1>
+__global__ void PACKCOMMON_half_4(const T0 *input, T1 *output,
+    int inside, int axis, int outside,
+    int insideStride, int axisStride,
+    DivModFast is, DivModFast cs
+    ) {
+    int axisAlign = UP_DIV(axis, PACK_NUMBER/ 4) * PACK_NUMBER / 4;;
+    int total = axisAlign * inside * outside;
+
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
+        int tmp, x, y, z;
+        cs.divmod(i, tmp, y);
+        is.divmod(tmp, z, x);
+        int dstOffset = (z * inside + x) * axisAlign + y;
+        int srcOffset = x * insideStride + y * axisStride + z * inside * axis;
+        if (y < axis) {
+            output[dstOffset] = input[srcOffset];
+        } else {
+            output[dstOffset] = {0, 0};
+        }
+    }
+}
+
 template<typename T0, typename T1>
 __global__ void PACKCOMMON(const T0 *input, T1 *output,
     int inside, int axis, int outside, 
@@ -103,16 +127,25 @@ void PackBuffer(void* output, const void* input, const PackInfo* info, int bytes
     int threadNumbers = prop.maxThreadsPerBlock;
     
     if (info->axis % 4 == 0 && info->axisStride == 1 && \
-        bytes == 4 && info->insideStride == info->axis) {
+        info->insideStride == info->axis) {
         
         int axis_pack = UP_DIV(info->axis, PACK_NUMBER) * PACK_NUMBER / 4;
         DivModFast is(info->inside);
         DivModFast cs(axis_pack);
-
-        PACKCOMMON_4<<<cores, threadNumbers>>>((const int4*)input, (int4*)output,
+	if(bytes == 4) {
+            PACKCOMMON_4<<<cores, threadNumbers>>>((const int4*)input, (int4*)output,
                     info->inside, info->axis / 4, info->outside, 
                     info->insideStride / 4, info->axisStride, is, cs);
-        return;
+            checkKernelErrors;
+	    return;
+	}
+        if(bytes == 2) {
+            PACKCOMMON_half_4<<<cores, threadNumbers>>>((const int2*)input, (int2*)output,
+                    info->inside, info->axis / 4, info->outside,
+                    info->insideStride / 4, info->axisStride, is, cs);
+            checkKernelErrors;
+            return;
+        }
     }
     switch (bytes) {
         case 4:
@@ -139,7 +172,7 @@ void UnpackBuffer(void* output, const void* input, const PackInfo* info, int byt
     int cores = prop.multiProcessorCount;
     int threadNumbers = prop.maxThreadsPerBlock;
 
-    if (info->axis % 4 == 0 && info->axisStride == 1 && bytes == 4 && info->insideStride == info->axis) {
+    if (info->axis % 4 == 0 && info->axisStride == 1 && info->insideStride == info->axis) {
         int axis_pack = UP_DIV(info->axis, PACK_NUMBER) * PACK_NUMBER / 4;
         DivModFast is(info->inside);
         DivModFast cs(axis_pack);
@@ -147,10 +180,20 @@ void UnpackBuffer(void* output, const void* input, const PackInfo* info, int byt
         int block_num = runtime->blocks_num(maxCount);
         int block_size = runtime->threads_num();
         int axisAlign = UP_DIV(info->axis / 4, PACK_NUMBER / 4) * PACK_NUMBER / 4;;
-        UNPACKCOMMON_4<<<block_num, block_size>>>((const int4*)input, (int4*)output, 
+	if(bytes == 4) {        
+	    UNPACKCOMMON_4<<<block_num, block_size>>>((const int4*)input, (int4*)output, 
                         maxCount, info->inside, info->axis / 4, info->outside,
                         info->insideStride / 4, info->axisStride, axisAlign, is, cs);
-        return;
+	    checkKernelErrors;
+	    return;
+	}        
+        if(bytes == 2) {
+            UNPACKCOMMON_4<<<block_num, block_size>>>((const int2*)input, (int2*)output,
+                        maxCount, info->inside, info->axis / 4, info->outside,
+                        info->insideStride / 4, info->axisStride, axisAlign, is, cs);
+            checkKernelErrors;
+            return;
+        }    
     }
     switch (bytes) {
         case 4:

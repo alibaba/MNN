@@ -18,7 +18,7 @@ namespace MNN {
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type) {
+GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision) {
     mBackend       = allocBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
@@ -28,6 +28,7 @@ GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNFor
     mRasterOp.reset(new BufferStorage);
     mRasterOp->storage = builder.ReleaseRaw(mRasterOp->allocated_size, mRasterOp->offset);
     mForwardType = type;
+    mPrecision = precision;
 }
 void GeometryComputer::Context::pushCache(const CommandBuffer& buffer) {
     for (auto cmd : buffer.command) {

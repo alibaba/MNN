@@ -11,8 +11,12 @@
 #include "SourceModule.hpp"
 #include "opencl/OpenCLTarget.hpp"
 #include "metal/MetalTarget.hpp"
+#ifdef MNN_CODEGEN_CUDA
+#include "cuda/CUDATarget.hpp"
+#endif
 #include <queue>
 #include <unordered_map>
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 static void dumpOp(const Op* op) {
@@ -37,7 +41,7 @@ static void dumpTensor(const Tensor* t) {
     MNN_PRINT("\t%p [", t);
     for (int d : t->shape())
         MNN_PRINT("%d,", d);
-    MNN_PRINT("],\n");
+    MNN_PRINT("], format:%d\n", TensorUtils::getDescribe(t)->dimensionFormat);
     auto des = TensorUtils::getDescribe(t);
     if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
         MNN_PRINT("Regions:");
@@ -59,7 +63,7 @@ static void dumpCmd(const Command* cmd) {
 }
 
 // is legal fused type
-bool isLegal(const Command* cmd) {
+bool isLegal(Command* cmd, MNNForwardType forwardType) {
     auto type = cmd->op->type();
     bool elemWise = type == OpType_BinaryOp
            || type == OpType_UnaryOp
@@ -67,32 +71,91 @@ bool isLegal(const Command* cmd) {
            || type == OpType_ReLU6
            || type == OpType_Eltwise;
     if (elemWise) {
-        for (auto t : cmd->inputs) {
-            if (t->width() * UP_DIV(t->channel(), 4) > 16384) {
-                return false;
-            }
-            auto des = TensorUtils::getDescribe(t)->regions;
-            for(auto region : des)
-            {
-                auto tensor = region.origin;
-                if (tensor->width() * UP_DIV(tensor->channel(), 4) > 16384) {
+        if(forwardType == MNN_FORWARD_OPENCL) {
+            for (auto t : cmd->inputs) {
+                if (t->width() * UP_DIV(t->channel(), 4) > 16384) {
                     return false;
                 }
+                auto des = TensorUtils::getDescribe(t)->regions;
+                for(auto region : des)
+                {
+                    auto tensor = region.origin;
+                    if (tensor->width() * UP_DIV(tensor->channel(), 4) > 16384) {
+                        return false;
+                    }
+                }
+            }
+        }
+        if(TensorUtils::getDescribe(cmd->outputs[0])->dimensionFormat ==  MNN_DATA_FORMAT_NC4HW4) {
+            cmd->canVectorize = true;
+        } else {
+            int count = 1;
+            for(int i = 0; i < cmd->outputs[0]->dimensions(); i++) {
+                count *= cmd->outputs[0]->length(i);
+            }
+            if(count % 4 == 0) {
+                cmd->canVectorize = true;
+            } else {
+                cmd->canVectorize = false;
             }
         }
         return true;
     }
-#ifdef fuse_raster
-    if (type == OpType_Raster) {
-        auto outputFormat = TensorUtils::getDescribe(cmd->outputs[0])->dimensionFormat;
-        bool legalFormat = outputFormat != MNN_DATA_FORMAT_NC4HW4;
-        if (TensorUtils::getDescribe(cmd->inputs[0])->regions.size() > 1) return false;
-        for (auto reg : TensorUtils::getDescribe(cmd->inputs[0])->regions) {
-            legalFormat &= TensorUtils::getDescribe(reg.origin)->dimensionFormat == outputFormat;
+
+    if (forwardType == MNN_FORWARD_CUDA && type == OpType_Raster) {
+        // Fuse NC4HW4 -> NCHW/HHWC
+        OpCommonUtils::TensorConvertParameter singleConvert;
+        auto input = cmd->outputs[0];
+        OpCommonUtils::rasterInputReset(cmd->inputs, cmd->outputs[0]);
+        singleConvert.type = 0;
+        auto des = TensorUtils::getDescribe(input);
+        if(des->regions.size() == 1) {
+            OpCommonUtils::turnRegion2Convert(des->regions[0], cmd->outputs[0], singleConvert);
+            if (singleConvert.type > 0){
+                auto realInput = TensorUtils::getDescribe(input)->regions[0].origin;
+                auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
+                if (MNN_DATA_FORMAT_NC4HW4 == sourceFormat) { // NC4HW4 -> NCHW/NHWC is Supported!
+                    if(singleConvert.type == 1) { // output NCHW
+                        if(singleConvert.batch != cmd->outputs[0]->length(0)) {
+                            return false;
+                        }
+                        if(cmd->outputs[0]->dimensions() < 3 || singleConvert.channel != cmd->outputs[0]->length(1)) {
+                            return false;
+                        }
+                        int area = 1;
+                        for(int i = 2; i < cmd->outputs[0]->dimensions(); i++) {
+                            area *= cmd->outputs[0]->length(i);
+                        }
+                        if(singleConvert.area != area) {
+                            return false;
+                        }
+                        return true;
+                    }
+                    if(singleConvert.type == 2) { // output NHWC
+                        if(singleConvert.batch != cmd->outputs[0]->length(0)) {
+                            return false;
+                        }
+                        int dims = cmd->outputs[0]->dimensions();
+                        if(dims < 3 || singleConvert.channel != cmd->outputs[0]->length(dims-1)) {
+                            return false;
+                        }
+                        int area = 1;
+                        for(int i = 1; i < dims-1; i++) {
+                            area *= cmd->outputs[0]->length(i);
+                        }
+                        if(singleConvert.area != area) {
+                            return false;
+                        }
+                        if(singleConvert.channel % 4 == 0) {
+                            cmd->canVectorize = true;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+            }
         }
-        return legalFormat;
     }
-#endif
     return false;	
 }
 
@@ -109,14 +172,17 @@ Node* LCA(Node* x, Node* y) {
     }
     return x;
 }
-bool allPathLegal(Node* s, Node* t) {
+bool allPathLegal(Node* s, Node* t, MNNForwardType type) {
     bool legal = true;
     std::queue<Node*> q;
     q.push(s);
     while (!q.empty()) {
         auto node = q.front();
         q.pop();
-        legal &= isLegal(node->cmd);
+        legal &= isLegal(node->cmd, type);
+        if(!legal) {
+            return false;
+        }
         for (auto succ : node->succ) {
             if (succ != t) {
                 q.push(succ);
@@ -125,37 +191,58 @@ bool allPathLegal(Node* s, Node* t) {
     }
     return legal;
 }
-std::vector<Node*> fuseNode(Node* root, std::vector<Node*>& edges) {
+std::vector<Node*> fuseNode(Node* root, std::vector<Node*>& edges, MNNForwardType type) {
     std::vector<Node*> fuseSet;
     std::queue<Node*> q;
     q.push(root);
+    int rasterCount = 0;
+    bool insert = false;
     while (!q.empty()) {
+        insert = false;
         auto node = q.front();
-        fuseSet.insert(fuseSet.begin(), node);
+        if(node->cmd->op->type() == OpType_Raster) {
+            // Current only fuse single raster
+            rasterCount++;
+            if(rasterCount < 2) {
+                fuseSet.insert(fuseSet.begin(), node);
+                insert = true;
+            }
+        } else {
+            fuseSet.insert(fuseSet.begin(), node);
+            insert = true;
+        }
+
         q.pop();
-        for (auto child : node->domainateSucc) {
-            if (isLegal(child->cmd) && allPathLegal(child, root)) {
-                q.push(child);
-            } else {
-                edges.push_back(child);
+        if(insert) {
+            for (auto child : node->domainateSucc) {
+                if (isLegal(child->cmd, type) && allPathLegal(child, root, type)) {
+                    q.push(child);
+                } else {
+                    edges.push_back(child);
+                }
             }
         }
     }
     return fuseSet;
 }
 
-bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<Node*>>& fuseSets, MNNForwardType type) {
+bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<Node*>>& fuseSets, MNNForwardType type, BackendConfig::PrecisionMode precision) {
     // generate Kernel
     std::unique_ptr<Target> target;
     switch (type) {
 #ifdef MNN_CODEGEN_OPENCL
         case MNN_FORWARD_OPENCL:
-            target.reset(new OpenCLTarget);
+            target.reset(new OpenCLTarget(precision));
             break;
 #endif
 #ifdef MNN_CODEGEN_METAL
         case MNN_FORWARD_METAL:
-            target.reset(new MetalTarget);
+            target.reset(new MetalTarget(precision));
+            break;
+#endif
+#ifdef MNN_CODEGEN_CUDA
+        case MNN_FORWARD_CUDA:
+            target.reset(new CUDATarget(precision));
             break;
 #endif
         default:
@@ -166,6 +253,7 @@ bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<
         MNN_PRINT(">>>>>>>>>>>>> fuseSets.size = %lu\n", fuseSets.size());
     }
 #endif
+    std::map<std::string, int> mapKernelSources;
     for (int i = 0; i < fuseSets.size(); i++) {
         auto& compSet = fuseSets[i];
         /*
@@ -173,6 +261,15 @@ bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<
             dumpCmd(comp->cmd);
         }
         */
+        bool fuseKernelVectorize = true;
+        for (auto& node : compSet) {
+            auto cmd = node->cmd;
+            if(!cmd->canVectorize) {
+                fuseKernelVectorize = false;
+                break;
+            }
+        }
+        target->setFuseKernelVectorize(fuseKernelVectorize);
         SourceModule fuseModule(target.get());
         InOutTensors tensors = fuseModule.buildKernel(compSet, i);
         auto inputs = tensors.first;
@@ -181,13 +278,21 @@ bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<
         SharedPtr<Command> cmdPlugin;
         {
             auto sourceCode = fuseModule.codegen();
+            if(mapKernelSources.find(sourceCode) == mapKernelSources.end()) {
+                int kernelCount = mapKernelSources.size();
+                mapKernelSources.insert(std::pair<std::string, int>(sourceCode, kernelCount));
+            }
+            std::string kernelName = "kernel_" + std::to_string(mapKernelSources[sourceCode]);
+            sourceCode.insert(fuseModule.strIndexForKernelNum(), kernelName);
+
             std::unique_ptr<OpT> fuseOp(new OpT);
             fuseOp->type = OpType_Extra;
             fuseOp->name = fuseModule.opName();
             ExtraT* extra_param = new ExtraT;
-            extra_param->type = fuseModule.kernelName();
+            extra_param->type = kernelName;
             extra_param->info.resize(sourceCode.size() + 1);
             memcpy(extra_param->info.data(), sourceCode.data(), sourceCode.size() + 1);
+            extra_param->vector = fuseKernelVectorize;
             fuseOp->main.type  = OpParameter_Extra;
             fuseOp->main.value = extra_param;
             flatbuffers::FlatBufferBuilder builder;
@@ -218,10 +323,20 @@ bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<
             }
         }
     }
+    // Clear useless cacheBuffer
+    for (auto& info : infos) {
+        for (auto iter = info.cacheBuffer.command.begin(); iter != info.cacheBuffer.command.end();) {
+            if (iter->get()->op == nullptr) {
+                iter = info.cacheBuffer.command.erase(iter);
+            } else {
+                ++iter;
+            }
+        }
+    }    
     return true;
 }
 
-bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
+bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type, BackendConfig::PrecisionMode precision) {
     std::unordered_map<const Tensor*, Node*> outputTensor;
     // build graph
     std::vector<std::unique_ptr<Node>> graph;
@@ -246,13 +361,7 @@ bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
             node->cmd = iter.get();
             node->topoIndex = i;
             for (auto input : iter->inputs) {
-                if (!TensorUtils::getDescribe(input)->regions.empty()) {
-                    for (auto& region : TensorUtils::getDescribe(input)->regions) {
-                        insertEdge(region.origin, node.get());
-                    }
-                } else {
-                    insertEdge(input, node.get());
-                }
+                insertEdge(input, node.get());
             }
             for (auto output : iter->outputs) {
                 outputTensor[output] = node.get();
@@ -289,8 +398,8 @@ bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
             continue;
         }
         std::vector<Node*> childs;
-        if (isLegal(root->cmd)) {
-            auto fuseSet = fuseNode(root, childs);
+        if (isLegal(root->cmd, type)) {
+            auto fuseSet = fuseNode(root, childs, type);
             if (fuseSet.size() > 1) {
                 fuseSets.emplace_back(std::move(fuseSet));
             }
@@ -301,7 +410,9 @@ bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
             postDominateNodeQueue.push(child);
         }
     }
+
 #if 0
+    MNN_PRINT("fuse total number: %lu \n", fuseSets.size());
     for (auto compSet : fuseSets) {
         MNN_PRINT("set size: %lu \n", compSet.size());
         if (true) {
@@ -313,7 +424,7 @@ bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type) {
         }
     }
 #endif
-    return codegen(infos, fuseSets, type);
+    return codegen(infos, fuseSets, type, precision);
 }
 } // namespace MNN
 

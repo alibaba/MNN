@@ -138,7 +138,9 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
     std::shared_ptr<Backend> backupBackend,
-    Runtime::CompilerType compileType, bool skipShapeCompute) {
+    Runtime::CompilerType compileType, 
+    bool skipShapeCompute,
+    bool permitCodegen) {
     /** Size Compute and compute Const Begin */
     GeometryComputer::Context ctx(backupBackend);
     // Size Compute and compute Const
@@ -291,7 +293,39 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
 
     
 #ifdef MNN_BUILD_CODEGEN
-    opFuse(infos, geoContext.forwardType());
+    if(permitCodegen) {
+        #ifdef LOG_VERPOSE
+        MNN_PRINT("infos : [\n");
+        for (auto info : infos) {
+            auto& cmds = info.executeBuffer.command;
+            for (auto cmd : cmds) {
+                MNN_PRINT("\t%s", EnumNameOpType(cmd->op->type()));
+                if(cmd->op->type() == OpType_BinaryOp) {
+                    MNN_PRINT(" %d ", cmd->op->main_as_BinaryOp()->opType());
+                }
+                if(cmd->op->type() == OpType_UnaryOp) {
+                    MNN_PRINT(" %d ", cmd->op->main_as_UnaryOp()->opType());
+                }
+                MNN_PRINT("\n");
+            }
+        }
+        MNN_PRINT("]\n");
+        MNN_PRINT("==================== opFuse ====================\n");
+        #endif
+
+        opFuse(infos, geoContext.forwardType(), geoContext.precisionType());
+
+        #ifdef LOG_VERPOSE
+        MNN_PRINT("infos : [\n");
+        for (auto info : infos) {
+            auto& cmds = info.executeBuffer.command;
+            for (auto cmd : cmds) {
+                MNN_PRINT("\t%s\n", EnumNameOpType(cmd->op->type()));
+            }
+        }
+        MNN_PRINT("]\n");
+        #endif
+    }
 #endif
     return NO_ERROR;
 }

@@ -143,7 +143,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     MNN_PRINT("start PoolExecution onExecute !\n");
 #endif
     
-#if 0//def ENABLE_OPENCL_TIME_PROFILER
+#ifdef ENABLE_OPENCL_TIME_PROFILER
     cl::Event event;
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);

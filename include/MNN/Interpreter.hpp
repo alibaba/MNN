@@ -155,6 +155,10 @@ public:
         /** Determine static memory whether recyle in resizeSession or just cache the memory */
         Session_Memory_Collect = 10, // Recycle static memory when session resize in case memory explosion 
         Session_Memory_Cache = 11, // Cache the static memory for next forward usage
+
+        /** Determine whether use codegen function */
+        Session_Codegen_Disable = 12, // Disable codegen in case extra build codegen cost
+        Session_Codegen_Enable = 13, // Enable codegen
     };
     /**
      * @brief The API shoud be called before create session.

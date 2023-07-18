@@ -210,6 +210,8 @@ table Extra {
     engine: string;
     info: [byte];
     attr:[Attribute];
+    // The Extra Op can be vectorized for execution    
+    vector: bool;
 }
 
 table StringVec {

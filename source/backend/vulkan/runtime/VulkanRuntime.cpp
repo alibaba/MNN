@@ -200,7 +200,7 @@ public:
 };
 
 static bool gResistor = []() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_VULKAN, new VulkanRuntimeCreator, true);
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_VULKAN, new VulkanRuntimeCreator, false);
     return false;
 }();
 }

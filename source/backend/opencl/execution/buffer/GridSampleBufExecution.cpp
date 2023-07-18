@@ -1,4 +1,4 @@
-﻿//
+//
 //  GridSampleBufExecution.cpp
 //  MNN
 //

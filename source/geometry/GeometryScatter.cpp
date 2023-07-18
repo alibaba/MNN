@@ -196,6 +196,12 @@ public:
         for (int i = D; i < updates->dimensions(); ++i) {
             S *= updates->length(i);
         }
+        if (N == 0 || S == 0) {
+            auto outputDes = TensorUtils::getDescribe(output);
+            outputDes->regions = {TensorUtils::makeFullSlice(data)};
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            return true;
+        }
         return buildScatterND(op, indices, updates, data, output, N, D, S, totalSize, reduction, context, res);
     }
 };

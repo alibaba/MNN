@@ -118,7 +118,11 @@ class TestModel():
     def __init__(self, modelName):
         self.__copy_to_here(modelName)
     def __run_mnn(self):
-        convert = ('MNNConvert.exe' if os.name == 'nt' else './MNNConvert') + ' -f ONNX --bizCode MNN --modelFile onnx/test.onnx --MNNModel convert_cache.mnn --keepInputFormat --testdir onnx'
+        mnnconvert_name = 'MNNConvert.exe' if os.name == 'nt' else './MNNConvert'
+        if not os.path.exists(mnnconvert_name):
+            print("./MNNConvert not exist in this path. Use pymnn instead of C++ to test")
+            mnnconvert_name = 'mnnconvert'
+        convert = mnnconvert_name + ' -f ONNX --bizCode MNN --modelFile onnx/test.onnx --MNNModel convert_cache.mnn --keepInputFormat --testdir onnx'
         result = os.popen(convert).read()
         print(result)
         return result

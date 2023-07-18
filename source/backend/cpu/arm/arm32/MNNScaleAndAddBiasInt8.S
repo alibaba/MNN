@@ -29,7 +29,7 @@ ldr r12, [sp, #52]
 ldr r8, [sp, #56]
 ldr r10, [sp, #60]
 
-vpush{q4-q7}
+vpush {q4-q7}
 vdup.s8 q7, r5
 vdup.s8 q8, r6
 

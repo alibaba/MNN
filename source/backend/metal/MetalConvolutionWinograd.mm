@@ -32,15 +32,11 @@ bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor* 
     int oh = output->height();
     int oc = output->channel();
     int ic = input->channel();
-    int kernelSize = common->kernelX();
-    const int u = 2;
-    float su = (float)(u + kernelSize - 1);
-    float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
-    float winogradCost =
-        ( (2 * su - 6) * su * su * ic + 2 * su * su * ic * oc + ((su + u) * u * (2 * su - 6) * oc)) * (UP_DIV(ow, u) * UP_DIV(oh, u));
-    float reduceRate = originCost / winogradCost;
 
-    return reduceRate > 1.0f;
+    if(oc >= 16 && ic >= 16) {
+        return true;
+    }
+    return (ow <= 16 && oh <= 16);
 }
 
 MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op)

@@ -23,9 +23,9 @@
   extern void ___MetalUnaryCreator__OpType_Sigmoid__();
   extern void ___MetalRasterCreator__OpType_Raster__();
   extern void ___MetalROIPoolingCreator__OpType_ROIPooling__();
+  extern void ___MetalFuseCreator__OpType_Extra__();
   extern void ___MetalPReLUCreator__OpType_PReLU__();
   extern void ___MetalReLU6Creator__OpType_ReLU6__();
-  extern void ___MetalFuseCreator__OpType_Extra__();
 void registerMetalOps() {
    ___MetalSoftmaxCreator__OpType_Softmax__();
    ___MetalCastCreator__OpType_Cast__();
@@ -48,9 +48,9 @@ void registerMetalOps() {
    ___MetalUnaryCreator__OpType_Sigmoid__();
    ___MetalRasterCreator__OpType_Raster__();
    ___MetalROIPoolingCreator__OpType_ROIPooling__();
+   ___MetalFuseCreator__OpType_Extra__();
    ___MetalPReLUCreator__OpType_PReLU__();
    ___MetalReLU6Creator__OpType_ReLU6__();
-   ___MetalFuseCreator__OpType_Extra__();
 }
 #endif
 }

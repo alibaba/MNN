@@ -290,6 +290,8 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
         mInside->modes.resizeMode = mode;
     } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
         mInside->modes.memoryUsageMode = mode;
+    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
+        mInside->modes.codegenMode = mode;
     }
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {

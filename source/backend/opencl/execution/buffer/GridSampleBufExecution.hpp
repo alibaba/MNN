@@ -1,4 +1,4 @@
-﻿//
+//
 //  GridSampleBufExecution.hpp
 //  MNN
 //
