@@ -898,3 +898,51 @@ public:
     }
 };
 MNNTestSuiteRegister(MemeoryUsageTest, "expr/MemeoryUsageTest");
+
+// This test shoule use gpu to test
+class ConstMemoryReplaceTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto x = _Input({1, 4, 1, 1}, NC4HW4);
+        auto y = _Const(0.3f, {1, 1, 4, 1}, NC4HW4);
+        auto z = x * y;
+        auto w0 = _Round(_ReduceSum(_Convert(y, NHWC)));
+        z = z + _Unsqueeze(w0, {0});
+        auto w1 = _Scalar<int>(1);
+        auto shape = _Stack({w1, _Cast<int>(w0), w1, w1}, -1);
+        auto ones = _Fill(shape, _Scalar<float>(0.3f));
+        auto res = z + ones;
+        x->writeMap<float>();
+        auto ptr = res->readMap<float>();
+        if (nullptr == ptr) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            std::shared_ptr<MNN::NetT> net(new NetT);
+            Variable::save({res}, net.get());
+            y = nullptr;
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        ScheduleConfig config;
+        config.numThread = 4;
+        config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+        auto s1 = net->createSession(config);
+        int resizeCode;
+        net->getSessionInfo(s1, Interpreter::RESIZE_STATUS, &resizeCode);
+        if (resizeCode != 0) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        net->runSession(s1);
+        net->resizeTensor(net->getSessionInput(s1, nullptr), {1, 1, 1, 1});
+        net->resizeSession(s1);
+        return resizeCode == 0;
+    }
+};
+MNNTestSuiteRegister(ConstMemoryReplaceTest, "expr/ConstMemoryReplaceTest");

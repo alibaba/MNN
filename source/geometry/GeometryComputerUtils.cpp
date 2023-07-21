@@ -112,11 +112,9 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
                 if (turnConst) {
                     for (auto t : info.outputs) {
                         TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
-                        TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                     }
                     for (auto t : info.inputs) {
                         TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
-                        TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                     }
                     info.type = Schedule::CONSTANT;
                     hasConst  = true;
@@ -126,6 +124,9 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
     }
     for (auto& info : infos) {
         if (info.type == Schedule::CONSTANT) {
+            for (auto t : info.inputs) {
+                TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
+            }
             for (auto t : info.outputs) {
                 TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
             }
