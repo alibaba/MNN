@@ -26,8 +26,8 @@ void main()
         int W = uConst.w;
         int H = uConst.h;
         int C = uConst.c;
-        float maxValue = -1000.0;
-        for(int i = 0; i < H; ++i)
+        float maxValue = uInput.data[pos.x * H * W + pos.y];
+        for(int i = 1; i < H; ++i)
         {
             int index = i * W + pos.x * H * W + pos.y;
             maxValue = max(maxValue, uInput.data[index]);

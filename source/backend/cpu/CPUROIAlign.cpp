@@ -44,6 +44,7 @@ ErrorCode CPUROIAlign::onResize(const std::vector<Tensor*>& inputs, const std::v
     auto& roi = inputs[1]->buffer();
 
     mROI.buffer().dimensions = roi.dimensions;
+    mROI.buffer().type = halide_type_of<int>();// Use int32 instead of float to ensure the backend alloc 4 byte unit
     memcpy(mROI.buffer().dim, roi.dim, sizeof(halide_dimension_t) * roi.dimensions);
     TensorUtils::getDescribe(&mROI)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     TensorUtils::setLinearLayout(&mROI);

@@ -225,6 +225,12 @@ public:
         if (axis < 0) {
             axis = D + axis;
         }
+        if (N == 0) {
+            auto outputDes = TensorUtils::getDescribe(output);
+            outputDes->regions = {TensorUtils::makeFullSlice(data)};
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            return true;
+        }
         // flatten indices/update
         std::shared_ptr<Tensor> flattenIndice(Tensor::createDevice<int>({N}));
         std::shared_ptr<Tensor> flattenUpdate(Tensor::createDevice({N}, updates->getType(), Tensor::TENSORFLOW));
