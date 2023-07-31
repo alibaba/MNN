@@ -35,7 +35,7 @@ namespace OpenCL {
 struct TuneInfo;
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info, int deviceId = 0);
+    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0);
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
@@ -77,6 +77,15 @@ private:
     cl::Kernel mNCHWBufferToNC4HW4BufferInp;
     cl::Kernel mNHWCBufferToNC4HW4BufferInp;
     cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
+
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    cl::Kernel mNCHWBufferToNC16HW16BufferInp;
+    cl::Kernel mNHWCBufferToNC16HW16BufferInp;
+    cl::Kernel mNC4HW4BufferToNC16HW16BufferInp;
+    cl::Kernel mNC16HW16BufferToNHWCBufferOut;
+    cl::Kernel mNC16HW16BufferToNCHWBufferOut;
+    cl::Kernel mNC16HW16BufferToNC4HW4BufferOut;
+#endif
 };
 
 

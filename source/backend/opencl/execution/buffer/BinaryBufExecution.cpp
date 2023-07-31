@@ -28,6 +28,160 @@ uint32_t BinaryBufExecution::realSize(const Tensor* tensor) {
     return num;
 }
 
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto openCLBackend = static_cast<OpenCLBackend *>(backend());
+    auto output        = outputs[0];
+    auto inputShape0   = tensorShapeFormat(inputs[0]);
+    auto inputShape1   = tensorShapeFormat(inputs[1]);
+    auto outputShape   = tensorShapeFormat(output);
+    auto runTime       = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    int shape[4]       = {outputShape[0], outputShape[1], outputShape[2], outputShape[3]};
+
+    int fullCount[2] = {1, 1};
+
+    int input0_c_pack = TensorUtils::getTensorChannelPack(inputs[0]);
+    int input1_c_pack = TensorUtils::getTensorChannelPack(inputs[1]);
+    int output_c_pack = TensorUtils::getTensorChannelPack(output);
+    
+    int activationType = 0;
+    if(mOp->type() == OpType_BinaryOp) {
+        activationType = mOp->main_as_BinaryOp()->activationType();
+    }
+    auto &unit = mUnits[0];
+
+    std::string kernelName = "binary_buf_c" + std::to_string(input0_c_pack) + "_c" + std::to_string(input1_c_pack) +
+                                 "_c" + std::to_string(output_c_pack);
+    unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelName, mBuildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
+
+    fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
+    fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
+
+    auto input0pad = TensorUtils::getDescribe(inputs[0])->mPads;
+    auto input1pad = TensorUtils::getDescribe(inputs[1])->mPads;
+    auto outputpad = TensorUtils::getDescribe(output)->mPads;
+    
+    uint32_t index = 0;
+    cl_int ret = CL_SUCCESS;
+    if (input0_c_pack == 16 && input1_c_pack == 16) {
+        mGlobalWorkSize = {(uint32_t)UP_DIV(outputShape[2], 4) * outputShape[1],
+                               (uint32_t)ROUND_UP(outputShape[3], 16), (uint32_t)outputShape[0]};
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+        unit.localWorkSize  = {1, 16, 1};
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[0]));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[1]));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0pad.left));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0pad.right));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1pad.left));
+        ret |= ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1pad.right));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpad.left));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution C16");
+    } else {
+        mGlobalWorkSize = {(uint32_t)outputShape[2] * outputShape[1], (uint32_t)UP_DIV(outputShape[3], 4),
+                                    (uint32_t)outputShape[0]};
+
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[0]));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[1]));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0pad.left));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0pad.right));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1pad.left));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1pad.right));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpad.left));
+        ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
+
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+        unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    }
+    
+    for (int i = 2; i < inputs.size(); ++i) {
+        fullCount[0] = 1;
+        fullCount[1] = realSize(inputs[i]) == 1 ? 0 : 1;
+        auto &unit = mUnits[i-1];
+
+        int input0_c_pack_tmp = TensorUtils::getTensorChannelPack(output);
+        int input1_c_pack_tmp = TensorUtils::getTensorChannelPack(inputs[i]);
+        int output_c_pack_tmp = TensorUtils::getTensorChannelPack(output);
+        std::string kernelNameTmp = "binary_buf_c" + std::to_string(input0_c_pack_tmp) + "_c" + std::to_string(input1_c_pack_tmp) +
+                                 "_c" + std::to_string(output_c_pack_tmp);
+        unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelNameTmp, mBuildOptions);
+        mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
+
+        auto input0padtmp = TensorUtils::getDescribe(output)->mPads;
+        auto input1padtmp = TensorUtils::getDescribe(inputs[i])->mPads;
+        auto outputpadtmp = TensorUtils::getDescribe(output)->mPads;
+    
+
+        uint32_t index = 0;
+        if (input0_c_pack_tmp == 16 && input1_c_pack_tmp == 16) {
+            mGlobalWorkSize     = {(uint32_t)UP_DIV(outputShape[2], 4) * outputShape[1],
+                                   (uint32_t)ROUND_UP(outputShape[3], 16), (uint32_t)outputShape[0]};
+            unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+            unit.localWorkSize  = {1, 16, 1};
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+            ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[i]));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+            ret |= unit.kernel.setArg(index++, shape);
+            ret |= unit.kernel.setArg(index++, fullCount);
+            ret |= unit.kernel.setArg(index++, activationType);
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0padtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0padtmp.right));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1padtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1padtmp.right));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpadtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpadtmp.right));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution C16 MultiInput");
+        } else {
+            mGlobalWorkSize = {(uint32_t)outputShape[2] * outputShape[1], (uint32_t)UP_DIV(outputShape[3], 4),
+                                    (uint32_t)outputShape[0]};
+
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+            ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+            ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[i]));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+            ret |= unit.kernel.setArg(index++, shape);
+            ret |= unit.kernel.setArg(index++, fullCount);
+            ret |= unit.kernel.setArg(index++, activationType);
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0padtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input0padtmp.right));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1padtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(input1padtmp.right));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpadtmp.left));
+            ret |= unit.kernel.setArg(index++, static_cast<uint32_t>(outputpadtmp.right));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution MultiInput");
+
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelNameTmp, unit.kernel).first;
+            
+            unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+            unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+        }
+    }
+    return NO_ERROR;
+}
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
 
 ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() >= 2);
@@ -39,6 +193,11 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     auto inputShape1 = tensorShapeFormat(inputs[1]);
     auto outputShape = tensorShapeFormat(output);
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    if (runTime->isSupportedIntelSubgroup()) {
+        return SubgroupOnResize(inputs, outputs);
+    }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
     int fullCount[2] = {1, 1};
     
@@ -56,14 +215,16 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
     
     uint32_t index = 0;
-    unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-    unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-    unit.kernel.setArg(index++, openCLBuffer(inputs[0]));
-    unit.kernel.setArg(index++, openCLBuffer(inputs[1]));
-    unit.kernel.setArg(index++, openCLBuffer(output));
-    unit.kernel.setArg(index++, shape);
-    unit.kernel.setArg(index++, fullCount);
-    unit.kernel.setArg(index++, activationType);
+    cl_int ret = CL_SUCCESS;
+    ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[0]));
+    ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[1]));
+    ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+    ret |= unit.kernel.setArg(index++, shape);
+    ret |= unit.kernel.setArg(index++, fullCount);
+    ret |= unit.kernel.setArg(index++, activationType);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
     std::string name = "binary_buf";
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
@@ -77,14 +238,15 @@ ErrorCode BinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions);
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, openCLBuffer(output));
-        unit.kernel.setArg(index++, openCLBuffer(inputs[i]));
-        unit.kernel.setArg(index++, openCLBuffer(output));
-        unit.kernel.setArg(index++, shape);
-        unit.kernel.setArg(index++, fullCount);
-        unit.kernel.setArg(index++, activationType);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(inputs[i]));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution MultiInput");
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -96,6 +258,12 @@ class BinaryBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            int channel = inputs[i]->channel();
+            if (channel >= 16) {
+                TensorUtils::setTensorChannelPack(inputs[i], 16);
+            }
+        }
         if (op->type() == OpType_Eltwise) {
             switch (op->main_as_Eltwise()->type()) {
                 case EltwiseType_SUM:

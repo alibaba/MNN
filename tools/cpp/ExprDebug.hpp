@@ -1,3 +1,4 @@
+#include <cmath>
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -73,13 +74,14 @@ static void _initDebug() {
         for (int i = 0; i < ntensors.size(); ++i) {
             auto ntensor    = ntensors[i];
             auto outDimType = ntensor->getDimensionType();
-            auto expectTensor = new MNN::Tensor(ntensor, outDimType);
-            ntensor->copyToHostTensor(expectTensor);
+            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
+            bool res = ntensor->copyToHostTensor(expectTensor.get());
+            if (res) {
+                ntensor = expectTensor.get();
+            }
             std::ostringstream outputFileName;
             outputFileName << "output/Input_" << opCopyName << "_" << i;
-            dumpTensor2File(expectTensor, outputFileName.str().c_str(), gOrderFile);
-
-            delete expectTensor;
+            dumpTensor2File(ntensor, outputFileName.str().c_str(), gOrderFile);
         }
         return true;
     };
@@ -91,11 +93,11 @@ static void _initDebug() {
         for (int i = 0; i < ntensors.size(); ++i) {
             auto ntensor    = ntensors[i];
             auto outDimType = ntensor->getDimensionType();
-            auto expectTensor = new MNN::Tensor(ntensor, outDimType);
-            ntensor->copyToHostTensor(expectTensor);
-
-            auto tensor = expectTensor;
-
+            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
+            bool res = ntensor->copyToHostTensor(expectTensor.get());
+            if (res) {
+                ntensor = expectTensor.get();
+            }
             std::ostringstream outputFileName;
             auto opCopyName = opName;
             for (int j = 0; j < opCopyName.size(); ++j) {
@@ -103,6 +105,7 @@ static void _initDebug() {
                     opCopyName[j] = '_';
                 }
             }
+            auto tensor = ntensor;
             if (tensor->dimensions() == 4) {
                 MNN_PRINT("Dimensions: 4, W,H,C,B: %d X %d X %d X %d, OP name %s : %d\n",
                         tensor->width(), tensor->height(), tensor->channel(), tensor->batch(), opName.c_str(), i);
@@ -116,9 +119,7 @@ static void _initDebug() {
             }
 
             outputFileName << "output/" << opCopyName << "_" << i;
-            dumpTensor2File(expectTensor, outputFileName.str().c_str(), gOrderFile);
-
-            delete expectTensor;
+            dumpTensor2File(tensor, outputFileName.str().c_str(), gOrderFile);
         }
         return true;
     };
@@ -162,6 +163,79 @@ static void _initTimeTrace() {
     };
     MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
         gTimeTraceInfo->end();
+        return true;
+    };
+    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+}
+static std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
+    auto size = tensor->elementSize();
+    auto ptr =  tensor->host<float>();
+    float maxValue = ptr[0];
+    float sumValue = ptr[0];
+    float minValue = ptr[0];
+    for (int i=1; i<size; ++i) {
+        maxValue = fmaxf(maxValue, ptr[i]);
+        minValue = fminf(minValue, ptr[i]);
+        sumValue += ptr[i];
+    }
+    auto avgValue = sumValue / (float)size;
+    return std::make_tuple(maxValue, minValue, avgValue);
+}
+static void _initTensorStatic() {
+    MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
+        auto opName = info->name();
+        if (info->type() == "Copy") {
+            return true;
+        }
+        for (int i = 0; i < ntensors.size(); ++i) {
+            auto ntensor    = ntensors[i];
+            if (ntensor->getType().code != halide_type_float || ntensor->elementSize() <= 0) {
+                continue;
+            }
+            auto outDimType = ntensor->getDimensionType();
+            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
+            bool res = ntensor->copyToHostTensor(expectTensor.get());
+            if (res) {
+                ntensor = expectTensor.get();
+            }
+            auto data = _countTensor(ntensor);
+            MNN_PRINT("[Input] %s_%d, Max: %f, Min: %f, Avg: %f, [", opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            for (int v=0; v<ntensor->dimensions(); ++v) {
+                MNN_PRINT("%d", ntensor->length(v));
+                if (v!=ntensor->dimensions()-1) {
+                    MNN_PRINT(",");
+                }
+            }
+            MNN_PRINT("]\n");
+        }
+        return true;
+    };
+    MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
+        auto opName = info->name();
+        if (info->type() == "Copy") {
+            return true;
+        }
+        for (int i = 0; i < ntensors.size(); ++i) {
+            auto ntensor    = ntensors[i];
+            if (ntensor->getType().code != halide_type_float || ntensor->elementSize() <= 0) {
+                continue;
+            }
+            auto outDimType = ntensor->getDimensionType();
+            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
+            bool res = ntensor->copyToHostTensor(expectTensor.get());
+            if (res) {
+                ntensor = expectTensor.get();
+            }
+            auto data = _countTensor(ntensor);
+            MNN_PRINT("[Output] %s_%d, Max: %f, Min: %f, Avg: %f, [", opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            for (int v=0; v<ntensor->dimensions(); ++v) {
+                MNN_PRINT("%d", ntensor->length(v));
+                if (v!=ntensor->dimensions()-1) {
+                    MNN_PRINT(",");
+                }
+            }
+            MNN_PRINT("]\n");
+        }
         return true;
     };
     MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));

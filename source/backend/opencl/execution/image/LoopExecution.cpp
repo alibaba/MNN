@@ -21,14 +21,16 @@ static void _TileTensor(Tensor *input, cl::Buffer *output, cl::Kernel& kernel, c
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
 
     uint32_t index = 0;
-    kernel.setArg(index++, mGlobalWorkSize[0]);
-    kernel.setArg(index++, mGlobalWorkSize[1]);
-    kernel.setArg(index++, mGlobalWorkSize[2]);
-    kernel.setArg(index++, openCLImage(input));
-    kernel.setArg(index++, *output);
-    kernel.setArg(index++, Width);
-    kernel.setArg(index++, Height);
-    kernel.setArg(index++, Channel);
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[2]);
+    ret |= kernel.setArg(index++, openCLImage(input));
+    ret |= kernel.setArg(index++, *output);
+    ret |= kernel.setArg(index++, Width);
+    ret |= kernel.setArg(index++, Height);
+    ret |= kernel.setArg(index++, Channel);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg Loop _PackTensor");
 
     std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "tile", kernel).first;
 
@@ -46,14 +48,16 @@ static void _PackTensor(cl::Buffer *input, Tensor *output, cl::Kernel& kernel, c
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
 
     uint32_t index = 0;
-    kernel.setArg(index++, mGlobalWorkSize[0]);
-    kernel.setArg(index++, mGlobalWorkSize[1]);
-    kernel.setArg(index++, mGlobalWorkSize[2]);
-    kernel.setArg(index++, *input);
-    kernel.setArg(index++, openCLImage(output));
-    kernel.setArg(index++, Width);
-    kernel.setArg(index++, Height);
-    kernel.setArg(index++, Channel);
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[2]);
+    ret |= kernel.setArg(index++, *input);
+    ret |= kernel.setArg(index++, openCLImage(output));
+    ret |= kernel.setArg(index++, Width);
+    ret |= kernel.setArg(index++, Height);
+    ret |= kernel.setArg(index++, Channel);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg Loop _PackTensor");
 
     std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "pack", kernel).first;
 
@@ -151,23 +155,25 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(x * y), (uint32_t)(z), (uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, *mTmpBuffers[0]);
-        unit.kernel.setArg(index++, *mTmpBuffers[1]);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, *mTmpBuffers[0]);
+        ret |= unit.kernel.setArg(index++, *mTmpBuffers[1]);
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, *mOffsetBuffers[offset_index++]);
+                ret |= unit.kernel.setArg(index++, *mOffsetBuffers[offset_index++]);
             } else {
-                unit.kernel.setArg(index++, *mTmpBuffers[0]);
+                ret |= unit.kernel.setArg(index++, *mTmpBuffers[0]);
             }
         }
-        unit.kernel.setArg(index++, x);
-        unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
-        unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, x);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 
@@ -290,28 +296,30 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(h), (uint32_t)(e),(uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, *mTmpBuffers[0]);
-        unit.kernel.setArg(index++, *mTmpBuffers[1]);
-        unit.kernel.setArg(index++, *mTmpBuffers[2]);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, *mTmpBuffers[0]);
+        ret |= unit.kernel.setArg(index++, *mTmpBuffers[1]);
+        ret |= unit.kernel.setArg(index++, *mTmpBuffers[2]);
         if (mHasBias) {
-            unit.kernel.setArg(index++, *mTmpBuffers[3]);
+            ret |= unit.kernel.setArg(index++, *mTmpBuffers[3]);
         }
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, *mOffsetBuffers[offset_index++]);
+                ret |= unit.kernel.setArg(index++, *mOffsetBuffers[offset_index++]);
             } else {
-                unit.kernel.setArg(index++, *mTmpBuffers[0]);
+                ret |= unit.kernel.setArg(index++, *mTmpBuffers[0]);
             }
         }
-        unit.kernel.setArg(index++, e);
-        unit.kernel.setArg(index++, l);
-        unit.kernel.setArg(index++, h);
-        unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);       
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);        
+        ret |= unit.kernel.setArg(index++, e);
+        ret |= unit.kernel.setArg(index++, l);
+        ret |= unit.kernel.setArg(index++, h);
+        ret |= unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBatchMatMulExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 

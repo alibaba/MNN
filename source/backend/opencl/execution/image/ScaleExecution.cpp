@@ -135,17 +135,19 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
                                         static_cast<uint32_t>(height * batch)};
     
     uint32_t idx                     = 0;
-    mKernel.setArg(idx++, gws[0]);
-    mKernel.setArg(idx++, gws[1]);
-    mKernel.setArg(idx++, gws[2]);
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, gws[0]);
+    ret |= mKernel.setArg(idx++, gws[1]);
+    ret |= mKernel.setArg(idx++, gws[2]);
 
-    mKernel.setArg(idx++, openCLImage(inputs[0]));
-    mKernel.setArg(idx++, openCLImage(mScale.get()));
+    ret |= mKernel.setArg(idx++, openCLImage(inputs[0]));
+    ret |= mKernel.setArg(idx++, openCLImage(mScale.get()));
     if (mHasBias) {
-        mKernel.setArg(idx++, openCLImage(mBias.get()));
+        ret |= mKernel.setArg(idx++, openCLImage(mBias.get()));
     }
-    mKernel.setArg(idx++, openCLImage(outputs[0]));
-    
+    ret |= mKernel.setArg(idx++, openCLImage(outputs[0]));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleExecution");
+
     std::string name = "scale";
     mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
     for (size_t i = 0; i < gws.size(); ++i) {

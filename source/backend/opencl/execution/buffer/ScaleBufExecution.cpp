@@ -132,15 +132,17 @@ ErrorCode ScaleBufExecution::onResize(const std::vector<Tensor *> &inputs, const
     
     int shape[4] = {batch, height, width, channelBlocks};
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, openCLBuffer(inputs[0]));
-    mKernel.setArg(idx++, openCLBuffer(mScale.get()));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, openCLBuffer(inputs[0]));
+    ret |= mKernel.setArg(idx++, openCLBuffer(mScale.get()));
     if (mHasBias) {
-        mKernel.setArg(idx++, openCLBuffer(mBias.get()));
+        ret |= mKernel.setArg(idx++, openCLBuffer(mBias.get()));
     }
-    mKernel.setArg(idx++, openCLBuffer(outputs[0]));
-    mKernel.setArg(idx++, shape);
+    ret |= mKernel.setArg(idx++, openCLBuffer(outputs[0]));
+    ret |= mKernel.setArg(idx++, shape);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleBufExecution");
 
     std::string name = "scale_buf";
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
@@ -171,7 +173,22 @@ ErrorCode ScaleBufExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<ScaleBufExecution>> __scaleBuf_op(OpType_Scale, BUFFER);
+class ScaleBufCreator : public OpenCLBackend::Creator {
+public:
+    virtual ~ScaleBufCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
+        return new ScaleBufExecution(inputs, op, backend);
+    }
+};
+
+OpenCLCreatorRegister<ScaleBufCreator> __scaleBuf_op(OpType_Scale, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

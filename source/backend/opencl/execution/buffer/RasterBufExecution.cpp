@@ -339,6 +339,12 @@ public:
     virtual ~RasterCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
                                 Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         return new RasterBufExecution(inputs, op, backend);
     }
 };

@@ -150,9 +150,10 @@ model_script.save('model_script.pt')
 - 测试 pb / tflite ：安装`tensorflow`(`pip install tensorflow`）
 - 测试 onnx : 安装`onnxruntime`(`pip install onnxruntime`）
 - 测试 torchscript：安装`torch`(`pip install torch`)
-- MNN模型转换工具编译完成（编译完成产生`TestConvertResult`可执行文件）
+- 【可选】MNN模型转换工具编译完成（编译完成产生`MNNConvert`可执行文件）
 ### 使用
-- 使用：在MNN的`build`目录下（包含`TestConvertResult`）运行`python3 testMNNFromTf.py SRC.pb`（Onnx为`python3 testMNNFromOnnx.py SRC.onnx`，Tflite 类似），若最终结果为`TEST_SUCCESS`则表示 MNN 的模型转换与运行结果正确
+- 使用：在MNN的`build`目录下（包含`MNNConvert`）运行`python3 testMNNFromTf.py SRC.pb`（Onnx为`python3 testMNNFromOnnx.py SRC.onnx`，Tflite 类似），若最终结果为`TEST_SUCCESS`则表示 MNN 的模型转换与运行结果正确
+- 若路径下面没有编译好的 MNNConvert 可执行文件，脚本会使用 pymnn 去进行校验
 - 由于 MNN 图优化会去除 Identity ，有可能出现 find var error ，这个时候可以打开原始模型文件，找到 identity 之前的一层（假设为 LAYER_NAME ）校验，示例：`python3 ../tools/script/testMNNFromTF.py SRC.pb LAYER_NAME`；
 - 完整实例如下（以onnx为例）：
   - 成功执行，当结果中显示`TEST_SUCCESS`时，就表示模型转换与推理没有错误

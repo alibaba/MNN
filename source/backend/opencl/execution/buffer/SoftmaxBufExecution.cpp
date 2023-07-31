@@ -60,26 +60,30 @@ ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, con
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
 
         uint32_t idx    = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, mGlobalWorkSize[2]);
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
 
-        mKernel.setArg(idx++, openCLBuffer(input));
-        mKernel.setArg(idx++, openCLBuffer(output));
-        mKernel.setArg(idx++, static_cast<int>(outputChannels));
-        mKernel.setArg(idx++, remainChannels);
-        mKernel.setArg(idx++, shape);
-        
+        ret |= mKernel.setArg(idx++, openCLBuffer(input));
+        ret |= mKernel.setArg(idx++, openCLBuffer(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannels));
+        ret |= mKernel.setArg(idx++, remainChannels);
+        ret |= mKernel.setArg(idx++, shape);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution axis_1");
+
         std::string kernelName = "softmax_buf_channel";
         mLocalWorkSize =
         localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
     } else if (mAxis == 2){
         mGlobalWorkSize = {(uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
-        mKernel.setArg(0, openCLBuffer(input));
-        mKernel.setArg(1, openCLBuffer(output));
-        mKernel.setArg(2, shape);
-        
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernel.setArg(0, openCLBuffer(input));
+        ret |= mKernel.setArg(1, openCLBuffer(output));
+        ret |= mKernel.setArg(2, shape);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution axis_2");
+
         std::string kernelName = "softmax_buf_height";
         mLocalWorkSize =
         localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
@@ -87,10 +91,12 @@ ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, con
         MNN_ASSERT(mAxis == 3);
         mGlobalWorkSize = {(uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
-        mKernel.setArg(0, openCLBuffer(input));
-        mKernel.setArg(1, openCLBuffer(output));
-        mKernel.setArg(2, shape);
-        
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernel.setArg(0, openCLBuffer(input));
+        ret |= mKernel.setArg(1, openCLBuffer(output));
+        ret |= mKernel.setArg(2, shape);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution axis_3");
+
         std::string kernelName = "softmax_buf_width";
         mLocalWorkSize =
         localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
@@ -129,6 +135,12 @@ public:
         if(inputs[0]->dimensions() == 3 || outputs[0]->dimensions() == 3){
             MNN_PRINT("softmax not support dimensions == 3 \n");
             return nullptr;
+        }
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         auto dimType = inputs[0]->getDimensionType();
         if (dimType == Tensor::TENSORFLOW && inputs[0]->dimensions() == 4) {

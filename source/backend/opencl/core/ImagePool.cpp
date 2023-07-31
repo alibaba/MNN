@@ -30,12 +30,13 @@ cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool separate) {
         }
     }
     std::shared_ptr<Node> node(new Node);
+    cl_int ret = CL_SUCCESS;
     node->w = w;
     node->h = h;
     node->image.reset(
-        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, type), w, h, 0, nullptr, nullptr));
-    if (nullptr == node->image) {
-        MNN_ERROR("All Image %d x %d error \n", w, h);
+        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, type), w, h, 0, nullptr, &ret));
+    if (nullptr == node->image.get() || ret != CL_SUCCESS) {
+        MNN_ERROR("Alloc Image %d x %d error, code:%d \n", w, h, ret);
         return nullptr;
     }
     mAllImage.insert(std::make_pair(node->image.get(), node));

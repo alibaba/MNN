@@ -31,6 +31,7 @@
 #include <MNN/Interpreter.hpp>
 #include <MNN/MNNDefine.h>
 #include <MNN/Tensor.hpp>
+#include <MNN/AutoTime.hpp>
 #include "revertMNNModel.hpp"
 
 /**
@@ -119,7 +120,6 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
                            int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
     if (testQuantModel) {
-        printf("Auto set sparsity=0 when test quantized model in benchmark...\n");
         revertor->initialize(0, sparseBlockOC, false, true);
     } else {
         revertor->initialize(sparsity, sparseBlockOC);
@@ -168,19 +168,19 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     }
 
     for (int round = 0; round < loop; round++) {
-        auto timeBegin = getTimeInUs();
+        MNN::Timer _t;
         void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType());
         input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType(), host);
         net->runSession(session);
         host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType());
         outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType(), host);
-        auto timeEnd = getTimeInUs();
-        costs.push_back((timeEnd - timeBegin) / 1000.0);
+        auto time = (float)_t.durationInUs() / 1000.0f;
+        costs.push_back(time);
     }
     return costs;
 }
 
-void displayStats(const std::string& name, const std::vector<float>& costs) {
+void displayStats(const std::string& name, const std::vector<float>& costs, int quant = 0) {
     float max = 0, min = FLT_MAX, sum = 0, avg;
     for (auto v : costs) {
         max = fmax(max, v);
@@ -189,7 +189,11 @@ void displayStats(const std::string& name, const std::vector<float>& costs) {
         //printf("[ - ] cost：%f ms\n", v);
     }
     avg = costs.size() > 0 ? sum / costs.size() : 0;
-    printf("[ - ] %-24s    max = %8.3f ms  min = %8.3f ms  avg = %8.3f ms\n", name.c_str(), max, avg == 0 ? 0 : min, avg);
+    std::string model = name;
+    if (quant == 1) {
+        model = "quant-" + name;
+    }
+    printf("[ - ] %-24s    max = %8.3f ms  min = %8.3f ms  avg = %8.3f ms\n", model.c_str(), max, avg == 0 ? 0 : min, avg);
 }
 static inline std::string forwardType(MNNForwardType type) {
     switch (type) {
@@ -417,22 +421,31 @@ int main(int argc, const char* argv[]) {
         testQuantizedModel = atoi(argv[9]);
     }
 
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << "** testQuantizedModel=" << testQuantizedModel << std::endl;
+    std::cout << "Forward type: " << forwardType(forward) << " thread=" << numberThread << " precision=" <<precision << " sparsity=" <<sparsity << " sparseBlockOC=" << sparseBlockOC << " testQuantizedModel=" << testQuantizedModel << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
+    std::string fpInfType = "precision!=2, use fp32 inference.";
+    if (precision == 2) {
+        fpInfType = "precision=2, use fp16 inference if your device supports and open MNN_ARM82=ON.";
+    }
+    MNN_PRINT("[-INFO-]: %s\n", fpInfType.c_str());
+    if (testQuantizedModel) {
+        MNN_PRINT("[-INFO-]: Auto set sparsity=0 when test quantized model in benchmark...\n");
+    }
 
     /* not called yet */
     // set_cpu_affinity();
+    if (testQuantizedModel) {
+        printf("Auto set sparsity=0 when test quantized model in benchmark...\n");
+    }
 
     for (auto& m : models) {
-        printf("Float model test...\n");
         std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, false);
-        displayStats(m.name, costs);
+        displayStats(m.name.c_str(), costs, false);
         if (testQuantizedModel) {
-            printf("Quantized model test...\n");
             costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, true);
-            displayStats(m.name, costs);
+            displayStats(m.name, costs, 1);
         }
     }
 }

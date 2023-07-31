@@ -120,16 +120,19 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 
     mLocalWorkSize = poolLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
     uint32_t idx   = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
-    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-    mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
-    mKernel.setArg(idx++, sizeof(strideShape), strideShape);
-    mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-    mKernel.setArg(idx++, openCLImage(output));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    ret |= mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+    ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
+    ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg PoolExecution");
+
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
 #ifdef LOG_VERBOSE

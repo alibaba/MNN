@@ -16,18 +16,20 @@ namespace MNN {
 namespace OpenCL {
 
 UnaryBufExecution::UnaryBufExecution(const std::string& compute, Backend* backend) : Execution(backend) {
-    auto openCLBackend = static_cast<OpenCLBackend*>(backend);
-    std::set<std::string> buildOptions;
-    buildOptions.emplace(" -DOPERATOR=" + compute);
-    // FUNC_PRINT_ALL(buildOptions.begin()->c_str(), s);
-    auto runtime      = openCLBackend->getOpenCLRuntime();
-    mKernel           = runtime->buildKernel("unary_buf", "unary_buf", buildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    mBuildOptions.emplace(" -DOPERATOR=" + compute);
 }
 ErrorCode UnaryBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime       = openCLBackend->getOpenCLRuntime();
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    if (runtime->isSupportedIntelSubgroup()) {
+        return SubgrouponResize(inputs, outputs);
+    }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+    mKernel = runtime->buildKernel("unary_buf", "unary_buf", mBuildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -46,18 +48,82 @@ ErrorCode UnaryBufExecution::onResize(const std::vector<Tensor*>& inputs, const 
     };
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLBuffer(input));
-    mKernel.setArg(idx++, openCLBuffer(output));
-    mKernel.setArg(idx++, outputHeight);
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLBuffer(input));
+    ret |= mKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mKernel.setArg(idx++, outputHeight);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryBufExecution");
 
     std::string kernelName = "unary_buf";
-    mLocalSize =
-    localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
     return NO_ERROR;
 }
+
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    Tensor* input      = inputs[0];
+    Tensor* output     = outputs[0];
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime       = openCLBackend->getOpenCLRuntime();
+
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    std::vector<int> outputShape = tensorShapeFormat(output);
+
+    int batch        = outputShape.at(0);
+    int outputHeight = outputShape.at(1);
+    int outputWidth  = outputShape.at(2);
+    int channels     = outputShape.at(3);
+    auto inputpad    = TensorUtils::getDescribe(input)->mPads;
+    auto outputpad   = TensorUtils::getDescribe(output)->mPads;
+    int input_c_pack = TensorUtils::getTensorChannelPack(input);
+    int output_c_pack = TensorUtils::getTensorChannelPack(output);
+
+    std::string KernelName = "unary_buf_c" + std::to_string(input_c_pack) + "_c" + std::to_string(output_c_pack);
+    mKernel           = runtime->buildKernel("unary_subgroup_buf", KernelName, mBuildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+
+    int channelBlocks = (channels + 3) / 4;
+
+    mGlobalWorkSize = {
+        static_cast<uint32_t>(channelBlocks),
+        static_cast<uint32_t>(outputWidth),
+        static_cast<uint32_t>(batch * outputHeight),
+    };
+
+    if (runtime->isSupportedIntelSubgroup() && input_c_pack == 16) {
+        channelBlocks = UP_DIV(channels, 16);
+        mGlobalWorkSize[0] = ROUND_UP(channels, 16);
+        mGlobalWorkSize[1] = UP_DIV(outputWidth, 4);
+    }
+
+    uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLBuffer(input));
+    ret |= mKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mKernel.setArg(idx++, outputWidth);
+    ret |= mKernel.setArg(idx++, outputHeight);
+    ret |= mKernel.setArg(idx++, channelBlocks);
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inputpad.left));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outputpad.left));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outputpad.right));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryBufExecution SubGroup");
+
+    std::string kernelName = "unary_buf";
+    if (runtime->isSupportedIntelSubgroup() && input_c_pack == 16) {
+        mLocalSize = {16, 1, 1};
+    } else {
+        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    }
+    return NO_ERROR;
+}
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
 
 ErrorCode UnaryBufExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
 #ifdef LOG_VERBOSE
@@ -87,6 +153,12 @@ class UnaryBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            int channel = inputs[i]->channel();
+            if (channel >= 16) {
+                TensorUtils::setTensorChannelPack(inputs[i], 16);
+            }
+        }
         if (op->type() == OpType_UnaryOp) {
             switch (op->main_as_UnaryOp()->opType()) {
                 case UnaryOpOperation_ABS:

@@ -37,7 +37,7 @@ __kernel void layernorm_w(__private int global_dim0, __private int global_dim1, 
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        FLOAT4 mean = sum[0] / width;
+        FLOAT4 mean = sum[0] / (FLOAT4)width;
         in_sum = 0;
         for(int i = lid; i < width; i+=LOCAL_SIZE){
             FLOAT4 in = RI_F(input, SAMPLER, (int2)(c * width + i, bh_offset));
@@ -50,16 +50,16 @@ __kernel void layernorm_w(__private int global_dim0, __private int global_dim1, 
                 sum[lid] = sum[lid] + sum[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        FLOAT4 square_sum = sum[0] / width;
-        FLOAT4 value = (FLOAT4)1.0f / sqrt(square_sum + epsilon);
+        FLOAT4 square_sum = sum[0] / (FLOAT4)width;
+        FLOAT4 value = (FLOAT4)1.0f / (FLOAT4)sqrt(square_sum + (FLOAT4)epsilon);
         for(int i = lid; i < width; i+=LOCAL_SIZE){
             FLOAT4 in = RI_F(input, SAMPLER, (int2)(c * width + i, bh_offset));
 #ifdef GAMMA_BETA
-            value = (in - mean) * value * gamma[i] + beta[i];
+            FLOAT4 out = (in - mean) * value * (FLOAT4)gamma[i] + (FLOAT4)beta[i];
 #else
-            value = (in - mean) * value;
+            FLOAT4 out = (in - mean) * value;
 #endif
-            WI_F(output, (int2)(c * width + i, bh_offset), value);
+            WI_F(output, (int2)(c * width + i, bh_offset), out);
         }
     }
 }
@@ -99,7 +99,7 @@ __kernel void layernorm_hw(__private int global_dim0, __private int global_dim1,
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        FLOAT4 mean = sum[0] / height_width;
+        FLOAT4 mean = sum[0] / (FLOAT4)height_width;
         in_sum = 0;
         for(int i = lid; i < height_width; i+=LOCAL_SIZE){
             int w = i % width;
@@ -114,18 +114,18 @@ __kernel void layernorm_hw(__private int global_dim0, __private int global_dim1,
                 sum[lid] = sum[lid] + sum[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        FLOAT4 square_sum = sum[0] / height_width;
-        FLOAT4 value = (FLOAT4)1.0f / sqrt(square_sum + epsilon);
+        FLOAT4 square_sum = sum[0] / (FLOAT4)height_width;
+        FLOAT4 value = (FLOAT4)1.0f / (FLOAT4)sqrt(square_sum + (FLOAT4)epsilon);
         for(int i = lid; i < height_width; i+=LOCAL_SIZE){
             int w = i % width;
             int h = i / width;
             FLOAT4 in = RI_F(input, SAMPLER, (int2)(c * width + w, b * height + h));
 #ifdef GAMMA_BETA
-            value = (in - mean) * value * gamma[i] + beta[i];
+            FLOAT4 out = (in - mean) * value * (FLOAT4)gamma[i] + (FLOAT4)beta[i];
 #else
-            value = (in - mean) * value;
+            FLOAT4 out = (in - mean) * value;
 #endif
-            WI_F(output, (int2)(c * width + w, b * height + h), value);
+            WI_F(output, (int2)(c * width + w, b * height + h), out);
         }
     }
 }
@@ -180,7 +180,7 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        FLOAT4 mean = sum[0] / sum_size;
+        FLOAT4 mean = sum[0] / (FLOAT4)sum_size;
         in_sum = 0;
         in_sum_left = 0;
         for(int c = 0; c < channel4 - 1; ++c){
@@ -211,19 +211,19 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
                 sum[lid] = sum[lid] + sum[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        FLOAT4 square_sum = sum[0] / sum_size;
-        FLOAT4 value = (FLOAT4)1.0f / sqrt(square_sum + epsilon);
+        FLOAT4 square_sum = sum[0] / (FLOAT4)sum_size;
+        FLOAT4 value = (FLOAT4)1.0f / (FLOAT4)sqrt(square_sum + (FLOAT4)epsilon);
         for(int c = 0; c < channel4; ++c){
             for(int i = lid; i < reduce_size; i+=LOCAL_SIZE){
                 int w = i % width;
                 int h = i / width;
                 FLOAT4 in = RI_F(input, SAMPLER, (int2)(c * width + w, b * height + h));
 #ifdef GAMMA_BETA
-                value = (in - mean) * value * gamma[c * reduce_size + i] + beta[c * reduce_size + i];
+                FLOAT4 out = (in - mean) * value * (FLOAT4)gamma[c * reduce_size + i] + (FLOAT4)beta[c * reduce_size + i];
 #else
-                value = (in - mean) * value;
+                FLOAT4 out = (in - mean) * value;
 #endif
-                WI_F(output, (int2)(c * width + w, b * height + h), value);
+                WI_F(output, (int2)(c * width + w, b * height + h), out);
             }
         }
     }

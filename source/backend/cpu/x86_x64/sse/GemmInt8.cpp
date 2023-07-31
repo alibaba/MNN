@@ -320,23 +320,26 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
 }
 
 // require SSE 4.1
-void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step) {
+void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder) {
+    int pack = 16;
     auto dst = dstO;
     auto src = (const int16_t*)srcO;
-    int widthC4 = width / 4;
-    int widthRemain = width % 4;
     auto weight = (const int16_t*)weightO;
-    auto biasValue = _mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias));
-    //auto biasValue = *(__m128i*)parameters->bias;
-    auto scaleValue = _mm_loadu_ps((const float*)parameters->scale);
+    auto biasValue0 = _mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias));
+    auto biasValue1 = _mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias + 4));
+    auto biasValue2 = _mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias + 8));
+    auto biasValue3 = _mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias + 12));
+
+    auto scaleValue0 = _mm_loadu_ps((const float*)parameters->scale);
+    auto scaleValue1 = _mm_loadu_ps((const float*)parameters->scale + 4);
+    auto scaleValue2 = _mm_loadu_ps((const float*)parameters->scale + 8);
+    auto scaleValue3 = _mm_loadu_ps((const float*)parameters->scale + 12);
     __m128i d0, d1, d2, d3;
     int dx, fx, fy;
     __m128i srcValue0;
     auto srcTemp0 = (int64_t*)(&srcValue0);
     __m128i srcValue1;
     auto srcTemp1 = (int64_t*)(&srcValue1);
-    __m128i weightValue;
-    auto weightTemp = (int64_t*)(&weightValue);
     __m128i zero = _mm_xor_si128(srcValue1, srcValue1);
     __m128 zero128 = _mm_set1_ps(0.0f);
     auto minValue = _mm_set1_epi16(parameters->minValue + 128);
@@ -344,321 +347,83 @@ void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO,
     __m128 plus = _mm_set1_ps(0.5f);
     __m128 minus = _mm_set1_ps(-0.5f);
     auto offset = _mm_set1_epi32(128);
-    if (4 == src_w_step) {
-        // Stride = 1
-        for (dx = 0; dx < widthC4; ++dx) {
-            d0 = biasValue;
-            d1 = biasValue;
-            d2 = biasValue;
-            d3 = biasValue;
+    // Stride = 1
+    for (dx = 0; dx < width; ++dx) {
+        d0 = biasValue0;
+        d1 = biasValue1;
+        d2 = biasValue2;
+        d3 = biasValue3;
 
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    auto s0_16 = _mm_castps_si128(_mm_loadu_ps((float*)src_x));
-                    auto s1_16 = _mm_castps_si128(_mm_loadu_ps((float*)src_x + 4));
-                    auto s0_32 = _mm_unpacklo_epi16(s0_16, zero);
-                    auto s1_32 = _mm_unpackhi_epi16(s0_16, zero);
-                    auto s2_32 = _mm_unpacklo_epi16(s1_16, zero);
-                    auto s3_32 = _mm_unpackhi_epi16(s1_16, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightValue = _mm_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm_add_epi32(d0, _mm_madd_epi16(weightValue, s0_32));
-                    d1 = _mm_add_epi32(d1, _mm_madd_epi16(weightValue, s1_32));
-                    d2 = _mm_add_epi32(d2, _mm_madd_epi16(weightValue, s2_32));
-                    d3 = _mm_add_epi32(d3, _mm_madd_epi16(weightValue, s3_32));
-                }
+        auto dst_x          = dst;
+        const auto src_z    = src;
+        for (fy = 0; fy < fh; ++fy) {
+            const auto src_y    = src_z + fy * dilateY_step;
+            const auto weight_y = weight + fy * fw * pack;
+            for (fx = 0; fx < fw; ++fx) {
+                const auto src_x    = src_y + fx * dilateX_step;
+                auto s0_16 = _mm_castps_si128(_mm_loadu_ps((float*)src_x));
+                auto s1_16 = _mm_castps_si128(_mm_loadu_ps((float*)src_x + 4));
+                auto s0_32 = _mm_unpacklo_epi16(s0_16, zero);
+                auto s1_32 = _mm_unpackhi_epi16(s0_16, zero);
+                auto s2_32 = _mm_unpacklo_epi16(s1_16, zero);
+                auto s3_32 = _mm_unpackhi_epi16(s1_16, zero);
+                
+                const auto weight_x = weight_y + pack * fx;
+                auto w0_16 = _mm_castps_si128(_mm_loadu_ps((float*)weight_x));
+                auto w1_16 = _mm_castps_si128(_mm_loadu_ps((float*)weight_x + 4));
+                auto w0_32 = _mm_unpacklo_epi16(w0_16, zero);
+                auto w1_32 = _mm_unpackhi_epi16(w0_16, zero);
+                auto w2_32 = _mm_unpacklo_epi16(w1_16, zero);
+                auto w3_32 = _mm_unpackhi_epi16(w1_16, zero);
+                
+                d0 = _mm_add_epi32(d0, _mm_madd_epi16(w0_32, s0_32));
+                d1 = _mm_add_epi32(d1, _mm_madd_epi16(w1_32, s1_32));
+                d2 = _mm_add_epi32(d2, _mm_madd_epi16(w2_32, s2_32));
+                d3 = _mm_add_epi32(d3, _mm_madd_epi16(w3_32, s3_32));
             }
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            __m128 f3 = _mm_cvtepi32_ps(d3);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            f1 = _mm_mul_ps(f1, scaleValue);
-            f2 = _mm_mul_ps(f2, scaleValue);
-            f3 = _mm_mul_ps(f3, scaleValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            auto m1 = _mm_cmplt_ps(f1, zero128);
-            auto m2 = _mm_cmplt_ps(f2, zero128);
-            auto m3 = _mm_cmplt_ps(f3, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            m1 = _mm_blendv_ps(plus, minus, m1);
-            m2 = _mm_blendv_ps(plus, minus, m2);
-            m3 = _mm_blendv_ps(plus, minus, m3);
-            f0 = _mm_add_ps(f0, m0);
-            f1 = _mm_add_ps(f1, m1);
-            f2 = _mm_add_ps(f2, m2);
-            f3 = _mm_add_ps(f3, m3);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-            d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
-            d3 = _mm_cvtps_epi32(_mm_round_ps(f3, 3));
-            d0 = _mm_add_epi32(d0, offset);
-            d1 = _mm_add_epi32(d1, offset);
-            d2 = _mm_add_epi32(d2, offset);
-            d3 = _mm_add_epi32(d3, offset);
-
-            // Int32 -> Int8
-            d0 = _mm_packs_epi32(d0, d1);
-            d2 = _mm_packs_epi32(d2, d3);
-            d0 = _mm_min_epi16(d0, maxValue);
-            d2 = _mm_min_epi16(d2, maxValue);
-            d0 = _mm_max_epi16(d0, minValue);
-            d2 = _mm_max_epi16(d2, minValue);
-            d0 = _mm_packus_epi16(d0, d2);
-
-            _mm_storeu_ps((float*)(dst), _mm_castsi128_ps(d0));
-            dst += 16;
-            src += src_w_step * 4;
         }
-    } else {
-        for (dx = 0; dx < widthC4; ++dx) {
-            d0 = biasValue;
-            d1 = biasValue;
-            d2 = biasValue;
-            d3 = biasValue;
+        __m128 f0 = _mm_cvtepi32_ps(d0);
+        __m128 f1 = _mm_cvtepi32_ps(d1);
+        __m128 f2 = _mm_cvtepi32_ps(d2);
+        __m128 f3 = _mm_cvtepi32_ps(d3);
+        f0 = _mm_mul_ps(f0, scaleValue0);
+        f1 = _mm_mul_ps(f1, scaleValue1);
+        f2 = _mm_mul_ps(f2, scaleValue2);
+        f3 = _mm_mul_ps(f3, scaleValue3);
+        auto m0 = _mm_cmplt_ps(f0, zero128);
+        m0 = _mm_blendv_ps(plus, minus, m0);
+        f0 = _mm_add_ps(f0, m0);
+        auto m1 = _mm_cmplt_ps(f1, zero128);
+        m1 = _mm_blendv_ps(plus, minus, m1);
+        f1 = _mm_add_ps(f1, m1);
+        auto m2 = _mm_cmplt_ps(f2, zero128);
+        m2 = _mm_blendv_ps(plus, minus, m2);
+        f2 = _mm_add_ps(f2, m2);
+        auto m3 = _mm_cmplt_ps(f3, zero128);
+        m3 = _mm_blendv_ps(plus, minus, m3);
+        f3 = _mm_add_ps(f3, m3);
+        // 3: _MM_FROUND_TO_ZERO
+        d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
+        d0 = _mm_add_epi32(d0, offset);
+        d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
+        d1 = _mm_add_epi32(d1, offset);
+        d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
+        d2 = _mm_add_epi32(d2, offset);
+        d3 = _mm_cvtps_epi32(_mm_round_ps(f3, 3));
+        d3 = _mm_add_epi32(d3, offset);
 
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + src_w_step * 1);
-                    srcTemp1[0] = *(int64_t*)(src_x + src_w_step * 2);
-                    srcTemp1[1] = *(int64_t*)(src_x + src_w_step * 3);
-                    auto s0_32 = _mm_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm_unpackhi_epi16(srcValue0, zero);
-                    auto s2_32 = _mm_unpacklo_epi16(srcValue1, zero);
-                    auto s3_32 = _mm_unpackhi_epi16(srcValue1, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightValue = _mm_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm_add_epi32(d0, _mm_madd_epi16(weightValue, s0_32));
-                    d1 = _mm_add_epi32(d1, _mm_madd_epi16(weightValue, s1_32));
-                    d2 = _mm_add_epi32(d2, _mm_madd_epi16(weightValue, s2_32));
-                    d3 = _mm_add_epi32(d3, _mm_madd_epi16(weightValue, s3_32));
-                }
-            }
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            __m128 f3 = _mm_cvtepi32_ps(d3);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            f1 = _mm_mul_ps(f1, scaleValue);
-            f2 = _mm_mul_ps(f2, scaleValue);
-            f3 = _mm_mul_ps(f3, scaleValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            auto m1 = _mm_cmplt_ps(f1, zero128);
-            auto m2 = _mm_cmplt_ps(f2, zero128);
-            auto m3 = _mm_cmplt_ps(f3, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            m1 = _mm_blendv_ps(plus, minus, m1);
-            m2 = _mm_blendv_ps(plus, minus, m2);
-            m3 = _mm_blendv_ps(plus, minus, m3);
-            f0 = _mm_add_ps(f0, m0);
-            f1 = _mm_add_ps(f1, m1);
-            f2 = _mm_add_ps(f2, m2);
-            f3 = _mm_add_ps(f3, m3);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-            d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
-            d3 = _mm_cvtps_epi32(_mm_round_ps(f3, 3));
+        // Int32 -> Int8
+        d0 = _mm_packs_epi32(d0, d1);
+        d2 = _mm_packs_epi32(d2, d3);
+        d0 = _mm_min_epi16(d0, maxValue);
+        d0 = _mm_max_epi16(d0, minValue);
+        d2 = _mm_min_epi16(d2, maxValue);
+        d2 = _mm_max_epi16(d2, minValue);
+        d0 = _mm_packus_epi16(d0, d2);
 
-            d0 = _mm_add_epi32(d0, offset);
-            d1 = _mm_add_epi32(d1, offset);
-            d2 = _mm_add_epi32(d2, offset);
-            d3 = _mm_add_epi32(d3, offset);
-
-            // Int32 -> Int8
-            d0 = _mm_packs_epi32(d0, d1);
-            d2 = _mm_packs_epi32(d2, d3);
-            d0 = _mm_min_epi16(d0, maxValue);
-            d2 = _mm_min_epi16(d2, maxValue);
-            d0 = _mm_max_epi16(d0, minValue);
-            d2 = _mm_max_epi16(d2, minValue);
-
-            d0 = _mm_packus_epi16(d0, d2);
-
-            _mm_storeu_ps((float*)(dst), _mm_castsi128_ps(d0));
-            dst += 16;
-            src += src_w_step * 4;
-        }
-    }
-    switch (widthRemain) {
-        case 3:
-        {
-            d0 = biasValue;
-            d1 = biasValue;
-            d2 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + src_w_step * 1);
-                    srcTemp1[0] = *(int64_t*)(src_x + src_w_step * 2);
-                    auto s0_32 = _mm_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm_unpackhi_epi16(srcValue0, zero);
-                    auto s2_32 = _mm_unpacklo_epi16(srcValue1, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightValue = _mm_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm_add_epi32(d0, _mm_madd_epi16(weightValue, s0_32));
-                    d1 = _mm_add_epi32(d1, _mm_madd_epi16(weightValue, s1_32));
-                    d2 = _mm_add_epi32(d2, _mm_madd_epi16(weightValue, s2_32));
-                }
-            }
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            __m128 f2 = _mm_cvtepi32_ps(d2);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            f1 = _mm_mul_ps(f1, scaleValue);
-            f2 = _mm_mul_ps(f2, scaleValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            auto m1 = _mm_cmplt_ps(f1, zero128);
-            auto m2 = _mm_cmplt_ps(f2, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            m1 = _mm_blendv_ps(plus, minus, m1);
-            m2 = _mm_blendv_ps(plus, minus, m2);
-            f0 = _mm_add_ps(f0, m0);
-            f1 = _mm_add_ps(f1, m1);
-            f2 = _mm_add_ps(f2, m2);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-            d2 = _mm_cvtps_epi32(_mm_round_ps(f2, 3));
-
-            d0 = _mm_add_epi32(d0, offset);
-            d1 = _mm_add_epi32(d1, offset);
-            d2 = _mm_add_epi32(d2, offset);
-
-            // Int32 -> Int8
-            d0 = _mm_packs_epi32(d0, d1);
-            d2 = _mm_packs_epi32(d2, d3);
-
-            d0 = _mm_min_epi16(d0, maxValue);
-            d2 = _mm_min_epi16(d2, maxValue);
-            d0 = _mm_max_epi16(d0, minValue);
-            d2 = _mm_max_epi16(d2, minValue);
-
-            d0 = _mm_packus_epi16(d0, d2);
-            int8_t temp[128];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(d0));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-        case 2:
-        {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + src_w_step * 1);
-                    auto s0_32 = _mm_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm_unpackhi_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightValue = _mm_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm_add_epi32(d0, _mm_madd_epi16(weightValue, s0_32));
-                    d1 = _mm_add_epi32(d1, _mm_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            __m128 f1 = _mm_cvtepi32_ps(d1);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            f1 = _mm_mul_ps(f1, scaleValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            auto m1 = _mm_cmplt_ps(f1, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            m1 = _mm_blendv_ps(plus, minus, m1);
-            f0 = _mm_add_ps(f0, m0);
-            f1 = _mm_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d1 = _mm_cvtps_epi32(_mm_round_ps(f1, 3));
-
-            d0 = _mm_add_epi32(d0, offset);
-            d1 = _mm_add_epi32(d1, offset);
-
-            // Int32 -> Int8
-            d0 = _mm_packs_epi32(d0, d1);
-            d2 = _mm_packs_epi32(d2, d3);
-            d0 = _mm_min_epi16(d0, maxValue);
-            d2 = _mm_min_epi16(d2, maxValue);
-            d0 = _mm_max_epi16(d0, minValue);
-            d2 = _mm_max_epi16(d2, minValue);
-
-            d0 = _mm_packus_epi16(d0, d2);
-            int8_t temp[128];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(d0));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-        case 1:
-        {
-            d0 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    auto s0_32 = _mm_unpacklo_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightValue = _mm_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm_add_epi32(d0, _mm_madd_epi16(weightValue, s0_32));
-                }
-            }
-            __m128 f0 = _mm_cvtepi32_ps(d0);
-            f0 = _mm_mul_ps(f0, scaleValue);
-            auto m0 = _mm_cmplt_ps(f0, zero128);
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            f0 = _mm_add_ps(f0, m0);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-            d0 = _mm_add_epi32(d0, offset);
-
-            // Int32 -> Int8
-            d0 = _mm_packs_epi32(d0, d1);
-            d0 = _mm_min_epi16(d0, maxValue);
-            d0 = _mm_max_epi16(d0, minValue);
-
-            d0 = _mm_packus_epi16(d0, d2);
-            int8_t temp[128];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(d0));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-        default:
-            break;
+        _mm_storeu_ps((float*)(dst), _mm_castsi128_ps(d0));
+        dst += 16;
+        src += src_w_step;
     }
 }
 extern "C" {

@@ -132,19 +132,22 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
     mUnits.resize(1);
     uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
     if(mUseLocal) {
-        mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mReduct1DKernel.setArg(idx++, mGlobalWorkSize[2]);
+        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[2]);
     } else {
-        mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
     }
-    mReduct1DKernel.setArg(idx++, openCLImage(input));
-    mReduct1DKernel.setArg(idx++, openCLImage(output));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
+    ret |= mReduct1DKernel.setArg(idx++, openCLImage(input));
+    ret |= mReduct1DKernel.setArg(idx++, openCLImage(output));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ReductionExecution");
+
     if(mUseLocal){
         recordKernel3d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     }else{

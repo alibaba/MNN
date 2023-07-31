@@ -87,13 +87,15 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         std::vector<uint32_t> gws = {static_cast<uint32_t>(shape[2] * UP_DIV(shape[3], 4)), static_cast<uint32_t>(shape[0] * shape[1])};
 
         cl::Kernel kernel = runtime->buildKernel("buffer_to_image", kernelName, {});
-        kernel.setArg(0, gws[0]);
-        kernel.setArg(1, gws[1]);
-        kernel.setArg(2, *rawBufferPtr);
-        kernel.setArg(3, shape[1]);
-        kernel.setArg(4, shape[2]);
-        kernel.setArg(5, shape[3]);
-        kernel.setArg(6, openCLImage(inputs[1]));
+        cl_int ret = CL_SUCCESS;
+        ret |= kernel.setArg(0, gws[0]);
+        ret |= kernel.setArg(1, gws[1]);
+        ret |= kernel.setArg(2, *rawBufferPtr);
+        ret |= kernel.setArg(3, shape[1]);
+        ret |= kernel.setArg(4, shape[2]);
+        ret |= kernel.setArg(5, shape[3]);
+        ret |= kernel.setArg(6, openCLImage(inputs[1]));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution transform input");
 
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
         std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -112,11 +114,13 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         auto shape = tensorShapeFormat(inputs[1]);
         
         cl::Kernel kernel = runtime->buildKernel("deconv_2d", "iohw2oihw", {});
-        kernel.setArg(0, *rawBufferPtr);
-        kernel.setArg(1, *bufferPtr);
-        kernel.setArg(2, kernelY * kernelX);
-        kernel.setArg(3, shape[3]);
-        kernel.setArg(4, shape[0]);
+        cl_int ret = CL_SUCCESS;
+        ret |= kernel.setArg(0, *rawBufferPtr);
+        ret |= kernel.setArg(1, *bufferPtr);
+        ret |= kernel.setArg(2, kernelY * kernelX);
+        ret |= kernel.setArg(3, shape[3]);
+        ret |= kernel.setArg(4, shape[0]);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution transform kernel");
 
         mUnits[1].kernel = kernel;
         mUnits[1].localWorkSize = cl::NullRange;
@@ -139,28 +143,29 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         auto buffer = filterBuffer.get();
         auto image =mFilter.get();
         auto formattedBufferShape = tensorShapeFormat(filterBuffer.get());
-       std::vector<size_t> imageShape;
-       getImageShape(formattedBufferShape, MNN::OpenCL::DW_CONV2D_FILTER, &imageShape);
+        std::vector<size_t> imageShape;
+        getImageShape(formattedBufferShape, MNN::OpenCL::DW_CONV2D_FILTER, &imageShape);
 
-       uint32_t gws[2] = {static_cast<uint32_t>(imageShape[0]), static_cast<uint32_t>(imageShape[1])};
+        uint32_t gws[2] = {static_cast<uint32_t>(imageShape[0]), static_cast<uint32_t>(imageShape[1])};
 
-       std::string kernelName = "dw_filter_buffer_to_image";
+        std::string kernelName = "dw_filter_buffer_to_image";
 
 
         std::set<std::string> buildOptions;
         cl::Kernel kernel = runtime->buildKernel("buffer_to_image", kernelName, buildOptions);
 
-       uint32_t idx = 0;
-       kernel.setArg(idx++, gws[0]);
-       kernel.setArg(idx++, gws[1]);
-       kernel.setArg(idx++, openCLBuffer(buffer));
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= kernel.setArg(idx++, gws[0]);
+        ret |= kernel.setArg(idx++, gws[1]);
+        ret |= kernel.setArg(idx++, openCLBuffer(buffer));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution transfor kernel format");
 
-
-       const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
-       int kernelShape[4] = {buffer->buffer().dim[0].extent, buffer->buffer().dim[1].extent, buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
-       kernel.setArg(idx++, sizeof(kernelShape),kernelShape);
-       kernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
-       kernel.setArg(idx++, openCLImage(image));
+        const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
+        int kernelShape[4] = {buffer->buffer().dim[0].extent, buffer->buffer().dim[1].extent, buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
+        ret |= kernel.setArg(idx++, sizeof(kernelShape),kernelShape);
+        ret |= kernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+        ret |= kernel.setArg(idx++, openCLImage(image));
     
     
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
@@ -229,25 +234,27 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         int index = 0;
         
         uint32_t idx = 0;
-        kernel.setArg(idx++, gws[0]);
-        kernel.setArg(idx++, gws[1]);
-        kernel.setArg(idx++, gws[2]);
+        cl_int ret = CL_SUCCESS;
+        ret |= kernel.setArg(idx++, gws[0]);
+        ret |= kernel.setArg(idx++, gws[1]);
+        ret |= kernel.setArg(idx++, gws[2]);
 
-        kernel.setArg(idx++, openCLImage(inputs[0]));
-        kernel.setArg(idx++, openCLImage(mFilter.get()));
+        ret |= kernel.setArg(idx++, openCLImage(inputs[0]));
+        ret |= kernel.setArg(idx++, openCLImage(mFilter.get()));
         if(inputs.size() > 2) {
-            kernel.setArg(idx++, openCLImage(inputs[2]));
+            ret |= kernel.setArg(idx++, openCLImage(inputs[2]));
         }
-        kernel.setArg(idx++, openCLImage(outputs[0]));
-        kernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        kernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-        kernel.setArg(idx++, sizeof(strideShape), strideShape);
-        kernel.setArg(idx++, sizeof(alignShape), alignShape);
-        kernel.setArg(idx++, sizeof(paddingShape), paddingShape);
-        kernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-        kernel.setArg(idx++, static_cast<int32_t>(kernelSize));
-        kernel.setArg(idx++, static_cast<int32_t>(channelBlocks));
-        
+        ret |= kernel.setArg(idx++, openCLImage(outputs[0]));
+        ret |= kernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+        ret |= kernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+        ret |= kernel.setArg(idx++, sizeof(strideShape), strideShape);
+        ret |= kernel.setArg(idx++, sizeof(alignShape), alignShape);
+        ret |= kernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+        ret |= kernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        ret |= kernel.setArg(idx++, static_cast<int32_t>(kernelSize));
+        ret |= kernel.setArg(idx++, static_cast<int32_t>(channelBlocks));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution");
+
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
         std::string name = "depthwiseDeconv";
         auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernel).first;

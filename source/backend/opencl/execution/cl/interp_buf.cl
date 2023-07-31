@@ -32,8 +32,13 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
 
     const float in_h_idx = output_height_idx * height_scale + height_offset;
     const float in_w_idx = output_width_block_idx * width_scale + width_offset;
+#ifdef USE_ROUND
+    const int in_h_index      = min(max(0, (int)floor(in_h_idx + 0.499f)), input_height-1);
+    const int in_w_index       = min(max(0, (int)floor(in_w_idx + 0.499f)), input_width-1);
+#else
     const int in_h_index      = min(max(0, (int)floor(in_h_idx)), input_height-1);
     const int in_w_index       = min(max(0, (int)floor(in_w_idx)), input_width-1);
+#endif
 
     const int inp_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx) * input_height + in_h_index) * input_width + in_w_index;
     FLOAT4 value = vload4(inp_offset, input);

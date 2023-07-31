@@ -72,21 +72,22 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             };
 
     uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGWS[0]);
+    ret |= mKernel.setArg(idx++, mGWS[1]);
+    ret |= mKernel.setArg(idx++, mGWS[2]);
 
-    mKernel.setArg(idx++, mGWS[0]);
-    mKernel.setArg(idx++, mGWS[1]);
-    mKernel.setArg(idx++, mGWS[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, openCLImage(roi));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputBatch));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<float>(mSpatialScale));
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg RoiPoolExecution");
 
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, openCLImage(roi));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputBatch));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputWidth));
-    mKernel.setArg(idx++, static_cast<float>(mSpatialScale));
-    mKernel.setArg(idx++, openCLImage(output));
-    
     mLWS = roiPoolingLocalWS(mGWS, mMaxWorkGroupSize);
     recordKernel3d(mKernel, mGWS, mLWS, runtime);
     endRecord(runtime, mRecording);

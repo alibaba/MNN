@@ -64,19 +64,21 @@ ErrorCode GridSampleBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     MNN_ASSERT(outW > 0 && outH > 0);
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLBuffer(inputTensor));
-    mKernel.setArg(idx++, openCLBuffer(gridTensor));
-    mKernel.setArg(idx++, openCLBuffer(outputTensor));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inH));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inW));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outH));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outW));
-    mKernel.setArg(idx++, static_cast<uint32_t>(channelC4));
-    mKernel.setArg(idx++, mPaddingMode);
-    mKernel.setArg(idx++, mAlignCorners);
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLBuffer(inputTensor));
+    ret |= mKernel.setArg(idx++, openCLBuffer(gridTensor));
+    ret |= mKernel.setArg(idx++, openCLBuffer(outputTensor));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inH));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inW));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outH));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outW));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(channelC4));
+    ret |= mKernel.setArg(idx++, mPaddingMode);
+    ret |= mKernel.setArg(idx++, mAlignCorners);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleBufExecution");
 
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
 
@@ -102,6 +104,12 @@ public:
     virtual ~GridSampleBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
         const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         if (op->main_as_GridSample()->mode() != 0 && op->main_as_GridSample()->mode() != 1) {
             MNN_PRINT("openCL buffer not support interpolate type: %d, fallback to cpu\n", op->main_as_GridSample()->mode());
             return nullptr;

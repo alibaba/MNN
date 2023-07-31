@@ -66,24 +66,26 @@ ErrorCode Interp3DBufExecution::onResize(const std::vector<Tensor *> &inputs, co
     MNN_ASSERT(outputDepth > 0 && outputHeight > 0 && outputWidth > 0);
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGWS[0]);
-    mKernel.setArg(idx++, mGWS[1]);
-    mKernel.setArg(idx++, mGWS[2]);
-    mKernel.setArg(idx++, openCLBuffer(input));
-    mKernel.setArg(idx++, openCLBuffer(output));
-    mKernel.setArg(idx++, mCordTransform[4]);
-    mKernel.setArg(idx++, mCordTransform[2]);
-    mKernel.setArg(idx++, mCordTransform[0]);
-    mKernel.setArg(idx++, mCordTransform[5]);
-    mKernel.setArg(idx++, mCordTransform[3]);
-    mKernel.setArg(idx++, mCordTransform[1]);
-    mKernel.setArg(idx++, static_cast<int32_t>(inputDepth));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputDepth));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(channelBlocks));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGWS[0]);
+    ret |= mKernel.setArg(idx++, mGWS[1]);
+    ret |= mKernel.setArg(idx++, mGWS[2]);
+    ret |= mKernel.setArg(idx++, openCLBuffer(input));
+    ret |= mKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mKernel.setArg(idx++, mCordTransform[4]);
+    ret |= mKernel.setArg(idx++, mCordTransform[2]);
+    ret |= mKernel.setArg(idx++, mCordTransform[0]);
+    ret |= mKernel.setArg(idx++, mCordTransform[5]);
+    ret |= mKernel.setArg(idx++, mCordTransform[3]);
+    ret |= mKernel.setArg(idx++, mCordTransform[1]);
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputDepth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputDepth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(channelBlocks));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg Interp3DBufExecution");
 
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
     return NO_ERROR;
@@ -113,7 +115,23 @@ ErrorCode Interp3DBufExecution::onExecute(const std::vector<Tensor *> &inputs, c
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<Interp3DBufExecution>> __Interp3DBuf_op_(OpType_Interp3D, BUFFER);
+class Interp3DBufCreator : public OpenCLBackend::Creator {
+public:
+    virtual ~Interp3DBufCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
+        return new Interp3DBufExecution(inputs, op, backend);
+        ;
+    }
+};
+
+OpenCLCreatorRegister<Interp3DBufCreator> __Interp3DBuf_op_(OpType_Interp3D, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

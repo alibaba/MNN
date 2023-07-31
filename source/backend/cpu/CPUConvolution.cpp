@@ -68,6 +68,7 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
     if (mValid) {
         mValid = backend->onAcquireBuffer(mScaleFloat.get(), Backend::STATIC);
     }
+    
 }
 
 void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo) {
@@ -112,10 +113,10 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
         bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaValue)) - mResource->mInt8WeightKernelSum[i] * inputZeroPoint + outputZeroPointFused;
     }
 }
-std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam) {
+std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(Backend* backend, const MNN::Convolution2D *convParam, int pack) {
     auto core = static_cast<CPUBackend*>(backend)->functions();
     // TODO: use different pack from float
-    int UNIT = core->pack;
+    int UNIT = pack;
 
     std::shared_ptr<CPUConvolution::ResourceInt8> resource(new ResourceInt8);
     // TODO: ConvInt8Winograd need in/out scale, which isn't exist in quantinfo when model construct by V3 API

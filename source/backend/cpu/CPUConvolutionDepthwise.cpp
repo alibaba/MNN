@@ -41,7 +41,7 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
         mValid = false;
         return;
     }
-    success = mResource->copyBiasAlign(bias, biasSize);
+    success = mResource->copyBiasAlign(bias, static_cast<int>(biasSize));
     if (!success) {
         mValid = false;
         return;

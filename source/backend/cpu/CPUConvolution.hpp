@@ -90,9 +90,10 @@ public:
         int8_t mClampMax;
         std::shared_ptr<Tensor> mBiasInt32;
         std::shared_ptr<Tensor> mScaleFloat;
+        int32_t mShiftBits = 14;
         bool mValid;
     };
-    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp);
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp, int pack=4);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
