@@ -22,7 +22,7 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     const float *preluDataPtr = mPreluParamPtr->slope()->data();
     
     int buffer_size = ALIGN_UP4(preluSize);
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+    if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
         buffer_size *= sizeof(half_float::half);
     } else {
         buffer_size *= sizeof(float);
@@ -35,7 +35,7 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
             for(int i=0; i<preluSize; i++) {
                 ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
             }
@@ -67,18 +67,25 @@ ErrorCode ReluBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     std::vector<uint32_t> globalSize = {(uint32_t)imageWidth, (uint32_t)imageHeight};
 
     auto runTime     = mOpenCLBackend->getOpenCLRuntime();
-    
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    if (runTime->isSupportedIntelSubgroup()){
+        return SubgrouponResize(inputs, outputs);
+    }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+
     mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
     int fullCount[2] = {1, 1};
     
     uint32_t index = 0;
-    mUnits[0].kernel.setArg(index++, globalSize[0]);
-    mUnits[0].kernel.setArg(index++, globalSize[1]);
-    mUnits[0].kernel.setArg(index++, openCLBuffer(inputs[0]));
-    mUnits[0].kernel.setArg(index++, openCLBuffer(mPreluParam.get()));
-    mUnits[0].kernel.setArg(index++, openCLBuffer(outputs[0]));
-    mUnits[0].kernel.setArg(index++, nhwcArray);
+    cl_int ret = CL_SUCCESS;
+    ret |= mUnits[0].kernel.setArg(index++, globalSize[0]);
+    ret |= mUnits[0].kernel.setArg(index++, globalSize[1]);
+    ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(inputs[0]));
+    ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(mPreluParam.get()));
+    ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(outputs[0]));
+    ret |= mUnits[0].kernel.setArg(index++, nhwcArray);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution");
 
     std::string name = "prelu_buf";
     localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel).first;
@@ -87,6 +94,69 @@ ErrorCode ReluBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mUnits[0].localWorkSize  = {localSize[0], localSize[1]};
     return NO_ERROR;
 }
+
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mUnits.resize(1);
+    auto nhwc              = tensorShapeFormat(outputs[0]);
+    int nhwcArray[4]        = {nhwc[0], nhwc[1], nhwc[2], nhwc[3]};
+
+    auto runTime     = mOpenCLBackend->getOpenCLRuntime();
+    int input_c_pack = TensorUtils::getTensorChannelPack(inputs[0]);
+    int output_c_pack = TensorUtils::getTensorChannelPack(outputs[0]);
+    auto inputpad = TensorUtils::getDescribe(inputs[0])->mPads;
+    auto outputpad = TensorUtils::getDescribe(outputs[0])->mPads;
+    std::string kernelName = "prelu_buf_c" + std::to_string(input_c_pack) + "_c" + std::to_string(output_c_pack);
+
+    std::set<std::string> BuildOptions;
+    BuildOptions.emplace("-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)");
+    mUnits[0].kernel = runTime->buildKernel("binary_subgroup_buf", kernelName, BuildOptions);
+    mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
+    int fullCount[2] = {1, 1};
+    
+    uint32_t index = 0;
+    cl_int ret = CL_SUCCESS;
+    if (input_c_pack == 4) {
+        std::vector<uint32_t> globalSize = {(uint32_t)nhwc[2] * nhwc[1], (uint32_t)UP_DIV(nhwc[3], 4),
+                                            (uint32_t)nhwc[0]};
+        mUnits[0].globalWorkSize         = {globalSize[0], globalSize[1], globalSize[2]};
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[0]);
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[1]);
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[2]);
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(inputs[0]));
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(mPreluParam.get()));
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(outputs[0]));
+        ret |= mUnits[0].kernel.setArg(index++, nhwcArray);
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(inputpad.left));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(inputpad.right));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.left));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup C4");
+
+        auto lws = localWS3DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel).first;
+        mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
+    } else {
+        mUnits[0].globalWorkSize = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),
+                                    (uint32_t)nhwc[0]};
+        mUnits[0].localWorkSize  = {1, 16, 1};
+
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[0]);
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[1]);
+        ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[2]);
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(inputs[0]));
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(mPreluParam.get()));
+        ret |= mUnits[0].kernel.setArg(index++, openCLBuffer(outputs[0]));
+        ret |= mUnits[0].kernel.setArg(index++, nhwcArray);
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(inputpad.left));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(inputpad.right));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.left));
+        ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup");
+    }
+    return NO_ERROR;
+}
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+
 class ReluBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -98,6 +168,12 @@ public:
         // So we use ternary operation (A ? B: C) instead of function call with comma
         // (e.g, fmax(in,(float4)(0))), when there is a Radeon GPU.
         bool isRadeonGpu = (static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime()->getGpuType() == RADEON);
+        for (int i = 0; i < inputs.size(); ++i) {
+            int channel = inputs[i]->channel();
+            if (channel >= 16) {
+                TensorUtils::setTensorChannelPack(inputs[i], 16);
+            }
+        }
 
         if (op->type() == OpType_ReLU6) {
             char storage[256];

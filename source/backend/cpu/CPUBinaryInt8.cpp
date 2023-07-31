@@ -35,9 +35,6 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
 
     auto core = static_cast<CPUBackend*>(backend())->functions();
 
-    mInputOffset0.resize(1);
-    mInputOffset1.resize(1);
-    mOutputOffset.resize(1);
     mQuantScalesInt32.resize(2); // When use int32 scales computing, output scale is needless.
     mQuantScalesFp32.resize(3);
     mQuantScalesInt32[0] = TensorUtils::getDescribe(inputs[0])->quantAttr->scale * (1 << 16);
@@ -49,9 +46,21 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
     } else {
         mQuantScalesFp32[2] = 0;
     }
-    mInputOffset0[0] = (int8_t)TensorUtils::getDescribe(inputs[0])->quantAttr->zero;
-    mInputOffset1[0] = (int8_t)TensorUtils::getDescribe(inputs[1])->quantAttr->zero;
-    mOutputOffset[0] = (int8_t)TensorUtils::getDescribe(outputs[0])->quantAttr->zero;
+
+    float inputScale0 = TensorUtils::getDescribe(inputs[0])->quantAttr->scale;
+    float inputScale1 = TensorUtils::getDescribe(inputs[1])->quantAttr->scale;
+    float outputScale = TensorUtils::getDescribe(outputs[0])->quantAttr->scale;
+    ssize_t inputZero0 = (ssize_t)TensorUtils::getDescribe(inputs[0])->quantAttr->zero;
+    ssize_t inputZero1 = (ssize_t)TensorUtils::getDescribe(inputs[1])->quantAttr->zero;
+    ssize_t outputZero = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->zero;
+    mInputZeros.resize(2);
+    mOutputZeros.resize(1);
+    mInputScales.resize(2);
+    mOutputScales.resize(1);
+    mInputZeros = {inputZero0, inputZero1};
+    mOutputZeros = {outputZero};
+    mInputScales = {inputScale0, inputScale1};
+    mOutputScales = {outputScale};
 
     return NO_ERROR;
 }
@@ -69,7 +78,16 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
 
     int inpBytes = 1;
     int outBytes = 1;
-    auto precision = static_cast<CPUBackend*>(backend())->precisionMode();
+
+    QuanPrePostParameters params;
+    
+    params.inputScale = mInputScales.data();
+    params.outputScale = mOutputScales.data();
+    params.outputZeroPoint = mOutputZeros.data();
+    params.inputZeroPoint = mInputZeros.data();
+    params.minValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->min;
+    params.maxValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->max;
+
     MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
         int start = schedule.first * (int)tId;
         int realSize = schedule.first;
@@ -79,9 +97,6 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
         if (realSize > 0) {
             auto inp0 = input0Ptr + start * inpBytes;
             auto inp1 = input1Ptr + start * inpBytes;
-            auto offset0 = mInputOffset0.data();
-            auto offset1 = mInputOffset1.data();
-            auto offsetDst = mOutputOffset.data();
             if (mNeedBroadcastIndex == 0) {
                 inp0 = input0Ptr;
             } else if (mNeedBroadcastIndex == 1) {
@@ -89,9 +104,15 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
             }
             auto out = outputPtr + start * outBytes;
 #ifdef MNN_USE_NEON
-            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), offset0, offset1, offsetDst, realSize / 4, mNeedBroadcastIndex);
+            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), &params, realSize / 4, mNeedBroadcastIndex);
+            // for (int i = 0; i < 48; ++i) {
+            //     if (i % 16 == 0) {
+            //         printf("\n");
+            //     }
+            //     printf("%d, ", (int)out[i]);
+            // }
 #else
-            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), offset0, offset1, offsetDst, realSize, mNeedBroadcastIndex);
+            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), &params, realSize, mNeedBroadcastIndex);
 #endif
         }
     }

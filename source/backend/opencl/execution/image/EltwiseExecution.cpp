@@ -71,14 +71,16 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
         
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, openCLImage(inputs[0]));
-        unit.kernel.setArg(index++, openCLImage(inputs[1]));
-        unit.kernel.setArg(index++, openCLImage(output));
-        unit.kernel.setArg(index++, shape);
-        unit.kernel.setArg(index++, fullCount);
-        unit.kernel.setArg(index++, activationType);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, openCLImage(inputs[0]));
+        ret |= unit.kernel.setArg(index++, openCLImage(inputs[1]));
+        ret |= unit.kernel.setArg(index++, openCLImage(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution");
 
         std::string name = "binary";
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
@@ -125,14 +127,16 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         useTempAsOutput = !useTempAsOutput;
         
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, openCLImage(input0));
-        unit.kernel.setArg(index++, openCLImage(input1));
-        unit.kernel.setArg(index++, openCLImage(output));
-        unit.kernel.setArg(index++, shape);
-        unit.kernel.setArg(index++, fullCount);
-        unit.kernel.setArg(index++, activationType);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, openCLImage(input0));
+        ret |= unit.kernel.setArg(index++, openCLImage(input1));
+        ret |= unit.kernel.setArg(index++, openCLImage(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution multiinput");
 
         if(i == 0) {
             std::string name = "binary";

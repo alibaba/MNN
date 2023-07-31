@@ -53,19 +53,22 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
+    cl_int ret = CL_SUCCESS;
     if (mAxis == 1) {
         mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
         
         uint32_t idx    = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, mGlobalWorkSize[2]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
 
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(output));
-        mKernel.setArg(idx++, static_cast<int>(outputChannels));
-        mKernel.setArg(idx++, remainChannels);
+        ret |= mKernel.setArg(idx++, openCLImage(input));
+        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannels));
+        ret |= mKernel.setArg(idx++, remainChannels);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxExecution Axis_1");
+
         std::string kernelName = "softmax_channel";
         mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
 
@@ -77,9 +80,10 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         mGlobalWorkSize = {(uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
-        mKernel.setArg(0, openCLImage(input));
-        mKernel.setArg(1, openCLImage(output));
-        mKernel.setArg(2, shape);
+        ret |= mKernel.setArg(0, openCLImage(input));
+        ret |= mKernel.setArg(1, openCLImage(output));
+        ret |= mKernel.setArg(2, shape);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxExecution Axis_2");
     } else {
         MNN_ASSERT(mAxis == 3);
         if (mMaxWorkGroupSize > 256) {
@@ -89,9 +93,10 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         mGlobalWorkSize = {(uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
-        mKernel.setArg(0, openCLImage(input));
-        mKernel.setArg(1, openCLImage(output));
-        mKernel.setArg(2, shape);
+        ret |= mKernel.setArg(0, openCLImage(input));
+        ret |= mKernel.setArg(1, openCLImage(output));
+        ret |= mKernel.setArg(2, shape);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxExecution Axis_3");
     }
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);

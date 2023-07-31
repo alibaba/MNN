@@ -20,14 +20,15 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
     axis_size = layer_norm_param->axis()->size();
     epsilon_ = layer_norm_param->epsilon();
     group_ = layer_norm_param->group();
+    auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
 
     if(layer_norm_param->gamma() && layer_norm_param->beta()){
         has_gamma_beta_ = true;
         {
             auto error = CL_SUCCESS;
             int size = layer_norm_param->gamma()->size();
-            mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, size));
-            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mGammaBuffer.get()), true, CL_MAP_WRITE, 0, size, nullptr, nullptr, &error);
+            mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* gamma_data = layer_norm_param->gamma()->data();
             if(GammaPtrCL != nullptr && error == CL_SUCCESS){
                 if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
@@ -50,8 +51,8 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
         {
             auto error = CL_SUCCESS;
             int size = layer_norm_param->beta()->size();
-            mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, size));
-            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mBetaBuffer.get()), true, CL_MAP_WRITE, 0, size, nullptr, nullptr, &error);
+            mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* beta_data = layer_norm_param->beta()->data();
             if(BetaPtrCL != nullptr && error == CL_SUCCESS){
                 if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
@@ -91,20 +92,28 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
-    const int inputBatch    = input->batch();
-    const int inputHeight   = input->height();
-    const int inputWidth    = input->width();
-    const int inputChannels = input->channel();
+    const int inputBatch    = inputShape[0];
+    const int inputHeight   = inputShape[1];
+    const int inputWidth    = inputShape[2];
+    const int inputChannels = inputShape[3];
     auto MaxWorkItems = runtime->getMaxWorkItemSizes();
     int local_size;
-
+    int rank = inputs.at(0)->dimensions();
+    int outter_size = 1;
+    int inner_size = 1;
+    for (int i = 0; i < rank - axis_size; ++i) {
+        outter_size *= inputs.at(0)->length(i);
+    }
+    for (int i = rank - axis_size; i < rank; ++i) {
+        inner_size *= inputs.at(0)->length(i);
+    }
     
     std::set<std::string> buildOptions;
     if(has_gamma_beta_){
         buildOptions.emplace("-DGAMMA_BETA");
     }
     std::string kernelName;
-    if (axis_size == 1) {
+    if (inner_size == inputWidth && outter_size == inputBatch * inputHeight * inputChannels) {
         kernelName = "layernorm_w";
         local_size = getLocalSize(inputWidth, MaxWorkItems[0]);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
@@ -113,7 +122,7 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(inputHeight * UP_DIV(inputChannels, 4)),
                 static_cast<uint32_t>(inputBatch)};
-    }else if(axis_size == 2){
+    }else if(inner_size == inputWidth * inputHeight && outter_size == inputBatch * inputChannels){
         kernelName = "layernorm_hw";
         local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
@@ -122,7 +131,7 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(UP_DIV(inputChannels, 4)),
                 static_cast<uint32_t>(inputBatch)};
-    }else{
+    }else if(inner_size == inputWidth * inputHeight * inputChannels && outter_size == inputBatch){
         kernelName = "layernorm_chw";
         local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
@@ -135,20 +144,22 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mLWS = {static_cast<uint32_t>(local_size), 1, 1};
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGWS[0]);
-    mKernel.setArg(idx++, mGWS[1]);
-    mKernel.setArg(idx++, mGWS[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, openCLImage(output));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputChannels));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGWS[0]);
+    ret |= mKernel.setArg(idx++, mGWS[1]);
+    ret |= mKernel.setArg(idx++, mGWS[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputChannels));
     if(has_gamma_beta_){
-        mKernel.setArg(idx++, *mGammaBuffer.get());
-        mKernel.setArg(idx++, *mBetaBuffer.get());
+        ret |= mKernel.setArg(idx++, *mGammaBuffer.get());
+        ret |= mKernel.setArg(idx++, *mBetaBuffer.get());
     }
-    mKernel.setArg(idx++, epsilon_);
-    
+    ret |= mKernel.setArg(idx++, epsilon_);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormExecution");
+
     recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
     endRecord(runtime, mRecording);
     return NO_ERROR;
@@ -193,9 +204,10 @@ public:
         const auto* layer_norm_param = op->main_as_LayerNorm();
         int axis_size = layer_norm_param->axis()->size();
         int group = layer_norm_param->group();
-        if(group == 1){
-            return new LayerNormExecution(inputs, op, backend);
+        if(group > 1){
+			return nullptr;
         }
+        return new LayerNormExecution(inputs, op, backend);
     }
 };
 

@@ -70,12 +70,15 @@ ErrorCode ReluExecution::onResize(const std::vector<Tensor *> &inputs, const std
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
     startRecord(runTime, mRecording);
     mUnits[0].kernel = runTime->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
-    mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
-    mUnits[0].kernel.setArg(1, openCLImage(mPreluParam.get()));
-    mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));
-    mUnits[0].kernel.setArg(3, nhwcArray);
-    mUnits[0].kernel.setArg(4, reluImageWH);
-    mUnits[0].kernel.setArg(5, reluStride);
+    cl_int ret = CL_SUCCESS;
+    ret |= mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
+    ret |= mUnits[0].kernel.setArg(1, openCLImage(mPreluParam.get()));
+    ret |= mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));
+    ret |= mUnits[0].kernel.setArg(3, nhwcArray);
+    ret |= mUnits[0].kernel.setArg(4, reluImageWH);
+    ret |= mUnits[0].kernel.setArg(5, reluStride);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ReluExecution");
+
     mUnits[0].globalWorkSize = globalSize;
     mUnits[0].localWorkSize  = localSize;
     recordKernel2d(mUnits[0].kernel, {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4}, {4, 4}, runTime);

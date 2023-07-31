@@ -46,11 +46,13 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     };
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, openCLImage(output));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryExecution");
 
     std::string name = "unary";
     const std::vector<uint32_t> lws =

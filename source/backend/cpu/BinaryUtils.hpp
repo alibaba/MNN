@@ -330,44 +330,41 @@ void execute(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int 
 }
 
 template<typename Tin, typename Tout, typename Func>
-void executeInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const int8_t* inputOffset0, const int8_t* inputOffset1, const int8_t* outputOffset, size_t elementSize, size_t needBroadcast) {
+void executeInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast) {
     Func f;
-    int size = elementSize;
+    int size = static_cast<int>(elementSize);
 #ifdef MNN_USE_NEON
     size *= 4;
 #endif
-
     float inp0 = 0, inp1 = 0, output = 0;
 #ifdef MNN_USE_SSE
-    const int zeroPoint = 128;
-    const int maxValue = 255;
-    const int minValue = 0;
+    const int offset = 128;
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
 #else
-    const int zeroPoint = 0;
-    const int maxValue = 127;
-    const int minValue = -128;
+    const int offset = 0;
     const int8_t* inputData0 = (int8_t*)inputRaw0;
     const int8_t* inputData1 = (int8_t*)inputRaw1;
     int8_t* outputData = (int8_t*)outputRaw;
 #endif
+    const int maxValue = static_cast<int32_t>(params->maxValue) + offset;
+    const int minValue = static_cast<int32_t>(params->minValue) + offset;
     for (int i = 0; i < size; ++i) {
         if (needBroadcast == 0) {
-            inp0 = (inputData0[0]- zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
-            inp1 = (inputData1[i]- zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
+            inp0 = (inputData0[0]- offset - params->inputZeroPoint[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[i]- offset - params->inputZeroPoint[1]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         } else if (needBroadcast == 1) {
-            inp0 = (inputData0[i] - zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
-            inp1 = (inputData1[0] - zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
+            inp0 = (inputData0[i] - offset - params->inputZeroPoint[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[0] - offset - params->inputZeroPoint[1]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         } else {
-            inp0 = (inputData0[i] - zeroPoint - inputOffset0[0]) * inputScalesFp32[0];
-            inp1 = (inputData1[i] - zeroPoint - inputOffset1[0]) * inputScalesFp32[1];
+            inp0 = (inputData0[i] - offset - params->inputZeroPoint[0]) * inputScalesFp32[0];
+            inp1 = (inputData1[i] - offset - params->inputZeroPoint[1]) * inputScalesFp32[1];
             output = f(inp0, inp1);
         }
-        int value = (int)roundf(output * inputScalesFp32[2]) + zeroPoint + outputOffset[0];
+        int value = (int)roundf(output * inputScalesFp32[2]) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (value > maxValue) {
             value = maxValue;
         }

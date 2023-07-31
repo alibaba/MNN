@@ -234,6 +234,8 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Turn Caffe's ShuffleChannel to compose op
         "TransformShuffleChannel",
+        
+        "MoveUnaryOpBeforeReshape",
 
     };
     if (ctx->is_training) {

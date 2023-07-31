@@ -61,7 +61,6 @@ ErrorCode ReductionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     auto output = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     //N=outside H=axis W=inside C=1
-    MNN_ASSERT(inputShape[3] == 1);
 
     mGlobalWorkSize = {static_cast<uint32_t>(inputShape[0]), static_cast<uint32_t>(inputShape[2])};
     mLocalWorkSize = {1, 1, 1};
@@ -94,15 +93,16 @@ ErrorCode ReductionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
 
     mUnits.resize(1);
     uint32_t idx = 0;
-
-    mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mReduct1DKernel.setArg(idx++, openCLBuffer(input));
-    mReduct1DKernel.setArg(idx++, openCLBuffer(output));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
-    mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
+    cl_int ret = CL_SUCCESS;
+    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mReduct1DKernel.setArg(idx++, openCLBuffer(input));
+    ret |= mReduct1DKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
+    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg ReductionBufExecution");
 
     return NO_ERROR;
 }
@@ -134,6 +134,12 @@ public:
     virtual ~ReductionBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                  const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         if (inputs[0]->getDimensionType() == Tensor::TENSORFLOW) {
             auto openCLBackend = static_cast<OpenCLBackend *>(backend);
             auto reduct = op->main_as_ReductionParam();

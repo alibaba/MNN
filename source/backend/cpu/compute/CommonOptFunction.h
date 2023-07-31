@@ -176,7 +176,7 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
-typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const int8_t* inputOffset0, const int8_t* inputOffset1, const int8_t* outputOffset, size_t elementSize, size_t needBroadcast);
+typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast);
 
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 

@@ -9,6 +9,7 @@
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/DepthwiseConvBufExecution.hpp"
+#include "backend/opencl/execution/buffer/DepthwiseConvSubgroupBufExecution.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include "core/ConvolutionCommon.hpp"
 
@@ -163,22 +164,24 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
             
             uint32_t idx            = 0;
-            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
-            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
-            kernel[knl_idx].setArg(idx++, openCLBuffer(input));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(mFilter.get()));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(mBias.get()));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(output));
-            kernel[knl_idx].setArg(idx++, sizeof(inputImageShape), inputImageShape);
-            kernel[knl_idx].setArg(idx++, static_cast<int>(inputChannels));
-            kernel[knl_idx].setArg(idx++, sizeof(outputImageShape), outputImageShape);
-            kernel[knl_idx].setArg(idx++, sizeof(kernelShape), kernelShape);
-            kernel[knl_idx].setArg(idx++, sizeof(paddingShape), paddingShape);
-            kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
-            kernel[knl_idx].setArg(idx++, sizeof(strideShape), strideShape);
-            kernel[knl_idx].setArg(idx++, UP_DIV(outputWidth, itemW[knl_idx]));
-            kernel[knl_idx].setArg(idx++, UP_DIV(outputChannel, 4));
-            
+            cl_int ret = CL_SUCCESS;
+            ret |= kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
+            ret |= kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(input));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(mFilter.get()));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(mBias.get()));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(output));
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(inputImageShape), inputImageShape);
+            ret |= kernel[knl_idx].setArg(idx++, static_cast<int>(inputChannels));
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(outputImageShape), outputImageShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(kernelShape), kernelShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(paddingShape), paddingShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(strideShape), strideShape);
+            ret |= kernel[knl_idx].setArg(idx++, UP_DIV(outputWidth, itemW[knl_idx]));
+            ret |= kernel[knl_idx].setArg(idx++, UP_DIV(outputChannel, 4));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Stride_1 Kernel Select");
+
             std::pair<std::vector<uint32_t>, int> retTune;
             retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx], maxWorkGroupSize);
             //printf("depthwiseCovs1 %d, %d\n", knl_idx, retTune.second);
@@ -194,22 +197,24 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
         mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[min_index], mBuildOptions);
         
         uint32_t idx = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, openCLBuffer(input));
-        mKernel.setArg(idx++, openCLBuffer(mFilter.get()));
-        mKernel.setArg(idx++, openCLBuffer(mBias.get()));
-        mKernel.setArg(idx++, openCLBuffer(output));
-        mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        mKernel.setArg(idx++, static_cast<int>(inputChannels));
-        mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-        mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-        mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
-        mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
-        mKernel.setArg(idx++, sizeof(strideShape), strideShape);
-        mKernel.setArg(idx++, UP_DIV(outputWidth, itemW[min_index]));
-        mKernel.setArg(idx++, UP_DIV(outputChannel, 4));
-        
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLBuffer(input));
+        ret |= mKernel.setArg(idx++, openCLBuffer(mFilter.get()));
+        ret |= mKernel.setArg(idx++, openCLBuffer(mBias.get()));
+        ret |= mKernel.setArg(idx++, openCLBuffer(output));
+        ret |= mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+        ret |= mKernel.setArg(idx++, static_cast<int>(inputChannels));
+        ret |= mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+        ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        ret |= mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+        ret |= mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
+        ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
+        ret |= mKernel.setArg(idx++, UP_DIV(outputWidth, itemW[min_index]));
+        ret |= mKernel.setArg(idx++, UP_DIV(outputChannel, 4));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Stride_1");
+
         //printf("DepthwiseConvBufs1 %d, %d %d, %d %d, %d %d\n", min_index, mGlobalWorkSize[0], mGlobalWorkSize[1], mLocalWorkSize[0], mLocalWorkSize[1], outputChannel, outputWidth);
 
     } else {
@@ -235,22 +240,24 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
             
             uint32_t idx            = 0;
-            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
-            kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
-            kernel[knl_idx].setArg(idx++, openCLBuffer(input));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(mFilter.get()));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(mBias.get()));
-            kernel[knl_idx].setArg(idx++, openCLBuffer(output));
-            kernel[knl_idx].setArg(idx++, sizeof(inputImageShape), inputImageShape);
-            kernel[knl_idx].setArg(idx++, static_cast<int>(inputChannels));
-            kernel[knl_idx].setArg(idx++, sizeof(outputImageShape), outputImageShape);
-            kernel[knl_idx].setArg(idx++, sizeof(kernelShape), kernelShape);
-            kernel[knl_idx].setArg(idx++, sizeof(paddingShape), paddingShape);
-            kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
-            kernel[knl_idx].setArg(idx++, sizeof(strideShape), strideShape);
-            kernel[knl_idx].setArg(idx++, UP_DIV(outputWidth, itemW[knl_idx]));
-            kernel[knl_idx].setArg(idx++, UP_DIV(outputChannel, 4));
-            
+            cl_int ret = CL_SUCCESS;
+            ret |= kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);
+            ret |= kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][1]);
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(input));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(mFilter.get()));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(mBias.get()));
+            ret |= kernel[knl_idx].setArg(idx++, openCLBuffer(output));
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(inputImageShape), inputImageShape);
+            ret |= kernel[knl_idx].setArg(idx++, static_cast<int>(inputChannels));
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(outputImageShape), outputImageShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(kernelShape), kernelShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(paddingShape), paddingShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(dilationShape), dilationShape);
+            ret |= kernel[knl_idx].setArg(idx++, sizeof(strideShape), strideShape);
+            ret |= kernel[knl_idx].setArg(idx++, UP_DIV(outputWidth, itemW[knl_idx]));
+            ret |= kernel[knl_idx].setArg(idx++, UP_DIV(outputChannel, 4));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Kernel Select");
+
             std::pair<std::vector<uint32_t>, int> retTune;
             retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx], maxWorkGroupSize);
             //printf("depthwiseCov!! %d, %d\n", knl_idx, retTune.second);
@@ -267,22 +274,24 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
         
         
         uint32_t idx = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, openCLBuffer(input));
-        mKernel.setArg(idx++, openCLBuffer(mFilter.get()));
-        mKernel.setArg(idx++, openCLBuffer(mBias.get()));
-        mKernel.setArg(idx++, openCLBuffer(output));
-        mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        mKernel.setArg(idx++, static_cast<int>(inputChannels));
-        mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-        mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-        mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
-        mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
-        mKernel.setArg(idx++, sizeof(strideShape), strideShape);
-        mKernel.setArg(idx++, UP_DIV(outputWidth, itemW[min_index]));
-        mKernel.setArg(idx++, UP_DIV(outputChannel, 4));
-        
+        cl_int ret = CL_SUCCESS;
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLBuffer(input));
+        ret |= mKernel.setArg(idx++, openCLBuffer(mFilter.get()));
+        ret |= mKernel.setArg(idx++, openCLBuffer(mBias.get()));
+        ret |= mKernel.setArg(idx++, openCLBuffer(output));
+        ret |= mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+        ret |= mKernel.setArg(idx++, static_cast<int>(inputChannels));
+        ret |= mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+        ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        ret |= mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+        ret |= mKernel.setArg(idx++, sizeof(dilationShape), dilationShape);
+        ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
+        ret |= mKernel.setArg(idx++, UP_DIV(outputWidth, itemW[min_index]));
+        ret |= mKernel.setArg(idx++, UP_DIV(outputChannel, 4));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution");
+
         //printf("DepthwiseConvBuf!! %d, %d %d, %d %d, %d %d\n", min_index, mGlobalWorkSize[0], mGlobalWorkSize[1], mLocalWorkSize[0], mLocalWorkSize[1], outputChannel, outputWidth);
     }
     return NO_ERROR;
@@ -319,12 +328,28 @@ public:
                                 const MNN::Op *op, Backend *backend) const override {
         
         MNN_ASSERT(inputs.size() <= 3);
-        if (inputs.size() == 3) {
+        if (inputs.size() > 1) {
             MNN_PRINT("multi input depthwise conv for opencl buffer not supoort!\n");
             return nullptr;
         }
         
         MNN_ASSERT(inputs.size() == 1);
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+        if (static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup() &&
+            outputs[0]->channel() >= 16) {
+            auto conv2D  = op->main_as_Convolution2D();
+            auto pads = ConvolutionCommon::convolutionPadFull(inputs[0], outputs[0], conv2D->common());
+            TensorUtils::setTensorChannelPack(inputs[0], 16);
+            TensorUtils::setTensorPad(inputs[0], std::get<0>(pads), std::get<2>(pads), 0, 0);
+            return new DepthwiseConvSubgroupBufExecution(inputs, op, backend);
+        }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         return new DepthwiseConvBufExecution(inputs, op, backend);
     }
 };

@@ -34,6 +34,8 @@ Model Version: < 2.0.0
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
 - `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 low (2) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
 - `inputSize:str` 输入tensor的大小，输入格式为：`1x3x224x224`，可选，默认使用模型默认输入
+
+
 ### 默认输入与输出
 只支持单一输入、单一输出。输入为运行目录下的input_0.txt；输出为推理完成后的第一个输出tensor，转换为文本后，输出到output.txt中。
 ### 示例
@@ -67,13 +69,26 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 `./ModuleBasic.out model dir [runMask forwardType runLoops numberThread precision_memory cacheFile]`
 - `model:str` 模型文件路径
 - `dir:str` 输入输出信息文件夹，可使用 fastTestOnnx.py / fastTestTf.py / fastTestTflite.py 等脚本生成，参考模型转换的正确性校验部分。
-- `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt），2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），可选，默认为`0`
+- `runMask:int` 默认为 0 ，为一系列功能的开关，如需开启多个功能，可把对齐的 mask 值相加（不能叠加的情况另行说明），具体见下面的 runMask 参数解析
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `runLoops:int` 性能测试的循环次数，可选，默认为`0`即不做性能测试
 - `numberThread:int` GPU的线程数，可选，默认为`1`
 - `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
+
+
 ### 默认输出
 在当前目录 output 文件夹下，依次打印输出为 0.txt , 1.txt , 2.txt , etc
+
+### runMask 参数说明
+- 1 : 输出推理中间结果，每个算子的输入存到（Input_{op_name}.txt），输出存为（{op_name}.txt）， 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），不支持与 2 / 4 叠加
+- 2 : 打印推理中间结果的统计值（最大值/最小值/平均值），只支持浮点类型的统计，不支持与 1 / 4 叠加
+- 4 : 统计推理过程中各算子耗时，不支持与 1 / 2 叠加，仅在 runLoops 大于 0 时生效
+- 8 : shapeMutable 设为 false （默认为 true）
+- 16 : 适用于使用 GPU 的情况，由 MNN 优先选择 CPU 运行，并将 GPU 的 tuning 信息存到 cache 文件，所有算子 tuning 完成则启用 GPU
+- 32 : rearrange 设为 true ，降低模型加载后的内存大小，但会增加模型加载的初始化时间
+- 64 : 创建模型后，clone 出一个新的模型运行，用于测试 clone 功能（主要用于多并发推理）的正确性
+
+
 ### 示例
 ```bash
 $ python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx

@@ -23,14 +23,16 @@ static void _TileOrPackTensor(Tensor *input, Tensor *output, cl::Kernel& kernel,
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
 
     uint32_t index = 0;
-    kernel.setArg(index++, mGlobalWorkSize[0]);
-    kernel.setArg(index++, mGlobalWorkSize[1]);
-    kernel.setArg(index++, mGlobalWorkSize[2]);
-    kernel.setArg(index++, openCLBuffer(input));
-    kernel.setArg(index++, openCLBuffer(output));
-    kernel.setArg(index++, Width);
-    kernel.setArg(index++, Height);
-    kernel.setArg(index++, Channel);
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[2]);
+    ret |= kernel.setArg(index++, openCLBuffer(input));
+    ret |= kernel.setArg(index++, openCLBuffer(output));
+    ret |= kernel.setArg(index++, Width);
+    ret |= kernel.setArg(index++, Height);
+    ret |= kernel.setArg(index++, Channel);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBuf _TileOrPackTensor");
 
     std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, kernel).first;
 
@@ -128,23 +130,25 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(x * y), (uint32_t)(z), (uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
             } else {
-                unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
             }
         }
-        unit.kernel.setArg(index++, x);
-        unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
-        unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, x);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherBufExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 
@@ -265,28 +269,30 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(h), (uint32_t)(e),(uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[2].get()));
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[2].get()));
         if (mHasBias) {
-            unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[3].get()));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[3].get()));
         }
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
             } else {
-                unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
             }
         }
-        unit.kernel.setArg(index++, e);
-        unit.kernel.setArg(index++, l);
-        unit.kernel.setArg(index++, h);
-        unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);       
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);        
+        ret |= unit.kernel.setArg(index++, e);
+        ret |= unit.kernel.setArg(index++, l);
+        ret |= unit.kernel.setArg(index++, h);
+        ret |= unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBatchMatMulBufExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 
@@ -322,6 +328,12 @@ class LoopBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+         for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+         }
+         for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+         }
         auto loop = op->main_as_LoopParam();
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;

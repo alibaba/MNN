@@ -35,7 +35,9 @@ static PadMode _convertPadMode(PaddingMode mode) {
 }
 
 inline int8_t int32ToInt8(int data, int bias, float scale) {
-    float value = roundf((float)(data + bias) * scale);
+    float value = 0.f;
+    value = roundf((float)(data + bias) * scale);
+
     value       = std::max(value, -127.0f);
     value       = std::min(value, 127.0f);
     return static_cast<int8_t>(value);
@@ -87,11 +89,11 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
 
         std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);
         arg3->key = "NNZElement";
-        arg3->i = weightNNZElement;
+        arg3->i = static_cast<int32_t>(weightNNZElement);
 
         std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);
         arg4->key = "blockNumber";
-        arg4->i = weightBlockNumber;
+        arg4->i = static_cast<int32_t>(weightBlockNumber);
 
         flatbuffers::FlatBufferBuilder builder;
         std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
@@ -183,7 +185,7 @@ protected:
 
     bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8,
                     bool overflow = false, int group = 1, int batch = 1, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM,
-                    int sparseBlockOC = 1, bool debug = false) {
+                    int sparseBlockOC = 1, bool debug = false, bool speed = false) {
 
         std::vector<int> bias(channel[1]);
         std::vector<float> scale(channel[1]);
@@ -232,6 +234,10 @@ protected:
             y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), xC4,
                                channel, kernel, PaddingMode::CAFFE, strides, dilate, group, pad, false, 0, 0, -127, 127, false, sparseAlgo, sparseBlockOC);
         }
+        bool testDepthwise = false;
+        if (channel[0] == channel[1] && channel[0] == group) {
+            testDepthwise = true;
+        }
         y = _Int8ToFloat(y, _Scalar<float>(1.0f));
         y = _Cast<int8_t>(y);
         y = _Convert(y, NCHW);
@@ -246,7 +252,6 @@ protected:
             MNN_PRINT("\nreal output:");
             formatMatrix(yPtr, {yInfo->dim[0], yInfo->dim[1]/4, yInfo->dim[2], yInfo->dim[3], 4});
         }
-
         for (int i = 0; i < targetValues.size(); ++i) {
             int8_t targetValue = targetValues[i], computeResult = yPtr[i];
             // Because of round implement in ARM / X86 / PC may cause 1 / 0 / -1 diff, don't care about this error
@@ -260,6 +265,22 @@ protected:
 #endif
                 return false;
             }
+        }
+        if (speed) {
+            x.fix(VARP::INPUT);
+            // warm up, do onResize first for shapeDirty
+            x->writeMap<float>();
+            y->readMap<float>();
+            
+            MNN::Timer _t;
+            const int LOOP = 100;
+            for (int i = 0; i < LOOP; ++i) {
+                x->writeMap<float>();
+                y->readMap<float>();
+            }
+            auto time = (float)_t.durationInUs() / 1000.0f;
+            MNN_PRINT("DepthwiseConvInt8 Speed: input = (1x%dx%dx%d), kernel=(%dx%dx%d), avg time=%f\n",
+                      channel[0], ih, iw, channel[0], kernel[0], kernel[1], time);
         }
         return true;
     }
@@ -562,7 +583,7 @@ public:
                     y->readMap<float>();
                 }
                 auto time = (float)_t.durationInUs() / 1000.0f;
-                MNN_PRINT("ConvInt8 Winograd %s input=(1x%dx%dx%d) kernel=(%dx%dx%dx%d) avg time = %f\n",
+                MNN_PRINT("ConvInt8 Winograd %s input=(1x%dx%dx%d) kernel=(%dx%dx%dx%d) avg time = %.2f\n",
                           title.c_str(), ic, ih, iw, oc, ic, ky, kx, 1.0 * time / LOOP);
             }
         }
@@ -634,6 +655,7 @@ public:
         std::vector<std::string> titles = {
             "3x3"
         };
+        printf("Test strides=1\n");
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 8, false, channel, 4, MNN::SparseAlgo_RANDOM, 1, false);
             if (!res) {
@@ -643,6 +665,52 @@ public:
         }
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 3, true, channel, 1, MNN::SparseAlgo_RANDOM, 1, false);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        printf("strides=2\n");
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, {2, 2}, dilate, 8, true, channel, 1, MNN::SparseAlgo_RANDOM, 1, false);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+class DepthwiseConvSpeedInt8Test : public ConvInt8TestCommon {
+public:
+    virtual bool run(int precision) {
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {112, 144}; // {w, h}
+        int channel = 16;
+        std::vector<std::vector<int>> kernels = {
+            {3, 3}
+        };
+        std::vector<std::string> titles = {
+            "3x3"
+        };
+        printf("Depthwise Speed Test Strides=1.\n");
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 8, false, channel, 4, MNN::SparseAlgo_RANDOM, 1, false, true);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 3, true, channel, 1, MNN::SparseAlgo_RANDOM, 1, false, true);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        printf("Depthwise Speed Test Strides=2\n");
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, {2, 2}, dilate, 8, true, channel, 1, MNN::SparseAlgo_RANDOM, 1, false, true);
             if (!res) {
                 FUNC_PRINT(1);
                 return false;
@@ -658,3 +726,4 @@ MNNTestSuiteRegister(SparseConvInt8Im2colGemmTest, "op/ConvInt8/im2col_spmm");
 MNNTestSuiteRegister(ConvInt8WinogradTest, "op/ConvInt8/winograd");
 MNNTestSuiteRegister(ConvSpeedInt8WinogradTest, "speed/ConvInt8/winograd");
 MNNTestSuiteRegister(DepthwiseConvInt8Test, "op/ConvInt8/depthwise");
+MNNTestSuiteRegister(DepthwiseConvSpeedInt8Test, "speed/ConvInt8/depthwise");

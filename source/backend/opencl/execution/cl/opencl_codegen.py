@@ -66,6 +66,8 @@ def opencl_codegen():
     for file_name, file_source in items:
         if file_name[-4:] == "_buf":
             opencl_source_map += "#ifndef MNN_OPENCL_BUFFER_CLOSED\n"
+        if file_name[-13:] == "_subgroup_buf":
+            opencl_source_map += "#ifdef MNN_SUPPORT_INTEL_SUBGROUP\n"
         opencl_source_map += "{\n \""
         opencl_source_map += file_name
         opencl_source_map += "\", \n"
@@ -76,6 +78,8 @@ def opencl_codegen():
         opencl_source_map += " } "
         opencl_source_map += "\n }, \n"
         if file_name[-4:] == "_buf":
+            opencl_source_map += "#endif\n"
+        if file_name[-13:] == "_subgroup_buf":
             opencl_source_map += "#endif\n"
     opencl_source_map += " }; \n"
     opencl_source_map += "} \n"

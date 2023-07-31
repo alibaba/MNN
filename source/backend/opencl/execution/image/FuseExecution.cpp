@@ -56,16 +56,18 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     };
     
     uint32_t idx    = 0;
+    cl_int ret = CL_SUCCESS;
     for (auto input : inputs) {
-        mKernel.setArg(idx++, openCLImage(input));
+        ret |= mKernel.setArg(idx++, openCLImage(input));
     }
     for (auto output : outputs) {
-        mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, openCLImage(output));
     }
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg FuseExecution");
+
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);

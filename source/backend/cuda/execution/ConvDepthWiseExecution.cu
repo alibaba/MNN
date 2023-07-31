@@ -9,10 +9,10 @@ namespace MNN {
 namespace CUDA {
 
 template<typename T>
-__global__ void CONV_DW(const T* input, 
-    const half* kernel, 
-    const half* bias, 
-    T *output, 
+__global__ void CONV_DW(const T* input,
+    const half* kernel,
+    const half* bias,
+    T *output,
     const float maxV,
     const float minV,
     const int iw,
@@ -417,8 +417,6 @@ __global__ void CONV_DW_MULTI_WIDTH4(const T* input, const half* kernel, const h
     }
 }
 
-
-
 __global__ void CONV_DW_MULTI_WIDTH_CHANNEL(const float* input, const half* kernel, const half* bias, float *output,
     const float maxV,
     const float minV,
@@ -485,6 +483,155 @@ __global__ void CONV_DW_MULTI_WIDTH_CHANNEL(const float* input, const half* kern
         ((float2 *)(output + dst_offset))[0] = color0;
         ((float2 *)(output + dst_offset + c_p))[0] = color1;
     }
+}
+
+ErrorCode ConvDepthWiseCompute(Backend* bn,
+                               const int blockNum,
+                               const int threadNum,
+                               const void * inputAddr,
+                               const void * filterAddr,
+                               const void * biasAddr,
+                               void * outputAddr,
+                               const float maxV,
+                               const float minV,
+                               const int iw,
+                               const int ih,
+                               const int c,
+                               const int c_p,
+                               const int ow,
+                               const int oh,
+                               const int kw,
+                               const int kh,
+                               const int dw,
+                               const int dh,
+                               const int sw,
+                               const int sh,
+                               const int pw,
+                               const int ph,
+                               const int total,
+                               DivModFast d_oc,
+                               DivModFast d_ow,
+                               DivModFast d_oh) {
+
+    #ifdef ENABLE_CUDA_BF16
+    if (static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
+        if(kw==3 && kh==3 && sw==1 && sh==1 && pw==1 && ph==1 && ow % 2 ==0) {
+            DivModFast d_ow2(ow/2);
+            CONV_DW3x3_BF162_OPT<<<blockNum, threadNum>>>((const __nv_bfloat162*)inputAddr, (const __nv_bfloat162*)filterAddr,
+                (const __nv_bfloat162*)biasAddr, (__nv_bfloat162*)outputAddr,
+                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow2, d_oh);
+            checkKernelErrors;
+            return NO_ERROR;
+        }
+        if(dw == 1 && dh == 1) {
+            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0 && ow % 4 == 0) {
+                DivModFast d_oc(c * PACK_NUMBER);
+                DivModFast d_ow(ow/4);
+                CONV_DW_BF16_MULTI_WIDTH4<<<blockNum, threadNum>>>((const __nv_bfloat16*)inputAddr, (const __nv_bfloat16*)filterAddr,
+                    (const __nv_bfloat16*)biasAddr, (__nv_bfloat16*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            } else {
+                CONV_DW_BF162_OPT<<<blockNum, threadNum>>>((const __nv_bfloat162*)inputAddr, (const __nv_bfloat162*)filterAddr,
+                    (const __nv_bfloat162*)biasAddr, (__nv_bfloat162*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            }
+        } else {
+            CONV_DW_BF16<<<blockNum, threadNum>>>((const __nv_bfloat16*)inputAddr, (const __nv_bfloat16*)filterAddr,
+                (const __nv_bfloat16*)biasAddr, (__nv_bfloat16*)outputAddr,
+                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow, d_oh);
+            checkKernelErrors;
+        }
+        return NO_ERROR;
+
+    }
+    #endif
+
+    if (static_cast<CUDABackend*>(bn)->useFp16()) {
+        if(kw==3 && kh==3 && sw==1 && sh==1 && pw==1 && ph==1 && ow % 2 ==0) {
+            DivModFast d_ow2(ow/2);
+
+            CONV_DW3x3_HALF2_OPT<<<blockNum, threadNum>>>((const half2*)inputAddr, (const half2*)filterAddr,
+                (const half2*)biasAddr, (half2*)outputAddr,
+                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow2, d_oh);
+            checkKernelErrors;
+            return NO_ERROR;
+        }
+        if(dw == 1 && dh == 1) {
+            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0 && ow % 4 == 0) {
+                DivModFast d_oc(c * PACK_NUMBER);
+                DivModFast d_ow(ow/4);
+                CONV_DW_MULTI_WIDTH4<<<blockNum, threadNum>>>((const half*)inputAddr, (const half*)filterAddr,
+                    (const half*)biasAddr, (half*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            } else {
+                CONV_DW_HALF2_OPT<<<blockNum, threadNum>>>((const half2*)inputAddr, (const half2*)filterAddr,
+                    (const half2*)biasAddr, (half2*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                    d_oc, d_ow, d_oh);//_HALF_OPT
+                checkKernelErrors;
+            }
+        } else {
+            CONV_DW<<<blockNum, threadNum>>>((const half*)inputAddr, (const half*)filterAddr,
+                (const half*)biasAddr, (half*)outputAddr,
+                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow, d_oh);
+            checkKernelErrors;
+        }
+        return NO_ERROR;
+    }
+
+    if(dw == 1 && dh == 1) { 
+        if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0) {
+            
+            if(ow % 4 == 0) {
+                DivModFast d_oc(c * PACK_NUMBER);
+                DivModFast d_ow(ow/4);
+                CONV_DW_MULTI_WIDTH4<<<blockNum, threadNum>>>((const float*)inputAddr, (const half*)filterAddr,
+                    (const half*)biasAddr, (float*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            } else if(ow % 2 == 0) {
+                DivModFast d_oc(c * PACK_NUMBER / 2);
+                DivModFast d_ow(ow/2);
+                CONV_DW_MULTI_WIDTH_CHANNEL<<<blockNum, threadNum>>>((const float*)inputAddr, (const half*)filterAddr,
+                    (const half*)biasAddr, (float*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+            } else {
+                CONV_DW_OPT<<<blockNum, threadNum>>>((const float*)inputAddr, (const half*)filterAddr,
+                    (const half*)biasAddr, (float*)outputAddr,
+                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                    d_oc, d_ow, d_oh);
+                checkKernelErrors;
+    }
+        } else {
+            CONV_DW_OPT<<<blockNum, threadNum>>>((const float*)inputAddr, (const half*)filterAddr,
+                (const half*)biasAddr, (float*)outputAddr,
+                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+                d_oc, d_ow, d_oh);
+            checkKernelErrors;
+        }
+    } else {
+        CONV_DW<<<blockNum, threadNum>>>((const float*)inputAddr, (const half*)filterAddr,
+            (const half*)biasAddr, (float*)outputAddr,
+            maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
+            d_oc, d_ow, d_oh);
+        checkKernelErrors;
+    }
+
+    return NO_ERROR;
+
 }
 
 static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op* op, Backend* bn) {
@@ -613,8 +760,8 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
 ConvDepthWiseExecution::ConvDepthWiseExecution(const Op* op, Backend* bn, std::shared_ptr<Resource> resource) : Execution(bn) {
     mOp = op;
     mResource = resource;
-    auto pool = static_cast<CUDABackend*>(bn)->getStaticBufferPool();
 }
+
 ConvDepthWiseExecution::~ ConvDepthWiseExecution() {
     //
 }
@@ -663,12 +810,8 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     auto& prop = runtime->prop();
     int limitThreads = UP_DIV(mTotalCount, prop.multiProcessorCount);
-    int threads_num = ALIMIN(prop.maxThreadsPerBlock/2, limitThreads);
-    int block_num = prop.multiProcessorCount;
-
-    DivModFast d_oc(parameters.channel * PACK_NUMBER / 2);
-    DivModFast d_ow(parameters.outputSize[0]);
-    DivModFast d_oh(parameters.outputSize[1]);
+    int threadNum = ALIMIN(prop.maxThreadsPerBlock/2, limitThreads);
+    int blockNum = prop.multiProcessorCount;
 
     const float maxV = parameters.maxValue;
     const float minV = parameters.minValue;
@@ -688,127 +831,40 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     const int ph = parameters.pad[1];
     const int total = parameters.total;
 
-    #ifdef ENABLE_CUDA_BF16
-    if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
-        if(kw==3 && kh==3 && sw==1 && sh==1 && pw==1 && ph==1 && ow % 2 ==0) {
-            DivModFast d_ow2(ow/2);
-            CONV_DW3x3_BF162_OPT<<<block_num, threads_num>>>((const __nv_bfloat162*)inputs[0]->deviceId(), (const __nv_bfloat162*)mResource->mFilter,
-                (const __nv_bfloat162*)mResource->mBias, (__nv_bfloat162*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                d_oc, d_ow2, d_oh);
-            checkKernelErrors;
-            return NO_ERROR;
-        }
-        if(dw == 1 && dh == 1) {
-            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0 && ow % 4 == 0) {                
-                DivModFast d_oc(c * PACK_NUMBER);
-                DivModFast d_ow(ow/4);
-                CONV_DW_BF16_MULTI_WIDTH4<<<block_num, threads_num>>>((const __nv_bfloat16*)inputs[0]->deviceId(), (const __nv_bfloat16*)mResource->mFilter,
-                    (const __nv_bfloat16*)mResource->mBias, (__nv_bfloat16*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
-                    d_oc, d_ow, d_oh);
-                checkKernelErrors;
-            } else {
-                CONV_DW_BF162_OPT<<<block_num, threads_num>>>((const __nv_bfloat162*)inputs[0]->deviceId(), (const __nv_bfloat162*)mResource->mFilter,
-                    (const __nv_bfloat162*)mResource->mBias, (__nv_bfloat162*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                    d_oc, d_ow, d_oh);
-                checkKernelErrors;
-            }
-        } else {
-            CONV_DW_BF16<<<block_num, threads_num>>>((const __nv_bfloat16*)inputs[0]->deviceId(), (const __nv_bfloat16*)mResource->mFilter,
-                (const __nv_bfloat16*)mResource->mBias, (__nv_bfloat16*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                d_oc, d_ow, d_oh);
-            checkKernelErrors;
-        }
-        return NO_ERROR;
+    DivModFast d_oc(parameters.channel * PACK_NUMBER / 2);
+    DivModFast d_ow(parameters.outputSize[0]);
+    DivModFast d_oh(parameters.outputSize[1]);
 
-    }
-    #endif
+    ErrorCode res = ConvDepthWiseCompute(backend(),
+                                         blockNum,
+                                         threadNum,
+                                         (const void *)inputs[0]->deviceId(),
+                                         mResource->mFilter,
+                                         mResource->mBias,
+                                         (void *)outputs[0]->deviceId(),
+                                         maxV,
+                                         minV,
+                                         iw,
+                                         ih,
+                                         c,
+                                         c_p,
+                                         ow,
+                                         oh,
+                                         kw,
+                                         kh,
+                                         dw,
+                                         dh,
+                                         sw,
+                                         sh,
+                                         pw,
+                                         ph,
+                                         total,
+                                         d_oc,
+                                         d_ow,
+                                         d_oh);
 
-    if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        if(parameters.kernelSize[0]==3 && parameters.kernelSize[1]==3 && parameters.stride[0]==1 && parameters.stride[1]==1 && parameters.pad[0]==1 && parameters.pad[1]==1 && parameters.outputSize[0] % 2 ==0) {
-            DivModFast d_ow2(parameters.outputSize[0]/2);
+    return res;
 
-            CONV_DW3x3_HALF2_OPT<<<block_num, threads_num>>>((const half2*)inputs[0]->deviceId(), (const half2*)mResource->mFilter,
-                (const half2*)mResource->mBias, (half2*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                d_oc, d_ow2, d_oh);
-            checkKernelErrors;
-            return NO_ERROR;
-        }
-        if(parameters.dilate[0] == 1 && parameters.dilate[1] == 1) {
-            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0 && ow % 4 == 0) {                
-                DivModFast d_oc(parameters.channel * PACK_NUMBER);
-                DivModFast d_ow(ow/4);
-                CONV_DW_MULTI_WIDTH4<<<block_num, threads_num>>>((const half*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                    (const half*)mResource->mBias, (half*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
-                    d_oc, d_ow, d_oh);
-                checkKernelErrors;
-            } else {
-                CONV_DW_HALF2_OPT<<<block_num, threads_num>>>((const half2*)inputs[0]->deviceId(), (const half2*)mResource->mFilter,
-                    (const half2*)mResource->mBias, (half2*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p / 2, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                    d_oc, d_ow, d_oh);//_HALF_OPT
-                checkKernelErrors;
-            }
-        } else {
-            CONV_DW<<<block_num, threads_num>>>((const half*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                (const half*)mResource->mBias, (half*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                d_oc, d_ow, d_oh);
-            checkKernelErrors;
-        }
-        return NO_ERROR;
-    }
-
-    if (inputs.size() == 1) {
-        // block_num = runtime->blocks_num(mTotalCount);
-        // threads_num = runtime->threads_num();
-        if(parameters.dilate[0] == 1 && parameters.dilate[1] == 1) { 
-            if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0) {
-                
-                if(ow % 4 == 0) {
-                    DivModFast d_oc(parameters.channel * PACK_NUMBER);
-                    DivModFast d_ow(ow/4);
-                    CONV_DW_MULTI_WIDTH4<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                        (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
-                        maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
-                        d_oc, d_ow, d_oh);
-                    checkKernelErrors;
-                } else if(ow % 2 == 0) {
-                    DivModFast d_oc(parameters.channel * PACK_NUMBER / 2);
-                    DivModFast d_ow(ow/2);
-                    CONV_DW_MULTI_WIDTH_CHANNEL<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                        (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
-                        maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, total,
-                        d_oc, d_ow, d_oh);
-                    checkKernelErrors;
-                } else {
-                    CONV_DW_OPT<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                        (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
-                        maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                        d_oc, d_ow, d_oh);
-                    checkKernelErrors;
-		}
-            } else {
-                CONV_DW_OPT<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                    (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
-                    maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                    d_oc, d_ow, d_oh);
-                checkKernelErrors;
-            }
-        } else {
-            CONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const half*)mResource->mFilter,
-                (const half*)mResource->mBias, (float*)outputs[0]->deviceId(),
-                maxV, minV, iw, ih, c, c_p, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
-                d_oc, d_ow, d_oh);
-            checkKernelErrors;
-        }
-    }
-    return NO_ERROR;
 }
 
 class ConvDepthWiseExecutionCreator : public CUDABackend::Creator {
@@ -816,7 +872,7 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         if (inputs.size() > 1) {
-            return nullptr;
+            return new MultiInputConvDepthWiseExecution(op, backend);
         }
         auto res = _makeResource(op, backend);
         if (nullptr == res) {

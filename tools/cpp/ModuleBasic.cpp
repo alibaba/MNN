@@ -17,7 +17,6 @@
 #include <fstream>
 #include <sstream>
 #include <numeric>
-#include <cmath>
 #include "ExprDebug.hpp"
 
 using namespace MNN::Express;
@@ -107,6 +106,9 @@ int main(int argc, char *argv[]) {
         runMask = atoi(argv[3]);
         if (runMask & 1) {
             _initDebug();
+        }
+        if (runMask & 2) {
+            _initTensorStatic();
         }
     }
     int repeatNumber = 1;
@@ -208,7 +210,11 @@ int main(int argc, char *argv[]) {
         // Need dump tensor, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
-    if (runMask & 128) {
+    if (runMask & 2) {
+        // Need tensor static for each op, open debug
+        rtmgr->setMode(Interpreter::Session_Debug);
+    }
+    if (runMask & 4) {
         // Need time trace for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
@@ -357,7 +363,7 @@ int main(int argc, char *argv[]) {
     if (runTime > 0) {
         int t = runTime;
         std::vector<float> times(t, 0.0f);
-        if (runMask & 128) {
+        if (runMask & 4) {
             _initTimeTrace();
         }
         for (int i = 0; i < t; ++i) {

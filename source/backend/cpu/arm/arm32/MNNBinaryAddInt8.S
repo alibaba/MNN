@@ -6,6 +6,17 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+/*
+struct QuanPrePostParameters{
+    float* inputScale;
+    float* outputScale;
+    ssize_t* inputZeroPoint;
+    ssize_t* outputZeroPoint;
+    ssize_t minValue;
+    ssize_t maxValue;
+};
+ */
+
 #ifdef __arm__
 #ifndef __aarch64__
 
@@ -15,22 +26,18 @@
 .align 5
 
 asm_function MNNBinaryAddInt8
-// MNNBinaryAddInt8(int8_t* dst, const int8_t* src0, const int8_t* src1, ssize_t* quantScalesInt32, 
-// float* quantScalesFp32, const int8_t* inputOffset0, const int8_t* inputOffset1, const int8_t* outputOffset,,
-//  const size_t size, size_t needBroadcast)
+// MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, 
+// float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast);
 // Auto load:
 // r0: dst, r1:src0, r2:src1, r3:quantScalesInt32
 // Load from sp:
-// r4:quantScalesFp32, r5: offset0, r6: offset1, r7: outputoffset
-// r8: size, r9: needBroadcast
-push {r4, r5, r6, r7, r8, r9, lr}
+// r4:quantScalesFp32, r5: params, r6: size, r7: needBroadcast
+push {r4-r8, r10, r11, lr}
 
-ldr r4, [sp, #28]
-ldr r5, [sp, #32]
-ldr r6, [sp, #36]
-ldr r7, [sp, #40]
-ldr r8, [sp, #44]
-ldr r9, [sp, #48]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
 
 vpush {q4-q7}
 
@@ -39,21 +46,26 @@ vdup.s32 q13, r12     // scale
 ldr r4, [r3, #4]
 vdup.s32 q14, r4
 
-vld1.8 {d0[0]}, [r5]
-vld1.8 {d1[0]}, [r6]
-vld1.8 {d4[0]}, [r7]
-vdup.8 d0, d0[0] 
-vdup.8 d1, d1[0] 
-vdup.8 d4, d4[0] 
+ldr lr, [r5, #8]
+ldr r8, [lr, #0]
+ldr r10,[lr, #4]
+ldr r3, [r5, #16] // minValue
+ldr r11, [r5, #20] // maxValue
+ldr r5, [r5, #12]
+ldr r5, [r5, #0]
+
+vdup.s8 d0, r8
+vdup.s8 d1, r10
+vdup.s8 d4, r5
 
 L4:
-cmp r8, #4
+cmp r6, #4
 blt L1
 
 L4Loop:
-    cmp r9, #0
+    cmp r7, #0
     beq L4NeedBroadcast0
-    cmp r9, #1
+    cmp r7, #1
     beq L4NeedBroadcast1
 
     L4NotNeedBroadcast:
@@ -62,19 +74,19 @@ L4Loop:
     b L4Compute
 
     L4NeedBroadcast0:
-    ldr r4, [r1]
-    vdup.s8 q11, r4
+    vld1.8 {d22[0]}, [r1]
+    vdup.s8 q11, d22[0]
     vld1.32 {q12}, [r2]!
     b L4Compute
 
     L4NeedBroadcast1:
     vld1.32 {q11}, [r1]!
-    ldr r4, [r2]
-    vdup.s8 q12, r4
+    vld1.8 {d24[0]}, [r2]
+    vdup.s8 q12, d24[0]
     b L4Compute
 
     L4Compute:
-    sub r8, r8, #4
+    sub r6, r6, #4
     vmovl.s8 q4, d22
     vmovl.s8 q5, d23
     vmovl.s8 q6, d24
@@ -110,6 +122,9 @@ L4Loop:
     vaddq.s32 q10, q10, q15
     vaddq.s32 q11, q11, q4
 
+    vdup.8 q12, r3
+    vdup.8 q15, r11
+
     vqshrn.s32 d6, q8, #16
     vqshrn.s32 d7, q9, #16
     vqshrn.s32 d8, q10, #16
@@ -120,18 +135,21 @@ L4Loop:
     
     vqmovn.s16 d12, q3
     vqmovn.s16 d13, q4
-    cmp r8, #4
+    vmax.s8 q6, q6, q12
+    vmin.s8 q6, q6, q15
+    cmp r6, #4
     vst1.32 {q6}, [r0]!
     bge L4Loop
 
 L1:
-cmp r8, #0
+cmp r6, #0
 beq End
-
+vdup.8 d20, r3
+vdup.8 d22, r11
 L1Loop:
-    cmp r9, #0
+    cmp r7, #0
     beq L1NeedBroadcast0
-    cmp r9, #1
+    cmp r7, #1
     beq L1NeedBroadcast1
 
     L1NotNeedBroadcast:
@@ -140,19 +158,19 @@ L1Loop:
     b L1Compute
 
     L1NeedBroadcast0:
-    ldr r4, [r1]
-    vdup.s8 d6, r4
+    vld1.8 {d6[0]}, [r1]
+    vdup.s8 d6, d6[0]
     vld1.32 {d8[0]}, [r2]!
     b L1Compute
 
     L1NeedBroadcast1:
     vld1.32 {d6[0]}, [r1]!
-    ldr r4, [r2]
-    vdup.s8 d8, r4
+    vld1.8 {d8[0]}, [r2]
+    vdup.s8 d8, d8[0]
     b L1Compute
 
     L1Compute:
-    subs r8, r8, #1
+    subs r6, r6, #1
     vmovl.s8 q3, d6
     vsubw.s8 q3, q3, d0
     vmovl.s16 q3, d6
@@ -167,11 +185,13 @@ L1Loop:
     vqshrn.s32 d6, q3, #16
     vaddw.s8 q3, q3, d4
     vqmovn.s16 d6, q3
+    vmax.s8 d6, d6, d20
+    vmin.s8 d6, d6, d22
     vst1.32 {d6[0]}, [r0]!
     bne L1Loop
 End:
 vpop {q4-q7}
-pop {r4, r5, r6, r7, r8, r9, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

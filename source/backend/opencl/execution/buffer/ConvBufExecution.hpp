@@ -46,7 +46,6 @@ public:
     void setConv1x1WeightBuffer(int packCout, int packCin, const float* filterDataPtr);
 private:
     void _generateFilterConvertRegion(Tensor *virtualFilter, Tensor *originBuffer) const;
-    void transformWeight(const Tensor *weightDest, const Tensor *source);
 
     const Convolution2DCommon *mConv2dCommonParams;
     const Convolution2D *mConv2dParams;
@@ -61,13 +60,8 @@ private:
     bool mIsTurn = false;
     bool mConv1x1Opt{false};
     bool mUseLocalMem{false};
-    bool mUseSubgroup{false};
     std::shared_ptr<cl::Buffer> mKernelBuffer;
     std::shared_ptr<cl::Buffer> mBiasBuffer;
-    std::shared_ptr<Tensor> mSource;
-    cl::Kernel mKernelSub[2];
-    std::vector<uint32_t> mGlobalWorkSizeSub[2];
-    std::vector<uint32_t> mLocalWorkSizeSub[2];
     int mKernelWidth;
     int mKernelHeight;
     int mOutputChannel;

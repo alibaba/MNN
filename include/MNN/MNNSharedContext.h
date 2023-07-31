@@ -45,7 +45,12 @@ MNN_PUBLIC int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* te
 #ifdef MNN_USER_SET_DEVICE
 
 struct MNNDeviceContext {
-    uint32_t deviceId;
+    // When one gpu card has multi devices, choose which device. set deviceId
+    uint32_t deviceId = 0;
+    // When has multi gpu cards, choose which card. set platformId
+    uint32_t platformId = 0;
+    // User set number of gpu cards
+    uint32_t platformSize = 0;
 };
 
 #endif

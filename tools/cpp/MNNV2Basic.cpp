@@ -170,7 +170,7 @@ static inline int64_t getTimeInUs() {
 static int test_main(int argc, const char* argv[]) {
     if (argc < 2) {
         MNN_PRINT("========================================================================\n");
-        MNN_PRINT("Arguments: model.MNN runLoops runMask forwardType numberThread inputSize precision\n");
+        MNN_PRINT("Arguments: model.MNN runLoops runMask forwardType numberThread precision inputSize \n");
         MNN_PRINT("========================================================================\n");
         return -1;
     }

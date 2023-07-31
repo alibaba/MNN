@@ -29,38 +29,31 @@ bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const c
     return (pos != std::string::npos);
 }
 
-OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int deviceId) {
+OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
 #endif
     mDefaultBuildParams = " -cl-mad-enable";
     std::vector<cl::Platform> platforms;
-    cl_int res = cl::Platform::get(&platforms);
+    cl_int res = cl::Platform::get(&platforms, platformSize);
     MNN_CHECK_CL_SUCCESS(res, "getPlatform");
-    if(platforms.size() > 0 && res == CL_SUCCESS){
-        std::vector<cl::Device> gpuDevices;
-	if (deviceId == 0) {
-            cl::Platform::setDefault(platforms[0]);
-            res = platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
-            mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[0]);
-        } else {
-            int device_cur_id = 0;
-            for (int i = 0; i < platforms.size() && device_cur_id <= deviceId; ++i) {
-                cl::Platform::setDefault(platforms[i]);
-                res = platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
-                for (int j = 0; j < gpuDevices.size() && res == CL_SUCCESS; ++j) {
-                    if (device_cur_id == deviceId) {
-                        mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[j]);
-                        device_cur_id++;
-                        break;
-                    } else {
-                        device_cur_id++;
-                    }
-                }
-            }
+    if(platforms.size() > 0 && res == CL_SUCCESS) {
+        if(platformId >= platforms.size() || platformId < 0) {
+            platformId = 0;
         }
+        cl::Platform::setDefault(platforms[platformId]);
+        std::vector<cl::Device> gpuDevices;
 
-        if (mFirstGPUDevicePtr != nullptr && res == CL_SUCCESS) {
+        res = platforms[platformId].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+        if(1 <= gpuDevices.size() && res == CL_SUCCESS) {
+            if(deviceId >= gpuDevices.size() || deviceId < 0) {
+                deviceId = 0;
+            }
+            mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[deviceId]);
+            if(mFirstGPUDevicePtr == nullptr) {
+                mIsCreateError = true;
+                return;
+            }
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             mDeviceName = deviceName;
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
@@ -138,8 +131,10 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 // Radeon series GPU is main product of Advanced Micro Devices (AMD)
                 mGpuType = RADEON;
                 isSetWorkGroupAttribute = true;
-            } else if (deviceVendor.find("Intel") != std::string::npos) {
+            } 
+            else if (deviceVendor.find("Intel") != std::string::npos) {
                 mGpuType = INTEL;
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
                 const std::string extensions = mFirstGPUDevicePtr->getInfo<CL_DEVICE_EXTENSIONS>();
                 if (extensions.find("cl_intel_subgroups") != std::string::npos) {
                     mSupportedIntelSubgroup = true;
@@ -149,6 +144,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     mMaxThreadsPerDevice =  maxThreadsPerExecutionUnit * execution_units_count;
                     mMaxWorkGroupSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
                 }
+#endif 
             }
             else {
                 mGpuType = OTHER;

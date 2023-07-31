@@ -2213,9 +2213,13 @@ private:
         {
             // If default wasn't passed ,generate one
             // Otherwise set it
-            cl_uint n = 0;
-
-            cl_int err = ::clGetPlatformIDs(0, NULL, &n);
+            // Default only check first card info
+            cl_uint n = 1;
+            cl_int err = CL_SUCCESS;
+            
+            // Ignore platform number acquire
+            #if 0
+            err = ::clGetPlatformIDs(0, NULL, &n);
             if (err != CL_SUCCESS) {
                 default_error_ = err;
                 return;
@@ -2224,7 +2228,7 @@ private:
                 default_error_ = CL_INVALID_PLATFORM;
                 return;
             }
-
+            #endif
             vector<cl_platform_id> ids(n);
             err = ::clGetPlatformIDs(n, ids.data(), NULL);
             if (err != CL_SUCCESS) {
@@ -2466,15 +2470,17 @@ public:
      *  Wraps clGetPlatformIDs().
      */
     static cl_int get(
-        vector<Platform>* platforms)
+        vector<Platform>* platforms, int platformSize = 0)
     {
-        cl_uint n = 0;
+        cl_uint n = platformSize;
 
         if( platforms == NULL ) {
             return detail::errHandler(CL_INVALID_ARG_VALUE, __GET_PLATFORM_IDS_ERR);
         }
-
-        cl_int err = ::clGetPlatformIDs(0, NULL, &n);
+        cl_int err = CL_SUCCESS;
+        if(n == 0) {
+            err = ::clGetPlatformIDs(0, NULL, &n);
+        }
         if (err != CL_SUCCESS) {
             return detail::errHandler(err, __GET_PLATFORM_IDS_ERR);
         }
@@ -2486,40 +2492,57 @@ public:
         }
 
         // more than one gpu card
+        #if defined(_WIN32) || defined(__linux__) // Windows or Linux
         if (n > 1) {
-            // first select nvidia gpu as discrete card, if multi gpu cards are available, x86_64 platform
+            // first select nvidia gpu as discrete card
             //const char* integrate_gpu = "Intel";
-            const char* discrete_gpu = "NVIDIA";
+            const char* discrete_gpu_0 = "NVIDIA";
+            bool hasFirstPriority = false;
             for (cl_uint i = 0; i < n; ++i) {
-                // get the length of platform name
-                size_t platform_name_length = 0;
-                err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, 0, 0, &platform_name_length);
+                vector<char> platform_name(10240);
+                err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, 10240, platform_name.data(), 0);
                 if (err != CL_SUCCESS) {
-                    return detail::errHandler(err, __GET_PLATFORM_INFO_ERR);
-                }
-                // get platform name
-                char* platform_name = new char[platform_name_length];
-                err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, platform_name_length, platform_name, 0);
-                if (err != CL_SUCCESS) {
-                    delete[] platform_name;
                     return detail::errHandler(err, __GET_PLATFORM_INFO_ERR);
                 }
                 // if nvidia card is detected, set it as default ids[0]
-                if (strstr(platform_name, discrete_gpu)) {
+                if (strstr(platform_name.data(), discrete_gpu_0)) {
+                    hasFirstPriority = true;
                     if (i == 0) {
-                        delete[] platform_name;
                         break;
                     }
                     // swap 
                     cl_platform_id tmp = ids[0];
                     ids[0] = ids[i];
                     ids[i] = tmp;
-                    delete[] platform_name;
                     break;
                 }
-                delete[] platform_name;
+            }
+            
+            // second select amd gpu as discrete card
+            if(!hasFirstPriority) {
+                const char* discrete_gpu_1 = "AMD";
+                for (cl_uint i = 0; i < n; ++i) {
+                    vector<char> platform_name(10240);
+                    err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, 10240, platform_name.data(), 0);
+                    if (err != CL_SUCCESS) {
+                        return detail::errHandler(err, __GET_PLATFORM_INFO_ERR);
+                    }
+                    // if amd card is detected, set it as default ids[0]
+                    if (strstr(platform_name.data(), discrete_gpu_1)) {
+                        hasFirstPriority = true;
+                        if (i == 0) {
+                            break;
+                        }
+                        // swap
+                        cl_platform_id tmp = ids[0];
+                        ids[0] = ids[i];
+                        ids[i] = tmp;
+                        break;
+                    }
+                }
             }
         }
+        #endif
      
         if (platforms) {
             platforms->resize(ids.size());

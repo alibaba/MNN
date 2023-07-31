@@ -26,8 +26,13 @@ __kernel void interp(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_onl
 
     const float scale_height = output_height_idx * height_scale + height_offset;
     const float scale_width  = output_width_block_idx * width_scale + width_offset;
-    const int height_lf      = max(0, (int)floor(scale_height));
-    const int width_lf       = max(0, (int)floor(scale_width));
+#ifdef USE_ROUND
+    const int height_lf      = min(max(0, (int)floor(scale_height + 0.499f)), input_height - 1);
+    const int width_lf       = min(max(0, (int)floor(scale_width + 0.499f)), input_width - 1);
+#else
+    const int height_lf      = min(max(0, (int)floor(scale_height)), input_height - 1);
+    const int width_lf       = min(max(0, (int)floor(scale_width)), input_width - 1);
+#endif
 
     const int input_width_offset  = mul24(output_channel_block_idx, input_width);
     const int input_height_offset = mul24(output_batch_idx, input_height);

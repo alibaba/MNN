@@ -13,6 +13,7 @@
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
 #include "VulkanTensor.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class VulkanImageConverter;
@@ -92,7 +93,7 @@ private:
     mutable std::shared_ptr<VulkanFence> mFence;
 
 
-    mutable std::map<std::tuple<const Tensor*, bool, MNN_DATA_FORMAT>,
+    mutable std::map<std::tuple<const Tensor::InsideDescribe::NativeInsideDescribe*, bool, MNN_DATA_FORMAT>,
                      std::pair<std::shared_ptr<VulkanImageConverter>, std::shared_ptr<VulkanCommandPool::Buffer>>>
         mConverters;
 

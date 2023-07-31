@@ -249,35 +249,37 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     mLWS_M.resize(total_num);
 
     for (int b = 0; b < input->batch(); ++b) {
-        mSourceTransform[b].setArg(0, openCLImage(input));
-        mSourceTransform[b].setArg(1, openCLImage(mSource.get()));
-        mSourceTransform[b].setArg(2, wUnit);
-        mSourceTransform[b].setArg(3, hUnit);
-        mSourceTransform[b].setArg(4, padX);
-        mSourceTransform[b].setArg(5, padY);
-        mSourceTransform[b].setArg(6, input->width());
-        mSourceTransform[b].setArg(7, input->height());
-        mSourceTransform[b].setArg(8, icC4);
-        mSourceTransform[b].setArg(9, b);
+        cl_int ret = CL_SUCCESS;
+        ret |= mSourceTransform[b].setArg(0, openCLImage(input));
+        ret |= mSourceTransform[b].setArg(1, openCLImage(mSource.get()));
+        ret |= mSourceTransform[b].setArg(2, wUnit);
+        ret |= mSourceTransform[b].setArg(3, hUnit);
+        ret |= mSourceTransform[b].setArg(4, padX);
+        ret |= mSourceTransform[b].setArg(5, padY);
+        ret |= mSourceTransform[b].setArg(6, input->width());
+        ret |= mSourceTransform[b].setArg(7, input->height());
+        ret |= mSourceTransform[b].setArg(8, icC4);
+        ret |= mSourceTransform[b].setArg(9, b);
 
-        mMatMul[b].setArg(0, openCLImage(mSource.get()));
-        mMatMul[b].setArg(1, *mWeight);
-        mMatMul[b].setArg(2, openCLImage(mDest.get()));
-        mMatMul[b].setArg(3, wUnit);
-        mMatMul[b].setArg(4, hUnit);
-        mMatMul[b].setArg(5, ocC4);
-        mMatMul[b].setArg(6, icC4);
-        mMatMul[b].setArg(7, alpha*alpha);
+        ret |= mMatMul[b].setArg(0, openCLImage(mSource.get()));
+        ret |= mMatMul[b].setArg(1, *mWeight);
+        ret |= mMatMul[b].setArg(2, openCLImage(mDest.get()));
+        ret |= mMatMul[b].setArg(3, wUnit);
+        ret |= mMatMul[b].setArg(4, hUnit);
+        ret |= mMatMul[b].setArg(5, ocC4);
+        ret |= mMatMul[b].setArg(6, icC4);
+        ret |= mMatMul[b].setArg(7, alpha*alpha);
 
-        mDestTransform[b].setArg(0, openCLImage(mDest.get()));
-        mDestTransform[b].setArg(1, *mBias);
-        mDestTransform[b].setArg(2, openCLImage(output));
-        mDestTransform[b].setArg(3, wUnit);
-        mDestTransform[b].setArg(4, hUnit);
-        mDestTransform[b].setArg(5, output->width());
-        mDestTransform[b].setArg(6, output->height());
-        mDestTransform[b].setArg(7, ocC4);
-        mDestTransform[b].setArg(8, b);
+        ret |= mDestTransform[b].setArg(0, openCLImage(mDest.get()));
+        ret |= mDestTransform[b].setArg(1, *mBias);
+        ret |= mDestTransform[b].setArg(2, openCLImage(output));
+        ret |= mDestTransform[b].setArg(3, wUnit);
+        ret |= mDestTransform[b].setArg(4, hUnit);
+        ret |= mDestTransform[b].setArg(5, output->width());
+        ret |= mDestTransform[b].setArg(6, output->height());
+        ret |= mDestTransform[b].setArg(7, ocC4);
+        ret |= mDestTransform[b].setArg(8, b);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution");
 
         /*Source Transform*/
         {

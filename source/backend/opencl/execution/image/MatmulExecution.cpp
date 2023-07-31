@@ -57,19 +57,22 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         const int heightblocks        = UP_DIV(height, 4);
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(heightblocks)};
-            int idx            = 0;
-            mKernel.setArg(idx++, mGlobalWorkSize[0]);
-            mKernel.setArg(idx++, mGlobalWorkSize[1]);
-            mKernel.setArg(idx++, openCLImage(input0));
-            mKernel.setArg(idx++, openCLImage(input1));
-            if(inputs.size() > 2) {
-                mKernel.setArg(idx++, openCLImage(inputs[2]));
-            }
-            mKernel.setArg(idx++, openCLImage(output));
-            mKernel.setArg(idx++, static_cast<int>(outputChannel));
-            mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
-            mKernel.setArg(idx++, static_cast<int>(height));
-            mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
+        cl_int ret = CL_SUCCESS;
+        int idx            = 0;
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLImage(input0));
+        ret |= mKernel.setArg(idx++, openCLImage(input1));
+        if(inputs.size() > 2) {
+            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
+        }
+        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= mKernel.setArg(idx++, static_cast<int>(height));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
+
+        mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
     else {
         const int height        = input0Shape.at(0);
@@ -80,16 +83,20 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(height)};
         int idx            = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, openCLImage(input0));
-        mKernel.setArg(idx++, openCLImage(input1));
+        cl_int ret = CL_SUCCESS;
+
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLImage(input0));
+        ret |= mKernel.setArg(idx++, openCLImage(input1));
         if(inputs.size() > 2) {
-            mKernel.setArg(idx++, openCLImage(inputs[2]));
+            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
         }
-        mKernel.setArg(idx++, openCLImage(output));
-        mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
+
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
 

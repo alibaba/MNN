@@ -65,18 +65,20 @@ ErrorCode GridSampleExecution::onResize(const std::vector<Tensor *> &inputs, con
     MNN_ASSERT(outW > 0 && outH > 0);
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLImage(inputTensor));
-    mKernel.setArg(idx++, openCLImage(gridTensor));
-    mKernel.setArg(idx++, openCLImage(outputTensor));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inH));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inW));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outH));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outW));
-    mKernel.setArg(idx++, mPaddingMode);
-    mKernel.setArg(idx++, mAlignCorners);
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(inputTensor));
+    ret |= mKernel.setArg(idx++, openCLImage(gridTensor));
+    ret |= mKernel.setArg(idx++, openCLImage(outputTensor));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inH));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inW));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outH));
+    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outW));
+    ret |= mKernel.setArg(idx++, mPaddingMode);
+    ret |= mKernel.setArg(idx++, mAlignCorners);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleExecution");
 
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());

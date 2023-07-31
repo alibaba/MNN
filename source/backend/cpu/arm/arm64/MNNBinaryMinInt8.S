@@ -5,6 +5,17 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+/*
+struct QuanPrePostParameters{
+    float* inputScale;
+    float* outputScale;
+    ssize_t* inputZeroPoint;
+    ssize_t* outputZeroPoint;
+    ssize_t minValue;
+    ssize_t maxValue;
+};
+ */
+
 #ifdef __aarch64__
 #include "MNNAsmGlobal.h"
 
@@ -12,23 +23,17 @@
 .align 5
 
 asm_function MNNBinaryMinInt8
-// MNNBinaryMinInt8(int8_t* dst, const int8_t* src0, const int8_t* src1, ssize_t* quantScalesInt32, 
-// float* quantScalesFp32, const int8_t* inputOffset0, const int8_t* inputOffset1, const int8_t* outputOffset,,
-//  const size_t size, size_t needBroadcast)
+// MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, 
+// float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast);
 // Auto load:
-// x0: dst, x1:src0, x2:src1, x3:quantScalesInt32, x4:quantScalesFp32, x5: offset0, x6: offset1, x7: outputoffset
-// Load from sp:
-//x8: size, x9: needBroadcast
-
-ldr x8, [sp, #0]
-ldr x9, [sp, #8]
-
+// x0: dst, x1:src0, x2:src1, x3:inputScalesInt32, x4:inputScalesFp32, x5: params, x6: size, x7: needBroadcast
+// w8: inputZeroPoint0, w9: inputZeroPoint1, w10: outputZeroPoint
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
-cmp x8, #0
+cmp x6, #0
 beq End
 
 ldr w4, [x3, #8]
@@ -36,16 +41,24 @@ ldr w3, [x3]
 mov v0.s[0], w3
 mov v0.s[1], w4
 
-cmp x8, #8
+ldr x8, [x5, #16]
+ldr x9, [x8, #8]   // input1 zeroPoint
+ldr x8, [x8, #0]   // input0 zeroPoint
+ldr x10, [x5, #24]
+ldr x10, [x10]     // output zeroPoint
+ldr x11, [x5, #32] // w11:minValue
+ldr x12, [x5, #40] // w12:maxValue
+
+cmp x6, #8
 bge L8Loop
-cmp x8, #4
-bge L4Loop
+cmp x6, #4
+bge L4
 blt L1
 
 L8Loop:
-    cmp x9, #0
+    cmp x7, #0
     beq L8NeedBroadcast0
-    cmp x9, #1
+    cmp x7, #1
     beq L8NeedBroadcast1
 
     L8NotNeedBroadcast:
@@ -77,14 +90,18 @@ L8Loop:
     sxtl2 v14.8h, v6.16b
     
     INPUT0_SUB_ZERO:
-    ld1r {v2.8b}, [x5]
+    cmp w8, #0
+    beq INPUT1_SUB_ZERO
+    dup v2.8b, w8
     ssubw v7.8h, v7.8h, v2.8b
     ssubw v8.8h, v8.8h, v2.8b
     ssubw v9.8h, v9.8h, v2.8b
     ssubw v10.8h, v10.8h, v2.8b
 
     INPUT1_SUB_ZERO:
-    ld1r {v1.8b}, [x6]
+    cmp w9, #0
+    beq L8SXTL_S32
+    dup v1.8b, w9
     ssubw v11.8h, v11.8h, v1.8b
     ssubw v12.8h, v12.8h, v1.8b
     ssubw v13.8h, v13.8h, v1.8b
@@ -127,6 +144,8 @@ L8Loop:
     mul v28.4s, v28.4s, v0.s[1]
     mul v29.4s, v29.4s, v0.s[1]
     mul v30.4s, v30.4s, v0.s[1]
+    dup v11.16b, w11
+    dup v12.16b, w12
 
     smin v15.4s, v15.4s, v23.4s
     smin v16.4s, v16.4s, v24.4s 
@@ -146,7 +165,9 @@ L8Loop:
     sqrshrn  v4.4h, v21.4s, #16
     sqrshrn2 v4.8h, v22.4s, #16
 
-    ld1r {v14.8b}, [x7]
+    cmp w10, #0
+    beq SQXTN_S8
+    dup v14.8b, w10
     saddw v1.8h, v1.8h, v14.8b
     saddw v2.8h, v2.8h, v14.8b
     saddw v3.8h, v3.8h, v14.8b
@@ -158,20 +179,26 @@ L8Loop:
     sqxtn v6.8b, v3.8h
     sqxtn2 v6.16b, v4.8h
 
+    smax v5.16b, v5.16b, v11.16b
+    smax v6.16b, v6.16b, v11.16b
+    smin v5.16b, v5.16b, v12.16b
+    smin v6.16b, v6.16b, v12.16b
+
     st1 {v5.16b, v6.16b}, [x0], #32
 
-    sub x8, x8, #8
-    cmp x8, #8
+    sub x6, x6, #8
+    cmp x6, #8
     bge L8Loop
-    cmp x8, #0
-    ble End
-    cmp x8, #4
-    blt L1Loop
+    cmp x6, #4
+    blt L1
 
+L4:
+    dup v30.16b, w11
+    dup v31.16b, w12
 L4Loop:
-    cmp x9, #0
+    cmp x7, #0
     beq L4NeedBroadcast0
-    cmp x9, #1
+    cmp x7, #1
     beq L4NeedBroadcast1
 
     L4NotNeedBroadcast:
@@ -196,13 +223,16 @@ L4Loop:
     sxtl2 v12.8h, v5.16b
 
     L4_INPUT0_SUB_ZERO:
-    ld1r {v2.8b}, [x5]
-    
+    cmp w8, #0
+    beq L4_INPUT1_SUB_ZERO
+    dup v2.8b, w8
     ssubw v7.8h, v7.8h, v2.8b
     ssubw v8.8h, v8.8h, v2.8b
 
     L4_INPUT1_SUB_ZERO:
-    ld1r {v1.8b}, [x6]
+    cmp w9, #0
+    beq L4SXTL_S32
+    dup v1.8b, w9
     ssubw v11.8h, v11.8h, v1.8b
     ssubw v12.8h, v12.8h, v1.8b
 
@@ -237,26 +267,31 @@ L4Loop:
     sqrshrn  v2.4h, v17.4s, #16
     sqrshrn2 v2.8h, v18.4s, #16
 
-    ld1r {v14.8b}, [x7]
+    cmp w10, #0
+    beq L4_SQXTN_S8
+    dup v14.8b, w10
     saddw v1.8h, v1.8h, v14.8b
     saddw v2.8h, v2.8h, v14.8b
 
     L4_SQXTN_S8:
     sqxtn v5.8b, v1.8h
     sqxtn2 v5.16b, v2.8h
+    smax v5.16b, v5.16b, v30.16b
+    smin v5.16b, v5.16b, v31.16b
     st1 {v5.16b}, [x0], #16
-    sub x8, x8, #4
-    cmp x8, #4
+    sub x6, x6, #4
+    cmp x6, #4
     bge L4Loop
 
 L1:
-cmp x8, #0
+cmp x6, #0
 beq End
-
+    dup v30.16b, w11
+    dup v31.16b, w12
 L1Loop:
-    cmp x9, #0
+    cmp x7, #0
     beq L1NeedBroadcast0
-    cmp x9, #1
+    cmp x7, #1
     beq L1NeedBroadcast1
 
     L1NotNeedBroadcast:
@@ -280,10 +315,14 @@ L1Loop:
     sxtl v11.8h, v5.8b
 
     L1_INPUT0_SUB_ZERO:
-    ld1r {v2.8b}, [x5]
+    cmp w8, #0
+    beq L1_INPUT1_SUB_ZERO
+    dup v2.8b, w8
     ssubw v7.8h, v7.8h, v2.8b
     L1_INPUT1_SUB_ZERO:
-    ld1r {v1.8b}, [x6]
+    cmp w9, #0
+    beq L1SXTL_S32
+    dup v1.8b, w9
     ssubw v11.8h, v11.8h, v1.8b
 
     L1SXTL_S32:
@@ -297,14 +336,18 @@ L1Loop:
 
     sqrshrn  v1.4h, v15.4s, #16
 
-    ld1r {v14.8b}, [x7]
+    cmp w10, #0
+    beq L1_SQXTN_S8
+    dup v14.8b, w10
     saddw v1.8h, v1.8h, v14.8b
 
     L1_SQXTN_S8:
     sqxtn v5.8b, v1.8h
+    smax v5.8b, v5.8b, v30.8b
+    smin v6.8b, v6.8b, v31.8b
     st1 {v5.s}[0], [x0], #4
 
-    subs x8, x8, #1
+    subs x6, x6, #1
     bne L1Loop
 End:
 ldp d8,  d9,  [sp, #48]
