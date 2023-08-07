@@ -345,9 +345,9 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     for (ushort in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
 
         FLOAT4 in0 = vload4(0, input+inp_offset);
-        FLOAT4 in1 = vload4(1, input+inp_offset);;
-        FLOAT4 in2 = vload4(2, input+inp_offset);;
-        FLOAT4 in3 = vload4(3, input+inp_offset);;
+        FLOAT4 in1 = vload4(1, input+inp_offset);
+        FLOAT4 in2 = vload4(2, input+inp_offset);
+        FLOAT4 in3 = vload4(3, input+inp_offset);
 
         FLOAT4 weights0 = vload4(offset, (__global FLOAT *)kernel_ptr);
         FLOAT4 weights1 = vload4(offset + 1, (__global FLOAT *)kernel_ptr);
@@ -458,9 +458,9 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         FLOAT4 in0 = vload4(0, input+inp_offset);
-        FLOAT4 in1 = vload4(1, input+inp_offset);;
-        FLOAT4 in2 = vload4(2, input+inp_offset);;
-        FLOAT4 in3 = vload4(3, input+inp_offset);;
+        FLOAT4 in1 = vload4(1, input+inp_offset);
+        FLOAT4 in2 = vload4(2, input+inp_offset);
+        FLOAT4 in3 = vload4(3, input+inp_offset);
 
         FLOAT4 weights0 = vload4(offset, (__global FLOAT *)kernel_ptr);
         FLOAT4 weights1 = vload4(offset + 1, (__global FLOAT *)kernel_ptr);
@@ -618,7 +618,7 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         FLOAT4 in0 = vload4(0, input+inp_offset);
-        FLOAT4 in1 = vload4(1, input+inp_offset);;
+        FLOAT4 in1 = vload4(1, input+inp_offset);
 
         FLOAT4 weights0 = vload4(offset, (__global FLOAT *)kernel_ptr);
         FLOAT4 weights1 = vload4(offset + 1, (__global FLOAT *)kernel_ptr);
@@ -784,7 +784,7 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         FLOAT4 in0 = vload4(0, input+inp_offset);
-        FLOAT4 in1 = vload4(1, input+inp_offset);;
+        FLOAT4 in1 = vload4(1, input+inp_offset);
 
         FLOAT4 weights0 = vload4(offset, (__global FLOAT *)kernel_ptr);
         FLOAT4 weights1 = vload4(offset + 1, (__global FLOAT *)kernel_ptr);

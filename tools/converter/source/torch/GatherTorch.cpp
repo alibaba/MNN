@@ -23,7 +23,7 @@ std::vector<int> GatherTorch::inputTensorIdx() {
 
 void GatherTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::GatherT;
-    std::string opType = getRealOpType(node);;
+    std::string opType = getRealOpType(node);
     dstOp->main.value = param;
 }
 

@@ -448,11 +448,11 @@ inline const char *SkipWhitespace_SIMD(const char* p) {
 
         if (low == 0) {
             if (high != 0) {
-                int lz =__builtin_clzll(high);;
+                int lz =__builtin_clzll(high);
                 return p + 8 + (lz >> 3);
             }
         } else {
-            int lz = __builtin_clzll(low);;
+            int lz = __builtin_clzll(low);
             return p + (lz >> 3);
         }
     }
@@ -1251,12 +1251,12 @@ private:
             bool escaped = false;
             if (low == 0) {
                 if (high != 0) {
-                    unsigned lz = (unsigned)__builtin_clzll(high);;
+                    unsigned lz = (unsigned)__builtin_clzll(high);
                     length = 8 + (lz >> 3);
                     escaped = true;
                 }
             } else {
-                unsigned lz = (unsigned)__builtin_clzll(low);;
+                unsigned lz = (unsigned)__builtin_clzll(low);
                 length = lz >> 3;
                 escaped = true;
             }

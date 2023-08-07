@@ -15,7 +15,7 @@ using namespace MNN;
 using namespace MNN::Express;
 
 void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::OpT>& op, Compression::Pipeline& proto, SubGraphProtoT* subgraph) {
-    std::string outputTensorName = subgraph ? subgraph->tensors[op->outputIndexes[0]] : netT->tensorName[op->outputIndexes[0]];;
+    std::string outputTensorName = subgraph ? subgraph->tensors[op->outputIndexes[0]] : netT->tensorName[op->outputIndexes[0]];
     auto opType = op->type;
     if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
         return;

@@ -20,7 +20,7 @@ public:
         auto mean         = outputs[0];
         auto variance     = outputs[1];
         auto momentsParam = op->main_as_MomentsParam();
-        mean->buffer().type = input->getType();;
+        mean->buffer().type = input->getType();
         variance->buffer().type = input->getType();
         if (nullptr == momentsParam->dim()) {
             mean->buffer().dimensions     = 0;

@@ -771,7 +771,7 @@ class GoGenerator : public BaseGenerator {
 
   std::string GenConstant(const FieldDef &field) {
     switch (field.value.type.base_type) {
-      case BASE_TYPE_BOOL: return field.value.constant == "0" ? "false" : "true";;
+      case BASE_TYPE_BOOL: return field.value.constant == "0" ? "false" : "true";
       default: return field.value.constant;
     }
   }

@@ -57,7 +57,7 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS
 
     FLOAT accum_result       = 0;
     for (short i = 0; i < global_size_dim0 - 1; ++i) {
-        input_data = vload4(i*shape.z*shape.w, input+offset);;
+        input_data = vload4(i*shape.z*shape.w, input+offset);
         input_data = EXP(input_data - float_max_value);
         accum_result += input_data.x;
         accum_result += input_data.y;

@@ -36,7 +36,7 @@ __global__ void UNPACKCOMMON(const T0 *input, T1 *output,
     int inside, int axis, int outside, 
     int insideStride, int axisStride
     ) {
-    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER;;
+    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER;
     int total = axisAlign * inside * outside;
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
         int tmpI = i / axisAlign;
@@ -58,7 +58,7 @@ __global__ void PACKCOMMON_4(const T0 *input, T1 *output,
     int insideStride, int axisStride,
     DivModFast is, DivModFast cs
     ) {
-    int axisAlign = UP_DIV(axis, PACK_NUMBER/ 4) * PACK_NUMBER / 4;;
+    int axisAlign = UP_DIV(axis, PACK_NUMBER/ 4) * PACK_NUMBER / 4;
     int total = axisAlign * inside * outside;
 
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
@@ -81,7 +81,7 @@ __global__ void PACKCOMMON_half_4(const T0 *input, T1 *output,
     int insideStride, int axisStride,
     DivModFast is, DivModFast cs
     ) {
-    int axisAlign = UP_DIV(axis, PACK_NUMBER/ 4) * PACK_NUMBER / 4;;
+    int axisAlign = UP_DIV(axis, PACK_NUMBER/ 4) * PACK_NUMBER / 4;
     int total = axisAlign * inside * outside;
 
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
@@ -103,7 +103,7 @@ __global__ void PACKCOMMON(const T0 *input, T1 *output,
     int inside, int axis, int outside, 
     int insideStride, int axisStride
     ) {
-    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER;;
+    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER;
     int total = axisAlign * inside * outside;
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < total; i += blockDim.x * gridDim.x) {
         int tmpI = i / axisAlign;
@@ -179,7 +179,7 @@ void UnpackBuffer(void* output, const void* input, const PackInfo* info, int byt
         const int maxCount = info->inside * axis_pack * info->outside;
         int block_num = runtime->blocks_num(maxCount);
         int block_size = runtime->threads_num();
-        int axisAlign = UP_DIV(info->axis / 4, PACK_NUMBER / 4) * PACK_NUMBER / 4;;
+        int axisAlign = UP_DIV(info->axis / 4, PACK_NUMBER / 4) * PACK_NUMBER / 4;
 	if(bytes == 4) {        
 	    UNPACKCOMMON_4<<<block_num, block_size>>>((const int4*)input, (int4*)output, 
                         maxCount, info->inside, info->axis / 4, info->outside,

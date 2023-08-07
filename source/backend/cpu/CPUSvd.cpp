@@ -55,7 +55,7 @@ ErrorCode CPUSvd::onResize(const std::vector<Tensor*>& inputs, const std::vector
     bool success = static_cast<CPUBackend*>(backend())->onAcquireBuffer(mAt.get(), Backend::STATIC);
     if (!success) {
         MNN_ERROR("Error for alloc memory for Alloc At\n");
-        return OUT_OF_MEMORY;;
+        return OUT_OF_MEMORY;
     }
     return NO_ERROR;
 }

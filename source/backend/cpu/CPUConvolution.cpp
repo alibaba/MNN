@@ -36,7 +36,7 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
     bool success = backend->onAcquireBuffer(mBias.get(), Backend::STATIC);
     if (!success) {
         MNN_ERROR("Error for alloc memory for Alloc Bias\n");
-        return false;;
+        return false;
     }
     if (bytes < 4) {
         core->MNNFp32ToLowp(bias, mBias->host<int16_t>(), outputCount);

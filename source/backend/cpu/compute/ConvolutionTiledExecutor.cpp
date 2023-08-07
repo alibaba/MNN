@@ -100,7 +100,7 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
     dstIm2ColParamter.dilateY         = convCommon->dilateY();
     dstIm2ColParamter.strideX         = convCommon->strideX();
     dstIm2ColParamter.strideY         = convCommon->strideY();
-    dstIm2ColParamter.icDiv4          = UP_DIV(input->channel(), pack);;
+    dstIm2ColParamter.icDiv4          = UP_DIV(input->channel(), pack);
     dstIm2ColParamter.kernelX         = convCommon->kernelX();
     dstIm2ColParamter.kernelY         = convCommon->kernelY();
     dstIm2ColParamter.padX = padX;

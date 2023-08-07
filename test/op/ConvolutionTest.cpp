@@ -146,15 +146,15 @@ if (NHWC == shape->order) {
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
@@ -224,15 +224,15 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 
@@ -292,15 +292,15 @@ VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, Padd
         arg1->key = "sparseBlockOC";
         arg1->i = sparseBlockOC;
 
-        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg2(new MNN::AttributeT);
         arg2->key = "sparseBlockKernel";
         arg2->i = 1;
 
-        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg3(new MNN::AttributeT);
         arg3->key = "NNZElement";
         arg3->i = weightNNZElement;
 
-        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);;
+        std::unique_ptr<MNN::AttributeT> arg4(new MNN::AttributeT);
         arg4->key = "blockNumber";
         arg4->i = weightBlockNumber;
 

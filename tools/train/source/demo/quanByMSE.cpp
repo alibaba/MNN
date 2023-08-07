@@ -266,7 +266,7 @@ static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmi
                 MNN_ASSERT(targets.size() == predicts.size());
                 VARP loss;
                 {
-                    loss = _computeLossTrain(targets[0], predicts[0]);;
+                    loss = _computeLossTrain(targets[0], predicts[0]);
                 }
                 for (int v=1; v<targets.size(); ++v) {
                     loss = _Maximum(_computeLossTrain(targets[v], predicts[v]), loss);

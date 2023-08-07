@@ -268,7 +268,7 @@ TEST(warpAffine, trans_3_3_constant_5) {
     cv::Mat cvM = cv::Mat(2, 3, CV_32FC1);
     memcpy(cvM.data, M.data(), M.size() * sizeof(float));
     Matrix mnnM;
-    for (int i = 0; i < M.size(); i++) mnnM.set(i, M[i]);;
+    for (int i = 0; i < M.size(); i++) mnnM.set(i, M[i]);
     cv::warpAffine(testEnv.cvSrc, testEnv.cvDst, cvM, {480, 360}, cv::INTER_LINEAR, cv::BORDER_CONSTANT, {5, 5, 5, 5});
     testEnv.mnnDst = warpAffine(testEnv.mnnSrc, mnnM, {480, 360}, INTER_LINEAR, BORDER_CONSTANT, 5);
     EXPECT_TRUE(testEnv.equal());

@@ -1058,7 +1058,7 @@ static void _AVX2_MNNPackedMatMul_1(float* C, const float* A, const float* B, co
         for (int sy = 1; sy < l; ++sy) {
             s0 = _mm256_loadu_ps(weight + sy * 8);
             w0 = _mm256_broadcast_ss(A + sy * aStride + 0);
-            z0 = MNNAVXFMA(s0, w0, z0);;
+            z0 = MNNAVXFMA(s0, w0, z0);
         }
         _mm256_storeu_ps(dst + 16 * 0, z0);
     }

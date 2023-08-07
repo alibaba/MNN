@@ -86,7 +86,7 @@ __global__ void CONV_DW_INT8_(const int8_t* input,
                 int src_offset = ((ob * ih + sy) * iw + sx) * c_p + oz;
 
                 char4 inp4 = ((char4 *)(input + src_offset))[0];
-                char4 ker4 = ((char4 *)(kernel + (fy * kw + fx) * c_p + oz))[0];;
+                char4 ker4 = ((char4 *)(kernel + (fy * kw + fx) * c_p + oz))[0];
 
                 color0 = color0 + (int)inp4.x * (int)ker4.x;
                 color1 = color1 + (int)inp4.y * (int)ker4.y;

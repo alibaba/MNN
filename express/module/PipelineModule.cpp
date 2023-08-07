@@ -276,7 +276,7 @@ void PipelineModule::_createSubGraph(const MNN::Net* net, std::shared_ptr<MNN::E
 
 struct SubModuleInfo {
     std::vector<int> opList;
-    std::vector<int> inputs;;
+    std::vector<int> inputs;
     std::vector<int> outputs;
     std::vector<uint8_t> tensorMask;
     bool isBreak = false;

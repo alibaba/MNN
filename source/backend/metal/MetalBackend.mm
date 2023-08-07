@@ -749,7 +749,7 @@ void MetalRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::
                            const MNN::Op* op) {
     if (nullptr != op->name()) {
         auto dstInfo = mTunedInfo;
-        std::unique_ptr<MetalCache::OpInfoT> opInfo(new MetalCache::OpInfoT);;
+        std::unique_ptr<MetalCache::OpInfoT> opInfo(new MetalCache::OpInfoT);
         opInfo->type = op->type();
         opInfo->name = op->name()->str();
         opInfo->inputs.resize(inputs.size());

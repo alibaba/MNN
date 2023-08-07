@@ -478,7 +478,7 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
             _mm256_maskstore_ps(dst, mask, cord0);
         } else if (areaRemain < 6) {
             for (int i = 0; i < areaRemain * 3 - 8; i++) {
-                flag[i] = -0.1f;;
+                flag[i] = -0.1f;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 cord0 = _mm256_loadu_ps(src);
@@ -489,7 +489,7 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
             _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
         } else {
             for (int i = 0; i < areaRemain * 3 - 16; i++) {
-                flag[i] = -0.1f;;
+                flag[i] = -0.1f;
             }
             mask = _mm256_loadu_si256((__m256i*)flag);
             __m256 cord0 = _mm256_loadu_ps(src);

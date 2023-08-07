@@ -36,7 +36,7 @@ bool WrapExecution::needWrap(const Tensor* input, Backend* curBackend) {
         }
     }
     if (type == curType) {
-        return false;;
+        return false;
     }
     bool srcCpu = (type == MNN_FORWARD_CPU_EXTENSION || type == MNN_FORWARD_CPU);
     bool dstCpu = ((curType == MNN_FORWARD_CPU_EXTENSION) || (curType == MNN_FORWARD_CPU));

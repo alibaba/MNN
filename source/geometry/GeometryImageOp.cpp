@@ -111,7 +111,7 @@ public:
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else {
             SharedPtr<Command> cmdP = new Command;
-            auto& cmd = *cmdP;;
+            auto& cmd = *cmdP;
             cmd.op      = op;
             cmd.inputs  = std::move(newInputs);
             cmd.outputs = std::move(newOutputs);

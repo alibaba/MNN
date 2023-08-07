@@ -45,12 +45,12 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                     int ow = 2, oh = 2;
                     int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
                     int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
-                    TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                    TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
                     tempInput->setLength(0, 1);
                     tempInput->setLength(1, conv2d->common()->inputCount());
                     tempInput->setLength(2, ih);
                     tempInput->setLength(3, iw);
-                    TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                    TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
                     tempOutput->setLength(0, 1);
                     tempOutput->setLength(1, conv2d->common()->outputCount());
                     tempOutput->setLength(2, oh);

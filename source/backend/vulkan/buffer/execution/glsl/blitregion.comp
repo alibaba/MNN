@@ -48,12 +48,12 @@ void main()
         if (uConstant.iter.y > 0) {
             srcBasicOffset = uConstant.step.y * int(uSrcOffset.data[regionOutsideIndex]);
         } else {
-            srcBasicOffset = uConstant.step.y * regionOutsideIndex;;
+            srcBasicOffset = uConstant.step.y * regionOutsideIndex;
         }
         if (uConstant.iter.x > 0) {
             dstBasicOffset = uConstant.step.x * int(uDstOffset.data[regionOutsideIndex]);
         } else {
-            dstBasicOffset = uConstant.step.x * regionOutsideIndex;;
+            dstBasicOffset = uConstant.step.x * regionOutsideIndex;
         }
         int srcOffset = srcBasicOffset
             + uConstant.stride.w

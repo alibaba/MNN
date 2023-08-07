@@ -276,7 +276,7 @@ private:
         } else {
             int idx = outputs.size();
             outputs.push_back(t);
-            varMap[t] = "output_" + std::to_string(idx);;
+            varMap[t] = "output_" + std::to_string(idx);
             return varMap[t];
         }
     }

@@ -131,7 +131,7 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
                            const MNN::Op* op) {
     if (nullptr != op->name()) {
         auto dstInfo = mTunedInfo;
-        std::unique_ptr<CLCache::OpInfoT> opInfo(new CLCache::OpInfoT);;
+        std::unique_ptr<CLCache::OpInfoT> opInfo(new CLCache::OpInfoT);
         opInfo->type = op->type();
         opInfo->name = op->name()->str();
         opInfo->inputs.resize(inputs.size());

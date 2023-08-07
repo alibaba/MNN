@@ -316,7 +316,7 @@ MNN_PUBLIC VARP _Reshape(VARP x, INTS shape, Dimensionformat original_format = N
 ---
 ### _Reshape
 ```cpp
-MNN_PUBLIC VARP _Reshape(VARP x, VARP shape);;
+MNN_PUBLIC VARP _Reshape(VARP x, VARP shape);
 ```
 重塑一个变量
 
