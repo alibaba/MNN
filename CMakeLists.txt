@@ -99,6 +99,10 @@ IF( MNN_ENABLE_COVERAGE)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
 ENDIF()
 
+if ((CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_SYSTEM_PROCESSOR ${CMAKE_OSX_ARCHITECTURES})
+endif()
+
 # do this before protobuf, make sure wincrt config of protobuf and MNN is same
 if(MSVC)
     # same as protobuf, otherwise config is inconsistent
