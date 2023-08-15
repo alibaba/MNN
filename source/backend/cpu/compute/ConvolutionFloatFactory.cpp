@@ -86,9 +86,9 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
     bool supportSparse = false;
-#ifdef MNN_USE_SPARSE_COMPUTE
     auto core = static_cast<CPUBackend*>(backend)->functions();
     int bytes = core->bytes;
+#ifdef MNN_USE_SPARSE_COMPUTE
 #ifdef MNN_USE_SSE
     const bool onlySSENotAVX = core->pack == 4; // no backend of only sse without avx2 or avx512
 #else
