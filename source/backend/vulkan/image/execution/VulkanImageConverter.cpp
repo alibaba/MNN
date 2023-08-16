@@ -126,10 +126,6 @@ void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffe
                                                 const VulkanCommandPool::Buffer* cmdBuffer) {
     auto sourceFormat = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto destFormat   = destBufferFormat;
-    if (sourceFormat == MNN_DATA_FORMAT_NC4HW4 && 1 >= srcTensor->width() && 1 >= srcTensor->height() &&
-        srcTensor->channel() % 4 == 0) {
-        destFormat = MNN_DATA_FORMAT_NC4HW4;
-    }
 
     auto vkTensor = (VulkanTensor*)(srcTensor->deviceId());
     auto tensor = srcTensor;
