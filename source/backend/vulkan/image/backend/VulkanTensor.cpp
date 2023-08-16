@@ -54,7 +54,6 @@ std::array<int, 4> VulkanTensor::tensorShapeFormat(const Tensor *input) {
         iW = 1;
         iC = input->buffer().dim[0].extent;
     }
-
 #ifdef LOG_VERBOSE
     MNN_PRINT("tensorShapeFormat : [%d, %d, %d, %d] \n", iN, iH, iW, iC);
 #endif

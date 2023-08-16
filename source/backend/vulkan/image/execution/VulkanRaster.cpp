@@ -156,8 +156,6 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
         for (int i=0; i<origin->dimensions(); ++i) {
             bufferSize *= origin->length(i);
         }
-        ivec4 dims;
-        writeNCHW(dims, origin);
         ConvertInfo info;
         info.buffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(),
                                            false, bufferSize, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
@@ -212,6 +210,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
     for (auto& iter : mInputBuffers) {
         auto& info = iter.second;
         info.convert->encodeTensorToBuffer(iter.first, info.buffer->buffer(), info.buffer->size(), 0, VulkanImageConverter::getTensorLinearFormat(iter.first), cmdBuffer);
+        cmdBuffer->barrierSource(info.buffer->buffer(), 0, info.buffer->size());
     }
     //Blit
     if (needZero) {
@@ -223,7 +222,6 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
         info.describe->writeBuffer(info.srcBuffer, 1, info.srcBufferSize);
         info.describe->writeBuffer(info.uniform->buffer(), 2, info.uniform->size());
         info.pipeline->bind(cmdBuffer->get(), info.describe->get());
-        cmdBuffer->barrierSource(info.srcBuffer, 0, info.srcBufferSize);
         vkCmdDispatch(cmdBuffer->get(), info.workGroup[0], info.workGroup[1], info.workGroup[2]);
     }
 
