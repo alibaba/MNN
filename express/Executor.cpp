@@ -621,13 +621,13 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     group.outputMode = Interpreter::Session_Output_User;
     group.callBackMode = Interpreter::Session_Release;
     group.memoryUsageMode = Interpreter::Session_Memory_Cache;
-    std::shared_ptr<ComputeCache> cahce(new ComputeCache);
+    std::shared_ptr<ComputeCache> cache(new ComputeCache);
     for (auto& iter : dstExpr) {
         auto expr = iter.first;
         expr->inside()->mCacheOffset = iter.second;
-        expr->inside()->mCache = cahce;
+        expr->inside()->mCache = cache;
     }
-    cahce->mCacheBuffers = std::move(opBuffers);
+    cache->mCacheBuffers = std::move(opBuffers);
     scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     if (forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
@@ -637,9 +637,9 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     }
     scheduleInfo.pipelineInfo[0].first.needComputeShape = false;
     scheduleInfo.pipelineInfo[0].first.needComputeGeometry = mLazyMode != LAZY_CONTENT;
-    cahce->mSession.reset(new Session(std::move(scheduleInfo), group, std::move(rt)));
-    cahce->mInputs = inputCaches;
-    cahce->mInputInside = std::move(extraInputs);
+    cache->mSession.reset(new Session(std::move(scheduleInfo), group, std::move(rt)));
+    cache->mInputs = inputCaches;
+    cache->mInputInside = std::move(extraInputs);
 }
 
 void Executor::makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
