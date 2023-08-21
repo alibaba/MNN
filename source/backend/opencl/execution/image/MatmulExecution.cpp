@@ -120,7 +120,8 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         MNN_PRINT("kernel cost:%d    us Matmul\n",costTime);
     #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End MatMulExecution onExecute... \n");
 #endif

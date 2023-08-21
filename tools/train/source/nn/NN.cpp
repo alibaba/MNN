@@ -561,7 +561,7 @@ public:
                     mWinogradAttr.reset(new WinogradInt8Attr);
                     mWinogradTransInputMaxPos = addParameter(mWinogradTransInputMax);
                     mWinogradTransInputMinPos = addParameter(mWinogradTransInputMin);
-                    mWinogradTransWeightScalePos = addParameter(nullptr);
+                    mWinogradTransWeightScalePos = addParameter(mWinogradTransInputMax);
                 }
                 setName(mConvParameter.name);
                 modules[i] = nullptr;
@@ -675,6 +675,10 @@ public:
         if (nullptr == originValue) {
             return newValue;
         }
+        auto ptr = originValue->readMap<float>();
+        if (ptr[0] == -100.0f) {
+            return newValue;
+        }
         switch (mScaleUpdateMethod) {
             case NN::MovingAverage:
                 return originValue * _Scalar<float>(mMomentum) + newValue * _Scalar<float>(1.0f-mMomentum);
@@ -700,7 +704,7 @@ public:
         maxUnit = std::max(std::min(maxUnit, MAX_UNIT), MIN_UNIT);
 
         auto units = std::pair<int, int>({0, 0});
-        float maxRate = 1.0f, originCost = outH * outW * inChannel * outChannel * kernelH * kernelW;
+        float maxRate = 2.0f, originCost = outH * outW * inChannel * outChannel * kernelH * kernelW;
         std::set<int> supportSu{4, 6};
         for (int uh = MIN_UNIT; uh <= maxUnit; ++uh) {
             for (int uw = MIN_UNIT; uw <= maxUnit; ++uw) {
@@ -1097,8 +1101,8 @@ private:
     NN::ScaleUpdateMethod mScaleUpdateMethod;
     bool mAccumulateToInt16 = false;
     std::shared_ptr<WinogradInt8Attr> mWinogradAttr;
-    VARP mWinogradTransInputMin = nullptr;
-    VARP mWinogradTransInputMax = nullptr;
+    VARP mWinogradTransInputMin = _Const(-100.f);
+    VARP mWinogradTransInputMax = _Const(-100.f);
     int mWinogradTransInputMinPos = -1;
     int mWinogradTransInputMaxPos = -1;
     int mWinogradTransWeightScalePos = -1;

@@ -31,7 +31,8 @@ static Scope<ExecutorRef>* _getGlobalScope() {
 #if TARGET_OS_IPHONE
         pthread_key_create(&gKey, NULL);
 #else
-        g_executor_scope = new Scope<ExecutorRef>;
+        thread_local static Scope<ExecutorRef> initValue;
+        g_executor_scope = &initValue;
 #endif
     });
 #if TARGET_OS_IPHONE

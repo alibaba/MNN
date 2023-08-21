@@ -569,11 +569,13 @@ void startRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
     MNN_PRINT("start startRecord !\n");
 #endif
     cl_int res = CL_SUCCESS;
-    if(recording != NULL){
-        clReleaseRecordingQCOM(recording);
+    if(runtime->isDevideOpRecord()){
+        if(recording != NULL){
+            clReleaseRecordingQCOM(recording);
+        }
+        recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+        MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
     }
-    recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-    MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
 #ifdef LOG_VERBOSE
     MNN_PRINT("end startRecord !\n");
 #endif
@@ -588,9 +590,11 @@ void endRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
 #ifdef LOG_VERBOSE
     MNN_PRINT("start endRecord !\n");
 #endif
-    cl_int res = CL_SUCCESS;
-    res = clEndRecordingQCOM(recording);
-    MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+    if(runtime->isDevideOpRecord()){
+        cl_int res = CL_SUCCESS;
+        res = clEndRecordingQCOM(recording);
+        MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end endRecord !\n");
 #endif
@@ -607,6 +611,25 @@ void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws
     MNN_PRINT("start recordKernel !\n");
 #endif
     cl_int res = CL_SUCCESS;
+    if(!runtime->isDevideOpRecord()){
+        auto RecordNum = runtime->getRecordNum();
+        auto maxRecordNum = runtime->getUseRecordableQueueSize();
+        if(RecordNum == 0){
+            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            runtime->getRecordings()->emplace_back(recording);
+        }else if(RecordNum == maxRecordNum){
+            res = clEndRecordingQCOM( runtime->getRecordings()->back());
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            runtime->getRecordings()->emplace_back(recording);
+            RecordNum = 0;
+        }
+        RecordNum++;
+        runtime->setRecordNum(RecordNum);
+    }
+    
     std::vector<uint32_t> internalGlobalWS = gws;
     for (size_t i = 0; i < 2; ++i) {
         internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
@@ -642,7 +665,24 @@ void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws
     for (size_t i = 0; i < 3; ++i) {
         internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
-
+    if(!runtime->isDevideOpRecord()){
+        auto maxRecordNum = runtime->getUseRecordableQueueSize();
+        auto RecordNum = runtime->getRecordNum();
+        if(RecordNum == 0){
+            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            runtime->getRecordings()->emplace_back(recording);
+        }else if(RecordNum == maxRecordNum){
+            res = clEndRecordingQCOM( runtime->getRecordings()->back());
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            runtime->getRecordings()->emplace_back(recording);
+            RecordNum = 0;
+        }
+        RecordNum++;
+        runtime->setRecordNum(RecordNum);
+    }
 
     if(lws[0]==0 || lws[1]==0 || lws[2]==0){
         res = runtime->recordableQueue().enqueueNDRangeKernel(

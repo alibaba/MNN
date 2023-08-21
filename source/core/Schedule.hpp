@@ -61,6 +61,7 @@ public:
         std::pair<std::shared_ptr<Backend>, std::shared_ptr<Backend>> cache;
         bool needComputeShape = true;
         bool needComputeGeometry = true;
+        bool reportError = true;
         std::map<Tensor*, TENSORCACHE> inputTensorCopyCache;
     };
     typedef std::pair<BackendCache, std::vector<OpCacheInfo>> PipelineInfo;

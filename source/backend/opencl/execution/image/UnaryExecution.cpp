@@ -79,7 +79,8 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
 #else
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     if(openCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End UnaryExecution onExecute... \n");
 #endif

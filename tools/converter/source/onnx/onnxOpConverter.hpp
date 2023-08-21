@@ -19,6 +19,7 @@
 
 class OnnxScope : public ConverterScope {
 public:
+    static std::vector<int> topoSort(const onnx::GraphProto& onnxGraph);
     OnnxScope(const onnx::GraphProto* graph, MNN::NetT* net) : mGraph(graph), ConverterScope(net) { onnxInit(); }
     OnnxScope(const onnx::GraphProto* graph, MNN::SubGraphProtoT* subnet, MNN::NetT* net,
               OnnxScope* parent) : mGraph(graph), ConverterScope(subnet, net, parent) { onnxInit(); }

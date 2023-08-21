@@ -38,7 +38,7 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
     if(input->channel() < 32 || input->channel() > input_channel_limit){
         return false;
     }
-    return (input->width() <= 16 && input->height() <= 16);
+    return (input->width() <= 32 && input->height() <= 32);
 }
 
 ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend) : Execution(backend) {

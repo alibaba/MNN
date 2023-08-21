@@ -63,6 +63,11 @@ typedef enum {
      then choose the better one according to performance*/
     MNN_GPU_MEMORY_BUFFER = 1 << 6,/* User assign mode */
     MNN_GPU_MEMORY_IMAGE  = 1 << 7,/* User assign mode */
+    // choose one opencl memory mode Only, this mode Only support for Qualcomm gpu
+    /* User can try MNN_GPU_RECORD_OP and MNN_GPU_RECORD_KERNEL both,
+     then choose the better one according to performance*/
+    MNN_GPU_RECORD_OP  = 1 << 8,/* the kernels in one op execution record into one recording */
+    MNN_GPU_RECORD_BATCH  = 1 << 9,/* 10 kernels record into one recording */
 } MNNGpuMode;
 
 #ifdef __cplusplus

@@ -595,12 +595,13 @@ Tile1LoopEnd:
     bge LoopDz_TILE_1
 
 End:
+ldp x23, x24, [sp, #(16 * 6)]
 ldp x19, x20, [sp, #(16 * 5)]
 ldp x21, x22, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldp d14, d15, [sp], #(16 * 6)
+ldp d14, d15, [sp], #(16 * 7)
 ret
 
 #endif // __aarch64__

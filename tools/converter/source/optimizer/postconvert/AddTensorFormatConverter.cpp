@@ -358,13 +358,15 @@ public:
         if (config->keepInputFormat) {
             // Change Output
             auto& outputs = mNet->outputName;
+            std::vector<std::unique_ptr<MNN::OpT>> extraOp;
             for (auto& op : mNet->oplists) {
                 for (int idx : op->outputIndexes) {
                     for (int j = 0; j < outputs.size(); j++) {
                         if (mNet->tensorName[idx] == outputs[j]) {
                             auto outputFormat = tensorFormats[idx];
                             if (outputFormat == MNN_DATA_FORMAT_NC4HW4) {
-                                auto newOutputName = outputs[j] + "__tr";
+                                auto newOutputName = outputs[j] + "__before_tr";
+                                mNet->tensorName[idx] = newOutputName;
                                 // Append a convert op
                                 MNN::OpT* transformOp = new MNN::OpT;
                                 MNN::TensorConvertInfoT* tc = new MNN::TensorConvertInfoT;
@@ -374,16 +376,19 @@ public:
                                 transformOp->main.value     = tc;
                                 transformOp->name           = newOutputName;
                                 transformOp->inputIndexes.push_back(idx);
-                                transformOp->outputIndexes.push_back(mNet->tensorName.size());
+                                int newOutputIndex = (int)mNet->tensorName.size();
+                                transformOp->outputIndexes.push_back(newOutputIndex);
                                 tensorFormats.push_back(originTensorType);
-                                mNet->tensorName.push_back(transformOp->name);
+                                mNet->tensorName.push_back(outputs[j]);
                                 transformOp->type   = MNN::OpType_ConvertTensor;
-                                outputs[j] = newOutputName;
-                                mNet->oplists.emplace_back(transformOp);
+                                extraOp.emplace_back(transformOp);
                             }
                         }
                     }
                 }
+            }
+            for (auto&& op : extraOp) {
+                mNet->oplists.emplace_back(std::move(op));
             }
         } else {
             // Change Input

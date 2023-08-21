@@ -1,9 +1,11 @@
-## MNN.Interpreter
+## MNN.Interpreter *[deprecated]*
 
 ```python
 class Interpreter
 ```
 Interpreter是MNN V2接口中模型数据的持有者。使用MNN推理时，有两个层级的抽象，分别是解释器Interpreter和会话[Session](Session.md)。
+
+*不建议使用该接口，请使用[nn](nn.md)代替*
 
 ---
 ### `Interpreter(model_path)`

@@ -72,11 +72,23 @@ public:
     std::vector<cl_recording_qcom> *getRecordings(){
         return &mRecordings;
     }
-    uint32_t getMaxRecordableQueueSize(){
-        return mMaxRecordableQueueSize;
+    uint32_t getUseRecordableQueueSize(){
+        return mUseRecordableQueueSize;
     }
     bool isUseRecordQueue(){
         return mUseRecordQueue;
+    }
+    bool isDevideOpRecord(){
+        return mDevideOpRecord;
+    }
+    void setDevideOpRecord(){
+        mDevideOpRecord = true;
+    }
+    void setRecordNum(int num){
+        mRecordNums = num;
+    }
+    uint32_t getRecordNum(){
+        return mRecordNums;
     }
     GpuType getGpuType() {
         return mGpuType;
@@ -105,6 +117,9 @@ public:
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
     void clearRecord();
+    void enqeueRecord();
+    void endRecord();
+    void releaseRecord();
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
@@ -153,8 +168,10 @@ private:
     uint64_t mMaxLocalMemSize;
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
-    uint32_t mMaxRecordableQueueSize;
+    uint32_t mUseRecordableQueueSize;
+    uint32_t mRecordNums = 0;
     bool mUseRecordQueue = false;
+    bool mDevideOpRecord = true;
     bool mIsSupportedFP16     = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;

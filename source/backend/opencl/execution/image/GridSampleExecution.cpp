@@ -96,7 +96,8 @@ ErrorCode GridSampleExecution::onExecute(const std::vector<Tensor *> &inputs, co
     MNN_PRINT("kernel cost:%d    us GridSample\n", costTime);
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
         return NO_ERROR;
     }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());

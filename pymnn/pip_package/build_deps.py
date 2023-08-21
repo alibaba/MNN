@@ -44,12 +44,15 @@ def build_deps():
         shutil.rmtree(cmake_build_dir)
     os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
+    extra_opts = '-DMNN_LOW_MEMORY=ON'
+    extra_opts += ' -DMNN_VULKAN=ON -DMNN_VULKAN_IMAGE=OFF'
+    extra_opts += ' -DMNN_OPENCL=ON'
     if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\
+        os.system('cmake -G "Ninja" ' + extra_opts +' -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON\
             -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNTrain MNNConvert')
     elif IS_LINUX:
-        extra_opts = '-DMNN_TENSORRT=ON \
+        extra_opts += '-DMNN_TENSORRT=ON \
         -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs/ ' if USE_TRT else ' '
         extra_opts += ' -DMNN_INTERNAL=ON ' if IS_INTERNAL_BUILD else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if IS_BUILD_TORCH else ' '
@@ -59,11 +62,11 @@ def build_deps():
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
             -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF .. && make MNN MNNTrain MNNConvert -j4')
     else:
-        extra_opts = ' -DMNN_INTERNAL=ON ' if IS_INTERNAL_BUILD else ' '
+        extra_opts += ' -DMNN_INTERNAL=ON ' if IS_INTERNAL_BUILD else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if IS_BUILD_TORCH else ' '
         print(extra_opts)
         os.system('cmake ' + extra_opts + '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
-            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_EXPR_SHAPE_EAGER=ON -DMNN_TRAIN_DEBUG=ON\
+            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
             -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
             .. && make MNN MNNTrain MNNConvert -j4')
 ################################################################################

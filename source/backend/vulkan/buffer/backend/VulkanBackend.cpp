@@ -318,6 +318,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             tempTensor.reset(Tensor::create(srcTensor->shape(), dstTensor->getType(), nullptr, _convert(TensorUtils::getDescribe(srcTensor)->dimensionFormat)), [dstTensor](void* t) {
                 Tensor* temp = (Tensor*)t;
                 MNNCPUCopyBuffer(temp, dstTensor);
+                delete temp;
             });
             dstTensor = tempTensor.get();
         }
