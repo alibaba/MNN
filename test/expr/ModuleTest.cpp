@@ -852,7 +852,7 @@ public:
             return true;
         };
         auto y = _mobileNetV1Expr();
-        bool res = func(y, 60.0f);
+        bool res = func(y, 62.0f);
         if (!res) {
             return false;
         }

@@ -20,7 +20,8 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int idx = 0;
 #else
     if(runtime->isUseRecordQueue()){
-        runtime->getRecordings()->emplace_back(mRecording);
+        if(runtime->isDevideOpRecord())
+            runtime->getRecordings()->emplace_back(mRecording);
         return NO_ERROR;
     }
 #endif

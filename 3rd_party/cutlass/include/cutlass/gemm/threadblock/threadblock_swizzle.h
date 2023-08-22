@@ -271,7 +271,7 @@ struct GemmBatchedIdentityThreadblockSwizzle {
     return GemmCoord(
       (problem_size.m() + tile_size.m() - 1) / tile_size.m(),
       (problem_size.n() + tile_size.n() - 1) / tile_size.n(),
-      batch_count % (1 << 16));
+      batch_count >= 65536 ? 65535 : batch_count);
   }
 
   /// Computes CUDA grid dimensions given a size in units of logical tiles

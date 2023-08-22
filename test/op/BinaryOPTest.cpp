@@ -22,7 +22,7 @@ protected:
     template<typename Tin, typename Tout>
     bool test(VARP (*opFunc)(VARP, VARP), string name, float threshold,
               const vector<Tin>& data_x, const vector<Tin>& data_y, const vector<Tout>& data_out,
-              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={-100, -100, -100}, const vector<float> zeroPoints={-100, -100, -100}) {
+              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={-100.f, -100.f, -100.f}, const vector<float> zeroPoints={-100.f, -100.f, -100.f}, Dimensionformat format = NCHW) {
         int size_x = 1, size_y = 1, size_out = 1;
         for (int i = 0; i < shape_x.size(); ++i) {
             size_x *= shape_x[i];
@@ -34,8 +34,8 @@ protected:
             size_out *= shape_out[i];
         }
 
-        auto input_x = _Input(shape_x, NCHW, halide_type_of<Tin>());
-        auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
+        auto input_x = _Input(shape_x, format, halide_type_of<Tin>());
+        auto input_y = _Input(shape_y, format, halide_type_of<Tin>());
         input_x->setName("input_x");
         input_y->setName("input_y");
         if (quantScales[0] != -100) { // -100 means invalid scale.
@@ -593,6 +593,42 @@ public:
     }
 };
 
+class AddC4Test : public BinaryTestCommon {
+public:
+    virtual ~AddC4Test() = default;
+    virtual bool run(int precision) {
+        {
+            vector<float> inp2 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6}, inp1 = {2};
+            vector<float> rightResult = {3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6};
+            bool res = test<float, float>(MNN::Express::_Add, "AddInt8C4Test", 0.01, inp1, inp2, rightResult, {1, 1, 1, 1}, {1, 32, 1, 1}, {1, 32, 1, 1}, {0.4, 0.4, 1.0},
+                                      {1., 2., 3.}, NC4HW4);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        std::vector<float> i1 = {
+            -1.0, -2.0, 0.f, 0.f
+            -3.0, -4.0, 0.f, 0.f
+            -5.0, -6.0, 0.f, 0.f
+            -7.0, -8.0, 0.f, 0.f
+        };
+        std::vector<float> i0 = {
+            1.0f, 0.0f, 0.f, 0.f
+        };
+        std::vector<float> i2 = {
+            0.0, -1.0, 0.f, 0.f
+            -2.0, -3.0, 0.f, 0.f
+            -4.0, -5.0, 0.f, 0.f
+            -6.0, -7.0, 0.f, 0.f
+        };
+        return test<float, float>(MNN::Express::_BiasAdd, "AddC4FloatTest", 0.01,
+                    i0, i1, i2,
+                                  {1, 1, 1, 1}, {4, 2, 1, 1}, {4, 2, 1, 1}, {-100.f, -100.f, -100.f}, {-100.f, -100.f, -100.f}, NC4HW4);
+
+    }
+};
+
 // Float32 OpTest.
 MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
@@ -633,3 +669,5 @@ MNNTestSuiteRegister(FloorDivInt8Test, "op/binary/floordivInt8");
 MNNTestSuiteRegister(FloorModInt8Test, "op/binary/floormodInt8");
 MNNTestSuiteRegister(Atan2Int8Test, "op/binary/atan2Int8");
 MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
+
+MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");

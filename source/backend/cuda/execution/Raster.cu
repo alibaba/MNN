@@ -127,7 +127,7 @@ __global__ void FLOAT##Name(const T *input, T *output,\
 }\
 
 template<typename T>
-__global__ void blit_2(const T *input, T *output,
+__global__ void blit_2_float(const T *input, T *output,
     int count,
     DivModFast sizeZ, DivModFast sizeY, DivModFast sizeX,
     int strideZ, int strideY,
@@ -141,6 +141,23 @@ __global__ void blit_2(const T *input, T *output,
         int dstOffset = iz * dstStrideZ + iy * dstStrideY + (ix << 1);
         int2 * dstF = (int2 *)(output+dstOffset);
         dstF[0] = ((int2 *)(input+srcOffset))[0];
+    }
+}
+template<typename T>
+__global__ void blit_2_half(const T *input, T *output,
+    int count,
+    DivModFast sizeZ, DivModFast sizeY, DivModFast sizeX,
+    int strideZ, int strideY,
+    int dstStrideZ, int dstStrideY
+    ) { 
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
+        int ix, tmp, iy, iz;
+        sizeX.divmod(i, tmp, ix);
+        sizeY.divmod(tmp, iz, iy);
+        int srcOffset = iz * strideZ + iy * strideY + (ix << 1);
+        int dstOffset = iz * dstStrideZ + iy * dstStrideY + (ix << 1);
+        int* dstF = (int *)(output+dstOffset);
+        dstF[0] = ((int *)(input+srcOffset))[0];
     }
 }
 
@@ -186,26 +203,73 @@ UNARY_FUNC(GELU_STANDARD, (erf(x*0.7071067932881648f)+1.f)*x*0.5);
 void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int bytes, CUDARuntime* runtime) {
     int count = size[0] * size[1] * size[2];
 
+    // MNN_PRINT("blit info size:%d-%d-%d, srcStride:%d-%d-%d, dstStride:%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
+    bool isThirdSizeVector  = (size[2] % 2 == 0 && srcStride[2] == 1 && dstStride[2] == 1);
+    bool isSecondSizeVector = (size[1] % 2 == 0 && srcStride[1] == 1 && dstStride[1] == 1) && (size[2] == 1 && srcStride[2] == 1 && dstStride[2] == 1);
+    bool isFirstSizeVector  = (size[0] % 2 == 0 && srcStride[0] == 1 && dstStride[0] == 1) && (size[1] == 1 && srcStride[1] == 1 && dstStride[1] == 1) && (size[2] == 1 && srcStride[2] == 1 && dstStride[2] == 1);
+    bool isSizeVector = isThirdSizeVector || isSecondSizeVector || isFirstSizeVector;
+    if(count > 16384 && isSizeVector) {
+        int32_t newSize[3], newSrcStride[3], newDstStride[3];
+        newSize[0] = size[0]; 
+        newSize[1] = size[1]; 
+        newSize[2] = size[2]; 
+        newSrcStride[0] = srcStride[0]; 
+        newSrcStride[1] = srcStride[1]; 
+        newSrcStride[2] = srcStride[2]; 
+        newDstStride[0] = dstStride[0]; 
+        newDstStride[1] = dstStride[1]; 
+        newDstStride[2] = dstStride[2]; 
+        if(isSecondSizeVector) {
+            /*  size   : [size_0, size_1, 1]  srcStride   : [ss_0, 1, 1] dstStride   : [ds_0, 1, 1]
+            --> newSize: [1, size_0, size_1]  newSrcStride: [1, ss_0, 1] newDstStride: [1, ds_0, 1]
+            */
+            newSize[2] = size[1];
+            newSize[1] = size[0];
+            newSize[0] = 1;
+            newSrcStride[1] = srcStride[0];
+            newSrcStride[0] = 1;
+            newDstStride[1] = dstStride[0];
+            newDstStride[0] = 1;
+        }
+        if(isFirstSizeVector) {
+            /*  size   : [size_0, 1, 1]  srcStride   : [1, 1, 1] dstStride   : [1, 1, 1]
+            --> newSize: [1, 1, size_0]  newSrcStride: [1, 1, 1] newDstStride: [1, 1, 1]
+            */
+            newSize[2] = size[0];
+            newSize[0] = 1;
+        }
+
+        DivModFast new_sz(newSize[0]);
+        DivModFast new_sy(newSize[1]);
+        DivModFast new_sx(newSize[2]/2);
+
+        int newCount = count / 2;
+        int block_num = runtime->blocks_num(newCount);
+        int threads_num = runtime->threads_num();
+
+        // Forbid addresss misalign
+        if(bytes == 4 && reinterpret_cast<std::uintptr_t>(input) % 8 == 0 && reinterpret_cast<std::uintptr_t>(output) % 8 == 0) {
+            blit_2_float<<<block_num, threads_num>>>((const float*)input, (float*)output, 
+                newCount,
+                new_sz, new_sy, new_sx,
+                newSrcStride[0], newSrcStride[1],
+                newDstStride[0], newDstStride[1]);
+            checkKernelErrors;
+            return;
+        } else if(bytes == 2 && reinterpret_cast<std::uintptr_t>(input) % 4 == 0 && reinterpret_cast<std::uintptr_t>(output) % 4 == 0) {
+            blit_2_half<<<block_num, threads_num>>>((const half*)input, (half*)output, 
+                newCount,
+                new_sz, new_sy, new_sx,
+                newSrcStride[0], newSrcStride[1],
+                newDstStride[0], newDstStride[1]);
+            checkKernelErrors;
+            return;
+        }
+    }
+    
     DivModFast sz(size[0]);
     DivModFast sy(size[1]);
     DivModFast sx(size[2]);
-
-    // MNN_PRINT("blit info size:%d-%d-%d, srcStride:%d-%d-%d, dstStride:%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
-    if(bytes == 4 && count > 16384 && size[2] % 2 == 0 && srcStride[2] == 1 && dstStride[2] == 1) {
-        //printf("%d-%d-%d, %d-%d-%d,-%d-%d-%d\n\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
-        count /= 2;
-        int block_num = runtime->blocks_num(count);
-        int threads_num = runtime->threads_num();
-        DivModFast sx_2((size[2]/2));
-
-        blit_2<<<block_num, threads_num>>>((const float*)input, (float*)output, 
-            count,
-            sz, sy, sx_2,
-            srcStride[0], srcStride[1],
-            dstStride[0], dstStride[1]);
-        return;
-    }
-    
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
 
@@ -225,7 +289,7 @@ void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, cons
                 dstStride[0], dstStride[1], dstStride[2]);
             break;
         case 4:
-            blit<<<block_num, threads_num>>>((const float*)input, (float*)output,
+    	    blit<<<block_num, threads_num>>>((const float*)input, (float*)output,
                 count,
                 sz, sy, sx,
                 srcStride[0], srcStride[1], srcStride[2],
@@ -248,6 +312,7 @@ void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, cons
         default:
             break;
     }
+    checkKernelErrors;
 }
 
 template<typename T0, typename T1>
@@ -538,7 +603,6 @@ __global__ void Binary##Name(\
     ) { \
     int count = sizeZ * sizeY * sizeX;\
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
-        int total = sizeZ * sizeY * sizeX;\
         int ix = i % sizeX;\
         int tmp = i / sizeX;\
         int iy = tmp % sizeY;\
@@ -563,15 +627,14 @@ __global__ void BinaryMid##Name(\
     int sizeZ, int sizeY, int sizeX,\
     int strideZ, int strideY, int strideX,\
     int strideZ1, int strideY1, int strideX1,\
-    int dstStrideZ, int dstStrideY, int dstStrideX, int activationType, int bytes\
+    int dstStrideZ, int dstStrideY, int dstStrideX, int activationType,\
+    DivModFast d_sizeY, DivModFast d_sizeX\
     ) { \
     int count = sizeZ * sizeY * sizeX;\
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
-        int total = sizeZ * sizeY * sizeX;\
-        int ix = i % sizeX;\
-        int tmp = i / sizeX;\
-        int iy = tmp % sizeY;\
-        int iz = tmp / sizeY;\
+        int ix, tmp, iy, iz;\
+        d_sizeX.divmod(i, tmp, ix);\
+        d_sizeY.divmod(tmp, iz, iy);\
         int srcOffset = iz * strideZ + iy * strideY + ix * strideX;\
         int srcOffset1 = iz * strideZ1 + iy * strideY1 + ix * strideX1;\
         int dstOffset = iz * dstStrideZ + iy * dstStrideY + ix * dstStrideX;\
@@ -581,11 +644,95 @@ __global__ void BinaryMid##Name(\
         if(activationType == 1) {\
             val = (val < 0.0f ? 0.0f : val);\
         }\
-        if(bytes == 2) {\
-            val = min(val, 65504.0f);\
-            val = max(val, -65504.0f);\
+        output[dstOffset] = val;\
+    }\
+}\
+template<typename TIn, typename TOut>\
+__global__ void BinaryMid4_##Name(\
+    const TIn *input0, const TIn* input1, TOut *output,\
+    int sizeZ, int sizeY, int sizeX,\
+    int strideZ, int strideY,\
+    int strideZ1, int strideY1,\
+    int dstStrideZ, int dstStrideY, int activationType,\
+    DivModFast d_sizeY, DivModFast d_sizeX,\
+    bool inp0Broadcast, bool inp1Broadcast\
+    ) { \
+    int count = sizeZ * sizeY * sizeX;\
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
+        int ix, tmp, iy, iz;\
+        d_sizeX.divmod(i, tmp, ix);\
+        d_sizeY.divmod(tmp, iz, iy);\
+        ix = ix << 2;\
+        int srcOffset = iz * strideZ + iy * strideY + ix;\
+        int srcOffset1 = iz * strideZ1 + iy * strideY1 + ix;\
+        int dstOffset = iz * dstStrideZ + iy * dstStrideY + ix;\
+        float4 xx = inp0Broadcast ? make_float4(input0[srcOffset-ix],input0[srcOffset-ix], input0[srcOffset-ix], input0[srcOffset-ix]) : ((float4 *)(input0+srcOffset))[0];\
+        float4 yy = inp1Broadcast ? make_float4(input1[srcOffset1-ix],input1[srcOffset1-ix], input1[srcOffset1-ix], input1[srcOffset1-ix]) :((float4 *)(input1+srcOffset1))[0];\
+        float x = xx.x;\
+        float y = yy.x;\
+        float val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
         }\
         output[dstOffset] = val;\
+        x = xx.y;\
+        y = yy.y;\
+        val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        output[dstOffset+1] = val;\
+        x = xx.z;\
+        y = yy.z;\
+        val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        output[dstOffset+2] = val;\
+        x = xx.w;\
+        y = yy.w;\
+        val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        output[dstOffset+3] = val;\
+    }\
+}\
+template<typename TIn, typename TOut>\
+__global__ void BinaryMidHalf2_##Name(\
+    const TIn *input0, const TIn* input1, TOut *output,\
+    int sizeZ, int sizeY, int sizeX,\
+    int strideZ, int strideY,\
+    int strideZ1, int strideY1,\
+    int dstStrideZ, int dstStrideY, int activationType,\
+    DivModFast d_sizeY, DivModFast d_sizeX,\
+    bool inp0Broadcast, bool inp1Broadcast\
+    ) { \
+    int count = sizeZ * sizeY * sizeX;\
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
+        int ix, tmp, iy, iz;\
+        d_sizeX.divmod(i, tmp, ix);\
+        d_sizeY.divmod(tmp, iz, iy);\
+        ix = ix << 1;\
+        int srcOffset = iz * strideZ + iy * strideY + ix;\
+        int srcOffset1 = iz * strideZ1 + iy * strideY1 + ix;\
+        int dstOffset = iz * dstStrideZ + iy * dstStrideY + ix;\
+        half2 xx = inp0Broadcast ? make_half2(input0[srcOffset-ix], input0[srcOffset-ix]) : ((half2 *)(input0+srcOffset))[0];\
+        half2 yy = inp1Broadcast ? make_half2(input1[srcOffset1-ix], input1[srcOffset1-ix]) : ((half2 *)(input1+srcOffset1))[0];\
+        float x = xx.x;\
+        float y = yy.x;\
+        float val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        output[dstOffset] = val;\
+        x = xx.y;\
+        y = yy.y;\
+        val = (float)(Func);\
+        if(activationType == 1) {\
+            val = (val < 0.0f ? 0.0f : val);\
+        }\
+        output[dstOffset+1] = val;\
     }\
 }\
 template<typename TIn, typename TOut>\
@@ -595,8 +742,7 @@ __global__ void BinaryMidLinear##Name(\
     int strideZ,\
     int strideZ1,\
     int dstStrideZ,\
-    int activationType,\
-    int bytes\
+    int activationType\
     ) { \
     int count = sizeZ;\
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
@@ -610,10 +756,6 @@ __global__ void BinaryMidLinear##Name(\
         if(activationType == 1) {\
             val = (val < 0.0f ? 0.0f : val);\
         }\
-        if(bytes == 2) {\
-            val = min(val, 65504.0f);\
-            val = max(val, -65504.0f);\
-        }\
         output[dstOffset] = (TOut)val;\
     }\
 }\
@@ -622,15 +764,16 @@ __global__ void BinaryMidLinear##Name(\
 template<typename TIn, typename TOut>\
 __global__ void BinaryMidLinear4_##Name(\
     const TIn *input0, const TIn* input1, TOut *output,\
-    int count_4, int activationType\
+    int count_4, int activationType,\
+    bool inp0Broadcast, bool inp1Broadcast\
     ) { \
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count_4); i += blockDim.x * gridDim.x) {\
         int iz = i;\
         int srcOffset = iz << 2;\
         int srcOffset1 = iz << 2;\
         int dstOffset = iz << 2;\
-        float4 xx = ((float4 *)(input0+srcOffset))[0];\
-        float4 yy = ((float4 *)(input1+srcOffset1))[0];\
+        float4 xx = inp0Broadcast ? make_float4(input0[0], input0[0], input0[0], input0[0]) : ((float4 *)(input0+srcOffset))[0];\
+        float4 yy = inp1Broadcast ? make_float4(input1[0], input1[0], input1[0], input1[0]) : ((float4 *)(input1+srcOffset1))[0];\
         float x = xx.x;\
         float y = yy.x;\
         TOut val = (TOut)(Func);\
@@ -664,23 +807,22 @@ __global__ void BinaryMidLinear4_##Name(\
 template<typename TIn, typename TOut>\
 __global__ void BinaryMidLinearHalf4_##Name(\
     const TIn *input0, const TIn* input1, TOut *output,\
-    int count_4, int activationType\
+    int count_4, int activationType,\
+    bool inp0Broadcast, bool inp1Broadcast\
     ) { \
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count_4); i += blockDim.x * gridDim.x) {\
         int iz = i;\
         int srcOffset = iz << 2;\
         int srcOffset1 = iz << 2;\
         int dstOffset = iz << 2;\
-        half2 xx = ((half2 *)(input0+srcOffset))[0];\
-        half2 yy = ((half2 *)(input1+srcOffset1))[0];\
+        half2 xx = inp0Broadcast ? make_half2(input0[0], input0[0]) : ((half2 *)(input0+srcOffset))[0];\
+        half2 yy = inp1Broadcast ? make_half2(input1[0], input1[0]) : ((half2 *)(input1+srcOffset1))[0];\
         float x = (float)xx.x;\
         float y = (float)yy.x;\
         float val = (float)(Func);\
         if(activationType == 1) {\
             val = (val < 0.0f ? 0.0f : val);\
         }\
-        val = min(val, 65504.0f);\
-        val = max(val, -65504.0f);\
         output[dstOffset] = (TOut)val;\
         x = (float)xx.y;\
         y = (float)yy.y;\
@@ -688,19 +830,15 @@ __global__ void BinaryMidLinearHalf4_##Name(\
         if(activationType == 1) {\
             val = (val < 0.0f ? 0.0f : val);\
         }\
-        val = min(val, 65504.0f);\
-        val = max(val, -65504.0f);\
         output[dstOffset+1] = (TOut)val;\
-        xx = ((half2 *)(input0+srcOffset))[1];\
-        yy = ((half2 *)(input1+srcOffset1))[1];\
+        xx = inp0Broadcast ? make_half2(input0[0], input0[0]) : ((half2 *)(input0+srcOffset))[1];\
+        yy = inp1Broadcast ? make_half2(input1[0], input1[0]) : ((half2 *)(input1+srcOffset1))[1];\
         x = (float)xx.x;\
         y = (float)yy.x;\
         val = (float)(Func);\
         if(activationType == 1) {\
             val = (val <  0.0f ? 0.0f  : val);\
         }\
-        val = min(val, 65504.0f);\
-        val = max(val, -65504.0f);\
         output[dstOffset+2] = (TOut)val;\
         x = (float)xx.y;\
         y = (float)yy.y;\
@@ -708,8 +846,6 @@ __global__ void BinaryMidLinearHalf4_##Name(\
         if(activationType == 1) {\
             val = (val < 0.0f ? 0.0f : val);\
         }\
-        val = min(val, 65504.0f);\
-        val = max(val, -65504.0f);\
         output[dstOffset+3] = (TOut)val;\
     }\
 }\
@@ -784,18 +920,21 @@ void BinaryBlitTemplateFloat(T* output, const T* input, const T* input1, const i
     int count = size[0] * size[1] * size[2];
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+    // MNN_PRINT("binary :%d %d %d, %d %d %d, %d %d %d, %d %d %d, \n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], srcStride1[0], srcStride1[1], srcStride1[2], dstStride[0], dstStride[1], dstStride[2]);
     #define COMPUTE_FLOAT(TYPE, TOut)\
         if (opType == MNN::BinaryOpOperation_##TYPE ) {\
             if (size[2] == count) {\
-                if(count % 4 == 0 && count > 16384 && srcStride[2] == 1 && srcStride1[2] == 1 && dstStride[2] == 1) {\
+                if(count % 4 == 0 && count > 16384 && (srcStride[2] == 0 || srcStride[2] == 1) && (srcStride1[2] == 0 || srcStride1[2] == 1) && dstStride[2] == 1) {\
                     block_num = runtime->blocks_num(count/4);\
                     threads_num = runtime->threads_num();\
+                    bool srcBroadcast = srcStride[2] == 0;\
+                    bool srcBroadcast1 = srcStride1[2] == 0;\
                     if(bytes == 4) {\
                         BinaryMidLinear4_##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
-                            count/4, activationType);\
+                            count/4, activationType, srcBroadcast, srcBroadcast1);\
                     } else {\
                         BinaryMidLinearHalf4_##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
-                            count/4, activationType);\
+                            count/4, activationType, srcBroadcast, srcBroadcast1);\
                     }\
                 } else {\
                     BinaryMidLinear##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
@@ -803,14 +942,41 @@ void BinaryBlitTemplateFloat(T* output, const T* input, const T* input1, const i
                         srcStride[2],\
                         srcStride1[2],\
                         dstStride[2],\
-                        activationType, bytes);\
+                        activationType);\
                 }\
             } else {\
-                BinaryMid##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
-                    size[0], size[1], size[2],\
-                    srcStride[0], srcStride[1], srcStride[2],\
-                    srcStride1[0], srcStride1[1], srcStride1[2],\
-                    dstStride[0], dstStride[1], dstStride[2], activationType, bytes);\
+                bool isVectorSizeZ = (size[0] == 1 || ((srcStride[2] == 0 || srcStride[0] % bytes == 0) && (srcStride1[2] == 0 || srcStride1[0] % bytes == 0) && dstStride[0] % bytes == 0));\
+                bool isVectorSizeY = (size[1] == 1 || ((srcStride[2] == 0 || srcStride[1] % bytes == 0) && (srcStride1[2] == 0 || srcStride1[1] % bytes == 0) && dstStride[1] % bytes == 0));\
+                bool isVector4 = size[2] % bytes == 0 && isVectorSizeZ && isVectorSizeY;\                
+		        if(isVector4 && count > 16384 && (srcStride[2] == 0 || srcStride[2] == 1) && (srcStride1[2] == 0 || srcStride1[2] == 1) && dstStride[2] == 1) {\
+                    block_num = runtime->blocks_num(count/bytes);\
+                    threads_num = runtime->threads_num();\
+                    DivModFast sy(size[1]);\
+                    DivModFast sx(size[2]/bytes);\
+                    bool srcBroadcast = srcStride[2] == 0;\
+                    bool srcBroadcast1 = srcStride1[2] == 0;\
+                    if(bytes == 4) {\
+                        BinaryMid4_##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
+                            size[0], size[1], size[2]/4,\
+                            srcStride[0], srcStride[1],\
+                            srcStride1[0], srcStride1[1],\
+                            dstStride[0], dstStride[1], activationType, sy, sx, srcBroadcast, srcBroadcast1);\
+                    } else {\
+                        BinaryMidHalf2_##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
+                            size[0], size[1], size[2]/2,\
+                            srcStride[0], srcStride[1],\
+                            srcStride1[0], srcStride1[1],\
+                            dstStride[0], dstStride[1], activationType, sy, sx, srcBroadcast, srcBroadcast1);\
+                    }\
+                } else {\
+                    DivModFast sy(size[1]);\
+                    DivModFast sx(size[2]);\
+                    BinaryMid##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (TOut*)output,\
+                        size[0], size[1], size[2],\
+                        srcStride[0], srcStride[1], srcStride[2],\
+                        srcStride1[0], srcStride1[1], srcStride1[2],\
+                        dstStride[0], dstStride[1], dstStride[2], activationType, sy, sx);\
+                }\
             }\
             return;\
         }\

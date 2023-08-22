@@ -4,9 +4,11 @@
 #       |-- Release
 #             |--- Dynamic
 #             |      |--- MD
+#             |      |--- MT
 #             |
 #             |--- Static
 #                    |--- MD
+#                    |--- MT
 #
 Param(
     [Parameter(Mandatory=$true)][String]$path,
@@ -27,7 +29,7 @@ Remove-Item -Path $PACKAGE_PATH/include -Recurse -ErrorAction Ignore
 cp -r include $PACKAGE_PATH
 cp -r tools/cv/include/cv $PACKAGE_PATH/include
 pushd $PACKAGE_LIB_PATH
-mkdir -p Release\Dynamic\MD, Release\Static\MD
+mkdir -p Release\Dynamic\MT, Release\Dynamic\MD, Release\Static\MD, Release\Static\MT
 popd
 
 $CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON  -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_AVX512=ON"
@@ -68,12 +70,26 @@ function Build([String]$cmake_cmd, [String]$ninja_cmd = "ninja MNN") {
     exit 1
 }
 
+
+##### Release/Dynamic/MT ####
+log "Release/Dynamic/MT"
+Remove-Item CMakeCache.txt -ErrorAction Ignore
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON .."
+cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MT
+rm MNN.*
+
 ##### Release/Dynamic/MD ####
 log "Release/Dynamic/MD"
 Remove-Item CMakeCache.txt -ErrorAction Ignore
 Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
 cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
 rm MNN.*
+
+##### Release/Static/MT ####
+log "Release/Static/MT"
+Remove-Item CMakeCache.txt -ErrorAction Ignore
+Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
 
 ##### Release/Static/MD ####
 log "Release/Static/MD"

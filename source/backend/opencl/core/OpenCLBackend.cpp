@@ -429,6 +429,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     auto iter      = creators->find(std::make_pair(op->type(), mOpenCLRuntime->getGpuMemType()));
 
     if (iter == creators->end()) {
+        mOpenCLRuntime->setDevideOpRecord();
         #if 0//close log
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %s memObject:%d, %s\n", EnumNameOpType(op->type()), mOpenCLRuntime->getGpuMemType(), op->name()->c_str());
@@ -462,6 +463,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
 
         if (!valid) {
+            mOpenCLRuntime->setDevideOpRecord();
             #if 0//close log
             for (auto t : inputs) {
                 auto tensorShape = OpenCL::tensorShapeFormat(t);
@@ -479,6 +481,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
+        mOpenCLRuntime->setDevideOpRecord();
         #if 0//close log
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %s, memObject:%d, %s\n", MNN::EnumNameOpType(op->type()), mOpenCLRuntime->getGpuMemType(), op->name()->c_str());
@@ -498,12 +501,14 @@ void OpenCLBackend::onResizeBegin() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
+    mOpenCLRuntime->releaseRecord();
 }
 
 void OpenCLBackend::onResizeEnd() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileDisable();
 #endif
+    mOpenCLRuntime->endRecord();
 }
 
 void OpenCLBackend::onExecuteBegin() const {
@@ -515,6 +520,7 @@ void OpenCLBackend::onExecuteBegin() const {
 void OpenCLBackend::onExecuteEnd() const {
     mOpenCLRuntime->mQueueCount = 0;
     mOpenCLRuntime->clearRecord();
+    mOpenCLRuntime->enqeueRecord();
 }
 
 

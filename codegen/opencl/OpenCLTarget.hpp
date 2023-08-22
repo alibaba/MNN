@@ -22,7 +22,7 @@ private:
     std::string store(const std::string base, const std::string& offset, const std::string& data) override;
     std::string proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool hasSingleConvertRaster = false) override;
     template <typename T>
-    std::string numval(T t) { return "((float4)" + std::to_string(t) + ")"; }
+    std::string numval(T t) { return "((FLOAT4)" + std::to_string(t) + ")"; }
 };
 
 }

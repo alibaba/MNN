@@ -235,9 +235,12 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
             {
                 if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")){
-                    mMaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
+                    uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
-                    if(mMaxRecordableQueueSize > 0){
+                    if(MaxRecordableQueueSize > 0){
+                        // TODO: Use setSessionHint to set the number of mUseRecordableQueueSize
+                        mUseRecordableQueueSize = 10;
+                        mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;
                         mUseRecordQueue = true;
                         mRecordableQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_RECORDABLE_QCOM, &err);
                         if(err != CL_SUCCESS){
@@ -309,6 +312,23 @@ void OpenCLRuntime::setGpuMode(const int cl_mode_num) {
     if(totalSet != 1) {
         MNN_PRINT("set multi tuning mode is not permitted, please check cl_mode:%x！\n", cl_mode_num);
     }
+    
+    totalSet = 0;
+    isSet = (cl_mode_num & MNN_GPU_RECORD_OP);
+    if(isSet) {
+        mDevideOpRecord = true;
+        totalSet++;
+    }
+    
+    isSet = (cl_mode_num & MNN_GPU_RECORD_BATCH);
+    if(isSet) {
+        mDevideOpRecord = false;
+        totalSet++;
+    }
+    
+    if(totalSet > 1) {
+        MNN_PRINT("set multi record kernel mode is not permitted, please check cl_mode:%x！\n", cl_mode_num);
+    }
 }
 
 void OpenCLRuntime::setCommandQueueProfileEnable() {
@@ -344,6 +364,7 @@ OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~OpenCLRuntime !\n");
 #endif
+    releaseRecord();
     mBuildProgramMap.clear();
     mRecordings.clear();
     mCommandQueuePtr.reset();
@@ -711,13 +732,49 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
 
 void OpenCLRuntime::clearRecord(){
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue){
+    if(mUseRecordQueue && mDevideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             cl_int res = mCommandQueuePtr->EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
                   0, nullptr, 0, nullptr, 0, nullptr, nullptr);
             MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
         }
         mCommandQueuePtr->finish();
+        mRecordings.clear();
+    }
+#endif
+}
+
+void OpenCLRuntime::enqeueRecord(){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue && !mDevideOpRecord){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = mCommandQueuePtr->EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
+                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
+        }
+        mCommandQueuePtr->finish();
+    }
+#endif
+}
+
+void OpenCLRuntime::endRecord(){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue  && !mDevideOpRecord){
+        if(!mRecordings.empty()){
+            cl_int res = clEndRecordingQCOM(mRecordings.back());
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+        }
+    }
+#endif
+}
+
+void OpenCLRuntime::releaseRecord(){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue  && !mDevideOpRecord){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = clReleaseRecordingQCOM(mRecordings[i]);
+            MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
+        }
         mRecordings.clear();
     }
 #endif

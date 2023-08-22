@@ -1,9 +1,11 @@
-## MNN.Session
+## MNN.Session *[deprecated]*
 
 ```python
 class Session
 ```
 Session是MNN V2接口中推理数据的持有者。Session通过[Interpreter](Interpreter.md)创建；多个推理可以共用同一个模型，即，多个Session可以共用一个Interpreter。
+
+*不建议使用该接口，请使用[nn](nn.md)代替*
 
 ---
 ### `Session()`

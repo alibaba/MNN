@@ -180,13 +180,13 @@ void UnpackBuffer(void* output, const void* input, const PackInfo* info, int byt
         int block_num = runtime->blocks_num(maxCount);
         int block_size = runtime->threads_num();
         int axisAlign = UP_DIV(info->axis / 4, PACK_NUMBER / 4) * PACK_NUMBER / 4;;
-	if(bytes == 4) {        
-	    UNPACKCOMMON_4<<<block_num, block_size>>>((const int4*)input, (int4*)output, 
-                        maxCount, info->inside, info->axis / 4, info->outside,
-                        info->insideStride / 4, info->axisStride, axisAlign, is, cs);
-	    checkKernelErrors;
-	    return;
-	}        
+        if(bytes == 4) {        
+            UNPACKCOMMON_4<<<block_num, block_size>>>((const int4*)input, (int4*)output, 
+                            maxCount, info->inside, info->axis / 4, info->outside,
+                            info->insideStride / 4, info->axisStride, axisAlign, is, cs);
+            checkKernelErrors;
+            return;
+        }        
         if(bytes == 2) {
             UNPACKCOMMON_4<<<block_num, block_size>>>((const int2*)input, (int2*)output,
                         maxCount, info->inside, info->axis / 4, info->outside,

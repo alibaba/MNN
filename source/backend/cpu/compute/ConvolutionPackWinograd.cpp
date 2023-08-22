@@ -148,7 +148,7 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
     int oc      = outputTensor->channel();
     int ePack, hPack, lPack;
     core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    int unit2   = UP_DIV(ow * oh, ePack * threadNumber);
+    int unit2   = UP_DIV(ow * oh, threadNumber);
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
     maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);

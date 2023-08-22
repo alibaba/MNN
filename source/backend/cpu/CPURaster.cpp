@@ -835,10 +835,12 @@ public:
                     auto dstIter = *(iter0 + iter0Stride * iter);
                     auto srcOffset = srcIter * step1 + srcView->offset();
                     auto dstOffset = dstIter * step0 + dstView->offset();
-                    if (srcOffset >= 0 && srcOffset < inputSize) {
-                        _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset, proc);
-                    } else {
-                        _zero(reg, bytes, output->host<uint8_t>() + bytes * dstOffset);
+                    if (dstOffset >= 0) {
+                        if (srcOffset >= 0 && srcOffset < inputSize) {
+                            _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset, proc);
+                        } else {
+                            _zero(reg, bytes, output->host<uint8_t>() + bytes * dstOffset);
+                        }
                     }
                 }
                 return NO_ERROR;

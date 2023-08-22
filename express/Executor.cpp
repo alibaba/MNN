@@ -628,6 +628,8 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         expr->inside()->mCache = cahce;
     }
     cahce->mCacheBuffers = std::move(opBuffers);
+    // Don't report error when use expr dynamic compute, which will be called in model convert
+    scheduleInfo.pipelineInfo[0].first.reportError = false;
     scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     if (forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;

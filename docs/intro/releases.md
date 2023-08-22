@@ -1,5 +1,122 @@
 # 发布版本
-## 2.4.0 (`Latest`)
+## 2.6.0 (`Latest`)
+#### 新特性
+- 新增int8量化算子支持：
+  - Softmax
+  - Interp
+  - Binary
+  - Unary
+  - Scale
+- OpenCL 支持 Loop 算子特定情形；
+  - BatchMatMul
+  - Gather
+- x86_64支持Gelu-bf16;
+- CUDA支持bf16模型推理；
+- benchmark 工具支持直接测试模型量化后的性能（不需要先用量化工具量化模型）
+- Pymnn Tensor/Var使用Tuple创建时支持混合类型数据；
+- 权值量化模型支持低内存推理模式，计算时反量化；
+- 支持ChatGLM-6B模型推理内存占用3G；
+- 支持构建了ChatGLM-MNN Android app;
+#### 优化
+- OpenCL支持高通reocrd queue ，以降低创建 GPU Command Buffer 所需的时间;
+  Oneplus 9 机型 Benchmark 测试结果如下
+
+  |Model	|unrecord	|record |
+  |-------|---------|-------|
+  |resnet-v2-50.mnn	|21.254	|20.160|
+  |MobileNetV2_224.mnn	|4.853	|4.186|
+  |mobilenet-v1-1.0.mnn	|6.424	|5.315|
+  |nasnet.mnn	|46.751	|20.260|
+  |SqueezeNetV1.0.mnn	|7.35	|6.832|
+  |squeezenetv1.1.mnn	|3.936	|3.693|
+  |mobilenetV3.mnn	|14.201	|6.743|
+  |inception-v3.mnn	|33.111	|32.032|
+
+- 稀疏卷积内存优化，降低内存占用；
+- 减少异构（CPU低精度/GPU）运行 MNN 模型时的常量内存占用；
+- CUDA优化int8算子性能；
+- 减少Permute几何计算产生的region数量；
+- 重新调整ConvolutionInt8及im2col在AVX512-VNNI下的分块大小，提升性能20%-30%；
+- X86新增bilinear/nearest sample的SIMD实现，提升ImageProcess性能 50% 左右；
+#### Bugfix
+- 关联 Github Issue 解决
+  - 修复CUDA Raster错误导致输出为0的问题；issue-2333
+  - 修复OpenCL Gather算子出错的问题；issue-2424
+  - 修复ImageProcess出错的问题；issue-2386
+  - OpenCL支持用户选择device id; issue-2343
+- 其他 Bugfix
+  - CUDA CMakeList对未支持架构增加报错信息；
+  - testMNNFromOnnx脚本在模型测试正确时不启用DEBUG模式；
+  - load_module_from_file中的shape_mutable默认改为True（存在子图的模型无法在False情形下运行）；
+  - MNNConvert使用keepInputFormat选项时，也同时将输出Tensor的format转换为原始格式
+  - 修复log记录时设备为空时Crash的情况；
+  - 修复BinaryOp单元测试在Windows下无法编译的问题；
+  - 修复MNN_SUPPORT_DEPRECATED_OP宏不控制OptimizedComputer的问题；
+  - 修复fp16多线程且分块方向为channel时convolution计算出错的问题；
+  - 修复deconvolutionInt8访存越界的问题；
+  - 修复TensorArrayWrite几何计算产生zero region的问题；
+  - 修复CUDA depthwise conv出错的问题；
+  - 修复一些文档格式、内容的错误；
+  - 修复多线程下createRuntime和setGlobalConfig出错的问题；
+  - 修复Vec.hpp中无用代码导致的编译失败问题；
+  - 修复OpenCL对gpuDevice的assert失败的问题；
+  - 修复OpenCL bianry mod出错的问题；
+  - 修复CUDA argmax出错的问题；
+  - 修复pymnn/example/mnn_numpy_cv_demo.py中形状不对的问题；
+## 2.5.0
+#### 新特性
+- MNN OpenCV新增算子：
+  - erode
+  - convertMaps
+  - remap
+  - adaptiveThreshold
+  - bilateralFilter
+  - solve (MNN numpy新增solve)
+  - normalize
+  - split
+  - merge
+  - addWeight
+- 支持Tflite int8量化模型转换到MNN模型；
+- ARM CPU支持GELU-bf16
+- CUDA 新增算子：
+- GridSampler
+- Multi-Input Convolution
+- Multi-Input Deconvolution
+- CUDA针对多卡推理，支持用户设置运行device_id
+- 支持Deconvolution-int8
+- runSession/runSessionWithCallBack函数加锁，避免多线程调用出错
+- 支持非拓扑序ONNX模型转换
+- 支持ONNX多版本Softmax转换
+#### 重构/优化
+- 优化内存分配与回收时机，新增Session
+- 简化ONNX Slice算子模型转换
+- Cuda性能优化
+- Argmax针对dim size较大的情况性能优化
+- Softmax在channel较大时性能优化
+- MatMul算子预重排逻辑优化
+- 优化后ChatGLM模型在A10显卡上性能优于Pytorch 2.0
+- OpenCL优化，resnet测试优于OpenVINO
+- 使用intel subgroup扩展优化winogard算子，调整数据排布格式与准入条件
+- 根据输入尺寸调整conv2d算子的数据排布格式，使用intel subgroup扩展优化
+- 优化后ResNet18模型在intel UHD Graphics 630显卡上性能优于OpenVINO
+- GELU-bf16实现后性能提升
+#### Bugfix
+- 关联 Github Issue 解决
+  - 修复CPURaster 的 singleConvert 部分情况出错 issue-2264
+  - 修复atan2计算错误的问题
+  - 修复ONNX dynamic shape转换出错的问题 issue-2276
+  - 修复i8mm时Im2col出错的问题
+  - 修复CPUConvolutionDepthwise错误的问题 issue-2291
+  - 修复CUDA int8编译失败的问题 issue-2321
+  - 修复Onnx Loop 算子的 M 和 cond 为optional 时，转换失败的问题 issue-2267
+  - 修复Raster中fastblit 中turnPackRegion 部分情况下出错的问题 issue-2337
+- 其他 Bugfix
+  - 修复 onnx 子图中 identity 被优化导致 输出数和原始子图不一致的问题
+  - 修复 Onnx sequense 相关算子转换问题
+  - 修复 TensorArrayConcat 计算 newAxis = 1 时的问题（此时为 stack）
+  - 修复 TensorArray 计算 eleSize 时，axis < 0 时计算出错的问题
+  - 修复低精度计算或者 GPU 无法运行 mnn 训练模型的问题
+## 2.4.0
 #### 新特性
 - NNAPI 支持int8 量化模型；
 - MNN OpenCL/Metal支持算子在线Fuse与代码生成；

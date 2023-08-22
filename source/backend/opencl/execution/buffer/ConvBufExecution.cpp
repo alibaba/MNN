@@ -59,9 +59,9 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
                         lws_prefer[1] = lws[1];
                     }
                 }
-                lws[0]++;
+                lws[0]<<=1;
             }
-            lws[1]++;
+            lws[1]<<=1;
         }
     } else if(runtime->getCLTuneLevel() == Wide) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -88,12 +88,12 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
         }
@@ -122,12 +122,12 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
@@ -156,12 +156,12 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] <= 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
@@ -476,7 +476,14 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         std::vector<uint32_t> localWorkSize[total_kernel];
         std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[knl_idx], mBuildOptions);
+            std::set<std::string> buildOption = mBuildOptions;
+            if(outputShape.at(3) % itemC[knl_idx] != 0){
+                buildOption.emplace("-DCHANNEL_LEAVE");
+            }
+            if((outputShape.at(2) % itemW[knl_idx]) != 0){
+                buildOption.emplace("-DBLOCK_LEAVE");
+            }
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[knl_idx], buildOption);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
             
             uint32_t idx            = 0;
@@ -515,7 +522,14 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
         
-        mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[min_index], mBuildOptions);
+        std::set<std::string> buildOption = mBuildOptions;
+        if(outputShape.at(3) % itemC[min_index] != 0){
+            buildOption.emplace("-DCHANNEL_LEAVE");
+        }
+        if((outputShape.at(2) % itemW[min_index]) != 0){
+            buildOption.emplace("-DBLOCK_LEAVE");
+        }
+        mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[min_index], buildOption);
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
 
@@ -542,48 +556,29 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
         
         // {"conv_2d_c4h1w2", "conv_2d_c4h1w1", "conv_2d_c8h1w1", "conv_2d_c4h1w4", "conv_2d_c8h2w1", "conv_2d_c4h4w1"};
-        const int total_kernel = 6;
-        std::string kernelName[total_kernel] = {"conv_2d_c4h1w1", "conv_2d_c4h1w2", "conv_2d_c4h4w1", "conv_2d_c8h2w1", "conv_2d_c8h4w1", "conv_2d_c4h1w4"};
-        int itemC[total_kernel] = {4, 4, 4, 8, 8, 4};
-        int itemH[total_kernel] = {1, 1, 4, 2, 4, 1};
-        int itemW[total_kernel] = {1, 2, 1, 1, 1, 4};
+        const int total_kernel = 7;
+        std::string kernelName[total_kernel] = {"conv_2d_c4h1w1", "conv_2d_c4h1w2", "conv_2d_c4h4w1", "conv_2d_c8h2w1", "conv_2d_c8h4w1", "conv_2d_c4h1w4", "conv_2d_c8h1w4"};
+        int itemC[total_kernel] = {4, 4, 4, 8, 8, 4, 8};
+        int itemH[total_kernel] = {1, 1, 4, 2, 4, 1, 1};
+        int itemW[total_kernel] = {1, 2, 1, 1, 1, 4, 4};
         
         
         int actual_kernel = total_kernel;
-        if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Normal) {
-            actual_kernel = 2;
-        } else if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Fast || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == None) {
-            actual_kernel = 1;
-        }else if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Wide){
-            actual_kernel = 4;
-            auto gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
-            auto maliArType = mOpenCLBackend->getOpenCLRuntime()->getMaliAr();
-            if(gpuType == MNN::MALI && maliArType == MNN::VALHALL){
-                if(outputShape.at(3) <= 8){
-                    kernelName[3] = "conv_2d_c4h1w4";
-                    itemC[3]      = 4;
-                    itemH[3]      = 1;
-                    itemW[3]      = 4;
-                }else{
-                    kernelName[2] = "conv_2d_c8h2w1";
-                    itemC[2]      = 8;
-                    itemH[2]      = 2;
-                    itemW[2]      = 1;
-                                
-                    kernelName[3] = "conv_2d_c8h4w1";
-                    itemC[3]      = 8;
-                    itemH[3]      = 4;
-                    itemW[3]      = 1;
-                }
-            }
-        }
+        
         
         cl::Kernel kernel[total_kernel];
         std::vector<uint32_t> globalWorkSize[total_kernel];
         std::vector<uint32_t> localWorkSize[total_kernel];
         std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[knl_idx], mBuildOptions);
+            std::set<std::string> buildOption = mBuildOptions;
+            if(outputShape.at(3) % itemC[knl_idx] != 0){
+                buildOption.emplace("-DCHANNEL_LEAVE");
+            }
+            if((outputShape.at(2) % itemW[knl_idx]) != 0 || (outputShape.at(1) % itemH[knl_idx]) != 0){
+                buildOption.emplace("-DBLOCK_LEAVE");
+            }
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[knl_idx], buildOption);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
             
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -620,7 +615,14 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         int min_index  = min_cost.second;
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
         
-        mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[min_index], mBuildOptions);
+        std::set<std::string> buildOption = mBuildOptions;
+        if(outputShape.at(3) % itemC[min_index] != 0){
+            buildOption.emplace("-DCHANNEL_LEAVE");
+        }
+        if((outputShape.at(2) % itemW[min_index]) != 0 || (outputShape.at(1) % itemH[min_index]) != 0){
+            buildOption.emplace("-DBLOCK_LEAVE");
+        }
+        mKernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_buf", kernelName[min_index], buildOption);
         
         uint32_t idx            = 0;
         cl_int ret = CL_SUCCESS;

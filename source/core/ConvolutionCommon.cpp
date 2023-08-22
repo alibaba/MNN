@@ -567,7 +567,8 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
     *originWeight = nullptr;
     *originWeightSize = 0;
     if (nullptr != conv2d->quanParameter()) {
-        *quanCommon = load(conv2d->quanParameter(), false);
+        bool forceFloat = conv2d->quanParameter()->index() != nullptr;
+        *quanCommon = load(conv2d->quanParameter(), forceFloat);
         *originWeight     = (*quanCommon)->weightFloat.get();
         *originWeightSize = (*quanCommon)->weightFloat.size();
     }

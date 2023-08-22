@@ -581,7 +581,9 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo) {
                 // Try Backup
                 iter.execution.reset(mBackupBackend->onCreate(iter.inputs, iter.outputs, iter.op));
                 if (nullptr == iter.execution) {
-                    MNN_ERROR("Create exection error : %d\n", iter.op->type());
+                    if (mInfo.first.reportError) {
+                        MNN_ERROR("Create execution error : %d\n", iter.op->type());
+                    }
                     return NOT_SUPPORT;
                 }
             }

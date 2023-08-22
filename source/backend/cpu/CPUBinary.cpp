@@ -21,19 +21,16 @@ using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
 ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const int input0DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[0]);
-    const int input1DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[1]);
+    auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+    auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
     if (input1DataCount == input0DataCount) {
         mNeedBroadcastIndex = -1;
-        mTotalSize = input1DataCount;
     } else if (input0DataCount == 1) {
         mNeedBroadcastIndex = 0;
-        mTotalSize = input1DataCount;
     } else {
         mNeedBroadcastIndex = 1;
-        mTotalSize = input0DataCount;
     }
-    MNN_ASSERT(mTotalSize == ((CPUBackend*)backend())->getTensorSize(outputs[0]));
+    mTotalSize = ((CPUBackend*)backend())->getTensorSize(outputs[0]);
     
     if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));

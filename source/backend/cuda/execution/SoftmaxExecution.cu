@@ -209,12 +209,12 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        if(axis % 256 == 0 || axis >= 768) {
+	if(axis % 256 == 0 || axis >= 768) {
             block_num = count;
             int calc_multi_num = (axis + 255) / 256;
             SOFTMAX_AXIS_REDUCE<<<block_num, 256>>>((const half*)input, (half*)dst, inside, axis, 256, calc_multi_num, outside, count);
             checkKernelErrors;
-        } else if(axis % 64 == 0 || axis >= 256) {
+        } else if(axis % 64 == 0 || axis > 32) {
             block_num = count;
             int calc_multi_num = (axis + 63) / 64;
             SOFTMAX_AXIS_REDUCE<<<block_num, 64>>>((const half*)input, (half*)dst, inside, axis, 64, calc_multi_num, outside, count);
@@ -234,7 +234,7 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
             int calc_multi_num = (axis + 255) / 256;
             SOFTMAX_AXIS_REDUCE<<<block_num, 256>>>((const float*)input, (float*)dst, inside, axis, 256, calc_multi_num, outside, count);
             checkKernelErrors;
-        } else if(axis % 64 == 0 || axis >= 256) {
+        } else if(axis % 64 == 0 || axis > 32) {
             block_num = count;
             int calc_multi_num = (axis + 63) / 64;
             SOFTMAX_AXIS_REDUCE<<<block_num, 64>>>((const float*)input, (float*)dst, inside, axis, 64, calc_multi_num, outside, count);

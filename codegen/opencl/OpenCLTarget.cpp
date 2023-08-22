@@ -22,6 +22,9 @@ std::string OpenCLTarget::type() {
 }
 std::string OpenCLTarget::macro() {
     return
+    "#ifdef MNN_SUPPORT_FP16\n"
+    "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
+    "#endif\n"
     "#define OFFSET_CHECK\\\n"
     "\tconst int c = get_global_id(0), w = get_global_id(1), hb = get_global_id(2);\\\n"
     "\tif (c >= global_size_dim0 || w >= global_size_dim1 || hb >= global_size_dim2) { return; }\\\n"
@@ -113,61 +116,61 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Comman
                     ss << inpName << "=" << operand << " * " << operand;
                     break;
                 case UnaryOpOperation_ERF:
-                    ss << inpName << "=erf(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(erf(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_ERFC:
-                    ss << inpName << "=erfc(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(erfc(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_SQRT:
-                    ss << inpName << "=sqrt(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(sqrt(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_RSQRT:
-                    ss << inpName << "=rsqrt(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(rsqrt(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_ABS:
-                    ss << inpName << "=fabs(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(fabs(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_SIN:
-                    ss << inpName << "=sin(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(sin(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_COS:
-                    ss << inpName << "=cos(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(cos(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_SIGN:
-                    ss << inpName << "=sign(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(sign(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_EXP:
-                    ss << inpName << "=exp(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(exp(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_NEG:
                     ss << inpName << "=-(" << operand << ")";
                     break;
                 case UnaryOpOperation_TAN:
-                    ss << inpName << "=tan(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(tan(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_CEIL:
-                    ss << inpName << "=ceil(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(ceil(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_LOG1P:
-                    ss << inpName << "=log1p(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(log1p(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_FLOOR:
-                    ss << inpName << "=floor(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(floor(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_ROUND:
-                    ss << inpName << "=round(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(round(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_SIGMOID:
-                    ss << inpName << "=native_recip((float4)1+native_exp(convert_float4(-" << operand << ")))";
+                    ss << inpName << "=CONVERT_FLOAT4(native_recip((float4)1+native_exp(convert_float4(-" << operand << "))))";
                     break;
                 case UnaryOpOperation_TANH:
-                    ss << inpName << "=tanh(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(tanh(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_RECIPROCAL:
-                    ss << inpName << "=native_recip(convert_float4(" << operand << "))";
+                    ss << inpName << "=CONVERT_FLOAT4(native_recip(convert_float4(" << operand << ")))";
                     break;
                 case UnaryOpOperation_LOG:
-                    ss << inpName << "=native_log(convert_float4(" << operand << "+(float4)((float)0.0000001)))";
+                    ss << inpName << "=CONVERT_FLOAT4(native_log(convert_float4(" << operand << ")+(float4)((float)0.0000001)))";
                     break;
                 default:
                     MNN_ASSERT(false);
@@ -198,13 +201,13 @@ std::string OpenCLTarget::codegen(std::vector<std::string>& inputs, const Comman
     return ss.str();
 }
 std::string OpenCLTarget::load(const std::string& base, const std::string& offset, const Command* cmd, std::string& inpName) {
-    return "FLOAT4 " + inpName + "=read_imagef(" + base + ", SAMPLER, " + offset + ")";
+    return "FLOAT4 " + inpName + "=RI_F(" + base + ", SAMPLER, " + offset + ")";
 }
 std::string OpenCLTarget::loadscalar(const std::string& base, std::string& inpName) {
-    return "FLOAT4 " + inpName + "=((float4)read_imagef(" + base + ", SAMPLER, (int2)(0, 0)).x)";
+    return "FLOAT4 " + inpName + "=(RI_F(" + base + ", SAMPLER, (int2)(0, 0)).x)";
 }
 std::string OpenCLTarget::store(const std::string base, const std::string& offset, const std::string& data) {
-    return "write_imagef(" + base + ", " + offset + ", " + data + ");\n";
+    return "WI_F(" + base + ", " + offset + ", " + data + ");\n";
 }
 
 std::string OpenCLTarget::proto(const std::string& name, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool hasSingleConvertRaster) {

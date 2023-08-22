@@ -237,7 +237,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
                                      "winogradTransformDest", buildOptions);
             mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mDestTransform[i]));
         }
-        mMatMul[i] = runTime->buildKernel("gemm", "gemmWinograd", basic);
         mMaxWGS_M[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mMatMul[i]));
     }
     
@@ -261,14 +260,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
         ret |= mSourceTransform[b].setArg(8, icC4);
         ret |= mSourceTransform[b].setArg(9, b);
 
-        ret |= mMatMul[b].setArg(0, openCLImage(mSource.get()));
-        ret |= mMatMul[b].setArg(1, *mWeight);
-        ret |= mMatMul[b].setArg(2, openCLImage(mDest.get()));
-        ret |= mMatMul[b].setArg(3, wUnit);
-        ret |= mMatMul[b].setArg(4, hUnit);
-        ret |= mMatMul[b].setArg(5, ocC4);
-        ret |= mMatMul[b].setArg(6, icC4);
-        ret |= mMatMul[b].setArg(7, alpha*alpha);
 
         ret |= mDestTransform[b].setArg(0, openCLImage(mDest.get()));
         ret |= mDestTransform[b].setArg(1, *mBias);
@@ -291,10 +282,56 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 
         /*MatMul*/
         {
+            const int total_kernel                     = 2;
+            const std::string kernelName[total_kernel] = {"gemmWinograd", "gemmWinogradW2"};
+            int itemW[total_kernel]                    = {4, 8};
             auto gemmHeight = ocC4;
-            mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(wUnit, 4) * hUnit), static_cast<uint32_t>(alpha * alpha * ocC4)};
-            std::string kernelName = "gemmWinograd";
-            mLWS_M[b] = localWS2DDefault(mGWS_M[b], mMaxWGS_M[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mMatMul[b]).first;
+            int actual_kernel = total_kernel;
+            
+            cl::Kernel kernel[total_kernel];
+            std::vector<uint32_t> globalWorkSize[total_kernel];
+            std::vector<uint32_t> localWorkSize[total_kernel];
+            std::pair<uint32_t, int> min_cost(UINT_MAX, 0); //(min_time, min_index)
+            for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+                cl_int ret = CL_SUCCESS;
+                kernel[knl_idx] = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm", kernelName[knl_idx], basic);
+                uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
+
+                globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(wUnit, itemW[knl_idx]) * hUnit), static_cast<uint32_t>(alpha * alpha * ocC4)};
+                ret |= kernel[knl_idx].setArg(0, openCLImage(mSource.get()));
+                ret |= kernel[knl_idx].setArg(1, *mWeight);
+                ret |= kernel[knl_idx].setArg(2, openCLImage(mDest.get()));
+                ret |= kernel[knl_idx].setArg(3, wUnit);
+                ret |= kernel[knl_idx].setArg(4, hUnit);
+                ret |= kernel[knl_idx].setArg(5, ocC4);
+                ret |= kernel[knl_idx].setArg(6, icC4);
+                ret |= kernel[knl_idx].setArg(7, alpha*alpha);
+                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
+
+                std::pair<std::vector<uint32_t>, uint32_t> retTune;
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx], kernel[knl_idx]);
+                // printf("gemm %d, %d\n", knl_idx, retTune.second);
+                if (min_cost.first > retTune.second) {
+                    min_cost.first  = retTune.second;
+                    min_cost.second = knl_idx;
+                    mLWS_M[b]       = {retTune.first[0], retTune.first[1]};
+                }
+            }
+            cl_int ret = CL_SUCCESS;
+            int min_index = min_cost.second;
+            //printf("gemm min_index = %d  %d\n", min_index, min_cost.first);
+            mMatMul[b] = runTime->buildKernel("gemm", kernelName[min_index], basic);
+            
+            ret |= mMatMul[b].setArg(0, openCLImage(mSource.get()));
+            ret |= mMatMul[b].setArg(1, *mWeight);
+            ret |= mMatMul[b].setArg(2, openCLImage(mDest.get()));
+            ret |= mMatMul[b].setArg(3, wUnit);
+            ret |= mMatMul[b].setArg(4, hUnit);
+            ret |= mMatMul[b].setArg(5, ocC4);
+            ret |= mMatMul[b].setArg(6, icC4);
+            ret |= mMatMul[b].setArg(7, alpha*alpha);
+            MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
+            mGWS_M[b] = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
             recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b], mOpenCLBackend->getOpenCLRuntime());
         }
 
@@ -319,7 +356,8 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     int costTime = 0;
     #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
         return NO_ERROR;
     }
     #endif
