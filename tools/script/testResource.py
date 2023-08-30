@@ -4,7 +4,7 @@ import os
 from subprocess import Popen, PIPE, STDOUT
 
 root_dir = sys.argv[1]
-print('root:', root_dir)
+print('root: ', root_dir)
 
 forwardType = " 0 "
 if len(sys.argv) > 2:
