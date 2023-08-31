@@ -74,8 +74,7 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Unary\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Unary", event});
 #else
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     if(openCLBackend->getOpenCLRuntime()->isUseRecordQueue()){

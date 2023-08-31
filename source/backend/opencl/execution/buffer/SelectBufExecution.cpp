@@ -70,8 +70,7 @@ ErrorCode SelectBufExecution::onExecute(const std::vector<Tensor*>& inputs, cons
     runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Select\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Select", event});
 #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());

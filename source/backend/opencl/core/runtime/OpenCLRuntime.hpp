@@ -113,6 +113,14 @@ public:
     std::string getDeviceName() {
         return mDeviceName;
     }
+    void pushEvent(std::pair<std::string, cl::Event> data) {
+        return mEvents.push_back(data);
+    }
+    void printEventTime();
+    void clearEvent(){
+        mKernelTime = 0;
+        mEvents.clear();
+    }
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
@@ -181,6 +189,7 @@ private:
     GpuType mGpuType;
     MaliAr mMaliAr;
     float mCLVersion = 1.0f;
+    std::vector<std::pair<std::string, cl::Event>> mEvents;
 
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities mSvmCapabilities;

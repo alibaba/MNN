@@ -53,8 +53,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                                                         &event);
         }
         
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOpType), idx++);
+        runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
     #else
         if(lws_null == true) {
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,

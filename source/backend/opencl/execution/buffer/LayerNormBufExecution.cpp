@@ -175,8 +175,7 @@ ErrorCode LayerNormBufExecution::onExecute(const std::vector<Tensor *> &inputs, 
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us LayerNormBuf\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"LayerNormBuf", event});
 #else
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif

@@ -177,8 +177,8 @@ ErrorCode DeconvBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
                        mOpenCLBackend->getOpenCLRuntime(),
                        &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DeconvBuf\n",costTime);
+    
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DeconvBuf", event});
 #else
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime());

@@ -352,9 +352,7 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    int costTime = 0;
-    #else
+    #ifndef ENABLE_OPENCL_TIME_PROFILER
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
             mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
@@ -368,10 +366,8 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mSourceTransform[b], mGWS_S[b], mLWS_S[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                    
-            int costTime0 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime0;
-            MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime0);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino0", event});
             #else
                 runKernel2D(mSourceTransform[b], mGWS_S[b], mLWS_S[b],
                         mOpenCLBackend->getOpenCLRuntime());
@@ -384,10 +380,8 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mMatMul[b], mGWS_M[b], mLWS_M[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                            
-            int costTime1 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime1;
-            MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime1);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino1", event});
 #else
             runKernel2D(mMatMul[b], mGWS_M[b], mLWS_M[b],
                         mOpenCLBackend->getOpenCLRuntime());
@@ -400,19 +394,14 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mDestTransform[b], mGWS_D[b], mLWS_D[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                    
-            int costTime2 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime2;
-            MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime2);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino2", event});
         #else
             runKernel2D(mDestTransform[b], mGWS_D[b], mLWS_D[b],
                         mOpenCLBackend->getOpenCLRuntime());
         #endif
         }
     }
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    MNN_PRINT("kernel cost:%d    us ConvWino total\n",costTime);
-    #endif
 
     return NO_ERROR;
 }

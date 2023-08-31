@@ -107,8 +107,7 @@ ErrorCode ArgMaxBufExecution::onExecute(const std::vector<Tensor*>& inputs, cons
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us ArgMax\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ArgMax", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());

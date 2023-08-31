@@ -562,8 +562,7 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime(), &event);
         
-        float costTime = mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%f    us Conv UseLocalMem\n",costTime);
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Conv UseLocalMem", event});
     #else
         if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
             if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
@@ -583,8 +582,7 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Conv2D\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Conv2D", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

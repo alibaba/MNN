@@ -90,9 +90,8 @@ ErrorCode GridSampleBufExecution::onExecute(const std::vector<Tensor *> &inputs,
     cl::Event event;
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
         mOpenCLBackend->getOpenCLRuntime(), &event);
-
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us GridSample\n", costTime);
+    
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"GridSample", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif

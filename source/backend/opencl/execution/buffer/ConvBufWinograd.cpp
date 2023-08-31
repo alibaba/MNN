@@ -570,9 +570,6 @@ ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const s
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    int costTime = 0;
-    #endif
     for (int b = 0; b < input->batch(); ++b) {
         int index = b;
         /*Source Transform*/
@@ -581,10 +578,7 @@ ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const s
             cl::Event event;
             runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-            
-            int costTime0 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime0;
-            MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime0);
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino0", event});
         #else
             runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
                         mOpenCLBackend->getOpenCLRuntime());
@@ -600,10 +594,7 @@ ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const s
             } else {
                 runKernel2D(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime(), &event);
             }
-            
-            int costTime1 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime1;
-            MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime1);
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino1", event});
         #else
             if (mUseSubgroup) {
                 run3DKernelDefault(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime());
@@ -619,19 +610,13 @@ ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const s
             cl::Event event;
             runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-            
-            int costTime2 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime2;
-            MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime2);
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino2", event});
         #else
             runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
                         mOpenCLBackend->getOpenCLRuntime());
         #endif
         }
     }
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    MNN_PRINT("kernel cost:%d    us ConvWino total\n",costTime);
-    #endif
 
     return NO_ERROR;
 }

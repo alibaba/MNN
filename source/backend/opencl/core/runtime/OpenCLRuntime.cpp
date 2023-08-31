@@ -364,6 +364,7 @@ OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~OpenCLRuntime !\n");
 #endif
+    clearEvent();
     releaseRecord();
     mBuildProgramMap.clear();
     mRecordings.clear();
@@ -777,6 +778,26 @@ void OpenCLRuntime::releaseRecord(){
         }
         mRecordings.clear();
     }
+#endif
+}
+
+void OpenCLRuntime::printEventTime(){
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    if(mEvents.empty()){
+        return;
+    }
+    for(int i = 0; i < mEvents.size(); ++i){
+        auto event = &mEvents[i].second;
+        cl_int res = event->wait();
+        MNN_CHECK_CL_SUCCESS(res, "clEvent");
+        auto StartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
+        auto StopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
+        auto kernel_time = (unsigned int)((StopNanos - StartNanos) / 1000.0);
+        mKernelTime += kernel_time;
+        MNN_PRINT("kernel time = %d    us %s\n", kernel_time, mEvents[i].first.c_str());
+    }
+    mEvents.clear();
+    MNN_PRINT("total kernel time = %d  us\n", mKernelTime);
 #endif
 }
 } // namespace MNN

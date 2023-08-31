@@ -103,8 +103,7 @@ ErrorCode Interp3DExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Interp3D\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp3D", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

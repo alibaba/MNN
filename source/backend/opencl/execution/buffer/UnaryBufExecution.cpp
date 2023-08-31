@@ -136,8 +136,7 @@ ErrorCode UnaryBufExecution::onExecute(const std::vector<Tensor*>& inputs, const
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Unary\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Unary", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());

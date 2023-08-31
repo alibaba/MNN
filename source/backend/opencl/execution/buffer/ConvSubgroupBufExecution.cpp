@@ -397,8 +397,7 @@ ErrorCode ConvSubgroupBuf::onExecute(const std::vector<Tensor *> &inputs, const 
          
          cl::Event event;
          run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-         int costTime0 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-         MNN_PRINT("kernel cost:%d    us ConvSubgroup transe\n", costTime0);
+         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvSubgroup", event});
 #else
          run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -407,8 +406,7 @@ ErrorCode ConvSubgroupBuf::onExecute(const std::vector<Tensor *> &inputs, const 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
          cl::Event event;
          run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-         int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-         MNN_PRINT("kernel cost:%d    us ConvSubgroupBuf2D\n", costTime);
+         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvSubgroupBuf2D", event});
 #else
          run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif

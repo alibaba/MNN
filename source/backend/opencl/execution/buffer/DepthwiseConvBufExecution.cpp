@@ -307,9 +307,7 @@ ErrorCode DepthwiseConvBufExecution::onExecute(const std::vector<Tensor *> &inpu
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime(),
                 &event);
-    
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DepthwiseConvBuf\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConvBuf", event});
 #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());

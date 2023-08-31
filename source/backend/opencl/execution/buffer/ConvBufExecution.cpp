@@ -674,8 +674,7 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     cl::Event event;
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us ConvBuf2D\n",costTime); 
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvBuf2D", event});
 #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif
