@@ -147,6 +147,9 @@ void Interpreter::setSessionHint(HintMode mode, int hint) {
         case MAX_TUNING_NUMBER:
             mNet->modes.maxTuningNumber = hint;
             break;
+        case MEM_ALLOCATOR_TYPE:
+            mNet->modes.memoryAllocatorType = hint;
+            break;
         default:
             break;
     }
@@ -248,6 +251,7 @@ Interpreter::~Interpreter() {
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
     runtime.second->setExternalFile(mNet->externalFile);
+    runtime.second->setAllocatorType(mNet->modes.memoryAllocatorType);
     if (runtime.first.empty()) {
         MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;

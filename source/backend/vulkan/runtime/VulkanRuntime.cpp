@@ -17,11 +17,11 @@ public:
     virtual ~ VulkanBufferAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override {
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
         VulkanBuffer* newBuffer = new VulkanBuffer(mPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        return std::make_pair(newBuffer, 0);
+        return MemChunk(newBuffer, 0);
     }
-    virtual void onRelease(std::pair<void*, size_t> ptr) override {
+    virtual void onRelease(MemChunk ptr) override {
         auto p = (VulkanBuffer*)ptr.first;
         delete p;
     }
@@ -91,7 +91,7 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
     }
     mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, fp16);
     std::shared_ptr<BufferAllocator::Allocator> allocReal(new VulkanBufferAllocator(dev, *mMemoryPool));
-    mBufferPool.reset(new BufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
+    mBufferPool.reset(new EagerBufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
     mClampSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);

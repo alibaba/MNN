@@ -68,11 +68,6 @@ public:
     struct SubGraph;
     bool registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs);
     std::shared_ptr<SubGraph> findSubGraph(const std::string& submoduleName);
-    /**Internal Usage Begin*/
-    void addOpCostTime(int op, float costTime);
-    void addOpCostTime(const std::string& type, float costTime);
-    void addOpFlops(const std::string& type, float flops);
-    /**Internal Usage End*/
     static RuntimeInfo getRuntime();
     void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
     const DebugTools* getDebugTools() const {

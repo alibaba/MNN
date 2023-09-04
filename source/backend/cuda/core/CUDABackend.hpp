@@ -41,7 +41,7 @@ public:
     virtual float onGetMemoryInMB() override;
 
 private:
-    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<EagerBufferAllocator> mBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
     bool mIsCreateError{false};
     BackendConfig::PrecisionMode mDefaultPrecision;

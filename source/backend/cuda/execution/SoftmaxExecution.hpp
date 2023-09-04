@@ -31,7 +31,7 @@ private:
     Tensor mStorage;
     bool mNeedUnpackC4;
     ReduceParam mCpuParam;
-    std::pair<void*, int> mParam;
+    MemChunk mParam;
 };
 
 } // namespace CUDA

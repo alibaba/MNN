@@ -208,9 +208,9 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
             }
         }
     };
-    auto biasP   = inputs[2]->host<uint8_t>();
-    auto weightP = inputs[1]->host<uint8_t>();
     mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
+        auto biasP   = inputs[2]->host<uint8_t>();
+        auto weightP = inputs[1]->host<uint8_t>();
         for (int index = tId; index < total; index += numberThread) {
             int dz = index / batch;
             auto dst_z           = dstOrigin + dst_z_step * index * bytes;

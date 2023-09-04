@@ -235,23 +235,23 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
     auto pool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
 
     if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
-        std::pair<void*, int> bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
-        std::pair<void*, int> bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        auto  bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);
     } else if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        std::pair<void*, int> bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
-        std::pair<void*, int> bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(half));
+        auto bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(half));
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);
     } else {
-        std::pair<void*, int> bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
+        auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
         mParams.mBufferIndices = (void*)((uint8_t*)bufferIndices.first + bufferIndices.second);
-        std::pair<void*, int> bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(float));
+        auto bufferValues = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(float));
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);

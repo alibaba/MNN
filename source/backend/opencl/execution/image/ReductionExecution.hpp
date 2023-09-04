@@ -28,11 +28,12 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
+    int getLocalSize(int size, int maxGroupSize);
     cl::Kernel mReduct1DKernel;
     OpenCLBackend *mOpenCLBackend;
     MNN::DataType mdataType;
     int mReductType;
-    std::vector<int> mAxis;
+    int mAxis;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1};
     bool mUseLocal = false;

@@ -440,10 +440,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
     ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParameters, mCommon, input, output, mPadX, mPadY, core, nullptr);
-    const float *biasPtr = nullptr;
     if (inputs.size() > 2) {
-        bias    = inputs[2];
-        biasPtr = bias->host<float>();
+        bias = inputs[2];
     }
     auto kernelSize               = mCommon->kernelX() * mCommon->kernelY();
 
@@ -467,7 +465,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     auto bufferAlloc   = static_cast<CPUBackend *>(backend())->getBufferAllocator();
     auto maxLine       = UP_DIV(eP, mIm2ColParameters.ow) + 1;
     auto tempPtr = bufferAlloc->alloc(kernelSize * maxLine * threadNumber * (4 * sizeof(int32_t) + sizeof(float *)));
-    if (nullptr == tempPtr.first) {
+    if (tempPtr.invalid()) {
         return OUT_OF_MEMORY;
     }
     backend()->onReleaseBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
@@ -483,10 +481,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         MNN_PRINT("dense conv: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, threadNumberFirst:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
         batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, threadNumberFirst, tileCount, eP, unit, bytes);
 #endif
-
+        const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
-        auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
-                                       0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+        auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
         auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
         auto weightPtr = weight->host<uint8_t>();
 
@@ -614,10 +611,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, tileCount, eP, unit, bytes);
             }
 #endif
-
+            const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
-            auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
-                                           tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+            auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
             auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
             auto weightPtr = weight->host<float>();
             int32_t info[4];

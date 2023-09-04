@@ -18,12 +18,7 @@ ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : Co
     MNN_PRINT("start ReductionExecution init !\n");
 #endif
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    auto reduct = op->main_as_ReductionParam();
-    if (nullptr != reduct->dim()) {
-        for (int i = 0; i < reduct->dim()->size(); ++i) {
-            mAxis.push_back(reduct->dim()->data()[i]);
-        }
-    }
+    mAxis = op->main_as_ReductionParam()->dim()->data()[0];
     switch (op->main_as_ReductionParam()->operation()) {
         case ReductionType_MEAN:
             mReductType = 0;
@@ -49,110 +44,150 @@ ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : Co
 #endif
 }
 
+int ReductionExecution::getLocalSize(int size, int maxGroupSize){
+    int local_size = 1;
+    while(local_size * 2 <= maxGroupSize && local_size * 2 <= size){
+        local_size *= 2;
+    }
+    return local_size;
+}
+
 ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     
-    MNN_ASSERT(mAxis.size() == 1);
-    MNN_ASSERT(mAxis[0] == 1);
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     startRecord(runtime, mRecording);
     auto input = inputs[0];
     auto output = outputs[0];
-    std::vector<int> inputShape  = tensorShapeFormat(input);
-    //N=outside H=axis W=inside C=1
-    MNN_ASSERT(inputShape[3] == 1);
-    if(inputShape[1] >= 256) {
+    if(mAxis < 0){
+        mAxis = input->dimensions() + mAxis;
+    }
+    int inside = 1;
+    int outside = 1;
+    for(int i = 0; i < mAxis; ++i){
+        outside *= input->length(i);
+    }
+    for(int i = mAxis + 1; i < input->dimensions(); ++i){
+        inside *= input->length(i);
+    }
+    int dim = input->length(mAxis);
+    int local_size = 0;
+    auto MaxWorkItems = runtime->getMaxWorkItemSizes();
+    
+    if(dim >= 16){
         mUseLocal = true;
     }
-    if(!mUseLocal) {
-        mGlobalWorkSize = {static_cast<uint32_t>(inputShape[0]), static_cast<uint32_t>(inputShape[2])};
-        mLocalWorkSize = {1, 1, 1};
-        
-        switch (mReductType) {
-            case 0:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_mean", {});
-                break;
-            case 1:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_max", {});
-                break;
-            case 2:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_min", {});
-                break;
-            case 3:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_mul", {});
-                break;
-            case 4:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_sum", {});
-                break;
-            default:
-                MNN_ASSERT(false);
-                break;
+
+    std::vector<int> inputShape = tensorShapeFormat(input);
+    std::vector<int> outputShape = tensorShapeFormat(output);
+
+    int batch = inputShape.at(0);
+    int inputHeight = inputShape.at(1);
+    int inputWidth  = inputShape.at(2);
+    int inputChannels = inputShape.at(3);
+    int inputChannelBlocks = (inputChannels + 3) / 4;
+    int outputBatch = outputShape.at(0);
+    int outputHeight = outputShape.at(1);
+    int outputWidth  = outputShape.at(2);
+    int outputChannels = outputShape.at(3);
+    int outputChannelBlocks = (outputChannels + 3) / 4;
+
+    std::set<std::string> buildOption;
+    switch (mReductType) {
+        case 0:
+            buildOption.emplace("-DOPERATE(a,b)=(a+b)");
+            buildOption.emplace("-DGET_AVG");
+            buildOption.emplace("-DVALUE=0");
+            break;
+        case 1:
+            buildOption.emplace("-DOPERATE(a,b)=max(a,b)");
+            buildOption.emplace("-DVALUE=-FLT_MAX");
+            break;
+        case 2:
+            buildOption.emplace("-DOPERATE(a,b)=min(a,b)");
+            buildOption.emplace("-DVALUE=FLT_MAX");
+            break;
+        case 3:
+            buildOption.emplace("-DOPERATE(a,b)=(a*b)");
+            buildOption.emplace("-DVALUE=1");
+            break;
+        case 4:
+            buildOption.emplace("-DOPERATE(a,b)=(a+b)");
+            buildOption.emplace("-DVALUE=0");
+            break;
+        default:
+            MNN_ASSERT(false);
+            break;
+    }
+    
+    mGlobalWorkSize = {
+        static_cast<uint32_t>(outputWidth),
+        static_cast<uint32_t>(outputHeight),
+        static_cast<uint32_t>(outputBatch * outputChannelBlocks)
+    };
+    
+    if(mUseLocal){
+        if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
+            local_size = getLocalSize(inputWidth, MaxWorkItems[0]);
+            buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_width", buildOption);
+        }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
+            local_size = getLocalSize(inputHeight, MaxWorkItems[0]);
+            buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_height", buildOption);
+        }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
+            local_size = getLocalSize(inputChannelBlocks - 1, MaxWorkItems[0]);
+            buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_channel", buildOption);
+            mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
+        }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
+            local_size = getLocalSize(batch, MaxWorkItems[0]);
+            buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_batch", buildOption);
         }
-    } else { //useLocal
-        uint32_t global_x = 8;
-        int size = inputShape[1];
-        if (size >= 1024) {
-            global_x = 256;
-        } else if(size >= 512) {
-            global_x = 128;
-        } else if (size >= 256) {
-            global_x = 64;
-        } else if (size >= 128) {
-            global_x = 32;
-        } else if (size >= 64) {
-            global_x = 16;
-        } else if (size >= 32) {
-            global_x = 8;
-        }
-        mGlobalWorkSize = {global_x, static_cast<uint32_t>(inputShape[0]), static_cast<uint32_t>(inputShape[2])};
-        mLocalWorkSize = {global_x, 1, 1 };
-        
-        switch (mReductType) {
-            case 0:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_mean_local", {});
-                break;
-            case 1:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_max_local", {});
-                break;
-            case 2:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_min_local", {});
-                break;
-            case 3:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_mul_local", {});
-                break;
-            case 4:
-                mReduct1DKernel = runtime->buildKernel("reduction", "reduct_general_sum_local", {});
-                break;
-            default:
-                MNN_ASSERT(false);
-                break;
+        mGlobalWorkSize[0] *= local_size;
+    }else{
+        buildOption.emplace("-DLOCAL_SIZE=0");
+        if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_width", buildOption);
+        }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_height", buildOption);
+        }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_channel", buildOption);
+            mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
+        }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
+            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_batch", buildOption);
         }
     }
-    //printf("reduce axis:%d , %d %d %d %d, useLocal:%d\n", mAxis[0], inputShape[0], inputShape[1], inputShape[2], inputShape[3], mUseLocal);
 
     mUnits.resize(1);
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    if(mUseLocal) {
-        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
-        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[2]);
-    } else {
-        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
-        ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
-    }
+    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[2]);
     ret |= mReduct1DKernel.setArg(idx++, openCLImage(input));
     ret |= mReduct1DKernel.setArg(idx++, openCLImage(output));
-    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[0]));
-    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[1]));
-    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[2]));
-    ret |= mReduct1DKernel.setArg(idx++, static_cast<int32_t>(inputShape[3]));
+    ret |= mReduct1DKernel.setArg(idx++, inputWidth);
+    ret |= mReduct1DKernel.setArg(idx++, inputHeight);
+    ret |= mReduct1DKernel.setArg(idx++, inputChannels);
+    ret |= mReduct1DKernel.setArg(idx++, batch);
+    ret |= mReduct1DKernel.setArg(idx++, inputChannelBlocks);
+    ret |= mReduct1DKernel.setArg(idx++, outputWidth);
+    ret |= mReduct1DKernel.setArg(idx++, outputHeight);
+    ret |= mReduct1DKernel.setArg(idx++, outputChannels);
+    ret |= mReduct1DKernel.setArg(idx++, outputChannelBlocks);
     MNN_CHECK_CL_SUCCESS(ret, "setArg ReductionExecution");
 
     if(mUseLocal){
-        recordKernel3d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+        mLocalWorkSize = {static_cast<uint32_t>(local_size), 1, 1};
     }else{
-        recordKernel2d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+        auto MaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mReduct1DKernel));
+        std::string kernelName = "reduct";
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, MaxWorkGroupSize, runtime, kernelName, mReduct1DKernel).first;
     }
+    
+    recordKernel3d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     endRecord(runtime, mRecording);
     return NO_ERROR;
 }
@@ -164,13 +199,7 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
-        if(mUseLocal) {
-            run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
-                               mOpenCLBackend->getOpenCLRuntime(), &event);
-        } else {
-            runKernel2D(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
-                               mOpenCLBackend->getOpenCLRuntime(), &event);
-        }
+        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
         int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
         MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
     #else
@@ -182,13 +211,7 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 #endif
         return NO_ERROR;
     }
-    if(mUseLocal) {
-        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
-                           mOpenCLBackend->getOpenCLRuntime());
-    } else {
-        runKernel2D(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
-                           mOpenCLBackend->getOpenCLRuntime());
-    }
+    run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     #endif
     
 #ifdef LOG_VERBOSE
@@ -202,32 +225,36 @@ public:
     virtual ~ReductionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                  const MNN::Op *op, Backend *backend) const override {
-        if (inputs[0]->getDimensionType() == Tensor::TENSORFLOW) {
-            auto openCLBackend = static_cast<OpenCLBackend *>(backend);
-            auto reduct = op->main_as_ReductionParam();
-            if (nullptr == reduct->dim()) {
-                return NULL;
-            }
-            if(reduct->dim()->size() != 1) {
-                return NULL;
-            }
-            switch (op->main_as_ReductionParam()->operation()) {
-                case ReductionType_MEAN:
-                    break;
-                case ReductionType_MAXIMUM:
-                    break;
-                case ReductionType_MINIMUM:
-                    break;
-                case ReductionType_PROD:
-                    break;
-                case ReductionType_SUM:
-                    break;
-                default:
-                    return NULL;
-                    break;
-            }
-            return new ReductionExecution(op, backend);
+        auto openCLBackend = static_cast<OpenCLBackend *>(backend);
+        auto reduct = op->main_as_ReductionParam();
+        if (nullptr == reduct->dim()) {
+            return NULL;
         }
+        if(reduct->dim()->size() != 1) {
+            return NULL;
+        }
+        auto axis = reduct->dim()->data()[0];
+        int dim = inputs[0]->length(axis);
+        std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
+        if(dim == inputShape.at(3) && outputs[0]->buffer().dimensions == 1){
+            return NULL;
+        }
+        switch (op->main_as_ReductionParam()->operation()) {
+            case ReductionType_MEAN:
+                break;
+            case ReductionType_MAXIMUM:
+                break;
+            case ReductionType_MINIMUM:
+                break;
+            case ReductionType_PROD:
+                break;
+            case ReductionType_SUM:
+                break;
+            default:
+                return NULL;
+                break;
+        }
+        return new ReductionExecution(op, backend);
         return NULL;
     }
 };

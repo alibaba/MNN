@@ -45,7 +45,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    std::pair<void*, int> mConstBuffer;
+    MemChunk mConstBuffer;
     const Op *mOp;
     int mTotalCount;
     constBuffer parameters;

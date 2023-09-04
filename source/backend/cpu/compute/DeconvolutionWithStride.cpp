@@ -413,7 +413,6 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    ::memset(mSrcBuffer->host<float>(), 0, mSrcBuffer->size());
     for (auto& unit : mComputeUnits) {
         backend()->onReleaseBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
         if (unit.winogradInfo.open) {
@@ -469,6 +468,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
     auto srcOrigin = input->host<float>();
     auto dstOrigin = output->host<float>();
 
+    ::memset(mSrcBuffer->host<float>(), 0, mSrcBuffer->size());
     ::memset(dstOrigin, 0, ow * oh * ocDiv4 * 4 * batchSize * sizeof(float));
     auto threadFunction = [&](int threadId) {
         auto srcTotal = mSrcBuffer->host<float>() + threadId * mSrcBuffer->stride(0);

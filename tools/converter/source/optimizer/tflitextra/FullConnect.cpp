@@ -34,6 +34,7 @@ public:
         auto input     = inputs[0];
         auto weight    = inputs[1];
         auto bias      = inputs[2];
+        input = _Reshape(input, {0, -1}, NHWC);
         auto newOutput = _MatMul(input, weight, false, true) + bias;
         if (activation == tflite::ActivationFunctionType_RELU) {
             newOutput = _Relu(newOutput);

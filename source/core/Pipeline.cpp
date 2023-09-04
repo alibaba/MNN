@@ -77,6 +77,8 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             return true;
         case OpType_Interp:
             return true;
+        case OpType_LayerNorm:
+            return true;
         default:
             break;
     }
@@ -129,7 +131,9 @@ static bool _needRelease(const Tensor* tensor, bool inputOutside) {
     return true;
 }
 static void _releaseTensor(Tensor* origin, bool mAllocInput) {
-    TensorUtils::getDescribe(origin)->useCount -= 1;
+    if (TensorUtils::getDescribe(origin)->usage != Tensor::InsideDescribe::CONSTANT) {
+        TensorUtils::getDescribe(origin)->useCount -= 1;
+    }
     if (0 == TensorUtils::getDescribe(origin)->useCount &&
         TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
         auto needRelease = _needRelease(origin, !mAllocInput);
@@ -786,7 +790,7 @@ void Pipeline::_recycleDynamicMemory(Command* command) {
     }
 }
 
-ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
+ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
     // MNN_PRINT("allocMemory mtype:%d, cpubackendType:%d, cpuBackend runtime:%p\n", mBackend->type(), mBackupBackend->type(), mBackupBackend->getRuntime());
     if (!firstMalloc) {
         // For session setNeedMalloc, if session's output is set as some input, It may cause error
@@ -871,7 +875,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
     _SetTensorBackend(mInfo, mAllocInput);
     // Insert Wrap If needed
     {
-        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mShapeFixConstCache, mAllocInput, permitCodegen);
+        auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mShapeFixConstCache, mAllocInput, forbidReplace);
         if (NO_ERROR != insertCode) {
             return insertCode;
         }
@@ -886,7 +890,9 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
             auto& iter = *iterP;
             for (auto t : iter.workInputs) {
                 auto des = TensorUtils::getDescribe(t);
-                des->useCount = 0;
+                if (des->usage != Tensor::InsideDescribe::CONSTANT) {
+                    des->useCount = 0;
+                }
             }
         }
     }
@@ -896,7 +902,9 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
             auto& iter = *iterP;
             for (auto t : iter.workInputs) {
                 auto des = TensorUtils::getDescribe(t);
-                des->useCount += 1;
+                if (des->usage != Tensor::InsideDescribe::CONSTANT) {
+                    des->useCount += 1;
+                }
             }
         }
     }
@@ -904,6 +912,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
 
     // Alloc tensor
     mBackend->onResizeBegin();
+    mBackupBackend->onResizeBegin();
     for (auto& info : mInfo.second) {
         auto& buffer = info.executeBuffer;
         for (int cmdIndex=0; cmdIndex < buffer.command.size(); ++cmdIndex) {
@@ -959,6 +968,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool permitCodegen) {
         }
     }
     mBackend->onResizeEnd();
+    mBackupBackend->onResizeEnd();
     return NO_ERROR;
 }
 

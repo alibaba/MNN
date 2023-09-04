@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 #include "core/BufferAllocator.hpp"
+#include "core/TensorUtils.hpp"
 #include "math/Vec.hpp"
 
 
@@ -94,40 +95,36 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto ATPtrAlloc = bufferAlloc->alloc(UP_DIV(l, core->pack) * e * core->pack * core->bytes);
     auto BTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, hP) * UP_DIV(l, lP) * lP * hP * core->bytes);
     auto CTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, core->pack) * e * core->pack * core->bytes);
-    if (nullptr == ATPtrAlloc.first || nullptr == BTPtrAlloc.first || nullptr == CTPtrAlloc.first) {
+    if (ATPtrAlloc.invalid() || BTPtrAlloc.invalid() || CTPtrAlloc.invalid()) {
         return OUT_OF_MEMORY;
     }
-    auto BTPtr = (uint8_t*)BTPtrAlloc.first + BTPtrAlloc.second;
-    auto ATPtr = (uint8_t*)ATPtrAlloc.first + ATPtrAlloc.second;
-    auto CTPtr = (uint8_t*)CTPtrAlloc.first + CTPtrAlloc.second;
 
-    float* BTempPtr = (float*)BTPtr;
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    mPreFunctions.emplace_back(std::make_pair([BTempPtr, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias) {
-        core->MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
+    mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias) {
+        core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), BPtr, h, l, mTransposeB);
     } , 1));
     if (mTransposeA) {
         // l, e -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
+        mPreFunctions.emplace_back(std::make_pair([ATPtrAlloc, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
             int offset[] = {
                 e, e
             };
-            core->MNNPackCUnit((float*)ATPtr, APtr, e, l, offset);
+            core->MNNPackCUnit((float*)ATPtrAlloc.ptr(), APtr, e, l, offset);
         }, 1));
     } else {
         // e, l -> lC4, e, 4
         mPreFunctions.emplace_back(std::make_pair(
-            [ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
+            [ATPtrAlloc, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
             int offset[] = {
                 e, e
             };
-            core->MNNPackCUnitTranspose((float*)ATPtr, APtr, e, l, offset);
+            core->MNNPackCUnitTranspose((float*)ATPtrAlloc.ptr(), APtr, e, l, offset);
         }, 1));
     }
     bool useBias = false;
-    uint8_t* biasPtr = nullptr;
     std::vector<float> postParameters;
-    std::pair<void*, int> bdestAlloc = std::make_pair(nullptr, 0);
+    MemChunk bdestAlloc;
+    bool bdestNeedFree = false;
     if (inputs.size() > 2) {
         auto bias = inputs[2];
         useBias = true;
@@ -136,19 +133,20 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             mStrassenUseBiasDirectly = false;
             // Padding to align of 4
             bdestAlloc = bufferAlloc->alloc(UP_DIV(biasLength, core->pack) * core->pack * core->bytes);
-            if (bdestAlloc.first == nullptr) {
+            bdestNeedFree = true;
+            if (bdestAlloc.invalid()) {
                 return OUT_OF_MEMORY;
             }
-            auto bdest = (float*)((uint8_t*)bdestAlloc.first + bdestAlloc.second);
             mPreFunctions.emplace_back(std::make_pair(
-                [biasLength, bdest, core](int tId, const float* APtr, const float* BPtr, const float* borigin) {
-                ::memset(bdest, 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
-                ::memcpy(bdest, borigin, biasLength * core->bytes);
+                [biasLength, bdestAlloc, core](int tId, const float* APtr, const float* BPtr, const float* borigin) {
+                ::memset(bdestAlloc.ptr(), 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
+                ::memcpy(bdestAlloc.ptr(), borigin, biasLength * core->bytes);
             }, 1));
-            biasPtr = (uint8_t*)bdest;
         } else {
             mStrassenUseBiasDirectly = true;
-            biasPtr = bias->host<uint8_t>();
+            if (TensorUtils::getDescribe(bias)->mem.get()) {
+                bdestAlloc = TensorUtils::getDescribe(bias)->mem->chunk();
+            }
         }
         postParameters = {
             1.0f,
@@ -157,29 +155,29 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             std::numeric_limits<float>().max(),
         };
     }
-    auto code = mComputer->onEncode(e, l, h, e * core->pack, UP_DIV(l, lP) * lP * hP, e * core->pack, ATPtr, BTPtr, CTPtr, useBias, biasPtr, postParameters);
+    auto code = mComputer->onEncode(e, l, h, e * core->pack, UP_DIV(l, lP) * lP * hP, e * core->pack, ATPtrAlloc, BTPtrAlloc, CTPtrAlloc, useBias, bdestAlloc, postParameters);
     if (NO_ERROR != code) {
         return code;
     }
-    if (bdestAlloc.first != nullptr) {
+    if (bdestNeedFree) {
         bufferAlloc->free(bdestAlloc);
     }
     // hC4, e, 4 -> e, h
     if (mTransposeC) {
-        mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
+        mPostFunctions.emplace_back(std::make_pair([CTPtrAlloc, e, h, core](
                 int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
             int offset[] = {
                 e, e
             };
-            core->MNNUnpackCUnitTranspose(CPtr, (float*)CTPtr, e, h, offset);
+            core->MNNUnpackCUnitTranspose(CPtr, (float*)CTPtrAlloc.ptr(), e, h, offset);
         }, 1));
     } else {
-        mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
+        mPostFunctions.emplace_back(std::make_pair([CTPtrAlloc, e, h, core](
                 int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
             int offset[] = {
                 e, e
             };
-            core->MNNUnpackCUnit(CPtr, (float*)CTPtr, e, h, offset);
+            core->MNNUnpackCUnit(CPtr, (float*)CTPtrAlloc.ptr(), e, h, offset);
         }, 1));
     }
     bufferAlloc->free(ATPtrAlloc);

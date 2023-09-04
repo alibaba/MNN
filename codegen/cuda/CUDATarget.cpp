@@ -473,15 +473,22 @@ std::string CUDATarget::codegen(std::vector<std::string>& inputs, const Command*
                     break;
                 case UnaryOpOperation_LOG1P:
                     if(mVectorize) {
-                        ss << inpName << ".x=(log(1.0+" << operand << ".x));\n";
-                        ss << inpName << ".y=(log(1.0+" << operand << ".y))";
-                        if(mPrecision != BackendConfig::Precision_Low) {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << ".x=(half)(log(1.0+(float)" << operand << ".x));\n";
+                            ss << inpName << ".y=(half)(log(1.0+(float)" << operand << ".y))";
+                        } else {
+                            ss << inpName << ".x=(log(1.0+" << operand << ".x));\n";
+                            ss << inpName << ".y=(log(1.0+" << operand << ".y))";
                             ss << ";\n";   
                             ss << inpName << ".z=(log(1.0+" << operand << ".z));\n";
                             ss << inpName << ".w=(log(1.0+" << operand << ".w))";
                         }
                     } else {
-                        ss << inpName << "=(log(1.0+" << operand << "))";
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << "=(log((half)1.0+" << operand << "))";
+                        } else {
+                            ss << inpName << "=(log(1.0+" << operand << "))";
+                        }
                     }
                     break;
                 case UnaryOpOperation_FLOOR:
@@ -512,15 +519,22 @@ std::string CUDATarget::codegen(std::vector<std::string>& inputs, const Command*
                     break;
                 case UnaryOpOperation_SIGMOID:
                     if(mVectorize) {
-                        ss << inpName << ".x=(1.0/(1.0+exp(-" << operand << ".x)));\n";
-                        ss << inpName << ".y=(1.0/(1.0+exp(-" << operand << ".y)))";
-                        if(mPrecision != BackendConfig::Precision_Low) {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << ".x=(half)(1.0/(1.0+(float)exp(-" << operand << ".x)));\n";
+                            ss << inpName << ".y=(half)(1.0/(1.0+(float)exp(-" << operand << ".y)))";
+                        } else {
+                            ss << inpName << ".x=(1.0/(1.0+exp(-" << operand << ".x)));\n";
+                            ss << inpName << ".y=(1.0/(1.0+exp(-" << operand << ".y)))";
                             ss << ";\n";                           
                             ss << inpName << ".z=(1.0/(1.0+exp(-" << operand << ".z)));\n";
                             ss << inpName << ".w=(1.0/(1.0+exp(-" << operand << ".w)))";
                         }
                     } else {
-                        ss << inpName << "=(1.0/(1.0+exp(-" << operand << ")))";
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << "=(half)(1.0/(1.0+(float)exp(-" << operand << ")))";
+                        } else {
+                            ss << inpName << "=(1.0/(1.0+exp(-" << operand << ")))";
+                        }
                     }
                     break;
                 case UnaryOpOperation_TANH:
@@ -538,15 +552,22 @@ std::string CUDATarget::codegen(std::vector<std::string>& inputs, const Command*
                     break;
                 case UnaryOpOperation_RECIPROCAL:
                     if(mVectorize) {
-                        ss << inpName << ".x=(1.0/" << operand << ".x);\n";
-                        ss << inpName << ".y=(1.0/" << operand << ".y)";
-                        if(mPrecision != BackendConfig::Precision_Low) {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << ".x=(half)(1.0/(float)" << operand << ".x);\n";
+                            ss << inpName << ".y=(half)(1.0/(float)" << operand << ".y)";
+                        } else {
+                            ss << inpName << ".x=(1.0/" << operand << ".x);\n";
+                            ss << inpName << ".y=(1.0/" << operand << ".y)";
                             ss << ";\n";                           
                             ss << inpName << ".z=(1.0/" << operand << ".z);\n";
                             ss << inpName << ".w=(1.0/" << operand << ".w)";
                         }
                     } else {
-                        ss << inpName << "=(1.0/" << operand << ")";
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << "=(half)(1.0/(float)" << operand << ")";
+                        } else {
+                            ss << inpName << "=(1.0/" << operand << ")";
+                        }
                     }                
                     break;
                 case UnaryOpOperation_LOG:
@@ -564,16 +585,43 @@ std::string CUDATarget::codegen(std::vector<std::string>& inputs, const Command*
                     break;
                 case UnaryOpOperation_GELU:
                     if(mVectorize) {
-                        ss << inpName << ".x=(1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".x*" << operand <<  ".x*" <<  operand <<  ".x+" <<  operand + ".x))) * "  << operand << ".x* 0.5f);\n";
-                        ss << inpName << ".y=(1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".y*" << operand <<  ".y*" <<  operand <<  ".y+" <<  operand + ".y))) * "  << operand << ".y* 0.5f)";
-                        if(mPrecision != BackendConfig::Precision_Low) {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << ".x=(half)((1.0f + tanh(0.79788458f * (0.044715f * (float)" << operand <<  ".x*(float)" << operand <<  ".x*(float)" <<  operand <<  ".x+(float)" <<  operand + ".x))) * (float)"  << operand << ".x* 0.5f);\n";
+                            ss << inpName << ".y=(half)((1.0f + tanh(0.79788458f * (0.044715f * (float)" << operand <<  ".y*(float)" << operand <<  ".y*(float)" <<  operand <<  ".y+(float)" <<  operand + ".y))) * (float)"  << operand << ".y* 0.5f)";
+                        } else {
+                            ss << inpName << ".x=((1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".x*" << operand <<  ".x*" <<  operand <<  ".x+" <<  operand + ".x))) * "  << operand << ".x* 0.5f);\n";
+                            ss << inpName << ".y=((1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".y*" << operand <<  ".y*" <<  operand <<  ".y+" <<  operand + ".y))) * "  << operand << ".y* 0.5f)";
                             ss << ";\n";   
-                            ss << inpName << ".z=(1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".z*" << operand <<  ".z*" <<  operand <<  ".z+" <<  operand + ".z))) * "  << operand << ".z* 0.5f);\n";
-                            ss << inpName << ".w=(1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".w*" << operand <<  ".w*" <<  operand <<  ".w+" <<  operand + ".w))) * "  << operand << ".w* 0.5f)";
+                            ss << inpName << ".z=((1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".z*" << operand <<  ".z*" <<  operand <<  ".z+" <<  operand + ".z))) * "  << operand << ".z* 0.5f);\n";
+                            ss << inpName << ".w=((1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  ".w*" << operand <<  ".w*" <<  operand <<  ".w+" <<  operand + ".w))) * "  << operand << ".w* 0.5f)";
                         }
                     } else {
-                        ss << inpName << "=(1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  "*" << operand <<  "*" <<  operand <<  "+" <<  operand + "))) * "  << operand << "* 0.5f)";
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << "=(half)((1.0f + tanh(0.79788458f * (0.044715f * (float)" << operand <<  "*(float)" << operand <<  "*(float)" <<  operand <<  "+(float)" <<  operand + "))) * (float)"  << operand << "* 0.5f)";
+                        } else {
+                            ss << inpName << "=((1.0f + tanh(0.79788458f * (0.044715f * " << operand <<  "*" << operand <<  "*" <<  operand <<  "+" <<  operand + "))) * "  << operand << "* 0.5f)";
+                        }
                     }                
+                    break;
+                case UnaryOpOperation_GELU_STANDARD:
+                    if(mVectorize) {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << ".x=(half)((erf((float)" << operand << ".x*0.7071067932881648f)+1.f)*(float)" << operand << ".x*0.5f);\n";
+                            ss << inpName << ".y=(half)((erf((float)" << operand << ".y*0.7071067932881648f)+1.f)*(float)" << operand << ".y*0.5f)";
+                        } else {
+                            ss << inpName << ".x=((erf(" << operand << ".x*0.7071067932881648f)+1.f)*" << operand << ".x*0.5f);\n";
+                            ss << inpName << ".y=((erf(" << operand << ".y*0.7071067932881648f)+1.f)*" << operand << ".y*0.5f)";
+                            ss << ";\n";   
+                            ss << inpName << ".z=((erf(" << operand << ".z*0.7071067932881648f)+1.f)*" << operand << ".z*0.5f);\n";
+                            ss << inpName << ".w=((erf(" << operand << ".w*0.7071067932881648f)+1.f)*" << operand << ".w*0.5f)";
+                        }
+                    } else {
+                        if(mPrecision == BackendConfig::Precision_Low) {
+                            ss << inpName << "=(half)((erf((float)" << operand << "*0.7071067932881648f)+1.f)*(float)" << operand << "*0.5f)";
+                        } else {
+                            ss << inpName << "=((erf(" << operand << "*0.7071067932881648f)+1.f)*" << operand << "*0.5f)";
+                        }
+                    }
                     break;
                 default:
                     MNN_PRINT("Error: CUDA CodeGen not support Unary type:%d\n", type);

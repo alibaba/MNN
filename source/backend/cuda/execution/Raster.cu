@@ -203,12 +203,14 @@ UNARY_FUNC(GELU_STANDARD, (erf(x*0.7071067932881648f)+1.f)*x*0.5);
 void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int bytes, CUDARuntime* runtime) {
     int count = size[0] * size[1] * size[2];
 
-    // MNN_PRINT("blit info size:%d-%d-%d, srcStride:%d-%d-%d, dstStride:%d-%d-%d\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2]);
+    // MNN_PRINT("blit info size:%d-%d-%d, srcStride:%d-%d-%d, dstStride:%d-%d-%d, ptr:%p %p\n", size[0], size[1], size[2], srcStride[0], srcStride[1], srcStride[2], dstStride[0], dstStride[1], dstStride[2], input, output);
     bool isThirdSizeVector  = (size[2] % 2 == 0 && srcStride[2] == 1 && dstStride[2] == 1);
     bool isSecondSizeVector = (size[1] % 2 == 0 && srcStride[1] == 1 && dstStride[1] == 1) && (size[2] == 1 && srcStride[2] == 1 && dstStride[2] == 1);
     bool isFirstSizeVector  = (size[0] % 2 == 0 && srcStride[0] == 1 && dstStride[0] == 1) && (size[1] == 1 && srcStride[1] == 1 && dstStride[1] == 1) && (size[2] == 1 && srcStride[2] == 1 && dstStride[2] == 1);
+    bool isStrideVector     = (srcStride[0] % 2 == 0 || srcStride[0] == 1) && (srcStride[1] % 2 == 0 || srcStride[1] == 1) && (srcStride[2] % 2 == 0 || srcStride[2] == 1) && \
+                            (dstStride[0] % 2 == 0 || dstStride[0] == 1) && (dstStride[1] % 2 == 0 || dstStride[1] == 1) && (dstStride[2] % 2 == 0 || dstStride[2] == 1);
     bool isSizeVector = isThirdSizeVector || isSecondSizeVector || isFirstSizeVector;
-    if(count > 16384 && isSizeVector) {
+    if(count > 16384 && isSizeVector && isStrideVector) {
         int32_t newSize[3], newSrcStride[3], newDstStride[3];
         newSize[0] = size[0]; 
         newSize[1] = size[1]; 

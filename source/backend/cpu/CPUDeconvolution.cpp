@@ -241,6 +241,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     CPUDeconvolutionBasic::onResize(inputs, outputs);
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto gcore = static_cast<CPUBackend*>(backend())->int8Functions();
+    int bytes = core->bytes;
     auto input  = inputs[0];
     auto output = outputs[0];
     auto oc     = output->channel();
@@ -270,6 +271,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     mPostFunctions.clear();
     auto plane         = width * height * batch;
     const int maxDepth = 5;
+    auto allocator = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     //int zeroPoint = 0;
 
     auto biasPtr      = inputs[2]->host<float>();
@@ -284,6 +286,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto zeroPoint = outputQuant[1];
 
     AutoRelease<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, core->pack}));
+    bool needReleaseTempInput = true;
     int outi8 = 0;
     if (CPUBackend::getDataType(output) == DataType_DT_INT8 || output->getType().bytes() == 1) {
         outi8 = 1;
@@ -306,28 +309,28 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             return OUT_OF_MEMORY;
         }
         mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
-        tempInput->buffer().host = (uint8_t*)inputPtr;
+        // tempInput->buffer().host = (uint8_t*)inputPtr;
+        
+        needReleaseTempInput = false;
+        TensorUtils::getDescribe(tempInput.get())->mem.reset(new CPUMemObj(nullptr, TensorUtils::getDescribe(input)->mem->chunk(), 0));
         mMatMul->onEncode({tempInput.get(), inputs[1]}, {mTempOutput.get()});
     }
-    auto colBufferPtr = mTempOutput->host<uint8_t>();
     auto threadNumber = ((CPUBackend*)backend())->threadNumber();
     std::vector<float> scales(core->pack * src_height * src_width * batch, scale);
-    
-    std::shared_ptr<Tensor> OutputFloat(Tensor::createDevice<float>({batch, src_height, src_width, ocC4 * core->pack}));
-    auto res = backend()->onAcquireBuffer(OutputFloat.get(), Backend::DYNAMIC);
-    if (!res) {
+    auto outputFp32Ptr = allocator->alloc(batch * src_height * src_width * ocC4 * core->pack * bytes);
+    if (outputFp32Ptr.invalid()) {
         return OUT_OF_MEMORY;
     }
-    auto outputFp32Ptr = OutputFloat->host<uint8_t>();
 
-    mPostFunctions.emplace_back(std::make_pair([colBufferPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
+    mPostFunctions.emplace_back(std::make_pair([ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
                        strideX, threadNumber, src_width, src_height, plane, biasPtr, this, core, gcore, batch, outi8, scales,
                        minValue, maxValue, zeroPoint, outputFp32Ptr](uint8_t* outputPtr, int tId) {
+        auto colBufferPtr = mTempOutput->host<uint8_t>();
         auto unitBytes = core->pack * core->bytes;
         auto tempOutPtr = outputPtr;
         auto float2Int8_step = src_height * src_width * batch;
         if (outi8) {
-            tempOutPtr = outputFp32Ptr;
+            tempOutPtr = outputFp32Ptr.ptr();
         }
         for (int z = (tId); z < ocC4; z += threadNumber) {
             auto dstZ = tempOutPtr + z * src_height * src_width * batch * unitBytes;
@@ -367,7 +370,16 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             }
         }
     }, threadNumber));
-    if (tempInput->host<float>() != inputPtr) {
+    /*
+    if (TensorUtils::getDescribe(tempInput.get())->mem->chunk().offset() != TensorUtils::getDescribe(input)->mem->chunk().offset()) {
+        backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
+    }
+     if (tempInput->host<float>() != inputPtr) {
+         backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
+     }
+    */
+    allocator->free(outputFp32Ptr);
+    if (needReleaseTempInput) {
         backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
     }
     backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);

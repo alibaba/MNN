@@ -25,16 +25,16 @@ public:
     virtual ~ VulkanAllocator() {
         // Do nothing
     }
-    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override {
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
         VkMemoryAllocateInfo info;
         info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         info.pNext = nullptr;
         info.allocationSize = size;
         info.memoryTypeIndex = mIndex;
         auto mem = new VulkanMemory(mDevice, info);
-        return std::make_pair(mem, 0);
+        return MemChunk(mem, 0);
     }
-    virtual void onRelease(std::pair<void*, size_t> ptr) override {
+    virtual void onRelease(MemChunk ptr) override {
         auto p = (VulkanMemory*)ptr.first;
         delete p;
     }
@@ -47,7 +47,7 @@ VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16) : m
     mAllocators.resize(dev.memProty().memoryTypeCount);
     for (int i=0; i<mAllocators.size(); ++i) {
         std::shared_ptr<BufferAllocator::Allocator> allocReal(new VulkanAllocator(dev, i));
-        mAllocators[i].reset(new BufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
+        mAllocators[i].reset(new EagerBufferAllocator(allocReal, dev.proty().limits.nonCoherentAtomSize));
     }
     mPermitFp16 = permitFp16;
 }
@@ -56,7 +56,7 @@ VulkanMemoryPool::VulkanMemoryPool(const VulkanMemoryPool* parent) : mDevice(par
     mAllocators.resize(mDevice.memProty().memoryTypeCount);
     for (int i=0; i<mAllocators.size(); ++i) {
         std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(parent->mAllocators[i].get());
-        mAllocators[i].reset(new BufferAllocator(allocReal, mDevice.proty().limits.nonCoherentAtomSize));
+        mAllocators[i].reset(new EagerBufferAllocator(allocReal, mDevice.proty().limits.nonCoherentAtomSize));
     }
 }
 
@@ -74,7 +74,7 @@ void VulkanMemoryPool::returnBuffer(VkBuffer buffer, size_t size, VkBufferUsageF
     mDevice.destroyBuffer(buffer);
 }
 
-std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
+MemChunk VulkanMemoryPool::allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask,
                                                   bool separate) {
     uint32_t index = 0;
     auto typeBits  = requirements.memoryTypeBits;
@@ -95,7 +95,7 @@ std::pair<void*, int> VulkanMemoryPool::allocMemory(const VkMemoryRequirements& 
     return mem;
 }
 
-void VulkanMemoryPool::returnMemory(std::pair<void*, int> memory) {
+void VulkanMemoryPool::returnMemory(MemChunk memory) {
     auto mem = (VulkanMemory*)memory.first;
     mAllocators[mem->type()]->free(memory);
     return;

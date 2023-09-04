@@ -42,9 +42,7 @@ int main(int argc, const char* argv[]) {
     for (int i = 0; i < 2; ++i) {
         {
             AUTOTIME;
-            Executor::getGlobalExecutor()->resetProfile();
             outputs = model->onForward({first, second});
-            Executor::getGlobalExecutor()->dumpProfile();
         }
         std::ostringstream fileNameOs;
         std::ostringstream dimInfo;

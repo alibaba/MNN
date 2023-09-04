@@ -35,7 +35,7 @@ private:
     int mChannel;
     int mCount;
     int mArea;
-    std::pair<void*, int> mScaleStorage;
+    MemChunk mScaleStorage;
 };
 
 } // namespace CUDA

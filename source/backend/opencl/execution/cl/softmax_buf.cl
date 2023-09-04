@@ -19,87 +19,74 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS
                               __private const int remain_channels,
                               __private const int4 shape) {//NCHW
 
-    const int channel_block_idx = get_global_id(0);
-    const int width_idx    = get_global_id(1);
-    const int batch_height_idx       = get_global_id(2);
+    const int width_idx    = get_global_id(0);
+    const int batch_height_idx       = get_global_id(1);
 
-    DEAL_NON_UNIFORM_DIM3(channel_block_idx, width_idx, batch_height_idx);
-    const int batch_idx = batch_height_idx / shape.z;
-    const int height_idx = batch_height_idx % shape.z;
-    const int offset = (((batch_idx*shape.y+0)*shape.z+height_idx)*shape.w+width_idx)*4;
+    if (width_idx < shape.w && batch_height_idx < shape.x*shape.z) {
+        const int batch_idx = batch_height_idx / shape.z;
+        const int height_idx = batch_height_idx % shape.z;
+        const int offset = (((batch_idx*shape.y+0)*shape.z+height_idx)*shape.w+width_idx)*4;
 
-    FLOAT float_max_value = -FLT_MAX;
-    FLOAT4 input_data;
-    for (short i = 0; i < global_size_dim0 - 1; ++i) {
-        input_data      = vload4(i*shape.z*shape.w, input+offset);
-        float_max_value = max(float_max_value, input_data.x);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.w);
+        FLOAT4 float_max_value = (FLOAT4)-FLT_MAX;
+        FLOAT4 input_data;
+        for (short i = 0; i < shape.y - 1; ++i) {
+            input_data      = vload4(i*shape.z*shape.w, input+offset);
+            float_max_value = max(float_max_value, input_data);
+        }
+        
+        float_max_value.x = max(float_max_value.x, float_max_value.y);
+        float_max_value.x = max(float_max_value.x, float_max_value.z);
+        float_max_value.x = max(float_max_value.x, float_max_value.w);
+
+        input_data = vload4((shape.y - 1)*shape.z*shape.w, input+offset);
+        if (remain_channels == 0) {
+            float_max_value.x = max(float_max_value.x, input_data.x);
+            float_max_value.x = max(float_max_value.x, input_data.y);
+            float_max_value.x = max(float_max_value.x, input_data.z);
+            float_max_value.x = max(float_max_value.x, input_data.w);
+        } else if (remain_channels == 1) {
+            float_max_value.x = max(float_max_value.x, input_data.z);
+            float_max_value.x = max(float_max_value.x, input_data.y);
+            float_max_value.x = max(float_max_value.x, input_data.x);
+        } else if (remain_channels == 2) {
+            float_max_value.x = max(float_max_value.x, input_data.y);
+            float_max_value.x = max(float_max_value.x, input_data.x);
+        } else if (remain_channels == 3) {
+            float_max_value.x = max(float_max_value.x, input_data.x);
+        }
+
+        FLOAT4 accum_result       = 0;
+        for (short i = 0; i < shape.y - 1; ++i) {
+            input_data = vload4(i*shape.z*shape.w, input+offset);;
+            input_data = EXP(input_data - float_max_value.x);
+            accum_result += input_data;
+        }
+        accum_result.x = accum_result.x + accum_result.y + accum_result.z + accum_result.w;
+
+        input_data = vload4((shape.y - 1)*shape.z*shape.w, input+offset);
+        input_data -= float_max_value.x;
+        if (remain_channels == 0) {
+            accum_result.x += EXP(input_data.w);
+            accum_result.x += EXP(input_data.z);
+            accum_result.x += EXP(input_data.y);
+            accum_result.x += EXP(input_data.x);
+        } else if (remain_channels == 1) {
+            accum_result.x += EXP(input_data.z);
+            accum_result.x += EXP(input_data.y);
+            accum_result.x += EXP(input_data.x);
+        } else if (remain_channels == 2) {
+            accum_result.x += EXP(input_data.y);
+            accum_result.x += EXP(input_data.x);
+        } else if (remain_channels == 3) {
+            accum_result.x += EXP(input_data.x);
+        }
+
+        for(int i = 0; i < shape.y; ++i){
+            input_data = vload4(i*shape.z*shape.w, input+offset) - float_max_value.x;
+            input_data = EXP(input_data) / accum_result.x;
+            vstore4(input_data, i*shape.z*shape.w, output+offset);
+        }
     }
-
-    input_data = vload4((global_size_dim0 - 1)*shape.z*shape.w, input+offset);
-    if (remain_channels == 0) {
-        float_max_value = max(float_max_value, input_data.w);
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
-    } else if (remain_channels == 1) {
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
-    } else if (remain_channels == 2) {
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
-    } else if (remain_channels == 3) {
-        float_max_value = max(float_max_value, input_data.x);
-    }
-
-    FLOAT accum_result       = 0;
-    for (short i = 0; i < global_size_dim0 - 1; ++i) {
-        input_data = vload4(i*shape.z*shape.w, input+offset);;
-        input_data = EXP(input_data - float_max_value);
-        accum_result += input_data.x;
-        accum_result += input_data.y;
-        accum_result += input_data.z;
-        accum_result += input_data.w;
-    }
-
-    input_data = vload4((global_size_dim0 - 1)*shape.z*shape.w, input+offset);
-    input_data -= float_max_value;
-    if (remain_channels == 0) {
-        accum_result += EXP(input_data.w);
-        accum_result += EXP(input_data.z);
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
-    } else if (remain_channels == 1) {
-        accum_result += EXP(input_data.z);
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
-    } else if (remain_channels == 2) {
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
-    } else if (remain_channels == 3) {
-        accum_result += EXP(input_data.x);
-    }
-
-    input_data = vload4(channel_block_idx*shape.z*shape.w, input+offset) - float_max_value;
-    const int output_remain = output_channels - mul24(channel_block_idx, 4);
-
-    if (output_remain == 1) {
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else if (output_remain == 2) {
-        input_data.y = EXP(input_data.y) / accum_result;
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else if (output_remain == 3) {
-        input_data.z = EXP(input_data.z) / accum_result;
-        input_data.y = EXP(input_data.y) / accum_result;
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else{
-        input_data = EXP(input_data) / accum_result;
-    }
-    
-    vstore4(input_data, channel_block_idx*shape.z*shape.w, output+offset);
 }
 
 

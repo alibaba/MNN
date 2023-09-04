@@ -187,7 +187,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(DST_XUNIT * mIm2ColCount, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, mThreadNums);
     mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
-    if (nullptr == mBlitInfo.first) {
+    if (mBlitInfo.invalid()) {
         return OUT_OF_MEMORY;
     }
     bufferAlloc->free(mBlitInfo);
@@ -236,7 +236,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto col_buffer_size = col_buffer_unit_size * mIm2ColCount;
     auto threadFunction = [&](int tId) {
         auto colAddr        = im2colPtr + tId * mTempIm2ColBuffer->stride(0);
-        auto srcPtr     = (int8_t const **)((uint8_t *)mBlitInfo.first + mBlitInfo.second + tId * mBlitInfoStride.first);
+        auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
         auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
 
         int32_t info[4];

@@ -82,19 +82,19 @@ ErrorCode MultiInputConvExecution::onResize(const std::vector<Tensor*> &inputs, 
         elementBytes = 4;
     }
 
-    std::pair<void*, int> bufferFilter;
+    MemChunk bufferFilter;
     if(mNeedWeightFill) {
         bufferFilter = pool->alloc(elementBytes * (size_t)mGemmInfo.elhPad[1] * (size_t)mGemmInfo.elhPad[2]);
-        mFilterAddr = (void*)((uint8_t*)bufferFilter.first + bufferFilter.second);
+        mFilterAddr = (void*)(bufferFilter.ptr());
     } else {
         mFilterAddr = (void*)inputs[1]->deviceId();
     }
 
     // Copy Bias
-    std::pair<void*, int> bufferBias;
+    MemChunk bufferBias;
     if(mNeedBiasFill) {
         bufferBias = pool->alloc(elementBytes * (size_t)mGemmInfo.elhPad[2]);
-        mBiasAddr = (void*)((uint8_t*)bufferBias.first + bufferBias.second);
+        mBiasAddr = (void*)(bufferBias.ptr());
 
     } else {
         mBiasAddr = (void*)inputs[2]->deviceId();
@@ -107,10 +107,10 @@ ErrorCode MultiInputConvExecution::onResize(const std::vector<Tensor*> &inputs, 
                         mIm2ColParamter.padX == 0 && mIm2ColParamter.padY == 0);
     mNeedIm2Col = !(mIsConv1x1S1D1P0 && (mFp16Infer || mFp32Infer));
 
-    std::pair<void*, int> bufferIm2Col;
+    MemChunk bufferIm2Col;
     if(mNeedIm2Col) {
         bufferIm2Col = pool->alloc(elementBytes * (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1]);
-        mIm2ColBuffer = (void*)((uint8_t*)bufferIm2Col.first + bufferIm2Col.second);
+        mIm2ColBuffer = (void*)(bufferIm2Col.ptr());
     }
 
     // free for Reuse

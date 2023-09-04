@@ -74,14 +74,14 @@ LoopE8:
         sxtl2 v11.4s, v1.8h
         scvtf v0.4s, v8.4s
         scvtf v1.4s, v9.4s
-        mov v8.4s, v14.4s
-        mov v9.4s, v15.4s
+        mov v8.16b, v14.16b
+        mov v9.16b, v15.16b
         fmla v8.4s, v0.4s, v12.4s
         fmla v9.4s, v1.4s, v13.4s
         scvtf v0.4s, v10.4s
         scvtf v1.4s, v11.4s
-        mov v10.4s, v14.4s
-        mov v11.4s, v15.4s
+        mov v10.16b, v14.16b
+        mov v11.16b, v15.16b
         fmla v10.4s, v0.4s, v12.4s
         fmla v11.4s, v1.4s, v13.4s
         ld1 {v0.4s, v1.4s}, [x15], x11
@@ -137,14 +137,14 @@ LoopE8:
             sxtl2 v11.4s, v1.8h
             scvtf v0.4s, v8.4s
             scvtf v1.4s, v9.4s
-            mov v8.4s, v14.4s
-            mov v9.4s, v15.4s
+            mov v8.16b, v14.16b
+            mov v9.16b, v15.16b
             fmla v8.4s, v0.4s, v12.4s
             fmla v9.4s, v1.4s, v13.4s
             scvtf v0.4s, v10.4s
             scvtf v1.4s, v11.4s
-            mov v10.4s, v14.4s
-            mov v11.4s, v15.4s
+            mov v10.16b, v14.16b
+            mov v11.16b, v15.16b
             fmla v10.4s, v0.4s, v12.4s
             fmla v11.4s, v1.4s, v13.4s
             ld1 {v0.4s, v1.4s}, [x15], x11
@@ -294,14 +294,14 @@ LoopE8:
         sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
-        mov v8.4s, v14.4s
-        mov v9.4s, v14.4s
+        mov v8.16b, v14.16b
+        mov v9.16b, v14.16b
         fmla v8.4s, v12.4s, v4.4s
         fmla v9.4s, v13.4s, v4.4s
         scvtf v12.4s, v10.4s
         scvtf v13.4s, v11.4s
-        mov v10.4s, v14.4s
-        mov v11.4s, v14.4s
+        mov v10.16b, v14.16b
+        mov v11.16b, v14.16b
         fmla v10.4s, v12.4s, v4.4s
         fmla v11.4s, v13.4s, v4.4s
 
@@ -371,14 +371,14 @@ LoopE8:
             sxtl2 v11.4s, v12.8h
             scvtf v12.4s, v8.4s
             scvtf v13.4s, v9.4s
-            mov v8.4s, v14.4s
-            mov v9.4s, v14.4s
+            mov v8.16b, v14.16b
+            mov v9.16b, v14.16b
             fmla v8.4s, v12.4s, v4.4s
             fmla v9.4s, v13.4s, v4.4s
             scvtf v12.4s, v10.4s
             scvtf v13.4s, v11.4s
-            mov v10.4s, v14.4s
-            mov v11.4s, v14.4s
+            mov v10.16b, v14.16b
+            mov v11.16b, v14.16b
             fmla v10.4s, v12.4s, v4.4s
             fmla v11.4s, v13.4s, v4.4s
 
@@ -520,14 +520,14 @@ blt E1
         sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
-        mov v8.4s, v26.4s
-        mov v9.4s, v27.4s
+        mov v8.16b, v26.16b
+        mov v9.16b, v27.16b
         fmla v8.4s, v12.4s, v24.4s
         fmla v9.4s, v13.4s, v25.4s
         scvtf v12.4s, v10.4s
         scvtf v13.4s, v11.4s
-        mov v10.4s, v26.4s
-        mov v11.4s, v27.4s
+        mov v10.16b, v26.16b
+        mov v11.16b, v27.16b
         fmla v10.4s, v12.4s, v24.4s
         fmla v11.4s, v13.4s, v25.4s
         // st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0]
@@ -567,14 +567,14 @@ blt E1
             sxtl2 v11.4s, v12.8h
             scvtf v12.4s, v8.4s
             scvtf v13.4s, v9.4s
-            mov v8.4s, v26.4s
-            mov v9.4s, v27.4s
+            mov v8.16b, v26.16b
+            mov v9.16b, v27.16b
             fmla v8.4s, v12.4s, v24.4s
             fmla v9.4s, v13.4s, v25.4s
             scvtf v12.4s, v10.4s
             scvtf v13.4s, v11.4s
-            mov v10.4s, v26.4s
-            mov v11.4s, v27.4s
+            mov v10.16b, v26.16b
+            mov v11.16b, v27.16b
             fmla v10.4s, v12.4s, v24.4s
             fmla v11.4s, v13.4s, v25.4s
             ld1 {v0.4s}, [x15], x11
@@ -669,16 +669,16 @@ blt E1
     ld1 {v0.4s}, [x15], x11
     scvtf v12.4s, v8.4s
     scvtf v13.4s, v9.4s
-    mov v8.4s, v14.4s
-    mov v9.4s, v14.4s
+    mov v8.16b, v14.16b
+    mov v9.16b, v14.16b
     fmla v8.4s, v12.4s, v4.4s
     ld1 {v1.4s}, [x15], x11
     fmla v9.4s, v13.4s, v4.4s
     scvtf v12.4s, v10.4s
     ld1 {v2.4s}, [x15], x11
     scvtf v13.4s, v11.4s
-    mov v10.4s, v14.4s
-    mov v11.4s, v14.4s
+    mov v10.16b, v14.16b
+    mov v11.16b, v14.16b
     ld1 {v3.4s}, [x15], x11
     fmla v10.4s, v12.4s, v4.4s
     fmla v11.4s, v13.4s, v4.4s
@@ -717,14 +717,14 @@ blt E1
         sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
-        mov v8.4s, v14.4s
-        mov v9.4s, v14.4s
+        mov v8.16b, v14.16b
+        mov v9.16b, v14.16b
         fmla v8.4s, v12.4s, v4.4s
         fmla v9.4s, v13.4s, v4.4s
         scvtf v12.4s, v10.4s
         scvtf v13.4s, v11.4s
-        mov v10.4s, v14.4s
-        mov v11.4s, v14.4s
+        mov v10.16b, v14.16b
+        mov v11.16b, v14.16b
         fmla v10.4s, v12.4s, v4.4s
         fmla v11.4s, v13.4s, v4.4s
         // ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x15], x11
@@ -819,14 +819,14 @@ LoopE1:
         sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
-        mov v8.4s, v26.4s
-        mov v9.4s, v27.4s
+        mov v8.16b, v26.16b
+        mov v9.16b, v27.16b
         fmla v8.4s, v12.4s, v24.4s
         fmla v9.4s, v13.4s, v25.4s
         scvtf v12.4s, v10.4s
         scvtf v13.4s, v11.4s
-        mov v10.4s, v26.4s
-        mov v11.4s, v27.4s
+        mov v10.16b, v26.16b
+        mov v11.16b, v27.16b
         fmla v10.4s, v12.4s, v24.4s
         fmla v11.4s, v13.4s, v25.4s
         ld1 {v0.s}[0], [x15], x11
@@ -849,14 +849,14 @@ LoopE1:
             sxtl2 v11.4s, v12.8h
             scvtf v12.4s, v8.4s
             scvtf v13.4s, v9.4s
-            mov v8.4s, v26.4s
-            mov v9.4s, v27.4s
+            mov v8.16b, v26.16b
+            mov v9.16b, v27.16b
             fmla v8.4s, v12.4s, v24.4s
             fmla v9.4s, v13.4s, v25.4s
             scvtf v12.4s, v10.4s
             scvtf v13.4s, v11.4s
-            mov v10.4s, v26.4s
-            mov v11.4s, v27.4s
+            mov v10.16b, v26.16b
+            mov v11.16b, v27.16b
             fmla v10.4s, v12.4s, v24.4s
             fmla v11.4s, v13.4s, v25.4s
             ld1 {v0.s}[0], [x15], x11
@@ -909,14 +909,14 @@ LoopE1:
     sxtl2 v11.4s, v12.8h
     scvtf v12.4s, v8.4s
     scvtf v13.4s, v9.4s
-    mov v8.4s, v14.4s
-    mov v9.4s, v14.4s
+    mov v8.16b, v14.16b
+    mov v9.16b, v14.16b
     fmla v8.4s, v12.4s, v4.4s
     fmla v9.4s, v13.4s, v4.4s
     scvtf v12.4s, v10.4s
     scvtf v13.4s, v11.4s
-    mov v10.4s, v14.4s
-    mov v11.4s, v14.4s
+    mov v10.16b, v14.16b
+    mov v11.16b, v14.16b
     fmla v10.4s, v12.4s, v4.4s
     fmla v11.4s, v13.4s, v4.4s
 
@@ -944,14 +944,14 @@ LoopE1:
         sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
-        mov v8.4s, v15.4s
-        mov v9.4s, v15.4s
+        mov v8.16b, v15.16b
+        mov v9.16b, v15.16b
         fmla v8.4s, v12.4s, v4.4s
         fmla v9.4s, v13.4s, v4.4s
         scvtf v12.4s, v10.4s
         scvtf v13.4s, v11.4s
-        mov v10.4s, v15.4s
-        mov v11.4s, v15.4s
+        mov v10.16b, v15.16b
+        mov v11.16b, v15.16b
         fmla v10.4s, v12.4s, v4.4s
         fmla v11.4s, v13.4s, v4.4s
 

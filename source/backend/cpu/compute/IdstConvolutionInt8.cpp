@@ -130,7 +130,7 @@ ErrorCode IdstConvolutionInt8::onResize(const std::vector<Tensor*>& inputs, cons
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(DST_XUNIT, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, number);
     mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
-    if (nullptr == mBlitInfo.first) {
+    if (mBlitInfo.invalid()) {
         return OUT_OF_MEMORY;
     }
     bufferAlloc->free(mBlitInfo);
@@ -199,7 +199,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
         auto outputOrigin   = output->host<float>() + batchIndex * output->stride(0);
         auto threadFunction = [&](int tId) {
             auto colAddr        = mTempBuffer.host<int8_t>() + tId * mTempBuffer.buffer().dim[0].stride;
-            auto srcPtr     = (int8_t const **)((uint8_t *)mBlitInfo.first + mBlitInfo.second + tId * mBlitInfoStride.first);
+            auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
             auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
 
             int32_t info[4];

@@ -71,13 +71,13 @@ private:
     CutlassGemmInfo mGemmInfo;
 
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
-    std::pair<void*, int> mGpuIm2ColParam;
+    MemChunk mGpuIm2ColParam;
 
     void* mIm2ColBuffer;
 
     bool mIsConv1x1S1D1P0 = false;
     bool mNeedIm2Col = true;
-    std::pair<void*, int> mGpuKernelParam;
+    MemChunk mGpuKernelParam;
     bool mIsBlock = false;
     int mBlockNum = 1;
 

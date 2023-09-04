@@ -647,7 +647,7 @@ L1Loop:
     ld1 {v4.8b}, [x1], #8    // src: k:6,7
     ld1 {v4.s}[2], [x1]
 
-    mov v9.4s, v16.4s
+    mov v9.16b, v16.16b
     sxtl2 v6.8h, v4.16b
 
     tbl v7.16b, {v2.16b, v3.16b}, v24.16b  // src0

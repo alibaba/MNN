@@ -309,7 +309,7 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
     auto bufferAlloc   = static_cast<CPUBackend *>(backend())->getBufferAllocator();
     auto maxLine       = UP_DIV(eP, mIm2ColParameters.ow) + 1;
     auto tempPtr = bufferAlloc->alloc(ConvolutionTiledExecutor::computeBlitInfoSize(eP, mIm2ColParameters.ow, mIm2ColParameters.kernelX * mIm2ColParameters.kernelY, threadNumber).first);
-    if (nullptr == tempPtr.first) {
+    if (tempPtr.invalid()) {
         return OUT_OF_MEMORY;
     }
     backend()->onReleaseBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
@@ -320,8 +320,7 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
 
     mFunction.second       = [=](int tId) {
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
-        auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
-                                       tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+        auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
         auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
 
         int32_t info[4];

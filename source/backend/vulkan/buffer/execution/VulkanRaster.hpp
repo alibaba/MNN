@@ -23,8 +23,8 @@ private:
     void _recycle();
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mExtraDescribes;
     std::vector<std::shared_ptr<VulkanBuffer>> mExtraUniform;
-    std::map<Tensor*, std::pair<std::pair<void*, int>, int>> mInputBuffers;
-    std::pair<std::pair<void*, int>, int> mOutputBuffer;
+    std::map<Tensor*, std::pair<MemChunk, int>> mInputBuffers;
+    std::pair<MemChunk, int> mOutputBuffer;
 };
 };
 

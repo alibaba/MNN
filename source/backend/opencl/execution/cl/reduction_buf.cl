@@ -9,31 +9,363 @@
 #define GLOBAL_SIZE_2_DIMS \
 __private const int global_size_dim0, __private const int global_size_dim1,
 
-__kernel void reduct_buf(GLOBAL_SIZE_2_DIMS
+#define GLOBAL_SIZE_3_DIMS \
+__private const int global_size_dim0, __private const int global_size_dim1, __private const int global_size_dim2,
+
+#define DEAL_NON_UNIFORM_DIM3(input1, input2, input3)                                             \
+    if (input1 >= global_size_dim0 || input2 >= global_size_dim1 || input3 >= global_size_dim2) { \
+        return;                                                                                   \
+    }
+
+__kernel void reduct_width_buf(GLOBAL_SIZE_3_DIMS
                             __global const FLOAT* input,
                             __global FLOAT* output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
                             ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
 
-    const int inp_offset = ((batch_idx * height + 0) * width + width_idx)*4;
-    FLOAT4 out = vload4(0, input + inp_offset);
-    for (int h = 1; h < height; h++) {
-        FLOAT4 in = vload4(0, input + inp_offset + h*width*4);
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_channel_idx);
+                                
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    const int offset = ((((batch_idx * inputChannelBlock) + channel_idx) * inputHeight + height_idx) * inputWidth + 0)*4;
+    const int outputOffset = ((((batch_idx * outputChannelBlock) + channel_idx) * outputHeight + height_idx) * oututWidth + 0)*4;
+    FLOAT4 out = (FLOAT4)VALUE;
+    
+#if LOCAL_SIZE > 0
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    for(int i = lid; i < inputWidth; i+=LOCAL_SIZE){
+        FLOAT4 in = vload4(i, input + offset);
         out = OPERATE(out, in);
     }
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int c = 1; c < channel; ++c){
-        out.x = OPERATE(out.x, out_ptr[c]);
+    sum[lid] = out;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
     }
+    out = sum[0];
+#else
+    for(int i = 0; i < inputWidth; ++i){
+        FLOAT4 in = vload4(i, input + offset);
+        out = OPERATE(out, in);
+    }
+#endif
+
+#ifdef GET_AVG
+    out = out / inputWidth;
+#endif
+    vstore4(out, 0, output + outputOffset);
+}
+
+
+__kernel void reduct_height_buf(GLOBAL_SIZE_3_DIMS
+                            __global const FLOAT* input,
+                            __global FLOAT* output,
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
+                            ) {
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, batch_channel_idx);
     
-    #ifdef GET_AVG
-    out.x = out.x / (height * channel);
-    #endif
-    const int out_offset = batch_idx * width + width_idx;
-    vstore4((FLOAT4)(out.x, 0.0, 0.0, 0.0), out_offset, output);
+    const int width_idx = get_group_id(0);
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    
+    const int offset = ((((batch_idx * inputChannelBlock) + channel_idx) * inputHeight + 0) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((batch_idx * outputChannelBlock) + channel_idx) * outputHeight + 0) * oututWidth + width_idx)*4;
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = lid; i < inputHeight; i+=LOCAL_SIZE){
+        FLOAT4 in = vload4(i * inputWidth, input + offset);
+        out = OPERATE(out, in);
+    }
+    sum[lid] = out;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    out = sum[0];
+#else
+
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_channel_idx);
+    
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    
+    const int offset = ((((batch_idx * inputChannelBlock) + channel_idx) * inputHeight + 0) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((batch_idx * outputChannelBlock) + channel_idx) * outputHeight + 0) * oututWidth + width_idx)*4;
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = 0; i < inputHeight; ++i){
+        FLOAT4 in = vload4(i * inputWidth, input + offset);
+        out = OPERATE(out, in);
+    }
+#endif
+    
+#ifdef GET_AVG
+    out = out / inputHeight;
+#endif
+    vstore4(out, 0, output + outputOffset);
+}
+
+__kernel void reduct_channel_buf(GLOBAL_SIZE_3_DIMS
+                            __global const FLOAT* input,
+                            __global FLOAT* output,
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
+                            ) {
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
+    
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, batch_idx);
+    const int width_idx = get_group_id(0);
+    
+    const int offset = ((((batch_idx * inputChannelBlock) + 0) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((batch_idx * outputChannelBlock) + 0) * outputHeight + height_idx) * oututWidth + width_idx)*4;
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    const int lid = get_local_id(0);
+    FLOAT local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    for(int i = lid; i < inputChannelBlock - 1; i += LOCAL_SIZE){
+        in = vload4(i * inputWidth * inputHeight, input + offset);
+        out = OPERATE(out, in);
+    }
+    out.x = OPERATE(out.x, out.y);
+    out.x = OPERATE(out.x, out.z);
+    out.x = OPERATE(out.x, out.w);
+    sum[lid] = out.x;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    out.x = sum[0];
+    in = vload4((inputChannelBlock - 1) * inputWidth * inputHeight, input + offset);
+    for(int j = 0; j < remain; ++j){
+        out.x = OPERATE(out.x, inPtr[j]);
+    }
+#ifdef GET_AVG
+    out.x = out.x / inputChannel;
+#endif
+    output[outputOffset] = out.x;
+    
+#else
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_idx);
+                                
+    const int offset = ((((batch_idx * inputChannelBlock) + 0) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((batch_idx * outputChannelBlock) + 0) * outputHeight + height_idx) * oututWidth + width_idx)*4;
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    
+    FLOAT out = (FLOAT)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    for(int i = 0; i < inputChannelBlock - 1; ++i){
+        in = vload4(i * inputWidth * inputHeight, input + offset);
+        for(int j = 0; j < 4; ++j){
+            out = OPERATE(out, inPtr[j]);
+        }
+    }
+    in = vload4((inputChannelBlock - 1) * inputWidth * inputHeight, input + offset);
+    for(int j = 0; j < remain; ++j){
+        out = OPERATE(out, inPtr[j]);
+    }
+#ifdef GET_AVG
+    out = out / inputChannel;
+#endif
+    output[outputOffset] = out;
+#endif
+}
+
+__kernel void reduct_channel_dim1_buf(GLOBAL_SIZE_3_DIMS
+                            __global const FLOAT* input,
+                            __global FLOAT* output,
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
+                            ) {
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
+    
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, batch_idx);
+    const int width_idx = get_group_id(0);
+    
+    const int offset = ((((batch_idx * inputChannelBlock) + 0) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((batch_idx * outputHeight + height_idx) * oututWidth + width_idx);
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    const int lid = get_local_id(0);
+    FLOAT local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    for(int i = lid; i < inputChannelBlock - 1; i += LOCAL_SIZE){
+        in = vload4(i * inputWidth * inputHeight, input + offset);
+        out = OPERATE(out, in);
+    }
+    out.x = OPERATE(out.x, out.y);
+    out.x = OPERATE(out.x, out.z);
+    out.x = OPERATE(out.x, out.w);
+    sum[lid] = out.x;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    out.x = sum[0];
+    in = vload4((inputChannelBlock - 1) * inputWidth * inputHeight, input + offset);
+    for(int j = 0; j < remain; ++j){
+        out.x = OPERATE(out.x, inPtr[j]);
+    }
+#ifdef GET_AVG
+    out.x = out.x / inputChannel;
+#endif
+    output[outputOffset] = out.x;
+    
+#else
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_idx);
+    const int offset = ((((batch_idx * inputChannelBlock) + 0) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((batch_idx * outputHeight + height_idx) * oututWidth + width_idx);
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    FLOAT out = (FLOAT)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    for(int i = 0; i < inputChannelBlock - 1; ++i){
+        in = vload4(i * inputWidth * inputHeight, input + offset);
+        for(int j = 0; j < 4; ++j){
+            out = OPERATE(out, inPtr[j]);
+        }
+    }
+    in = vload4((inputChannelBlock - 1) * inputWidth * inputHeight, input + offset);
+    for(int j = 0; j < remain; ++j){
+        out = OPERATE(out, inPtr[j]);
+    }
+#ifdef GET_AVG
+    out = out / inputChannel;
+#endif
+    output[outputOffset] = out;
+#endif
+}
+
+
+__kernel void reduct_batch_buf(GLOBAL_SIZE_3_DIMS
+                            __global const FLOAT* input,
+                            __global FLOAT* output,
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
+                            ) {
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, channel_idx);
+    const int width_idx = get_group_id(0);
+                            
+    const int offset = ((((0 * inputChannelBlock) + channel_idx) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((0 * outputChannelBlock) + channel_idx) * outputHeight + height_idx) * oututWidth + width_idx)*4;
+    int batchOffset = inputChannelBlock * inputHeight * inputWidth;
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = lid; i < inputBatch; i+=LOCAL_SIZE){
+        FLOAT4 in = vload4(i * batchOffset, input + offset);
+        out = OPERATE(out, in);
+    }
+    sum[lid] = out;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    out = sum[0];
+#ifdef GET_AVG
+    out = out / inputBatch;
+#endif
+    vstore4(out, 0, output + outputOffset);
+#else
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, channel_idx);
+                                
+    const int offset = ((((0 * inputChannelBlock) + channel_idx) * inputHeight + height_idx) * inputWidth + width_idx)*4;
+    const int outputOffset = ((((0 * outputChannelBlock) + channel_idx) * outputHeight + height_idx) * oututWidth + width_idx)*4;
+    int batchOffset = inputChannelBlock * inputHeight * inputWidth;
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = 0; i < inputBatch; ++i){
+        FLOAT4 in = vload4(i * batchOffset, input + offset);
+        out = OPERATE(out, in);
+    }
+#ifdef GET_AVG
+    out = out / inputBatch;
+#endif
+    vstore4(out, 0, output + outputOffset);
+#endif
 }

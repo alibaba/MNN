@@ -48,8 +48,8 @@ public:
     virtual ~VulkanMemoryPool();
 
     // VulkanMemory* , offset
-    std::pair<void*, int> allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool separate = false);
-    void returnMemory(std::pair<void*, int> memory);
+    MemChunk allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool separate = false);
+    void returnMemory(MemChunk memory);
 
     // Free Unuseful Memory
     void clear();

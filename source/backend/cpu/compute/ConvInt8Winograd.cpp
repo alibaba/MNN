@@ -193,8 +193,9 @@ ErrorCode ConvInt8Winograd::onResize(const std::vector<Tensor *> &inputs, const 
     }
     for (auto& unit : mUnits) {
         int sy = ALIMAX(unit.kyStart - mPadY, 0), sx = ALIMAX(unit.kxStart - mPadX, 0);
-        auto srcData = input->host<float>() + (sy * iw + sx) * UNIT;
-        unit.input.reset(Tensor::create<float>({batch, ic, ih - sy, iw - sx}, srcData, Tensor::CAFFE_C4));
+        auto srcChunk = TensorUtils::getDescribe(input)->mem->chunk() + (sy * iw + sx) * UNIT;
+        unit.input.reset(Tensor::createDevice<float>({batch, ic, ih - sy, iw - sx}, Tensor::CAFFE_C4));
+        TensorUtils::getDescribe(unit.input.get())->mem.reset(new CPUMemObj(nullptr, srcChunk, 0));
         for (int i = 0; i < input->dimensions(); ++i) {
             unit.input->setStride(i, input->stride(i));
         }
@@ -296,6 +297,7 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
     core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), scale.data(), size / UNIT, inputQuant[1]);
     std::vector<Tensor*> tmp_outputs;
     for (auto& unit : mUnits) {
+        unit.input->buffer().host = TensorUtils::getDescribe(unit.input.get())->mem->chunk().ptr();
         auto ret = unit.runner->onExecute({unit.input.get()}, {unit.output.get()});
         if (ret != NO_ERROR) {
             return ret;

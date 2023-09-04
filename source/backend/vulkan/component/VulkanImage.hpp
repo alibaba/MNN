@@ -71,7 +71,7 @@ private:
     const VulkanDevice& mDevice;
     std::vector<int> mDims;
     const VulkanMemoryPool& mPool;
-    std::pair<void*, int> mMemory;
+    MemChunk mMemory;
     mutable VkImageLayout mLayout;
     mutable VkAccessFlagBits mAccess;
 };

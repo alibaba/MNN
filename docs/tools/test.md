@@ -68,7 +68,7 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 ### 参数
 `./ModuleBasic.out model dir [runMask forwardType runLoops numberThread precision_memory cacheFile]`
 - `model:str` 模型文件路径
-- `dir:str` 输入输出信息文件夹，可使用 fastTestOnnx.py / fastTestTf.py / fastTestTflite.py 等脚本生成，参考模型转换的正确性校验部分。
+- `dir:str` 输入输出信息文件夹，可使用 testMNNFromTf.py / testMNNFromOnnx.py / testMNNFromTflite.py 等脚本生成，参考模型转换的正确性校验部分。
 - `runMask:int` 默认为 0 ，为一系列功能的开关，如需开启多个功能，可把对齐的 mask 值相加（不能叠加的情况另行说明），具体见下面的 runMask 参数解析
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `runLoops:int` 性能测试的循环次数，可选，默认为`0`即不做性能测试
@@ -456,49 +456,3 @@ Matrix:
 0.0000000	0.0000000	1.0000000
 ```
 
-## winogradGenerateCL.out
-### 说明
-生成winograd变换矩阵程序，并生成opencl转换代码
-### 参数
-`./winogradExample.out unit kernelSize`
-- `unit:int` 分块大小
-- `kernelSize:int` 卷积核大小
-### 示例
-```bash
-$ ./winogradGenerateCL.out 2 2
-A
-1.0000000	0.0000000	
-1.0000000	0.5000000	
-0.0000000	1.0000000	
-B
-1.0000000	0.0000000	-0.0000000	
--2.0000000	2.0000000	-0.5000000	
-0.0000000	0.0000000	1.0000000	
-G
-1.0000000	0.0000000	
-1.0000000	0.5000000	
-0.0000000	1.0000000	
-Generate winogradTransformSource2_2_0.5.cl
-Generate winogradTransformDest2_2_0.5.cl
-```
-
-## winogradGenerateGLSL.out
-### 说明
-生成winograd变换矩阵程序，并生成opengl转换代码
-### 参数
-`./winogradExample.out unit kernelSize`
-- `unit:int` 分块大小
-- `kernelSize:int` 卷积核大小
-### 示例
-```bash
-$ ./winogradGenerateGLSL.out 1 2
-A
-1.0000000	
-B
-1.0000000	-0.0000000	
-0.0000000	1.0000000	
-G
-1.0000000	
-Generate winogradTransformSource1_2_0.5.comp
-Generate winogradTransformDest1_2_0.5.comp
-```

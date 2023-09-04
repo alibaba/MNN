@@ -14,6 +14,7 @@
 #include "GLBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/BufferAllocator.hpp"
 #include <mutex>
 #include <MNN/Tensor.hpp>
 

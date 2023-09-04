@@ -195,6 +195,7 @@ public:
         MAX_TUNING_NUMBER = 0,
         // Strictly check model file or not, default 1. if set 0, will not check model file valid/invalid
         STRICT_CHECK_MODEL = 1,
+        MEM_ALLOCATOR_TYPE = 2,
     };
     /**
      * @brief The API shoud be called before create session.

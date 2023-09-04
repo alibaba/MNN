@@ -9,6 +9,7 @@
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "MNN_generated.h"
 
+#include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
 #include "shape/SizeComputer.hpp"
 #include <map>
@@ -907,25 +908,14 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start onCopyBuffer !\n");
 #endif
-    //int8
-    if(srcTensor->getType().code == halide_type_int && srcTensor->getType().bits == 8){
-        if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
-            copyToDeviceInt8(srcTensor, dstTensor);
-        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
-            copyFromDeviceInt8(srcTensor, dstTensor);
-        }else{
-            MNN_PRINT("onCopyBuffer int8 error !!! \n");
-        }
+    if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
+        copyToDevice(srcTensor, dstTensor);
+    }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
+        copyFromDevice(srcTensor, dstTensor);
+    }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0){
+        mCLRuntime->copyBetweenDevice(srcTensor, dstTensor);
     }else{
-        if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
-            copyToDevice(srcTensor, dstTensor);
-        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
-            copyFromDevice(srcTensor, dstTensor);
-        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0){
-            mCLRuntime->copyBetweenDevice(srcTensor, dstTensor);
-        }else{
-            MNN_PRINT("onCopyBuffer float error !!! \n");
-        }
+        MNN_PRINT("onCopyBuffer float error !!! \n");
     }
 
 #ifdef LOG_VERBOSE
