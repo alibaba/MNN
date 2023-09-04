@@ -68,9 +68,9 @@ LoopH:
     sxtl2 v2.4s, v0.8h
     scvtf v0.4s, v1.4s
     scvtf v1.4s, v2.4s
-    mov v2.4s, v7.4s
+    mov v2.16b, v7.16b
     fmla v2.4s, v1.4s, v5.4s
-    mov v1.4s, v6.4s
+    mov v1.16b, v6.16b
     fmla v1.4s, v0.4s, v4.4s
 
     ld1 {v0.4s}, [x15], #16
@@ -108,9 +108,9 @@ LoopH:
     sxtl2 v2.4s, v0.8h
     scvtf v0.4s, v1.4s
     scvtf v1.4s, v2.4s
-    mov v2.4s, v7.4s
+    mov v2.16b, v7.16b
     fmla v2.4s, v1.4s, v5.4s
-    mov v1.4s, v6.4s
+    mov v1.16b, v6.16b
     fmla v1.4s, v0.4s, v4.4s
 
     ld1 {v0.4s}, [x15], #16
@@ -164,9 +164,9 @@ LoopH:
         sxtl2 v2.4s, v0.8h
         scvtf v0.4s, v1.4s
         scvtf v1.4s, v2.4s
-        mov v2.4s, v7.4s
+        mov v2.16b, v7.16b
         fmla v2.4s, v1.4s, v5.4s
-        mov v1.4s, v6.4s
+        mov v1.16b, v6.16b
         fmla v1.4s, v0.4s, v4.4s
 
         ld1 {v0.4s}, [x15], #16
@@ -204,9 +204,9 @@ LoopH:
         sxtl2 v2.4s, v0.8h
         scvtf v0.4s, v1.4s
         scvtf v1.4s, v2.4s
-        mov v2.4s, v7.4s
+        mov v2.16b, v7.16b
         fmla v2.4s, v1.4s, v5.4s
-        mov v1.4s, v6.4s
+        mov v1.16b, v6.16b
         fmla v1.4s, v0.4s, v4.4s
 
         ld1 {v0.4s}, [x15], #16
@@ -386,8 +386,8 @@ LoopHRemain:
     sxtl2 v2.4s, v0.8h
     scvtf v1.4s, v1.4s
     scvtf v2.4s, v2.4s
-    mov v3.4s, v21.4s
-    mov v4.4s, v21.4s
+    mov v3.16b, v21.16b
+    mov v4.16b, v21.16b
     fmla v3.4s, v1.4s, v20.4s
     fmla v4.4s, v2.4s, v20.4s
 
@@ -428,8 +428,8 @@ LoopHRemain:
     sxtl2 v2.4s, v0.8h
     scvtf v1.4s, v1.4s
     scvtf v2.4s, v2.4s
-    mov v3.4s, v21.4s
-    mov v4.4s, v21.4s
+    mov v3.16b, v21.16b
+    mov v4.16b, v21.16b
     fmla v3.4s, v1.4s, v20.4s
     fmla v4.4s, v2.4s, v20.4s
 
@@ -483,8 +483,8 @@ LoopHRemain:
         sxtl2 v2.4s, v0.8h
         scvtf v1.4s, v1.4s
         scvtf v2.4s, v2.4s
-        mov v3.4s, v21.4s
-        mov v4.4s, v21.4s
+        mov v3.16b, v21.16b
+        mov v4.16b, v21.16b
         fmla v3.4s, v1.4s, v20.4s
         fmla v4.4s, v2.4s, v20.4s
         ld1 {v0.4s, v1.4s, v2.4s}, [x15], #48
@@ -520,8 +520,8 @@ LoopHRemain:
         sxtl2 v2.4s, v0.8h
         scvtf v1.4s, v1.4s
         scvtf v2.4s, v2.4s
-        mov v3.4s, v21.4s
-        mov v4.4s, v21.4s
+        mov v3.16b, v21.16b
+        mov v4.16b, v21.16b
         fmla v3.4s, v1.4s, v20.4s
         fmla v4.4s, v2.4s, v20.4s
 

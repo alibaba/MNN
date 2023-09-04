@@ -105,7 +105,7 @@ struct Tensor::InsideDescribe {
         DataType type = DataType_DT_FLOAT;
         AutoRelease<Backend::MemObj> mem;
         bool isMutable = true;
-        int index;
+        int index = -1;
 		int channel_pack_num = 4;
         bool support_pack16 = true;
         pad mPads;

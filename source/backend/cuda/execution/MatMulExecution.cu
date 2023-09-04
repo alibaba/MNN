@@ -848,21 +848,21 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     // MNN_PRINT("trAtrB:%d-%d, tmpAB:%d-%d inps:%d, bwlh:%d-%d-%d-%d\n", mTransposeA, mTransposeB, mNeedATempBuffer, mNeedBTempBuffer, inputs.size(), mBatch, mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2]);
 
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    std::pair<void*, size_t> bufferAData, bufferBData;
+    MemChunk bufferAData, bufferBData;
     size_t convertBytes = 2;
     if(mFp32Infer) {
         convertBytes = 4;
     }
     if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedATempBuffer) {
         bufferAData = pool->alloc(convertBytes * mBatch * mAs * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
-        mTempMatA = (void*)((uint8_t*)bufferAData.first + bufferAData.second);
+        mTempMatA = (void*)bufferAData.ptr();
     } else {
         mTempMatA = (void *)A->deviceId();
     }
 
     if((mNeedConvertMatAB && mFp16Fp32MixInfer) || mNeedBTempBuffer) {
         bufferBData = pool->alloc(convertBytes * mBatch * mBs * mGemmInfo.elh[2] * mGemmInfo.elhPad[1]);
-        mTempMatB = (void*)((uint8_t*)bufferBData.first + bufferBData.second);
+        mTempMatB = (void*)bufferBData.ptr();
     } else {
         mTempMatB = (void *)B->deviceId();
     }

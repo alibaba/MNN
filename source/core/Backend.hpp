@@ -14,6 +14,7 @@
 #include <map>
 #include "Command.hpp"
 #include "NonCopyable.hpp"
+#include "BufferAllocator.hpp"
 #include <future>
 #include <atomic>
 
@@ -47,6 +48,11 @@ public:
             INDIRECT = 1
         };
         Mode mode = DIRECT;
+        enum Allocator {
+            EAGER = 0,
+            DEFER = 1
+        };
+        Allocator allocator = DEFER;
     };
 
     /** backend buffer storage type */
@@ -147,6 +153,7 @@ public:
     public:
         MemObj() {}
         virtual ~ MemObj() {}
+        virtual MemChunk chunk() { return MemChunk(); }
     };
     /**
      * @brief allocate buffer of tensor for given storage type.
@@ -212,12 +219,25 @@ public:
         Compiler_Loop = 2,
     };
 
+    enum AllocatorType {
+        Allocator_Defer = 0,
+        Allocator_Eager = 1,
+    };
+
     void setExternalFile(std::string file) {
         mExternalFile = file;
     }
 
     std::string getExternalFile() const {
         return mExternalFile;
+    }
+
+    void setAllocatorType(int type) {
+        mAllocatorType = static_cast<AllocatorType>(type);
+    }
+
+    AllocatorType getAllocatorType() const {
+        return mAllocatorType;
     }
 
     virtual CompilerType onGetCompilerType() const {
@@ -291,6 +311,7 @@ public:
 private:
     std::future<int> mFuture;
     std::string mExternalFile;
+    AllocatorType mAllocatorType;
 };
 
 /** abstract Runtime register */

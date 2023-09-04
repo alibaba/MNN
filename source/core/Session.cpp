@@ -193,8 +193,12 @@ ErrorCode Session::resize() {
         mNeedResize = true;
         // Turn Pipeline to Command Buffer and Malloc resource
         // TODO: Separate Schedule and Malloc
+        bool forbidReplace = permitCodegen;
+        if (mInfo.constReplaceBackend != nullptr) {
+            forbidReplace = true;
+        }
         for (auto& iter : mPipelines) {
-            auto error = iter->allocMemory(firstMalloc, permitCodegen);
+            auto error = iter->allocMemory(firstMalloc, forbidReplace);
             if (NO_ERROR != error) {
                 return error;
             }
@@ -376,7 +380,9 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
             *TensorUtils::getDescribe(tensors[i].get())->quantAttr = *srcDes->quantAttr;
         }
-        TensorUtils::copyShape(tensorSrc[i].get(), tensors[i].get(), true);
+        if (TensorUtils::getDescribe(tensors[i].get())->usage != Tensor::InsideDescribe::CONSTANT) {
+            TensorUtils::copyShape(tensorSrc[i].get(), tensors[i].get(), true);
+        }
     }
 }
 
@@ -387,6 +393,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     scheduleInfo.pipelineInfo.resize(1);
     Session::ModeGroup modes;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
+    scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
     scheduleInfo.allTensors = sharedConst->allTensors;
     initTensors(scheduleInfo.allTensors, mInfo.allTensors);
     MNN_ASSERT(1 == mPipelines.size());
@@ -420,7 +427,9 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
             }
         }
         for (int j=0; j<opInfo.inputs.size(); ++j) {
-            TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+            if (TensorUtils::getDescribe(opInfo.inputs[j])->usage != Tensor::InsideDescribe::CONSTANT) {
+                TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+            }
         }
         for (int j=0; j<opInfo.outputs.size(); ++j) {
             TensorUtils::getDescribe(opInfo.outputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.outputs[j])->usage;

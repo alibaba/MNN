@@ -33,6 +33,7 @@ public:
         Interpreter::SessionMode resizeMode = Interpreter::Session_Resize_Direct;
         Interpreter::SessionMode memoryUsageMode = Interpreter::Session_Memory_Collect;
         Interpreter::SessionMode codegenMode = Interpreter::Session_Codegen_Disable;
+        int memoryAllocatorType = 0;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,

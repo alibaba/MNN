@@ -946,3 +946,85 @@ public:
     }
 };
 MNNTestSuiteRegister(ConstMemoryReplaceTest, "expr/ConstMemoryReplaceTest");
+
+class MutlThreadConstReplaceTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto func = [precision](VARP y, int thread) {
+            flatbuffers::FlatBufferBuilder builderOutput(1024);
+            {
+                std::unique_ptr<MNN::NetT> net(new NetT);
+                Variable::save({y}, net.get());
+                auto len = MNN::Net::Pack(builderOutput, net.get());
+                builderOutput.Finish(len);
+            }
+            int sizeOutput    = builderOutput.GetSize();
+            auto bufferOutput = builderOutput.GetBufferPointer();
+            MNN::Express::Module::Config modConfig;
+            modConfig.rearrange = true;
+            std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, bufferOutput, sizeOutput, &modConfig), MNN::Express::Module::destroy);
+            
+            ScheduleConfig config;
+            BackendConfig bnConfig;
+            bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+            config.numThread = 1;
+            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.backendConfig = &bnConfig;
+
+            std::vector<std::thread> threads;
+            std::vector<float> summer(thread);
+            std::mutex moduleMutex;
+
+            for (int t = 0; t<thread; ++t) {
+                threads.emplace_back([&, t]() {
+                    auto newExe = Executor::newExecutor(config.type, bnConfig, 1);
+                    ExecutorScope scope(newExe);
+                    std::shared_ptr<Module> tempModule;
+                    {
+                        std::unique_lock<std::mutex> _l(moduleMutex);
+                        tempModule.reset(Module::clone(net.get()), Module::destroy);
+                    }
+                    // Create Input
+                    auto x = MNN::Express::_Input({1, 100}, NCHW);
+                    auto xPtr = x->writeMap<float>();
+                    for (int j=0; j<100; ++j) {
+                        xPtr[j] = j / 100.0f;
+                    }
+                    x->unMap();
+                    auto y = tempModule->onForward({x});
+                    auto yPtr = y[0]->readMap<float>();
+                    auto ySize = y[0]->getInfo()->size;
+                    float sum = 0.0f;
+                    for (int j=0; j<ySize; ++j) {
+                        sum += yPtr[j];
+                    }
+                    y[0]->unMap();
+                    {
+                        std::unique_lock<std::mutex> _l(moduleMutex);
+                        summer[t] = sum;
+                    }
+                });
+            }
+            for (auto& t : threads) {
+                t.join();
+            }
+            MNN_PRINT("Summer: ");
+            for (auto t : summer) {
+                MNN_PRINT("%f, ", t);
+            }
+            MNN_PRINT("\n");
+            return true;
+        };
+        auto weightVar = MNN::Express::_Const(0.001f, {100, 10000}, NCHW);
+        auto x = MNN::Express::_Input({1, 100}, NCHW);
+        x->setName("x");
+        auto y = MNN::Express::_MatMul(x, weightVar);
+        auto weightVar2 = MNN::Express::_Const(0.0002f, {10000, 100}, NCHW);
+        y = MNN::Express::_MatMul(y, weightVar2);
+        y->setName("y");
+        func(y, 4);
+
+        return true;
+    };
+};
+MNNTestSuiteRegister(MutlThreadConstReplaceTest, "expr/MutlThreadConstReplaceTest");

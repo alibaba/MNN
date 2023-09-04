@@ -79,6 +79,7 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size);
 void _SSE_ExtraInit(void* functions);
 void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
 void _SSE_ImageProcessInit(void* functions, int cpuFlags);
+void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
 
 /* Image process functions */
 void _SSE_MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count);

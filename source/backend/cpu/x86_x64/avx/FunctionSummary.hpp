@@ -75,6 +75,7 @@ void _AVX_WinogradInit(void* functions);
 
 void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters);
 void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
+void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
 
 void _AVX_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);
 void _AVX_MNNPackedSparseMatMulEpx1EFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);

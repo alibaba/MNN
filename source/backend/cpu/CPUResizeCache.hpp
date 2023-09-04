@@ -19,6 +19,7 @@ public:
     // Return cache tensor
     void pushCacheTensor(std::shared_ptr<Tensor> dst, const Tensor* src, MNN_DATA_FORMAT format);
     void reset();
+    void release();
 private:
     std::map<std::pair<const Tensor*, MNN_DATA_FORMAT>, std::shared_ptr<Tensor>> mFormatCache;
 };

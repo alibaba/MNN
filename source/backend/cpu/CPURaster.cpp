@@ -68,7 +68,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
                 }
                 Tensor::InsideDescribe::Region newRegion;
                 OpCommonUtils::turnToPackRegion(slice, newRegion, output, core->pack, true);
-                mFastBlit.emplace_back(std::make_pair(slice.origin->host<void>(), std::move(newRegion)));
+                mFastBlit.emplace_back(std::make_pair(slice.origin, std::move(newRegion)));
             }
             return NO_ERROR;
         }
@@ -98,12 +98,12 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         auto origin = slice.origin;
-        if (nullptr == origin || nullptr == origin->host<void>()) {
+        if (nullptr == origin /*|| nullptr == origin->host<void>()*/) {
             continue;
         }
         // if tensor is not NC4HW4 or has been merged, don't need deal
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-            mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), &slice));
+            mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
             continue;
         }
         // if NC4HW4's C%4 == 0, change convert to transpose and fuse it
@@ -132,12 +132,13 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             bool merge = TensorUtils::fuseRegion(regionTmp, *newSlice);
             if (merge) {
                 // cache the merged tensor
-                mTempInputCopy.emplace_back(std::make_pair(origin->host<void>(), newSlice.get()));
+                mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
                 mCacheRegions.emplace_back(newSlice);
                 continue;
             }
         }
         auto cache = static_cast<CPUBackend*>(backend())->getCache();
+#if 1
         auto tempTensor = cache->findCacheTensor(origin, midFormat);
         //MNN_ASSERT(CPUBackend::getBytes(backend(), origin) == 4);
         if (nullptr == tempTensor) {
@@ -159,7 +160,23 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
             forRelease.emplace_back(tempTensor);
         }
-        mTempInputCopy.emplace_back(std::make_pair(tempTensor->host<void>(), &slice));
+#else
+        std::shared_ptr<Tensor> newTensor(new Tensor);
+        TensorUtils::copyShape(origin, newTensor.get());
+        TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
+        TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
+        newTensor->buffer().type = origin->getType();
+        TensorUtils::setLinearLayout(newTensor.get());
+        mTempInput.insert(std::make_pair(origin, newTensor.get()));
+        auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        auto tempTensor = newTensor.get();
+        backend()->onReleaseBuffer(tempTensor, Backend::DYNAMIC);
+        cache->pushCacheTensor(newTensor, origin, midFormat);
+#endif
+        mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
     for (auto t : forRelease) {
         backend()->onReleaseBuffer(t, Backend::DYNAMIC);
@@ -175,7 +192,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (region->size[0] * region->size[1] * region->size[2] < thredHold) {
             return NO_ERROR;
         }
-        auto ptr = mTempInputCopy[0].first;
+        auto tensorPtr = mTempInputCopy[0].first;
         int pos = -1;
         for (int i=0; i<3; ++i) {
             if (region->size[i] > 1) {
@@ -212,7 +229,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             for (int v=pos+1; v<3; ++v) {
                 cacheReg.size[v] = region->size[v];
             }
-            mTempInputCopy.emplace_back(std::make_pair(ptr, cacheRegPtr.get()));
+            mTempInputCopy.emplace_back(std::make_pair(tensorPtr, cacheRegPtr.get()));
             mCacheRegions.emplace_back(cacheRegPtr);
         }
     }
@@ -318,7 +335,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             auto& iter = mFastBlit[u];
             auto& slice = iter.second;
             //Offset use byte
-            auto srcPtr = (uint8_t*)iter.first + slice.src.offset * bytes;
+            auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
             if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
                 for (int z=0; z<slice.size[0]; ++z) {
@@ -543,6 +560,11 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
 
 
 ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
+    if (nullptr != mTempOutput) {
+        mOutputPtr = mTempOutput->host<void>();
+    } else {
+        mOutputPtr = outputs[0]->host<void>();
+    }
     if (mFast) {
         executeFaster(____inputs, outputs);
         return NO_ERROR;
@@ -607,7 +629,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
             auto& slice = *(iter.second);
-            auto srcPtr = (uint8_t*)iter.first + slice.src.offset * bytes;
+            auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
             _blit(slice, bytes, srcPtr, dstPtr, proc);
         }
@@ -752,13 +774,12 @@ public:
         }
         auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
         if (mMaxCacheSize > 0 || mMaxFuseBufferSize > 0) {
-            auto buffer = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(threadNumber * (mMaxCacheSize + mMaxFuseBufferSize));
-            if (nullptr == buffer.first) {
+            mCacheBuffer = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(threadNumber * (mMaxCacheSize + mMaxFuseBufferSize));
+            if (mCacheBuffer.invalid()) {
                 return OUT_OF_MEMORY;
             }
-            mCacheBuffer = (uint8_t*)buffer.first + buffer.second;
             mFuseBuffer = mCacheBuffer + threadNumber * mMaxCacheSize;
-            static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(buffer);
+            static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(mCacheBuffer);
         }
         return NO_ERROR;
     }
@@ -887,7 +908,7 @@ public:
                 auto dstOrigin = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
                 auto dst = dstOrigin;
                 if (cmd->fuse() >= 0) {
-                    dst = fuseBuffer;
+                    dst = fuseBuffer.ptr();
                 }
                 do {
                     if (OpType_UnaryOp == op->type()) {
@@ -921,7 +942,7 @@ public:
                             }
                         } else {
                             // Blit to cache
-                            auto srcCache = mCacheBuffer + mMaxCacheSize * tId;
+                            auto srcCache = mCacheBuffer.ptr() + mMaxCacheSize * tId;
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
                                 auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
                                 auto dstZ = dst + z * outputStride[0] * bytes;
@@ -978,7 +999,7 @@ public:
                                 }
                             }
                         } else {
-                            auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
+                            auto cache0 = mCacheBuffer.ptr() + mMaxCacheSize * tId;
                             auto cache1 = cache0 + cmd->size()->data()[2] * bytes;
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
                                 auto src0Z = src0 + z * stride1[0] * bytes;
@@ -1080,9 +1101,8 @@ private:
     const LoopParam* mLoop;
     std::vector<Tensor*> mStack;
     std::vector<ThreadContainer> mContainer;
-    uint8_t* mCacheBuffer = nullptr;
+    MemChunk mCacheBuffer, mFuseBuffer;
     int mMaxCacheSize = 0;
-    uint8_t* mFuseBuffer = nullptr;
     int mMaxFuseBufferSize = 0;
 };
 

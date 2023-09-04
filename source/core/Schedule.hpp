@@ -78,8 +78,10 @@ public:
         std::vector<std::shared_ptr<Tensor>> allTensors;
         /** input valid for resize*/
         bool validForResize;
-        /** Default Backend*/
+        /** Default Backend for alloc const*/
         std::shared_ptr<Backend> defaultBackend;
+        /** Replace Backend for alloc const*/
+        std::shared_ptr<Backend> constReplaceBackend;
         /** size need input's content*/
         bool needInputContentForShape = false;
     };

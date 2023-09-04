@@ -31,7 +31,7 @@ protected:
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
     std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
     CPUConvolution::MutableResourceInt8 mMutableResource;
-    std::pair<void*, int> mBlitInfo;
+    MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
     int mIm2ColCount;
 };

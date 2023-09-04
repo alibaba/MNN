@@ -40,7 +40,7 @@ private:
     std::vector<float> mPostParameters;
     // mFakeBias used by GemmKernel
     std::shared_ptr<Tensor> mFakeBias;
-    std::pair<void*, int> mBlitInfo;
+    MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
 };
 } // namespace MNN

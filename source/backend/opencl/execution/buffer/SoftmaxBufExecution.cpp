@@ -19,7 +19,6 @@ SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, in
     : Execution(backend) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    buildSoftmaxKernel();
 }
 
 bool SoftmaxBufExecution::buildSoftmaxKernel() {
@@ -43,10 +42,27 @@ bool SoftmaxBufExecution::buildSoftmaxKernel() {
 ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
+    
+    const auto dims = input->buffer().dimensions;
+    int inside  = 1;
+    int outside = 1;
+    int channel = 1;
+    for (int i = 0; i < mAxis; ++i) {
+        outside *= input->length(i);
+    }
+    channel = input->length(mAxis);
+    for (int i = mAxis + 1; i < dims; ++i) {
+        inside *= input->length(i);
+    }
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
+    const int inputBatch    = inputShape.at(0);
+    const int inputHeight   = inputShape.at(1);
+    const int inputWidth    = inputShape.at(2);
+    const int inputChannels = inputShape.at(3);
+    
     const int outputBatch    = outputShape.at(0);
     const int outputHeight   = outputShape.at(1);
     const int outputWidth    = outputShape.at(2);
@@ -54,9 +70,18 @@ ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, con
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
+    if(inputBatch == outside && channel == inputChannels && inside == inputWidth * inputHeight){
+        mAxis = 1;
+    }else if(inputBatch * inputChannels == outside && channel == inputHeight && inside == inputHeight){
+        mAxis = 2;
+    }else if(inputBatch * inputChannels * inputHeight == outside && channel == inputWidth && inside == 1){
+        mAxis = 3;
+    }
+    buildSoftmaxKernel();
+    
     if (mAxis == 1) {
-        mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
-            static_cast<uint32_t>(outputHeight * outputBatch)};
+        mGlobalWorkSize = {static_cast<uint32_t>(outputWidth),
+            static_cast<uint32_t>(outputHeight * outputBatch), 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
 
         uint32_t idx    = 0;
@@ -132,10 +157,6 @@ class SoftmaxBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        if(inputs[0]->dimensions() == 3 || outputs[0]->dimensions() == 3){
-            MNN_PRINT("softmax not support dimensions == 3 \n");
-            return nullptr;
-        }
         for (int i = 0; i < inputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(inputs[i], false);
         }

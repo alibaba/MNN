@@ -430,6 +430,8 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
         } else if (backend == mResource->mSharedConst->defaultBackend.get()) {
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = mResource->mSharedConst->defaultBackend;
+        } else if (backend == mResource->mSharedConst->constReplaceBackend.get()) {
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = mResource->mSharedConst->constReplaceBackend;
         }
     }
 

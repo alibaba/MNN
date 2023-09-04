@@ -138,7 +138,7 @@ std::pair<Execution*, std::shared_ptr<Tensor>> WrapExecution::makeCopyExecution(
     return std::make_pair(copyExe, wrapTensor);
 }
 
-Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache, bool permitCodegen) {
+Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<Tensor*, std::shared_ptr<Tensor>>& cache, bool forbidReplace) {
     auto des = TensorUtils::getDescribe(t);
     if (curBackend->type() != MNN_FORWARD_CPU) {
         auto constCacheiter = cache.find(t);
@@ -147,14 +147,9 @@ Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<T
             return constCacheiter->second.get();
         } else {
             // search or create const for new backend
-            std::shared_ptr<Tensor> wrapTensor(new Tensor);
+            std::shared_ptr<Tensor> wrapTensor = makeCopyTensor(t, curBackend);
             auto outDes = TensorUtils::getDescribe(wrapTensor.get());
-            TensorUtils::copyShape(t, wrapTensor.get(), true);
-            wrapTensor->buffer().type = t->buffer().type;
-            TensorUtils::adjustTensorForCompability(wrapTensor.get());
-            outDes->quantAttr = des->quantAttr;
             outDes->usage = des->usage;
-            outDes->stageMask = des->stageMask;
             auto tempRes = curBackend->onAcquireBuffer(wrapTensor.get(), Backend::STATIC);
             if (!tempRes) {
                 return nullptr;
@@ -168,11 +163,9 @@ Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<T
             if (des->stageMask & Tensor::InsideDescribe::CONVERTED_STAGE) {
                 canReplace = false;
             }
-            #ifdef MNN_BUILD_CODEGEN
-            if(permitCodegen) {
+            if (forbidReplace) {
                 canReplace = false;
             }
-            #endif
             if (canReplace) {
                 outDes->stageMask |= Tensor::InsideDescribe::CONVERTED_STAGE;
                 TensorUtils::getDescribeOrigin(t)->mContent = TensorUtils::getDescribeOrigin(wrapTensor.get())->mContent;

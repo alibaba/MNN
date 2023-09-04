@@ -118,9 +118,9 @@ ErrorCode ArgMaxExecution::onResize(const std::vector<Tensor *> &inputs, const s
     if(mSplitKernel) {
         mSecondArgLen = (mDim + ARG_REDUCE_NUM - 1) / ARG_REDUCE_NUM;
         auto buffer_data = pool->alloc(mOutside * mInside * mSecondArgLen * bytes);
-        mTempDataBuffer = (void*)((uint8_t*)buffer_data.first + buffer_data.second);
+        mTempDataBuffer = (void*)(buffer_data.ptr());
         auto buffer_index = pool->alloc(mOutside * mInside * mSecondArgLen * sizeof(int32_t));
-        mTempIndexBuffer = (void*)((uint8_t*)buffer_index.first + buffer_index.second);
+        mTempIndexBuffer = (void*)(buffer_index.ptr());
         pool->free(buffer_data);
         pool->free(buffer_index);
     }

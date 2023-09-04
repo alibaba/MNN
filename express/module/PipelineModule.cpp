@@ -15,6 +15,7 @@
 #include "NMSModule.hpp"
 #include "Utils.hpp"
 #include "core/Backend.hpp"
+#include "core/WrapExecution.hpp"
 #include "utils/InitNet.hpp"
 #include "RuntimeAttr.hpp"
 #include "geometry/GeometryComputer.hpp"
@@ -490,7 +491,15 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferSto
     return submodule;
 }
 
-static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& config, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, bool needGeometry) {
+struct ModuleRuntimeConfig {
+    bool needGeometry;
+    RuntimeInfo rt;
+    Backend::Info compute;
+    const BackendConfig* userConfig = nullptr;
+    Session::ModeGroup modes;
+};
+
+static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, const Module::Config& config, const ModuleRuntimeConfig& runtimeConfig) {
     auto net = flatbuffers::GetRoot<Net>(bufferStorage->buffer());
     if (1 == info.opList.size()) {
         auto op = net->oplists()->GetAs<Op>(info.opList[0]);
@@ -506,9 +515,8 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
         // MNN_ASSERT(false);
     }
     Schedule::ScheduleInfo scheduleInfo;
-    RuntimeInfo rt;
-    Session::ModeGroup modes;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
+    scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
     scheduleInfo.allTensors = sharedConst->allTensors;
     initTensors(scheduleInfo.allTensors, net);
     std::vector<Schedule::OpCacheInfo> oplists;
@@ -522,34 +530,19 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
     if (breakIndex >= 0) {
         scheduleInfo.needInputContentForShape = true;
     }
-    Backend::Info compute;
-    const BackendConfig* userConfig = nullptr;
-    if (nullptr == rtMgr) {
-        rt = Executor::getRuntime();
-        auto glo = ExecutorScope::Current();
-        compute.type = glo->getAttr()->firstType.first;
-        compute.numThread = glo->getAttr()->firstType.second;
-    } else {
-        modes = rtMgr->getInside()->modes;
-        rt = rtMgr->getInside()->mRuntime;
-        userConfig = &rtMgr->getInside()->mConfig;
-        compute.type      = rt.first.begin()->first;
-        compute.numThread = 1;
-        // set external file info
-        if (!rtMgr->getInside()->mExternalFile.empty()) {
-            rt.first.begin()->second->setExternalFile(rtMgr->getInside()->mExternalFile);
-            rt.second->setExternalFile(rtMgr->getInside()->mExternalFile);
-        }
-    }
+    auto rt = runtimeConfig.rt;
+    auto modes = runtimeConfig.modes;
     Schedule::BackendCache bnCache;
-    if (nullptr != userConfig) {
-        bnCache.config = *userConfig;
+    Backend::Info compute = runtimeConfig.compute;
+    if (nullptr != runtimeConfig.userConfig) {
+        bnCache.config = *runtimeConfig.userConfig;
         compute.user      = &bnCache.config;
     } else {
         compute.user      = nullptr;
     }
     bnCache.info = std::move(compute);
-    bnCache.needComputeGeometry = needGeometry;
+    bnCache.needComputeGeometry = runtimeConfig.needGeometry;
+
     scheduleInfo.pipelineInfo.emplace_back(std::make_pair(std::move(bnCache), std::move(oplists)));
 
     std::vector<std::shared_ptr<BufferStorage>> buffers = {bufferStorage};
@@ -588,13 +581,38 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     // Extra Const Tensors
     sharedConst.reset(new Schedule::ScheduleInfo);
     auto curExe = ExecutorScope::Current();
+    bool permitCodeGen = false;
     if (rtMgr && !rtMgr->getInside()->mExternalFile.empty()) {
         curExe->getRuntime().second->setExternalFile(rtMgr->getInside()->mExternalFile);
+        permitCodeGen = rtMgr->getInside()->modes.codegenMode == Interpreter::Session_Codegen_Enable;
     }
     std::shared_ptr<Backend> defaultBackend = curExe->getAttr()->constantBackend;
     std::vector<std::shared_ptr<Tensor>> allTensors;
     sharedConst->allTensors.resize(net->tensorName()->size());
     sharedConst->defaultBackend = defaultBackend;
+    std::shared_ptr<ModuleRuntimeConfig> modRuntimeCfgPtr(new ModuleRuntimeConfig);
+    ModuleRuntimeConfig& modRuntime = *modRuntimeCfgPtr;
+    modRuntime.needGeometry = needGeometry;
+    if (nullptr == rtMgr) {
+        modRuntime.rt = Executor::getRuntime();
+        auto glo = ExecutorScope::Current();
+        modRuntime.compute.type = glo->getAttr()->firstType.first;
+        modRuntime.compute.numThread = glo->getAttr()->firstType.second;
+    } else {
+        modRuntime.modes = rtMgr->getInside()->modes;
+        modRuntime.rt = rtMgr->getInside()->mRuntime;
+        modRuntime.userConfig = &rtMgr->getInside()->mConfig;
+        modRuntime.compute.type      = modRuntime.rt.first.begin()->first;
+        modRuntime.compute.numThread = 1;
+        // set external file info
+        if (!rtMgr->getInside()->mExternalFile.empty()) {
+            modRuntime.rt.first.begin()->second->setExternalFile(rtMgr->getInside()->mExternalFile);
+            modRuntime.rt.second->setExternalFile(rtMgr->getInside()->mExternalFile);
+        }
+    }
+    auto& rt = modRuntime.rt;
+    auto firstRt = rt.first[modRuntime.compute.type];
+    sharedConst->constReplaceBackend.reset(firstRt->onCreate(modRuntime.userConfig));
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;
     initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), code);
@@ -646,7 +664,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto subModulesInfo = _createSubModuleInfo(bufferStorage, inputIndexes, outputIndexes, noneedComputeIndexes, sharedConst);
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
-        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, rtMgr, *config, sharedConst, needGeometry));
+        subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, sharedConst, *config, modRuntime));
     }
     auto result = new PipelineModule;
     result->mInputSize = inputs.size();
@@ -702,8 +720,45 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     }
     result->registerModel(subModules);
     result->mSharedConst = sharedConst;
+    if (!permitCodeGen) {
+        // Prereplace const tensor
+        auto curBackend = sharedConst->constReplaceBackend.get();
+        if (sharedConst->constReplaceBackend->type() != sharedConst->defaultBackend->type()) {
+            for (auto& t : sharedConst->allTensors) {
+                if (nullptr == t.get()) {
+                    continue;
+                }
+                auto des = TensorUtils::getDescribe(t.get());
+                if (des->isMutable) {
+                    continue;
+                }
+                if (!WrapExecution::needWrap(t.get(), curBackend)) {
+                    continue;
+                }
+                if (des->stageMask & Tensor::InsideDescribe::GEOMETRY_STAGE) {
+                    continue;
+                }
+                if (des->stageMask & Tensor::InsideDescribe::CONVERTED_STAGE) {
+                    continue;
+                }
+                std::shared_ptr<Tensor> wrapTensor = WrapExecution::makeCopyTensor(t.get(), curBackend);
+                auto outDes = TensorUtils::getDescribe(wrapTensor.get());
+                outDes->usage = des->usage;
+                auto tempRes = curBackend->onAcquireBuffer(wrapTensor.get(), Backend::STATIC);
+                if (!tempRes) {
+                    continue;
+                }
+                outDes->setBackend(curBackend);
+                curBackend->onCopyBuffer(t.get(), wrapTensor.get());
+                outDes->stageMask |= Tensor::InsideDescribe::CONVERTED_STAGE;
+                TensorUtils::getDescribeOrigin(t.get())->mContent = TensorUtils::getDescribeOrigin(wrapTensor.get())->mContent;
+                t->buffer().host = wrapTensor->buffer().host;
+                t->buffer().device = wrapTensor->buffer().device;
+                t->buffer().dim = TensorUtils::getDescribe(wrapTensor.get())->dims;
+            }
+        }
+    }
     return result;
-
 }
 
 Module* PipelineModule::clone(CloneContext* ctx) const {

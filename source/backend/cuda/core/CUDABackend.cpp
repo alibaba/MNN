@@ -37,10 +37,10 @@ public:
         // Do nothing
     }
     virtual ~ CUDARuntimeAllocator() = default;
-    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override {
-        return std::make_pair(mRuntime->alloc(size), 0);
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
+        return MemChunk(mRuntime->alloc(size), 0);
     }
-    virtual void onRelease(std::pair<void*, size_t> ptr) override {
+    virtual void onRelease(MemChunk ptr) override {
         mRuntime->free(ptr.first);
     }
 private:
@@ -58,7 +58,7 @@ CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, B
             return;
         }
         std::shared_ptr<BufferAllocator::Allocator> allocator(new CUDARuntimeAllocator(mCUDARuntime.get()));
-        mBufferPool.reset(new BufferAllocator(allocator));
+        mBufferPool.reset(new EagerBufferAllocator(allocator));
     }
     mDefaultPrecision = precision;
 }
@@ -103,7 +103,7 @@ CUDABackend::CUDABackend(std::shared_ptr<BufferAllocator> st,
 #ifdef LOG_VERBOSE
         MNN_PRINT("cuda backend create\n");
 #endif
-    mBufferPool.reset(new BufferAllocator(BufferAllocator::Allocator::createRecurse(st.get())));
+    mBufferPool.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(st.get())));
     mStaticBufferPool = st;
     mCUDARuntime      = rt;
     mUseFp16AsFp32 = (precision == 2);
@@ -139,16 +139,19 @@ int CUDABackend::getPrecision() const {
 
 class CUDAMemObj : public Backend::MemObj {
 public:
-    CUDAMemObj(BufferAllocator* allocator, std::pair<void*, int> points) {
+    CUDAMemObj(BufferAllocator* allocator, MemChunk points) {
         mPoint = std::move(points);
         mAllocator = allocator;
     }
     virtual ~ CUDAMemObj() {
         mAllocator->free(mPoint);
     }
+    MemChunk chunk() override {
+        return mPoint;
+    }
 private:
     BufferAllocator* mAllocator;
-    std::pair<void*, int> mPoint;
+    MemChunk mPoint;
 };
 int CUDABackend::getBytes(const Tensor* tensor) const {
     auto bytes = tensor->getType().bytes();
@@ -176,7 +179,7 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
     auto bytes = getBytes(nativeTensor);
     size_t mallocSize = realSize(nativeTensor) * bytes;
 
-    std::pair<void*, int> buffer;
+    MemChunk buffer;
     if (storageType == DYNAMIC_SEPERATE) {
         buffer                              = mBufferPool->alloc(mallocSize, true);
         allocator = mBufferPool.get();
@@ -191,7 +194,7 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
     if(nullptr == buffer.first) {
         return nullptr;
     };
-    auto host = (uint8_t*)buffer.first + buffer.second;
+    auto host = buffer.ptr();
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
     auto des = TensorUtils::getDescribe(nativeTensor);
     des->extra.offset = buffer.second;
@@ -380,7 +383,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     auto dstDevice = (dstTensor->deviceId() != 0 && dstTensor->deviceId() != 1);    
     MNN_ASSERT(srcDevice || dstDevice);
     uint8_t* srcPtr = nullptr;
-    std::pair<void*, int> tempSrcStorage;
+    MemChunk tempSrcStorage;
     auto bytes = getBytes(srcTensor);
     auto type = srcTensor->getType();
 
@@ -434,18 +437,18 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     if (!srcDevice) {
         auto cpuSize = srcTensor->size();
         tempSrcStorage = mStaticBufferPool->alloc(cpuSize);
-        srcPtr = (uint8_t*)tempSrcStorage.first + tempSrcStorage.second;
+        srcPtr = tempSrcStorage.ptr();
         mCUDARuntime->memcpy(srcPtr, srcTensor->host<void>(), cpuSize, MNNMemcpyHostToDevice,
                              true);
     } else {
         srcPtr = (uint8_t*)srcTensor->deviceId();
     }
     uint8_t* dstPtr = nullptr;
-    std::pair<void*, int> tempDstStorage;
+    MemChunk tempDstStorage;
     if (!dstDevice) {
         auto cpuSize = dstTensor->size();
         tempDstStorage = mStaticBufferPool->alloc(cpuSize);
-        dstPtr = (uint8_t*)tempDstStorage.first + tempDstStorage.second;
+        dstPtr = tempDstStorage.ptr();
     } else {
         dstPtr = (uint8_t*)dstTensor->deviceId();
     }
@@ -462,7 +465,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     // MNN_PRINT("oncopybuffer dateType:%d->%d  format:%d->%d\n", getDataType(srcTensor), getDataType(dstTensor), srcDimensionFormat, dstDimensionFormat);
 
     std::unique_ptr<Tensor> wrapTensor;
-    std::pair<void*, int> wrapSrcStorage;
+    MemChunk wrapSrcStorage;
     if (getDataType(srcTensor) != getDataType(dstTensor)) {
         auto dimType = Tensor::CAFFE;
         switch (TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
@@ -486,7 +489,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         wrapTensor.reset(Tensor::createDevice(srcTensor->shape(), dstTensor->getType(), dimType));
         wrapSrcStorage = mStaticBufferPool->alloc(realSize(wrapTensor.get()) * getBytes(dstTensor));
         // MNN_PRINT("warp:%d %d %d %d\n", realSize(wrapTensor.get()), getBytes(dstTensor), dstTensor->getType(), srcTensor->getDimensionType());
-        wrapTensor.get()->buffer().device = (uint64_t)((uint8_t*)wrapSrcStorage.first + wrapSrcStorage.second);
+        wrapTensor.get()->buffer().device = (uint64_t)(wrapSrcStorage.ptr());
 
         auto dstType = getDataType(dstTensor);
         if (dstType != DataType_DT_FLOAT) {

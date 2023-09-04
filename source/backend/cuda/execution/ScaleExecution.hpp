@@ -32,7 +32,7 @@ private:
     int mCount;
     int mChannel;
     int mArea;
-    std::pair<void*, int> mScaleBiasStorage;
+    MemChunk mScaleBiasStorage;
 };
 
 } // namespace CUDA

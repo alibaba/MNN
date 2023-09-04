@@ -144,7 +144,7 @@ ErrorCode SparseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inpu
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(eP, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, mThreadNums);
     mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
-    if (nullptr == mBlitInfo.first) {
+    if (mBlitInfo.invalid()) {
         return OUT_OF_MEMORY;
     }
     bufferAlloc->free(mBlitInfo);
@@ -193,7 +193,7 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
         info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih * batch;
         info[2] = (int)mSparseQuantParam.eP;
         info[3] = mIm2ColParamter.strideX;
-        auto srcPtr     = (int8_t const **)((uint8_t *)mBlitInfo.first + mBlitInfo.second + tId * mBlitInfoStride.first);
+        auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
         auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
 
         for (int tIndex = tId; tIndex < mTileCount; tIndex += mThreadNums) {

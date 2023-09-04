@@ -102,10 +102,10 @@ ErrorCode MultiInputConvDepthWiseExecution::onResize(const std::vector<Tensor *>
     // prepare mParams.mFilter and mParams.mBias
     auto pool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
 
-    std::pair<void*, int> bufferFilter = pool->alloc(mParams.numWeightPackTotal * sizeof(half));
+    auto bufferFilter = pool->alloc(mParams.numWeightPackTotal * sizeof(half));
     mParams.mFilter = (void*)((uint8_t*)bufferFilter.first + bufferFilter.second);
 
-    std::pair<void*, int> bufferBias = pool->alloc(mParams.numBiasPackTotal * sizeof(half));
+    auto bufferBias = pool->alloc(mParams.numBiasPackTotal * sizeof(half));
     mParams.mBias = (void*)((uint8_t*)bufferBias.first + bufferBias.second);
 
     pool->free(bufferFilter);

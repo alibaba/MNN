@@ -11,308 +11,285 @@
 #define GLOBAL_SIZE_2_DIMS \
 __private const int global_size_dim0, __private const int global_size_dim1,
 
+#define GLOBAL_SIZE_3_DIMS \
+__private const int global_size_dim0, __private const int global_size_dim1, __private const int global_size_dim2,
+
+#define DEAL_NON_UNIFORM_DIM3(input1, input2, input3)                                             \
+    if (input1 >= global_size_dim0 || input2 >= global_size_dim1 || input3 >= global_size_dim2) { \
+        return;                                                                                   \
+    }
+
+
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
-
-__kernel void reduct_general_mean(GLOBAL_SIZE_2_DIMS
+__kernel void reduct_width(GLOBAL_SIZE_3_DIMS
                             __read_only image2d_t input,
                             __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
                             ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
 
-    FLOAT4 sum = 0;
-    for (int h = 0; h < height; h++) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        sum = sum + in;
-    }
-    FLOAT* sum_ptr = (FLOAT*)&sum;
-    for(int i = 1; i < channel; ++i){
-        sum.x += sum_ptr[i];
-    }
-    WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum.x/(height*channel), 0.0, 0.0, 0.0));
-}
-__kernel void reduct_general_sum(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
-
-    FLOAT4 sum = 0;
-    for (int h = 0; h < height; h++) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        sum = sum + in;
-    }    
-    FLOAT* sum_ptr = (FLOAT*)&sum;
-    for(int i = 1; i < channel; ++i){
-        sum.x += sum_ptr[i];
-    }
-    WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum.x, 0.0, 0.0, 0.0));
-}
-
-__kernel void reduct_general_max(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
-
-    FLOAT4 sum = (FLOAT4)-MAXFLOAT;
-    for (int h = 0; h < height; h++) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        sum = max(sum, in);
-    }
-    FLOAT* sum_ptr = (FLOAT*)&sum;
-    for(int i = 1; i < channel; ++i){
-        sum.x = max(sum.x, sum_ptr[i]);
-    }
-    WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum.x, 0.0, 0.0, 0.0));
-}
-
-__kernel void reduct_general_min(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
-
-    FLOAT4 sum = (FLOAT4)MAXFLOAT;
-    for (int h = 0; h < height; h++) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        sum = min(sum, in);
-    }
-    FLOAT* sum_ptr = (FLOAT*)&sum;
-    for(int i = 1; i < channel; ++i){
-        sum.x = min(sum.x, sum_ptr[i]);
-    }
-    WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum.x, 0.0, 0.0, 0.0));
-}
-
-__kernel void reduct_general_mul(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(0);
-    const int width_idx = get_global_id(1);
-
-    FLOAT4 sum = (FLOAT4)1.0;
-    for (int h = 0; h < height; h++) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        sum = sum * in;
-    }
-    FLOAT* sum_ptr = (FLOAT*)&sum;
-    for(int i = 1; i < channel; ++i){
-        sum.x *= sum_ptr[i];
-    }
-    WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum.x, 0.0, 0.0, 0.0));
-}
-
-__kernel void reduct_general_mean_local(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(1);
-    const int width_idx = get_global_id(2);
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_channel_idx);
+                                
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    const int bh = batch_idx*inputHeight+height_idx;
+    const int wc = channel_idx*inputWidth;
+    FLOAT4 out = (FLOAT4)VALUE;
     
-    const int idx = get_local_id(0);
-    FLOAT local sum[256];
-    FLOAT4 out = (FLOAT4)0.0;        
-    const int reduce_num = get_local_size(0);
-
-    for (int h = idx; h < height; h+=reduce_num) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        out = out + in;
+#if LOCAL_SIZE > 0
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    for(int i = lid; i < inputWidth; i+=LOCAL_SIZE){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc+i, bh));
+        out = OPERATE(out, in);
     }
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int i = 1; i < channel; ++i){
-        out.x += out_ptr[i];
-    }
-    sum[idx] = out.x;
-
+    sum[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = reduce_num/2; i > 0; i /= 2){
-        if (idx < i)
-            sum[idx] = sum[idx] + sum[idx + i];
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    if (idx == 0) {
-        
-        WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum[0]/(height*channel), 0.0, 0.0, 0.0));
+    out = sum[0];
+#else
+    for(int i = 0; i < inputWidth; ++i){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc+i, bh));
+        out = OPERATE(out, in);
     }
-}
-__kernel void reduct_general_sum_local(GLOBAL_SIZE_2_DIMS
-                            __read_only image2d_t input,
-                            __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
-                            ) {
-    const int batch_idx = get_global_id(1);
-    const int width_idx = get_global_id(2);
+#endif
 
-    const int idx = get_local_id(0);
-    FLOAT local sum[256];
-    FLOAT4 out = (FLOAT4)0.0;   
-    const int reduce_num = get_local_size(0);
-
-    for (int h = idx; h < height; h+=reduce_num) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        out = out + in;
-    }
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int i = 1; i < channel; ++i){
-        out.x += out_ptr[i];
-    }
-    sum[idx] = out.x;
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = reduce_num/2; i > 0; i /= 2){
-        if (idx < i)
-            sum[idx] = sum[idx] + sum[idx + i];
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-    if (idx == 0) {
-        WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum[0], 0.0, 0.0, 0.0));
-    }
+#ifdef GET_AVG
+    out = out / inputWidth;
+#endif
+    WI_F(output, (int2)(channel_idx, bh), out);
 }
 
-__kernel void reduct_general_max_local(GLOBAL_SIZE_2_DIMS
+
+__kernel void reduct_height(GLOBAL_SIZE_3_DIMS
                             __read_only image2d_t input,
                             __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
                             ) {
-    const int batch_idx = get_global_id(1);
-    const int width_idx = get_global_id(2);
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
 
-    const int idx = get_local_id(0);
-    FLOAT local sum[256];
-    FLOAT4 out = (FLOAT4)(-MAXFLOAT);   
-    const int reduce_num = get_local_size(0);
-
-    for (int h = idx; h < height; h+=reduce_num) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        out = max(out, in);
-    }    
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int i = 1; i < channel; ++i){
-        out.x = max(out.x, out_ptr[i]);
-    }
-    sum[idx] = out.x;
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, batch_channel_idx);
     
+    const int width_idx = get_group_id(0);
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    
+    const int bh = batch_idx*inputHeight;
+    const int wc = channel_idx*inputWidth+width_idx;
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = lid; i < inputHeight; i+=LOCAL_SIZE){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, bh+i));
+        out = OPERATE(out, in);
+    }
+    sum[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = reduce_num/2; i > 0; i /= 2){
-        if (idx < i)
-            sum[idx] = max(sum[idx], sum[idx + i]);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    if (idx == 0) {
-        WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum[0], 0.0, 0.0, 0.0));
-    }
+    out = sum[0];
+#else
+
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_channel_idx);
     
+    const int batch_idx = batch_channel_idx / outputChannelBlock;
+    const int channel_idx = batch_channel_idx % outputChannelBlock;
+    
+    const int bh = batch_idx*inputHeight;
+    const int wc = channel_idx*inputWidth+width_idx;
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = 0; i < inputHeight; ++i){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, bh+i));
+        out = OPERATE(out, in);
+    }
+#endif
+    
+#ifdef GET_AVG
+    out = out / inputHeight;
+#endif
+    WI_F(output, (int2)(wc, batch_idx), out);
 }
 
-__kernel void reduct_general_min_local(GLOBAL_SIZE_2_DIMS
+__kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
                             __read_only image2d_t input,
                             __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
                             ) {
-    const int batch_idx = get_global_id(1);
-    const int width_idx = get_global_id(2);
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
     
-    const int idx = get_local_id(0);
-    FLOAT local sum[256];
-    FLOAT4 out = (FLOAT4)(MAXFLOAT);   
-
-    const int reduce_num = get_local_size(0);
-
-    for (int h = idx; h < height; h+=reduce_num) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        out = min(out, in);
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, batch_idx);
+    const int width_idx = get_group_id(0);
+    
+    const int bh = batch_idx*inputHeight+height_idx;
+    const int wc = width_idx;
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    const int lid = get_local_id(0);
+    FLOAT local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    for(int i = lid; i < inputChannelBlock - 1; i += LOCAL_SIZE){
+        in = RI_F(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
+        out = OPERATE(out, in);
     }
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int i = 1; i < channel; ++i){
-        out.x = min(out.x, out_ptr[i]);
-    }
-    sum[idx] = out.x;
-
+    out.x = OPERATE(out.x, out.y);
+    out.x = OPERATE(out.x, out.z);
+    out.x = OPERATE(out.x, out.w);
+    sum[lid] = out.x;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = reduce_num/2; i > 0; i /= 2){
-        if (idx < i)
-            sum[idx] = min(sum[idx], sum[idx + i]);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    if (idx == 0) {
-        WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum[0], 0.0, 0.0, 0.0));
+    out.x = sum[0];
+    in = RI_F(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
+    for(int j = 0; j < remain; ++j){
+        out.x = OPERATE(out.x, inPtr[j]);
     }
+#ifdef GET_AVG
+    out.x = out.x / inputChannel;
+#endif
+    WI_F(output, (int2)(wc, bh), (FLOAT4)(out.x, 0, 0, 0));
+    
+#else
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int batch_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, batch_idx);
+    
+    const int bh = batch_idx*inputHeight+height_idx;
+    const int wc = width_idx;
+    int remain = inputChannel - (inputChannelBlock - 1) * 4;
+    
+    FLOAT out = (FLOAT)VALUE;
+    FLOAT4 in;
+    FLOAT *inPtr = (FLOAT*)&in;
+    
+    for(int i = 0; i < inputChannelBlock - 1; ++i){
+        in = RI_F(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
+        for(int j = 0; j < 4; ++j){
+            out = OPERATE(out, inPtr[j]);
+        }
+    }
+    in = RI_F(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
+    for(int j = 0; j < remain; ++j){
+        out = OPERATE(out, inPtr[j]);
+    }
+#ifdef GET_AVG
+    out = out / inputChannel;
+#endif
+    WI_F(output, (int2)(wc, bh), (FLOAT4)(out, 0, 0, 0));
+#endif
 }
 
-__kernel void reduct_general_mul_local(GLOBAL_SIZE_2_DIMS
+__kernel void reduct_batch(GLOBAL_SIZE_3_DIMS
                             __read_only image2d_t input,
                             __write_only image2d_t output,
-                            __private const int batch,
-                            __private const int height,
-                            __private const int width,
-                            __private const int channel
+                            __private const int inputWidth,
+                            __private const int inputHeight,
+                            __private const int inputChannel,
+                            __private const int inputBatch,
+                            __private const int inputChannelBlock,
+                            __private const int oututWidth,
+                            __private const int outputHeight,
+                            __private const int outputChannel,
+                            __private const int outputChannelBlock
                             ) {
-    const int batch_idx = get_global_id(1);
-    const int width_idx = get_global_id(2);
+#if LOCAL_SIZE > 0
+    const int width_local_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int channel_idx = get_global_id(2);
 
-    const int idx = get_local_id(0);
-    FLOAT local sum[256];
-    FLOAT4 out = (FLOAT4)1.0;   
-
-    const int reduce_num = get_local_size(0);
-
-    for (int h = idx; h < height; h+=reduce_num) {
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(width_idx, batch_idx*height+h));
-        out = out * in;
+    DEAL_NON_UNIFORM_DIM3(width_local_idx, height_idx, channel_idx);
+    const int width_idx = get_group_id(0);
+                            
+    const int bh = height_idx;
+    const int wc = channel_idx*inputWidth+width_idx;
+    int batchOffset = inputChannelBlock * inputHeight * inputWidth;
+    const int lid = get_local_id(0);
+    FLOAT4 local sum[LOCAL_SIZE];
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = lid; i < inputBatch; i+=LOCAL_SIZE){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
+        out = OPERATE(out, in);
     }
-    FLOAT* out_ptr = (FLOAT*)&out;
-    for(int i = 1; i < channel; ++i){
-        out.x *= out_ptr[i];
-    }
-    sum[idx] = out.x;
-    
+    sum[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = reduce_num/2; i > 0; i /= 2){
-        if (idx < i)
-            sum[idx] = sum[idx] * sum[idx + i];
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    if (idx == 0) {
-        WI_F(output, (int2)(width_idx, batch_idx), (FLOAT4)(sum[0], 0.0, 0.0, 0.0));
+    out = sum[0];
+#ifdef GET_AVG
+    out = out / inputBatch;
+#endif
+    WI_F(output, (int2)(wc, bh), out);
+#else
+    const int width_idx = get_global_id(0);
+    const int height_idx = get_global_id(1);
+    const int channel_idx = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(width_idx, height_idx, channel_idx);
+    
+    const int bh = height_idx;
+    const int wc = channel_idx*inputWidth+width_idx;
+    int batchOffset = inputChannelBlock * inputHeight * inputWidth;
+    FLOAT4 out = (FLOAT4)VALUE;
+    for(int i = 0; i < inputBatch; ++i){
+        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
+        out = OPERATE(out, in);
     }
+#ifdef GET_AVG
+    out = out / inputBatch;
+#endif
+    WI_F(output, (int2)(wc, bh), out);
+#endif
 }
 

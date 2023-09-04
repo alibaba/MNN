@@ -14,6 +14,7 @@
 #include "ConvOpt.h"
 #include "core/Macro.h"
 #include "CommonOptFunction.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
@@ -88,8 +89,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     mUnits.clear();
-    auto inputPtr  = input->host<uint8_t>();
-    auto outputPtr = output->host<uint8_t>();
+    auto inputPtr = TensorUtils::getDescribe(input)->mem->chunk();
+    auto outputPtr = TensorUtils::getDescribe(output)->mem->chunk();
+    
     std::shared_ptr<char> __autoFunction;
     auto padY     = mPadY;
     auto padX     = mPadX;
@@ -124,9 +126,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = oc;
             auto aPtr = inputPtr + core->pack * planeStart * bytes;
-            auto bPtr = weightTensor->host<uint8_t>();
+            auto bPtr = TensorUtils::getDescribe(weightTensor)->mem->chunk();;
             auto cPtr = outputPtr + core->pack * planeStart * bytes;
-            auto biasPtr = mResource->mBias->host<uint8_t>();
+            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk();
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
@@ -168,9 +170,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
             auto aPtr = inputPtr;
-            auto bPtr = mResource->mWeight->host<uint8_t>() + hPack * icAlign * ocStartWeight * bytes;
+            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * bytes;
             auto cPtr = outputPtr + core->pack * matrixSizeE * ocStart * bytes;
-            auto biasPtr = mResource->mBias->host<uint8_t>() + core->pack * ocStart * bytes;
+            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {

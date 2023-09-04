@@ -64,7 +64,6 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
     for (int epoch = 0; epoch < 50; ++epoch) {
         model->clearCache();
         exe->gc(Executor::FULL);
-        exe->resetProfile();
         {
             AUTOTIME;
             dataLoader->reset();
@@ -154,6 +153,5 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
         }
         auto accu = (float)correct / (float)testDataLoader->size();
         std::cout << "epoch: " << epoch << "  accuracy: " << accu << std::endl;
-        exe->dumpProfile();
     }
 }
