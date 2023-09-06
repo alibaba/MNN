@@ -23,11 +23,6 @@ ErrorCode CastBufExecution::onResize(const std::vector<Tensor*>& inputs, const s
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-#ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    if (runtime->isSupportedIntelSubgroup()) {
-        return SubgrouponResize(inputs, outputs);
-    }
-#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     mKernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
