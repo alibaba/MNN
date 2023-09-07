@@ -209,8 +209,8 @@ ErrorCode ReductionBufExecution::onExecute(const std::vector<Tensor *> &inputs, 
         cl::Event event;
         run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
                                mOpenCLBackend->getOpenCLRuntime(), &event);
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
+    
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Reduct1D", event});
     #else
         run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime());

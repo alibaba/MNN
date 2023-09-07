@@ -23,11 +23,6 @@ ErrorCode CastBufExecution::onResize(const std::vector<Tensor*>& inputs, const s
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-#ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    if (runtime->isSupportedIntelSubgroup()) {
-        return SubgrouponResize(inputs, outputs);
-    }
-#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     mKernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
@@ -75,8 +70,7 @@ ErrorCode CastBufExecution::onExecute(const std::vector<Tensor*>& inputs, const 
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Cast\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Cast", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());

@@ -160,8 +160,7 @@ ErrorCode ScaleBufExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Scale\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Scale", event});
 #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());

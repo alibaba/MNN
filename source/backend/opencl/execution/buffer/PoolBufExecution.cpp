@@ -254,8 +254,7 @@ ErrorCode PoolBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Pooling\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Pooling", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime());

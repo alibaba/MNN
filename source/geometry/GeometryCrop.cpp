@@ -210,32 +210,34 @@ public:
             // Check Zero for inputs[2]
             bool zero = false;
             auto type = inputs[2]->getType();
-            switch (type.code) {
-                case halide_type_int:
-                {
-                    if (type.bits == 8) {
-                        zero = inputs[2]->host<int8_t>()[0] == 0;
-                    } else if (type.bits == 32) {
-                        zero = inputs[2]->host<int32_t>()[0] == 0;
+            if (!TensorUtils::getDescribe(inputs[2])->isMutable && inputs[2]->deviceId() == 0) {
+                switch (type.code) {
+                    case halide_type_int:
+                    {
+                        if (type.bits == 8) {
+                            zero = inputs[2]->host<int8_t>()[0] == 0;
+                        } else if (type.bits == 32) {
+                            zero = inputs[2]->host<int32_t>()[0] == 0;
+                        }
                     }
-                }
-                    break;
-                case halide_type_uint:
-                {
-                    if (type.bits == 8) {
-                        zero = inputs[2]->host<uint8_t>()[0] == 0;
-                    } else if (type.bits == 32) {
-                        zero = inputs[2]->host<uint32_t>()[0] == 0;
+                        break;
+                    case halide_type_uint:
+                    {
+                        if (type.bits == 8) {
+                            zero = inputs[2]->host<uint8_t>()[0] == 0;
+                        } else if (type.bits == 32) {
+                            zero = inputs[2]->host<uint32_t>()[0] == 0;
+                        }
                     }
+                        break;
+                    case halide_type_float:
+                    {
+                        zero = inputs[2]->host<float>()[0] == 0.0f;
+                    }
+                        break;
+                    default:
+                        break;
                 }
-                    break;
-                case halide_type_float:
-                {
-                    zero = inputs[2]->host<float>()[0] == 0.0f;
-                }
-                    break;
-                default:
-                    break;
             }
             if (zero) {
                 return true;

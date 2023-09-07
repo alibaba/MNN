@@ -178,8 +178,7 @@ ErrorCode DeconvExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                        mOpenCLBackend->getOpenCLRuntime(),
                        &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Deconv\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Deconv", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

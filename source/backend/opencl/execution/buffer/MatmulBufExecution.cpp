@@ -111,9 +111,8 @@ ErrorCode MatMulBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
         runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, &event);
-        
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us MatmulBuf\n",costTime);
+    
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"MatmulBuf", event});
     #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
     #endif

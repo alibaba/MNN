@@ -200,8 +200,7 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
         run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Reduct1D", event});
     #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

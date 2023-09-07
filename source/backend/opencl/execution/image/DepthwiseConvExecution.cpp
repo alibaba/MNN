@@ -165,8 +165,7 @@ ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs,
                 mOpenCLBackend->getOpenCLRuntime(),
                 &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DepthwiseConv\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConv", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

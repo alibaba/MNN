@@ -151,8 +151,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Pooling\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Pooling", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

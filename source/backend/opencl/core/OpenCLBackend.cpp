@@ -514,14 +514,15 @@ void OpenCLBackend::onResizeEnd() {
 
 void OpenCLBackend::onExecuteBegin() const {
     mOpenCLRuntime->mQueueCount = 0;
-    mOpenCLRuntime->mKernelTime = 0;
     mOpenCLRuntime->clearRecord();
+    mOpenCLRuntime->clearEvent();   
 }
 
 void OpenCLBackend::onExecuteEnd() const {
     mOpenCLRuntime->mQueueCount = 0;
     mOpenCLRuntime->clearRecord();
     mOpenCLRuntime->enqeueRecord();
+    mOpenCLRuntime->printEventTime();
 }
 
 
@@ -698,7 +699,7 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
     mOpenCLRuntime->clearRecord();
     //Convert format
     mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, data_format, false);
-
+    mOpenCLRuntime->printEventTime();
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->commandQueue().finish();
@@ -743,10 +744,6 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
             hostPtr = nullptr;
         }
     }
-
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    MNN_PRINT("total kernel time:%d us\n", (int)mOpenCLRuntime->mKernelTime);
-#endif
 }
 
 

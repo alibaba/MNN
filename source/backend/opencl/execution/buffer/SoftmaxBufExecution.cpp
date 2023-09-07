@@ -140,8 +140,7 @@ ErrorCode SoftmaxBufExecution::onExecute(const std::vector<Tensor *> &inputs, co
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Softmax", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif

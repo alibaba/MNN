@@ -171,8 +171,7 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     cl::Event event;
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"scale", event});
 #else
     if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
         if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())

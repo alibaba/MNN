@@ -59,8 +59,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -111,8 +110,7 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -167,8 +165,7 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
     return true;
 }
@@ -220,8 +217,7 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -285,8 +281,7 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
     return true;
 }
@@ -341,8 +336,7 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
 
     return true;

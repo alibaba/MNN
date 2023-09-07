@@ -260,8 +260,8 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onExecute(const std::vector<Tensor 
 
         run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime(), &event);
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us DepthwiseConvSubgroup transe\n", costTime);
+        
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConvSubgroup transe", event});
 #else
         run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize,
                            mOpenCLBackend->getOpenCLRuntime());
@@ -274,8 +274,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onExecute(const std::vector<Tensor 
                 mOpenCLBackend->getOpenCLRuntime(),
                 &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DepthwiseConvSubgroupBuf\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConvSubgroupBuf", event});
 #else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                         mOpenCLBackend->getOpenCLRuntime());
