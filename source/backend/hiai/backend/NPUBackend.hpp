@@ -18,6 +18,7 @@
 #include <graph/compatible/all_ops.h>
 #include <hiai_ir_build.h>
 #include <graph/buffer.h>
+#include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 #include "HiAiModelManagerService.h"
@@ -267,11 +268,11 @@ namespace MNN {
         virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
         virtual void onResizeBegin() override;
-        virtual void onResizeEnd() override;
+        virtual ErrorCode onResizeEnd() override;
 
     public:
 
-        void bulidIRModelAndLoad();
+        ErrorCode bulidIRModelAndLoad();
         int process() const ;
 
         shared_ptr<ge::Operator> getInputOps(const Op *op, int index = 0);

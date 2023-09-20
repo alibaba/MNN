@@ -383,16 +383,20 @@ void DeferBufferAllocator::reset() {
     mBarrrierFreeChunks.clear();
 }
 
-size_t DeferBufferAllocator::compute() {
+ErrorCode DeferBufferAllocator::compute() {
     if (mPtr.ptr()) {
-        return mTotalSize;
+        return NO_ERROR;
     }
     mTotalSize = 0;
     if (mFreeList.empty()) {
-        return mTotalSize;
+        return NO_ERROR;
     }
     MNN_ASSERT(mFreeList.size() == 1);
     MNN_ASSERT(mHead == mTail);
+    if (mFreeList.size() != 1 || mHead != mTail) {
+        // Defer allocator compute error
+        return INVALID_VALUE;
+    }
     auto chunk = mHead;
     while (chunk) {
         chunk->offset = mTotalSize;
@@ -401,6 +405,9 @@ size_t DeferBufferAllocator::compute() {
         chunk = chunk->right;
     }
     mPtr = mAllocator->onAlloc(mTotalSize, mAlign);
+    if (mPtr.ptr() == nullptr) {
+        return OUT_OF_MEMORY;
+    }
     // mPtr.reset(static_cast<uint8_t*>(malloc(mTotalSize)));
     for (auto& chunk : mChunks) {
         chunk->base = mPtr.ptr();
@@ -408,7 +415,7 @@ size_t DeferBufferAllocator::compute() {
             t->buffer().host = mPtr.ptr() + chunk->offset;
         }
     }
-    return mTotalSize;
+    return NO_ERROR;
 }
 
 // some utils functions of DeferBufferAllocator

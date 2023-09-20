@@ -17,6 +17,7 @@
 #include "NonCopyable.hpp"
 #include "AutoStorage.h"
 #include <MNN/Tensor.hpp>
+#include <MNN/ErrorCode.hpp>
 
 namespace MNN {
 
@@ -97,7 +98,7 @@ public:
     virtual void beginGroup() {}
     virtual void endGroup() {}
     virtual void reset() {}
-    virtual size_t compute() { return 0; }
+    virtual ErrorCode compute() { return NO_ERROR; }
 };
 
 
@@ -207,7 +208,7 @@ public:
     void beginGroup() override;
     void endGroup() override;
     void reset() override;
-    size_t compute() override;
+    ErrorCode compute() override;
 private:
     std::vector<std::unique_ptr<MemNode>> mChunks;
     MemNode *mHead = nullptr, *mTail = nullptr;

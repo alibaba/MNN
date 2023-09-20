@@ -177,7 +177,9 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
     }
     expr->mInside->mContentDirty = false;
     if (memtype == COPY) {
-        ::memcpy(expr->mInside->mOutputTensors[0]->buffer().host, originPtr, dstInfo.size * dstInfo.type.bytes());
+        size_t total_size = dstInfo.size;
+        total_size *= dstInfo.type.bytes();
+        ::memcpy(expr->mInside->mOutputTensors[0]->buffer().host, originPtr, total_size);
     } else {
         expr->mInside->mOutputTensors[0]->buffer().host = (uint8_t*)originPtr;
         if (memtype == REF) {
@@ -226,6 +228,9 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
                 break;
             case DataType_DT_FLOAT:
                 ptr = (void*)op->main.AsBlob()->float32s.data();
+                break;
+            case DataType_DT_BFLOAT16:
+                ptr = (void*)op->main.AsBlob()->uint8s.data();
                 break;
             default:
                 break;
@@ -1081,9 +1086,15 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 blob->dataFormat = (MNN_DATA_FORMAT)Utils::convertFormat(info.order);
                 blob->dims       = info.dim;
                 if (info.type.code == halide_type_float) {
-                    blob->dataType = DataType_DT_FLOAT;
-                    blob->float32s.resize(info.size);
-                    ::memcpy(blob->float32s.data(), ptr, info.size * sizeof(float));
+                    if (info.type.bits == 16) {
+                        blob->dataType = DataType_DT_BFLOAT16;
+                        blob->uint8s.resize(info.size * 2);
+                        ::memcpy(blob->uint8s.data(), ptr, info.size * sizeof(int16_t));
+                    } else {
+                        blob->dataType = DataType_DT_FLOAT;
+                        blob->float32s.resize(info.size);
+                        ::memcpy(blob->float32s.data(), ptr, info.size * sizeof(float));
+                    }
                 } else if (info.type.code == halide_type_int && info.type.bits == 32) {
                     blob->dataType = DataType_DT_INT32;
                     blob->int32s.resize(info.size);

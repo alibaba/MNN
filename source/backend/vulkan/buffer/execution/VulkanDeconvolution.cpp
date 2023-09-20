@@ -45,7 +45,7 @@ VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Convolution2
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (!multiInputs) {
-        ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &tempWeight, &tempWeightSize);
         MNN_ASSERT(nullptr != tempWeight);
         if (0 >= ci) {
             ci = tempWeightSize / co / kw / kh;

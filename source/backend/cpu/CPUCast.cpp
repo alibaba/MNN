@@ -107,6 +107,27 @@ public:
         return NO_ERROR;
     }
 };
+class BF16ToFP32 : public Execution {
+public:
+    BF16ToFP32(Backend *b) : Execution(b) {
+        // nothing to do
+    }
+    virtual ~BF16ToFP32() = default;
+
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto input                = inputs[0];
+        auto output               = outputs[0];
+        auto srcData              = input->host<int16_t>();
+        auto dstData              = output->host<int16_t>();
+        const auto inputDataSize  = input->elementSize();
+        MNN_ASSERT(inputDataSize == output->elementSize());
+        for (int i = 0; i < inputDataSize; i++) {
+            dstData[i * 2] = 0;
+            dstData[i * 2 + 1] = srcData[i];
+        }
+        return NO_ERROR;
+    }
+};
 class CopyExecution : public Execution {
 public:
     CopyExecution(Backend *b) : Execution(b) {
@@ -167,6 +188,9 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     }
     if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
         return new CastDataType<int8_t, float>(backend);
+    }
+    if (dstT == MNN::DataType_DT_FLOAT && halide_type_t(halide_type_float, 16) == inputDataType) {
+        return new BF16ToFP32(backend);
     }
     if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
         return new CastDataType<float, int8_t>(backend);

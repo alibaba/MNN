@@ -109,7 +109,7 @@ static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common>
         for (int i=0; i<weightLength; ++i) {
             int s0 = srcPtr[2 * i + 0];
             int s1 = srcPtr[2 * i + 1];
-            int d = (s0 + 7) * 16 + (s1 + 7);
+            int d = (s0 + 8) * 16 + (s1 + 8);
             dstPtr[i] = d;
         }
         resource->mWeight = weightLow;

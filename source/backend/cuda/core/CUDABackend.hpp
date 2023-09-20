@@ -11,6 +11,7 @@
 
 #include <set>
 #include <vector>
+#include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "backend/cuda/core/runtime/CUDARuntime.hpp"
 #include "core/Backend.hpp"
@@ -60,7 +61,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;

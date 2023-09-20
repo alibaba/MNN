@@ -301,7 +301,7 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
 void CUDABackend::onResizeBegin() {
 }
 
-void CUDABackend::onResizeEnd() {
+ErrorCode CUDABackend::onResizeEnd() {
 }
 
 void CUDABackend::onExecuteBegin() const {

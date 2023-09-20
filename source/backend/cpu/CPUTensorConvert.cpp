@@ -288,9 +288,9 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output,
     if (nullptr == core) {
         core = MNNGetCoreFunctions();
     }
-    int bitLength = _getBytes(core, input);
+    size_t bitLength = _getBytes(core, input);
     if (ib.dimensions <= 1 || source == dest) {
-        int dataSize = 1;
+        size_t dataSize = 1;
         for (int i = 0; i < input->dimensions(); i++) {
             int currentDimSize = input->length(i);
             if (source == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
@@ -298,6 +298,8 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output,
             }
             dataSize *= currentDimSize;
         }
+        // printf("convert # dataSize, bitLength = %d, %d\n", dataSize, bitLength);
+        // fflush(stdout);
         ::memcpy(ob.host, ib.host, dataSize * bitLength);
         return NO_ERROR;
     }

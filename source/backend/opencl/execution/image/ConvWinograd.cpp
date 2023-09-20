@@ -69,7 +69,7 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
 
     std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != op->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(op->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(op, backend, true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution \n");
         }

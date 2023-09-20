@@ -81,6 +81,7 @@ halide_type_t Utils::revertDataType(DataType dataType) {
     CONVERT(DataType_DT_UINT8, halide_type_of<uint8_t>(), dataType);
     CONVERT(DataType_DT_INT8, halide_type_of<int8_t>(), dataType);
     CONVERT(DataType_DT_HALF, halide_type_of<float>(), dataType);
+    CONVERT(DataType_DT_BFLOAT16, halide_type_t(halide_type_float, 16), dataType);
     return halide_type_of<float>();
 }
 Express::Dimensionformat Utils::revertFormat(int format) {

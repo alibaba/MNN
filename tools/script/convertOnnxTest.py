@@ -2,7 +2,10 @@
 #-- coding:utf8 --
 import sys
 
+config_file = ""
 model_root_dir = sys.argv[1]
+if len(sys.argv) > 2:
+    config_file = sys.argv[2]
 total_num = 0
 import os
 def run_cmd(args):
@@ -23,7 +26,7 @@ for name in os.listdir(root_dir):
     if name == '.DS_Store' or name == 'ops':
         continue
     print(name)
-    message = run_cmd(['./TestConvertResult', 'Onnx', root_dir + '/' + name])
+    message = run_cmd(['./TestConvertResult', 'Onnx', root_dir + '/' + name, config_file])
     if (message.find('TEST_SUCCESS') == -1):
         gWrong.append(name)
     print(message)

@@ -171,21 +171,17 @@ __kernel void matmul_transA_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* input_a
     for (short pos = 0; pos < channel_blocks; pos += 1) {
 
         const int inpa_offset = (4*pos) * height_blocks + height_blocks_idx;
+        short remain = (pos + 1) * 4 - channels;
         FLOAT4 a0 = vload4(inpa_offset, input_a);
-        FLOAT4 a1 = vload4(inpa_offset + height_blocks, input_a);
-        FLOAT4 a2 = vload4(inpa_offset + height_blocks*2, input_a);
-        FLOAT4 a3 = vload4(inpa_offset + height_blocks*3, input_a);
+        FLOAT4 a1 = ((remain >= 3) ? v_zero : vload4(inpa_offset + height_blocks, input_a));
+        FLOAT4 a2 = ((remain >= 2) ? v_zero : vload4(inpa_offset + height_blocks*2, input_a));
+        FLOAT4 a3 = ((remain >= 1) ? v_zero : vload4(inpa_offset + height_blocks*3, input_a));
 
         const int inpb_offset = (4*pos) * width_blocks + width_blocks_idx;
         FLOAT4 b0 = vload4(inpb_offset, input_b);
         FLOAT4 b1 = vload4(inpb_offset + width_blocks, input_b);
         FLOAT4 b2 = vload4(inpb_offset + width_blocks*2, input_b);
         FLOAT4 b3 = vload4(inpb_offset + width_blocks*3, input_b);
-
-        short remain = (pos + 1) * 4 - channels;
-        a3 = ((remain >= 1) ? v_zero : a3);
-        a2 = ((remain >= 2) ? v_zero : a2);
-        a1 = ((remain >= 3) ? v_zero : a1);
 
         FLOAT4 a0_trans = (FLOAT4)(a0.x, a1.x, a2.x, a3.x);
         FLOAT4 a1_trans = (FLOAT4)(a0.y, a1.y, a2.y, a3.y);
@@ -261,21 +257,17 @@ __kernel void matmul_transA_transB_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* 
 
     for (short pos = 0; pos < channel_blocks; pos += 1) {
         const int inpa_offset = (4*pos) * height_blocks + height_blocks_idx;
+        short remain = (pos + 1) * 4 - channels;
         FLOAT4 a0 = vload4(inpa_offset, input_a);
-        FLOAT4 a1 = vload4(inpa_offset + height_blocks, input_a);
-        FLOAT4 a2 = vload4(inpa_offset + height_blocks*2, input_a);
-        FLOAT4 a3 = vload4(inpa_offset + height_blocks*3, input_a);
+        FLOAT4 a1 = ((remain >= 3) ? v_zero : vload4(inpa_offset + height_blocks, input_a));
+        FLOAT4 a2 = ((remain >= 2) ? v_zero : vload4(inpa_offset + height_blocks*2, input_a));
+        FLOAT4 a3 = ((remain >= 1) ? v_zero : vload4(inpa_offset + height_blocks*3, input_a));
 
         const int inpb_offset = (4*width_blocks_idx) * channel_blocks + pos;
         FLOAT4 b0 = vload4(inpb_offset, input_b);
         FLOAT4 b1 = vload4(inpb_offset + channel_blocks, input_b);
         FLOAT4 b2 = vload4(inpb_offset + channel_blocks*2, input_b);
         FLOAT4 b3 = vload4(inpb_offset + channel_blocks*3, input_b);
-
-        short remain = (pos + 1) * 4 - channels;
-        a3 = ((remain >= 1) ? v_zero : a3);
-        a2 = ((remain >= 2) ? v_zero : a2);
-        a1 = ((remain >= 3) ? v_zero : a1);
 
         FLOAT4 a0_trans = (FLOAT4)(a0.x, a1.x, a2.x, a3.x);
         FLOAT4 a1_trans = (FLOAT4)(a0.y, a1.y, a2.y, a3.y);

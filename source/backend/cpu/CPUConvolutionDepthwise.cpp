@@ -263,7 +263,7 @@ public:
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter()) {
-            quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), true);
+            quanCommon = ConvolutionCommon::load(conv2d, backend, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();

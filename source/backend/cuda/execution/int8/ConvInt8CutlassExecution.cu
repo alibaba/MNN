@@ -185,7 +185,7 @@ ConvInt8CutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
 
-    bool res = ConvolutionCommon::getConvInt8Parameters(conv, quanCommon, filterDataPtr, weightSize, 
+    bool res = ConvolutionCommon::getConvInt8Parameters(conv, quanCommon, bn, filterDataPtr, weightSize, 
                                     mScaleFloatVec, 
                                     mBiasInt32Vec);
                                     // inputScale, 

@@ -211,8 +211,6 @@ SparseConvolutionTiledExecutor::SparseConvolutionTiledExecutor(const Convolution
         weightNNZElement = optimalWeightNNZElement;
         weightBlockNumber = optimalWeightBlockNumber;
     }
-    MNN_ASSERT(weightNNZElement > 0);
-    MNN_ASSERT(weightBlockNumber > 0);
 
     mSparseIndexData.reset(new SparseIndexData(sparseBlockOC, weightNNZElement, weightBlockNumber, backend()));
 

@@ -567,6 +567,17 @@ using namespace MNN;
 using namespace MNN::Express;
 std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config) {
     Global<modelConfig>::Reset(&config);
+    std::unique_ptr<std::ofstream, void(*)(std::ofstream*)> externalFile(
+        new std::ofstream(".__convert_external_data.bin", std::ios::binary),
+        [](std::ofstream* fs){
+            fs->close();
+            delete fs;
+    });
+    if (externalFile.get() && externalFile->is_open() && externalFile->good()) {
+        config.externalFile = externalFile.get();
+    } else {
+        config.externalFile = nullptr;
+    }
     if (originNet->sourceType == NetSource_TENSORFLOW) {
         GenerateSubGraph(originNet);
     }

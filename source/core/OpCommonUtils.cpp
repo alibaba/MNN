@@ -28,6 +28,9 @@ void OpCommonUtils::loadBlobData(Backend* backend, const Op* op, char* ptr, int 
         case DataType_DT_FLOAT:
             result = (void*)b->float32s()->Data();
             break;
+        case DataType_DT_BFLOAT16:
+            result = (void*)b->uint8s()->Data();
+            break;
         case DataType_DT_INT32:
             result = (void*)b->int32s()->Data();
             break;

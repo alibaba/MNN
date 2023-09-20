@@ -45,6 +45,11 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         netT->extraInfo->name = config.authCode;
     }
 
+    if (1) {
+        // load external data for some change
+        loadExternalData(netT, ".__convert_external_data.bin");
+    }
+
     if (config.benchmarkModel) {
         removeParams(netT);
     }

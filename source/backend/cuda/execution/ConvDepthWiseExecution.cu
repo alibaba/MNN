@@ -655,7 +655,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
     auto tempWeightStorage = pool->alloc(depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float));
     auto tempWeight = (uint8_t*)tempWeightStorage.first + tempWeightStorage.second;
     cuda_check(cudaMemset(tempWeight, 0, depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float)));

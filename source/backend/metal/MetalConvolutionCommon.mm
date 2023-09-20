@@ -94,7 +94,7 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
 void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (conv->quanParameter()) {
-        qnt          = ConvolutionCommon::load(conv->quanParameter(), true);
+        qnt          = ConvolutionCommon::load(conv, backend(), true);
     }
     mWeight = weightForConv(conv, qnt.get(), mDepthwise);
 }

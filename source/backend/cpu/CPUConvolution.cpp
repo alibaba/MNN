@@ -143,7 +143,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     resource->mOutputCount = outputCount;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, backend, weightSrc, weightSize, scalePtr, biasPtr)) {
         return nullptr;
     }
     if (convParam->bias() && convParam->quanParameter()->alpha()) {

@@ -54,7 +54,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
     int weightSize             = 0;
     const float* filterDataPtr = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, op, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
 
     int oc     = mCommon->outputCount();
     int ic     = weightSize / oc / mCommon->kernelX() / mCommon->kernelY();

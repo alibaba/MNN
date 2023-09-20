@@ -14,6 +14,7 @@
 #include "MergeHelpers.hpp"
 #include "Utils.hpp"
 #include "cli.hpp"
+#include "../../common/CommonUtils.hpp"
 
 namespace MNN {
 namespace Express {
@@ -100,6 +101,10 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 return false;
             }
             if (biasInfo->size != numberOutput) {
+                return false;
+            }
+            // input shape may be change, don't fuse
+            if (bias->expr().first->inputType() == VARP::InputType::INPUT) {
                 return false;
             }
             auto matmulInput = input->expr().first->inputs().at(0);
@@ -252,6 +257,9 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 } else {
                     input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
                 }
+            }
+            if (config->externalFile && info->size >= config->externalTreshold) {
+                RemoveAndStoreParam(dense_op, config->externalFile, config->externalOffset);
             }
             EXPRP dense_expr = Expr::create(dense_op.get(), {input}, 1);
             VARP output = Variable::create(dense_expr);

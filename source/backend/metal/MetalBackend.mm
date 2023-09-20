@@ -355,9 +355,10 @@ void MetalBackend::onResizeBegin() {
     [ctx wait];
 }
 
-void MetalBackend::onResizeEnd() {
+ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
     mFrameEncodeCache = (!ctx.isCommitEachShader && mOpFullSupport);
+    return NO_ERROR;
 }
 
 void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) const {

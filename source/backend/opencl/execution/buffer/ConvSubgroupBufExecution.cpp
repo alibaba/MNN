@@ -112,7 +112,7 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         const float *FilterDataPtr = NULL;
         int weightSize = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &FilterDataPtr, &weightSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2dParams, &FilterDataPtr, &weightSize);
         if (FilterDataPtr != nullptr) {
             std::shared_ptr<Tensor> sourceWeight(
                 Tensor::create<float>(std::vector<int>{mOutputChannel, mInputChannel, mKernelWidth, mKernelHeight},

@@ -213,7 +213,7 @@ static inline __m128 _load_int4x4(const uint8_t* src, __m128 alpha, __m128 bias)
     int iw2     = iw23 / 16;
     int iw3     = iw23 % 16;
     auto ws     = _mm_set_ps(iw3, iw2, iw1, iw0);
-    ws          = _mm_sub_ps(ws, _mm_set1_ps(7));
+    ws          = _mm_sub_ps(ws, _mm_set1_ps(8));
     ws          = _mm_add_ps(_mm_mul_ps(ws, alpha), bias);
     return ws;
 }
@@ -226,6 +226,7 @@ static void _SSE_MNNPackedMatMul_12_int4(float* C, const float* A, const float* 
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride / 2;
         auto dst    = C + y * cStride;
@@ -235,10 +236,11 @@ static void _SSE_MNNPackedMatMul_12_int4(float* C, const float* A, const float* 
         auto s1  = _mm_loadu_ps(A + 0 * 12 + 4);
         auto s2  = _mm_loadu_ps(A + 0 * 12 + 8);
         auto ws  = _load_int4x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0  = _mm_mul_ps(s0, w0);
         auto z1  = _mm_mul_ps(s1, w0);
         auto z2  = _mm_mul_ps(s2, w0);
@@ -257,10 +259,11 @@ static void _SSE_MNNPackedMatMul_12_int4(float* C, const float* A, const float* 
             s1  = _mm_loadu_ps(A + sy * 12 + 4);
             s2  = _mm_loadu_ps(A + sy * 12 + 8);
             ws = _load_int4x4(weight + sy * 2, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0  = MNNSSEFMA(s0, w0, z0);
             z1  = MNNSSEFMA(s1, w0, z1);
             z2  = MNNSSEFMA(s2, w0, z2);
@@ -288,6 +291,7 @@ static void _SSE_MNNPackedMatMul_8_int4(float* C, const float* A, const uint8_t*
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride / 2;
         auto dst    = C + y * cStride;
@@ -296,10 +300,11 @@ static void _SSE_MNNPackedMatMul_8_int4(float* C, const float* A, const uint8_t*
         auto s0  = _mm_loadu_ps(A + 0 * aStride);
         auto s1  = _mm_loadu_ps(A + 0 * aStride + 4);
         auto ws  = _load_int4x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0  = _mm_mul_ps(s0, w0);
         auto z3  = _mm_mul_ps(s0, w1);
         auto z6  = _mm_mul_ps(s0, w2);
@@ -313,10 +318,11 @@ static void _SSE_MNNPackedMatMul_8_int4(float* C, const float* A, const uint8_t*
             s0  = _mm_loadu_ps(A + sy * aStride);
             s1  = _mm_loadu_ps(A + sy * aStride + 4);
             ws = _load_int4x4(weight + sy * 2, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0  = MNNSSEFMA(s0, w0, z0);
             z3  = MNNSSEFMA(s0, w1, z3);
             z6  = MNNSSEFMA(s0, w2, z6);
@@ -339,6 +345,7 @@ static void _SSE_MNNPackedMatMul_4_int4(float* C, const float* A, const uint8_t*
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride / 2;
         auto dst    = C + y * cStride;
@@ -346,10 +353,11 @@ static void _SSE_MNNPackedMatMul_4_int4(float* C, const float* A, const uint8_t*
         auto bias   = _mm_loadu_ps(b + y * 4);
         auto s0     = _mm_loadu_ps(A + 0 * aStride);
         auto ws  = _load_int4x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0     = _mm_mul_ps(s0, w0);
         auto z3     = _mm_mul_ps(s0, w1);
         auto z6     = _mm_mul_ps(s0, w2);
@@ -358,10 +366,11 @@ static void _SSE_MNNPackedMatMul_4_int4(float* C, const float* A, const uint8_t*
         for (int sy = 1; sy < l; ++sy) {
             s0 = _mm_loadu_ps(A + sy * aStride);
             ws = _load_int4x4(weight + sy * 2, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0 = MNNSSEFMA(s0, w0, z0);
             z3 = MNNSSEFMA(s0, w1, z3);
             z6 = MNNSSEFMA(s0, w2, z6);
@@ -435,6 +444,7 @@ static void _SSE_MNNPackedMatMul_12_int8(float* C, const float* A, const float* 
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
         auto dst    = C + y * cStride;
@@ -444,10 +454,11 @@ static void _SSE_MNNPackedMatMul_12_int8(float* C, const float* A, const float* 
         auto s1  = _mm_loadu_ps(A + 0 * 12 + 4);
         auto s2  = _mm_loadu_ps(A + 0 * 12 + 8);
         auto ws  = _load_int8x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0  = _mm_mul_ps(s0, w0);
         auto z1  = _mm_mul_ps(s1, w0);
         auto z2  = _mm_mul_ps(s2, w0);
@@ -466,10 +477,11 @@ static void _SSE_MNNPackedMatMul_12_int8(float* C, const float* A, const float* 
             s1  = _mm_loadu_ps(A + sy * 12 + 4);
             s2  = _mm_loadu_ps(A + sy * 12 + 8);
             ws = _load_int8x4(weight + sy * 4, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0  = MNNSSEFMA(s0, w0, z0);
             z1  = MNNSSEFMA(s1, w0, z1);
             z2  = MNNSSEFMA(s2, w0, z2);
@@ -497,6 +509,7 @@ static void _SSE_MNNPackedMatMul_8_int8(float* C, const float* A, const int8_t* 
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
         auto dst    = C + y * cStride;
@@ -505,10 +518,11 @@ static void _SSE_MNNPackedMatMul_8_int8(float* C, const float* A, const int8_t* 
         auto s0  = _mm_loadu_ps(A + 0 * aStride);
         auto s1  = _mm_loadu_ps(A + 0 * aStride + 4);
         auto ws  = _load_int8x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0  = _mm_mul_ps(s0, w0);
         auto z3  = _mm_mul_ps(s0, w1);
         auto z6  = _mm_mul_ps(s0, w2);
@@ -522,10 +536,11 @@ static void _SSE_MNNPackedMatMul_8_int8(float* C, const float* A, const int8_t* 
             s0  = _mm_loadu_ps(A + sy * aStride);
             s1  = _mm_loadu_ps(A + sy * aStride + 4);
             ws = _load_int8x4(weight + sy * 4, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0  = MNNSSEFMA(s0, w0, z0);
             z3  = MNNSSEFMA(s0, w1, z3);
             z6  = MNNSSEFMA(s0, w2, z6);
@@ -548,6 +563,7 @@ static void _SSE_MNNPackedMatMul_4_int8(float* C, const float* A, const int8_t* 
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
+    float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
         auto dst    = C + y * cStride;
@@ -555,10 +571,11 @@ static void _SSE_MNNPackedMatMul_4_int8(float* C, const float* A, const int8_t* 
         auto bias   = _mm_loadu_ps(b + y * 4);
         auto s0     = _mm_loadu_ps(A + 0 * aStride);
         auto ws  = _load_int8x4(weight, alpha, bias);
-        auto w0  = _mm_set1_ps(ws[0]);
-        auto w1  = _mm_set1_ps(ws[1]);
-        auto w2  = _mm_set1_ps(ws[2]);
-        auto w3  = _mm_set1_ps(ws[3]);
+        _mm_storeu_ps(ws_tmp, ws);
+        auto w0  = _mm_set1_ps(ws_tmp[0]);
+        auto w1  = _mm_set1_ps(ws_tmp[1]);
+        auto w2  = _mm_set1_ps(ws_tmp[2]);
+        auto w3  = _mm_set1_ps(ws_tmp[3]);
         auto z0     = _mm_mul_ps(s0, w0);
         auto z3     = _mm_mul_ps(s0, w1);
         auto z6     = _mm_mul_ps(s0, w2);
@@ -567,10 +584,11 @@ static void _SSE_MNNPackedMatMul_4_int8(float* C, const float* A, const int8_t* 
         for (int sy = 1; sy < l; ++sy) {
             s0 = _mm_loadu_ps(A + sy * aStride);
             ws = _load_int8x4(weight + sy * 4, alpha, bias);
-            w0 = _mm_set1_ps(ws[0]);
-            w1 = _mm_set1_ps(ws[1]);
-            w2 = _mm_set1_ps(ws[2]);
-            w3 = _mm_set1_ps(ws[3]);
+            _mm_storeu_ps(ws_tmp, ws);
+            w0 = _mm_set1_ps(ws_tmp[0]);
+            w1 = _mm_set1_ps(ws_tmp[1]);
+            w2 = _mm_set1_ps(ws_tmp[2]);
+            w3 = _mm_set1_ps(ws_tmp[3]);
             z0 = MNNSSEFMA(s0, w0, z0);
             z3 = MNNSSEFMA(s0, w1, z3);
             z6 = MNNSSEFMA(s0, w2, z6);

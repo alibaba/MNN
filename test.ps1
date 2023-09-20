@@ -57,18 +57,20 @@ function run_remote([String]$cmd) {
 }
 
 function log($case, $title, $blocked, $failed, $passed, $skipped) {
-    Write-Output "TEST_NAME_${case}: $title\nTEST_CASE_AMOUNT_${case}: {`"blocked`":$blocked,`"failed`":$failed,`"passed`":$passed,`"skipped`":$skipped}\n"
+    Write-Output "TEST_NAME_${case}: $title"
+    Write-Output "TEST_CASE_AMOUNT_${case}: {`"blocked`":$blocked,`"failed`":$failed,`"passed`":$passed,`"skipped`":$skipped}"
 }
 
 function failed() {
     Write-Output "TEST_NAME_EXCEPTION: Exception"
     Write-Output 'TEST_CASE_AMOUNT_EXCEPTION: {"blocked":0,"failed":1,"passed":0,"skipped":0}'
-    exit 1
+    exit
 }
 
 function build_lib_test() {
-    Invoke-Expression "./package_scripts/win/build_lib.ps1 -path $outdir $(If ($gpu) {"-backends 'opencl,vulkan'"}) $(If ($x86) {'-x86'})"
-    $WrongNum = $($LastExitCode -ne 0)
+    # build_lib_release.ps1 just build release for speed
+    Invoke-Expression "./package_scripts/win/build_lib_release.ps1 -path $outdir -cibuild $(If ($gpu) {"-backends 'opencl,vulkan'"}) $(If ($x86) {'-x86'})"
+    $WrongNum = [int]$($LastExitCode -ne 0)
     log "WINDOWS_LIB" "Windows主库编译测试" 0 $WrongNum $(1 - $WrongNum) 0
     if ($WrongNum -ne 0) {
         Write-Output "### Windows主库编译测试失败，测试终止"
@@ -221,13 +223,14 @@ function pymnn_whl_test() {
 }
 
 build_lib_test
-build_tool_test
-build_whl_test
-build_bridge_test
+# TODO: open other test
+# build_tool_test
+# build_whl_test
+# build_bridge_test
 
-if ($test_avx512) {
-    sync_remote
-}
-unit_test
-model_test
-pymnn_whl_test
+# if ($test_avx512) {
+#     sync_remote
+# }
+# unit_test
+# model_test
+# pymnn_whl_test

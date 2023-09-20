@@ -17,7 +17,9 @@
 
 void converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);
 void removeParams(std::unique_ptr<MNN::NetT>& netT);
+void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64_t& offset);
 bool saveExternalData(std::unique_ptr<MNN::NetT>& netT, const std::string& extraFileName);
+bool loadExternalData(std::unique_ptr<MNN::NetT>& netT, const char* extraFileName);
 void castParamsToHalf(std::unique_ptr<MNN::NetT>& netT);
 void AlignDenormalizedValue(std::unique_ptr<MNN::NetT>& netT);
 void addSparseInfo(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);

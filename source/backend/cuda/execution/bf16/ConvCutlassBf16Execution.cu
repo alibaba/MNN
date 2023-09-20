@@ -26,7 +26,7 @@ ConvCutlassBf16Execution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
     auto oc = common->outputCount();
 
     int l = weightSize / oc;

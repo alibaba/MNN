@@ -65,7 +65,7 @@ LoopE8:
         ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v3.8b, w17
-        mov w17, #7
+        mov w17, #8
         dup v4.8b, w17
         ld1 {v14.4s, v15.4s}, [x16], #32 // bias
         subs x12, x9, #2
@@ -299,7 +299,7 @@ LoopE8:
         ld1 {v4.4s}, [x14], #16 // alpha
         mov w17, #0x0f
         dup v30.8b, w17
-        mov w17, #7
+        mov w17, #8
         dup v31.8b, w17
         ld1 {v14.4s}, [x16], #16 // bias
         subs x12, x9, #4
@@ -544,7 +544,7 @@ blt E1
         ld1 {v24.4s, v25.4s}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v30.8b, w17
-        mov w17, #7
+        mov w17, #8
         dup v31.8b, w17
         ld1 {v26.4s, v27.4s}, [x16], #32 // bias
         subs x12, x9, #2
@@ -734,7 +734,7 @@ blt E1
     ld1 {v4.4s}, [x14], #16 // alpha
     mov w17, #0x0f
     dup v30.8b, w17
-    mov w17, #7
+    mov w17, #8
     dup v31.8b, w17
     ld1 {v14.4s}, [x16], #16 // bias
     subs x12, x9, #4
@@ -933,7 +933,7 @@ LoopE1:
         ld1 {v24.4s, v25.4s}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v30.8b, w17
-        mov w17, #7
+        mov w17, #8
         dup v31.8b, w17
         ld1 {v26.4s, v27.4s}, [x16], #32 // bias
         subs x12, x9, #2
@@ -1039,7 +1039,7 @@ LoopE1:
     ld1 {v4.4s}, [x14], #16 // alpha
     mov w17, #0x0f
     dup v30.8b, w17
-    mov w17, #7
+    mov w17, #8
     dup v31.8b, w17
     ld1 {v14.4s}, [x16], #16 // bias
     subs x12, x9, #4

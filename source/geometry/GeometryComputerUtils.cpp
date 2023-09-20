@@ -236,7 +236,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
                 backupBackend->onResizeBegin();
                 auto code = exe->onResize(c.inputs, c.outputs);
-                backupBackend->onResizeEnd();
+                if (NO_ERROR != code) {
+                    return NOT_SUPPORT;
+                }
+                code = backupBackend->onResizeEnd();
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }

@@ -57,7 +57,7 @@ LoopH:
     mov w17, #0x0f
     dup v3.8b, w17
     and v2.8b, v0.8b, v3.8b
-    mov w17, #7
+    mov w17, #8
     dup v3.8b, w17
     sub v0.8b, v1.8b, v3.8b
     sub v1.8b, v2.8b, v3.8b
@@ -153,7 +153,7 @@ LoopH:
         mov w17, #0x0f
         dup v3.8b, w17
         and v2.8b, v0.8b, v3.8b
-        mov w17, #7
+        mov w17, #8
         dup v3.8b, w17
         sub v0.8b, v1.8b, v3.8b
         sub v1.8b, v2.8b, v3.8b
@@ -370,7 +370,7 @@ LoopHRemain:
     ld1 {v21.4s}, [x20], #16 // bias
     mov w17, #0x0f
     dup v22.16b, w17
-    mov w17, #7
+    mov w17, #8
     dup v23.16b, w17
     // ld1 {v3.4s}, [x2]
     ld1 {v3.8h}, [x2], #16

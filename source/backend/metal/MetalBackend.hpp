@@ -14,6 +14,7 @@
 #include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
 #include "MetalDefine.h"
+#include <MNN/ErrorCode.hpp>
 #include <vector>
 //#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
@@ -141,7 +142,7 @@ public:
                                 const MNN::Op *op) override;
     
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
