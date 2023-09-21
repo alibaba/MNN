@@ -26,13 +26,15 @@ mkdir -p $PACKAGE_LIB_PATH
 
 #clear and create package directory
 powershell ./schema/generate.ps1
-pushd $PACKAGE_LIB_PATH
+
 if ($cibuild) {
+    pushd $PACKAGE_LIB_PATH
     mkdir -p Release\Dynamic\MT
 } else {
     Remove-Item -Path $PACKAGE_PATH/include -Recurse -ErrorAction Ignore
     cp -r include $PACKAGE_PATH
     cp -r tools/cv/include/cv $PACKAGE_PATH/include
+    pushd $PACKAGE_LIB_PATH
     mkdir -p Release\Dynamic\MT, Release\Dynamic\MD, Release\Static\MD, Release\Static\MT
 }
 popd

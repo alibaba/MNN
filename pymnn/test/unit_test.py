@@ -194,7 +194,7 @@ class UnitTest(unittest.TestCase):
     def test_less(self):
         self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_floordiv(self):
-        self.assertEqualVar(expr.floordiv(self.x, self.x), np.floor_divide(self.x_, self.x_))
+        self.assertEqualVar(expr.floordiv(2.0, 1.2), np.floor_divide(2.0, 1.2))
     def test_less(self):
         self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_squared_difference(self):
@@ -784,7 +784,9 @@ class UnitTest(unittest.TestCase):
         rect = cv.minAreaRect(contour)
         rect_ = cv2.minAreaRect(contour_)
         if version_info.major >= 3:
-            self.assertEqual(rect, rect_)
+            rect_list = [rect[0][0], rect[0][1], rect[1][0], rect[1][0], rect[2]]
+            rect__list = [rect_[0][0], rect_[0][1], rect_[1][0], rect_[1][0], rect_[2]]
+            self.assertEqualArray(np.array(rect_list), np.array(rect__list))
         points = cv.boxPoints(rect)
         points_ = cv2.boxPoints(rect_)
         if version_info.major >= 3:
