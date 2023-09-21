@@ -805,7 +805,7 @@ public:
                     auto inputSize = input->elementSize();
                     auto output = mStack[cmd->indexes()->data()[0]];
                     auto bytes = input->getType().bytes();
-                    if (halide_type_float == input->getType().code) {
+                    if (halide_type_float == input->getType().code && bytes == 4) {
                         bytes = cpubackend->functions()->bytes;
                     }
                     auto proc = _selectUnitProc(bytes);
@@ -844,7 +844,7 @@ public:
                 auto inputSize = input->elementSize();
                 auto output = mStack[cmd->indexes()->data()[0]];
                 auto bytes = input->getType().bytes();
-                if (halide_type_float == input->getType().code) {
+                if (halide_type_float == input->getType().code && bytes == 4) {
                     bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
                 }
                 auto proc = _selectUnitProc(bytes);

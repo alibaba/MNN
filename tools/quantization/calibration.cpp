@@ -711,9 +711,10 @@ void Calibration::_insertScale() {
         if (nullptr != conv2d->quanParameter.get()) {
             flatbuffers::FlatBufferBuilder tempBuilder;
             tempBuilder.Finish(IDSTQuan::Pack(tempBuilder, conv2d->quanParameter.get()));
-            auto quanP = flatbuffers::GetRoot<IDSTQuan>( tempBuilder.GetBufferPointer());
+            tempBuilder.Finish(Convolution2D::Pack(tempBuilder, conv2d));
+            auto conv2d = flatbuffers::GetRoot<Convolution2D>(tempBuilder.GetBufferPointer());
             bool forceFloat = true;
-            quanCommon = ConvolutionCommon::load(quanP, true, true);
+            quanCommon = ConvolutionCommon::load(conv2d, nullptr, true, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();

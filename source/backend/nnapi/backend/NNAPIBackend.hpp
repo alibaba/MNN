@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <map>
 #include <memory>
+#include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 #include <core/TensorUtils.hpp>
@@ -80,7 +81,7 @@ namespace MNN {
         virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
         virtual void onResizeBegin() override;
-        virtual void onResizeEnd() override;
+        virtual ErrorCode onResizeEnd() override;
 
     public:
         class Creator {
@@ -118,7 +119,7 @@ namespace MNN {
         ErrorCode buildQuantOperation(const Tensor* src, const Tensor* dst);
         ErrorCode replaceTensorWith(const Tensor* src, const Tensor* replace);
         uint32_t buildDequantOperand(const Tensor* t);
-        void buildModel();
+        ErrorCode buildModel();
         void invokeModel() const;
     private:
         bool mNCHW = false;

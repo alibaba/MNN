@@ -391,8 +391,8 @@ void Tensor::printShape() const {
     MNN_PRINT("\n");
 }
 
-int Tensor::size() const {
-    auto dataSize = mBuffer.type.bytes();
+size_t Tensor::usize() const {
+    size_t dataSize = mBuffer.type.bytes();
     MNN_ASSERT(dataSize >= 1);
     auto nativeDescribe = mDescribe->mContent.get();
     for (int i = 0; i < this->buffer().dimensions; i++) {
@@ -403,6 +403,10 @@ int Tensor::size() const {
         dataSize *= currentDimSize;
     }
     return dataSize;
+}
+
+int Tensor::size() const {
+    return static_cast<int>(usize());
 }
 
 void* Tensor::map(MapType mtype, DimensionType dtype) {

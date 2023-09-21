@@ -91,13 +91,13 @@ public:
     virtual void onExecuteEnd() const override;
     
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
     // Return element size for Tensor, conside pack
-    int getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
+    size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }
@@ -139,7 +139,7 @@ public:
 
 
 protected:
-    MemObj* allocBuffer(int size, Tensor* dest,  StorageType storageType);
+    MemObj* allocBuffer(size_t size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
     const CoreInt8Functions* mInt8CoreFunctions;
 private:

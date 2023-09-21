@@ -170,6 +170,7 @@ MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
         {onnx::TensorProto_DataType_FLOAT16, MNN::DataType_DT_HALF},
+        {onnx::TensorProto_DataType_BFLOAT16, MNN::DataType_DT_BFLOAT16},
         {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
         {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
         {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int64
@@ -342,6 +343,11 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             break;
         }
         case onnx::TensorProto_DataType_FLOAT16: {
+            constantParam->uint8s.resize(dataSize * sizeof(int16_t));
+            ::memcpy(constantParam->uint8s.data(), tensor_content, dataSize * sizeof(int16_t));
+            break;
+        }
+        case onnx::TensorProto_DataType_BFLOAT16: {
             constantParam->uint8s.resize(dataSize * sizeof(int16_t));
             ::memcpy(constantParam->uint8s.data(), tensor_content, dataSize * sizeof(int16_t));
             break;

@@ -10,6 +10,7 @@
 #define VulkanBackend_hpp
 
 #include <map>
+#include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
 #include "VulkanTensor.hpp"
@@ -31,7 +32,7 @@ public:
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,

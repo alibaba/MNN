@@ -107,6 +107,9 @@ public:
     size_t threads_num() {
         return mThreadPerBlock;
     }
+    const cudaDeviceProp& prop() const {
+        return mProp;
+    }
     int major_sm() const {
         return mProp.major;
     }
@@ -114,9 +117,10 @@ public:
         return mProp.major * 10 + mProp.minor;
     }
     size_t blocks_num(const size_t total_threads);
-    const cudaDeviceProp& prop() const {
-        return mProp;
+    const int smemPerBlock() {
+        return mProp.sharedMemPerBlock;
     }
+
 
     int selectDeviceMaxFreeMemory();
 

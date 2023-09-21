@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <map>
 #include <memory>
+#include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 #include <core/TensorUtils.hpp>
@@ -57,7 +58,7 @@ namespace MNN {
         virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
         virtual void onResizeBegin() override;
-        virtual void onResizeEnd() override;
+        virtual ErrorCode onResizeEnd() override;
 
     public:
         // TODO: using memory pool instead static factory
@@ -95,7 +96,7 @@ namespace MNN {
         }
         std::string getTensorName(const Tensor* t);
         void addLayer(CoreML__Specification__NeuralNetworkLayer* layer);
-        void buildModel();
+        ErrorCode buildModel();
         void invokeModel() const;
         void setIO(CoreML__Specification__FeatureDescription** describe, const Tensor* t);
         void setLayerName(CoreML__Specification__NeuralNetworkLayer* layer, std::string&& name);

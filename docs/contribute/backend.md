@@ -177,7 +177,7 @@ virtual void onResizeBegin();
 /**
  * @brief callback after resize ops.
  */
-virtual void onResizeEnd();
+virtual ErrorCode onResizeEnd();
 /**
  * @brief callback before executing ops.
  */

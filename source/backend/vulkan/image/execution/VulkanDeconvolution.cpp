@@ -34,7 +34,7 @@ VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>
     const float* filterDataPtr = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &tempWeightSize);
 
     if (nullptr != filterDataPtr) {
         MNN_ASSERT(inputs.size() == 1);

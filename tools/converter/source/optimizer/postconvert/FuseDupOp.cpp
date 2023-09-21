@@ -6,23 +6,27 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include "../PostTreatUtils.hpp"
 #include <map>
 #include <set>
 using namespace MNN;
 class FuseDupOp : public PostConverter {
 public:
+    static bool isSameIndexes(const MNN::OpT* op0, const MNN::OpT* op1) {
+        if (op0->inputIndexes != op1->inputIndexes) {
+            return false;
+        }
+        if (op0->outputIndexes.size() != op1->outputIndexes.size()) {
+            return false;
+        }
+        return true;
+    }
     static bool isSameOp(const MNN::OpT* op0, const MNN::OpT* op1) {
         if (op0->type != op1->type) {
             return false;
         }
         if (op0->main.type != op1->main.type) {
-            return false;
-        }
-        if (op0->inputIndexes != op1->inputIndexes) {
-            return false;
-        }
-        if (op0->outputIndexes.size() != op1->outputIndexes.size()) {
             return false;
         }
         if (op0->main.type == OpParameter_NONE) {
@@ -97,55 +101,96 @@ public:
                 }
             }
         }
+        std::map<int, std::vector<int>> sameOps;
         for (int i=0; i<net->oplists.size(); ++i) {
             auto originOp = net->oplists[i].get();
             if (nullptr == originOp || updateNames.find(originOp->name) != updateNames.end()) {
                 continue;
             }
+            std::vector<int> sameOpIndexes;
             for (int j=i+1; j < net->oplists.size(); ++j) {
                 auto judgeOp = net->oplists[j].get();
                 if (nullptr == judgeOp || updateNames.find(judgeOp->name) != updateNames.end()) {
                     continue;
                 }
                 if (isSameOp(originOp, judgeOp)) {
-                    auto keepOp = originOp, removeOp = judgeOp;
-                    // outputs must keep
-                    if (outputNames.find(removeOp->name) != outputNames.end()) {
-                        keepOp = removeOp;
-                        removeOp = originOp;
-                    }
-                    for (int v=0; v<judgeOp->outputIndexes.size(); ++v) {
-                        replaceIndexes.insert(std::make_pair(removeOp->outputIndexes[v], keepOp->outputIndexes[v]));
-                    }
-                    net->oplists[j].reset();
+                    sameOpIndexes.emplace_back(j);
                 }
             }
+            sameOps.insert(std::make_pair(i, sameOpIndexes));
         }
+        
+        bool change = false;
+        int step = 0;
+        do {
+            change = false;
+            for (int i=0; i<net->oplists.size(); ++i) {
+                auto originOp = net->oplists[i].get();
+                if (nullptr == originOp) {
+                    continue;
+                }
+                auto iter = sameOps.find(i);
+                if (iter == sameOps.end()) {
+                    continue;
+                }
+                for (auto j : iter->second) {
+                    auto judgeOp = net->oplists[j].get();
+                    if (nullptr == judgeOp || updateNames.find(judgeOp->name) != updateNames.end()) {
+                        continue;
+                    }
+                    if (isSameIndexes(judgeOp, originOp)) {
+                        auto keepOp = originOp, removeOp = judgeOp;
+                        // outputs must keep
+                        if (outputNames.find(removeOp->name) != outputNames.end()) {
+                            keepOp = removeOp;
+                            removeOp = originOp;
+                        }
+                        for (int v=0; v<judgeOp->outputIndexes.size(); ++v) {
+                            auto originIndex = removeOp->outputIndexes[v];
+                            auto newIndex = keepOp->outputIndexes[v];
+                            if (originIndex != newIndex) {
+                                auto replaceIter = replaceIndexes.find(newIndex);
+                                if (replaceIter != replaceIndexes.end()) {
+                                    newIndex = replaceIter->second;
+                                }
+                                replaceIndexes.insert(std::make_pair(originIndex, newIndex));
+                            }
+                        }
+                        net->oplists[j].reset();
+                        change = true;
+                    }
+                }
+            }
+            auto findFinalIndex = [&](int index) -> int {
+                auto iter = replaceIndexes.find(index);
+                if (iter == replaceIndexes.end()) {
+                    return index;
+                }
+                return iter->second;
+            };
+            // Replace index
+            for (auto& op : net->oplists) {
+                if (nullptr == op.get()) {
+                    continue;
+                }
+                for (int i=0; i<op->inputIndexes.size(); ++i) {
+                    op->inputIndexes[i] = findFinalIndex(op->inputIndexes[i]);
+                }
+                for (int i=0; i<op->outputIndexes.size(); ++i) {
+                    op->outputIndexes[i] = findFinalIndex(op->outputIndexes[i]);
+                }
+            }
+            step++;
+        } while (change);
+#ifdef DEBUG
+        MNN_PRINT("FuseDup run for %d step\n", step);
+#endif
         // Remove nullptr op
         auto tempOpList = std::move(net->oplists);
         net->oplists.clear();
         for (int i=0; i<tempOpList.size(); ++i) {
             if (nullptr != tempOpList[i].get()) {
                 net->oplists.emplace_back(std::move(tempOpList[i]));
-            }
-        }
-
-        auto findFinalIndex = [&](int index) -> int {
-            while (true) {
-                auto iter = replaceIndexes.find(index);
-                if (iter == replaceIndexes.end()) {
-                    return index;
-                }
-                index = iter->second;
-            }
-        };
-        // Replace index
-        for (auto& op : net->oplists) {
-            for (int i=0; i<op->inputIndexes.size(); ++i) {
-                op->inputIndexes[i] = findFinalIndex(op->inputIndexes[i]);
-            }
-            for (int i=0; i<op->outputIndexes.size(); ++i) {
-                op->outputIndexes[i] = findFinalIndex(op->outputIndexes[i]);
             }
         }
         return true;

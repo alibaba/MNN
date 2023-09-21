@@ -69,7 +69,7 @@ LoopE8:
         ld1 {v12.8h, v13.8h}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v3.16b, w17
-        mov w17, #7
+        mov w17, #8
         dup v4.16b, w17
         ld1 {v14.8h, v15.8h}, [x16], #32 // bias
         subs x12, x9, #2
@@ -382,7 +382,7 @@ blt E1
         ld1 {v24.8h, v25.8h}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v30.16b, w17
-        mov w17, #7
+        mov w17, #8
         dup v31.16b, w17
         ld1 {v26.8h, v27.8h}, [x16], #32 // bias
         subs x12, x9, #2
@@ -565,7 +565,7 @@ blt E1
     // mov v4.d[1], v4.d[0]
     mov w17, #0x0f
     dup v30.8b, w17
-    mov w17, #7
+    mov w17, #8
     dup v31.8b, w17
     ld1 {v14.8h}, [x16], #16 // bias
     // mov v14.d[1], v14.d[0]
@@ -690,7 +690,7 @@ LoopE1:
         ld1 {v24.8h, v25.8h}, [x14], #32 // alpha
         mov w17, #0x0f
         dup v30.16b, w17
-        mov w17, #7
+        mov w17, #8
         dup v31.16b, w17
         ld1 {v26.8h, v27.8h}, [x16], #32 // bias
         subs x12, x9, #2

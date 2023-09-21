@@ -23,10 +23,11 @@ public:
         std::vector<int8_t> weightMap;
         std::vector<uint8_t> weightReverseMap;
         bool canUseInt4 = false;
+        Backend* backend = nullptr;
     };
-    static std::shared_ptr<Int8Common> load(const IDSTQuan* quan, bool forceFloat = false, bool forceInt8 = false);
-    static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, const MNN::Convolution2D *conv2d, const float** originWeight, int* originWeightSize);
-    static bool getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon,
+    static std::shared_ptr<Int8Common> load(const Convolution2D* conv, Backend* backend = nullptr, bool forceFloat = false, bool forceInt8 = false);
+    static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Convolution2D *conv2d, const float** originWeight, int* originWeightSize);
+    static bool getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
                                       const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias);
 
     // Return padX, padY

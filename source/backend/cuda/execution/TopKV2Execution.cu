@@ -1,7 +1,6 @@
 #include "TopKV2Execution.hpp"
 #include <memory>
 
-
 namespace MNN {
 namespace CUDA {
 
@@ -187,17 +186,22 @@ __global__ void GetResultAllRows(indexT * outputIndicesDevice, valueT * outputVa
 }
 
 
-int CalculateNumThreadPerBlock(const int K) {
-    int numThreadPerBlock;
-    if (K <= 48) {
-        numThreadPerBlock = 128;
-    } else if (K <= 96) {
-        numThreadPerBlock = 64;
-    } else {
-        numThreadPerBlock = 32;
-    }
+// The inequality "numThreadPerBlock * K * (sizeof(indexT) + sizeof(valueT)) <= smemPerBlock" must be guaranteed, which means numThreadPerBlock depends on K.
+template<typename indexT, typename valueT>
+int CalculateNumThreadPerBlock(const int K, const int smemPerBlock) {
+    int temp = smemPerBlock / (K * (sizeof(indexT) + sizeof(valueT)));
+    int numCalculate = std::pow(2, (std::floor(std::log2(temp))));
+    int numLimit = 1024;
+    return ALIMIN(numLimit, numCalculate);
+}
 
-    return numThreadPerBlock;
+
+// The inequality "numBlockPerRow * K * (sizeof(indexT) + sizeof(valueT)) <= smemPerBlock" must be guaranteed by restricting numElePerThread.
+template<typename indexT, typename valueT>
+int CalcualteNumElePerThread(const int K, const int numElePerRow, const int numThreadPerBlock, const int smemPerBlock) {
+    int numLimit = K;
+    int numCalculate = UP_DIV(numElePerRow, (smemPerBlock / (K * (sizeof(indexT) + sizeof(valueT))))-1);
+    return ALIMAX(numLimit,numCalculate);
 }
 
 
@@ -223,8 +227,17 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
 
     mParams.mNumElePerRow = mParams.mLengthRow;
     mParams.mNumK = outputs[0]->buffer().dim[outputs[0]->buffer().dimensions-1].extent;
-    mParams.mNumElePerThread = mParams.mNumK;
-    mParams.mNumThreadPerBlock = CalculateNumThreadPerBlock(mParams.mNumK);
+    auto smemLimit = static_cast<CUDABackend*>(backend())->getCUDARuntime()->smemPerBlock();
+    if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
+        mParams.mNumThreadPerBlock = CalculateNumThreadPerBlock<int, int>(mParams.mNumK, smemLimit);
+        mParams.mNumElePerThread = CalcualteNumElePerThread<int, int>(mParams.mNumK, mParams.mNumElePerRow, mParams.mNumThreadPerBlock, smemLimit);
+    } else if (static_cast<CUDABackend*>(backend())->useFp16()) {
+        mParams.mNumThreadPerBlock = CalculateNumThreadPerBlock<int, half>(mParams.mNumK, smemLimit);
+        mParams.mNumElePerThread = CalcualteNumElePerThread<int, half>(mParams.mNumK, mParams.mNumElePerRow, mParams.mNumThreadPerBlock, smemLimit);
+    } else {
+        mParams.mNumThreadPerBlock = CalculateNumThreadPerBlock<int, float>(mParams.mNumK, smemLimit);
+        mParams.mNumElePerThread = CalcualteNumElePerThread<int, float>(mParams.mNumK, mParams.mNumElePerRow, mParams.mNumThreadPerBlock, smemLimit);
+    }
     mParams.mNumElePerBlock = mParams.mNumElePerThread * mParams.mNumThreadPerBlock;
     mParams.mNumBlockPerRow = (mParams.mNumElePerRow - 1 + mParams.mNumElePerBlock) / mParams.mNumElePerBlock;
     mParams.mNumBlockFinal = mParams.mNumRow;
@@ -232,7 +245,7 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
     mParams.mNumBlockTotal = mParams.mNumBlockPerRow * mParams.mNumRow;
 
     // prepare temp buffer
-    auto pool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
+    auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
 
     if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
         auto bufferIndices = pool->alloc(mParams.mNumBlockTotal * mParams.mNumK * sizeof(int));
@@ -255,6 +268,7 @@ ErrorCode TopKV2Execution::onResize(const std::vector<Tensor *> &inputs, const s
         mParams.mBufferValues = (void*)((uint8_t*)bufferValues.first + bufferValues.second);
         pool->free(bufferIndices);
         pool->free(bufferValues);
+
     }
 
     return NO_ERROR;
@@ -270,25 +284,25 @@ ErrorCode TopKV2Execution::onExecute(const std::vector<Tensor *> &inputs, const 
     // configure threads
     dim3 grid1 = {mParams.mNumBlockPerRow, mParams.mNumRow};
     dim3 block1 = {mParams.mNumThreadPerBlock, 1};
-    int smemSize_1 = mParams.mNumThreadPerBlock * mParams.mNumK;
+    int smemSize1 = mParams.mNumThreadPerBlock * mParams.mNumK;
     dim3 grid2 = {mParams.mNumBlockFinal};
     dim3 block2 = {mParams.mNumThreadFinal};
-    int smemSize_2 = mParams.mNumBlockPerRow * mParams.mNumK;
+    int smemSize2 = mParams.mNumBlockPerRow * mParams.mNumK;
 
     if (inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32) {
-        TopKAllRows<int, int><<<grid1, block1, smemSize_1 * (sizeof(int) + sizeof(int))>>>(static_cast<const int *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<int *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinInt, mParams.mDescendFlag);
+        TopKAllRows<int, int><<<grid1, block1, smemSize1 * (sizeof(int) + sizeof(int))>>>(static_cast<const int *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<int *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinInt, mParams.mDescendFlag);
         checkKernelErrors;
-        GetResultAllRows<int, int><<<grid2, block2, smemSize_2 * (sizeof(int) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<int *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<int *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
+        GetResultAllRows<int, int><<<grid2, block2, smemSize2 * (sizeof(int) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<int *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<int *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
         checkKernelErrors;
     } else if (static_cast<CUDABackend*>(backend())->useFp16()) {
-        TopKAllRows<int, half><<<grid1, block1, smemSize_1 * (sizeof(float) + sizeof(int))>>>(static_cast<const half *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<half *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinHalf, mParams.mDescendFlag);
+        TopKAllRows<int, half><<<grid1, block1, smemSize1 * (sizeof(half) + sizeof(int))>>>(static_cast<const half *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<half *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinHalf, mParams.mDescendFlag);
         checkKernelErrors;
-        GetResultAllRows<int, half><<<grid2, block2, smemSize_2 * (sizeof(float) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<half *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<half *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
+        GetResultAllRows<int, half><<<grid2, block2, smemSize2 * (sizeof(half) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<half *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<half *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
         checkKernelErrors;
     } else {
-        TopKAllRows<int, float><<<grid1, block1, smemSize_1 * (sizeof(float) + sizeof(int))>>>(static_cast<const float *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<float *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinFloat, mParams.mDescendFlag);
+        TopKAllRows<int, float><<<grid1, block1, smemSize1 * (sizeof(float) + sizeof(int))>>>(static_cast<const float *>(inputDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<float *>(mParams.mBufferValues), mParams.mNumK, mParams.mLengthRow, mParams.mMinFloat, mParams.mDescendFlag);
         checkKernelErrors;
-        GetResultAllRows<int, float><<<grid2, block2, smemSize_2 * (sizeof(float) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<float *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<float *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
+        GetResultAllRows<int, float><<<grid2, block2, smemSize2 * (sizeof(float) + sizeof(int))>>>(static_cast<int *>(outputIndicesDeviceAddr), static_cast<float *>(outputValuesDeviceAddr), static_cast<int *>(mParams.mBufferIndices), static_cast<float *>(mParams.mBufferValues), mParams.mNumK, mParams.mNumBlockPerRow, mParams.mDescendFlag);
         checkKernelErrors;
     }
 

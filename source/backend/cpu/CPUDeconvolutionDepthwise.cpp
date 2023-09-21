@@ -27,7 +27,7 @@ CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const 
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, b, conv, &tempWeight, &tempWeightSize);
 
     // Reorder weight from whc -> pwhc4
     int kernelSize = depthQuad * core->pack * kw * kh;

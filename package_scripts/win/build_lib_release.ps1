@@ -13,7 +13,8 @@
 Param(
     [Parameter(Mandatory=$true)][String]$path,
     [String]$backends,
-    [Switch]$x86
+    [Switch]$x86,
+    [Switch]$cibuild
 )
 
 $erroractionpreference = "stop"
@@ -25,14 +26,18 @@ mkdir -p $PACKAGE_LIB_PATH
 
 #clear and create package directory
 powershell ./schema/generate.ps1
-Remove-Item -Path $PACKAGE_PATH/include -Recurse -ErrorAction Ignore
-cp -r include $PACKAGE_PATH
-cp -r tools/cv/include/cv $PACKAGE_PATH/include
 pushd $PACKAGE_LIB_PATH
-mkdir -p Release\Dynamic\MT, Release\Dynamic\MD, Release\Static\MD, Release\Static\MT
+if ($cibuild) {
+    mkdir -p Release\Dynamic\MT
+} else {
+    Remove-Item -Path $PACKAGE_PATH/include -Recurse -ErrorAction Ignore
+    cp -r include $PACKAGE_PATH
+    cp -r tools/cv/include/cv $PACKAGE_PATH/include
+    mkdir -p Release\Dynamic\MT, Release\Dynamic\MD, Release\Static\MD, Release\Static\MT
+}
 popd
 
-$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON  -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_AVX512=ON"
+$CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON  -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_AVX512=ON -DMNN_LOW_MEMORY=ON"
 if ($backends -ne $null) {
     Foreach ($backend in $backends.Split(",")) {
         if ($backend -eq "cuda") {
@@ -77,6 +82,12 @@ Remove-Item CMakeCache.txt -ErrorAction Ignore
 Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON .."
 cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MT
 rm MNN.*
+
+# cibuild just build single type for build test
+if ($cibuild) {
+    popd
+    return
+}
 
 ##### Release/Dynamic/MD ####
 log "Release/Dynamic/MD"

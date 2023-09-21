@@ -505,11 +505,12 @@ void OpenCLBackend::onResizeBegin() {
     mOpenCLRuntime->releaseRecord();
 }
 
-void OpenCLBackend::onResizeEnd() {
+ErrorCode OpenCLBackend::onResizeEnd() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileDisable();
 #endif
     mOpenCLRuntime->endRecord();
+    return NO_ERROR;
 }
 
 void OpenCLBackend::onExecuteBegin() const {

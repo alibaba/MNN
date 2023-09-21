@@ -11,6 +11,7 @@
 
 #include "core/Backend.hpp"
 #include "MNN_generated.h"
+#include <MNN/ErrorCode.hpp>
 
 #include <list>
 #include <vector>
@@ -102,7 +103,7 @@ public:
                                 const MNN::Op *op) override;
 
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;

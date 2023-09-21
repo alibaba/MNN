@@ -247,12 +247,12 @@ void CPUBackend::onResizeBegin() {
     mDynamicAllocator->reset();
 }
 
-void CPUBackend::onResizeEnd() {
+ErrorCode CPUBackend::onResizeEnd() {
     getCache()->release();
-    mDynamicAllocator->compute();
+    return mDynamicAllocator->compute();
 }
 
-Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType storageType) {
+Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType storageType) {
     auto originMem = TensorUtils::getDescribe(dest)->mem.get();
     if (nullptr != originMem) {
         if (static_cast<CPUMemObj*>(originMem)->getSize() >= size) {
@@ -263,7 +263,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     }
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
-        MNN_PRINT("Acquire buffer size = %d\n", size);
+        MNN_PRINT("Acquire buffer size = %lu\n", size);
         MNN_ASSERT(false);
         return nullptr;
     }
@@ -337,19 +337,19 @@ static OpType _getRealOpType(OpType opType) {
             return opType;
     }
 }
-int CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
+size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     auto core = mCoreFunctions;
-    int dataSize = 1;
+    size_t dataSize = 1;
     auto des = TensorUtils::getDescribe(tensor);
     for (int i = 0; i < tensor->dimensions(); i++) {
-        int currentDimSize = tensor->length(i);
+        size_t currentDimSize = tensor->length(i);
         if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
             currentDimSize = UP_DIV(currentDimSize, core->pack) * core->pack;
         }
         dataSize *= currentDimSize;
     }
     if (multiBytes) {
-        int bytes = tensor->getType().bytes();
+        size_t bytes = tensor->getType().bytes();
         if (TensorUtils::getDescribe(tensor)->quantAttr != nullptr) {
             if (TensorUtils::getDescribe(tensor)->type == DataType_DT_FLOAT) {
                 bytes = 4;

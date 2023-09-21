@@ -250,6 +250,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      cxxopts::value<std::string>()
      )
     (
+     "testconfig",
+     "set test config json, example: tools/converter/forward.json",
+     cxxopts::value<std::string>()
+     )
+    (
      "thredhold",
      "if set test dir, thredhold mean the max rate permit for run MNN model and origin error",
      cxxopts::value<float>()
@@ -455,6 +460,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }
+    if (result.count("testconfig")) {
+        modelPath.testConfig = result["testconfig"].as<std::string>();
+    }
     if (result.count("thredhold")) {
         modelPath.testThredhold = result["thredhold"].as<float>();
     }
@@ -538,7 +546,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
     }
     if (modelPath.testDir.size() > 0) {
         std::cout << "Check convert result by " << modelPath.testDir << ", thredhold is " << modelPath.testThredhold << std::endl;
-        Cli::testconvert(modelPath.MNNModel, modelPath.testDir, modelPath.testThredhold);
+        Cli::testconvert(modelPath.MNNModel, modelPath.testDir, modelPath.testThredhold, modelPath.testConfig);
     }
     return true;
 }
@@ -607,13 +615,13 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
     return true;
 }
 
-int Cli::testconvert(const std::string& defaultCacheFile, const std::string& directName, float maxErrorRate) {
-    rapidjson::Document document;
+int Cli::testconvert(const std::string& defaultCacheFile, const std::string& directName, float maxErrorRate, const std::string& backendConfigJson) {
     std::map<std::string, float> inputInfo;
     std::map<std::string, std::vector<int>> inputShape;
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
     {
+        rapidjson::Document document;
         std::ostringstream jsonNameOs;
         jsonNameOs << directName << "/input.json";
         std::ifstream fileNames(jsonNameOs.str().c_str());
@@ -664,15 +672,46 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     // If type not fount, let it failed
     config.backupType = MNN_FORWARD_CPU;
     BackendConfig backendConfig;
-    // config.path.outputs.push_back("ResizeBilinear_2");
-    // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(1);
-    // backendConfig.memory = BackendConfig::Memory_High;
     config.backendConfig     = &backendConfig;
+
+    if (!backendConfigJson.empty()) {
+        do {
+            rapidjson::Document configDoc;
+            std::ifstream configOs(backendConfigJson.c_str());
+            if (configOs.fail()) {
+                break;
+            }
+            std::ostringstream outputConfigOs;
+            outputConfigOs << configOs.rdbuf();
+            auto outputStr = outputConfigOs.str();
+            configDoc.Parse(outputStr.c_str());
+            if (configDoc.HasParseError()) {
+                MNN_ERROR("Invalid json for backend config\n");
+                break;
+            }
+            if (configDoc.HasMember("backend")) {
+                config.type = (MNNForwardType)configDoc["backend"].GetInt();
+            }
+            if (configDoc.HasMember("mode")) {
+                config.mode = configDoc["mode"].GetInt();
+            }
+            if (configDoc.HasMember("precision")) {
+                config.backendConfig->precision = (MNN::BackendConfig::PrecisionMode)configDoc["precision"].GetInt();
+            }
+            if (configDoc.HasMember("memory")) {
+                config.backendConfig->memory = (MNN::BackendConfig::MemoryMode)configDoc["memory"].GetInt();
+            }
+            if (configDoc.HasMember("power")) {
+                config.backendConfig->power = (MNN::BackendConfig::PowerMode)configDoc["power"].GetInt();
+            }
+        } while (false);
+    }
 
     MNN::Express::Module::Config mConfig;
     mConfig.shapeMutable = true;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
     auto mInfo = net->getInfo();
     std::vector<MNN::Express::VARP> inputs(mInfo->inputs.size());

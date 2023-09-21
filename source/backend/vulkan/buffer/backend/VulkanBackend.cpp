@@ -131,10 +131,11 @@ void VulkanBackend::onResizeBegin() {
         mCmdBuffer->begin(0);
     }
 }
-void VulkanBackend::onResizeEnd() {
+ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
         mCmdBuffer->end();
     }
+    return NO_ERROR;
 }
 class VulkanMemRelease : public Backend::MemObj {
 public:

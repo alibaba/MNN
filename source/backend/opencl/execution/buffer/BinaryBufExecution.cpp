@@ -315,7 +315,7 @@ public:
                 case BinaryOpOperation_SquaredDifference:
                     return new BinaryBufExecution(inputs, "(in0-in1)*(in0-in1)", op, backend);
                 case BinaryOpOperation_ATAN2:
-                    return new BinaryBufExecution(inputs, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                    return new BinaryBufExecution(inputs, "(in1==(FLOAT4)0?(sign(in0)*(FLOAT4)(PI/2)):(atan(in0/in1)+(in1>(FLOAT4)0?(FLOAT4)0:sign(in0)*(FLOAT4)PI)))", op, backend);
                 case BinaryOpOperation_NOTEQUAL:
                     return new BinaryBufExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
                 case BinaryOpOperation_MOD:

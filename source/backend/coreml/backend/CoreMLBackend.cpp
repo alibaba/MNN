@@ -127,8 +127,8 @@ namespace MNN {
         mCoreMLLayerPtrs.clear();
     }
 
-    void CoreMLBackend::onResizeEnd() {
-        buildModel();
+    ErrorCode CoreMLBackend::onResizeEnd() {
+        return buildModel();
     }
 
     std::string CoreMLBackend::getTensorName(const Tensor* t) {
@@ -226,7 +226,7 @@ namespace MNN {
         }
         *describe = des;
     }
-    void CoreMLBackend::buildModel() {
+    ErrorCode CoreMLBackend::buildModel() {
         mInputTensors.resize(mInputIdxMap.size());
         mCoreMLModel_->description = create<CoreML__Specification__ModelDescription>();
         core_ml__specification__model_description__init(mCoreMLModel_->description);
@@ -257,9 +257,14 @@ namespace MNN {
         }
 #endif
         if (mCoreMLModel_->neuralnetwork->n_layers <= 0) {
-            return;
+            return NO_EXECUTION;
         }
-        mCoreMLExecutor->compileModel(mCoreMLModel_.get());
+        bool success = mCoreMLExecutor->compileModel(mCoreMLModel_.get());
+        if (success) {
+            return NO_ERROR;
+        } else {
+            return NO_EXECUTION;
+        }
     }
     void CoreMLBackend::invokeModel() const {
         if (mCoreMLModel_->neuralnetwork->n_layers <= 0) {

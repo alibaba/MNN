@@ -2157,7 +2157,7 @@ static PyObject* PyMNNCVMatrix_repr(PyObject *self) {
     ((PyMNNCVMatrix *)self)->matrix->get9(mat);
     char buffer [100];
     sprintf(buffer, "[[%f\t%f\t%f]\n [%f\t%f\t%f]\n [%f\t%f\t%f]]",
-            mat[0], mat[1], mat[2], mat[3], mat[4], mat[5], mat[5], mat[6], mat[7], mat[8]);
+            mat[0], mat[1], mat[2], mat[3], mat[4], mat[5], mat[6], mat[7], mat[8]);
     return toPyObj(buffer);
 }
 // type: 0 set; 1 pre; 2 post

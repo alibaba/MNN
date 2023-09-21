@@ -29,7 +29,7 @@ void CoreMLConvolution::loadWeightBias(const std::vector<Tensor *> &inputs) {
     }
     auto conv2D = mOp->main_as_Convolution2D();
     if (nullptr != conv2D->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(conv2D->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(conv2D, backend(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", mOp->name()->c_str());
         }

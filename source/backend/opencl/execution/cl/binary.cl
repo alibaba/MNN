@@ -1,6 +1,7 @@
 #ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
+#define PI 3.141592653589f
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 __kernel void binary(__private int global_dim0, __private int global_dim1,

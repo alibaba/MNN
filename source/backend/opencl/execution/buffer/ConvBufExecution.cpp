@@ -325,7 +325,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         mRasterExe.reset(new RasterBufExecution({mFilter.get()}, op, mOpenCLBackend));
     } else {
         int weightSize   = 0;
-        ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &mFilterDataPtr, &weightSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2dParams, &mFilterDataPtr, &weightSize);
         //select opt conv method
         mConv1x1Opt = (mKernelHeight == mKernelWidth && mKernelHeight == 1 && mPaddings[0] == 0 &&
         mPaddings[1] == 0 && mStrides[0] == 1 && mStrides[1] == 1 && inputs[0]->width() >= 4);
@@ -517,7 +517,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         int min_index  = min_cost.second;
         if(min_index >= c8_index_start) {//if best kernel is "conv_2d_1x1_c8h1w4", set weight packCout to 8
             int weightSize   = 0;
-            ConvolutionCommon::getConvParameters(&quanCommon, mConv2dParams, &mFilterDataPtr, &weightSize);
+            ConvolutionCommon::getConvParameters(&quanCommon, backend(), mConv2dParams, &mFilterDataPtr, &weightSize);
             setConv1x1WeightBuffer(8, 4, mFilterDataPtr);
         }
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};

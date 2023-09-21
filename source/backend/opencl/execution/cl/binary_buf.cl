@@ -1,6 +1,7 @@
 #ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
+#define PI 3.141592653589f
 
 __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
                          __global FLOAT* input0, __global FLOAT* input1, __global FLOAT* output,

@@ -44,7 +44,7 @@ def build_deps():
         shutil.rmtree(cmake_build_dir)
     os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
-    extra_opts = '-DMNN_LOW_MEMORY=OFF'
+    extra_opts = '-DMNN_LOW_MEMORY=ON'
     extra_opts += ' -DMNN_VULKAN=ON -DMNN_VULKAN_IMAGE=OFF'
     extra_opts += ' -DMNN_OPENCL=ON'
     if IS_WINDOWS:

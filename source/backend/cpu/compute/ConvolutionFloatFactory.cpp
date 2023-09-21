@@ -102,7 +102,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
             // The weight is storage as float sparse, but the backend don't support sparse compute, expand it
             forceFloat = true;
         }
-        quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), forceFloat, lowMemory);
+        quanCommon = ConvolutionCommon::load(conv2d, backend, forceFloat, lowMemory);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
             return nullptr;

@@ -389,11 +389,11 @@ namespace MNN {
         mSclipMap.clear();
     }
 
-    void NPUBackend::onResizeEnd() {
-        bulidIRModelAndLoad();
+    ErrorCode NPUBackend::onResizeEnd() {
+        return bulidIRModelAndLoad();
     }
 
-    void NPUBackend::bulidIRModelAndLoad() {
+    ErrorCode NPUBackend::bulidIRModelAndLoad() {
         std::vector<ge::Operator> inputs;
         for (auto input : mInputOps){
             inputs.push_back(input.second[0]);
@@ -414,7 +414,7 @@ namespace MNN {
         std::shared_ptr<ge::Model> model = std::make_shared<ge::Model>("model", graphName);
         if (model == nullptr) {
             MNN_ERROR("Create model fail.");
-            return;
+            return INVALID_VALUE;
         }
 
         model->SetGraph(graph);
@@ -431,7 +431,7 @@ namespace MNN {
             std::string buffer(size, ' ');
             if (!file.read(&buffer[0], size)) {
                 MNN_ERROR("Failed to read file.\n");
-                return;
+                return INVALID_VALUE;
             }
             file.close();
             buildOptions.quantizeConfig = buffer;
@@ -440,13 +440,13 @@ namespace MNN {
         auto ret = modelBuilder.Build(buildOptions, modelName, model, builtModel);
         if (ret != hiai::SUCCESS || builtModel == nullptr) {
             MNN_ERROR("model build fail !\n");
-            return;
+            return INVALID_VALUE;
         }
 #ifdef HIAI_DEBUG
         ret = builtModel->SaveToFile("/data/local/tmp/test_quant.om");
         if (ret != hiai::SUCCESS) {
             MNN_ERROR("builtModel SaveToFile failed\n");
-            return;
+            return INVALID_VALUE;
         }
 #endif
         modelManager = hiai::CreateModelManager();
@@ -454,12 +454,12 @@ namespace MNN {
         ret = modelManager->Init(initOptions, builtModel, nullptr);
         if (ret != hiai::SUCCESS) {
             MNN_ERROR("modelManager Init failed");
-            return;
+            return INVALID_VALUE;
         }
         ret = modelManager->SetPriority(hiai::ModelPriority::PRIORITY_HIGH);
         if (ret != hiai::SUCCESS) {
             MNN_ERROR("modelManager SetPriority failed");
-            return;
+            return INVALID_VALUE;
         }
         std::vector<hiai::NDTensorDesc> inputDesc = builtModel->GetInputTensorDescs();
         for (size_t i = 0; i < inputDesc.size(); i++) {
@@ -478,7 +478,7 @@ namespace MNN {
                 index++;
             }
         }
-        return;
+        return NO_ERROR;
     }
 
     int NPUBackend::process() const {

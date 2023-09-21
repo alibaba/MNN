@@ -40,7 +40,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
         const float *filterDataPtr = nullptr;
         int filterDataSize         = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        ConvolutionCommon::getConvParameters(&quanCommon, mCon2dParams, &filterDataPtr, &filterDataSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, backend, mCon2dParams, &filterDataPtr, &filterDataSize);
         if (filterDataPtr != nullptr) {
             std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
                 std::vector<int>{1, outputChannel, kernelWidth, kernelHeight},

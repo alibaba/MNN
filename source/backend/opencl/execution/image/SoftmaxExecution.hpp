@@ -26,8 +26,9 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    bool buildSoftmaxKernel();
+    bool buildSoftmaxKernel(int localSize);
 private:
+    int getLocalSize(int size, int maxGroupSize);
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;

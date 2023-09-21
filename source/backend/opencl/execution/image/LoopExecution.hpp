@@ -53,6 +53,18 @@ private:
     std::set<std::string> mBuildOptions;
 };
 
+class LoopBinaryExecution : public CommonExecution {
+public:
+    LoopBinaryExecution(const LoopParam *loop, const std::string &compute, const MNN::Op *op, Backend *bn);
+    virtual ~LoopBinaryExecution() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+private:
+    const LoopParam *mLoop;
+    std::vector<Tensor *> mTensors;
+    std::set<std::string> mBuildOptions;
+};
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* LoopExecution_hpp */

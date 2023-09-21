@@ -168,7 +168,7 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     auto biasPtr = _bias.data();
     auto scalePtr = _scale.data();
     
-    if (USE_EXTERNAL_DATA(conv2d)) {
+    if (USE_EXTERNAL_DATA(conv2d) && conv2d->quanParameter() == nullptr) {
         auto bytes = conv2d->external()->Get(1);
         tempWeightSize = static_cast<int>(bytes / sizeof(float));
         externalWeightTensor.reset(Tensor::createDevice<float>({tempWeightSize}));
@@ -181,10 +181,10 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
         tempWeight = externalWeightTensor->host<float>();
     } else {
         if (CPUBackend::getDataType(input) == DataType_DT_INT8 || input->getType().bytes() == 1) {
-            ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
+            ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
             ModeInt8 = true;
         } else {
-            ConvolutionCommon::getConvParameters(&quanCommon, conv2d, &tempWeight, &tempWeightSize);
+            ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2d, &tempWeight, &tempWeightSize);
         }
     }
 

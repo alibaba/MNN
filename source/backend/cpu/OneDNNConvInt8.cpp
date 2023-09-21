@@ -68,7 +68,7 @@ Execution* OneDNNConvInt8::create(Backend* backend, const MNN::Convolution2D* co
     }
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        quanCommon = ConvolutionCommon::load(convParam, backend(), false);
         weightSrc = quanCommon->weight.get();
     }
     auto user_weights = memory(user_weights_md, eng, (int8_t*)weightSrc);
