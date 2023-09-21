@@ -72,6 +72,9 @@ private:
     BufferAllocator* mParent;
 };
 
+ErrorCode BufferAllocator::compute() {
+    return NO_ERROR;
+}
 std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createDefault() {
     std::shared_ptr<BufferAllocator::Allocator> _res;
     _res.reset(new DefaultAllocator);

@@ -302,6 +302,7 @@ void CUDABackend::onResizeBegin() {
 }
 
 ErrorCode CUDABackend::onResizeEnd() {
+    return NO_ERROR;
 }
 
 void CUDABackend::onExecuteBegin() const {
