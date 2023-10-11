@@ -715,7 +715,9 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "^Android")
 else()
 endif()
 if (NOT MNN_BUILD_SHARED_LIBS)
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(APPLE)
+        set(MNN_DEPS -Wl,-all_load ${MNN_DEPS} -Wl,-noall_load)
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # Static-link will not replace thread-related weak symbol in glibc with strong symbol
         # in pthread library, so we need use --whole-archive to pthread
         # https://stackoverflow.com/questions/35116327/when-g-static-link-pthread-cause-segmentation-fault-why
