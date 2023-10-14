@@ -99,6 +99,21 @@ __global__ void Float22Half2(const float* param,
     }
 }
 
+#ifdef ENABLE_CUDA_BF16
+__global__ void Float22BFloat16(const float* param,
+    __nv_bfloat16* output,
+    const size_t maxCount
+) {
+    #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
+    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+        float2* srcPtr = (float2 *)(param + (index << 2));
+        __nv_bfloat162* dstPtr = (__nv_bfloat162*)(output + (index << 2));
+        dstPtr[0] = __float22bfloat162_rn(srcPtr[0]);
+        dstPtr[1] = __float22bfloat162_rn(srcPtr[1]);
+    }
+    #endif
+}
+#endif
 
 void callFloat2Half(const void* input, void* output, const int count, CUDARuntime* runtime) {
     int thread_count = count / 4;
@@ -107,6 +122,16 @@ void callFloat2Half(const void* input, void* output, const int count, CUDARuntim
     Float22Half2<<<block_num, block_size>>>((const float*)input, (half *)output, thread_count);
     checkKernelErrors;
 }
+
+#ifdef ENABLE_CUDA_BF16
+void callFloat2BFloat16(const void* input, void* output, const int count, CUDARuntime* runtime) {
+    int thread_count = count / 4;
+    int block_num = runtime->blocks_num(thread_count);
+    int block_size = runtime->threads_num();
+    Float22BFloat16<<<block_num, block_size>>>((const float*)input, (__nv_bfloat16 *)output, thread_count);
+    checkKernelErrors;
+}
+#endif
 
 void callWeightFill(const void* input, void* output, const int l, const int h, const int lp, const int hp, const int precision, CUDARuntime* runtime) {
     DivModFast lpD(lp);
@@ -119,9 +144,15 @@ void callWeightFill(const void* input, void* output, const int l, const int h, c
     } else if(precision == 0) {
         WeightPackFill<<<block_num, block_size>>>((const float*)input, (half*)output, lp*hp, l, h, lpD);
         checkKernelErrors;
-    } else {
+    } else if(precision == 2){
         WeightPackFill<<<block_num, block_size>>>((const half*)input, (half*)output, lp*hp, l, h, lpD);
         checkKernelErrors;    
+    } else {
+        MNN_ASSERT(precision == 3);
+        #ifdef ENABLE_CUDA_BF16
+        WeightPackFill<<<block_num, block_size>>>((const float*)input, (__nv_bfloat16*)output, lp*hp, l, h, lpD);
+        checkKernelErrors;
+        #endif
     }
 }
 
@@ -156,11 +187,19 @@ void callIm2ColPack(const void* input, void* output, const ConvolutionCommon::Im
             maxCount, PACK_NUMBER, e, l, (const float*)input, (half *)output, \
             lpD, owD, ohD, fxyD, fxD);
         checkKernelErrors;
-    } else {
+    } else if(precision == 2) {
         Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
             maxCount, PACK_NUMBER, e, l, (const half*)input, (half *)output, \
             lpD, owD, ohD, fxyD, fxD);
         checkKernelErrors;
+    } else {
+        MNN_ASSERT(precision == 3);
+        #ifdef ENABLE_CUDA_BF16
+        Im2Col_packC<<<block_num, block_size>>>(sw, sh, dw, dh, pw, ph, icDiv4, iw, ih, 
+            maxCount, PACK_NUMBER, e, l, (const __nv_bfloat16*)input, (__nv_bfloat16 *)output, \
+            lpD, owD, ohD, fxyD, fxD);
+        checkKernelErrors;
+        #endif
     }
 }
 

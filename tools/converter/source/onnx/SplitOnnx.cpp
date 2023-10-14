@@ -42,7 +42,7 @@ void SplitOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     }
     param->axis        = axis;
     param->slicePoints = slicePoints;
-    param->sourceType = MNN::NetSource_TENSORFLOW;
+    param->sourceType = MNN::NetSource_TORCH;
     dstOp->main.value  = param;
 }
 

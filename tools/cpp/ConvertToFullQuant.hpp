@@ -133,7 +133,7 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
                         weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
                     }
 
-                    conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), aMin);
+                    conv2D->quanParameter = IDSTEncoder::encode(weightFloat.data(), weightScale, ks, kn, false, weight.data(), aMin);
                     conv2D->quanParameter->scaleIn = scaleIn;
                     conv2D->quanParameter->scaleOut = scaleOut;
                     conv2D->symmetricQuan->weight.clear();

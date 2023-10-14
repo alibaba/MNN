@@ -14,6 +14,7 @@
 #include "core/TensorUtils.hpp"
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
+#include "../CastExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
@@ -37,7 +38,7 @@ private:
     int mChannel;
     int mCount;
     int mArea;
-    std::pair<void*, int> mScaleStorage;
+    MemChunk mScaleStorage;
 };
 
 } // namespace CUDA

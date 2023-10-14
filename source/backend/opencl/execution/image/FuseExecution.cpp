@@ -35,6 +35,7 @@ bool FuseExecution::buildFuseKernel(const Op* op) {
 }
 
 ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
 
@@ -55,16 +56,21 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     };
     
     uint32_t idx    = 0;
+    cl_int ret = CL_SUCCESS;
     for (auto input : inputs) {
-        mKernel.setArg(idx++, openCLImage(input));
+        ret |= mKernel.setArg(idx++, openCLImage(input));
     }
     for (auto output : outputs) {
-        mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, openCLImage(output));
     }
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg FuseExecution");
+
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -77,9 +83,16 @@ ErrorCode FuseExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Fuse\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Fuse", event});
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("end SoftmaxExecution onExecute !\n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif
 

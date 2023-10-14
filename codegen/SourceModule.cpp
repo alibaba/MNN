@@ -94,6 +94,7 @@ InOutTensors SourceModule::buildKernel(std::vector<Node*> nodes, int idx)  {
     for (auto& node : nodes) {
         mOpName.append(opStr(node->cmd->op));
     }
+
     mKernelName = "kernel_" + std::to_string(idx);
     // 0. gen kernel macro
     std::string kernelMacro = mTarget->macro();
@@ -104,10 +105,14 @@ InOutTensors SourceModule::buildKernel(std::vector<Node*> nodes, int idx)  {
     kernelBody << getIndent() << "OFFSET_CHECK;\n";
     std::string offset = "offset";
     std::unordered_map<MNN::Tensor*, std::string> cacheMap;
+    bool singleConvertRaster = false;
     for (auto& node : nodes) {
         auto cmd = node->cmd;
         std::vector<std::string> inputs(cmd->inputs.size());
         for (int i = 0; i < cmd->inputs.size(); i++) {
+            if(cmd->op->type() == MNN::OpType_Raster) {
+                singleConvertRaster = true;
+            }
             auto t = cmd->inputs[i];
             if (scope.hasVar(t)) {
                 inputs[i] = scope.getVar(t);
@@ -115,21 +120,24 @@ InOutTensors SourceModule::buildKernel(std::vector<Node*> nodes, int idx)  {
                 inputs[i] = scope.addVar(t);
                 std::string code;
                 if ((cmd->inputs[i]->shape().empty() || cmd->inputs[i]->elementSize() == 1) &&
-                    TensorUtils::getDescribe(cmd->inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
+		            TensorUtils::getDescribe(cmd->inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
                     float val = cmd->inputs[i]->host<float>()[0];
-                    code = mTarget->number(val);
+                    code = mTarget->type() + inputs[i] + "=" + mTarget->number(val);
                 } else {
                     if (cmd->inputs[i]->elementSize() == 1) {
-                        code = mTarget->loadscalar(scope.addInput(t));
+                        code = mTarget->loadscalar(scope.addInput(t), inputs[i]);
                     } else {
-                        code = mTarget->load(scope.addInput(t), offset);
+                        code = mTarget->load(scope.addInput(t), offset, cmd, inputs[i]);
                     }
                 }
-                kernelBody << getIndent() << mTarget->type() << inputs[i] << " = " << code << ";\n";
+                kernelBody << getIndent() << code << ";\n";
             }
             scope.setUse(t);
         }
-        kernelBody << getIndent() << mTarget->type() << scope.addVar(cmd->outputs[0]) << " = " << mTarget->codegen(inputs, cmd->op) << ";\n";
+        auto tmpVar = scope.addVar(cmd->outputs[0]);
+        kernelBody << getIndent() << mTarget->type() << tmpVar << ";\n";
+        std::string computeCode = mTarget->codegen(inputs, cmd, tmpVar);
+        kernelBody << getIndent() << computeCode << ";\n";
     }
     scope.computeOutput();
     auto res = scope.getIOTensors();
@@ -140,14 +148,16 @@ InOutTensors SourceModule::buildKernel(std::vector<Node*> nodes, int idx)  {
     kernelBody << "}\n";
     mKernelCode.append(mTarget->macro());
     std::vector<std::string> inputArgs, outputArgs;
+
     for (auto& input : res.first) {
         inputArgs.push_back(scope.getIO(input));
     }
     for (auto& output : res.second) {
         outputArgs.push_back(scope.getIO(output));
     }
-    mKernelCode.append(mTarget->proto(kernelName(), inputArgs, outputArgs));
+    mKernelCode.append(mTarget->proto(kernelName(), inputArgs, outputArgs, singleConvertRaster));
     mKernelCode.append(kernelBody.str());
+    mKernelNumIndex = mTarget->macro().size() + mTarget->beginSize();
     return res;
 }
 
@@ -156,6 +166,8 @@ std::string SourceModule::codegen() { return mKernelCode; }
 std::string SourceModule::kernelName() { return mKernelName; }
 
 std::string SourceModule::opName() { return mOpName; }
+
+int SourceModule::strIndexForKernelNum() { return mKernelNumIndex; }
 
 void SourceModule::down() { mIndent++; }
 

@@ -289,7 +289,7 @@ public:
                     return nullptr;
                 }
             }
-            quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D()->quanParameter(), true);
+            quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, true);
             srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
             source   = quanWeight->weightFloat.get();
             weightSize = quanWeight->weightFloat.size();

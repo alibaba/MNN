@@ -21,19 +21,16 @@ using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
 ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const int input0DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[0]);
-    const int input1DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[1]);
+    auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+    auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
     if (input1DataCount == input0DataCount) {
         mNeedBroadcastIndex = -1;
-        mTotalSize = input1DataCount;
     } else if (input0DataCount == 1) {
         mNeedBroadcastIndex = 0;
-        mTotalSize = input1DataCount;
     } else {
         mNeedBroadcastIndex = 1;
-        mTotalSize = input0DataCount;
     }
-    MNN_ASSERT(mTotalSize == ((CPUBackend*)backend())->getTensorSize(outputs[0]));
+    mTotalSize = ((CPUBackend*)backend())->getTensorSize(outputs[0]);
     
     if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));
@@ -219,11 +216,15 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         auto input0Ptr = inputs[0]->host<uint8_t>();
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-            auto func = CPUBinaryInt8::selectForInt8(type);
-            if (nullptr == func) {
-                return nullptr;
+            if (CPUBackend::getDataType(inputs[1]) == DataType_DT_INT8 || inputs[1]->getType().bytes() == 1) {
+                if (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1) {
+                    auto func = CPUBinaryInt8::selectForInt8(type);
+                    if (nullptr == func) {
+                        return nullptr;
+                    }
+                    return new CPUBinaryInt8(backend, func, op->main_as_BinaryOp()->activationType());
+                }
             }
-            return new CPUBinaryInt8(backend, func, op->main_as_BinaryOp()->activationType());
         }
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {

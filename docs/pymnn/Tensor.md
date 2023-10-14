@@ -1,10 +1,12 @@
 <!-- pymnn/Tensor.md -->
-## MNN.Tensor
+## MNN.Tensor *[deprecated]*
 
 ```python
 class Tensor
 ```
 Tensor是MNN V2接口中的基础数据结构，是最基本的数据封装类型。Tensor存储了数据以及数据类型，形状等诸多信息，用户可以通过Tensor本身的函数获取这些信息。
+
+*不建议使用该接口，请使用[Var](Var.md)代替*
 
 ---
 ### `MNN.Halide_Type_*`

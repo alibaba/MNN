@@ -9,6 +9,7 @@
 #ifndef MNN_TRTBackend_H
 #define MNN_TRTBackend_H
 
+#include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 
@@ -88,7 +89,7 @@ public:
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     class Creator {
     public:

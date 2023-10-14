@@ -50,7 +50,7 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const
 }
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
-    mStaticAllocator.reset(new BufferAllocator(BufferAllocator::Allocator::createDefault()));
+    mStaticAllocator.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createDefault()));
     mThreadNumber = info.numThread;
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
@@ -64,6 +64,7 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
         mMemory = info.user->memory;
         mFlags = info.user->flags;
     }
+    mAllocator = info.allocator;
 
 #ifdef _OPENMP
     switch (mPower) {
@@ -131,7 +132,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
 #ifdef MNN_USE_ARMV82
     auto core = MNNGetCoreFunctions();
     if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-        return new Arm82Backend(this);
+        return new Arm82Backend(this, memory);
     }
 #endif
 #ifdef MNN_SUPPORT_BF16
@@ -218,7 +219,11 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
     std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
-    mDynamicAllocator.reset(new BufferAllocator(defaultAlloc));
+    if (mRuntime->getAllocatorType() == Runtime::Allocator_Defer) {
+        mDynamicAllocator.reset(new DeferBufferAllocator(defaultAlloc));
+    } else {
+        mDynamicAllocator.reset(new EagerBufferAllocator(defaultAlloc));
+    }
     mStaticAllocator = runtime->mStaticAllocator;
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
@@ -238,26 +243,16 @@ void CPUBackend::onExecuteEnd() const {
     mRuntime->onConcurrencyEnd();
 }
 
-class CPUMemObj : public Backend::MemObj {
-public:
-    CPUMemObj(BufferAllocator* allocator, std::pair<void*, int> points, int size) {
-        mPoint = std::move(points);
-        mAllocator = allocator;
-        mSize = size;
-    }
-    virtual ~ CPUMemObj() {
-        mAllocator->free(mPoint);
-    }
-    inline int getSize() const {
-        return mSize;
-    }
-private:
-    BufferAllocator* mAllocator;
-    std::pair<void*, int> mPoint;
-    int mSize;
-};
+void CPUBackend::onResizeBegin() {
+    mDynamicAllocator->reset();
+}
 
-Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType storageType) {
+ErrorCode CPUBackend::onResizeEnd() {
+    getCache()->release();
+    return mDynamicAllocator->compute();
+}
+
+Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType storageType) {
     auto originMem = TensorUtils::getDescribe(dest)->mem.get();
     if (nullptr != originMem) {
         if (static_cast<CPUMemObj*>(originMem)->getSize() >= size) {
@@ -268,7 +263,7 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     }
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
-        MNN_PRINT("Acquire buffer size = %d\n", size);
+        MNN_PRINT("Acquire buffer size = %lu\n", size);
         MNN_ASSERT(false);
         return nullptr;
     }
@@ -277,35 +272,41 @@ Backend::MemObj* CPUBackend::allocBuffer(int size, Tensor* dest, StorageType sto
     // }
     auto& buffer = dest->buffer();
     auto des = TensorUtils::getDescribe(dest);
-    std::pair<void*, int> points;
+    MemChunk chunk;
     switch (storageType) {
         case STATIC: {
-            points = mStaticAllocator->alloc(size, false);
+            chunk = mStaticAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC: {
-            points = mDynamicAllocator->alloc(size, false);
+            chunk = mDynamicAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC_SEPERATE: {
-            points = mDynamicAllocator->alloc(size, true);
+            chunk = mDynamicAllocator->alloc(size, true);
             break;
         }
         default:
             MNN_ASSERT(false);
             break;
     }
-    if (nullptr == points.first) {
+
+    if (chunk.invalid()) {
         MNN_ERROR("Alloc buffer error for cpu backend\n");
         return nullptr;
     }
+
     Backend::MemObj* res = nullptr;
+
     if (storageType == STATIC) {
-        res = new CPUMemObj(mStaticAllocator.get(), points, size);
+        res = new CPUMemObj(mStaticAllocator.get(), chunk, size);
     } else {
-        res = new CPUMemObj(mDynamicAllocator.get(), points, size);
+        res = new CPUMemObj(mDynamicAllocator.get(), chunk, size);
+        chunk.attach(dest);
     }
-    buffer.host = (uint8_t*)points.first + points.second;
+    if (chunk.ptr()) {
+        buffer.host = chunk.ptr();
+    }
     des->extra.offset = 0;
     return res;
 }
@@ -336,19 +337,19 @@ static OpType _getRealOpType(OpType opType) {
             return opType;
     }
 }
-int CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
+size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     auto core = mCoreFunctions;
-    int dataSize = 1;
+    size_t dataSize = 1;
     auto des = TensorUtils::getDescribe(tensor);
     for (int i = 0; i < tensor->dimensions(); i++) {
-        int currentDimSize = tensor->length(i);
+        size_t currentDimSize = tensor->length(i);
         if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
             currentDimSize = UP_DIV(currentDimSize, core->pack) * core->pack;
         }
         dataSize *= currentDimSize;
     }
     if (multiBytes) {
-        int bytes = tensor->getType().bytes();
+        size_t bytes = tensor->getType().bytes();
         if (TensorUtils::getDescribe(tensor)->quantAttr != nullptr) {
             if (TensorUtils::getDescribe(tensor)->type == DataType_DT_FLOAT) {
                 bytes = 4;

@@ -45,6 +45,11 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         netT->extraInfo->name = config.authCode;
     }
 
+    if (1) {
+        // load external data for some change
+        loadExternalData(netT, ".__convert_external_data.bin");
+    }
+
     if (config.benchmarkModel) {
         removeParams(netT);
     }
@@ -158,7 +163,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         output.write((const char*)bufferOutput, sizeOutput);
     }
     if (!netT->subgraphs.empty()) {
-        MNN_PRINT("The model has subgraphs, please use MNN::Module to run it\n");
+        MNN_PRINT("The model has subgraphs, please use MNN::Express::Module to run it\n");
     }
 
 #ifdef MNN_DUMP_SUBGRAPH

@@ -7,10 +7,16 @@
 //
 
 #include "../PostTreatUtils.hpp"
+#include "../Global.hpp"
+#include "config.hpp"
 using namespace MNN;
 class RemoveOutputTensorConvert : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
+        auto config = Global<modelConfig>::Get();
+        if (config->keepInputFormat) {
+            return true;
+        }
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op = *iter;
             if (op->outputIndexes.empty() || op->type != OpType_ConvertTensor) {

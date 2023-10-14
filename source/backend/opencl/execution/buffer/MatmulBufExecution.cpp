@@ -70,7 +70,8 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         ret |= mKernel.setArg(idx++, static_cast<int>(height));
         ret |= mKernel.setArg(idx++, static_cast<int>(heightblocks));
         ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
-        
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
+
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
     }
     else {
@@ -93,10 +94,9 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
         ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
         ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
-        
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution");
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
     }
-    MNN_CHECK_CL_SUCCESS(ret, "matmul_buf");
     return NO_ERROR;
 }
 
@@ -111,9 +111,8 @@ ErrorCode MatMulBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
         runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, &event);
-        
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us MatmulBuf\n",costTime);
+    
+        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"MatmulBuf", event});
     #else
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
     #endif
@@ -128,6 +127,12 @@ class MatMulBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         auto param = op->main_as_MatMul();
         return new MatMulBufExecution(inputs, op, backend, param->transposeA(), param->transposeB());
     }

@@ -59,11 +59,7 @@ option(MNN_INTERNAL "Build with MNN internal features, such as model authenticat
 option(MNN_JNI "Build MNN Jni for java to use" OFF)
 
 IF (NOT DEFINED MNN_USE_SPARSE_COMPUTE)
-  IF (TARGET_OS_IPHONE OR TARGET_OS_SIMULATOR)
-    set(MNN_USE_SPARSE_COMPUTE OFF)
-  ELSE()
-    set(MNN_USE_SPARSE_COMPUTE ON)
-  ENDIF()
+   set(MNN_USE_SPARSE_COMPUTE ON)
 ENDIF()
 
 IF(NOT MNN_BUILD_SHARED_LIBS AND MNN_SEP_BUILD)
@@ -98,6 +94,10 @@ IF( MNN_ENABLE_COVERAGE)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
 ENDIF()
+
+if ((CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_SYSTEM_PROCESSOR ${CMAKE_OSX_ARCHITECTURES})
+endif()
 
 # do this before protobuf, make sure wincrt config of protobuf and MNN is same
 if(MSVC)
@@ -453,6 +453,9 @@ endif()
 if (NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions ")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
+else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /fp:fast")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fp:fast")
 endif()
 
 # Metal

@@ -12,6 +12,7 @@
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
 #include "../CutlassGemmParam.hpp"
+#include "../bf16/CutlassGemmBf16Param.hpp"
 #include "../MNNCUDADefine.hpp"
 #include "../MNNCUDAFunction.cuh"
 
@@ -27,6 +28,7 @@ public:
     ErrorCode callCutlassGemmCudaCoreFloat32(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
     ErrorCode callCutlassGemmTensorCore884(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
     ErrorCode callCutlassGemmTensorCore(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
+    ErrorCode callCutlassGemmBf16TensorCore(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);
 
     ErrorCode runCutlassGemmFunc();
 
@@ -39,13 +41,13 @@ protected:
     const Op* mOp = nullptr;
 
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
-    std::pair<void*, int> mGpuIm2ColParam;
+    MemChunk mGpuIm2ColParam;
 
     void* mIm2ColBuffer;
 
     bool mIsConv1x1S1D1P0 = false;
     bool mNeedIm2Col = true;
-    std::pair<void*, int> mGpuKernelParam;
+    MemChunk mGpuKernelParam;
     bool mIsBlock = false;
     int mBlockNum = 1;
 
@@ -77,11 +79,17 @@ protected:
     GemmCuda_F32_F32_Relu6_AlignCuda mGemmCudaF32F32Relu6;
     GemmCuda_F32_F32_Linear_AlignCuda mGemmCudaF32F32Ln;
 
+    #ifdef ENABLE_CUDA_BF16
+    GemmTensor_BF16_BF16_Linear_AlignTensor_Sm80 mGemmBF16BF16LnSm80;
+    GemmTensor_BF16_BF16_Relu_AlignTensor_Sm80 mGemmBF16BF16ReluSm80;
+    GemmTensor_BF16_BF16_Relu6_AlignTensor_Sm80 mGemmBF16BF16Relu6Sm80;
+    #endif
     int mGpuComputeCap = 75;
     int mActivationType = 0;
     bool mFp16Infer = false;
     bool mFp32Infer = false;
     bool mFp16Fp32MixInfer = false;
+    bool mBf16Infer = false;
     int mPrecisonLevel;
     std::shared_ptr<Tensor> workspaceTensor;
     void* mWorkspace;

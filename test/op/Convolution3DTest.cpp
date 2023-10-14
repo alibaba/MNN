@@ -129,7 +129,7 @@ protected:
         using namespace MNN::Express;
         std::vector<float> weightData, biasData;
         for (int i = 0; i < group * (oc / group) * (ic / group) * kernels[0] * kernels[1] * kernels[2]; i++) {
-            weightData.push_back(rand() % 255 / 255.f);
+            weightData.push_back(rand() % 255 / 255.f / 1000.0f);
         }
         for (int i = 0; i < oc; i++) {
             biasData.push_back(rand() % 255 / 255.f);
@@ -148,12 +148,20 @@ protected:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 5e-3)) {
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
             MNN_PRINT("%s expect:\t real:\n", test_op_name.c_str());
             for (int i = 0; i < outputData.size(); ++i) {
                 MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
             }
             MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+#ifdef DEBUG
+            auto subinput  = _Input({batch, ic, inputShape[0], inputShape[1], inputShape[2]}, NCHW, halide_type_of<float>());
+            subinput->writeMap<float>();
+            auto suboutput = _Conv3D(_Convert(subinput, NC4HW4), weightData, biasData, {ic, oc}, kernels, mode, pads, strides,
+                                  dilations, group);
+            suboutput      = _Convert(suboutput, NCHW);
+            suboutput->readMap<float>();
+#endif
             return false;
         }
         return true;

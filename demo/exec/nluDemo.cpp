@@ -104,12 +104,9 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < 3; ++i) {
             outputs = module->onForward(inputs);
         }
-        globalExecutor->resetProfile();
         outputs = module->onForward(inputs);
-        globalExecutor->dumpProfile();
         {
             MNN::Timer autoTime;
-            globalExecutor->resetProfile();
             for (int i = 0; i < benchTime; ++i) {
                 MNN::AutoTime _t(0, "Once time");
                 // std::cout << i << std::endl;

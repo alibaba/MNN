@@ -23,7 +23,7 @@ public:
     }
     class MNN_PUBLIC Context {
     public:
-        Context(std::shared_ptr<Backend> allocBackend, MNNForwardType = MNN_FORWARD_CPU);
+        Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal);
         ~Context();
 
         void clear();
@@ -38,6 +38,9 @@ public:
         inline MNNForwardType forwardType() const {
             return mForwardType;
         }
+        inline BackendConfig::PrecisionMode precisionType() const {
+            return mPrecision;
+        }
         void pushCache(const CommandBuffer& buffer);
         std::shared_ptr<BufferStorage> mRasterOp;
     private:
@@ -47,6 +50,7 @@ public:
         std::vector<std::shared_ptr<Tensor>> mTempConstTensors;
         std::shared_ptr<Backend> mBackend;
         MNNForwardType mForwardType;
+        BackendConfig::PrecisionMode mPrecision;
         std::vector<SharedPtr<Command>> mRasterCmdCache;
     };
     static void init();

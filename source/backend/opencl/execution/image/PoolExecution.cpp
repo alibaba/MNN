@@ -73,6 +73,7 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 #ifdef LOG_VERBOSE
     MNN_PRINT("start PoolExecution onResize !\n");
 #endif
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -119,16 +120,21 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 
     mLocalWorkSize = poolLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
     uint32_t idx   = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
-    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-    mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
-    mKernel.setArg(idx++, sizeof(strideShape), strideShape);
-    mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-    mKernel.setArg(idx++, openCLImage(output));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    ret |= mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+    ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
+    ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg PoolExecution");
+
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end PoolExecution onResize !\n");
 #endif
@@ -140,14 +146,21 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     MNN_PRINT("start PoolExecution onExecute !\n");
 #endif
     
-#if 0//def ENABLE_OPENCL_TIME_PROFILER
+#ifdef ENABLE_OPENCL_TIME_PROFILER
     cl::Event event;
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Pooling\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Pooling", event});
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End PoolExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

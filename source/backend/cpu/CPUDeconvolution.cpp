@@ -106,7 +106,7 @@ static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, c
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
     int oc = common->outputCount(), ic = common->inputCount(), kernelCount = common->kernelX() * common->kernelY();
-    std::vector<int> shape = {UP_DIV(oc, UNIT) * kernelCount, UP_DIV(UP_DIV(ic, UNIT), SRC_UNIT / UNIT), UNIT, SRC_UNIT};
+    std::vector<int> shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
 
     weight.reset(Tensor::createDevice<int8_t>(shape));
     bool succ = bn->onAcquireBuffer(weight.get(), Backend::STATIC);
@@ -115,6 +115,7 @@ static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, c
         return;
     }
     auto dstPtr = weight->host<int8_t>();
+    ::memset(dstPtr, 0, weight->size());
 
     int icDiv = UP_DIV(ic, SRC_UNIT);
      for (int k = 0; k < kernelCount; ++k) {
@@ -167,7 +168,7 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     auto biasPtr = _bias.data();
     auto scalePtr = _scale.data();
     
-    if (USE_EXTERNAL_DATA(conv2d)) {
+    if (USE_EXTERNAL_DATA(conv2d) && conv2d->quanParameter() == nullptr) {
         auto bytes = conv2d->external()->Get(1);
         tempWeightSize = static_cast<int>(bytes / sizeof(float));
         externalWeightTensor.reset(Tensor::createDevice<float>({tempWeightSize}));
@@ -180,10 +181,10 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
         tempWeight = externalWeightTensor->host<float>();
     } else {
         if (CPUBackend::getDataType(input) == DataType_DT_INT8 || input->getType().bytes() == 1) {
-            ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
+            ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
             ModeInt8 = true;
         } else {
-            ConvolutionCommon::getConvParameters(&quanCommon, conv2d, &tempWeight, &tempWeightSize);
+            ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2d, &tempWeight, &tempWeightSize);
         }
     }
 
@@ -192,15 +193,13 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     int srcCount            = mSrcCount;
     
     auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+    
     std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
-    bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
-                   backend->onAcquireBuffer(cache.get(), Backend::STATIC);
+    bool success =  backend->onAcquireBuffer(cache.get(), Backend::STATIC);
     if (!success) {
         mValid = false;
         return;
     }
-    auto dest = mWeight->host<uint8_t>();
     AutoStorage<uint8_t> lowpWeight;
     if (core->bytes < 4) {
         lowpWeight.reset(outputCount * srcCount * fh * fw * core->bytes);
@@ -212,8 +211,21 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
         tempWeight = (float*)lowpWeight.get();
     }
     if (!ModeInt8) {
+        mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+        success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        if (!success) {
+            mValid = false;
+            return;
+        }
+        auto dest = mWeight->host<uint8_t>();
         _transformWeight((uint8_t*)tempWeight, dest, outputCount, srcCount, fh, fw, cache->host<uint8_t>(), core);
     } else {
+        mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+        success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        if (!success) {
+            mValid = false;
+            return;
+        }
         _reorderWeightInt8(backend, layer, quanWeightInt8, mWeight);
     }
     backend->onReleaseBuffer(cache.get(), Backend::STATIC);
@@ -229,6 +241,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     CPUDeconvolutionBasic::onResize(inputs, outputs);
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto gcore = static_cast<CPUBackend*>(backend())->int8Functions();
+    int bytes = core->bytes;
     auto input  = inputs[0];
     auto output = outputs[0];
     auto oc     = output->channel();
@@ -258,6 +271,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     mPostFunctions.clear();
     auto plane         = width * height * batch;
     const int maxDepth = 5;
+    auto allocator = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     //int zeroPoint = 0;
 
     auto biasPtr      = inputs[2]->host<float>();
@@ -272,12 +286,13 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto zeroPoint = outputQuant[1];
 
     AutoRelease<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, core->pack}));
+    bool needReleaseTempInput = true;
     int outi8 = 0;
     if (CPUBackend::getDataType(output) == DataType_DT_INT8 || output->getType().bytes() == 1) {
         outi8 = 1;
     }
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-        mTempOutput.reset(Tensor::createDevice<uint8_t>({batch, ocC4 * kw * kh * core->pack, height, width, core->bytes}, Tensor::CAFFE_C4));
+        mTempOutput.reset(Tensor::createDevice<float>({batch, height, width, ocC4 * kw * kh * core->pack}));
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
@@ -294,28 +309,28 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             return OUT_OF_MEMORY;
         }
         mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
-        tempInput->buffer().host = (uint8_t*)inputPtr;
+        // tempInput->buffer().host = (uint8_t*)inputPtr;
+        
+        needReleaseTempInput = false;
+        TensorUtils::getDescribe(tempInput.get())->mem.reset(new CPUMemObj(nullptr, TensorUtils::getDescribe(input)->mem->chunk(), 0));
         mMatMul->onEncode({tempInput.get(), inputs[1]}, {mTempOutput.get()});
     }
-    auto colBufferPtr = mTempOutput->host<uint8_t>();
     auto threadNumber = ((CPUBackend*)backend())->threadNumber();
     std::vector<float> scales(core->pack * src_height * src_width * batch, scale);
-    
-    std::shared_ptr<Tensor> OutputFloat(Tensor::createDevice<float>(output->shape()));
-    auto res = backend()->onAcquireBuffer(OutputFloat.get(), Backend::DYNAMIC);
-    if (!res) {
+    auto outputFp32Ptr = allocator->alloc(batch * src_height * src_width * ocC4 * core->pack * bytes);
+    if (outputFp32Ptr.invalid()) {
         return OUT_OF_MEMORY;
     }
-    auto outputFp32Ptr = OutputFloat->host<uint8_t>();
 
-    mPostFunctions.emplace_back(std::make_pair([colBufferPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
+    mPostFunctions.emplace_back(std::make_pair([ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
                        strideX, threadNumber, src_width, src_height, plane, biasPtr, this, core, gcore, batch, outi8, scales,
                        minValue, maxValue, zeroPoint, outputFp32Ptr](uint8_t* outputPtr, int tId) {
+        auto colBufferPtr = mTempOutput->host<uint8_t>();
         auto unitBytes = core->pack * core->bytes;
         auto tempOutPtr = outputPtr;
         auto float2Int8_step = src_height * src_width * batch;
         if (outi8) {
-            tempOutPtr = outputFp32Ptr;
+            tempOutPtr = outputFp32Ptr.ptr();
         }
         for (int z = (tId); z < ocC4; z += threadNumber) {
             auto dstZ = tempOutPtr + z * src_height * src_width * batch * unitBytes;
@@ -355,7 +370,16 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             }
         }
     }, threadNumber));
-    if (tempInput->host<float>() != inputPtr) {
+    /*
+    if (TensorUtils::getDescribe(tempInput.get())->mem->chunk().offset() != TensorUtils::getDescribe(input)->mem->chunk().offset()) {
+        backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
+    }
+     if (tempInput->host<float>() != inputPtr) {
+         backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
+     }
+    */
+    allocator->free(outputFp32Ptr);
+    if (needReleaseTempInput) {
         backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
     }
     backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);

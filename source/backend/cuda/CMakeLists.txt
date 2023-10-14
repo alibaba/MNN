@@ -79,12 +79,17 @@ else()
 endif()
 
 option(MNN_CUDA_QUANT "Enable MNN CUDA Quant File" OFF)
+option(MNN_CUDA_BF16 "Enable MNN CUDA Bfloat16 File" OFF)
 
 IF (MNN_CUDA_QUANT)
     add_definitions(-DENABLE_CUDA_QUANT)
 ENDIF()
 
-file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/cutlass/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/int8/*)
+IF (MNN_CUDA_BF16)
+    add_definitions(-DENABLE_CUDA_BF16)
+ENDIF()
+
+file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)
 message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
 
 if(WIN32)
@@ -98,9 +103,15 @@ else()
       target_link_libraries(MNN_Cuda_Main  ${CUDA_INCLUDE_DIRS}/../lib/libnvToolsExt.so)
     endif()
 
+    if(MNN_CODEGEN_CUDA)
+        add_definitions(-DMNN_CODEGEN_CUDA)
+        target_link_libraries(MNN_Cuda_Main ${CUDA_INCLUDE_DIRS}/../lib/libnvrtc.so ${CUDA_INCLUDE_DIRS}/../lib/stubs/libcuda.so)
+    endif()
+
     set(MNN_CUDA_LIBS MNN_Cuda_Main PARENT_SCOPE)
     add_library(MNN_CUDA OBJECT Register.cpp)
 endif()
+
 
 include_directories(
     ${CMAKE_CURRENT_LIST_DIR}/

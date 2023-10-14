@@ -18,7 +18,37 @@
 #include "revertMNNModel.hpp"
 #include "common/CommonCompute.hpp"
 #include "common/MemoryFormater.h"
+#include "IDSTEncoder.hpp"
+#include "core/ConvolutionCommon.hpp"
 
+int SymmetricQuantizeWeight(const float* weight, const int size, int8_t* quantizedWeight, float* scale,
+                            const int channels, float weightClampValue) {
+    const int channelStride     = size / channels;
+    const int quantizedMaxValue = weightClampValue;
+
+    for (int c = 0; c < channels; ++c) {
+        const auto weightChannelStart    = weight + c * channelStride;
+        auto quantizedWeightChannelStart = quantizedWeight + c * channelStride;
+        auto minmaxValue                 = std::minmax_element(weightChannelStart, weightChannelStart + channelStride);
+        const float dataAbsMax           = std::fmax(std::fabs(*minmaxValue.first), std::fabs(*minmaxValue.second));
+
+        float scaleDataToInt8 = 1.0f;
+        if (dataAbsMax == 0) {
+            scale[c] = 0.0f;
+        } else {
+            scale[c]        = dataAbsMax / quantizedMaxValue;
+            scaleDataToInt8 = quantizedMaxValue / dataAbsMax;
+        }
+
+        for (int i = 0; i < channelStride; ++i) {
+            const int32_t quantizedInt8Value = static_cast<int32_t>(roundf(weightChannelStart[i] * scaleDataToInt8));
+            quantizedWeightChannelStart[i] =
+                std::min(quantizedMaxValue, std::max(-quantizedMaxValue, quantizedInt8Value));
+        }
+    }
+
+    return 0;
+}
 
 
 Revert::Revert(const char* originalModelFileName) {
@@ -46,6 +76,56 @@ const size_t Revert::getBufferSize() const {
     return mBufferSize;
 }
 
+void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
+    int opCounts = mMNNNet->oplists.size();
+    for (int opIndex = 0; opIndex < opCounts; ++opIndex) {
+        std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
+        describe->index = opIndex;
+        describe->quantInfo.reset(new MNN::TensorQuantInfoT);
+        describe->quantInfo->scale = *scale;
+        describe->quantInfo->zero = *offset;
+        describe->quantInfo->min = -127;
+        describe->quantInfo->max = 127;
+        describe->quantInfo->type = MNN::DataType_DT_INT8;
+        mMNNNet->extraTensorDescribe.emplace_back(std::move(describe));
+    }
+    for (const auto& op: mMNNNet->oplists) {
+        const auto opType = op->type;
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise && opType != MNN::OpType_Deconvolution) {
+            continue;
+        }
+        // Conv/ConvDepthwise/Deconv weight quant.
+        auto param = op->main.AsConvolution2D();
+        float* originWeight = param->weight.data();
+        int weightSize = param->weight.size();
+        const int channels = param->common->outputCount;
+        param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
+        param->symmetricQuan->nbits = 8;
+        param->common->inputCount = weightSize / (channels * param->common->kernelX * param->common->kernelY);
+        std::vector<int8_t> quantizedWeight(weightSize);
+        std::vector<float> quantizedWeightScale(channels);
+        
+        if (originWeight[0] == 0.f && originWeight[1] == 0.f) { // Process weight is null.
+            // Initialize originWeight
+            std::uniform_real_distribution<double> u(-200, 200);
+            std::default_random_engine e(time(NULL));
+            for (int i = 0; i < weightSize; ++i) {
+                originWeight[i] = u(e);
+            }
+        }
+        
+        SymmetricQuantizeWeight(originWeight, weightSize, quantizedWeight.data(), quantizedWeightScale.data(), channels, 127.0f);
+        param->quanParameter = IDSTEncoder::encode(param->weight.data(), quantizedWeightScale, weightSize/channels, channels, false, quantizedWeight.data(), -127.0f);
+        param->quanParameter->scaleIn = *scale;
+        param->quanParameter->scaleOut = *scale;
+        if (param->common->relu6) {
+            param->common->relu  = true;
+            param->common->relu6 = false;
+        }
+        param->weight.clear();
+    }
+}
+
 void Revert::packMNNNet() {
     flatbuffers::FlatBufferBuilder builder(1024);
     auto offset = MNN::Net::Pack(builder, mMNNNet.get());
@@ -56,7 +136,7 @@ void Revert::packMNNNet() {
     mMNNNet.reset();
 }
 
-void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
+void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite, bool quantizedModel) {
     if (mMNNNet->bizCode == "benchmark" || rewrite) {
         randStart();
         bool useSparse = spasity > 0.5f;
@@ -134,7 +214,15 @@ void Revert::initialize(float spasity, int sparseBlockOC, bool rewrite) {
             }
         }
     }
-
+    if (quantizedModel) {
+        int opsize =  mMNNNet->oplists.size();
+        std::vector<float> scale(opsize);
+        for (int i = 0;i < opsize; ++i) {
+            scale[i] = ((i + 1) / (opsize + 100.0f));
+        }
+        float offset = 0;
+        writeExtraDescribeTensor(scale.data(), &offset);
+    }
     packMNNNet();
 }
 

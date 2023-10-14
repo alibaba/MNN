@@ -24,6 +24,9 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     bool mBroadCast;
     std::string mCompute;
     std::set<std::string> mBuildOptions;

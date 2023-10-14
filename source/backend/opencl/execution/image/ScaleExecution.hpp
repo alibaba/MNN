@@ -14,11 +14,13 @@
 #include <vector>
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class ScaleExecution : public Execution {
+class ScaleExecution : public Execution, public CommonExtension {
 public:
     ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~ScaleExecution();

@@ -18,7 +18,7 @@ namespace MNN {
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type) {
+GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision) {
     mBackend       = allocBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
@@ -28,6 +28,7 @@ GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNFor
     mRasterOp.reset(new BufferStorage);
     mRasterOp->storage = builder.ReleaseRaw(mRasterOp->allocated_size, mRasterOp->offset);
     mForwardType = type;
+    mPrecision = precision;
 }
 void GeometryComputer::Context::pushCache(const CommandBuffer& buffer) {
     for (auto cmd : buffer.command) {
@@ -55,7 +56,7 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
     if (!res) {
         return nullptr;
     }
-    TensorUtils::getDescribe(tensor.get())->backend = mBackend.get();
+    TensorUtils::getDescribe(tensor.get())->setBackend(mBackend.get());
     auto iter = mConstTensors.find(key);
     if (iter != mConstTensors.end()) {
         iter->second.emplace_back(tensor);
@@ -71,7 +72,7 @@ bool GeometryComputer::Context::allocTensor(Tensor* tensor) {
         return false;
     }
     TensorUtils::getDescribe(tensor)->usage = Tensor::InsideDescribe::CONSTANT;
-    TensorUtils::getDescribe(tensor)->backend = mBackend.get();
+    TensorUtils::getDescribe(tensor)->setBackend(mBackend.get());
     return true;
 }
 

@@ -67,6 +67,10 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     param->stride_o[1] = 0;
     param->stride_o[0] = h;
     param->stride_o[2] = 1;
+    param->stride_c[0] = 0;
+    param->stride_c[1] = 0;
+    param->stride_c[2] = 1;
+    param->stride_c[0] = 0;
     param->iter[0] = -1;
     param->iter[1] = -1;
     param->iter[2] = -1;

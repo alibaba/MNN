@@ -22,7 +22,7 @@ protected:
     template<typename Tin, typename Tout>
     bool test(VARP (*opFunc)(VARP, VARP), string name, float threshold,
               const vector<Tin>& data_x, const vector<Tin>& data_y, const vector<Tout>& data_out,
-              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={}, const vector<float> zeroPoints={}) {
+              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out, const vector<float> quantScales={-100.f, -100.f, -100.f}, const vector<float> zeroPoints={-100.f, -100.f, -100.f}, Dimensionformat format = NCHW) {
         int size_x = 1, size_y = 1, size_out = 1;
         for (int i = 0; i < shape_x.size(); ++i) {
             size_x *= shape_x[i];
@@ -34,13 +34,15 @@ protected:
             size_out *= shape_out[i];
         }
 
-        auto input_x = _Input(shape_x, NCHW, halide_type_of<Tin>());
-        auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
+        auto input_x = _Input(shape_x, format, halide_type_of<Tin>());
+        auto input_y = _Input(shape_y, format, halide_type_of<Tin>());
         input_x->setName("input_x");
         input_y->setName("input_y");
-        if (quantScales.size() > 1) {
-        input_x->writeScaleMap(quantScales[0], zeroPoints[0]);
-        input_y->writeScaleMap(quantScales[1], zeroPoints[1]);
+        if (quantScales[0] != -100) { // -100 means invalid scale.
+            input_x->writeScaleMap(quantScales[0], zeroPoints[0]);
+        }
+        if (quantScales[1] != -100) {
+            input_y->writeScaleMap(quantScales[1], zeroPoints[1]);
         }
         // set input data
         auto ptr_x = input_x->template writeMap<Tin>();
@@ -51,7 +53,7 @@ protected:
         input_x->unMap();
         input_y->unMap();
         auto output = opFunc(input_x, input_y);
-        if (quantScales.size() > 0){
+        if (quantScales[2] != -100){
             output->writeScaleMap(quantScales[2], zeroPoints[2]);
         }
         auto gotOutput = output->template readMap<Tout>();
@@ -99,11 +101,15 @@ class AddInt8Test : public BinaryTestCommon {
     public: 
         virtual ~AddInt8Test() = default;
         virtual bool run(int precision) {
-        vector<float> inp2 = {1.1, 2.2, 3.3, 4.6}, inp1 = {2};
-            vector<float> rightResult = {3.1, 4.2, 5.3, 6.6};
-
-        return test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {4}, {4}, {0.4, 0.4, 0.4},
+        vector<float> inp2 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6}, inp1 = {2};
+        vector<float> rightResult = {3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6};
+        printf("AddInt8 test zeropoint is zero\n");
+        bool res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {32}, {32}, {0.4, 0.4, 1.0},
                                   {0., 0., 0.});
+        printf("AddInt8 test zeropoint is not zero\n");
+        res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {32}, {32}, {0.4, 0.4, 1.0},
+                                  {1., 2., 3.});
+        return res;
         }
 };
 
@@ -111,9 +117,13 @@ class SubtractTest : public BinaryTestCommon {
 public:
     virtual ~SubtractTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
+        bool result = test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
                     {4}, {4}, {4});
+        result = result && test<float, float>(MNN::Express::_Subtract, "SubtractTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
+                    {4}, {4}, {4}, {0.2, -100, 0.2}, {0, 0, 0});
+        return result;
     }
 };
 class SubtractInt8Test : public BinaryTestCommon {
@@ -123,9 +133,13 @@ class SubtractInt8Test : public BinaryTestCommon {
         vector<float> inp1 = {7.0, 28.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6,1.1, 2.2, 3.3, 4.6,1.1, 2.2, 3.3, 4.6}, inp2 = {5.7};
         vector<float> rightResult = {1.3, 22.5, -2.4, -1.1, -4.6, -3.5, -2.4, -1.1, -4.6, -3.5, -2.4,
                                     -1.1, -4.6, -3.5, -2.4, -1.1};
-
-        return test<float, float>(MNN::Express::_Subtract, "SubtractInt8Test", 0.01, inp1, inp2, rightResult,
-                                  {4, 4}, {1}, {4, 4}, {0.4, 0.4, 0.4}, {0., 0., 0.});
+        printf("SubtractInt8 test zeropoint is zero\n");
+        bool res = test<float, float>(MNN::Express::_Subtract, "SubtractInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {4, 4}, {1}, {4, 4}, {0.4, 0.4, 1.0}, {0., 0., 0.});
+        printf("SubtractInt8 test zeropoint is not zero\n");
+        res = test<float, float>(MNN::Express::_Subtract, "SubtractInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {4, 4}, {1}, {4, 4}, {0.4, 0.4, 1.0}, {1., 2., 3.});
+        return res;
         }
 };
 
@@ -142,10 +156,15 @@ class MultiplyInt8Test : public BinaryTestCommon {
 public:
     virtual ~MultiplyInt8Test() = default;
     virtual bool run(int precision) {
-        vector<float> inp1 = {1.1, 2.2, 3.3, 4.6}, inp2 = {5.7, 2.5, 0.25, 0.43};
-        vector<float> rightResult = {6.27 , 5.5  , 0.825, 1.978};
-        return test<float, float>(MNN::Express::_Multiply, "MultiplyInt8Test", 0.01, inp1, inp2, rightResult,
-                                  {4}, {4}, {4}, {0.4, 0.4, 0.16}, {0., 0., 0.});
+        vector<float> inp1 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6,}, inp2 = {5.7, 2.5, 0.25, 0.43, 5.7, 2.5, 0.25, 0.43, 5.7, 2.5, 0.25, 0.43, 5.7, 2.5, 0.25, 0.43};
+        vector<float> rightResult = {6.27 , 5.5 , 0.825, 1.978, 6.27 , 5.5 , 0.825, 1.978, 6.27 , 5.5 , 0.825, 1.978, 6.27 , 5.5 , 0.825, 1.978};
+        printf("MultiplyInt8 test zeropoint is zero\n");
+        bool res = test<float, float>(MNN::Express::_Multiply, "MultiplyInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {16}, {16}, {16}, {0.4, 0.4, 0.16}, {0., 0., 0.});
+        printf("MultiplyInt8 test zeropoint is not zero\n");
+        res = test<float, float>(MNN::Express::_Multiply, "MultiplyInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {16}, {16}, {16}, {0.4, 0.4, 0.16}, {1., 2., 3.});
+        return res;
     }
 };
 
@@ -164,8 +183,13 @@ public:
     virtual bool run(int precision) {
         vector<float> inp1 = {1.1, 2.2, 3.3, 4.6}, inp2 = {5.7, 2.5, 2.6, 1.88};
         vector<float> rightResult = {0.19298,  0.88, 1.269, 2.4468};
-        return test<float, float>(MNN::Express::_Divide, "DivideInt8Test", 0.01, inp1, inp2, rightResult,
+        printf("DivedeInt8 test zero point is zero\n");
+        bool res = test<float, float>(MNN::Express::_Divide, "DivideInt8Test", 0.01, inp1, inp2, rightResult,
                                   {4}, {4}, {4}, {0.4, 0.4, 1.0}, {0., 0., 0.});
+        printf("DivedeInt8 test zero point is not zero\n");
+        res = test<float, float>(MNN::Express::_Divide, "DivideInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {4}, {4}, {4}, {0.4, 0.4, 1.0}, {0., 2., 0.});
+        return res;
     }
 };
 
@@ -174,9 +198,13 @@ public:
     virtual ~PowTest() = default;
     virtual bool run(int precision) {
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 10;
-        return test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
+        bool result = test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
                     {4}, {4}, {4});
+        result = result && test<float, float>(MNN::Express::_Pow, "PowTest", 0.01 * errorScale,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
+                    {4}, {4}, {4}, {0.3, 0.3, -100}, {0, 0, 0});
+        return result;
     }
 };
 class PowInt8Test : public BinaryTestCommon {
@@ -205,8 +233,11 @@ public:
     virtual bool run(int precision) {
         vector<float> inp1 = {-1.2, -5.0, 8, 10}, inp2 = {9.3, 3.1, 11.0, 2.9};
         vector<float> rightResult = {-1.2, -5.0, 8, 2.9};
-        return test<float, float>(MNN::Express::_Minimum, "MinimumInt8Test", 0.01, inp1, inp2, rightResult,
-                                  {4}, {4}, {4}, {0.4, 0.4, 0.4}, {0., 0., 0.});
+        bool res = test<float, float>(MNN::Express::_Minimum, "MinimumInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {4}, {4}, {4}, {0.4, 0.4, 1.0}, {0., 0., 0.});
+        res = test<float, float>(MNN::Express::_Minimum, "MinimumInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {4}, {4}, {4}, {0.4, 0.4, 1.0}, {1., 2., 3.});
+        return res;
     }
 };
 
@@ -223,10 +254,15 @@ class MaximumInt8Test : public BinaryTestCommon {
 public:
     virtual ~MaximumInt8Test() = default;
     virtual bool run(int precision) {
-        vector<float> inp1 = {-1, -5, 8, 10}, inp2 = {9};
-        vector<float> rightResult = {9, 9, 9, 10};
-        return test<float, float>(MNN::Express::_Maximum, "MaximumInt8Test", 0.01, inp1, inp2, rightResult,
-                                  {4}, {1}, {4}, {0.4, 0.4, 0.4}, {0., 0., 0.});
+        vector<float> inp1 = {-1, -5, 8, 10, -1, -5, 8, 10,-1, -5, 8, 10,-1, -5, 8, 10,-1, -5, 8, 10,-1, -5, 8, 10,-1, -5, 8, 10,-1, -5, 8, 10}, inp2 = {9};
+        vector<float> rightResult = {9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,9, 9, 9, 10,};
+        printf("MaximumInt8 test zeropoint is zero\n");
+        bool res = test<float, float>(MNN::Express::_Maximum, "MaximumInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {32}, {1}, {32}, {0.4, 0.4, 1.0}, {0., 0., 0.});
+        printf("MaximumInt8 test zeropoint is not zero\n");
+        res = test<float, float>(MNN::Express::_Maximum, "MaximumInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {32}, {1}, {32}, {0.4, 0.4, 1.0}, {1., 2., 5.});
+        return res;
     }
 };
 
@@ -350,8 +386,13 @@ public:
     virtual bool run(int precision) {
         vector<float> inp1 = {-1, -2, -3, -4, 5, 6, 7, 8, -1, -2, -3, -4, 5, 6, 7, 8, -1, -2, -3, -4, 5, 6, 7, 8, -1, -2, -3, -4, 5, 6, 7, 8}, inp2 = {3};
         vector<float> rightResult = {16, 25, 36, 49, 4, 9, 16, 25, 16, 25, 36, 49, 4, 9, 16, 25, 16, 25, 36, 49, 4, 9, 16, 25, 16, 25, 36, 49, 4, 9, 16, 25};
-        return test<float, float>(MNN::Express::_SquaredDifference, "SquaredDifferenceInt8Test", 0.01, inp1, inp2, rightResult,
+        printf("SqdInt8 test zeropoint is zero\n");
+        bool res = test<float, float>(MNN::Express::_SquaredDifference, "SquaredDifferenceInt8Test", 0.01, inp1, inp2, rightResult,
                                   {8, 4}, {1}, {8, 4}, {1, 1, 1}, {0., 0., 0.});
+        printf("SqdInt8 test zeropoint is not zero\n");
+        res = test<float, float>(MNN::Express::_SquaredDifference, "SquaredDifferenceInt8Test", 0.01, inp1, inp2, rightResult,
+                                  {8, 4}, {1}, {8, 4}, {1, 1, 1}, {2., 0., 1.});
+        return res;
     }
 };
 
@@ -552,6 +593,42 @@ public:
     }
 };
 
+class AddC4Test : public BinaryTestCommon {
+public:
+    virtual ~AddC4Test() = default;
+    virtual bool run(int precision) {
+        {
+            vector<float> inp2 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6}, inp1 = {2};
+            vector<float> rightResult = {3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6};
+            bool res = test<float, float>(MNN::Express::_Add, "AddInt8C4Test", 0.01, inp1, inp2, rightResult, {1, 1, 1, 1}, {1, 32, 1, 1}, {1, 32, 1, 1}, {0.4, 0.4, 1.0},
+                                      {1., 2., 3.}, NC4HW4);
+            if (!res) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        std::vector<float> i1 = {
+            -1.0, -2.0, 0.f, 0.f
+            -3.0, -4.0, 0.f, 0.f
+            -5.0, -6.0, 0.f, 0.f
+            -7.0, -8.0, 0.f, 0.f
+        };
+        std::vector<float> i0 = {
+            1.0f, 0.0f, 0.f, 0.f
+        };
+        std::vector<float> i2 = {
+            0.0, -1.0, 0.f, 0.f
+            -2.0, -3.0, 0.f, 0.f
+            -4.0, -5.0, 0.f, 0.f
+            -6.0, -7.0, 0.f, 0.f
+        };
+        return test<float, float>(MNN::Express::_BiasAdd, "AddC4FloatTest", 0.01,
+                    i0, i1, i2,
+                                  {1, 1, 1, 1}, {4, 2, 1, 1}, {4, 2, 1, 1}, {-100.f, -100.f, -100.f}, {-100.f, -100.f, -100.f}, NC4HW4);
+
+    }
+};
+
 // Float32 OpTest.
 MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
@@ -592,3 +669,5 @@ MNNTestSuiteRegister(FloorDivInt8Test, "op/binary/floordivInt8");
 MNNTestSuiteRegister(FloorModInt8Test, "op/binary/floormodInt8");
 MNNTestSuiteRegister(Atan2Int8Test, "op/binary/atan2Int8");
 MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
+
+MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");

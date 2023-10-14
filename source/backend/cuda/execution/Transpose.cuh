@@ -30,7 +30,7 @@ void UnpackFP16ToFP32(void* output, const void* input, const PackInfo* info, CUD
 void UnpackFP32ToFP16(void* output, const void* input, const PackInfo* info, CUDARuntime* runtime);
 
 void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN_DATA_FORMAT dstDataFormat, CUDARuntime* runtime, \
-    const int area, const int batch, const int channel, const Tensor* srcTensor, bool isFp16, bool srcDevice, bool dstDevice);
+    const int area, const int batch, const int channel, const Tensor* srcTensor, int precision, bool srcDevice, bool dstDevice);
 
 struct TransposeParam {
     int dims[4];

@@ -33,7 +33,7 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
     mKernelInfo.kernelN = common->outputCount();
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
 
@@ -155,7 +155,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
 
     // Alloc temp cuda memory
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    std::pair<void*, size_t> buffer_input, buffer_im2col;
+    MemChunk buffer_input, buffer_im2col;
     if(mFp16Fp32MixInfer) {
         buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elhPad[1] * mGemmInfo.elh[2]);
         mInputBuffer = (void*)((uint8_t*)buffer_input.first + buffer_input.second);

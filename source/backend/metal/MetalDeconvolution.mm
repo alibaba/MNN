@@ -139,7 +139,7 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     // forcy downgrade to float like what CPU does
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (deconv->quanParameter()) {
-        qnt = ConvolutionCommon::load(deconv->quanParameter(), true);
+        qnt = ConvolutionCommon::load(deconv, backend, true);
     }
     mWeight = weightForDeconv(context, mDepthwise, deconv, qnt.get());
     mBias   = biasForDeconv(context, deconv);

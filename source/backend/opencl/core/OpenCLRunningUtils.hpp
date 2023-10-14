@@ -125,6 +125,16 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
 
+void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+                    OpenCLRuntime *runtime);
+
+void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+                    OpenCLRuntime *runtime);
+
+void startRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording);
+
+void endRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif  /* OpenCLRunningUtils_hpp */

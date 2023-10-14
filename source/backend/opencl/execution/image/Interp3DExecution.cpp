@@ -1,5 +1,5 @@
 //
-//  InterpExecution.cpp
+//  Interp3DExecution.cpp
 //  MNN
 //
 //  Created by MNN on 2019/02/28.
@@ -40,6 +40,7 @@ ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     std::vector<int> inputImageShape  = tensorShapeFormat(input); // {C/4 * H * W, N * D} for 5-D Tensor
     std::vector<int> outputImageShape = tensorShapeFormat(output);
@@ -65,25 +66,29 @@ ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const
     MNN_ASSERT(outputDepth > 0 && outputHeight > 0 && outputWidth > 0);
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGWS[0]);
-    mKernel.setArg(idx++, mGWS[1]);
-    mKernel.setArg(idx++, mGWS[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, openCLImage(output));
-    mKernel.setArg(idx++, mCordTransform[4]);
-    mKernel.setArg(idx++, mCordTransform[2]);
-    mKernel.setArg(idx++, mCordTransform[0]);
-    mKernel.setArg(idx++, mCordTransform[5]);
-    mKernel.setArg(idx++, mCordTransform[3]);
-    mKernel.setArg(idx++, mCordTransform[1]);
-    mKernel.setArg(idx++, static_cast<int32_t>(inputDepth));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputDepth));
-    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-    
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGWS[0]);
+    ret |= mKernel.setArg(idx++, mGWS[1]);
+    ret |= mKernel.setArg(idx++, mGWS[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    ret |= mKernel.setArg(idx++, mCordTransform[4]);
+    ret |= mKernel.setArg(idx++, mCordTransform[2]);
+    ret |= mKernel.setArg(idx++, mCordTransform[0]);
+    ret |= mKernel.setArg(idx++, mCordTransform[5]);
+    ret |= mKernel.setArg(idx++, mCordTransform[3]);
+    ret |= mKernel.setArg(idx++, mCordTransform[1]);
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputDepth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputDepth));
+    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg Intep3DExecution");
+
     std::string name = "interp3D";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, name, mKernel).first;
+    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 
 }
@@ -98,9 +103,16 @@ ErrorCode Interp3DExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Interp3D\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp3D", event});
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End Interp3DExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
 

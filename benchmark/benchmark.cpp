@@ -31,6 +31,7 @@
 #include <MNN/Interpreter.hpp>
 #include <MNN/MNNDefine.h>
 #include <MNN/Tensor.hpp>
+#include <MNN/AutoTime.hpp>
 #include "revertMNNModel.hpp"
 
 /**
@@ -116,9 +117,14 @@ static inline uint64_t getTimeInUs() {
 }
 
 std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward = MNN_FORWARD_CPU, bool only_inference = true,
-                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1) {
+                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
-    revertor->initialize(sparsity, sparseBlockOC);
+    if (testQuantModel) {
+        revertor->initialize(0, sparseBlockOC, false, true);
+    } else {
+        revertor->initialize(sparsity, sparseBlockOC);
+    }
+
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
@@ -162,19 +168,19 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     }
 
     for (int round = 0; round < loop; round++) {
-        auto timeBegin = getTimeInUs();
+        MNN::Timer _t;
         void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType());
         input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType(), host);
         net->runSession(session);
         host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType());
         outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType(), host);
-        auto timeEnd = getTimeInUs();
-        costs.push_back((timeEnd - timeBegin) / 1000.0);
+        auto time = (float)_t.durationInUs() / 1000.0f;
+        costs.push_back(time);
     }
     return costs;
 }
 
-void displayStats(const std::string& name, const std::vector<float>& costs) {
+void displayStats(const std::string& name, const std::vector<float>& costs, int quant = 0) {
     float max = 0, min = FLT_MAX, sum = 0, avg;
     for (auto v : costs) {
         max = fmax(max, v);
@@ -183,7 +189,11 @@ void displayStats(const std::string& name, const std::vector<float>& costs) {
         //printf("[ - ] cost：%f ms\n", v);
     }
     avg = costs.size() > 0 ? sum / costs.size() : 0;
-    printf("[ - ] %-24s    max = %8.3f ms  min = %8.3f ms  avg = %8.3f ms\n", name.c_str(), max, avg == 0 ? 0 : min, avg);
+    std::string model = name;
+    if (quant == 1) {
+        model = "quant-" + name;
+    }
+    printf("[ - ] %-24s    max = %8.3f ms  min = %8.3f ms  avg = %8.3f ms\n", model.c_str(), max, avg == 0 ? 0 : min, avg);
 }
 static inline std::string forwardType(MNNForwardType type) {
     switch (type) {
@@ -377,12 +387,13 @@ int main(int argc, const char* argv[]) {
     int loop               = 10;
     int warmup             = 10;
     MNNForwardType forward = MNN_FORWARD_CPU;
+    int testQuantizedModel = 0;
     int numberThread       = 4;
     int precision = 2;
     float sparsity = 0.0f;
     int sparseBlockOC = 1;
     if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity] [testQuantizedModel]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
@@ -397,30 +408,45 @@ int main(int argc, const char* argv[]) {
     if (argc >= 6) {
         numberThread = atoi(argv[5]);
     }
-
     if (argc >= 7) {
         precision = atoi(argv[6]);
     }
-
-    if(argc >= 8) {
+    if (argc >= 8) {
         sparsity = atof(argv[7]);
     }
-
     if(argc >= 9) {
         sparseBlockOC = atoi(argv[8]);
     }
+    if(argc >= 10) {
+        testQuantizedModel = atoi(argv[9]);
+    }
 
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << std::endl;
+    std::cout << "Forward type: " << forwardType(forward) << " thread=" << numberThread << " precision=" <<precision << " sparsity=" <<sparsity << " sparseBlockOC=" << sparseBlockOC << " testQuantizedModel=" << testQuantizedModel << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
+    std::string fpInfType = "precision!=2, use fp32 inference.";
+    if (precision == 2) {
+        fpInfType = "precision=2, use fp16 inference if your device supports and open MNN_ARM82=ON.";
+    }
+    MNN_PRINT("[-INFO-]: %s\n", fpInfType.c_str());
+    if (testQuantizedModel) {
+        MNN_PRINT("[-INFO-]: Auto set sparsity=0 when test quantized model in benchmark...\n");
+    }
 
     /* not called yet */
     // set_cpu_affinity();
+    if (testQuantizedModel) {
+        printf("Auto set sparsity=0 when test quantized model in benchmark...\n");
+    }
 
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC);
-        displayStats(m.name, costs);
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, false);
+        displayStats(m.name.c_str(), costs, false);
+        if (testQuantizedModel) {
+            costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, true);
+            displayStats(m.name, costs, 1);
+        }
     }
 }
 #endif

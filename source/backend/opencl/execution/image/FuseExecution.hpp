@@ -12,11 +12,13 @@
 #include <vector>
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class FuseExecution : public Execution {
+class FuseExecution : public Execution, public CommonExtension {
 public:
     FuseExecution(const std::vector<Tensor *> &inputs, Backend *backend, const Op* op);
 

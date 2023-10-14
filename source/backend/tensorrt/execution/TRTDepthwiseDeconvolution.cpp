@@ -35,7 +35,7 @@ std::vector<ITensor *> TRTDepthwiseDeconvolution::onEncode(const std::vector<ITe
     int weightSize      = 0;
     
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv2D, &source, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend(), conv2D, &source, &weightSize);
 
     nvinfer1::DimsHW NVKSize(kernelY, kernelX);
     nvinfer1::DimsHW NVKSSize(conv2DCommon->strideY(), conv2DCommon->strideX());

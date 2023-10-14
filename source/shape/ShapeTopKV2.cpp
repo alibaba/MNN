@@ -44,5 +44,5 @@ class TopKV2SizeComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE_INPUTS(TopKV2SizeComputer, OpType_TopKV2, {1});
+REGISTER_SHAPE_INPUTS(TopKV2SizeComputer, OpType_TopKV2, (std::vector<int>{1,2}));
 } // namespace MNN

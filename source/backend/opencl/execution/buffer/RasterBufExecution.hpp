@@ -28,6 +28,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    bool CanCombine(const std::vector<Tensor *> &outputs);
     std::map<Tensor*, cl::Buffer *> mTempInput;
     cl::Buffer *mTempOutput;
     OpenCLBackend *mOpenCLBackend;

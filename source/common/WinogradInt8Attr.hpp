@@ -36,9 +36,9 @@ public:
             MNN_ERROR("Invalid origin conv op\n");
             return nullptr;
         }
-        auto op = originConv->expr().first->get()->UnPack();
+        std::unique_ptr<MNN::OpT> op( originConv->expr().first->get()->UnPack());
         op->main.AsConvolution2D()->symmetricQuan->winogradAttr = encode();
-        return (Express::Variable::create(Express::Expr::create(op, originConv->expr().first->inputs())));
+        return (Express::Variable::create(Express::Expr::create(op.get(), originConv->expr().first->inputs())));
     }
     std::vector<Attr> attrs;
 private:

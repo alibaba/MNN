@@ -8,14 +8,14 @@
 
 #include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 #include "backend/cpu/compute/ConvolutionGroup.hpp"
-#include "backend/cpu/compute/ConvolutionInt8Executor.hpp"
+#include "backend/cpu/compute/IdstConvolutionInt8.hpp"
 
 namespace MNN {
 Execution *ConvolutionIntFactory::createUnit(const Tensor *input, const Tensor *output, const MNN::Op *op,
                                              Backend *backend, const ConvolutionCommon::Int8Common *common, const float *bias,
                                              size_t biasSize) {
     auto conv2d = op->main_as_Convolution2D();
-    return new ConvolutionInt8Executor(conv2d->common(), backend, common, bias, biasSize);
+    return new IdstConvolutionInt8(conv2d->common(), backend, common, bias, biasSize);
 }
 
 Execution *ConvolutionIntFactory::create(const Tensor *input, const Tensor *output, const MNN::Op *op, Backend *backend,

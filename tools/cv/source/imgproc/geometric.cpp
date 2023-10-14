@@ -9,6 +9,7 @@
 #include "cv/imgproc/geometric.hpp"
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <MNN/expr/MathOp.hpp>
+#include <cmath>
 
 namespace MNN {
 namespace CV {

@@ -25,6 +25,9 @@ struct Command : public RefCount {
     std::shared_ptr<BufferStorage> buffer;
     std::shared_ptr<Execution> execution;
     std::shared_ptr<OperatorInfo> info;
+    #ifdef MNN_BUILD_CODEGEN
+    bool canVectorize = false;
+    #endif
 };
 struct CommandBuffer {
     std::vector<SharedPtr<Command>> command;

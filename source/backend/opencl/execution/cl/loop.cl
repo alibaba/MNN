@@ -89,10 +89,17 @@ __kernel void tile(__private int global_dim0, __private int global_dim1, __priva
         const int h = pos.x / width;
         const int c = pos.y << 2;
 
+#ifdef MNN_NHWC
+        const int c_dst_pitch = 1;
+        const int x_dst_pitch = c_dst_pitch * channel;
+        const int y_dst_pitch = x_dst_pitch * width;
+        const int b_dst_pitch = y_dst_pitch * height;
+#else
         const int x_dst_pitch = 1;
         const int y_dst_pitch = x_dst_pitch * width;
         const int c_dst_pitch = y_dst_pitch * height;
         const int b_dst_pitch = c_dst_pitch * channel;
+#endif
         __global FLOAT* dst_ptr = output + pos.z * b_dst_pitch + c * c_dst_pitch + h * y_dst_pitch + w * x_dst_pitch;
         
         FLOAT4 value = RI_F(input, SAMPLER, (int2)(pos.y * width + w, pos.z * height + h));
@@ -118,10 +125,17 @@ __kernel void pack(__private int global_dim0, __private int global_dim1, __priva
         const int h = pos.x / width;
         const int c = pos.y << 2;
 
+#ifdef MNN_NHWC
+        const int c_src_pitch = 1;
+        const int x_src_pitch = c_src_pitch * channel;
+        const int y_src_pitch = x_src_pitch * width;
+        const int b_src_pitch = y_src_pitch * height;
+#else
         const int x_src_pitch = 1;
         const int y_src_pitch = x_src_pitch * width;
         const int c_src_pitch = y_src_pitch * height;
         const int b_src_pitch = c_src_pitch * channel;
+#endif
         __global FLOAT* src_ptr = input + pos.z * b_src_pitch + c * c_src_pitch + h * y_src_pitch + w * x_src_pitch;
         FLOAT4 value = (FLOAT4)0;
         FLOAT *value_ptr = (FLOAT*)&value;
@@ -158,3 +172,52 @@ __kernel void batch_gather(__private int global_dim0, __private int global_dim1,
         output[offset.x + stride_dst.w + x * stride_dst.x + y * stride_dst.y + pos.y * stride_dst.z] = input[offset.y + stride_src.w + x * stride_src.x + y * stride_src.y + pos.y * stride_src.z];
     }
 }
+
+#ifdef LOOP_BINARY_OPERATOR
+__kernel void broadcast_binary(__private int global_dim0, __private int global_dim1, __private int global_dim2,
+                         __write_only image2d_t output, __read_only image2d_t input0, __read_only image2d_t input1,
+                         __private const int4 src0_size, //(width, height, channel, batch)
+                         __private const int4 src1_size,
+                         __private const int dst_width, __private const int dst_height,
+                         __private const int channel_block) {
+    int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
+    
+    if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
+        
+        const int w = pos.x;
+        const int h = pos.y;
+        const int c = pos.z % channel_block;
+        const int n = pos.z / channel_block;
+        
+        FLOAT4 in0 = RI_F(input0, SAMPLER, (int2)(c * src0_size.x + w, n * src0_size.y + h));
+#ifdef BROADCAST_CHANNEL
+        const int w1 = w % src1_size.x;
+        const int h1 = h % src1_size.y;
+        const int n1 = n % src1_size.w;
+        const int c1 = c << 2;
+        int4 c1_vec = (int4)(c1, c1 + 1, c1 + 2, c1 + 3);
+        c1_vec = c1_vec % (int4)(src1_size.z);
+        int4 c4_vec = (c1_vec + 3) / 4;
+        FLOAT4 in1;
+        FLOAT* in1_ptr = (FLOAT*)&in1;
+        int* c1_vec_prt = (int*)&c1_vec;
+        int* c4_vec_prt = (int*)&c4_vec;
+        for(int i = 0; i < 4; ++i){
+            int remain = (c4_vec_prt[i] << 2) - c1_vec_prt[i];
+            FLOAT4 tmp = RI_F(input1, SAMPLER, (int2)(c4_vec_prt[i] * src1_size.x + w1, n1 * src1_size.y + h1));
+            FLOAT* tmp_ptr = (FLOAT*)&tmp;
+            in1_ptr[i] = tmp_ptr[remain];
+        }
+#else
+        const int w1 = w % src1_size.x;
+        const int h1 = h % src1_size.y;
+        const int c1 = c;
+        const int n1 = n % src1_size.w;
+        FLOAT4 in1 = RI_F(input1, SAMPLER, (int2)(c1 * src1_size.x + w1, n1 * src1_size.y + h1));
+#endif
+        FLOAT4 out = CONVERT_FLOAT4(LOOP_BINARY_OPERATOR);
+        WI_F(output, (int2)(c * dst_width + w, n * dst_height + h), out);
+    }
+}
+#endif
+

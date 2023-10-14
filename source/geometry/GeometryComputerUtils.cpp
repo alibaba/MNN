@@ -86,6 +86,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
         auto dims = SizeComputer::needInputContent(info.op, info.inputs.size());
         for (auto index : dims) {
             if (index < info.inputs.size()) {
+                TensorUtils::getDescribe(info.inputs[index])->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
                 if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::CONSTANT) {
                     breakIndex = infoIndex;
                     TensorUtils::getDescribe(info.inputs[index])->usage = Tensor::InsideDescribe::CONSTANT;
@@ -123,6 +124,9 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
     }
     for (auto& info : infos) {
         if (info.type == Schedule::CONSTANT) {
+            for (auto t : info.inputs) {
+                TensorUtils::getDescribe(t)->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
+            }
             for (auto t : info.outputs) {
                 TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
             }
@@ -135,7 +139,9 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
     std::shared_ptr<Backend> backupBackend,
-    Runtime::CompilerType compileType, bool skipShapeCompute) {
+    Runtime::CompilerType compileType, 
+    bool skipShapeCompute,
+    bool permitCodegen) {
     /** Size Compute and compute Const Begin */
     GeometryComputer::Context ctx(backupBackend);
     // Size Compute and compute Const
@@ -159,8 +165,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 t->buffer().dim = TensorUtils::getDescribe(t)->dims;
                 TensorUtils::getDescribe(t)->usage = usage;
             } else {
-                TensorUtils::getDescribeOrigin(t)->mContent->backend = nullptr;
-                if (info.type != Schedule::CONSTANT) {
+                if (info.type != Schedule::CONSTANT && usage != Tensor::InsideDescribe::TRAINABLE) {
+                    TensorUtils::getDescribeOrigin(t)->mContent->setBackend(nullptr);
                     // TODO: If output is static and length larger than new size, don't clear mem
                     TensorUtils::getDescribeOrigin(t)->mContent->mem.reset(nullptr);
                 }
@@ -221,16 +227,19 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
                 for (auto t : c.outputs) {
                     auto des = TensorUtils::getDescribe(t);
-                    if (des->backend == nullptr) {
-                        TensorUtils::setLinearLayout(t);
-                        auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
-                        if (!res) {
-                            return OUT_OF_MEMORY;
-                        }
-                        des->backend = backupBackend.get();
+                    TensorUtils::setLinearLayout(t);
+                    auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
+                    if (!res) {
+                        return OUT_OF_MEMORY;
                     }
+                    des->setBackend(backupBackend.get());
                 }
+                backupBackend->onResizeBegin();
                 auto code = exe->onResize(c.inputs, c.outputs);
+                if (NO_ERROR != code) {
+                    return NOT_SUPPORT;
+                }
+                code = backupBackend->onResizeEnd();
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
@@ -290,7 +299,39 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
 
     
 #ifdef MNN_BUILD_CODEGEN
-    opFuse(infos, geoContext.forwardType());
+    if(permitCodegen) {
+        #ifdef LOG_VERPOSE
+        MNN_PRINT("infos : [\n");
+        for (auto info : infos) {
+            auto& cmds = info.executeBuffer.command;
+            for (auto cmd : cmds) {
+                MNN_PRINT("\t%s", EnumNameOpType(cmd->op->type()));
+                if(cmd->op->type() == OpType_BinaryOp) {
+                    MNN_PRINT(" %d ", cmd->op->main_as_BinaryOp()->opType());
+                }
+                if(cmd->op->type() == OpType_UnaryOp) {
+                    MNN_PRINT(" %d ", cmd->op->main_as_UnaryOp()->opType());
+                }
+                MNN_PRINT("\n");
+            }
+        }
+        MNN_PRINT("]\n");
+        MNN_PRINT("==================== opFuse ====================\n");
+        #endif
+
+        opFuse(infos, geoContext.forwardType(), geoContext.precisionType());
+
+        #ifdef LOG_VERPOSE
+        MNN_PRINT("infos : [\n");
+        for (auto info : infos) {
+            auto& cmds = info.executeBuffer.command;
+            for (auto cmd : cmds) {
+                MNN_PRINT("\t%s\n", EnumNameOpType(cmd->op->type()));
+            }
+        }
+        MNN_PRINT("]\n");
+        #endif
+    }
 #endif
     return NO_ERROR;
 }

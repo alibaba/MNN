@@ -27,11 +27,15 @@ ErrorCode CPUUnique::onExecute(const std::vector<Tensor *> &inputs, const std::v
             idx_map[value] = outputSize++;
         }
     }
+    outputSize  = 0;
     if (outputs.size() > 1) {
         auto outIdx = outputs[1]->host<int>();
         for (int i = 0; i < eleSize; ++i) {
             auto value = input->host<int32_t>()[i];
-            outIdx[i] = idx_map[value];
+            if (idx_map.find(value) == idx_map.end()) {
+                outIdx[outputSize] = idx_map[value];
+                outputSize++;
+            }
         }
     }
     return NO_ERROR;

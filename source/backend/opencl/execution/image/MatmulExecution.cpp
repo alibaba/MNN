@@ -19,6 +19,7 @@ MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN:
 }
 ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runtime, mRecording);
 
     Tensor *input0 = inputs[0];
     Tensor *input1 = inputs[1];
@@ -56,19 +57,22 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         const int heightblocks        = UP_DIV(height, 4);
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(heightblocks)};
-            int idx            = 0;
-            mKernel.setArg(idx++, mGlobalWorkSize[0]);
-            mKernel.setArg(idx++, mGlobalWorkSize[1]);
-            mKernel.setArg(idx++, openCLImage(input0));
-            mKernel.setArg(idx++, openCLImage(input1));
-            if(inputs.size() > 2) {
-                mKernel.setArg(idx++, openCLImage(inputs[2]));
-            }
-            mKernel.setArg(idx++, openCLImage(output));
-            mKernel.setArg(idx++, static_cast<int>(outputChannel));
-            mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
-            mKernel.setArg(idx++, static_cast<int>(height));
-            mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
+        cl_int ret = CL_SUCCESS;
+        int idx            = 0;
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLImage(input0));
+        ret |= mKernel.setArg(idx++, openCLImage(input1));
+        if(inputs.size() > 2) {
+            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
+        }
+        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= mKernel.setArg(idx++, static_cast<int>(height));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
+
+        mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
     else {
         const int height        = input0Shape.at(0);
@@ -79,23 +83,29 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(height)};
         int idx            = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, openCLImage(input0));
-        mKernel.setArg(idx++, openCLImage(input1));
+        cl_int ret = CL_SUCCESS;
+
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+        ret |= mKernel.setArg(idx++, openCLImage(input0));
+        ret |= mKernel.setArg(idx++, openCLImage(input1));
         if(inputs.size() > 2) {
-            mKernel.setArg(idx++, openCLImage(inputs[2]));
+            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
         }
-        mKernel.setArg(idx++, openCLImage(output));
-        mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
+        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
+
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
+
+    recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 
 ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start MatMulExecution onExecute... \n");
 #endif
@@ -105,10 +115,17 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
         runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, &event);
-        
-        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us Matmul\n",costTime);
+    
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Matmul", event});
     #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End MatMulExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
     #endif
     

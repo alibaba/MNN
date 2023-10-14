@@ -162,6 +162,7 @@ public:
             std::cout << "usage: ./runTrainDemo.out MnistTrain /path/to/unzipped/mnist/data/  [depthwise]" << std::endl;
             return 0;
         }
+        Executor::getGlobalExecutor()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
         // global random number generator, should invoke before construct the model and dataset
         RandomGenerator::generator(17);
 

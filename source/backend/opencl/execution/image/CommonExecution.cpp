@@ -18,6 +18,12 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     int idx = 0;
+#else
+    if(runtime->isUseRecordQueue()){
+        if(runtime->isDevideOpRecord())
+            runtime->getRecordings()->emplace_back(mRecording);
+        return NO_ERROR;
+    }
 #endif
     auto res = CL_SUCCESS;
     for (auto &unit : mUnits) {
@@ -47,8 +53,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                                                         &event);
         }
         
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOpType), idx++);
+        runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
     #else
         if(lws_null == true) {
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,

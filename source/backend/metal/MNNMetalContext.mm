@@ -10,6 +10,7 @@
 #import "backend/metal/MetalBackend.hpp"
 #import "core/Macro.h"
 #import <sys/utsname.h>
+#import <mach/mach_time.h>
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #if MNN_METAL_ENABLED
@@ -50,6 +51,7 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
         auto totalString = total.str();
         auto totalNSString = [[NSString alloc] initWithUTF8String:totalString.c_str()];
         NSError *err = nil;
+
         auto library = [device newLibraryWithSource:totalNSString options:nil error:&err];
         if (nil == library) {
             if (err) {
@@ -244,10 +246,14 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 }
 
 - (NSUInteger)timeUsed:(id<MTLCommandBuffer>)buffer {
+    // Get ns precision time
+    auto start = mach_absolute_time();
     [buffer commit];
     [buffer waitUntilCompleted];
-    NSUInteger time = (NSUInteger)((buffer.GPUEndTime - buffer.GPUStartTime)* 1000000.f);//us
-    return time;
+//    NSUInteger time = (NSUInteger)((buffer.GPUEndTime - buffer.GPUStartTime)* 1000000.f);//us
+    auto end = mach_absolute_time();
+
+    return (end-start)/1000;
 }
 
 

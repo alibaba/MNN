@@ -12,6 +12,8 @@
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
+#include "bf16/ConvDepthWiseBf16.cuh"
+#include "MultiInputConvDepthWiseExecution.hpp"
 namespace MNN {
 namespace CUDA {
 
@@ -43,7 +45,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    std::pair<void*, int> mConstBuffer;
+    MemChunk mConstBuffer;
     const Op *mOp;
     int mTotalCount;
     constBuffer parameters;

@@ -71,7 +71,6 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
     for (int epoch = 0; epoch < 50; ++epoch) {
         model->clearCache();
         exe->gc(Executor::FULL);
-        exe->resetProfile();
         {
             AUTOTIME;
             trainDataLoader->reset();
@@ -137,7 +136,5 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
             Variable::save({predict}, fileName.c_str());
             ConvertToFullQuant::convert(fileName);
         }
-
-        exe->dumpProfile();
     }
 }

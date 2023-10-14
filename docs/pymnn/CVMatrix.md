@@ -1,5 +1,5 @@
 <!-- pymnn/CVMatrix.md -->
-## MNN.CVMatrix
+## MNN.CVMatrix *[deprecated]*
 
 ```python
 class CVMatrix

@@ -45,6 +45,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mUnits.resize(inputs.size() - 1);
     
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    startRecord(openCLBackend->getOpenCLRuntime(), mRecording);
 
     auto output = outputs[0];
     auto inputShape0 = tensorShapeFormat(inputs[0]);
@@ -70,14 +71,16 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
         
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, openCLImage(inputs[0]));
-        unit.kernel.setArg(index++, openCLImage(inputs[1]));
-        unit.kernel.setArg(index++, openCLImage(output));
-        unit.kernel.setArg(index++, shape);
-        unit.kernel.setArg(index++, fullCount);
-        unit.kernel.setArg(index++, activationType);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, openCLImage(inputs[0]));
+        ret |= unit.kernel.setArg(index++, openCLImage(inputs[1]));
+        ret |= unit.kernel.setArg(index++, openCLImage(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution");
 
         std::string name = "binary";
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
@@ -85,6 +88,8 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
         
+        recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, openCLBackend->getOpenCLRuntime());
+        endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
         return NO_ERROR;
     }
     
@@ -122,14 +127,16 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         useTempAsOutput = !useTempAsOutput;
         
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, openCLImage(input0));
-        unit.kernel.setArg(index++, openCLImage(input1));
-        unit.kernel.setArg(index++, openCLImage(output));
-        unit.kernel.setArg(index++, shape);
-        unit.kernel.setArg(index++, fullCount);
-        unit.kernel.setArg(index++, activationType);
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, openCLImage(input0));
+        ret |= unit.kernel.setArg(index++, openCLImage(input1));
+        ret |= unit.kernel.setArg(index++, openCLImage(output));
+        ret |= unit.kernel.setArg(index++, shape);
+        ret |= unit.kernel.setArg(index++, fullCount);
+        ret |= unit.kernel.setArg(index++, activationType);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution multiinput");
 
         if(i == 0) {
             std::string name = "binary";
@@ -138,7 +145,10 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
+        
+        recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, openCLBackend->getOpenCLRuntime());
     }
+    endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -197,11 +207,11 @@ public:
                 case BinaryOpOperation_SquaredDifference:
                     return new EltwiseExecution(inputs, "(in0-in1)*(in0-in1)", op, backend);
                 case BinaryOpOperation_ATAN2:
-                    return new EltwiseExecution(inputs, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                    return new EltwiseExecution(inputs, "(in1==(FLOAT4)0?(sign(in0)*(FLOAT4)(PI/2)):(atan(in0/in1)+(in1>(FLOAT4)0?(FLOAT4)0:sign(in0)*(FLOAT4)PI)))", op, backend);
                 case BinaryOpOperation_NOTEQUAL:
                     return new EltwiseExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
                 case BinaryOpOperation_MOD:
-                    return new EltwiseExecution(inputs, "in0-sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
+                    return new EltwiseExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))*in1", op, backend);
                 default:
                     break;
             }

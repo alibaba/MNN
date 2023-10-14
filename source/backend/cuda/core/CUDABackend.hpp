@@ -11,6 +11,7 @@
 
 #include <set>
 #include <vector>
+#include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "backend/cuda/core/runtime/CUDARuntime.hpp"
 #include "core/Backend.hpp"
@@ -20,6 +21,9 @@
 #include "backend/cpu/CPUResizeCache.hpp"
 #define MNN_USER_SET_DEVICE
 #include "MNN/MNNSharedContext.h"
+#ifdef MNN_CODEGEN_CUDA
+#include "backend/cuda/core/compiler/CUDACompiler.hpp"
+#endif
 
 namespace MNN {
 namespace CUDA {
@@ -38,7 +42,7 @@ public:
     virtual float onGetMemoryInMB() override;
 
 private:
-    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<EagerBufferAllocator> mBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
     bool mIsCreateError{false};
     BackendConfig::PrecisionMode mDefaultPrecision;
@@ -57,7 +61,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
@@ -72,6 +76,7 @@ public:
     };
 
     static bool addCreator(OpType t, Creator *c);
+    static DataType getDataType(const Tensor* tensor);
 
     BufferAllocator *getBufferPool() const {
         return mBufferPool.get();
@@ -84,6 +89,9 @@ public:
     CPUResizeCache* getCache();
     bool useFp16() const;
     int getPrecision() const;
+    #ifdef MNN_CODEGEN_CUDA
+    std::map<std::pair<std::string, std:: string>, CUmodule> kernelCuModuleMap();
+    #endif
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mStaticBufferPool;
@@ -91,6 +99,10 @@ private:
     CPUResizeCache mCache;
     bool mUseFp16AsFp32 = false;
     int mPrecision = 0;
+    #ifdef MNN_CODEGEN_CUDA
+    CUmodule mCuModule;
+    std::map<std::pair<std::string, std:: string>, CUmodule> mKernelCuModuleMap;
+    #endif
 };
 
 template <class T>
@@ -101,6 +113,16 @@ public:
         CUDABackend::addCreator(type, t);
     }
     ~CUDACreatorRegister() = default;
+};
+
+/** execution cast wrapper. insert tensor cast dynamic. */
+class CastWrapExecution : public Execution {
+public:
+    CastWrapExecution(Backend* backend, DataType runT)
+                    : Execution(backend), mRunType(runT) {}
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+private:
+    DataType mRunType;
 };
 
 template <typename T>

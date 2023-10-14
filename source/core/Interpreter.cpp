@@ -40,7 +40,6 @@ struct Content {
     size_t lastCacheSize = 0;
     std::string bizCode;
     std::string uuid;
-    bool mStaticShape = false;
     std::string externalFile;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> basicLogginData;
@@ -131,7 +130,6 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
         delete net;
         return nullptr;
     }
-    net->mStaticShape = net->net->usage() == Usage_INFERENCE_STATIC;
     int opSize = net->net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->net->oplists()->GetAs<Op>(i);
@@ -148,6 +146,9 @@ void Interpreter::setSessionHint(HintMode mode, int hint) {
     switch (mode) {
         case MAX_TUNING_NUMBER:
             mNet->modes.maxTuningNumber = hint;
+            break;
+        case MEM_ALLOCATOR_TYPE:
+            mNet->modes.memoryAllocatorType = hint;
             break;
         default:
             break;
@@ -167,6 +168,8 @@ void Interpreter::setSessionMode(SessionMode mode) {
         mNet->modes.resizeMode = mode;
     } else if(mode == Session_Memory_Collect || mode == Session_Memory_Cache) {
         mNet->modes.memoryUsageMode = mode;
+    } else if(mode == Session_Codegen_Disable || mode == Session_Codegen_Enable) {
+        mNet->modes.codegenMode = mode;
     }
 }
 
@@ -248,6 +251,7 @@ Interpreter::~Interpreter() {
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
     runtime.second->setExternalFile(mNet->externalFile);
+    runtime.second->setAllocatorType(mNet->modes.memoryAllocatorType);
     if (runtime.first.empty()) {
         MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;
@@ -273,12 +277,6 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
         return nullptr;
-    }
-    if (mNet->mStaticShape) {
-        for (auto& pipInfo : info.pipelineInfo) {
-            pipInfo.first.needComputeGeometry = false;
-            pipInfo.first.needComputeShape = false;
-        }
     }
     RuntimeInfo rt = runtime;
     bool valid  = false;

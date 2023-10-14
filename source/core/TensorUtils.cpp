@@ -137,7 +137,7 @@ void TensorUtils::setLinearLayout(Tensor* tensor) {
 static const Tensor* createHostPlanar(const Tensor* source) {
     // check
     auto bnType        = MNN_FORWARD_CPU;
-    auto tensorBackend = TensorUtils::getDescribe(source)->backend;
+    auto tensorBackend = TensorUtils::getDescribe(source)->getBackend();
     if (tensorBackend) {
         bnType = tensorBackend->type();
     }
@@ -458,7 +458,7 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     auto des = TensorUtils::getDescribe(dst);
     auto srcDes = TensorUtils::getDescribe(src);
     bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || des->extra.offset != srcDes->extra.offset;
-    des->backend = srcDes->backend;
+    des->setBackend(srcDes->getBackend());
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
     des->extra.offset = srcDes->extra.offset;
@@ -732,9 +732,37 @@ void TensorUtils::setRasterInputs(Command* cmd) {
     auto& regions = TensorUtils::getDescribe(cmd->outputs[0])->regions;
     cmd->inputs.resize(regions.size());
     for (int i=0; i<regions.size(); ++i) {
+#ifdef DEBUG
+        for (int j=0; j<3; ++j) {
+            MNN_ASSERT(regions[i].size[j] > 0);
+        }
+#endif
         cmd->inputs[i] = regions[i].origin;
         auto des = getDescribe(regions[i].origin);
     }
+}
+
+int TensorUtils::getTensorChannelPack(const Tensor* tensor) {
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    return srcDes->support_pack16 ? srcDes->channel_pack_num : 4;
+}
+
+void TensorUtils::setTensorChannelPack(const Tensor* tensor, int pack) {
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    srcDes->channel_pack_num = pack;
+}
+
+void TensorUtils::setTensorSupportPack(const Tensor* tensor, bool flag) {
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    srcDes->support_pack16 = flag;
+}
+
+void TensorUtils::setTensorPad(const Tensor* tensor, int left, int right, int bottom, int top) {
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    srcDes->mPads.left = std::max(srcDes->mPads.left,left);
+    srcDes->mPads.right = std::max(srcDes->mPads.right, right);
+    srcDes->mPads.bottom = std::max(srcDes->mPads.bottom, bottom);
+    srcDes->mPads.top = std::max(srcDes->mPads.top, top);
 }
 
 } // namespace MNN

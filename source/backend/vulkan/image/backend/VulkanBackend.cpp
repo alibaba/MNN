@@ -114,13 +114,14 @@ void VulkanBackend::onResizeBegin() {
         mCmdBuffer->begin(0);
     }
 }
-void VulkanBackend::onResizeEnd() {
+ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
         mCmdBuffer->end();
     }
     mInitBuffer->end();
     mCmdBuffers.emplace_back(mInitBuffer->get());
     _finish();
+    return NO_ERROR;
 }
 class VulkanMemRelease : public Backend::MemObj {
 public:
@@ -284,7 +285,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         tempTensor->buffer().host = (uint8_t*)mHostBuffer->map();
         MNNCPUCopyBuffer(srcTensor, tempTensor.get());
         mHostBuffer->unmap();
-        auto key    = std::make_tuple(dstTensor, true, format);
+        auto key    = std::make_tuple(TensorUtils::getDescribe(dstTensor), true, format);
         auto iter   = mConverters.find(key);
         if (iter == mConverters.end()) {
             if (mConverters.size() > MNN_VULKAN_MAX_CACHE_CONVSIZE) {
@@ -315,7 +316,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         _finish();
         _allocHostBuffer(size);
         auto format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
-        auto key    = std::make_tuple(srcTensor, false, format);
+        auto key    = std::make_tuple(TensorUtils::getDescribe(srcTensor), false, format);
 
         auto iter = mConverters.find(key);
         if (iter == mConverters.end()) {

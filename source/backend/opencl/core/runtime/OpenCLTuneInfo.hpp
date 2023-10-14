@@ -1,3 +1,11 @@
+//
+//  OpenCLTuneInfo.hpp
+//  MNN
+//
+//  Created by MNN on 2021/12/26.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef OpenCLTuneInfo_hpp
 #define OpenCLTuneInfo_hpp
 #include "CLCache_generated.h"

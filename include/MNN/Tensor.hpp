@@ -227,6 +227,7 @@ public:
      * @return bytes needed to store data
      */
     int size() const;
+    size_t usize() const;
 
     /**
      * @brief calculate number of elements needed to store data taking reordering flag into account.

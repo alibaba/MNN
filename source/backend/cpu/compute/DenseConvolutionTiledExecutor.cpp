@@ -19,7 +19,6 @@
 #include "common/MemoryFormater.h"
 #define PARAMETERSIZE 6
 
-#define MNN_ALLOC_MEMORY_INDIRECTLY
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
@@ -28,7 +27,7 @@ void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source,
     function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize * depth, true);
 
 }
-static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize) {
+static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
     int weightLength = hU * lU * hP * lP;
     resource->mWeight.reset(Tensor::createDevice<uint8_t>(
         {weightLength}));
@@ -66,17 +65,32 @@ static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common>
     }
     auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
     auto biasPtr = resource->mDequantize.mScaleBias->host<float>() + hU * hP;
-    ::memset(alphaPtr, 0, 2 * hU * hP * sizeof(float));
+    ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
     int h = int8Info->alpha.size();
-    if (int8Info->asymmetric) {
-        h = h / 2;
-        for (int i=0; i<h; ++i) {
-            alphaPtr[i] = int8Info->alpha.get()[2 * i + 1];
-            biasPtr[i] = int8Info->alpha.get()[2 * i];
+    if (bytes == 2) {
+        auto core = static_cast<CPUBackend*>(resource->backend)->functions();
+        if (int8Info->asymmetric) {
+            std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
+            core->MNNFp32ToLowp(int8Info->alpha.get(), tmp.get(), h);
+            for (int i=0; i< h/2; ++i) {
+                reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[2 * i + 1];
+                reinterpret_cast<int16_t*>(biasPtr)[i] = tmp[2 * i];
+            }
+        } else {
+            core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(alphaPtr), h);
         }
     } else {
-        for (int i=0; i<h; ++i) {
-            alphaPtr[i] = int8Info->alpha.get()[i];
+        if (int8Info->asymmetric) {
+            h = h / 2;
+            for (int i=0; i<h; ++i) {
+                alphaPtr[i] = int8Info->alpha.get()[2 * i + 1];
+                biasPtr[i] = int8Info->alpha.get()[2 * i];
+            }
+        } else {
+            for (int i=0; i<h; ++i) {
+                alphaPtr[i] = int8Info->alpha.get()[i];
+                biasPtr[i] = 0.f;
+            }
         }
     }
     if (int8Info->canUseInt4) {
@@ -95,9 +109,7 @@ static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common>
         for (int i=0; i<weightLength; ++i) {
             int s0 = srcPtr[2 * i + 0];
             int s1 = srcPtr[2 * i + 1];
-            s0 = int8Info->weightReverseMap[(int)s0 + 128];
-            s1 = int8Info->weightReverseMap[(int)s1 + 128];
-            int d = s0 * 16 + s1;
+            int d = (s0 + 8) * 16 + (s1 + 8);
             dstPtr[i] = d;
         }
         resource->mWeight = weightLow;
@@ -127,7 +139,7 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto lU = UP_DIV(lSize, lP);
     if (useInt8Weight) {
         // Quantize weight to int8
-        auto allocSuccess = _initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY());
+        auto allocSuccess = _initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
         if (!allocSuccess) {
             mValid = false;
             return;
@@ -149,11 +161,11 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
         // formatMatrix(mResource->mWeight->host<float>(), {UP_DIV(outputCount, hP), lSize, hP});
         backend()->onReleaseBuffer(cache.get(), Backend::STATIC);
     }
-    mProxy.reset(new DenseConvolutionTiledImpl(common, b));
+    mProxy.reset(new DenseConvolutionTiledImpl(common, b, mResource.get()));
 }
 
 DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, const Convolution2DCommon* common, Backend* b) : ConvolutionTiledExecutor(res, b) {
-    mProxy.reset(new DenseConvolutionTiledImpl(common, b));
+    mProxy.reset(new DenseConvolutionTiledImpl(common, b, mResource.get()));
 }
 
 DenseConvolutionTiledExecutor::~DenseConvolutionTiledExecutor() {
@@ -173,116 +185,14 @@ bool DenseConvolutionTiledExecutor::onClone(Backend* bn, const Op* op, Execution
 }
 
 ErrorCode DenseConvolutionTiledExecutor::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    bool needDequantize = mResource->mDequantize.bits <= 8;
-    if (needDequantize) {
-#ifndef MNN_ALLOC_MEMORY_INDIRECTLY
-        auto res = backend()->onAcquireBuffer(mWeightCache.weight.get(), Backend::STATIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
-        }
-        if (nullptr != mWeightCache.weightInt8) {
-            res = backend()->onAcquireBuffer(mWeightCache.weightInt8.get(), Backend::STATIC);
-            if (!res) {
-                return OUT_OF_MEMORY;
-            }
-        }
-#endif
-        auto hU = mResource->hU;
-        auto hP = mResource->hP;
-        auto mid = mResource->lU * mResource->lP;
-        auto srcInt8 = mResource->mWeight->host<int8_t>();
-        if (mResource->mDequantize.bits == 4) {
-            int weightLength = hU * hP * mid;
-            weightLength = UP_DIV(weightLength, 2);
-            auto srcPtr = mResource->mWeight->host<uint8_t>();
-            auto dstPtr = mWeightCache.weightInt8->host<int8_t>();
-            for (int i=0; i<weightLength; ++i) {
-                int d = srcPtr[i];
-                int s0 = d / 16;
-                int s1 = d % 16;
-                s0 = mResource->mDequantize.mLowBitWeightMap[s0];
-                s1 = mResource->mDequantize.mLowBitWeightMap[s1];
-                dstPtr[2 * i + 0] = s0;
-                dstPtr[2 * i + 1] = s1;
-            }
-            srcInt8 = mWeightCache.weightInt8->host<int8_t>();
-        }
-        auto alpha = mResource->mDequantize.mScaleBias->host<float>();
-        auto bias = mResource->mDequantize.mScaleBias->host<float>() + hU * hP;
-        auto dstFloat = mWeightCache.weight->host<float>();
-        for (int yo=0; yo<hU; ++yo) {
-            auto dstY = dstFloat + yo * mid * hP;
-            auto srcY = srcInt8 + yo * mid * hP;
-            auto k = alpha + yo * hP;
-            auto b = bias + yo * hP;
-            for (int x=0; x<mid; ++x) {
-                auto dstX = dstY + x * hP;
-                auto srcX = srcY + x * hP;
-                for (int yi=0; yi<hP; ++yi) {
-                    dstX[yi] = srcX[yi] * k[yi] + b[yi];
-                }
-            }
-        }
-#ifndef MNN_ALLOC_MEMORY_INDIRECTLY
-        if (mWeightCache.weightInt8 != nullptr) {
-            backend()->onReleaseBuffer(mWeightCache.weightInt8.get(), Backend::STATIC);
-        }
-#endif
-    }
     auto code = mProxy->onExecute(mInputs, outputs);
-#ifndef MNN_ALLOC_MEMORY_INDIRECTLY
-    if (needDequantize) {
-        backend()->onReleaseBuffer(mWeightCache.weight.get(), Backend::STATIC);
-    }
-    ((Runtime*)(static_cast<CPUBackend*>(backend())->getRuntime()))->onGabageCollect(0);
-#endif
     return code;
 }
 ErrorCode DenseConvolutionTiledExecutor::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
-    bool needDequantize = mResource->mDequantize.bits <= 8;
-    if (needDequantize) {
-        if (mWeightCache.weight == nullptr) {
-            int weightLength = mResource->hU * mResource->lU * mResource->hP * mResource->lP;
-            mWeightCache.weight.reset(new Tensor);
-            mWeightCache.weight->buffer().type = halide_type_of<float>();
-            TensorUtils::getDescribe(mWeightCache.weight.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-            mWeightCache.weight->buffer().dimensions = 1;
-            mWeightCache.weight->setLength(0, weightLength);
-            if (mWeightCache.weightInt8 == nullptr && mResource->mDequantize.bits == 4) {
-                mWeightCache.weightInt8.reset(new Tensor);
-                mWeightCache.weightInt8->buffer().type = halide_type_of<int8_t>();
-                mWeightCache.weightInt8->buffer().dimensions = 1;
-                mWeightCache.weightInt8->setLength(0, weightLength);
-                TensorUtils::getDescribe(mWeightCache.weightInt8.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-            }
-        }
-        mInputs[1] = mWeightCache.weight.get();
-#ifdef MNN_ALLOC_MEMORY_INDIRECTLY
-        bool res = false;
-        if (nullptr != mWeightCache.weightInt8) {
-            res = backend()->onAcquireBuffer(mWeightCache.weightInt8.get(), Backend::DYNAMIC);
-            if (!res) {
-                return OUT_OF_MEMORY;
-            }
-        }
-        res = backend()->onAcquireBuffer(mWeightCache.weight.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
-        }
-        if (nullptr != mWeightCache.weightInt8) {
-            backend()->onReleaseBuffer(mWeightCache.weightInt8.get(), Backend::DYNAMIC);
-        }
-#endif
-    }
     auto code = mProxy->onResize(mInputs, outputs);
     if (NO_ERROR != code) {
         return code;
-    }
-    if (needDequantize) {
-#ifdef MNN_ALLOC_MEMORY_INDIRECTLY
-        backend()->onReleaseBuffer(mWeightCache.weight.get(), Backend::DYNAMIC);
-#endif
     }
     return NO_ERROR;
 }
@@ -375,7 +285,7 @@ void DenseConvolutionTiledImpl::getPackParameter(int* eP, int* lP, int* hP, cons
 // #define PROFILE_DETAIL
 
 PerfConfig DenseConvolutionTiledImpl::bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
-                                          const Tensor *outputTensor, int threadNumber, Backend* b) {
+                                                                const Tensor *outputTensor, int threadNumber, Backend* b) {
     auto input   = inputTensor;
     Tensor *bias = nullptr;
     auto core    = static_cast<CPUBackend *>(b)->functions();
@@ -492,52 +402,46 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     Tensor *bias = nullptr;
     auto core    = static_cast<CPUBackend *>(backend())->functions();
     int bytes    = core->bytes;
+    float weightBytes  = bytes;
     int unit     = core->pack;
     auto packA   = core->MNNPackC4ForMatMul_A;
     int eP, lP, hP;
     getPackParameter(&eP, &lP, &hP, core);
     auto matmulUnit   = core->MNNPackedMatMul;
     auto matmulRemain = core->MNNPackedMatMulRemain;
-    auto strideX           = mCommon->strideX();
-    auto strideY           = mCommon->strideY();
-    auto dilateX           = mCommon->dilateX();
-    auto dilateY           = mCommon->dilateY();
-    auto padY              = mPadY;
-    auto padX              = mPadX;
+    auto weightType = weight->getType();
+    const uint8_t* dequantAlpha = nullptr;
+    const uint8_t* dequantBias = nullptr;
+#ifdef MNN_LOW_MEMORY
+    if (mResource && mResource->mDequantize.bits <= 8) {
+        if (mResource->mDequantize.bits == 8) {
+            matmulUnit   = core->MNNPackedMatMul_int8;
+            matmulRemain = core->MNNPackedMatMulRemain_int8;
+            weightBytes  = 1;
+        }
+        if (mResource->mDequantize.bits == 4) {
+            matmulUnit   = core->MNNPackedMatMul_int4;
+            matmulRemain = core->MNNPackedMatMulRemain_int4;
+            weightBytes  = 0.5;
+        }
+        dequantAlpha = mResource->mDequantize.mScaleBias->host<uint8_t>();
+        dequantBias = dequantAlpha + mResource->hU * mResource->hP * bytes;
+    }
+#endif
     auto kernel_width      = mCommon->kernelX();
     auto kernel_height     = mCommon->kernelY();
     auto output      = outputs[0];
     auto batch       = output->batch();
-    auto width       = output->width();
-    auto height      = output->height();
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
-    auto src_width                = input->width();
-    auto src_height               = input->height();
     auto icC4                     = UP_DIV(input->channel(), unit);
     auto ic                       = input->channel();
     auto L                        = ic * mCommon->kernelY() * mCommon->kernelX();
     int  LRoundup = ROUND_UP(L, lP);
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
-    if (src_width == 1 && width == 1 && height > 1 && kernel_width == 1 && mPadX == 0) {
-        /* Convolution only work for Height. Swap x, y*/
-        width         = height;
-        height        = 1;
-        padX          = mPadY;
-        padY          = mPadX;
-        strideX       = strideY;
-        strideY       = 1; /* Don't need stride */
-        src_width     = src_height;
-        src_height    = 1;
-        dilateX       = dilateY;
-        dilateY       = 1;
-        kernel_width  = kernel_height;
-        kernel_height = 1;
-    }
-    const float *biasPtr = nullptr;
+    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParameters, mCommon, input, output, mPadX, mPadY, core, nullptr);
     if (inputs.size() > 2) {
-        bias    = inputs[2];
-        biasPtr = bias->host<float>();
+        bias = inputs[2];
     }
     auto kernelSize               = mCommon->kernelX() * mCommon->kernelY();
 
@@ -546,9 +450,10 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
     mTempBufferTranspose.buffer().dim[1].extent = UP_DIV(L, lP) * lP * eP * bytes;
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
-    auto plane    = width * height * batch;
+    auto plane    = mIm2ColParameters.ow * mIm2ColParameters.oh * batch;
     int tileCount = UP_DIV(plane, eP);
-    auto oC4           = UP_DIV(outputChannel, unit);
+    auto tileC    = std::max(unit, hP);
+    auto oC4      = UP_DIV(outputChannel, tileC);
     mConvPerfconfig = bestTileConvolutionConfig(mCommon, input, output, threadNumber, backend());
 
     auto threadNumberFirst = mConvPerfconfig.isParallelInner ? threadNumber : std::min(threadNumber, tileCount);
@@ -558,9 +463,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     }
 
     auto bufferAlloc   = static_cast<CPUBackend *>(backend())->getBufferAllocator();
-    auto maxLine       = UP_DIV(eP, width) + 1;
+    auto maxLine       = UP_DIV(eP, mIm2ColParameters.ow) + 1;
     auto tempPtr = bufferAlloc->alloc(kernelSize * maxLine * threadNumber * (4 * sizeof(int32_t) + sizeof(float *)));
-    if (nullptr == tempPtr.first) {
+    if (tempPtr.invalid()) {
         return OUT_OF_MEMORY;
     }
     backend()->onReleaseBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
@@ -576,19 +481,18 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         MNN_PRINT("dense conv: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, threadNumberFirst:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
         batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, threadNumberFirst, tileCount, eP, unit, bytes);
 #endif
-
+        const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
-        auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
-                                       0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+        auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
         auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
         auto weightPtr = weight->host<uint8_t>();
 
         constexpr int InfoSize = 4;
         int32_t shapeInfo[InfoSize];
         int32_t* info = shapeInfo;
-        info[1] = src_width * src_height * batch;
+        info[1] = mIm2ColParameters.iw * mIm2ColParameters.ih * batch;
         info[2] = eP;
-        info[3] = strideX;
+        info[3] = mIm2ColParameters.strideX;
         size_t shapeParameters[PARAMETERSIZE];
         size_t* parameters = shapeParameters;
         parameters[0]          = eP * bytes;
@@ -599,11 +503,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         parameters[5]          = 0;
 
 #ifdef PROFILE_DETAIL
-        uint64_t durationMul[threadNumberFirst] = {0};
-        uint64_t packATime[threadNumberFirst] = {0};
-        uint64_t indexTime[threadNumberFirst] = {0};
+        std::vector<uint64_t> durationMul(threadNumberFirst, 0);
+        std::vector<uint64_t> packATime(threadNumberFirst, 0);
+        std::vector<uint64_t> indexTime(threadNumberFirst, 0);
         Timer timer[threadNumberFirst];
-        double macs[threadNumberFirst] = {0};
+        std::vector<double> macs(threadNumberFirst, 0);
 #endif
 
         auto dstOrigin = output->host<uint8_t>();
@@ -613,57 +517,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             int start  = (int)x * eP;
             int remain = plane - start;
             int xC     = remain > eP ? eP : remain;
-            /* Compute Pack position */
-            int oyBegin   = start / width;
-            int oxBegin   = start % width;
-            int oyEnd     = (start + xC - 1) / width;
-            remain        = xC;
-            int number    = 0;
-            bool needZero = false;
-            int eStart    = 0;
-            int indexThread = std::min(threadNumberFirst, oyEnd - oyBegin + 1);
-
-            for (int oyb = oyBegin; oyb <= oyEnd; ++oyb) {
-                int step    = std::min(width - oxBegin, remain);
-                int oy      = oyb % height;
-                int ob      = oyb / height;
-                int sySta   = oy * strideY - padY;
-                int kyStart = std::max(0, UP_DIV(-sySta, dilateY));
-                int kyEnd   = std::min(kernel_height, UP_DIV(src_height - sySta, dilateY));
-                if (kyEnd - kyStart < kernel_height) {
-                    needZero = true;
-                }
-                auto srcStart = srcOrigin + ((ob * src_height + sySta) * src_width) * bytes * unit;
-                for (int ky = kyStart; ky < kyEnd; ++ky) {
-                    auto lKYOffset = ky * kernel_width * ic;
-                    auto srcKy     = srcStart + ky * dilateY * src_width * bytes * unit;
-                    for (int kx = 0; kx < kernel_width; ++kx) {
-                        /* Compute x range:*/
-                        /* 0 <= (oxBegin + x) * strideX - padX + dilateX * kx < src_width*/
-                        /* 0 <= x <= step*/
-                        int end = std::min(
-                            step, (src_width - oxBegin * strideX - dilateX * kx + padX + strideX - 1) / strideX);
-                        int sta = std::max(0, UP_DIV((padX - oxBegin * strideX - dilateX * kx), strideX));
-                        if (end - sta < step) {
-                            needZero = true;
-                        }
-                        if (end > sta) {
-                            auto lOffset = lKYOffset + (kx * ic);
-                            auto srcKx   = srcKy + ((oxBegin + sta) * strideX + dilateX * kx - padX) * bytes * unit;
-                            srcPtr[number]     = (const float*)srcKx;
-                            el[4 * number + 0] = end - sta;
-                            el[4 * number + 1] = ic;
-                            el[4 * number + 2] = eStart + sta;
-                            el[4 * number + 3] = lOffset;
-                            number++;
-                        }
-                    }
-                }
-                oxBegin = 0;
-                remain -= step;
-                eStart += step;
-            }
-
+            auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo(srcPtr, el, start, xC, mIm2ColParameters, srcOrigin, bytes);
+            int number    = res.first;
+            bool needZero = res.second;
             info[0] = number;
             if (needZero || lP != 1) {
                 ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
@@ -700,11 +556,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
-                        auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
-                        int ocIndex = t_oc * unit;
-                        auto _weightFloatPtr = (const float*)(weightPtr + ((ocIndex / hP) * LRoundup * hP + ocIndex % hP) * bytes);
-                        paraParameters[2] = std::min(outputChannel - (t_oc * unit), unit);
-                        matmulUnit(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, paraParameters, postParameters.data(), biasPtr + ocIndex);
+                        int ocIndex = t_oc * tileC;
+                        auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
+                        auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
+                        auto _biasFloatPtr = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(biasPtr) + ocIndex * bytes);
+                        paraParameters[2] = std::min(outputChannel - ocIndex, tileC);
+                        auto k = reinterpret_cast<const float*>(dequantAlpha + ocIndex * bytes);
+                        auto b = reinterpret_cast<const float*>(dequantBias + ocIndex * bytes);
+                        matmulUnit(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, paraParameters, postParameters.data(), _biasFloatPtr, k, b);
                     }
                 }
                 MNN_CONCURRENCY_END();
@@ -713,11 +572,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
                     for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
-                        auto _dstFloatPtr = (float*)(dstOrigin + (t_oc * plane + start) * unit * bytes);
-                        int ocIndex = t_oc * unit;
-                        auto _weightFloatPtr = (const float*)(weightPtr + ((ocIndex / hP) * LRoundup * hP + ocIndex % hP) * bytes);
-                        paraParameters[2] = std::min(outputChannel - (t_oc * unit), unit);
-                        matmulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, paraParameters, postParameters.data(), biasPtr + ocIndex);
+                        int ocIndex = t_oc * tileC;
+                        auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
+                        auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
+                        auto _biasFloatPtr = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(biasPtr) + ocIndex * bytes);
+                        paraParameters[2] = std::min(outputChannel - ocIndex, tileC);
+                        auto k = reinterpret_cast<const float*>(dequantAlpha + ocIndex * bytes);
+                        auto b = reinterpret_cast<const float*>(dequantBias + ocIndex * bytes);
+                        matmulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, paraParameters, postParameters.data(), _biasFloatPtr, k, b);
                     }
                 }
                 MNN_CONCURRENCY_END();
@@ -749,16 +611,15 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, tileCount, eP, unit, bytes);
             }
 #endif
-
+            const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
-            auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
-                                           tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+            auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
             auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
             auto weightPtr = weight->host<float>();
             int32_t info[4];
-            info[1] = src_width * src_height * batch;
+            info[1] = mIm2ColParameters.iw * mIm2ColParameters.ih * batch;
             info[2] = eP;
-            info[3] = strideX;
+            info[3] = mIm2ColParameters.strideX;
             size_t parameters[6];
             parameters[0]          = eP * bytes;
             parameters[1]          = L;
@@ -768,11 +629,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             parameters[5]          = 0;
 
 #ifdef PROFILE_DETAIL
-            uint64_t durationMul[threadNumberFirst] = {0};
-            uint64_t packATime[threadNumberFirst] = {0};
-            uint64_t indexTime[threadNumberFirst] = {0};
+            std::vector<uint64_t> durationMul(threadNumberFirst, 0);
+            std::vector<uint64_t> packATime(threadNumberFirst, 0);
+            std::vector<uint64_t> indexTime(threadNumberFirst, 0);
             Timer timer[threadNumberFirst];
-            double macs[threadNumberFirst] = {0};
+            std::vector<double> macs(threadNumberFirst, 0);
 #endif
 
             auto dstOrigin = output->host<uint8_t>();
@@ -781,55 +642,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 int start  = (int)x * eP;
                 int remain = plane - start;
                 int xC     = remain > eP ? eP : remain;
-                /* Compute Pack position */
-                int oyBegin   = start / width;
-                int oxBegin   = start % width;
-                int oyEnd     = (start + xC - 1) / width;
-                remain        = xC;
-                int number    = 0;
-                bool needZero = false;
-                int eStart    = 0;
-                for (int oyb = oyBegin; oyb <= oyEnd; ++oyb) {
-                    int step    = std::min(width - oxBegin, remain);
-                    int oy      = oyb % height;
-                    int ob      = oyb / height;
-                    int sySta   = oy * strideY - padY;
-                    int kyStart = std::max(0, UP_DIV(-sySta, dilateY));
-                    int kyEnd   = std::min(kernel_height, UP_DIV(src_height - sySta, dilateY));
-                    if (kyEnd - kyStart < kernel_height) {
-                        needZero = true;
-                    }
-                    auto srcStart = srcOrigin + ((ob * src_height + sySta) * src_width) * bytes * unit;
-                    for (int ky = kyStart; ky < kyEnd; ++ky) {
-                        auto lKYOffset = ky * kernel_width * ic;
-                        auto srcKy     = srcStart + ky * dilateY * src_width * bytes * unit;
-                        for (int kx = 0; kx < kernel_width; ++kx) {
-                            /* Compute x range:*/
-                            /* 0 <= (oxBegin + x) * strideX - padX + dilateX * kx < src_width*/
-                            /* 0 <= x <= step*/
-                            int end = std::min(
-                                step, (src_width - oxBegin * strideX - dilateX * kx + padX + strideX - 1) / strideX);
-                            int sta = std::max(0, UP_DIV((padX - oxBegin * strideX - dilateX * kx), strideX));
-                            if (end - sta < step) {
-                                needZero = true;
-                            }
-                            if (end > sta) {
-                                auto lOffset = lKYOffset + (kx * ic);
-                                auto srcKx   = srcKy + ((oxBegin + sta) * strideX + dilateX * kx - padX) * bytes * unit;
-                                srcPtr[number]     = (const float *)srcKx;
-                                el[4 * number + 0] = end - sta;
-                                el[4 * number + 1] = ic;
-                                el[4 * number + 2] = eStart + sta;
-                                el[4 * number + 3] = lOffset;
-                                number++;
-                            }
-                        }
-                    }
-                    oxBegin = 0;
-                    remain -= step;
-                    eStart += step;
-                }
-
+                auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo(srcPtr, el, start, xC, mIm2ColParameters, srcOrigin, bytes);
+                auto number = res.first;
+                bool needZero = res.second;
                 info[0] = number;
                 if (needZero || lP != 1) {
                     ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
@@ -847,14 +662,17 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 packATime[tId] += timer[tId].durationInUs();
                 timer[tId].reset();
 #endif
+                auto k =  reinterpret_cast<const float*>(dequantAlpha);
+                auto b =  reinterpret_cast<const float*>(dequantBias);
+                auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + start * unit * bytes);
                 if (xC == eP) {
-                    matmulUnit((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, (float*)weightPtr, parameters,postParameters.data(), biasPtr);
+                    matmulUnit(_dstFloatPtr, (float*)gemmBuffer, (float*)weightPtr, parameters, postParameters.data(), biasPtr, k, b);
                 } else {
-                    matmulRemain((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, (float*)weightPtr, xC, parameters,postParameters.data(), biasPtr);
+                    matmulRemain(_dstFloatPtr, (float*)gemmBuffer, (float*)weightPtr, xC, parameters, postParameters.data(), biasPtr, k, b);
                 }
 
 #ifdef PROFILE_DETAIL
-            macs[tId] += 2.0 * xC * L * oC4 * unit; // bias
+             macs[tId] += 2.0 * xC * L * oC4 * unit; // bias
              durationMul[tId] += timer[tId].durationInUs();
              timer[tId].reset();
 #endif

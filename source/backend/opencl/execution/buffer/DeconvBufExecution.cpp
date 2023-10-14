@@ -1,10 +1,11 @@
 //
-//  DeconvExecution.cpp
+//  DeconvBufExecution.cpp
 //  MNN
 //
 //  Created by MNN on 2021/04/09.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/DeconvBufExecution.hpp"
@@ -34,7 +35,7 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2dParams, &filterDataPtr, &weightSize);
 
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
     std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
@@ -176,8 +177,8 @@ ErrorCode DeconvBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
                        mOpenCLBackend->getOpenCLRuntime(),
                        &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DeconvBuf\n",costTime);
+    
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DeconvBuf", event});
 #else
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime());
@@ -194,6 +195,12 @@ public:
     virtual ~DeconvolutionBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+        }
+        for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
         return new DeconvBufExecution(inputs, op, backend);
     }
 };

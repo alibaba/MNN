@@ -18,22 +18,23 @@
 namespace MNN {
 namespace OpenCL {
 
-bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                     OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
+bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+                                                    OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
 
-bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                     OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
+bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+                                                    OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
 
 enum TransType {InpTrans = 0, OutTrans = 1, NoTrans = 2};
+
 bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
                                        OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false, bool svmFlag = false, bool srcswap = false, bool dstswap = false);
 
-bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                     OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
-
-bool convertNC4HW4BufferToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                     OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
-
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+                                             OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false,
+                                             bool svmFlag = false, bool srcswap = false, bool dstswap = false);
+#endif
+                                       
 class BufferConvertor {
 public:
     explicit BufferConvertor(OpenCLRuntime *opencl_runtime) : mOpenCLRuntime(opencl_runtime) {

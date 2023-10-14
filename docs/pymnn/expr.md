@@ -103,45 +103,6 @@ array([0., 1., 2., 3.], dtype=float32)
         [3., 4.]], dtype=float32)]
 ```
 ---
-### `load_as_dict(fileName)`
-从文件中加载模型，并将模型转换为计算图，以`dict`的形式返回计算图的所有节点名称和`Var`
-
-参数：
-- `fileName:str` 模型文件路径
-
-返回：加载的模型计算图，其`key`为`str`，`value`为`Var`
-
-返回类型：`dict`
-
-示例：
-
-```python
->>> vars = expr.load_as_dict('mobilenet_v1.mnn')
->>> vars.keys()
-dict_keys(['conv1', 'conv2_1/dw', 'conv2_1/sep', 'conv2_2/dw', 'conv2_2/sep', 'conv3_1/dw', 'conv3_1/sep', 'conv3_2/dw', 'conv3_2/sep', 'conv4_1/dw', 'conv4_1/sep', 'conv4_2/dw', 'conv4_2/sep', 'conv5_1/dw', 'conv5_1/sep', 'conv5_2/dw', 'conv5_2/sep', 'conv5_3/dw', 'conv5_3/sep', 'conv5_4/dw', 'conv5_4/sep', 'conv5_5/dw', 'conv5_5/sep', 'conv5_6/dw', 'conv5_6/sep', 'conv6/dw', 'conv6/sep', 'data', 'fc7', 'pool6', 'prob'])
-```
----
-### `get_inputs_and_outputs(allVariable)`
-获取`dict`形式计算图的输入输出节点，可以在使用V3接口时获取输入输出的信息
-
-参数：
-- `allVariable:dict` 计算图的`dict`形式，其`key`为`str`，`value`为`Var`
-
-返回：计算图的输入输出，其中输入输出都为`dict`形式，其`key`为`str`，`value`为`Var`
-
-返回类型：`(dict, dict)`
-
-示例：
-
-```python
->>> vars = expr.load_as_dict('mobilenet_v1.mnn')
->>> inputs, outputs = expr.get_inputs_and_outputs(vars)
->>> inputs.keys()
-dict_keys(['data'])
->>> outputs.keys()
-dict_keys(['prob'])
-```
----
 ### `gc(full)`
 手动回收内存，当在循环中调用MNN表达式求值时，常量部分数据不会在每次循环结束释放，当执行次数增加时会有内存增长现象，可以在每次循环结束时调用该函数回收常量内存
 
@@ -3049,4 +3010,48 @@ roialign
 
 ```python
 TODO
+```
+---
+**以下函数为框架开发者使用函数，普通用户不建议使用！**
+
+---
+### `load_as_dict(fileName)` *[deprecated]*
+从文件中加载模型，并将模型转换为计算图，以`dict`的形式返回计算图的所有节点名称和`Var`
+
+*不建议使用该接口*
+
+参数：
+- `fileName:str` 模型文件路径
+
+返回：加载的模型计算图，其`key`为`str`，`value`为`Var`
+
+返回类型：`dict`
+
+示例：
+
+```python
+>>> vars = expr.load_as_dict('mobilenet_v1.mnn')
+>>> vars.keys()
+dict_keys(['conv1', 'conv2_1/dw', 'conv2_1/sep', 'conv2_2/dw', 'conv2_2/sep', 'conv3_1/dw', 'conv3_1/sep', 'conv3_2/dw', 'conv3_2/sep', 'conv4_1/dw', 'conv4_1/sep', 'conv4_2/dw', 'conv4_2/sep', 'conv5_1/dw', 'conv5_1/sep', 'conv5_2/dw', 'conv5_2/sep', 'conv5_3/dw', 'conv5_3/sep', 'conv5_4/dw', 'conv5_4/sep', 'conv5_5/dw', 'conv5_5/sep', 'conv5_6/dw', 'conv5_6/sep', 'conv6/dw', 'conv6/sep', 'data', 'fc7', 'pool6', 'prob'])
+```
+---
+### `get_inputs_and_outputs(allVariable)` *[deprecated]*
+获取`dict`形式计算图的输入输出节点，可以在使用V3接口时获取输入输出的信息
+
+参数：
+- `allVariable:dict` 计算图的`dict`形式，其`key`为`str`，`value`为`Var`
+
+返回：计算图的输入输出，其中输入输出都为`dict`形式，其`key`为`str`，`value`为`Var`
+
+返回类型：`(dict, dict)`
+
+示例：
+
+```python
+>>> vars = expr.load_as_dict('mobilenet_v1.mnn')
+>>> inputs, outputs = expr.get_inputs_and_outputs(vars)
+>>> inputs.keys()
+dict_keys(['data'])
+>>> outputs.keys()
+dict_keys(['prob'])
 ```

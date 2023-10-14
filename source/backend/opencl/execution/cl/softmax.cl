@@ -14,138 +14,268 @@
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 
-__kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only image2d_t output, __private const int output_channels,
-                              __private const int remain_channels) {
+__kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only image2d_t output,
+                              __private const int remain_channels, __private const int4 shape // NCHW
+                              ) {
 
-    const int channel_block_idx = get_global_id(0);
-    const int width_idx    = get_global_id(1);
-    const int batch_height_idx       = get_global_id(2);
+    const int x = get_global_id(0);
+    const int w = get_global_id(1);
+    const int bh = get_global_id(2);
+    DEAL_NON_UNIFORM_DIM3(x, w, bh);
+#if SOFTMAX_LOCAL_SIZE >= 4
+    int lid = get_local_id(0);
+    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
 
-    DEAL_NON_UNIFORM_DIM3(channel_block_idx, width_idx, batch_height_idx);
-
-    const int width     = global_size_dim1;
-
-    FLOAT float_max_value = -FLT_MAX;
-    FLOAT4 input_data;
-    for (short i = 0; i < global_size_dim0 - 1; ++i) {
-        input_data      = RI_F(input, SAMPLER, (int2)(width_idx + i * global_size_dim1, batch_height_idx));
-        float_max_value = max(float_max_value, input_data.x);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.w);
+    FLOAT4 maxValue = (FLOAT4)-FLT_MAX;
+    for (int i = lid; i < shape.y - 1; i+=SOFTMAX_LOCAL_SIZE) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)));
     }
 
-    input_data = RI_F(input, SAMPLER, (int2)(width_idx + (global_size_dim0 - 1) * global_size_dim1 , batch_height_idx));
+    sum[lid] = maxValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = fmax(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    maxValue = sum[0];
+
+    maxValue.x = fmax(maxValue.x, maxValue.y);
+    maxValue.x = fmax(maxValue.x, maxValue.z);
+    maxValue.x = fmax(maxValue.x, maxValue.w);
+
+    FLOAT4 input_data = RI_F(input, SAMPLER, (int2)(w + (shape.y - 1) * shape.w , bh));
     if (remain_channels == 0) {
-        float_max_value = max(float_max_value, input_data.w);
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.z);
+        maxValue.x = fmax(maxValue.x, input_data.w);
     } else if (remain_channels == 1) {
-        float_max_value = max(float_max_value, input_data.z);
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.z);
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.x);
     } else if (remain_channels == 2) {
-        float_max_value = max(float_max_value, input_data.y);
-        float_max_value = max(float_max_value, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.x);
     } else if (remain_channels == 3) {
-        float_max_value = max(float_max_value, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.x);
     }
 
-    FLOAT accum_result       = 0;
-    for (short i = 0; i < global_size_dim0 - 1; ++i) {
-        input_data = RI_F(input, SAMPLER, (int2)(width_idx + i * global_size_dim1, batch_height_idx));
-        input_data = EXP(input_data - float_max_value);
-        accum_result += input_data.x;
-        accum_result += input_data.y;
-        accum_result += input_data.z;
-        accum_result += input_data.w;
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i = lid; i < shape.y - 1; i+=SOFTMAX_LOCAL_SIZE) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)) - (FLOAT4)maxValue.x);
     }
-
-    input_data = RI_F(input, SAMPLER, (int2)(width_idx + (global_size_dim0 - 1) * global_size_dim1, batch_height_idx));
-    input_data -= float_max_value;
+    sum[lid] = sumValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = sum[lid] + sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    sumValue = sum[0];
+    sumValue.x = sumValue.x + sumValue.y + sumValue.z + sumValue.w;
+    
+    
+    input_data -= maxValue.x;
     if (remain_channels == 0) {
-        accum_result += EXP(input_data.w);
-        accum_result += EXP(input_data.z);
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
+        sumValue.x += exp(input_data.w);
+        sumValue.x += exp(input_data.z);
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
     } else if (remain_channels == 1) {
-        accum_result += EXP(input_data.z);
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
+        sumValue.x += exp(input_data.z);
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
     } else if (remain_channels == 2) {
-        accum_result += EXP(input_data.y);
-        accum_result += EXP(input_data.x);
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
     } else if (remain_channels == 3) {
-        accum_result += EXP(input_data.x);
+        sumValue.x += exp(input_data.x);
+    }
+    for(int i = lid; i < shape.y; i+=SOFTMAX_LOCAL_SIZE){
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)) - maxValue.x) / sumValue.x;
+        WI_F(output, (int2)(w + i * shape.w, bh), value);
+    }
+#else
+    FLOAT4 maxValue = (FLOAT4)-FLT_MAX;
+    for (int i = 0; i < shape.y - 1; i++) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)));
+    }
+    
+    maxValue.x = fmax(maxValue.x, maxValue.y);
+    maxValue.x = fmax(maxValue.x, maxValue.z);
+    maxValue.x = fmax(maxValue.x, maxValue.w);
+
+    FLOAT4 input_data = RI_F(input, SAMPLER, (int2)(w + (shape.y - 1) * shape.w , bh));
+    if (remain_channels == 0) {
+        maxValue.x = fmax(maxValue.x, input_data.x);
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.z);
+        maxValue.x = fmax(maxValue.x, input_data.w);
+    } else if (remain_channels == 1) {
+        maxValue.x = fmax(maxValue.x, input_data.z);
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.x);
+    } else if (remain_channels == 2) {
+        maxValue.x = fmax(maxValue.x, input_data.y);
+        maxValue.x = fmax(maxValue.x, input_data.x);
+    } else if (remain_channels == 3) {
+        maxValue.x = fmax(maxValue.x, input_data.x);
     }
 
-    int cur_out_width_pos  = mad24(channel_block_idx, global_size_dim1, width_idx);
-    input_data = RI_F(input, SAMPLER, (int2)(cur_out_width_pos, batch_height_idx)) - float_max_value;
-    const int output_remain = output_channels - mul24(channel_block_idx, 4);
-
-    if (output_remain == 1) {
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else if (output_remain == 2) {
-        input_data.y = EXP(input_data.y) / accum_result;
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else if (output_remain == 3) {
-        input_data.z = EXP(input_data.z) / accum_result;
-        input_data.y = EXP(input_data.y) / accum_result;
-        input_data.x = EXP(input_data.x) / accum_result;
-    } else{
-        input_data = EXP(input_data) / accum_result;
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i = 0; i < shape.y - 1; i++) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)) - (FLOAT4)maxValue.x);
     }
-
-    WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
-
+    sumValue.x = sumValue.x + sumValue.y + sumValue.z + sumValue.w;
+    input_data -= maxValue.x;
+    if (remain_channels == 0) {
+        sumValue.x += exp(input_data.w);
+        sumValue.x += exp(input_data.z);
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
+    } else if (remain_channels == 1) {
+        sumValue.x += exp(input_data.z);
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
+    } else if (remain_channels == 2) {
+        sumValue.x += exp(input_data.y);
+        sumValue.x += exp(input_data.x);
+    } else if (remain_channels == 3) {
+        sumValue.x += exp(input_data.x);
+    }
+    for(int i = 0; i < shape.y; i++){
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)) - maxValue.x) / sumValue.x;
+        WI_F(output, (int2)(w + i * shape.w, bh), value);
+    }
+#endif
 }
 
-__kernel void softmax_height(__read_only image2d_t input, __write_only image2d_t output,
-                      __private const int4 shape // NCHW
+__kernel void softmax_height(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only image2d_t output,
+                      __private const int remain_channels, __private const int4 shape // NCHW
                       ) {
-    int wc = get_global_id(0);
-    int b = get_global_id(1);
-    if (wc < shape.y*shape.w && b < shape.x) {
-        /*Compute Max */
-        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(wc, b*shape.z));
-        for (int i=1; i<shape.z; ++i) {
-            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
-        }
-        /*Compute Exp Sum*/
-        FLOAT4 sumValue = (FLOAT4)0;
-        for (int i=0; i<shape.z; ++i) {
-            sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
-        }
-        /*Compute Result */
-        for (int i=0; i<shape.z; ++i) {
-            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue) / sumValue;
-            WI_F(output, (int2)(wc, b*shape.z+i), value);
-        }
+    const int x = get_global_id(0);
+    const int wc = get_global_id(1);
+    const int b = get_global_id(2);
+    DEAL_NON_UNIFORM_DIM3(x, wc, b);
+#if SOFTMAX_LOCAL_SIZE >= 4
+    int lid = get_local_id(0);
+    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
+    /*Compute Max */
+    FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
+    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
     }
+    sum[lid] = maxValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = fmax(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    maxValue = sum[0];
+    
+    /*Compute Exp Sum*/
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
+    }
+    sum[lid] = sumValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = sum[lid] + sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    sumValue = sum[0];
+    
+    /*Compute Result */
+    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue) / sumValue;
+        WI_F(output, (int2)(wc, b*shape.z+i), value);
+    }
+#else
+    /*Compute Max */
+    FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
+    for (int i=0; i<shape.z; i++) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
+    }
+    
+    /*Compute Exp Sum*/
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i=0; i<shape.z; i++) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
+    }
+    
+    /*Compute Result */
+    for (int i=0; i<shape.z; i++) {
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue) / sumValue;
+        WI_F(output, (int2)(wc, b*shape.z+i), value);
+    }
+#endif
 }
 
 
-__kernel void softmax_width(__read_only image2d_t input, __write_only image2d_t output,
-                      __private const int4 shape // NCHW
+__kernel void softmax_width(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only image2d_t output,
+                      __private const int remain_channels, __private const int4 shape // NCHW
                       ) {
-    int c = get_global_id(0);
-    int bh = get_global_id(1);
-    if (c < shape.y && bh < shape.x*shape.z) {
-        /*Compute Max */
-        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(c*shape.w, bh));
-        for (int i=1; i<shape.w; ++i) {
-            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
-        }
-        /*Compute Exp Sum*/
-        FLOAT4 sumValue = (FLOAT4)0;
-        for (int i=0; i<shape.w; ++i) {
-            sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
-        }
-        /*Compute Result */
-        for (int i=0; i<shape.w; ++i) {
-            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue) / sumValue;
-            WI_F(output, (int2)(c*shape.w+i, bh), value);
-        }
+    const int x = get_global_id(0);
+    const int c = get_global_id(1);
+    const int bh = get_global_id(2);
+    DEAL_NON_UNIFORM_DIM3(x, c, bh);
+#if SOFTMAX_LOCAL_SIZE >= 4
+    int lid = get_local_id(0);
+    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
+    
+    /*Compute Max */
+    FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
+    for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
     }
+    sum[lid] = maxValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = fmax(sum[lid], sum[lid + i]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    maxValue = sum[0];
+    
+    /*Compute Exp Sum*/
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
+    }
+    sum[lid] = sumValue;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            sum[lid] = sum[lid] + sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    sumValue = sum[0];
+    
+    /*Compute Result */
+    for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue) / sumValue;
+        WI_F(output, (int2)(c*shape.w+i, bh), value);
+    }
+#else
+    /*Compute Max */
+    FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
+    for (int i=0; i<shape.w; i++) {
+        maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
+    }
+    /*Compute Exp Sum*/
+    FLOAT4 sumValue = (FLOAT4)0;
+    for (int i=0; i<shape.z; i++) {
+        sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
+    }
+    
+    /*Compute Result */
+    for (int i=0; i<shape.w; i++) {
+        FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue) / sumValue;
+        WI_F(output, (int2)(c*shape.w+i, bh), value);
+    }
+#endif
 }

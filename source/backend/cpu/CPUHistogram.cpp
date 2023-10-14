@@ -46,7 +46,9 @@ ErrorCode CPUHistogram::histogram<uint8_t>(Tensor* input, Tensor* output) {
     int hist_map[256] = { 0 };
     // add hist_ptr to avoid iOS compile error: cannot refer to declaration with an array type inside block
     int* hist_ptr = hist_map;
-    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+//    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    // TODO: Support multi thread
+    int numberThread = 1;
     int sizeDivide = mSize / numberThread;
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {
         int number = sizeDivide;

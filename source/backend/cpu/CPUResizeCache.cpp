@@ -1,4 +1,6 @@
 #include "CPUResizeCache.hpp"
+#include "../../core/TensorUtils.hpp"
+
 namespace MNN {
 Tensor* CPUResizeCache::findCacheTensor(const Tensor* src, MNN_DATA_FORMAT format) const {
     auto iter = mFormatCache.find(std::make_pair(src, format));
@@ -14,5 +16,9 @@ void CPUResizeCache::pushCacheTensor(std::shared_ptr<Tensor> dst, const Tensor* 
 void CPUResizeCache::reset() {
     mFormatCache.clear();
 }
-
+void CPUResizeCache::release() {
+    for (auto iter : mFormatCache) {
+        TensorUtils::getDescribe(iter.second.get())->mem.reset(nullptr);
+    }
+}
 };

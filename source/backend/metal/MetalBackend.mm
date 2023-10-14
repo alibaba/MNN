@@ -50,9 +50,9 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend(std::shared_ptr<BufferAllocator> staticMem, const MetalRuntime* runtime) : Backend(MNN_FORWARD_METAL) {
+MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime) : Backend(MNN_FORWARD_METAL) {
     mRuntime = runtime;
-    mBufferPool.reset(new BufferAllocator(BufferAllocator::Allocator::createRecurse(staticMem.get()), 1024));
+    mBufferPool.reset(new EagerBufferAllocator(EagerBufferAllocator::Allocator::createRecurse(staticMem.get()), 1024));
     mStaticBufferPool = staticMem;
     mShapeH2D = getConstBuffer(4 * sizeof(int));
     mShapeD2H = getConstBuffer(4 * sizeof(int));
@@ -67,16 +67,19 @@ void *MetalBackend::context() const {
 
 class MetalMemRelease : public Backend::MemObj {
 public:
-    MetalMemRelease(std::pair<void*, int> buffer, BufferAllocator* allocator) {
+    MetalMemRelease(MemChunk buffer, EagerBufferAllocator* allocator) {
         mBuffer = buffer;
         mAllocator = allocator;
     }
     virtual ~ MetalMemRelease() {
         mAllocator->free(mBuffer);
     }
+    MemChunk chunk() override {
+        return mBuffer;
+    }
 private:
-    std::pair<void*, int> mBuffer;
-    BufferAllocator* mAllocator;
+    MemChunk mBuffer;
+    EagerBufferAllocator* mAllocator;
 };
 Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
     auto tensor  = const_cast<Tensor *>(_tensor);
@@ -95,7 +98,8 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
         }
         auto alignC = ROUND_UP(channel, 4);
         auto hR = ROUND_UP(height, 4) - height;
-        auto wR = ROUND_UP(width, 4) - width;
+        // width parallel 4, may exceed 3 elements
+        auto wR = ROUND_UP(width + 3, 4) - width;
         size = batch * alignC * width * height;
         size = size + hR * width * 4 + wR * 4;
     } else {
@@ -114,8 +118,8 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
     }
 
     // reuse if possible
-    std::pair<void*, int> buffer;
-    BufferAllocator* allocator = nullptr;
+    MemChunk buffer;
+    EagerBufferAllocator* allocator = nullptr;
     switch (storageType) {
         case Backend::STATIC: {
             buffer = mStaticBufferPool->alloc(size, false);
@@ -351,9 +355,10 @@ void MetalBackend::onResizeBegin() {
     [ctx wait];
 }
 
-void MetalBackend::onResizeEnd() {
+ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
     mFrameEncodeCache = (!ctx.isCommitEachShader && mOpFullSupport);
+    return NO_ERROR;
 }
 
 void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) const {
@@ -655,8 +660,8 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
 MetalRuntime::MetalRuntime(void* context) {
     mContext = context;
     auto ctx = (__bridge MNNMetalContext *)mContext;
-    std::shared_ptr<BufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
-    mStatic.reset(new BufferAllocator(allocator));
+    std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
+    mStatic.reset(new EagerBufferAllocator(allocator));
     mTunedInfo = new TunedInfo;
 }
 
@@ -858,12 +863,12 @@ bool MetalRuntime::onSetCache(const void* buffer, size_t size) {//set Cache
     return setCache(std::make_pair(buffer, size));
 }
 
-std::pair<void*, size_t> MetalRuntimeAllocator::onAlloc(size_t size, size_t align) {
+MemChunk MetalRuntimeAllocator::onAlloc(size_t size, size_t align) {
     auto buffer = [mDevice newBufferWithLength:size options:MTLCPUCacheModeDefaultCache];
     auto mMetalBufferAlloc = new MetalBufferAlloc(buffer);
-    return std::make_pair((void *)mMetalBufferAlloc, 0);
+    return MemChunk((void *)mMetalBufferAlloc, 0);
 }
-void MetalRuntimeAllocator::onRelease(std::pair<void*, size_t> ptr) {
+void MetalRuntimeAllocator::onRelease(MemChunk ptr) {
     delete (MetalBufferAlloc *)ptr.first;
 }
 
@@ -890,7 +895,7 @@ void registerMetalRuntimeCreator() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
         registerMetalOps();
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
     } else {
         MNN_ERROR("Init Metal Error\n");
     }

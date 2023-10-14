@@ -169,6 +169,7 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
         hostData[i]    = flagRandom;
     }
 
+    bn->onResizeBegin();
     std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<T>(std::vector<int>{1, 224, 224, 8}, Tensor::CAFFE_C4));
     bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
     std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<T>(std::vector<int>{1, 224, 224, 8}, Tensor::CAFFE_C4));
@@ -192,6 +193,8 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
     std::shared_ptr<Tensor> deviceTensor2(
         Tensor::createDevice<T>(std::vector<int>{1, 8, 224, 224}, Tensor::TENSORFLOW));
     bn->onAcquireBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
+    bn->onReleaseBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
+    bn->onResizeEnd();
     bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
     bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
     for (int i = 0; i < elementSize; ++i) {
@@ -253,6 +256,7 @@ bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
         hostData[i]    = flagRandom;
     }
 
+    bn->onResizeBegin();
 //    MNN_PRINT("\nalloc deviceTensor_pre\n");
     std::shared_ptr<Tensor> deviceTensor_pre(Tensor::createDevice<float>(nhwc_shape, Tensor::CAFFE_C4));
     bn->onAcquireBuffer(deviceTensor_pre.get(), Backend::STATIC);
@@ -285,6 +289,8 @@ bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     std::shared_ptr<Tensor> deviceTensor2(
         Tensor::createDevice<float>(nchw_shape, Tensor::TENSORFLOW));
     bn->onAcquireBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
+    bn->onReleaseBuffer(deviceTensor2.get(), Backend::DYNAMIC_SEPERATE);
+    bn->onResizeEnd();
     bn->onCopyBuffer(hostTensor.get(), deviceTensor2.get());
     bn->onCopyBuffer(deviceTensor2.get(), checkHostTensor.get());
     for (int i = 0; i < elementSize; ++i) {

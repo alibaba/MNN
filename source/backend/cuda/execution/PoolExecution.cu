@@ -165,6 +165,37 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     auto& prop = runtime->prop();
     int threads_num = prop.maxThreadsPerBlock;
     int block_num = prop.multiProcessorCount;
+
+    #ifdef ENABLE_CUDA_BF16
+    if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
+        auto inputPtr = (const __nv_bfloat16*)inputs[0]->deviceId();
+        auto outputPtr = (__nv_bfloat16*)outputs[0]->deviceId();
+        switch (mPoolType) {
+            case PoolType_AVEPOOL:
+                avgpool_C8_BF16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                    ib, ic_p, 
+                    ih, iw,
+                    oh, ow,
+                    mPaddings[0], mPaddings[1],
+                    mKernels[0], mKernels[1],
+                    mStrides[0], mStrides[1]
+                );
+                return NO_ERROR;
+            case PoolType_MAXPOOL:
+                maxpool_C8_BF16<<<block_num, threads_num>>>(inputPtr, outputPtr, 
+                    ib, ic_p, 
+                    ih, iw,
+                    oh, ow,
+                    mPaddings[0], mPaddings[1],
+                    mKernels[0], mKernels[1],
+                    mStrides[0], mStrides[1]
+                );
+                return NO_ERROR;
+        }        
+        return NO_ERROR;
+    }
+    #endif
+
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         auto inputPtr = (const half*)inputs[0]->deviceId();
         auto outputPtr = (half*)outputs[0]->deviceId();

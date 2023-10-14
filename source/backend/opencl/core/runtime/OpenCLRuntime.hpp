@@ -45,7 +45,7 @@ enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
@@ -59,6 +59,7 @@ public:
     bool isSupportedIntelSubgroup() const;
     ::cl::Context &context();
     ::cl::CommandQueue &commandQueue();
+    ::cl::CommandQueue &recordableQueue();
     uint64_t deviceGlobalMemeryCacheSize() const;
     uint32_t deviceComputeUnits() const;
     uint32_t MaxThreadsPerDevice() const;
@@ -68,6 +69,27 @@ public:
     uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
+    std::vector<cl_recording_qcom> *getRecordings(){
+        return &mRecordings;
+    }
+    uint32_t getUseRecordableQueueSize(){
+        return mUseRecordableQueueSize;
+    }
+    bool isUseRecordQueue(){
+        return mUseRecordQueue;
+    }
+    bool isDevideOpRecord(){
+        return mDevideOpRecord;
+    }
+    void setDevideOpRecord(){
+        mDevideOpRecord = true;
+    }
+    void setRecordNum(int num){
+        mRecordNums = num;
+    }
+    uint32_t getRecordNum(){
+        return mRecordNums;
+    }
     GpuType getGpuType() {
         return mGpuType;
     }
@@ -91,9 +113,21 @@ public:
     std::string getDeviceName() {
         return mDeviceName;
     }
+    void pushEvent(std::pair<std::string, cl::Event> data) {
+        return mEvents.push_back(data);
+    }
+    void printEventTime();
+    void clearEvent(){
+        mKernelTime = 0;
+        mEvents.clear();
+    }
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
+    void clearRecord();
+    void enqeueRecord();
+    void endRecord();
+    void releaseRecord();
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
@@ -133,6 +167,8 @@ private:
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
     std::map<std::tuple<std::string, std::string>, ::cl::Program> mBuildProgramMap;
+    std::shared_ptr<::cl::CommandQueue> mRecordableQueuePtr;
+    std::vector<cl_recording_qcom> mRecordings;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
@@ -140,6 +176,10 @@ private:
     uint64_t mMaxLocalMemSize;
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
+    uint32_t mUseRecordableQueueSize;
+    uint32_t mRecordNums = 0;
+    bool mUseRecordQueue = false;
+    bool mDevideOpRecord = true;
     bool mIsSupportedFP16     = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;
@@ -149,6 +189,7 @@ private:
     GpuType mGpuType;
     MaliAr mMaliAr;
     float mCLVersion = 1.0f;
+    std::vector<std::pair<std::string, cl::Event>> mEvents;
 
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities mSvmCapabilities;

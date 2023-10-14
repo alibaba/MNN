@@ -196,6 +196,22 @@ $  python quant_aware_training.py --model_file quant_demo/mobilenet_v2_tfpb_trai
 ![android_demo.png](../_static/images/start/android_demo.jpg)
 
 ## iOS Demo
+### 模型下载与转换：
+首先编译(如果已编译可以跳过)`MNNConvert`，操作如下：
+```
+cd MNN
+mkdir build && cd build
+cmake -DMNN_BUILD_CONVERTER=ON ..
+make -j8
+```
+
+然后下载并转换模型：
+切到编译了 MNNConvert 的目录，如上为 build 目录，执行
+```
+sh ../tools/script/get_model.sh
+```
+
+### 工程编译
 代码位置：`project/ios`
 
 使用`xcode`打开`project/ios/MNN.xcodeproj`, `target`选择`demo`,既可编译运行。

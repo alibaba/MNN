@@ -55,8 +55,6 @@ public:
             padWidth = padHeight = 0;
         }
         auto totalDepth        = input->batch() * UP_DIV(input->channel(), core->pack);
-        auto inputData         = input->host<uint8_t>();
-        auto outputData        = output->host<uint8_t>();
         auto inputPlaneStride  = core->pack * input->width() * input->height();
         auto outputPlaneStride = core->pack * output->width() * output->height();
         int threadNumber       = ((CPUBackend *)backend())->threadNumber();
@@ -67,6 +65,8 @@ public:
         }
         mFunction = std::make_pair(threadNumber, [=](int tId) {
             for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
+                auto inputData         = input->host<uint8_t>();
+                auto outputData        = output->host<uint8_t>();
                 // run
                 mCompute(inputData + channel * inputPlaneStride * mBytes, input->width(), input->height(),
                               outputData + outputPlaneStride * channel * mBytes, output->width(), output->height(), kernelWidth,

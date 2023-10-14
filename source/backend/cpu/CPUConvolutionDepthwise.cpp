@@ -41,7 +41,7 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
         mValid = false;
         return;
     }
-    success = mResource->copyBiasAlign(bias, biasSize);
+    success = mResource->copyBiasAlign(bias, static_cast<int>(biasSize));
     if (!success) {
         mValid = false;
         return;
@@ -208,9 +208,9 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
             }
         }
     };
-    auto biasP   = inputs[2]->host<uint8_t>();
-    auto weightP = inputs[1]->host<uint8_t>();
     mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
+        auto biasP   = inputs[2]->host<uint8_t>();
+        auto weightP = inputs[1]->host<uint8_t>();
         for (int index = tId; index < total; index += numberThread) {
             int dz = index / batch;
             auto dst_z           = dstOrigin + dst_z_step * index * bytes;
@@ -263,7 +263,7 @@ public:
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter()) {
-            quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), true);
+            quanCommon = ConvolutionCommon::load(conv2d, backend, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();

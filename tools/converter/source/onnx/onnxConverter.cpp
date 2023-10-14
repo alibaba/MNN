@@ -21,58 +21,6 @@
 #include "onnxConverter.hpp"
 #include "onnxOpConverter.hpp"
 
-std::vector<int> topoSort(const ::onnx::GraphProto& onnxGraph) {
-    std::vector<int> idxMap;
-    const int nodeCount   = onnxGraph.node_size();
-    std::map<std::string, int> outputMap;
-    std::map<int, std::vector<int>> graph; // key --[in]--> values
-    std::vector<int> inDegree(nodeCount);
-    // build Graph and inDegree
-    for (int i = 0; i < nodeCount; ++i) {
-        const auto& onnxNode = onnxGraph.node(i);
-        if (onnxNode.op_type() == "Loop" || onnxNode.op_type() == "If") {
-            return idxMap;
-        }
-        for (int k = 0; k < onnxNode.output_size(); k++) {
-            outputMap.insert(std::make_pair(onnxNode.output(k), i));
-        }
-    }
-    for (int i = 0; i < nodeCount; ++i) {
-        const auto& onnxNode = onnxGraph.node(i);
-        for (int k = 0; k < onnxNode.input_size(); k++) {
-            auto inputName = onnxNode.input(k);
-            auto iter = outputMap.find(inputName);
-            if (iter != outputMap.end()) {
-                graph[iter->second].push_back(i);
-            }
-        }
-    }
-    for (auto node : graph) {
-        for (auto output : node.second) {
-            inDegree[output]++;
-        }
-    }
-    // topo sort
-    std::queue<int> validNode;
-    for (int i = 0; i < nodeCount; i++) {
-        if (!inDegree[i]) {
-            validNode.push(i);
-        }
-    }
-    while (!validNode.empty()) {
-        int node = validNode.front();
-        validNode.pop();
-        idxMap.push_back(node);
-        for (auto succ : graph[node]) {
-            if (--inDegree[succ] == 0) {
-                validNode.push(succ);
-            }
-        }
-    }
-    MNN_ASSERT(idxMap.size() == nodeCount);
-    return idxMap;
-}
-
 int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 std::unique_ptr<MNN::NetT>& netT) {
     std::string modelDir;
@@ -117,6 +65,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             MNNOp->main.type = MNN::OpParameter_Input;
             auto inputParam  = new MNN::InputT;
             const auto it    = inputs.find(iter.first);
+            //FUNC_PRINT_ALL(iter.first.c_str(), s);
             DCHECK(it != inputs.end()) << "Input Paramter ERROR ==> " << iter.first;
             const auto& tensorInfo = (it->second)->type().tensor_type();
             const int inputDimSize = tensorInfo.shape().dim_size();
@@ -138,8 +87,24 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
     }
 
     // onnx model not all topo sort graph, sort it
-    std::vector<int> idxMap = topoSort(onnxGraph);
+    std::vector<int> idxMap = OnnxScope::topoSort(onnxGraph);
 
+    auto makeConst = [&](const std::string& inputName) {
+        const auto it         = initializers.find(inputName);
+        if (it != initializers.end() && scope->lookupTensor(it->first) == -1) {
+            // Create const Op
+            MNN::OpT* constOp   = new MNN::OpT;
+            constOp->type       = MNN::OpType_Const;
+            constOp->main.type  = MNN::OpParameter_Blob;
+            constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second, modelDir);
+            constOp->name    = it->first;
+            constOp->outputIndexes.push_back(scope->declareTensor(it->first));
+            netT->oplists.emplace_back(constOp);
+        }
+    };
+    for (int i=0; i<onnxGraph.output_size(); ++i) {
+        makeConst(onnxGraph.output(i).name());
+    }
     // onnx node ==> MNN node
     for (int idx = 0; idx < nodeCount; ++idx) {
         int i = idxMap.size() == nodeCount ? idxMap[idx] : idx;
@@ -158,17 +123,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         // convert initializer to be Constant node(op)
         for (int k = 0; k < onnxNode.input_size(); ++k) {
             const auto& inputName = onnxNode.input(k);
-            const auto it         = initializers.find(inputName);
-            if (it != initializers.end() && scope->lookupTensor(it->first) == -1) {
-                // Create const Op
-                MNN::OpT* constOp   = new MNN::OpT;
-                constOp->type       = MNN::OpType_Const;
-                constOp->main.type  = MNN::OpParameter_Blob;
-                constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second, modelDir);
-                constOp->name    = it->first;
-                constOp->outputIndexes.push_back(scope->declareTensor(it->first));
-                netT->oplists.emplace_back(constOp);
-            }
+            makeConst(inputName);
         }
 
         // build input and output

@@ -18,6 +18,7 @@
 #include <graph/compatible/all_ops.h>
 #include <hiai_ir_build.h>
 #include <graph/buffer.h>
+#include <MNN/ErrorCode.hpp>
 #include <core/Backend.hpp>
 #include <core/Execution.hpp>
 #include "HiAiModelManagerService.h"
@@ -267,23 +268,18 @@ namespace MNN {
         virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
         virtual void onResizeBegin() override;
-        virtual void onResizeEnd() override;
+        virtual ErrorCode onResizeEnd() override;
 
     public:
 
-        void bulidIRModelAndLoad();
-
-        int process(int modelIndex) const ;
+        ErrorCode bulidIRModelAndLoad();
+        int process() const ;
 
         shared_ptr<ge::Operator> getInputOps(const Op *op, int index = 0);
 
         void setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op,
                           const std::vector<Tensor *> &outputs);
         void setNetworkInput(const std::vector<Tensor *> &inputs, const Op* op);
-
-    private:
-
-        int getInOutTensorInfo(string modelName);
 
     public:
 
@@ -304,18 +300,18 @@ namespace MNN {
         static bool addCreator(OpType t, Creator* c);
 
     private:
-        shared_ptr<hiai::AiModelMngerClient> mMgrClient;
 
         vector<string> mModelName;
 
-        vector<hiai::TensorDimension> mInputDimension;
-        vector<hiai::TensorDimension> mOutputDimension;
-
-        vector<shared_ptr<hiai::AiTensor>> mInputTensors;
-        vector<shared_ptr<hiai::AiTensor>> mOutputTensors;
         MNNTensorList mMNNOutTensors;
         const NPURuntime* mNPURuntime;
         BackendConfig::PrecisionMode mPrecision;
+
+        shared_ptr<hiai::IBuiltModel> builtModel;
+        shared_ptr<hiai::IModelManager> modelManager;
+        vector<shared_ptr<hiai::INDTensorBuffer>> inputTensors;
+        vector<shared_ptr<hiai::INDTensorBuffer>> outputTensors;
+
 #ifdef HIAI_DEBUG
         void *(*ATrace_beginSection) (const char* sectionName);
         void *(*ATrace_endSection) (void);

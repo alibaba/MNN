@@ -21,57 +21,12 @@
 #ifdef MNN_EXPR_ENABLE_PROFILER
 #define MNN_EXPRESS_ERROR_REPORT
 #endif
-#define MNN_EXPRESS_OPEN_MEMORY_REUSE
+
 namespace MNN {
 namespace Express {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-class Executor::Profiler {
-public:
-    void reset();
-    void dump() const;
-    void add(const std::string& opType, float timeInMs);
-    void addFlops(const std::string& opType, float flops);
-private:
-    std::map<std::string, float> mTimes;
-    std::map<std::string, float> mFlops;
-};
-void Executor::Profiler::reset() {
-    mTimes.clear();
-    mFlops.clear();
-}
-void Executor::Profiler::dump() const {
-    float sumValue = 0.0f;
-    for (auto iter : mTimes) {
-        MNN_PRINT("%s: %f ms\n", iter.first.c_str(), iter.second);
-        sumValue += iter.second;
-    }
-    MNN_PRINT("Total: %f ms\n", sumValue);
-    sumValue = 0.0f;
-    for (auto iter : mFlops) {
-        MNN_PRINT("%s: %f \n", iter.first.c_str(), iter.second);
-        sumValue += iter.second;
-    }
-    MNN_PRINT("Total flops: %f M\n", sumValue);
-}
-void Executor::Profiler::add(const std::string& opType, float timeInMs) {
-    auto iter = mTimes.find(opType);
-    if (iter == mTimes.end()) {
-        mTimes[opType] = timeInMs;
-        return;
-    }
-    iter->second += timeInMs;
-}
-void Executor::Profiler::addFlops(const std::string& opType, float flops) {
-    auto iter = mFlops.find(opType);
-    if (iter == mFlops.end()) {
-        mFlops[opType] = flops;
-        return;
-    }
-    iter->second += flops;
-}
-#endif
 
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
+    std::lock_guard<std::mutex> _l(mMutex);
     if(type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
@@ -289,6 +244,8 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
         mInside->modes.resizeMode = mode;
     } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
         mInside->modes.memoryUsageMode = mode;
+    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
+        mInside->modes.codegenMode = mode;
     }
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
@@ -343,6 +300,7 @@ Executor::RuntimeManager::~RuntimeManager() {
 Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
     auto res = new RuntimeManager;
     auto glo = ExecutorScope::Current();
+    std::lock_guard<std::mutex> _l(glo->mMutex);
     auto& originRt = glo->mRuntimes;
     Backend::Info compute;
     compute.type      = Schedule::getApprociateType(config);
@@ -624,6 +582,8 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         expr->inside()->mCache = cahce;
     }
     cahce->mCacheBuffers = std::move(opBuffers);
+    // Don't report error when use expr dynamic compute, which will be called in model convert
+    scheduleInfo.pipelineInfo[0].first.reportError = false;
     scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     if (forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
@@ -642,36 +602,12 @@ void Executor::makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     //FUNC_PRINT(mCaches.size());
     _makeCache(expr, forceCPU);
 }
-void Executor::addOpCostTime(int op, float costTime) {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    auto opType = MNN::EnumNameOpType((OpType)op);
-    if (nullptr == opType) {
-        return;
-    }
-    mProfiler->add(opType, costTime);
-#endif
-}
-void Executor::addOpCostTime(const std::string& type, float costTime) {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    mProfiler->add(type, costTime);
-#endif
-}
-void Executor::addOpFlops(const std::string& type, float flops) {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    mProfiler->addFlops(type, flops);
-#endif
-}
-
 
 void Executor::resetProfile() {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    mProfiler->reset();
-#endif
+    // Depercated
 }
 void Executor::dumpProfile() {
-#ifdef MNN_EXPR_ENABLE_PROFILER
-    mProfiler->dump();
-#endif
+    // Depercated
 }
 
 bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs) {

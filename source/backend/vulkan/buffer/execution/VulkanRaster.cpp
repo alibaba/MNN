@@ -59,7 +59,7 @@ void VulkanRaster::_recycle() {
     }
     mExtraUniform.clear();
     mExtraDescribes.clear();
-    mOutputBuffer.first = std::make_pair(nullptr, 0);
+    mOutputBuffer.first = MemChunk();
     mInputBuffers.clear();
 }
 

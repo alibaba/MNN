@@ -11,6 +11,7 @@
 
 #include "core/Backend.hpp"
 #include "MNN_generated.h"
+#include <MNN/ErrorCode.hpp>
 
 #include <list>
 #include <vector>
@@ -22,6 +23,8 @@
 #include "backend/opencl/core/ImageBufferConvertor.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include "half.hpp"
+#define MNN_USER_SET_DEVICE
+#include "MNN/MNNSharedContext.h"
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
 #define MNN_OPEN_TIME_TRACE
@@ -33,7 +36,7 @@ namespace OpenCL {
 struct TuneInfo;
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info);
+    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0);
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
@@ -75,6 +78,15 @@ private:
     cl::Kernel mNCHWBufferToNC4HW4BufferInp;
     cl::Kernel mNHWCBufferToNC4HW4BufferInp;
     cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
+
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    cl::Kernel mNCHWBufferToNC16HW16BufferInp;
+    cl::Kernel mNHWCBufferToNC16HW16BufferInp;
+    cl::Kernel mNC4HW4BufferToNC16HW16BufferInp;
+    cl::Kernel mNC16HW16BufferToNHWCBufferOut;
+    cl::Kernel mNC16HW16BufferToNCHWBufferOut;
+    cl::Kernel mNC16HW16BufferToNC4HW4BufferOut;
+#endif
 };
 
 
@@ -91,7 +103,7 @@ public:
                                 const MNN::Op *op) override;
 
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;

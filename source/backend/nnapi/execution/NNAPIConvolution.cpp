@@ -81,7 +81,7 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             weightPtr = conv2D->quanParameter()->buffer()->data();
             weightSize = conv2D->quanParameter()->buffer()->size();
         } else if (nullptr != conv2D->quanParameter()) {
-            quanCommon = ConvolutionCommon::load(conv2D->quanParameter(), true);
+            quanCommon = ConvolutionCommon::load(conv2D, backend(), true);
             if (nullptr == quanCommon) {
                 MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", mOp->name()->c_str());
             }

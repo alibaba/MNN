@@ -29,10 +29,14 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    ErrorCode SubgrouponResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
-    std::vector<uint32_t> mLocalSize = {1, 1, 1};
+    std::vector<uint32_t> mLocalSize      = {1, 1, 1};
+    std::set<std::string> mBuildOptions;
 };
 
 } // namespace OpenCL

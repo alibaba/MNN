@@ -24,6 +24,26 @@ class ScatterNdTest : public MNNTestCase {
             const float dataData[]       = {1, 2, 3, 4, 5, 6, 7, 8};
             const float expectedResult[] = {1, 11, 3, 10, 9, 6, 7, 12};
 
+            auto indices = _Const(indicesData, {0, 1}, NHWC, halide_type_of<int>());
+            auto updates = _Const(nullptr, {0}, NHWC, halide_type_of<float>());
+            auto shape   = _Const(shapeData, {1}, NHWC, halide_type_of<float>());
+            auto data    = _Const(dataData, {8}, NHWC, halide_type_of<float>());
+            auto result  = _ScatterNd(indices, updates, shape, data);
+
+            auto resultData = result->readMap<float>();
+            const int size  = result->getInfo()->size;
+            if (!checkVector<float>(resultData, dataData, size, 0.001)) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        {
+            const int indicesData[]      = {4, 3, 1, 7};
+            const float updatesData[]    = {9, 10, 11, 12};
+            const int shapeData[]        = {8};
+            const float dataData[]       = {1, 2, 3, 4, 5, 6, 7, 8};
+            const float expectedResult[] = {1, 11, 3, 10, 9, 6, 7, 12};
+
             auto indices = _Const(indicesData, {4, 1}, NHWC, halide_type_of<int>());
             auto updates = _Const(updatesData, {4}, NHWC, halide_type_of<float>());
             auto shape   = _Const(shapeData, {1}, NHWC, halide_type_of<float>());

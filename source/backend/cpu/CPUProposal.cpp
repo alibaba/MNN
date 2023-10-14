@@ -11,6 +11,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "CPUTensorConvert.hpp"
+#include "core/TensorUtils.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
@@ -101,131 +102,129 @@ static void pickBoxes(const std::vector<score_box_t> &boxes, std::vector<long> &
 }
 
 ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    // score transform space
-    auto &score = inputs[0];
-    memcpy(mScore.buffer().dim, score->buffer().dim, sizeof(halide_dimension_t) * score->buffer().dimensions);
-    backend()->onAcquireBuffer(&mScore, Backend::DYNAMIC);
-
+    auto bufferAlloc = static_cast<CPUBackend *>(backend())->getBufferAllocator();
+    mScoreBuffer = bufferAlloc->alloc(TensorUtils::getRawSize(inputs[0]) * inputs[0]->getType().bytes());
+    if (mScoreBuffer.invalid()) {
+        return OUT_OF_MEMORY;
+    }
     // release temp buffer space
-    backend()->onReleaseBuffer(&mScore, Backend::DYNAMIC);
+    bufferAlloc->free(mScoreBuffer);
+    return NO_ERROR;
+}
 
-    auto &imInfo      = inputs[2];
+ErrorCode CPUProposal::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    // score transform space
+    auto score  = inputs[0];
+    auto boxes  = inputs[1];
+    auto imInfo = inputs[2];
     auto featStride   = mProposal->featStride();
     auto preNmsTopN   = mProposal->preNmsTopN();
     auto nmsThreshold = mProposal->nmsThreshold();
     auto afterNmsTopN = mProposal->afterNmsTopN();
     auto minSize      = mProposal->minSize();
 
-    auto boxes = inputs[1];
+    float* tmpScorePtr = (float*)mScoreBuffer.ptr();
+    // download
+    MNNUnpackC4Origin(tmpScorePtr, score->host<float>(), score->width() * score->height(), score->channel(), score->width() * score->height());
 
-    mRun = [=]() {
-        // download
-        MNNUnpackC4Origin(mScore.host<float>(), score->host<float>(), score->width() * score->height(), score->channel(), score->width() * score->height());
+    auto scrWidth = score->width(), scrHeight = score->height(), scrSize = scrWidth * scrHeight;
+    auto boxWidth = boxes->width(), boxHeight = boxes->height(), boxSize = boxWidth * boxHeight;
+    auto imH = imInfo->host<float>()[0]; // NC/4HW4
+    auto imW = imInfo->host<float>()[1]; // NC/4HW4
 
-        auto scrWidth = score->width(), scrHeight = score->height(), scrSize = scrWidth * scrHeight;
-        auto boxWidth = boxes->width(), boxHeight = boxes->height(), boxSize = boxWidth * boxHeight;
-        auto imH = imInfo->host<float>()[0]; // NC/4HW4
-        auto imW = imInfo->host<float>()[1]; // NC/4HW4
+    // generate proposals from box deltas and shifted anchors
+    // remove predicted boxes with either height or width < threshold
+    auto anchorWidth  = 4;
+    auto anchorHeight = mAnchors.size() / 4;
+    std::vector<score_box_t> proposalBoxes;
+    float imScale    = imInfo->host<float>()[2]; // NC/4HW4
+    float minBoxSize = minSize * imScale;
+    proposalBoxes.reserve(boxSize * anchorHeight);
 
-        // generate proposals from box deltas and shifted anchors
-        // remove predicted boxes with either height or width < threshold
-        auto anchorWidth  = 4;
-        auto anchorHeight = mAnchors.size() / 4;
-        std::vector<score_box_t> proposalBoxes;
-        float imScale    = imInfo->host<float>()[2]; // NC/4HW4
-        float minBoxSize = minSize * imScale;
-        proposalBoxes.reserve(boxSize * anchorHeight);
+    {
+        for (int ah = 0; ah < anchorHeight; ++ah) {
+            auto boxPtr   = boxes->host<float>() + ah * 4 * boxSize;
+            auto scorePtr = tmpScorePtr + (ah + anchorHeight) * scrSize;
 
-        {
-            for (int ah = 0; ah < anchorHeight; ++ah) {
-                auto boxPtr   = boxes->host<float>() + ah * 4 * boxSize;
-                auto scorePtr = mScore.host<float>() + (ah + anchorHeight) * scrSize;
+            // shifted anchor
+            const auto anchor = mAnchors.get() + ah * anchorWidth;
+            float anchorY     = anchor[1];
+            float anchorW     = anchor[2] - anchor[0];
+            float anchorH     = anchor[3] - anchor[1];
 
-                // shifted anchor
-                const auto anchor = mAnchors.get() + ah * anchorWidth;
-                float anchorY     = anchor[1];
-                float anchorW     = anchor[2] - anchor[0];
-                float anchorH     = anchor[3] - anchor[1];
+            for (int sh = 0; sh < scrHeight; sh++) {
+                float anchorX = anchor[0];
+                auto boxPtrH  = boxPtr + sh * 4 * boxWidth;
 
-                for (int sh = 0; sh < scrHeight; sh++) {
-                    float anchorX = anchor[0];
-                    auto boxPtrH  = boxPtr + sh * 4 * boxWidth;
+                for (int sw = 0; sw < scrWidth; sw++) {
+                    auto box = boxPtrH + 4 * sw;
+                    // apply center size
+                    float cx = anchorX + anchorW * 0.5f + anchorW * box[0];
+                    float cy = anchorY + anchorH * 0.5f + anchorH * box[1];
+                    float w  = anchorW * exp(box[2]);
+                    float h  = anchorH * exp(box[3]);
 
-                    for (int sw = 0; sw < scrWidth; sw++) {
-                        auto box = boxPtrH + 4 * sw;
-                        // apply center size
-                        float cx = anchorX + anchorW * 0.5f + anchorW * box[0];
-                        float cy = anchorY + anchorH * 0.5f + anchorH * box[1];
-                        float w  = anchorW * exp(box[2]);
-                        float h  = anchorH * exp(box[3]);
-
-                        float minX = std::max(std::min(cx - w * 0.5f, imW - 1), 0.f);
-                        float minY = std::max(std::min(cy - h * 0.5f, imH - 1), 0.f);
-                        float maxX = std::max(std::min(cx + w * 0.5f, imW - 1), 0.f);
-                        float maxY = std::max(std::min(cy + h * 0.5f, imH - 1), 0.f);
-                        if (maxX - minX + 1 >= minBoxSize && maxY - minY + 1 >= minBoxSize) {
-                            proposalBoxes.emplace_back(box_rect(minX, minY, maxX, maxY, scorePtr[sh * scrWidth + sw]));
-                        }
-                        anchorX += featStride;
+                    float minX = std::max(std::min(cx - w * 0.5f, imW - 1), 0.f);
+                    float minY = std::max(std::min(cy - h * 0.5f, imH - 1), 0.f);
+                    float maxX = std::max(std::min(cx + w * 0.5f, imW - 1), 0.f);
+                    float maxY = std::max(std::min(cy + h * 0.5f, imH - 1), 0.f);
+                    if (maxX - minX + 1 >= minBoxSize && maxY - minY + 1 >= minBoxSize) {
+                        proposalBoxes.emplace_back(box_rect(minX, minY, maxX, maxY, scorePtr[sh * scrWidth + sw]));
                     }
-                    anchorY += featStride;
+                    anchorX += featStride;
                 }
+                anchorY += featStride;
             }
         }
+    }
 
-        {
-            // sort all (proposal, score) pairs by score from highest to lowest
-            // take top preNmsTopN
-            auto compareFunction = [](const score_box_t &a, const score_box_t &b) {
-                return box_score(a) > box_score(b);
-            };
-            if (0 < preNmsTopN && preNmsTopN < (int)proposalBoxes.size()) {
-                std::partial_sort(proposalBoxes.begin(), proposalBoxes.begin() + preNmsTopN, proposalBoxes.end(),
-                                  compareFunction);
-                proposalBoxes.resize(preNmsTopN);
-            } else {
-                std::sort(proposalBoxes.begin(), proposalBoxes.end(), compareFunction);
-            }
+    {
+        // sort all (proposal, score) pairs by score from highest to lowest
+        // take top preNmsTopN
+        auto compareFunction = [](const score_box_t &a, const score_box_t &b) {
+            return box_score(a) > box_score(b);
+        };
+        if (0 < preNmsTopN && preNmsTopN < (int)proposalBoxes.size()) {
+            std::partial_sort(proposalBoxes.begin(), proposalBoxes.begin() + preNmsTopN, proposalBoxes.end(),
+                              compareFunction);
+            proposalBoxes.resize(preNmsTopN);
+        } else {
+            std::sort(proposalBoxes.begin(), proposalBoxes.end(), compareFunction);
         }
+    }
 
-        // apply nms with nmsThreshold
-        // take afterNmsTopN
-        std::vector<long> picked;
-        picked.reserve(afterNmsTopN);
-        {
-            pickBoxes(proposalBoxes, picked, nmsThreshold, afterNmsTopN);
+    // apply nms with nmsThreshold
+    // take afterNmsTopN
+    std::vector<long> picked;
+    picked.reserve(afterNmsTopN);
+    {
+        pickBoxes(proposalBoxes, picked, nmsThreshold, afterNmsTopN);
+    }
+
+    int pickedCount = std::min((int)picked.size(), afterNmsTopN);
+
+    // return the top proposals
+    int roiStep = outputs[0]->buffer().dim[0].stride, scoreStep = 0;
+    auto roiPtr = outputs[0]->host<float>(), scoresPtr = (float *)NULL;
+    memset(roiPtr, 0, outputs[0]->size());
+
+    if (outputs.size() > 1) {
+        scoreStep = outputs[1]->buffer().dim[0].stride;
+        scoresPtr = outputs[1]->host<float>();
+        memset(scoresPtr, 0, outputs[1]->size());
+    }
+
+    for (int i = 0; i < pickedCount; i++, scoresPtr += scoreStep) {
+        auto box  = proposalBoxes[picked[i]];
+        roiPtr[i * 4 + 0] = 0;
+        roiPtr[i * 4 + 1] = box_rect_xmin(box);
+        roiPtr[i * 4 + 2] = box_rect_ymin(box);
+        roiPtr[i * 4 + 3] = box_rect_xmax(box);
+        roiPtr[i * 4 + outputs[0]->length(0) * 4] = box_rect_ymax(box);
+        if (scoresPtr) {
+            scoresPtr[0] = box_score(box);
         }
-
-        int pickedCount = std::min((int)picked.size(), afterNmsTopN);
-
-        // return the top proposals
-        int roiStep = outputs[0]->buffer().dim[0].stride, scoreStep = 0;
-        auto roiPtr = outputs[0]->host<float>(), scoresPtr = (float *)NULL;
-        memset(roiPtr, 0, outputs[0]->size());
-
-        if (outputs.size() > 1) {
-            scoreStep = outputs[1]->buffer().dim[0].stride;
-            scoresPtr = outputs[1]->host<float>();
-            memset(scoresPtr, 0, outputs[1]->size());
-        }
-
-        for (int i = 0; i < pickedCount; i++, scoresPtr += scoreStep) {
-            auto box  = proposalBoxes[picked[i]];
-            roiPtr[i * 4 + 0] = 0;
-            roiPtr[i * 4 + 1] = box_rect_xmin(box);
-            roiPtr[i * 4 + 2] = box_rect_ymin(box);
-            roiPtr[i * 4 + 3] = box_rect_xmax(box);
-            roiPtr[i * 4 + outputs[0]->length(0) * 4] = box_rect_ymax(box);
-            if (scoresPtr) {
-                scoresPtr[0] = box_score(box);
-            }
-        }
-    };
-    return NO_ERROR;
-}
-
-ErrorCode CPUProposal::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mRun();
+    }
     return NO_ERROR;
 }
 

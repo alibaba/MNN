@@ -35,12 +35,12 @@
 extern "C" {
 
 void _AVX_MNNPackedMatMulFMA(float* C, const float* A, const float* B, const size_t* parameter,
-                             const float* postParameters, const float* bias);
-void _AVX_MNNPackedMatMulRemainFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+                             const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNPackedMatMulRemainFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNComputeMatMulForE_1FMA(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 void _AVX_MNNPackedMatMulFMA_BF16(float* C, const float* A, const float* B, const size_t* parameter,
-                                  const float* postParameters, const float* bias);
-void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+                                  const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNComputeMatMulForH_1FMA(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size, float* parameters);
 void _AVX_MNNExpC8FMA(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8);

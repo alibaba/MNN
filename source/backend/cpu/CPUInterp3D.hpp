@@ -38,6 +38,8 @@ private:
     float mDepthOffset;
     int mResizeType; // 1:near 2: bilinear 3: cubic 4: nearest_round
     bool mInit = false;
+    std::shared_ptr<Tensor> mInputTemp;
+    std::shared_ptr<Tensor> mOutputTemp;
 };
 
 } // namespace MNN

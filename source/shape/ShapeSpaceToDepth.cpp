@@ -23,8 +23,6 @@ class SpaceToDepthSizeComputer : public SizeComputer {
         // TODO: implement NC4HW4
         const int blockSize = op->main_as_DepthSpaceParam()->blockSize();
         MNN_ASSERT(blockSize > 1);
-        MNN_ASSERT(inputs[0]->buffer().dim[1].extent % blockSize == 0);
-        MNN_ASSERT(inputs[0]->buffer().dim[2].extent % blockSize == 0);
 
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();

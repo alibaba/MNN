@@ -64,6 +64,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mCallBackMode = mode.callBackMode;
     mMemoryUsageMode = mode.memoryUsageMode;
+    mCodegenMode = mode.codegenMode;
 }
 
 Session::~Session() {
@@ -172,11 +173,13 @@ ErrorCode Session::resize() {
         MNN_PRINT("\n");
     }
 #endif
+    bool permitCodegen = mCodegenMode == Interpreter::Session_Codegen_Enable;
+
     bool firstMalloc = false;
     if (mNeedResize) {
         bool debug = mCallBackMode == Interpreter::Session_Debug;
         for (auto& iter : mPipelines) {
-            auto error = iter->encode(debug);
+            auto error = iter->encode(debug, permitCodegen);
             if (NO_ERROR != error) {
                 return error;
             }
@@ -190,13 +193,16 @@ ErrorCode Session::resize() {
         mNeedResize = true;
         // Turn Pipeline to Command Buffer and Malloc resource
         // TODO: Separate Schedule and Malloc
+        bool forbidReplace = permitCodegen;
+        if (mInfo.constReplaceBackend != nullptr) {
+            forbidReplace = true;
+        }
         for (auto& iter : mPipelines) {
-            auto error = iter->allocMemory(firstMalloc);
+            auto error = iter->allocMemory(firstMalloc, forbidReplace);
             if (NO_ERROR != error) {
                 return error;
             }
         }
-
         if(mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
             #ifdef LOG_VERBOSE
             float memory = 0.0f;
@@ -284,7 +290,7 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
 }
 
 const Backend* Session::getBackEnd(const Tensor* tensor) const {
-    return TensorUtils::getDescribe(tensor)->backend;
+    return TensorUtils::getDescribe(tensor)->getBackend();
 }
 
 Tensor* Session::getInput(const char* name) const {
@@ -374,7 +380,9 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
             *TensorUtils::getDescribe(tensors[i].get())->quantAttr = *srcDes->quantAttr;
         }
-        TensorUtils::copyShape(tensorSrc[i].get(), tensors[i].get(), true);
+        if (TensorUtils::getDescribe(tensors[i].get())->usage != Tensor::InsideDescribe::CONSTANT) {
+            TensorUtils::copyShape(tensorSrc[i].get(), tensors[i].get(), true);
+        }
     }
 }
 
@@ -385,6 +393,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     scheduleInfo.pipelineInfo.resize(1);
     Session::ModeGroup modes;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
+    scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
     scheduleInfo.allTensors = sharedConst->allTensors;
     initTensors(scheduleInfo.allTensors, mInfo.allTensors);
     MNN_ASSERT(1 == mPipelines.size());
@@ -418,7 +427,9 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
             }
         }
         for (int j=0; j<opInfo.inputs.size(); ++j) {
-            TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+            if (TensorUtils::getDescribe(opInfo.inputs[j])->usage != Tensor::InsideDescribe::CONSTANT) {
+                TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+            }
         }
         for (int j=0; j<opInfo.outputs.size(); ++j) {
             TensorUtils::getDescribe(opInfo.outputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.outputs[j])->usage;

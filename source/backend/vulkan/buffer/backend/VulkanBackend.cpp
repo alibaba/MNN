@@ -102,7 +102,7 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
     mDirect = Backend::Info::INDIRECT != info.mode;
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
 
-    mDynamicBufferPool.reset(new BufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    mDynamicBufferPool.reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
@@ -131,14 +131,15 @@ void VulkanBackend::onResizeBegin() {
         mCmdBuffer->begin(0);
     }
 }
-void VulkanBackend::onResizeEnd() {
+ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
         mCmdBuffer->end();
     }
+    return NO_ERROR;
 }
 class VulkanMemRelease : public Backend::MemObj {
 public:
-    VulkanMemRelease(BufferAllocator* allocator, std::pair<void*, int> points, int size) {
+    VulkanMemRelease(BufferAllocator* allocator, MemChunk points, int size) {
         mPoint = std::move(points);
         mAllocator = allocator;
         mSize = size;
@@ -149,12 +150,12 @@ public:
     inline int getSize() const {
         return mSize;
     }
-    inline std::pair<void*, int> points() const {
+    inline MemChunk points() const {
         return mPoint;
     }
 private:
     BufferAllocator* mAllocator;
-    std::pair<void*, int> mPoint;
+    MemChunk mPoint;
     int mSize;
 };
 VULKAN_TENSOR VulkanBackend::getBuffer(const Tensor* tensor) const {
@@ -318,6 +319,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             tempTensor.reset(Tensor::create(srcTensor->shape(), dstTensor->getType(), nullptr, _convert(TensorUtils::getDescribe(srcTensor)->dimensionFormat)), [dstTensor](void* t) {
                 Tensor* temp = (Tensor*)t;
                 MNNCPUCopyBuffer(temp, dstTensor);
+                delete temp;
             });
             dstTensor = tempTensor.get();
         }

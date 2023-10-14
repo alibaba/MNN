@@ -20,16 +20,39 @@
 #include "GemmFunction.hpp"
 
 void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias) {
+                          const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackedMatMul_Main(C, A, B, parameter);
     AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
 }
 
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                             const float* postParameters, const float* bias) {
+                             const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackednMatMulRemainCommon(C, A, B, eSize, parameter);
     AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
 }
+
+#ifdef MNN_LOW_MEMORY
+void _AVX_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b) {
+    _AVX_MNNPackedMatMul_Main_int4(C, A, B, parameter, k, b);
+    AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+}
+void _AVX_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                             const float* postParameters, const float* bias, const float* k, const float* b) {
+    _AVX_MNNPackednMatMulRemainCommon_int4(C, A, B, eSize, parameter, k, b);
+    AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+}
+void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b) {
+    _AVX_MNNPackedMatMul_Main_int8(C, A, B, parameter, k, b);
+    AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+}
+void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                             const float* postParameters, const float* bias, const float* k, const float* b) {
+    _AVX_MNNPackednMatMulRemainCommon_int8(C, A, B, eSize, parameter, k, b);
+    AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+}
+#endif
 
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
     auto l = param->l;

@@ -82,7 +82,6 @@ __kernel void nhwc_buffer_to_nc4hw4_buffer_floatin(GLOBAL_SIZE_2_DIMS
     vstore4(values, 0, output+out_offset);
 }
 
-
 // convert data from buffer(nchw) to buffer(nc4hw4)
 __kernel void nchw_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
                                    __global const FLOAT *input_ptr,
@@ -181,6 +180,53 @@ __kernel void nchw_buffer_to_nc4hw4_buffer_floatin(GLOBAL_SIZE_2_DIMS
 
     const int out_offset = (((batch_idx * ((channels+3)/4) + channel_4_idx/4) * height + height_idx) * width + width_idx)*4;
     vstore4(output_values, 0, output+out_offset);
+}
+
+__kernel void nchw_buffer_to_nchw_buffer_floatin(GLOBAL_SIZE_2_DIMS
+                                   __global float *input_ptr,
+                                   __private const int height, __private const int width, __private const int channels,
+                                   __private const int input_pad_left, __private const int input_pad_right,
+                                   __private const int output_pad_left, __private const int output_pad_right,
+                                   __global FLOAT *output) {
+    int image_width_idx  = get_global_id(0);
+    int image_height_idx = get_global_id(1);
+    
+    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
+
+    const int src_width = width + input_pad_left + input_pad_right;
+    const int dst_width = width + output_pad_left + output_pad_right;
+    const int batch_idx     = image_height_idx / height;
+    const int height_idx    = image_height_idx % height;
+    const int width_idx     = image_width_idx % width;
+    const int channel_idx = image_width_idx / width;
+    const int in_offset = ((batch_idx * channels + channel_idx) * height + height_idx) * src_width + width_idx + input_pad_left;
+    const int out_offset = ((batch_idx * channels + channel_idx) * height + height_idx) * dst_width + width_idx + output_pad_left;
+
+    output[out_offset] = (FLOAT)input_ptr[in_offset];
+}
+
+
+__kernel void nchw_buffer_to_nchw_buffer_floatout(GLOBAL_SIZE_2_DIMS
+                                   __global float *output,
+                                   __private const int height, __private const int width, __private const int channels,
+                                   __global FLOAT *input_ptr,
+                                   __private const int input_pad_left, __private const int input_pad_right,
+                                   __private const int output_pad_left, __private const int output_pad_right) {
+    int image_width_idx  = get_global_id(0);
+    int image_height_idx = get_global_id(1);
+    
+    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
+
+    const int src_width = width + input_pad_left + input_pad_right;
+    const int dst_width = width + output_pad_left + output_pad_right;
+    const int batch_idx     = image_height_idx / height;
+    const int height_idx    = image_height_idx % height;
+    const int width_idx     = image_width_idx % width;
+    const int channel_idx = image_width_idx / width;
+    const int in_offset = ((batch_idx * channels + channel_idx) * height + height_idx) * src_width + width_idx + input_pad_left;
+    const int out_offset = ((batch_idx * channels + channel_idx) * height + height_idx) * dst_width + width_idx + output_pad_left;
+
+    output[out_offset] = (float)input_ptr[in_offset];
 }
 
 
@@ -367,7 +413,6 @@ __kernel void nc4hw4_buffer_to_nchw_buffer_floatout(GLOBAL_SIZE_2_DIMS
         output[offset] = values.x;
     }
 }
-
 
 __kernel void nc4hw4_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
                                     __global const FLOAT *input_ptr,

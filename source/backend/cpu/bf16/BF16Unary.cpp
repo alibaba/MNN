@@ -136,23 +136,34 @@ struct _HardSwish {
     }
 };
 
+struct _Gelu {
+    void operator()(void* outRaw, const void* inpRaw, int realSize) const {
+        auto out = (float*)outRaw;
+        auto inp = (const float*)inpRaw;
+        MNNGeluCommon(out, inp, realSize);
+    }
+};
 void BF16GELU (void* OutRaw, const void* inpRaw, int realSize) {
-    auto out = (int16_t*)OutRaw;
-    auto inp = (const int16_t*)inpRaw;
+    int16_t* out = (int16_t*)OutRaw;
+    const int16_t* inp = (const int16_t*)inpRaw;
     int sizeQuad = realSize / 8;
     int start = 0;
     float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
-    if (sizeQuad > 0) {     
+    if (sizeQuad > 0) {
+#ifdef MNN_USE_NEON
         NEON_MNNGelu_BF16(out, inp, sizeQuad, parameters);
+#endif
         start = sizeQuad * 8;
     }
     int16_t tempInp[8];
     for (int i = start; i < realSize; i++) {
         tempInp[i-start] = inp[i];
     }
+#ifdef MNN_USE_NEON
     NEON_MNNGelu_BF16(tempInp, tempInp, 1, parameters);
+#endif
     for (int i = start; i < realSize; i++) {
-        out[i] = tempInp[i-start]; 
+        out[i] = tempInp[i-start];
     }
 }
 
@@ -235,7 +246,11 @@ MNNUnaryExecute BF16UnaryFloatSelect(int type, int precision) {
         case UnaryOpOperation_HARDSWISH:
             return _Wrap<_HardSwish>;
         case UnaryOpOperation_GELU:
+#ifdef MNN_USE_NEON
             return BF16GELU;
+#else
+            return _Wrap<_Gelu>;
+#endif
         default:
             MNN_ASSERT(false);
             break;

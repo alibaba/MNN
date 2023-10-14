@@ -342,7 +342,12 @@ static auto gRegister = []() {
                         continue;
                     }
                     auto inputVar = inputVarIter->second;
-                    auto newVar = _Gelu(inputVar);
+                    std::unique_ptr<MNN::OpT> newUnary(new MNN::OpT);
+                    newUnary->type = OpType_UnaryOp;
+                    newUnary->main.type = OpParameter_UnaryOp;
+                    newUnary->main.value = new UnaryOpT;
+                    newUnary->main.AsUnaryOp()->opType = UnaryOpOperation_GELU_STANDARD;
+                    auto newVar = MNN::Express::Variable::create(MNN::Express::Expr::create(newUnary.get(), {inputVar}));
                     newVar->setName(expr->outputName(0));
                     Expr::replace(expr, newVar->expr().first);
                     return true;

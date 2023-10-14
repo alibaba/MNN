@@ -15,11 +15,12 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class InterpExecution : public Execution {
+class InterpExecution : public Execution, public CommonExtension {
 public:
     InterpExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~InterpExecution() = default;

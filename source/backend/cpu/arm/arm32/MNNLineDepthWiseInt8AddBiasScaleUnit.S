@@ -46,98 +46,71 @@ ldr lr, [sp, #52]
 vpush {q4-q7}
 
 ldr r10, [r3, #0]
-ldr r11, [r3, #8]
-// d10: max, d11: min
-vdup.i8 d10, r11
-ldr r11, [r3, #12]
-vdup.i8 d11, r11
-ldr r3, [r3, #4]
+vld1.32 {q12, q13}, [r10]! // scale, pack=16
+vld1.32 {q14, q15}, [r10]!
 
-vld1.32 {q6}, [r3] // q6
-vld1.32 {q4}, [r10] // q4
+ldr r11, [r3, #8]
+// d23: max, d22: min
+vdup.i8 d23, r11
+ldr r11, [r3, #12]
+vdup.i8 d22, r11
+ldr r3, [r3, #4]
 
 mul r10, r6, r8
 sub lr, lr, r10
 
-L8:
-cmp r4, #8
-blt L4
+L1:
+cmp r4, #0
+beq End
 
-mov r12, #8
-mul r12, r5, r12
+L1Loop:
+    vld1.32 {q7, q8}, [r3]!
+    vld1.32 {q9, q10}, [r3]
+    sub r3, r3, #32
 
-L8Loop_NORMAL:
-    // load bias
-    vmov.i32 q8, q6
-    vmov.i32 q9, q6
-    vmov.i32 q10, q6
-    vmov.i32 q11, q6
-    vmov.i32 q12, q6
-    vmov.i32 q13, q6
-    vmov.i32 q14, q6
-    vmov.i32 q15, q6
-
-    vmov.i32 d14[0], r1
-    vmov.i32 d14[1], r2
+    vmov.i32 d12[0], r1
+    vmov.i32 d12[1], r2
     mov r10, r7
-    L8LoopH_NORMAL:
+    L1LoopH:
         mov r11, r6
-        L8LoopW_NORMAL:
-            vld1.32 {d6[0]}, [r2]!
-            vmovl.s8 q3, d6
-            vld1.32 {d0[0]}, [r1], r5
-            vld1.32 {d0[1]}, [r1], r5
+        L1LoopW:
+            vld1.32 {q1}, [r2]!
+            vld1.32 {q0}, [r1], r8
+            
+            vmovl.s8 q2, d0
+            vmovl.s8 q3, d1
+            vmovl.s8 q4, d2
+            vmovl.s8 q5, d3
+            vmlal.s16 q7, d4, d8
+            vmlal.s16 q8, d5, d9
+            vmlal.s16 q9, d6, d10
+            vmlal.s16 q10, d7, d11
+
             subs r11, r11, #1
-            vmovl.s8 q1, d0
-            vld1.32 {d1[0]}, [r1], r5
-            vld1.32 {d1[1]}, [r1], r5
-            vmovl.s8 q2, d1
-            vmlal.s16 q8, d6, d2
-
-            vld1.32 {d0[0]}, [r1], r5
-            vmlal.s16 q9, d6, d3
-            vld1.32 {d0[1]}, [r1], r5
-            vld1.32 {d1[0]}, [r1], r5
-            vld1.32 {d1[1]}, [r1], r5
-            vmlal.s16 q10, d6, d4
-            vmovl.s8 q1, d0
-            vmlal.s16 q11, d6, d5
-            vmovl.s8 q2, d1
-            vmlal.s16 q12, d6, d2
-            vmlal.s16 q13, d6, d3
-            vmlal.s16 q14, d6, d4
-            vmlal.s16 q15, d6, d5
-
-            sub r1, r1, r12
-            add r1, r1, r8
-            bne L8LoopW_NORMAL
-
+            bne L1LoopW
+        L1LoopWEnd:
         subs r10, r10, #1
         add r1, r1, lr
-        bne L8LoopH_NORMAL
+        bne L1LoopH
 
-    sub r4, r4, #8
     vmov.f32 q0, #0.5
     vmov.f32 q1, #-0.5
 
-    vcvt.f32.s32 q8, q8
-    vcvt.f32.s32 q9, q9
+    vcvt.f32.s32 q7,  q7
+    vcvt.f32.s32 q8,  q8
+    vcvt.f32.s32 q9,  q9
     vcvt.f32.s32 q10, q10
-    vcvt.f32.s32 q11, q11
-    vcvt.f32.s32 q12, q12
-    vcvt.f32.s32 q13, q13
-    vcvt.f32.s32 q14, q14
-    vcvt.f32.s32 q15, q15
 
-    vmul.f32 q8, q8, q4
-    vmul.f32 q9, q9, q4
-    vmul.f32 q10, q10, q4
-    vmul.f32 q11, q11, q4
-    vmul.f32 q12, q12, q4
-    vmul.f32 q13, q13, q4
-    vmul.f32 q14, q14, q4
-    vmul.f32 q15, q15, q4
-
+    vmul.f32 q7,  q7, q12
+    vmul.f32 q8,  q8, q13
+    vmul.f32 q9,  q9, q14
+    vmul.f32 q10, q10, q15
+    /*
+    vrshrn.s32 d14, q7,  #14
+    vrshrn.s32 d15, q8,  #14
+    vrshrn.s32 d18, q9, #14
+    vrshrn.s32 d19, q10, #14
+    */
 .macro ROUND_TWO x0, x1
     vcgt.f32 q2, \x0, #0
     vcgt.f32 q3, \x1, #0
@@ -148,166 +121,27 @@ L8Loop_NORMAL:
     vcvt.s32.f32 \x0, \x0
     vcvt.s32.f32 \x1, \x1
 .endm
-    ROUND_TWO q8, q9
-    ROUND_TWO q10, q11
-    ROUND_TWO q12, q13
-    ROUND_TWO q14, q15
+    ROUND_TWO q7, q8
+    ROUND_TWO q9, q10
 
-    vqmovn.s32 d4, q8
-    vqmovn.s32 d5, q9
-    vqmovn.s32 d0, q10
-    vqmovn.s32 d1, q11
-    vqmovn.s16 d6, q2
-    vqmovn.s16 d7, q0
+    vqmovn.s32 d14, q7
+    vqmovn.s32 d15, q8
+    vqmovn.s32 d18, q9
+    vqmovn.s32 d19, q10
 
-    vmin.s8 d6, d6, d10
-    vmin.s8 d7, d7, d10
-    vmax.s8 d6, d6, d11
-    vmax.s8 d7, d7, d11
+    vqmovn.s16 d14, q7
+    vqmovn.s16 d15, q9
 
-    vst1.32 {q3}, [r0]!
+    vmin.s8 d14, d14, d23
+    vmax.s8 d14, d14, d22
+    vmin.s8 d15, d15, d23
+    vmax.s8 d15, d15, d22
 
-    vqmovn.s32 d4, q12
-    vqmovn.s32 d5, q13
-    vqmovn.s32 d0, q14
-    vqmovn.s32 d1, q15
-    vqmovn.s16 d6, q2
-    vqmovn.s16 d7, q0
-
-    vmin.s8 d6, d6, d10
-    vmin.s8 d7, d7, d10
-    vmax.s8 d6, d6, d11
-    vmax.s8 d7, d7, d11
-
-    vst1.32 {q3}, [r0]!
-
-    vmov.i32 r1, d14[0]
-    vmov.i32 r2, d14[1]
-    add r1, r1, r12
-    cmp r4, #8
-    bge L8Loop_NORMAL
-
-L4:
-cmp r4, #4
-blt L1
-
-mov r12, #4
-mul r12, r5, r12
-
-L4Loop:
-    vmov.i32 q8, q6
-    vmov.i32 q9, q6
-    vmov.i32 q10, q6
-    vmov.i32 q11, q6
-
-    vmov.i32 d14[0], r1
-    vmov.i32 d14[1], r2
-    mov r10, r7
-    L4LoopH:
-        mov r11, r6
-        L4LoopW:
-            vld1.32 {d6[0]}, [r2]!
-            vmovl.s8 q3, d6
-            vld1.32 {d0[0]}, [r1], r5
-            vld1.32 {d0[1]}, [r1], r5
-            subs r11, r11, #1
-            vmovl.s8 q1, d0
-            vld1.32 {d1[0]}, [r1], r5
-            vld1.32 {d1[1]}, [r1], r5
-            vmovl.s8 q2, d1
-            vmlal.s16 q8, d6, d2
-            vmlal.s16 q9, d6, d3
-            vmlal.s16 q10, d6, d4
-            vmlal.s16 q11, d6, d5
-
-            sub r1, r1, r12
-            add r1, r1, r8
-            bne L4LoopW
-        L4LoopWEnd:
-        subs r10, r10, #1
-        add r1, r1, lr
-        bne L4LoopH
-    sub r4, r4, #4
-    vmov.f32 q0, #0.5
-    vmov.f32 q1, #-0.5
-
-    vcvt.f32.s32 q8, q8
-    vcvt.f32.s32 q9, q9
-    vcvt.f32.s32 q10, q10
-    vcvt.f32.s32 q11, q11
-
-    vmul.f32 q8, q8, q4
-    vmul.f32 q9, q9, q4
-    vmul.f32 q10, q10, q4
-    vmul.f32 q11, q11, q4
-
-    ROUND_TWO q8, q9
-    ROUND_TWO q10, q11
-
-    vqmovn.s32 d4, q8
-    vqmovn.s32 d5, q9
-    vqmovn.s32 d0, q10
-    vqmovn.s32 d1, q11
-    vqmovn.s16 d6, q2
-    vqmovn.s16 d7, q0
-
-    vmin.s8 d6, d6, d10
-    vmin.s8 d7, d7, d10
-    vmax.s8 d6, d6, d11
-    vmax.s8 d7, d7, d11
-
-    vst1.32 {q3}, [r0]!
-    vmov.i32 r1, d14[0]
-    vmov.i32 r2, d14[1]
-    add r1, r1, r12
-    cmp r4, #4
-    bge L4Loop
-
-
-L1:
-cmp r4, #0
-beq End
-vmov.f32 q14, #0.5
-vmov.f32 q15, #-0.5
-
-L1Loop:
-    vmov.i32 q8, q6
-    mov r10, r7
-    vmov.i32 d14[0], r1
-    vmov.i32 d14[1], r2
-    L1LoopH:
-        mov r11, r6
-        L1LoopW:
-            vld1.32 {d2[0]}, [r1], r8
-            vld1.32 {d4[0]}, [r2]!
-            vmovl.s8 q1, d2
-            vmovl.s8 q2, d4
-            vmlal.s16 q8, d2, d4
-            subs r11, r11, #1
-            bne L1LoopW
-        subs r10, r10, #1
-        add r1, r1, lr
-        bne L1LoopH
-
-    subs r4, r4, #1
-
-    vcvt.f32.s32 q8, q8
-    vmul.f32 q8, q8, q4
-    vcgt.f32 q2, q8, #0
-    vbsl.f32 q2, q14, q15
-    vadd.f32 q8, q2, q8
-    vcvt.s32.f32 q8, q8
-
-    vqmovn.s32 d4, q8
-    vqmovn.s16 d6, q2
-
-    vmin.s8 d6, d6, d10
-    vmax.s8 d6, d6, d11
-
-    vst1.32 {d6[0]}, [r0]!
-    vmov.i32 r1, d14[0]
-    vmov.i32 r2, d14[1]
+    vst1.32 {q7}, [r0]!
+    vmov.i32 r1, d12[0]
+    vmov.i32 r2, d12[1]
     add r1, r1, r5
+    subs r4, r4, #1
     bne L1Loop
 
 End:

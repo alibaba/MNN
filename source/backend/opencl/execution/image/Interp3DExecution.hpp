@@ -1,5 +1,5 @@
 //
-//  InterpExecution.hpp
+//  Interp3DExecution.hpp
 //  MNN
 //
 //  Created by MNN on 2019/02/02.
@@ -15,11 +15,12 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class Interp3DExecution : public Execution {
+class Interp3DExecution : public Execution, public CommonExtension {
 public:
     Interp3DExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~Interp3DExecution() = default;

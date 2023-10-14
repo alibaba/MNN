@@ -37,7 +37,7 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
     const float* filterDataPtr = nullptr;
     int filterDataSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, mCon2dParams, &filterDataPtr, &filterDataSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, mCon2dParams, &filterDataPtr, &filterDataSize);
 
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
@@ -96,6 +96,7 @@ DepthwiseConvExecution::~DepthwiseConvExecution() {
 }
 
 ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input                   = inputs[0];
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -148,6 +149,8 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
     }
     
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -162,9 +165,16 @@ ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs,
                 mOpenCLBackend->getOpenCLRuntime(),
                 &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DepthwiseConv\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConv", event});
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End DepthwiseConvExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());
 #endif

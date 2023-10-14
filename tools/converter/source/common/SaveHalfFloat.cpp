@@ -16,6 +16,9 @@ void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
         case MNN::OpType_Convolution:
         case MNN::OpType_ConvolutionDepthwise: {
             auto param           = op->main.AsConvolution2D();
+            if (param->quanParameter != nullptr) {
+                break;
+            }
             const int weightSize = param->weight.size();
             // const int biasSize = param->bias.size();
             std::vector<half_float::half> quantizedFp16Weight;

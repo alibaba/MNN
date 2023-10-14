@@ -10,9 +10,11 @@
 #define VulkanBackend_hpp
 
 #include <map>
+#include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
 #include "VulkanTensor.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class VulkanImageConverter;
@@ -30,7 +32,7 @@ public:
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
@@ -92,7 +94,7 @@ private:
     mutable std::shared_ptr<VulkanFence> mFence;
 
 
-    mutable std::map<std::tuple<const Tensor*, bool, MNN_DATA_FORMAT>,
+    mutable std::map<std::tuple<const Tensor::InsideDescribe::NativeInsideDescribe*, bool, MNN_DATA_FORMAT>,
                      std::pair<std::shared_ptr<VulkanImageConverter>, std::shared_ptr<VulkanCommandPool::Buffer>>>
         mConverters;
 

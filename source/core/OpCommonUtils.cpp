@@ -28,6 +28,9 @@ void OpCommonUtils::loadBlobData(Backend* backend, const Op* op, char* ptr, int 
         case DataType_DT_FLOAT:
             result = (void*)b->float32s()->Data();
             break;
+        case DataType_DT_BFLOAT16:
+            result = (void*)b->uint8s()->Data();
+            break;
         case DataType_DT_INT32:
             result = (void*)b->int32s()->Data();
             break;
@@ -619,7 +622,8 @@ void OpCommonUtils::turnRegion2Convert(const Tensor::InsideDescribe::Region& reg
             }
         }
         if (info.batch == region.size[keepDim]) {
-            if (info.channel == region.size[srcOne] && info.area == region.size[dstOne]) {
+            if ((info.channel == region.size[srcOne] && info.area == region.size[dstOne]) // NCHW
+               || (info.area == region.size[srcOne] && info.channel == region.size[dstOne])) {// NHWC
                 auto srcSize = TensorUtils::getRawSize(originTensor);
                 auto dstSize = TensorUtils::getRawSize(nc4hw4Tensor);
                 auto regionSize = region.size[0] * region.size[1] * region.size[2];

@@ -126,7 +126,7 @@ SAMPLER CPUImageProcess::choose(ImageFormatType format, FilterType type, bool id
         switch (format) {
             case ImageFormatType_RGBA:
             case ImageFormatType_BGRA:
-                return MNNSamplerC4Bilinear;
+                return coreFunctions->MNNSamplerC4Bilinear;
             case ImageFormatType_GRAY:
                 return MNNSamplerC1Bilinear;
 
@@ -142,7 +142,7 @@ SAMPLER CPUImageProcess::choose(ImageFormatType format, FilterType type, bool id
     switch (format) {
         case ImageFormatType_RGBA:
         case ImageFormatType_BGRA:
-            return MNNSamplerC4Nearest;
+            return coreFunctions->MNNSamplerC4Nearest;
         case ImageFormatType_GRAY:
             return MNNSamplerC1Nearest;
 

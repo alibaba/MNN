@@ -1,5 +1,5 @@
 <!-- pymnn/CVImageProcess.md -->
-## MNN.CVImageProcess
+## MNN.CVImageProcess *[deprecated]*
 
 ```python
 class CVImageProcess
@@ -10,6 +10,7 @@ CVImageProcess用于图像处理，该图像处理类提供了一下图像处理
 - 图像的仿射变换，类似于`cv2.resize`和`cv2.warpAffine`，通过设置[CVMatrix](CVMatrix.md) 来实现
 - 对图像进行归一化，通过设置`mean`和`normal`来实现; `x = (x - mean) / normal`
 
+*不建议使用该接口，请使用[cv](cv.md)代替*
 ---
 ### `MNN.CV_ImageFormat_*`
 描述图像格式的数据类型，支持RBG,RGBA,BGR,BGRA,GRAY,YUV_NV21类型

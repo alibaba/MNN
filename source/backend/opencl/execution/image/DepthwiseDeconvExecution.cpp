@@ -36,7 +36,7 @@ DepthwiseDeconvExecution::DepthwiseDeconvExecution(const std::vector<Tensor *> &
     const float* filterDataPtr = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, mCon2dParams, &filterDataPtr, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, mCon2dParams, &filterDataPtr, &tempWeightSize);
 
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
@@ -88,6 +88,7 @@ DepthwiseDeconvExecution::~DepthwiseDeconvExecution() {
 }
 ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs,
                                              const std::vector<Tensor *> &outputs) {
+    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -150,7 +151,8 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
     
     std::string name = "depthwiseDeconv";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-
+    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -166,9 +168,16 @@ ErrorCode DepthwiseDeconvExecution::onExecute(const std::vector<Tensor *> &input
                        mOpenCLBackend->getOpenCLRuntime(),
                        &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us DepthwiseDeconv\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseDeconv", event});
 #else
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End DepthwiseDeconvExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

@@ -84,21 +84,21 @@ ErrorCode MultiInputDeconvExecution::onResize(const std::vector<Tensor*> &inputs
 
     // Alloc temp cuda memory
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
-    std::pair<void*, size_t> buffer_input, buffer_im2col;
+    MemChunk buffer_input, buffer_im2col;
     if(mFp16Fp32MixInfer) {
         buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elhPad[1] * mGemmInfo.elh[2]);
-        mInputBuffer = (void*)((uint8_t*)buffer_input.first + buffer_input.second);
+        mInputBuffer = (void*)buffer_input.ptr();
     } else {
         mInputBuffer = (void*)input->deviceId();
     }
     buffer_im2col = pool->alloc(bytes * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
-    mIm2ColBuffer = (void*)((uint8_t*)buffer_im2col.first + buffer_im2col.second);
+    mIm2ColBuffer = (void*)buffer_im2col.ptr();
 
     mNeedWeightFill = (mGemmInfo.elh[1] != mGemmInfo.elhPad[1]);
-    std::pair<void*, int> buffer_filter;
+    MemChunk buffer_filter;
     if(mNeedWeightFill) {
         buffer_filter = pool->alloc(bytes * (size_t)mGemmInfo.elh[0] * (size_t)mGemmInfo.elhPad[1]);
-        mFilterAddr = (void*)((uint8_t*)buffer_filter.first + buffer_filter.second);
+        mFilterAddr = (void*)buffer_filter.ptr();
     } else {
         mFilterAddr = (void*)inputs[1]->deviceId();
     }

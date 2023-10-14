@@ -10,6 +10,7 @@
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
 #include "backend/cpu/x86_x64/cpu_id.h"
+#include <MNN/ImageProcess.hpp>
 
 #define MNN_SSE_YUV_INIT \
 countUnit -= 1;\
@@ -58,6 +59,10 @@ auto RGBA0 = _mm_unpacklo_epi16(RG0, BA0);\
 auto RGBA1 = _mm_unpackhi_epi16(RG0, BA0);\
 auto RGBA2 = _mm_unpacklo_epi16(RG1, BA1);\
 auto RGBA3 = _mm_unpackhi_epi16(RG1, BA1);\
+
+static inline float __clamp(float v, float minV, float maxV) {
+    return std::max(std::min(v, maxV), minV);
+}
 
 void _SSE_MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count) {
     int sta = 0;
@@ -429,16 +434,198 @@ void _SSE_MNNC3ToFloatRGBA(const unsigned char* source, float* dest, const float
     }
 }
 
-void _SSE_ImageProcessInit(void* functions, int cpuFlags) {
-    auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
-    coreFunction->MNNRGBAToBGRA = _SSE_MNNRGBAToBGRA;
-    coreFunction->MNNNV21ToRGBA = _SSE_MNNNV21ToRGBA;
-    coreFunction->MNNNV21ToRGB = _SSE_MNNNV21ToRGB;
-    coreFunction->MNNNV21ToBGRA = _SSE_MNNNV21ToBGRA;
-    coreFunction->MNNNV21ToBGR = _SSE_MNNNV21ToBGR;
-    if (cpuFlags & libyuv::kCpuHasSSE41) {
-        coreFunction->MNNC1ToFloatC1 = _SSE_MNNC1ToFloatC1;
-        coreFunction->MNNC3ToFloatC3 = _SSE_MNNC3ToFloatC3;
-        coreFunction->MNNC3ToFloatRGBA = _SSE_MNNC3ToFloatRGBA;
+// SSE 4.1
+void _SSE_MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta, size_t count,
+                       size_t iw, size_t ih, size_t yStride, int bpp) {
+    dest = dest + bpp * sta;
+    MNN::CV::Point curPoints;
+    curPoints.fX = points[0].fX;
+    curPoints.fY = points[0].fY;
+    float dy     = points[1].fY;
+    float dx     = points[1].fX;
+    float xMax   = iw - 1;
+    float yMax   = ih - 1;
+    int start = 0;
+    int sizedQuad = count / 4;
+
+
+    if (sizedQuad > 0 && bpp == 4) {
+        auto yStride4 = _mm_set1_epi32(yStride);
+        auto varBpp     = _mm_set1_epi32(bpp);
+        auto varZero = _mm_set1_ps(0.f);
+        // for roundf.
+        auto zeroInt    = _mm_set1_epi32(0);
+        __m128 plus = _mm_set1_ps(0.5f);
+        __m128 minus = _mm_set1_ps(-0.5f);
+
+        auto xmax4    = _mm_set1_ps(xMax);
+        auto ymax4    = _mm_set1_ps(yMax);
+        for (int i = 0; i < sizedQuad; ++i) {
+            auto cury4 = _mm_set_ps(curPoints.fY + 3 * dy, curPoints.fY + 2 * dy, curPoints.fY + dy, curPoints.fY);
+            auto curx4 = _mm_set_ps(curPoints.fX + 3 * dx, curPoints.fX + 2 * dx, curPoints.fX + dx, curPoints.fX);
+            cury4 = _mm_max_ps(cury4, varZero);
+            curx4 = _mm_max_ps(curx4, varZero);
+            cury4 = _mm_min_ps(cury4, ymax4);
+            curx4 = _mm_min_ps(curx4, xmax4);
+            
+            auto x0 = _mm_cmplt_ps(curx4, varZero);
+            auto y0 = _mm_cmplt_ps(cury4, varZero);
+            x0 = _mm_blendv_ps(plus, minus, x0);
+            y0 = _mm_blendv_ps(plus, minus, y0);
+            curx4 = _mm_add_ps(curx4, x0);
+            cury4 = _mm_add_ps(cury4, y0);
+            // __MM_FROUND_TO_ZERO
+            auto ix0 = _mm_cvtps_epi32(_mm_round_ps(curx4, 3));
+            auto iy0 = _mm_cvtps_epi32(_mm_round_ps(cury4, 3));
+            
+            int32_t posx[4], posy[4];
+            _mm_store_si128((__m128i*)posx, ix0);
+            _mm_store_si128((__m128i*)posy, iy0);
+
+            curPoints.fY += 4 * dy;
+            curPoints.fX += 4 * dx;
+
+            auto sourcePos = _mm_add_epi32(_mm_mullo_epi32(iy0, yStride4), _mm_mullo_epi32(varBpp, ix0));
+            int32_t pos4[4];
+            _mm_store_si128((__m128i*)pos4, sourcePos);
+            int iStart = 16 * i;
+            auto w0 = *(int32_t*)(source + pos4[0]);
+            auto w1 = *(int32_t*)(source + pos4[1]);
+            auto w2 = *(int32_t*)(source + pos4[2]);
+            auto w3 = *(int32_t*)(source + pos4[3]);
+            *(int*)(dest + iStart) = w0;
+            *(int*)(dest + iStart + 4) = w1;
+            *(int*)(dest + iStart + 8) = w2;
+            *(int*)(dest + iStart + 12) = w3;
+            
+        }
+        start = sizedQuad * 4;
     }
+
+    for (int i = start; i < count; ++i) {
+        int y = (int)roundf(__clamp(curPoints.fY, 0, yMax));
+        int x = (int)roundf(__clamp(curPoints.fX, 0, xMax));
+        curPoints.fY += dy;
+        curPoints.fX += dx;
+        auto sourcePos = y * yStride + bpp * x;
+        for (int j = 0; j < bpp; ++j) {
+            dest[bpp * i + j] = source[sourcePos + j];
+        }
+    }
+}
+
+void _SSE_MNNSampleBilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                            size_t iw, size_t ih, size_t yStride, size_t bpp) {
+    float dy   = points[1].fY;
+    float dx   = points[1].fX;
+    float xMax = iw - 1;
+    float yMax = ih - 1;
+
+    MNN::CV::Point curPoints;
+    curPoints.fX = points[0].fX;
+    curPoints.fY = points[0].fY;
+    int start = 0;
+
+    if (count > 0 && bpp == 4) {
+        __m128 minValue = _mm_set1_ps(0.f);
+        __m128 maxValue = _mm_set1_ps(255.f);
+        __m128i zero = _mm_set1_epi32(0);
+
+        for (int i = 0; i < count; ++i) {
+            float y  = __clamp(curPoints.fY, 0, yMax);
+            float x  = __clamp(curPoints.fX, 0, xMax);
+            int y0   = (int)y;
+            int x0   = (int)x;
+            int y1   = (int)ceilf(y);
+            int x1   = (int)ceilf(x);
+            float xF = x - (float)x0;
+            float yF = y - (float)y0;
+            
+            int index0 = y0 * yStride + bpp * x0;
+            int index1 = y0 * yStride + bpp * x1;
+            int index2 = y1 * yStride + bpp * x0;
+            int index3 = y1 * yStride + bpp * x1;
+            
+            auto f0 = _mm_set1_ps((1.0f - xF) * (1.0f - yF));
+            auto f1 = _mm_set1_ps(xF * (1.0f - yF));
+            auto f2 = _mm_set1_ps(yF * (1.0f - xF));
+            auto f3 = _mm_set1_ps(xF * yF);
+
+            if (bpp == 4) {
+                auto c00_p0 = _mm_set_epi32(0, 0, 0, *(int32_t*)(source + index0));
+                auto c01_p0 = _mm_set_epi32(0, 0, 0, *(int32_t*)(source + index1));
+                auto c10_p0 = _mm_set_epi32(0, 0, 0, *(int32_t*)(source + index2));
+                auto c11_p0 = _mm_set_epi32(0, 0, 0, *(int32_t*)(source + index3));
+                // A
+                auto c00_p0_16 = _mm_unpacklo_epi8(c00_p0, zero);
+                auto c00_p0_32 = _mm_unpacklo_epi16(c00_p0_16, zero);
+                auto c00_p0_f = _mm_cvtepi32_ps(c00_p0_32);
+                
+                auto c01_p0_16 = _mm_unpacklo_epi8(c01_p0, zero);
+                auto c01_p0_32 = _mm_unpacklo_epi16(c01_p0_16, zero);
+                auto c01_p0_f = _mm_cvtepi32_ps(c01_p0_32);
+                
+                auto c10_p0_16 = _mm_unpacklo_epi8(c10_p0, zero);
+                auto c10_p0_32 = _mm_unpacklo_epi16(c10_p0_16, zero);
+                auto c10_p0_f = _mm_cvtepi32_ps(c10_p0_32);
+                
+                auto c11_p0_16 = _mm_unpacklo_epi8(c11_p0, zero);
+                auto c11_p0_32 = _mm_unpacklo_epi16(c11_p0_16, zero);
+                auto c11_p0_f = _mm_cvtepi32_ps(c11_p0_32);
+                
+                auto v0 = _mm_mul_ps(f0, c00_p0_f);
+                v0 = _mm_add_ps(v0, _mm_mul_ps(f1, c01_p0_f));
+                v0 = _mm_add_ps(v0, _mm_mul_ps(f2, c10_p0_f));
+                v0 = _mm_add_ps(v0, _mm_mul_ps(f3, c11_p0_f));
+
+                v0 = _mm_min_ps(v0, maxValue);
+                auto v0_m128i = _mm_cvtps_epi32(_mm_round_ps(_mm_max_ps(v0, minValue), 3));
+
+                v0_m128i = _mm_packs_epi32(v0_m128i, v0_m128i);
+                v0_m128i = _mm_packus_epi16(v0_m128i, v0_m128i);
+
+                *((int*)(dest) + i) = _mm_cvtsi128_si32(v0_m128i);
+            }
+            curPoints.fY += dy;
+            curPoints.fX += dx;
+        }
+        start = count;
+    }
+
+    for (int i = start; i < count; ++i) {
+        float y  = __clamp(curPoints.fY, 0, yMax);
+        float x  = __clamp(curPoints.fX, 0, xMax);
+        int y0   = (int)y;
+        int x0   = (int)x;
+        int y1   = (int)ceilf(y);
+        int x1   = (int)ceilf(x);
+        float xF = x - (float)x0;
+        float yF = y - (float)y0;
+
+        for (int b = 0; b < bpp; ++b) {
+            unsigned char c00 = source[y0 * yStride + bpp * x0 + b];
+            unsigned char c01 = source[y0 * yStride + bpp * x1 + b];
+            unsigned char c10 = source[y1 * yStride + bpp * x0 + b];
+            unsigned char c11 = source[y1 * yStride + bpp * x1 + b];
+
+            float v =
+                (1.0f - xF) * (1.0f - yF) * c00 + xF * (1.0f - yF) * c01 + yF * (1.0 - xF) * c10 + xF * yF * (c11);
+            v                 = std::min(std::max(v, 0.0f), 255.0f);
+            dest[bpp * i + b] = (unsigned char)v;
+        }
+        curPoints.fY += dy;
+        curPoints.fX += dx;
+    }
+}
+
+// requrie SSE 4.1
+void _SSE_MNNSamplerC4Nearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride){
+    _SSE_MNNSamplerNearest(source, dest, points, sta, count, iw, ih, yStride, 4);
+}
+
+// requrie SSE 4.1
+void _SSE_MNNSampleC4Bilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    _SSE_MNNSampleBilinear(source, dest + 4 * sta, points, count, iw, ih, yStride, 4);
 }

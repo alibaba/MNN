@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 namespace MNN {
 namespace CUDA {
 class RasterExecution : public Execution {
@@ -26,20 +27,21 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
 private:
-    std::map<Tensor*, std::shared_ptr<Tensor>> mTempInput;
+    std::map<Tensor*, Tensor*> mTempInput;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region>> mFastBlit;
     std::shared_ptr<Tensor> mTempOutput;
     Tensor* mOutputPtr;
     bool mNeedZero = false;
     bool mFast = false;
-    int mSingleConvert = 0;
+    OpCommonUtils::TensorConvertParameter mSingleConvert;
     int32_t mZeroPoint = 0;
     // First: type, 0: not , 1: unit, 4:unitc4
     // Second: count
     std::pair<int, int> mFuseRaster;
     void *mOffset;
-    std::shared_ptr<Tensor> offsetTensor;
+    std::shared_ptr<Tensor> mOffsetTensor;
+    std::shared_ptr<Tensor> mTempInputTensor;
 };
 }
 }

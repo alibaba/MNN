@@ -69,7 +69,7 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
 
     std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != op->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(op->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(op, backend, true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution \n");
         }
@@ -189,6 +189,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     const int padX  = pad.first;
     
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    startRecord(runTime, mRecording);
 
     auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
@@ -236,7 +237,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
                                      "winogradTransformDest", buildOptions);
             mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mDestTransform[i]));
         }
-        mMatMul[i] = runTime->buildKernel("gemm", "gemmWinograd", basic);
         mMaxWGS_M[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mMatMul[i]));
     }
     
@@ -248,49 +248,91 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     mLWS_M.resize(total_num);
 
     for (int b = 0; b < input->batch(); ++b) {
-        mSourceTransform[b].setArg(0, openCLImage(input));
-        mSourceTransform[b].setArg(1, openCLImage(mSource.get()));
-        mSourceTransform[b].setArg(2, wUnit);
-        mSourceTransform[b].setArg(3, hUnit);
-        mSourceTransform[b].setArg(4, padX);
-        mSourceTransform[b].setArg(5, padY);
-        mSourceTransform[b].setArg(6, input->width());
-        mSourceTransform[b].setArg(7, input->height());
-        mSourceTransform[b].setArg(8, icC4);
-        mSourceTransform[b].setArg(9, b);
+        cl_int ret = CL_SUCCESS;
+        ret |= mSourceTransform[b].setArg(0, openCLImage(input));
+        ret |= mSourceTransform[b].setArg(1, openCLImage(mSource.get()));
+        ret |= mSourceTransform[b].setArg(2, wUnit);
+        ret |= mSourceTransform[b].setArg(3, hUnit);
+        ret |= mSourceTransform[b].setArg(4, padX);
+        ret |= mSourceTransform[b].setArg(5, padY);
+        ret |= mSourceTransform[b].setArg(6, input->width());
+        ret |= mSourceTransform[b].setArg(7, input->height());
+        ret |= mSourceTransform[b].setArg(8, icC4);
+        ret |= mSourceTransform[b].setArg(9, b);
 
-        mMatMul[b].setArg(0, openCLImage(mSource.get()));
-        mMatMul[b].setArg(1, *mWeight);
-        mMatMul[b].setArg(2, openCLImage(mDest.get()));
-        mMatMul[b].setArg(3, wUnit);
-        mMatMul[b].setArg(4, hUnit);
-        mMatMul[b].setArg(5, ocC4);
-        mMatMul[b].setArg(6, icC4);
-        mMatMul[b].setArg(7, alpha*alpha);
 
-        mDestTransform[b].setArg(0, openCLImage(mDest.get()));
-        mDestTransform[b].setArg(1, *mBias);
-        mDestTransform[b].setArg(2, openCLImage(output));
-        mDestTransform[b].setArg(3, wUnit);
-        mDestTransform[b].setArg(4, hUnit);
-        mDestTransform[b].setArg(5, output->width());
-        mDestTransform[b].setArg(6, output->height());
-        mDestTransform[b].setArg(7, ocC4);
-        mDestTransform[b].setArg(8, b);
+        ret |= mDestTransform[b].setArg(0, openCLImage(mDest.get()));
+        ret |= mDestTransform[b].setArg(1, *mBias);
+        ret |= mDestTransform[b].setArg(2, openCLImage(output));
+        ret |= mDestTransform[b].setArg(3, wUnit);
+        ret |= mDestTransform[b].setArg(4, hUnit);
+        ret |= mDestTransform[b].setArg(5, output->width());
+        ret |= mDestTransform[b].setArg(6, output->height());
+        ret |= mDestTransform[b].setArg(7, ocC4);
+        ret |= mDestTransform[b].setArg(8, b);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution");
 
         /*Source Transform*/
         {
             mGWS_S[b] = {static_cast<uint32_t>(wUnit * hUnit), static_cast<uint32_t>(icC4)};
             std::string kernelName = "winogradTransformSource";
             mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
+            recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b], mOpenCLBackend->getOpenCLRuntime());
         }
 
         /*MatMul*/
         {
+            const int total_kernel                     = 2;
+            const std::string kernelName[total_kernel] = {"gemmWinograd", "gemmWinogradW2"};
+            int itemW[total_kernel]                    = {4, 8};
             auto gemmHeight = ocC4;
-            mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(wUnit, 4) * hUnit), static_cast<uint32_t>(alpha * alpha * ocC4)};
-            std::string kernelName = "gemmWinograd";
-            mLWS_M[b] = localWS2DDefault(mGWS_M[b], mMaxWGS_M[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mMatMul[b]).first;
+            int actual_kernel = total_kernel;
+            
+            cl::Kernel kernel[total_kernel];
+            std::vector<uint32_t> globalWorkSize[total_kernel];
+            std::vector<uint32_t> localWorkSize[total_kernel];
+            std::pair<uint32_t, int> min_cost(UINT_MAX, 0); //(min_time, min_index)
+            for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+                cl_int ret = CL_SUCCESS;
+                kernel[knl_idx] = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm", kernelName[knl_idx], basic);
+                uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
+
+                globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(wUnit, itemW[knl_idx]) * hUnit), static_cast<uint32_t>(alpha * alpha * ocC4)};
+                ret |= kernel[knl_idx].setArg(0, openCLImage(mSource.get()));
+                ret |= kernel[knl_idx].setArg(1, *mWeight);
+                ret |= kernel[knl_idx].setArg(2, openCLImage(mDest.get()));
+                ret |= kernel[knl_idx].setArg(3, wUnit);
+                ret |= kernel[knl_idx].setArg(4, hUnit);
+                ret |= kernel[knl_idx].setArg(5, ocC4);
+                ret |= kernel[knl_idx].setArg(6, icC4);
+                ret |= kernel[knl_idx].setArg(7, alpha*alpha);
+                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
+
+                std::pair<std::vector<uint32_t>, uint32_t> retTune;
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx], kernel[knl_idx]);
+                // printf("gemm %d, %d\n", knl_idx, retTune.second);
+                if (min_cost.first > retTune.second) {
+                    min_cost.first  = retTune.second;
+                    min_cost.second = knl_idx;
+                    mLWS_M[b]       = {retTune.first[0], retTune.first[1]};
+                }
+            }
+            cl_int ret = CL_SUCCESS;
+            int min_index = min_cost.second;
+            //printf("gemm min_index = %d  %d\n", min_index, min_cost.first);
+            mMatMul[b] = runTime->buildKernel("gemm", kernelName[min_index], basic);
+            
+            ret |= mMatMul[b].setArg(0, openCLImage(mSource.get()));
+            ret |= mMatMul[b].setArg(1, *mWeight);
+            ret |= mMatMul[b].setArg(2, openCLImage(mDest.get()));
+            ret |= mMatMul[b].setArg(3, wUnit);
+            ret |= mMatMul[b].setArg(4, hUnit);
+            ret |= mMatMul[b].setArg(5, ocC4);
+            ret |= mMatMul[b].setArg(6, icC4);
+            ret |= mMatMul[b].setArg(7, alpha*alpha);
+            MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
+            mGWS_M[b] = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
+            recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b], mOpenCLBackend->getOpenCLRuntime());
         }
 
         // Dest Transform
@@ -298,8 +340,10 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_D[b] = {static_cast<uint32_t>(wUnit*hUnit), static_cast<uint32_t>(ocC4)};
             std::string kernelName = "winogradTransformDest";
             mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
+            recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b], mOpenCLBackend->getOpenCLRuntime());
         }
     }
+    endRecord(runTime, mRecording);
     
     return NO_ERROR;
 }
@@ -308,8 +352,12 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    int costTime = 0;
+    #ifndef ENABLE_OPENCL_TIME_PROFILER
+    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+        return NO_ERROR;
+    }
     #endif
     for (int b = 0; b < input->batch(); ++b) {
         /*Source Transform*/
@@ -318,10 +366,8 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mSourceTransform[b], mGWS_S[b], mLWS_S[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                    
-            int costTime0 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime0;
-            MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime0);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino0", event});
             #else
                 runKernel2D(mSourceTransform[b], mGWS_S[b], mLWS_S[b],
                         mOpenCLBackend->getOpenCLRuntime());
@@ -334,10 +380,8 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mMatMul[b], mGWS_M[b], mLWS_M[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                            
-            int costTime1 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime1;
-            MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime1);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino1", event});
 #else
             runKernel2D(mMatMul[b], mGWS_M[b], mLWS_M[b],
                         mOpenCLBackend->getOpenCLRuntime());
@@ -350,19 +394,14 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             cl::Event event;
             runKernel2D(mDestTransform[b], mGWS_D[b], mLWS_D[b],
                         mOpenCLBackend->getOpenCLRuntime(), &event);
-                    
-            int costTime2 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-            costTime += costTime2;
-            MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime2);
+            
+            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino2", event});
         #else
             runKernel2D(mDestTransform[b], mGWS_D[b], mLWS_D[b],
                         mOpenCLBackend->getOpenCLRuntime());
         #endif
         }
     }
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-    MNN_PRINT("kernel cost:%d    us ConvWino total\n",costTime);
-    #endif
 
     return NO_ERROR;
 }

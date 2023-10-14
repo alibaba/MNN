@@ -306,8 +306,20 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
                        std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
         }
     }
+    if (net->usage() == Usage_INFERENCE_STATIC) {
+        for (auto& pipInfo : scheduleInfo.pipelineInfo) {
+            pipInfo.first.needComputeGeometry = false;
+            pipInfo.first.needComputeShape = false;
+        }
+    }
+
 #ifndef MNN_BUILD_MINI
     for (auto iter = scheduleInfo.pipelineInfo.begin(); iter != scheduleInfo.pipelineInfo.end();) {
+        if (!iter->first.needComputeGeometry) {
+            // For static model don't need check const
+            iter++;
+            continue;
+        }
         auto breakIndex = GeometryComputerUtils::buildConstantTensors(iter->second);
         if (breakIndex >= 0) {
             scheduleInfo.needInputContentForShape = true;

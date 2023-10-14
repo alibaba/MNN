@@ -41,7 +41,7 @@ VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Co
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &tempWeight, &tempWeightSize);
 
     for (int b = 0; b < co; ++b) {
         int b_4      = b / 4;

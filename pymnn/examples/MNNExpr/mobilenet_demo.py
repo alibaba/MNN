@@ -26,7 +26,8 @@ def inference():
     #cv2 read shape is NHWC, Module's need is NC4HW4, convert it
     input_var = MNN.expr.convert(input_var, MNN.expr.NC4HW4)
     #inference
-    output_var = net.forward(input_var)
+    output_var = net.forward([input_var])
+    output_var = output_var[0]
     #the output from net may be NC4HW4, turn to linear layout
     output_var = MNN.expr.convert(output_var, MNN.expr.NHWC)
     print("expect 983")

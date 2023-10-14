@@ -22,16 +22,31 @@ class ScatterElementsTest : public MNNTestCase {
             const int indicesData[]      = {1, 0, 2, 0, 2, 1};
             const float updatesData[]    = {1.0, 1.1, 1.2, 2.0, 2.1, 2.2};
             const float expectedData[] = {2.0, 1.1, 0.0, 1.0, 0.0, 2.2, 0.0, 2.1, 1.2};
+            {
+                auto data    = _Const(dataData, {3, 3}, NHWC, halide_type_of<float>());
+                auto indices = _Const(indicesData, {2, 3}, NHWC, halide_type_of<int>());
+                auto updates = _Const(updatesData, {2, 3}, NHWC, halide_type_of<float>());
+                auto output  = _ScatterElements(data, indices, updates);
 
-            auto data    = _Const(dataData, {3, 3}, NHWC, halide_type_of<float>());
-            auto indices = _Const(indicesData, {2, 3}, NHWC, halide_type_of<int>());
-            auto updates = _Const(updatesData, {2, 3}, NHWC, halide_type_of<float>());
-            auto output  = _ScatterElements(data, indices, updates);
+                auto outputData = output->readMap<float>();
+                const int size  = output->getInfo()->size;
+                if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+            }
+            {
+                auto data    = _Const(dataData, {3, 3}, NHWC, halide_type_of<float>());
+                auto indices = _Const(nullptr, {0, 3}, NHWC, halide_type_of<int>());
+                auto updates = _Const(updatesData, {2, 3}, NHWC, halide_type_of<float>());
+                auto output  = _ScatterElements(data, indices, updates);
 
-            auto outputData = output->readMap<float>();
-            const int size  = output->getInfo()->size;
-            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
-                return false;
+                auto outputData = output->readMap<float>();
+                const int size  = output->getInfo()->size;
+                if (!checkVector<float>(outputData, dataData, size, 0.001)) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
             }
         }
         {

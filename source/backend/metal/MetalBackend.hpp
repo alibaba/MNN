@@ -14,6 +14,7 @@
 #include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
 #include "MetalDefine.h"
+#include <MNN/ErrorCode.hpp>
 #include <vector>
 //#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
@@ -64,7 +65,7 @@ public:
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
-    std::shared_ptr<BufferAllocator> mStatic;
+    std::shared_ptr<EagerBufferAllocator> mStatic;
     MetalTuneLevel mTuneLevel = Wide;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
 
@@ -76,7 +77,7 @@ private:
 };
 
 
-class MetalRuntimeAllocator : public BufferAllocator::Allocator {
+class MetalRuntimeAllocator : public EagerBufferAllocator::Allocator {
 public:
     class MetalBufferAlloc {
     public:
@@ -95,8 +96,8 @@ public:
         // Do nothing
     }
     virtual ~ MetalRuntimeAllocator() = default;
-    virtual std::pair<void*, size_t> onAlloc(size_t size, size_t align) override;
-    virtual void onRelease(std::pair<void*, size_t> ptr) override;
+    virtual MemChunk onAlloc(size_t size, size_t align) override;
+    virtual void onRelease(MemChunk ptr) override;
     
 private:
     id<MTLDevice> mDevice;
@@ -127,7 +128,7 @@ public:
     id<MTLBuffer> getHostBuffer(size_t size) const;
     id<MTLBuffer> getConstBuffer(size_t size) const;
 public:
-    MetalBackend(std::shared_ptr<BufferAllocator> staticMem, const MetalRuntime* runtime);
+    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime);
     virtual ~MetalBackend();
     const MetalRuntime* runtime() const {
         return mRuntime;
@@ -141,7 +142,7 @@ public:
                                 const MNN::Op *op) override;
     
     virtual void onResizeBegin() override;
-    virtual void onResizeEnd() override;
+    virtual ErrorCode onResizeEnd() override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
@@ -169,10 +170,10 @@ public:
     bool isCommandEncoderSet();
     void setOpEncoder() const;
     
-    BufferAllocator *getBufferPool() const {
+    EagerBufferAllocator *getBufferPool() const {
         return mBufferPool.get();
     }
-    BufferAllocator *getStaticBufferPool() const {
+    EagerBufferAllocator *getStaticBufferPool() const {
         return mStaticBufferPool.get();
     }
 
@@ -190,8 +191,8 @@ private:
 
     std::vector<std::function<void(void)>> mOpEncoders;
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
-    std::shared_ptr<BufferAllocator> mBufferPool;
-    std::shared_ptr<BufferAllocator> mStaticBufferPool;
+    std::shared_ptr<EagerBufferAllocator> mBufferPool;
+    std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
 
 private:
     mutable id<MTLBuffer> mHostBuffer = nullptr;

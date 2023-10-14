@@ -82,7 +82,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto tempColAddr    = destAddr + i * unit.dstBuffer->stride(1);
         auto weightAddr     = unit.weight->host<float>() + unit.weight->stride(0) * i;
         MNNPackC4ForMatMul_A(cachePackBuffer, &tempSourceAddr, info, el);
-        MNNPackedMatMul(tempColAddr, cachePackBuffer,weightAddr, parameters, nullptr, nullptr);
+        MNNPackedMatMul(tempColAddr, cachePackBuffer,weightAddr, parameters, nullptr, nullptr, nullptr, nullptr);
     }
     auto B       = unit.winogradInfo.B.get();
     auto midAddr = unit.winogradInfo.dstTransformedBuffer->host<float>() +
@@ -144,7 +144,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
                 for (int fx = 0; fx < unit.xUnit; ++fx) {
                     auto ucolAddr = tempColAddr + dc_4 * eP * 4 * (fx + fy * unit.xUnit);
                     auto uwAddr = weightAddr + unit.weight->stride(0) * (fx + fy * unit.xUnit);
-                    MNNPackedMatMul(ucolAddr, cachePackBuffer, uwAddr, parameters, nullptr, nullptr);
+                    MNNPackedMatMul(ucolAddr, cachePackBuffer, uwAddr, parameters, nullptr, nullptr, nullptr, nullptr);
                 }
             }
             // FUNC_PRINT_ALL(tempColAddr[0], f);
@@ -177,7 +177,7 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
     int tempWeightSize   = 0;
     int srcCount = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv2D, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, b, conv2D, &tempWeight, &tempWeightSize);
     srcCount = tempWeightSize / kx / ky / outputCount;
 
     int sy = common->strideY();
@@ -270,7 +270,7 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
     int tempWeightSize   = 0;
     int srcCount = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, conv2D, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend(), conv2D, &tempWeight, &tempWeightSize);
     srcCount = tempWeightSize / kx / ky / outputCount;
     
     std::shared_ptr<Tensor> weightWrap(
@@ -413,7 +413,6 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    ::memset(mSrcBuffer->host<float>(), 0, mSrcBuffer->size());
     for (auto& unit : mComputeUnits) {
         backend()->onReleaseBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
         if (unit.winogradInfo.open) {
@@ -469,6 +468,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
     auto srcOrigin = input->host<float>();
     auto dstOrigin = output->host<float>();
 
+    ::memset(mSrcBuffer->host<float>(), 0, mSrcBuffer->size());
     ::memset(dstOrigin, 0, ow * oh * ocDiv4 * 4 * batchSize * sizeof(float));
     auto threadFunction = [&](int threadId) {
         auto srcTotal = mSrcBuffer->host<float>() + threadId * mSrcBuffer->stride(0);

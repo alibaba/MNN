@@ -107,13 +107,23 @@ inline int64_t unpackLong(PyObject* obj) {
   }
   return (int64_t)value;
 }
+inline double unpackDoubleOrLong(PyObject* obj) {
+    if (PyLong_Check(obj)
+#if PY_MAJOR_VERSION < 3
+    || PyInt_Check(obj)
+#endif
+    ) {
+        return static_cast<float>(unpackLong(obj));
+    }
+    return unpackDouble(obj);
+}
 inline void store_scalar(void* data, int dtype, PyObject* obj) {
   switch (dtype) {
     case 4: *(uint8_t*)data = (uint8_t)unpackLong(obj); break;
     case 3: *(int32_t*)data = (int32_t)unpackLong(obj); break;
     case 9: *(int64_t*)data = unpackLong(obj); break;
-    case 1: *(float*)data = (float)unpackDouble(obj); break;
-    case 2: *(double*)data = (double)unpackDouble(obj); break;
+    case 1: *(float*)data = (float)unpackDoubleOrLong(obj); break;
+    case 2: *(double*)data = (double)unpackDoubleOrLong(obj); break;
     case 6: *(int8_t*)data = (int8_t)unpackLong(obj); break;
     default: PyMNN_ERROR_LOG("store_scalar: invalid type");
   }

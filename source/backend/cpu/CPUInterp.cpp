@@ -7,20 +7,13 @@
 //
 
 #include "backend/cpu/CPUInterp.hpp"
-#include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUResize.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include <math.h>
+#include "core/Macro.h"
 
 namespace MNN {
-
-static int CLAMP(int v, int min, int max) {
-    if ((v) < min) {
-        (v) = min;
-    } else if ((v) > max) {
-        (v) = max;
-    }
-    return v;
-}
 
 CPUInterp::CPUInterp(Backend *backend, int resizeType,
                      float widthScale, float heightScale, float widthOffset, float heightOffset)
@@ -43,37 +36,118 @@ CPUInterp::~CPUInterp() {
 }
 
 ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto &input  = inputs[0]->buffer();
-    auto &output = outputs[0]->buffer();
-
-    if (mResizeType == 1) {
-        // Nearstneighbor
-        CPUResizeNearestneighborC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
-    } else if (mResizeType == 2) {
-        // bilinear
-        CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),
-                            mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<float>(),
-                            ((CPUBackend *)backend())->threadNumber());
-    } else if (mResizeType == 3) {
-        // cubic
-        CPUResizeCubicC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
-    } else if (mResizeType == 4) {
-        // Nearstneighbor
-        CPUResizeNearestneighborRoundC4(input, output, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
-    } else {
-        return NOT_SUPPORT;
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    auto channel_input = inputs[0]->channel();
+    auto plane_in = inputs[0]->width() * inputs[0]->height() * inputs[0]->batch();
+    auto plane_out = outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
+    auto depth = UP_DIV(channel_input, core->pack);
+    
+    bool interpInt8 = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1;
+    if (!interpInt8) {
+        switch (mResizeType) {
+            case 1:
+                CPUResizeNearestneighborC4<float>(inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+                break;
+            case 2:
+                CPUResizeBilinearC4<float, float>(CPUBilinearSampleC4, CPUBilinearLineC4, inputs, outputs, mWidthPosition.host<int>(),
+                                                  mWidthFactor.host<float>(), mHeightPosition.host<int>(), mHeightFactor.host<float>(),
+                                                  mLineBuffer.host<float>(), ((CPUBackend *)backend())->threadNumber(), &mInputQuantZero, &mOutputQuantZero);
+                break;
+            case 3:
+                CPUResizeCubicC4<float>(MNNCubicSampleC4, MNNCubicLineC4, inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset, &mInputQuantZero, &mOutputQuantZero, mOutputQuantMIn, mOutputQuantMax);
+                break;
+            case 4:
+                CPUResizeNearestneighborRoundC4<float>(inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+                break;
+            default:
+                return NOT_SUPPORT;
+        }
+        return NO_ERROR;
     }
+
+    // InterpInt8.
+    std::vector<Tensor *> int8ExeInputs, int8ExeOutputs;
+    int8ExeInputs = {inputs[0]};
+    int8ExeOutputs = {outputs[0]};
+
+    // Pack
+    if ((mResizeType == 1 || mResizeType == 2) && (core->pack == 4)) {
+        MNNPackInt8C2Origin(mInputTemp.get()->host<float>(), inputs[0]->host<float>(), plane_in, depth, plane_in);
+        int8ExeInputs = {mInputTemp.get()};
+        int8ExeOutputs = {mOutputTemp.get()};
+    } else if ((mResizeType == 3 || mResizeType == 4)) {
+        if (core->pack == 4) {
+            MNNPackC4Origin(mInputTemp.get()->host<float>(), inputs[0]->host<float>(), plane_in, depth, plane_in);
+            int8ExeInputs = {mInputTemp.get()};
+            int8ExeOutputs = {mOutputTemp.get()};
+        } else if (core->pack == 8) {
+            MNNPackC2Origin(mInputTemp.get()->host<double>(), inputs[0]->host<double>(), plane_in, depth, plane_in);
+            int8ExeInputs = {mInputTemp.get()};
+            int8ExeOutputs = {mOutputTemp.get()};
+        }
+    }
+    // execute interpInt8
+    switch (mResizeType) {
+        case 1:
+            CPUResizeNearestneighborC4<int8_t>(int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+            break;
+        case 2:
+            CPUResizeBilinearC4<int8_t, int16_t>(MNNBilinearSampleC8, MNNBilinearLineC8, int8ExeInputs, int8ExeOutputs, mWidthPosition.host<int>(), mWidthFactor.host<float>(), mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<int16_t>(), ((CPUBackend *)backend())->threadNumber(), &mInputQuantZero, &mOutputQuantZero);
+            break;
+        case 3:
+            CPUResizeCubicC4<int8_t>(MNNCubicSampleC16, MNNCubicLineC16, int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset, &mInputQuantZero, &mOutputQuantZero, mOutputQuantMIn, mOutputQuantMax);
+            break;
+        case 4:
+            CPUResizeNearestneighborRoundC4<int8_t>(int8ExeInputs, int8ExeOutputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+            break;
+        default:
+            return NOT_SUPPORT;
+    }
+    // Unpack
+    if ((mResizeType == 1 || mResizeType == 2) && (core->pack == 4)) { // pack=8 -> pack=4
+        MNNUnpackInt8C2Origin(outputs[0]->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
+    } else if ((mResizeType == 3 || mResizeType == 4)) { // pack=16 -> pack=4
+        if (core->pack == 4) {
+            MNNUnpackC4Origin(outputs[0]->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
+        } else if (core->pack == 8) {
+            MNNUnpackC2Origin(outputs[0]->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
+        }
+    }
+
     return NO_ERROR;
 }
 
 ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    const int inW  = inputs[0]->width();
+    const int inH  = inputs[0]->height();
+    const int outW = outputs[0]->width();
+    const int outH = outputs[0]->height();
+    int packInt8 = 8;
+    if (mResizeType == 3 || mResizeType == 4) {
+        packInt8 = 16;
+    }
+    bool useInt8 = (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) && (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1);
+    if (useInt8) {
+        mInputTemp.reset(Tensor::createDevice<int8_t>({inputs[0]->batch(), inH, inW, UP_DIV(inputs[0]->channel(), packInt8) * packInt8}));
+        mOutputTemp.reset(Tensor::createDevice<int8_t>({outputs[0]->batch(), outH, outW, UP_DIV(outputs[0]->channel(), packInt8) * packInt8}));
+        bool allocSucc = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC);
+        allocSucc      = allocSucc && backend()->onAcquireBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+        if (!allocSucc) {
+            return OUT_OF_MEMORY;
+        }
+        mInputQuantZero = TensorUtils::getQuantInfo(inputs[0])[1];
+        mOutputQuantZero = TensorUtils::getQuantInfo(outputs[0])[1];
+        mOutputQuantMIn = TensorUtils::getQuantInfo(outputs[0])[2];
+        mOutputQuantMax = TensorUtils::getQuantInfo(outputs[0])[3];
+    }
+
     if (mResizeType != 2) {
+        if (mInputTemp.get()) {
+            backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
+            backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+        }
         return NO_ERROR;
     }
-    const int inW  = inputs[0]->buffer().dim[3].extent;
-    const int inH  = inputs[0]->buffer().dim[2].extent;
-    const int outW = outputs[0]->buffer().dim[3].extent;
-    const int outH = outputs[0]->buffer().dim[2].extent;
     const float xScaling = mWidthScale;
     const float yScaling = mHeightScale;
 
@@ -130,13 +204,21 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
 
     mLineBuffer.buffer().dim[0].extent = 2 * 4 * outW * threadNumber;
     mLineBuffer.buffer().dimensions    = 1;
-    mLineBuffer.setType(DataType_DT_FLOAT);
+    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+        mLineBuffer.setType(DataType_DT_INT16);
+        mLineBuffer.buffer().dim[0].extent = 2 * packInt8 * outW * threadNumber;
+    } else {
+        mLineBuffer.setType(DataType_DT_FLOAT);
+    }
     res = backend()->onAcquireBuffer(&mLineBuffer, Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
     backend()->onReleaseBuffer(&mLineBuffer, Backend::DYNAMIC);
-
+    if (mInputTemp.get()) {
+        backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+    }
     return NO_ERROR;
 }
 

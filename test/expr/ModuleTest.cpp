@@ -614,12 +614,21 @@ public:
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        auto rt = MNN::Express::Executor::getGlobalExecutor()->getRuntime().first;
+        auto type = MNN_FORWARD_CPU;
+        for (auto& iter : rt) {
+            if (iter.first != MNN_FORWARD_CPU) {
+                type = iter.first;
+                break;
+            }
+        }
         net->setSessionMode(Interpreter::Session_Output_User);
         ScheduleConfig config;
+        config.type = type;
         config.numThread = 4;
         config.saveTensors = {"l", "ox", "xy"};
         BackendConfig bnConfig;
-        bnConfig.precision = MNN::BackendConfig::Precision_Low;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
         config.backendConfig = &bnConfig;
         auto session = net->createSession(config);
         auto x = net->getSessionInput(session, "x");
@@ -811,7 +820,7 @@ MNNTestSuiteRegister(MultiThreadOneSessionTest, "expr/MultiThreadOneSessionTest"
 class MemeoryUsageTest : public MNNTestCase {
 public:
     bool _run(int precision, bool lazy) {
-        auto func = [](VARP y) {
+        auto func = [precision](VARP y, float limit) {
             flatbuffers::FlatBufferBuilder builderOutput(1024);
             {
                 std::unique_ptr<MNN::NetT> net(new NetT);
@@ -823,19 +832,60 @@ public:
             auto bufferOutput = builderOutput.GetBufferPointer();
             std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
             ScheduleConfig config;
+            BackendConfig bnConfig;
+            bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
             config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.backendConfig = &bnConfig;
             auto s1 = net->createSession(config);
             float memory = 0.0f;
             net->getSessionInfo(s1, MNN::Interpreter::MEMORY, &memory);
+            if (memory < 0.01f) {
+                FUNC_PRINT(precision);
+                return false;
+            }
+            if (memory > limit) {
+                MNN_ERROR("memory %f larger than limit: %f, precision=%d\n", memory, limit, precision);
+                return false;
+            }
             FUNC_PRINT_ALL(memory, f);
+            return true;
         };
         auto y = _mobileNetV1Expr();
-        func(y);
-        auto x = _Input({1, 3, 1024, 1024}, NC4HW4);
+        bool res = func(y, 62.0f);
+        if (!res) {
+            return false;
+        }
+        auto x = _Input({1, 3, 1024, 1024}, NCHW);
         y = _Sigmoid(x);
-        func(y);
-
+        res = func(y, 35.0f);
+        if (!res) {
+            return false;
+        }
+        auto weightVar = MNN::Express::_Const(0.0f, {100, 10000}, NCHW);
+        x = MNN::Express::_Input({1, 100}, NCHW);
+        auto x2 = MNN::Express::_Input({1, 10000}, NCHW);
+        y = MNN::Express::_MatMul(x, weightVar);
+        auto weightVar2 = MNN::Express::_Const(0.0f, {10000, 100}, NCHW);
+        y = MNN::Express::_MatMul(y, weightVar2);
+        res = func(y, 8.0f);
+        if (!res) {
+            return false;
+        }
+        weightVar = MNN::Express::_Const(0.0f, {100, 10000, 1, 1}, NC4HW4);
+        x = MNN::Express::_Input({100, 10000, 1, 1}, NC4HW4);
+        y = MNN::Express::_Add(x, weightVar);
+        res = func(y, 12.0f);
+        if (!res) {
+            return false;
+        }
+        auto w2 = weightVar * weightVar;
+        y = MNN::Express::_Add(x, w2);
+        // TODO: Optimize the memory to 10.0f
+        res = func(y, 20.0f);
+        if (!res) {
+            return false;
+        }
         return true;
     }
     virtual bool run(int precision) {
@@ -848,3 +898,133 @@ public:
     }
 };
 MNNTestSuiteRegister(MemeoryUsageTest, "expr/MemeoryUsageTest");
+
+// This test shoule use gpu to test
+class ConstMemoryReplaceTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto x = _Input({1, 4, 1, 1}, NC4HW4);
+        auto y = _Const(0.3f, {1, 1, 4, 1}, NC4HW4);
+        auto z = x * y;
+        auto w0 = _Round(_ReduceSum(_Convert(y, NHWC)));
+        z = z + _Unsqueeze(w0, {0});
+        auto w1 = _Scalar<int>(1);
+        auto shape = _Stack({w1, _Cast<int>(w0), w1, w1}, -1);
+        auto ones = _Fill(shape, _Scalar<float>(0.3f));
+        auto res = z + ones;
+        x->writeMap<float>();
+        auto ptr = res->readMap<float>();
+        if (nullptr == ptr) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            std::shared_ptr<MNN::NetT> net(new NetT);
+            Variable::save({res}, net.get());
+            y = nullptr;
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
+        ScheduleConfig config;
+        config.numThread = 4;
+        config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+        auto s1 = net->createSession(config);
+        int resizeCode;
+        net->getSessionInfo(s1, Interpreter::RESIZE_STATUS, &resizeCode);
+        if (resizeCode != 0) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        net->runSession(s1);
+        net->resizeTensor(net->getSessionInput(s1, nullptr), {1, 1, 1, 1});
+        net->resizeSession(s1);
+        return resizeCode == 0;
+    }
+};
+MNNTestSuiteRegister(ConstMemoryReplaceTest, "expr/ConstMemoryReplaceTest");
+
+class MutlThreadConstReplaceTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto func = [precision](VARP y, int thread) {
+            flatbuffers::FlatBufferBuilder builderOutput(1024);
+            {
+                std::unique_ptr<MNN::NetT> net(new NetT);
+                Variable::save({y}, net.get());
+                auto len = MNN::Net::Pack(builderOutput, net.get());
+                builderOutput.Finish(len);
+            }
+            int sizeOutput    = builderOutput.GetSize();
+            auto bufferOutput = builderOutput.GetBufferPointer();
+            MNN::Express::Module::Config modConfig;
+            modConfig.rearrange = true;
+            std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, bufferOutput, sizeOutput, &modConfig), MNN::Express::Module::destroy);
+            
+            ScheduleConfig config;
+            BackendConfig bnConfig;
+            bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+            config.numThread = 1;
+            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.backendConfig = &bnConfig;
+
+            std::vector<std::thread> threads;
+            std::vector<float> summer(thread);
+            std::mutex moduleMutex;
+
+            for (int t = 0; t<thread; ++t) {
+                threads.emplace_back([&, t]() {
+                    auto newExe = Executor::newExecutor(config.type, bnConfig, 1);
+                    ExecutorScope scope(newExe);
+                    std::shared_ptr<Module> tempModule;
+                    {
+                        std::unique_lock<std::mutex> _l(moduleMutex);
+                        tempModule.reset(Module::clone(net.get()), Module::destroy);
+                    }
+                    // Create Input
+                    auto x = MNN::Express::_Input({1, 100}, NCHW);
+                    auto xPtr = x->writeMap<float>();
+                    for (int j=0; j<100; ++j) {
+                        xPtr[j] = j / 100.0f;
+                    }
+                    x->unMap();
+                    auto y = tempModule->onForward({x});
+                    auto yPtr = y[0]->readMap<float>();
+                    auto ySize = y[0]->getInfo()->size;
+                    float sum = 0.0f;
+                    for (int j=0; j<ySize; ++j) {
+                        sum += yPtr[j];
+                    }
+                    y[0]->unMap();
+                    {
+                        std::unique_lock<std::mutex> _l(moduleMutex);
+                        summer[t] = sum;
+                    }
+                });
+            }
+            for (auto& t : threads) {
+                t.join();
+            }
+            MNN_PRINT("Summer: ");
+            for (auto t : summer) {
+                MNN_PRINT("%f, ", t);
+            }
+            MNN_PRINT("\n");
+            return true;
+        };
+        auto weightVar = MNN::Express::_Const(0.001f, {100, 10000}, NCHW);
+        auto x = MNN::Express::_Input({1, 100}, NCHW);
+        x->setName("x");
+        auto y = MNN::Express::_MatMul(x, weightVar);
+        auto weightVar2 = MNN::Express::_Const(0.0002f, {10000, 100}, NCHW);
+        y = MNN::Express::_MatMul(y, weightVar2);
+        y->setName("y");
+        func(y, 4);
+
+        return true;
+    };
+};
+MNNTestSuiteRegister(MutlThreadConstReplaceTest, "expr/MutlThreadConstReplaceTest");

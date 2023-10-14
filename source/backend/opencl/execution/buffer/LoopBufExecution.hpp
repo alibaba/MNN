@@ -1,4 +1,4 @@
-﻿//
+//
 //  LoopBufExecution.hpp
 //  MNN
 //
@@ -51,6 +51,19 @@ private:
     bool mHasBias = false;
     bool mTransposeA = false;
     bool mTransposeB = false;
+    std::set<std::string> mBuildOptions;
+};
+
+
+class LoopBinaryBufExecution : public CommonExecution {
+public:
+    LoopBinaryBufExecution(const LoopParam *loop, const std::string &compute, const MNN::Op *op, Backend *bn);
+    virtual ~LoopBinaryBufExecution() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+private:
+    const LoopParam *mLoop;
+    std::vector<Tensor *> mTensors;
     std::set<std::string> mBuildOptions;
 };
 

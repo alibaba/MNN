@@ -48,11 +48,11 @@ Execution* BF16Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
     return nullptr;
 }
 
-static int _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT format) {
+static size_t _getAliginSize(const halide_buffer_t& buffer, MNN_DATA_FORMAT format) {
     // The default data type of input tensor for arm82 backend is FLOAT32.
     // However, BF16Backend default data type is FLOAT16, so check whether data type is FLOAT32,
     // then divide size by 2
-    int size          = sizeof(int16_t);
+    size_t size          = sizeof(int16_t);
     const int dimensions = buffer.dimensions;
     for (int i = 0; i < dimensions; i++) {
         int currentDimSize = buffer.dim[i].extent;

@@ -27,6 +27,7 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    startRecord(openCLBackend->getOpenCLRuntime(), mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -45,16 +46,20 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     };
 
     uint32_t idx = 0;
-    mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    mKernel.setArg(idx++, openCLImage(input));
-    mKernel.setArg(idx++, openCLImage(output));
+    cl_int ret = CL_SUCCESS;
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= mKernel.setArg(idx++, openCLImage(input));
+    ret |= mKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryExecution");
 
     std::string name = "unary";
     const std::vector<uint32_t> lws =
     localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, mKernel).first;
     mLocalSize = lws;
+    recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize, openCLBackend->getOpenCLRuntime());
+    endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
     return NO_ERROR;
 }
 
@@ -69,9 +74,17 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime(), &event);
     
-    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    MNN_PRINT("kernel cost:%d    us Unary\n",costTime);
+    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Unary", event});
 #else
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    if(openCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
+        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
+            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End UnaryExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif

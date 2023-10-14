@@ -1,8 +1,8 @@
-﻿//
+//
 //  LoopBufExecution.cpp
 //  MNN
 //
-//  Created by MNN on 2019/02/28.
+//  Created by MNN on 2023/04/23.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
@@ -17,20 +17,25 @@ namespace OpenCL {
 
 static void _TileOrPackTensor(Tensor *input, Tensor *output, cl::Kernel& kernel, cl::NDRange &globalWorkSize,
                         cl::NDRange &localWorkSize, const int Width, const int Height, const int Channel,
-                        const int Batch, OpenCLRuntime *runTime, const std::string &KernelName, const std::set<std::string> &buildOptions) {
+                        const int Batch, OpenCLRuntime *runTime, const std::string &KernelName, std::set<std::string> buildOptions) {
+    if (TensorUtils::getDescribe(output)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC || TensorUtils::getDescribe(input)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC){
+        buildOptions.emplace("-DMNN_NHWC");
+    }
     kernel = runTime->buildKernel("loop_buf", KernelName, buildOptions);
     uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(kernel));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
 
     uint32_t index = 0;
-    kernel.setArg(index++, mGlobalWorkSize[0]);
-    kernel.setArg(index++, mGlobalWorkSize[1]);
-    kernel.setArg(index++, mGlobalWorkSize[2]);
-    kernel.setArg(index++, openCLBuffer(input));
-    kernel.setArg(index++, openCLBuffer(output));
-    kernel.setArg(index++, Width);
-    kernel.setArg(index++, Height);
-    kernel.setArg(index++, Channel);
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= kernel.setArg(index++, mGlobalWorkSize[2]);
+    ret |= kernel.setArg(index++, openCLBuffer(input));
+    ret |= kernel.setArg(index++, openCLBuffer(output));
+    ret |= kernel.setArg(index++, Width);
+    ret |= kernel.setArg(index++, Height);
+    ret |= kernel.setArg(index++, Channel);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBuf _TileOrPackTensor");
 
     std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, kernel).first;
 
@@ -90,7 +95,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpTensors[1] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}));
+        mTmpTensors[1] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}, Tensor::CAFFE));
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[1].get(), Backend::DYNAMIC);
 
         Unit unit;
@@ -106,7 +111,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
             const int Width = Shape.at(2);
             const int Height = Shape.at(1);
             const int Batch = Shape.at(0);
-            mOffsetTensors.emplace_back(std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width})));
+            mOffsetTensors.emplace_back(std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}, Tensor::CAFFE)));
             mOpenCLBackend->onAcquireBuffer(mOffsetTensors.back().get(), Backend::DYNAMIC);
 
             Unit unit;
@@ -117,34 +122,36 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
      
      // gather
      {
-        mTmpTensors[0] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{n, z, y, x}));
+        mTmpTensors[0] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{n, z, y, x}, Tensor::CAFFE));
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[0].get(), Backend::DYNAMIC);
         int offset_index = 0;
 
         Unit unit;
-        std::string KernelName = "batch_gather_buf";
-        unit.kernel = runTime->buildKernel("loop_buf", KernelName, mBuildOptions);
+        std::string KernelName = "batch_gather";
+        unit.kernel = runTime->buildKernel("loop", KernelName, mBuildOptions);
         uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(x * y), (uint32_t)(z), (uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
             } else {
-                unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
             }
         }
-        unit.kernel.setArg(index++, x);
-        unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
-        unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, x);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_src), mStride_src);
+        ret |= unit.kernel.setArg(index++, sizeof(mStride_dst), mStride_dst);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherBufExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 
@@ -218,7 +225,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpTensors[i] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}));
+        mTmpTensors[i] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}, Tensor::CAFFE));
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[i].get(), Backend::DYNAMIC);       
 
         Unit unit;
@@ -234,7 +241,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
             const int Width = Shape.at(2);
             const int Height = Shape.at(1);
             const int Batch = Shape.at(0);
-            mOffsetTensors.emplace_back(std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width})));
+            mOffsetTensors.emplace_back(std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}, Tensor::CAFFE)));
             mOpenCLBackend->onAcquireBuffer(mOffsetTensors.back().get(), Backend::DYNAMIC);
 
             Unit unit;
@@ -245,12 +252,12 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
 
      // matmul
      {
-        mTmpTensors[0] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{1, n, e, h}));
+        mTmpTensors[0] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{1, n, e, h}, Tensor::CAFFE));
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[0].get(), Backend::DYNAMIC);
         int offset_index = 0;
 
         Unit unit;
-        std::string KernelName = "batch_matmul_buf";
+        std::string KernelName = "batch_matmul";
         if (mHasBias) {
             mBuildOptions.emplace("-DBIAS");
         }
@@ -260,33 +267,35 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         if (mTransposeB) {
             mBuildOptions.emplace("-DTRANSPOSE_B");
         }
-        unit.kernel = runTime->buildKernel("loop_buf", KernelName, mBuildOptions);
+        unit.kernel = runTime->buildKernel("loop", KernelName, mBuildOptions);
         uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
         std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(h), (uint32_t)(e),(uint32_t)(n)};
 
         uint32_t index = 0;
-        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
-        unit.kernel.setArg(index++, mGlobalWorkSize[2]);
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
-        unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[2].get()));
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[0].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[1].get()));
+        ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[2].get()));
         if (mHasBias) {
-            unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[3].get()));
+            ret |= unit.kernel.setArg(index++, openCLBuffer(mTmpTensors[3].get()));
         }
         for (int i = 0; i < cmd->iterIndexes()->size(); ++i) {
             if (mIter[i] >= 0) {
-                unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mOffsetTensors[offset_index++].get()));
             } else {
-                unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
+                ret |= unit.kernel.setArg(index++, openCLBuffer(mTensors[cmd->indexes()->data()[1]]));
             }
         }
-        unit.kernel.setArg(index++, e);
-        unit.kernel.setArg(index++, l);
-        unit.kernel.setArg(index++, h);
-        unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
-        unit.kernel.setArg(index++, sizeof(mIter), mIter);       
-        unit.kernel.setArg(index++, sizeof(mStep), mStep);        
+        ret |= unit.kernel.setArg(index++, e);
+        ret |= unit.kernel.setArg(index++, l);
+        ret |= unit.kernel.setArg(index++, h);
+        ret |= unit.kernel.setArg(index++, sizeof(mOffset), mOffset);
+        ret |= unit.kernel.setArg(index++, sizeof(mIter), mIter);
+        ret |= unit.kernel.setArg(index++, sizeof(mStep), mStep);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBatchMatMulBufExecution");
 
         std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
 
@@ -318,10 +327,80 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
     return NO_ERROR;
 }
 
+LoopBinaryBufExecution::LoopBinaryBufExecution(const LoopParam *loop, const std::string &compute, const MNN::Op *op, Backend *bn)
+    : CommonExecution(bn, op) {
+    mLoop = loop;
+    mTensors.resize(mLoop->tensorNumber());
+    auto cmd = loop->commands()->GetAs<RegionCommand>(0);
+    mBuildOptions.emplace("-DLOOP_BINARY_OPERATOR=" + compute);
+}
+
+ErrorCode LoopBinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto cmd                      = mLoop->commands()->GetAs<RegionCommand>(0);
+    OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
+    auto runTime                  = mOpenCLBackend->getOpenCLRuntime();
+    _setTensorStack(mTensors, inputs, outputs, mLoop);
+    mUnits.clear();
+    
+    Unit unit;
+    auto input0 = mTensors[cmd->indexes()->data()[1]];
+    std::vector<int> Input0Shape = tensorShapeFormat(input0);
+    int Input0Size[4] = {Input0Shape.at(2), Input0Shape.at(1),Input0Shape.at(3),Input0Shape.at(0)};
+         
+    auto input1 = mTensors[cmd->indexes()->data()[2]];
+    std::vector<int> Input1Shape = tensorShapeFormat(input1);
+    int Input1Size[4] = {Input1Shape.at(2), Input1Shape.at(1),Input1Shape.at(3),Input1Shape.at(0)};
+         
+    auto output = mTensors[cmd->indexes()->data()[0]];
+    std::vector<int> Shape = tensorShapeFormat(output);
+    const int Channel = Shape.at(3);
+    const int Width = Shape.at(2);
+    const int Height = Shape.at(1);
+    const int Batch = Shape.at(0);
+    const int ChannelBlock = UP_DIV(Channel, 4);
+    auto BuildOptions = mBuildOptions;
+    if(Input0Size[2] != Input1Size[2]){
+        BuildOptions.emplace("-DBROADCAST_CHANNEL");
+    }
+    std::string KernelName = "broadcast_binary_buf";
+    unit.kernel = runTime->buildKernel("loop_buf", KernelName, BuildOptions);
+    uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
+
+    std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width), (uint32_t)(Height), (uint32_t)(Batch * ChannelBlock)};
+
+    uint32_t index = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+    ret |= unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+    ret |= unit.kernel.setArg(index++, mGlobalWorkSize[2]);
+    ret |= unit.kernel.setArg(index++, openCLBuffer(output));
+    ret |= unit.kernel.setArg(index++, openCLBuffer(input0));
+    ret |= unit.kernel.setArg(index++, openCLBuffer(input1));
+    ret |= unit.kernel.setArg(index++, sizeof(Input0Size), Input0Size);
+    ret |= unit.kernel.setArg(index++, sizeof(Input1Size), Input1Size);
+    ret |= unit.kernel.setArg(index++, Width);
+    ret |= unit.kernel.setArg(index++, Height);
+    ret |= unit.kernel.setArg(index++, ChannelBlock);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBinaryBufExecution");
+
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel).first;
+
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    mUnits.emplace_back(unit);
+    return NO_ERROR;
+}
+
 class LoopBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+         for (int i = 0; i < inputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(inputs[i], false);
+         }
+         for (int i = 0; i < outputs.size(); ++i) {
+            TensorUtils::setTensorSupportPack(outputs[i], false);
+         }
         auto loop = op->main_as_LoopParam();
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;
@@ -338,6 +417,49 @@ public:
             }
             if (OpType_MatMul == subop->type() && loop->parallel()) {
                 return new LoopBatchMatMulBufExecution(loop, op, backend);
+            }
+            if (OpType_BinaryOp == subop->type() && loop->parallel()) {
+                switch (subop->main_as_BinaryOp()->opType()) {
+                    case BinaryOpOperation_MUL:
+                        return new LoopBinaryBufExecution(loop, "in0*in1", op, backend);
+                    case BinaryOpOperation_ADD:
+                        return new LoopBinaryBufExecution(loop, "in0+in1", op, backend);
+                    case BinaryOpOperation_SUB:
+                        return new LoopBinaryBufExecution(loop, "in0-in1", op, backend);
+                    case BinaryOpOperation_REALDIV:
+                        return new LoopBinaryBufExecution(loop, "sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
+                    case BinaryOpOperation_MINIMUM:
+                        return new LoopBinaryBufExecution(loop, "in0>in1?in1:in0", op, backend);
+                    case BinaryOpOperation_MAXIMUM:
+                        return new LoopBinaryBufExecution(loop, "in0>in1?in0:in1", op, backend);
+                    case BinaryOpOperation_GREATER:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-isgreater(in0,in1))", op, backend);
+                    case BinaryOpOperation_LESS:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-isless(in0,in1))", op, backend);
+                    case BinaryOpOperation_LESS_EQUAL:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-islessequal(in0,in1))", op, backend);
+                    case BinaryOpOperation_GREATER_EQUAL:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-isgreaterequal(in0,in1))", op, backend);
+                    case BinaryOpOperation_EQUAL:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-isequal(in0,in1))", op, backend);
+                    case BinaryOpOperation_FLOORDIV:
+                        return new LoopBinaryBufExecution(loop, "floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                    case BinaryOpOperation_FLOORMOD:
+                        return new LoopBinaryBufExecution(loop, "in0-floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))*in1", op, backend);
+                    case BinaryOpOperation_POW:
+                        return new LoopBinaryBufExecution(loop, "pow(in0,in1)", op, backend);
+                    case BinaryOpOperation_SquaredDifference:
+                        return new LoopBinaryBufExecution(loop, "(in0-in1)*(in0-in1)", op, backend);
+                    case BinaryOpOperation_ATAN2:
+                        return new LoopBinaryBufExecution(loop, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                    case BinaryOpOperation_NOTEQUAL:
+                        return new LoopBinaryBufExecution(loop, "convert_float4(-isnotequal(in0,in1))", op, backend);
+                    case BinaryOpOperation_MOD:
+                        return new LoopBinaryBufExecution(loop, "in0-floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))*in1", op, backend);
+                    default:
+                        break;
+                }
+                return nullptr;
             }
         }
         return nullptr;

@@ -13,10 +13,10 @@
 #include <memory>
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
+#include "core/BufferAllocator.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
-class BufferAllocator;
 class CPURuntime : public Runtime {
 public:
     friend class CPUBackend;
@@ -35,7 +35,7 @@ public:
 
 
 private:
-    std::shared_ptr<BufferAllocator> mStaticAllocator;
+    std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
     mutable int mTaskIndex;
     BackendConfig::MemoryMode mMemory;
@@ -47,11 +47,31 @@ private:
     float mFlops = 0.0f;
     static Backend*(*gExtraCreate)(const Runtime* runtime);
     size_t mFlags = 0;
+    int mAllocator = 0;
 };
 struct CoreFunctions;
 struct CoreInt8Functions;
 
 class CPUResizeCache;
+class CPUMemObj : public Backend::MemObj {
+public:
+    CPUMemObj(BufferAllocator* allocator, MemChunk chunk, int size) : mAllocator(allocator), mChunk(chunk), mSize(size) {}
+    virtual ~ CPUMemObj() {
+        if (mAllocator) {
+            mAllocator->free(mChunk);
+        }
+    }
+    virtual MemChunk chunk() {
+        return mChunk;
+    }
+    inline int getSize() const {
+        return mSize;
+    }
+private:
+    BufferAllocator* mAllocator;
+    MemChunk mChunk;
+    int mSize;
+};
 class CPUBackend : public Backend {
 public:
     CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
@@ -69,12 +89,15 @@ public:
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    
+    virtual void onResizeBegin() override;
+    virtual ErrorCode onResizeEnd() override;
 
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
     // Return element size for Tensor, conside pack
-    int getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
+    size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }
@@ -91,7 +114,7 @@ public:
         return mRuntime->mThreadNumber;
     }
 
-    BufferAllocator* getBufferAllocator() const {
+    BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
         return mDynamicAllocator.get();
     }
 
@@ -116,11 +139,11 @@ public:
 
 
 protected:
-    MemObj* allocBuffer(int size, Tensor* dest,  StorageType storageType);
+    MemObj* allocBuffer(size_t size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
     const CoreInt8Functions* mInt8CoreFunctions;
 private:
-    std::shared_ptr<BufferAllocator> mStaticAllocator;
+    std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;

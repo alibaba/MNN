@@ -29,6 +29,9 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    ErrorCode SubgrouponResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     const Pool *mPoolParams;
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};

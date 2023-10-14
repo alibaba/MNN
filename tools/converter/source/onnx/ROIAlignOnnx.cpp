@@ -21,6 +21,7 @@ void ROIAlignOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
     roiAlign->poolType = MNN::PoolType_AVEPOOL;
     roiAlign->spatialScale = 1;
     roiAlign->samplingRatio = 0;
+    roiAlign->aligned = true;
     
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {

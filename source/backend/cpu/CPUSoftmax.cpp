@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include "backend/cpu/CPUSoftmax.hpp"
+#include "backend/cpu/CPUSoftMaxInt8.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
@@ -225,7 +226,11 @@ class CPUSoftmaxCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        return CPUSoftmax::create(op, backend);
+        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+            return CPUSoftmaxInt8::create(op, backend);
+        } else {
+            return CPUSoftmax::create(op, backend);
+        }
     }
 };
 

@@ -356,7 +356,7 @@ void TRTBackend::onResizeBegin() {
     init();
 }
 
-void TRTBackend::onResizeEnd() {
+ErrorCode TRTBackend::onResizeEnd() {
 #ifdef TRT_LOG
     printf("\n\nTRTBackend onResizeEnd in\n");
 #endif
@@ -434,6 +434,7 @@ void TRTBackend::onResizeEnd() {
         delete l;
     }
     mEraseLayers.clear();
+    return NO_ERROR;
 }
 
 INetworkDefinition* TRTBackend::getNetwork() {
@@ -476,7 +477,7 @@ class TRTRuntimeCreator : public RuntimeCreator {
 };
 
 static bool gResistor = []() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_USER_1, new TRTRuntimeCreator, true);
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_USER_1, new TRTRuntimeCreator, false);
     return false;
 }();
 } // namespace MNN

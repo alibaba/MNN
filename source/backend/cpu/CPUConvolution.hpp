@@ -90,19 +90,15 @@ public:
         int8_t mClampMax;
         std::shared_ptr<Tensor> mBiasInt32;
         std::shared_ptr<Tensor> mScaleFloat;
+        int32_t mShiftBits = 14;
         bool mValid;
     };
-    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp);
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp, int pack=4);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC);
-
-    /* Inefficient because of not use memcpy to support different type copy (T -> U), use it when speed insensitive (init, onResize)
-       return: False if acquire failed
-     */
-    template<typename T, typename U> static bool acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend*);
 
     std::vector<float> getPostParameters() const;
 public:

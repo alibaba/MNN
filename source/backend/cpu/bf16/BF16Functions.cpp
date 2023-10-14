@@ -211,7 +211,7 @@ void MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t 
 
 void MNNPackedMatMulRemain_BF16(float* CFloat, const float* AFloat, const float* BFloat, size_t eSize,
                                 const size_t* parameter, float* cacheFloat, const float* postParameters,
-                                const float* biasFloat) {
+                                const float* biasFloat, const float* k, const float* b) {
     int16_t* C        = (int16_t*)CFloat;
     int16_t* A        = (int16_t*)AFloat;
     int16_t* B        = (int16_t*)BFloat;
@@ -271,8 +271,8 @@ void MNNPackedMatMulRemain_BF16(float* CFloat, const float* AFloat, const float*
 }
 
 void MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
-                          const float* postParameters, const float* bias) {
-    return MNNPackedMatMulRemain_BF16(C, A, B, 16, parameter, cache, postParameters, bias);
+                          const float* postParameters, const float* bias, const float* k, const float* b) {
+    return MNNPackedMatMulRemain_BF16(C, A, B, 16, parameter, cache, postParameters, bias, nullptr, nullptr);
     // return _AVX_MNNPackedMatMulFMA(C, A, B, parameter, cache);
 }
 

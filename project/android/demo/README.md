@@ -15,7 +15,7 @@ cmake -DMNN_BUILD_CONVERTER=ON ..
 make -j8
 ```
 
-然后下载模型，转换模型并将模型拷贝到资源文件夹下：
+然后下载模型，可以直接执行 sh ../tools/script/get_model.sh ，也可以按如下步骤自行下载与转换：
 #### MobileNet_v2
 ```
 wget https://github.com/shicai/MobileNet-Caffe/blob/master/mobilenet_v2.caffemodel

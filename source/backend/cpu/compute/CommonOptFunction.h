@@ -16,6 +16,7 @@
 
 #include "core/Macro.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "MNN/ImageProcess.hpp"
 
 extern "C" {
 
@@ -34,6 +35,8 @@ void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, in
 
 void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
 void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
+void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNPackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
 void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
@@ -44,6 +47,9 @@ void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, 
 
 void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset);
 void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset);
+
+void MNNUnpackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNUnpackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
 void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
@@ -108,9 +114,13 @@ void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const in
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 
 // parameters: e, l, h, CStride, AStride, BStride
-void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNFunctionInit();
-void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+void MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 
 void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
 struct SparseMatMulParas
@@ -166,7 +176,7 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
-typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, const float* inputScale0, const float* inputScale1, const float* outputScale, int elementSize, int needBroadcast);
+typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast);
 
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 
@@ -182,8 +192,12 @@ struct CoreFunctions {
     void(*MNNPackC4ForMatMul_A)(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
     void(*MNNPackForMatMul_B)(float* dest, const float* source, size_t h, size_t l, bool transpose);
     // parameters: e, l, h, CStride, AStride, BStride
-    void(*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
-    void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+    void(*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+    void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+    void(*MNNPackedMatMul_int4)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+    void(*MNNPackedMatMulRemain_int4)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+    void(*MNNPackedMatMul_int8)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+    void(*MNNPackedMatMulRemain_int8)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
     void(*MNNComputeMatMulForH_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
     void(*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 
@@ -283,6 +297,16 @@ struct CoreFunctions {
     void(*MNNC1ToFloatC1)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
     void(*MNNC3ToFloatC3)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
     void(*MNNC3ToFloatRGBA)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+    void(*MNNsampleBilinearCommon)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                size_t iw, size_t ih, size_t yStride, size_t bpp);
+    void(*MNNSamplerC4Nearest)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                         size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSamplerC4Bilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                          size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSampleC4Bilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+    void(*MNNSampleBilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                      size_t iw, size_t ih, size_t yStride, size_t bpp);
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

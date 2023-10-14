@@ -22,22 +22,24 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nchw_buffer_to_image", buildOptions);
     }
     uint32_t idx = 0;
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true)
     {
-        clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
+        ret |= clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
     }
     else
 #endif
     {
-        bufferToImageKernel.setArg(idx++, openCLBuffer(input));
+        ret |= bufferToImageKernel.setArg(idx++, openCLBuffer(input));
     }
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
-    bufferToImageKernel.setArg(idx++, openCLImage(output));
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
+    ret |= bufferToImageKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertNCHWBufferToImage");
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -57,8 +59,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -74,22 +75,23 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
     }
     uint32_t idx = 0;
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true) {
-        clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
+        ret |= clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
     }
     else
 #endif
     {
-        bufferToImageKernel.setArg(idx++, openCLBuffer(input));
+        ret |= bufferToImageKernel.setArg(idx++, openCLBuffer(input));
     }
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
-    bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
-    bufferToImageKernel.setArg(idx++, openCLImage(output));
-
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
+    ret |= bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
+    ret |= bufferToImageKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertNHWCBufferToImage");
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -108,8 +110,7 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -127,22 +128,25 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
 
     uint32_t idx = 0;
-    imageToBufferKernel.setArg(idx++, in_gws[0]);
-    imageToBufferKernel.setArg(idx++, in_gws[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[0]);
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true)
     {
-        clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
+        ret |= clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
     }
     else
 #endif
     {
-        imageToBufferKernel.setArg(idx++, openCLBuffer(output));
+        ret |= imageToBufferKernel.setArg(idx++, openCLBuffer(output));
     }
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
-    imageToBufferKernel.setArg(idx++, openCLImage(input));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
+    ret |= imageToBufferKernel.setArg(idx++, openCLImage(input));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertImageToNCHWBuffer");
+
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
@@ -161,8 +165,7 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
     return true;
 }
@@ -178,22 +181,24 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
     }
     uint32_t idx   = 0;
+    cl_int ret = CL_SUCCESS;
     int outputImageShape[2] = {input->height(), input->width()};
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
-    bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
+    ret |= bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true)
     {
-        clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
+        ret |= clSetKernelArgSVMPointer(bufferToImageKernel.get(), idx++, (const void *)input->deviceId());
     }
     else
 #endif
     {
-        bufferToImageKernel.setArg(idx++, openCLBuffer(input));
+        ret |= bufferToImageKernel.setArg(idx++, openCLBuffer(input));
     }
-    bufferToImageKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    bufferToImageKernel.setArg(idx++, input->batch());
-    bufferToImageKernel.setArg(idx++, openCLImage(output));
+    ret |= bufferToImageKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+    ret |= bufferToImageKernel.setArg(idx++, input->batch());
+    ret |= bufferToImageKernel.setArg(idx++, openCLImage(output));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertNC4HW4BufferToImage");
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -212,8 +217,7 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+        runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -241,21 +245,24 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
 
     uint32_t idx   = 0;
     int outputImageShape[2] = {inputShape.at(1), inputShape.at(2)};
-    imageToBufferKernel.setArg(idx++, in_gws[0]);
-    imageToBufferKernel.setArg(idx++, in_gws[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[0]);
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true)
     {
-        clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
+        ret |= clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
     }
     else
 #endif
     {
-        imageToBufferKernel.setArg(idx++, openCLBuffer(output));
+        ret |= imageToBufferKernel.setArg(idx++, openCLBuffer(output));
     }
-    imageToBufferKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    imageToBufferKernel.setArg(idx++, input->batch());
-    imageToBufferKernel.setArg(idx++, openCLImage(input));
+    ret |= imageToBufferKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+    ret |= imageToBufferKernel.setArg(idx++, input->batch());
+    ret |= imageToBufferKernel.setArg(idx++, openCLImage(input));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertImageToNC4HW4Buffer");
+
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
@@ -274,8 +281,7 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
     return true;
 }
@@ -293,22 +299,25 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
 
     uint32_t idx = 0;
-    imageToBufferKernel.setArg(idx++, in_gws[0]);
-    imageToBufferKernel.setArg(idx++, in_gws[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[0]);
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[1]);
 #ifdef MNN_OPENCL_SVM_ENABLE
     if(svmFlag == true)
     {
-        clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
+        ret |= clSetKernelArgSVMPointer(imageToBufferKernel.get(), idx++, (const void *)output->deviceId());
     }
     else
 #endif
     {
-        imageToBufferKernel.setArg(idx++, openCLBuffer(output));
+        ret |= imageToBufferKernel.setArg(idx++, openCLBuffer(output));
     }
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
-    imageToBufferKernel.setArg(idx++, openCLImage(input));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
+    ret |= imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
+    ret |= imageToBufferKernel.setArg(idx++, openCLImage(input));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertImageToNHWCBuffer");
+
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
@@ -327,8 +336,7 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+        runtime->pushEvent({"outputFormatTransform", event});
     #endif
 
     return true;
@@ -366,27 +374,29 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
     getImageShape(formattedBufferShape, type, &gws);
 
     uint32_t idx = 0;
-    mImageToBufferKernel.setArg(idx++, gws[0]);
-    mImageToBufferKernel.setArg(idx++, gws[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= mImageToBufferKernel.setArg(idx++, gws[0]);
+    ret |= mImageToBufferKernel.setArg(idx++, gws[1]);
 
-    mImageToBufferKernel.setArg(idx++, openCLBuffer(buffer));
+    ret |= mImageToBufferKernel.setArg(idx++, openCLBuffer(buffer));
     if (type == CONV2D_FILTER) {
         const int channelHeightWidthSumSize =
             buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
-        mImageToBufferKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
+        ret |= mImageToBufferKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == ARGUMENT) {
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
     } else {
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[1]));
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[2]));
-        mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[3]));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[1]));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[2]));
+        ret |= mImageToBufferKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[3]));
     }
-    mImageToBufferKernel.setArg(idx++, openCLImage(image));
+    ret |= mImageToBufferKernel.setArg(idx++, openCLImage(image));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertImageToBuffer");
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mImageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -456,43 +466,45 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
     }
 
     uint32_t idx = 0;
-    mBufferToImageKernel.setArg(idx++, gws[0]);
-    mBufferToImageKernel.setArg(idx++, gws[1]);
+    cl_int ret = CL_SUCCESS;
+    ret |= mBufferToImageKernel.setArg(idx++, gws[0]);
+    ret |= mBufferToImageKernel.setArg(idx++, gws[1]);
 
-    mBufferToImageKernel.setArg(idx++, openCLBuffer(buffer));
+    ret |= mBufferToImageKernel.setArg(idx++, openCLBuffer(buffer));
 
     if (type == CONV2D_FILTER) {
         const int channelHeightWidthSumSize =
             buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
-        mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
+        ret |= mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == DW_CONV2D_FILTER) {
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         int kernelShape[4] = {buffer->buffer().dim[0].extent, buffer->buffer().dim[1].extent, buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
-        mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+        ret |= mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == ARGUMENT) {
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
     } else if(type == CONV2D1x1_OPT_FILTER){
         const int channelHeightWidthSumSize =
             buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[1].extent));
-        mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[1].extent));
+        ret |= mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     }else {
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[1]));
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[2]));
-        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[3]));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[1]));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[2]));
+        ret |= mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[3]));
     }
 
-    mBufferToImageKernel.setArg(idx++, openCLImage(image));
+    ret |= mBufferToImageKernel.setArg(idx++, openCLImage(image));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertBufferToImage");
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mBufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};

@@ -46,9 +46,19 @@ void _SSE_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c
                                     size_t length, size_t hSub);
 
 void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias);
+                          const float* postParameters, const float* bias, const float* k, const float* b);
 void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                 const float* postParameters, const float* bias);
+                                 const float* postParameters, const float* bias, const float* k, const float* b);
+#ifdef MNN_LOW_MEMORY
+void _SSE_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
+                               const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+#endif
 void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
@@ -60,7 +70,7 @@ void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t 
 void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue, ssize_t zeroPoint);
 
 void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint);
-void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
 void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
 void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
@@ -69,3 +79,22 @@ void _SSE_MNNSoftmax(float* dest, const float* source, size_t size);
 void _SSE_ExtraInit(void* functions);
 void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
 void _SSE_ImageProcessInit(void* functions, int cpuFlags);
+void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
+
+/* Image process functions */
+void _SSE_MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToRGB(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToRGBA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToBGRA(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count);
+void _SSE_MNNC1ToFloatC1(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNC3ToFloatC3(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
+void _SSE_MNNSamplerC4Nearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                              size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void _SSE_MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta, size_t count,
+                            size_t iw, size_t ih, size_t yStride, int bpp);
+void _SSE_MNNSampleC4Bilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                          size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
+void _SSE_MNNSampleBilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                                  size_t iw, size_t ih, size_t yStride, size_t bpp);

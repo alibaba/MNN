@@ -17,10 +17,11 @@
 #include <vector>
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class ConvCommonExecution : public Execution {
+class ConvCommonExecution : public Execution, public CommonExtension {
 public:
     ConvCommonExecution(const Convolution2D *op, Backend *backend);
     virtual ~ConvCommonExecution();
@@ -56,6 +57,7 @@ private:
     std::shared_ptr<cl::Buffer> mKernelBuffer;
     std::shared_ptr<cl::Buffer> mBiasBuffer;
     std::set<std::string> mBuildOptions;
+    bool mWeightUseBuffer = false;
 };
 
 } // namespace OpenCL

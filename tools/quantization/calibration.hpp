@@ -56,10 +56,6 @@ private:
     std::map<const MNN::Tensor*, std::shared_ptr<TensorStatistic>> _featureInfo;
     std::map<const MNN::Tensor*, std::shared_ptr<TensorStatistic>> _featureInfoOrigin;
     std::map<int, const MNN::Tensor*> _tensorMap;
-    std::map<const MNN::Tensor*, int> _tensorIdx;
-
-    // Op's name, Inputs, Outputs
-    std::map<std::string, std::pair<std::vector<MNN::Tensor*>, std::vector<MNN::Tensor*>>> _opInfo;
 
     // The scale results
     std::map<const MNN::Tensor*, float> _scales;

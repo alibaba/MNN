@@ -148,7 +148,7 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
     int oc      = outputTensor->channel();
     int ePack, hPack, lPack;
     core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    int unit2   = UP_DIV(ow * oh, ePack * threadNumber);
+    int unit2   = UP_DIV(ow * oh, threadNumber);
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
     maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);
@@ -416,7 +416,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
                         auto unitsGemmbuffer = gemmBuffer + iNh * ic_4 * pack * ePack * bytes;
                         auto _dstFloatPtr = (float*)(_dstOrigin + (iNh * srcUnit + iNw) * dc_4 * pack * ePack * bytes);
                         auto _weightFloatPtr = (const float*)(weight + (iNh * srcUnit + iNw) * weightStride);
-                        core->MNNPackedMatMul(_dstFloatPtr, (float*)unitsGemmbuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
+                        core->MNNPackedMatMul(_dstFloatPtr, (float*)unitsGemmbuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr, nullptr, nullptr);
                     }
                 }
             } else {
@@ -441,7 +441,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
                         auto _weightFloatPtr = (const float*)(weight + i * weightStride);
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
 
-                        core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
+                        core->MNNPackedMatMul(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr, nullptr, nullptr);
                     }
                 } else {
                     for (int i = 0; i < srcUnit2; ++i) {
@@ -449,7 +449,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
                         auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
                         auto _weightFloatPtr = (const float*)(weight + i * weightStride);
                         core->MNNPackC4ForMatMul_A((float*)gemmBuffer, &srcTemp, info, el);
-                        core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
+                        core->MNNPackedMatMulRemain(_dstFloatPtr, (float*)gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr, nullptr, nullptr);
                     }
                 }
             }

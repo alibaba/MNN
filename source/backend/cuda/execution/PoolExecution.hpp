@@ -11,7 +11,7 @@
 #include <vector>
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-
+#include "bf16/PoolBf16.cuh"
 namespace MNN {
 namespace CUDA {
 class PoolExecution : public Execution {

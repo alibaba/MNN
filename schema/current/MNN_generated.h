@@ -2685,7 +2685,9 @@ struct ExtraT : public flatbuffers::NativeTable {
   std::string engine;
   std::vector<int8_t> info;
   std::vector<std::unique_ptr<AttributeT>> attr;
-  ExtraT() {
+  bool vector;
+  ExtraT()
+      : vector(false) {
   }
 };
 
@@ -2706,6 +2708,9 @@ struct Extra FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *attr() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *>(10);
   }
+  bool vector() const {
+    return GetField<uint8_t>(12, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -2717,6 +2722,7 @@ struct Extra FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(attr()) &&
            verifier.VerifyVectorOfTables(attr()) &&
+           VerifyField<uint8_t>(verifier, 12) &&
            verifier.EndTable();
   }
   ExtraT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2739,6 +2745,9 @@ struct ExtraBuilder {
   void add_attr(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> attr) {
     fbb_.AddOffset(10, attr);
   }
+  void add_vector(bool vector) {
+    fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(vector), 0);
+  }
   explicit ExtraBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -2756,12 +2765,14 @@ inline flatbuffers::Offset<Extra> CreateExtra(
     flatbuffers::Offset<flatbuffers::String> type = 0,
     flatbuffers::Offset<flatbuffers::String> engine = 0,
     flatbuffers::Offset<flatbuffers::Vector<int8_t>> info = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> attr = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> attr = 0,
+    bool vector = false) {
   ExtraBuilder builder_(_fbb);
   builder_.add_attr(attr);
   builder_.add_info(info);
   builder_.add_engine(engine);
   builder_.add_type(type);
+  builder_.add_vector(vector);
   return builder_.Finish();
 }
 
@@ -4737,6 +4748,7 @@ inline void Extra::UnPackTo(ExtraT *_o, const flatbuffers::resolver_function_t *
   { auto _e = engine(); if (_e) _o->engine = _e->str(); };
   { auto _e = info(); if (_e) { _o->info.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->info[_i] = _e->Get(_i); } } };
   { auto _e = attr(); if (_e) { _o->attr.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->attr[_i] = std::unique_ptr<AttributeT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = vector(); _o->vector = _e; };
 }
 
 inline flatbuffers::Offset<Extra> Extra::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ExtraT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4751,12 +4763,14 @@ inline flatbuffers::Offset<Extra> CreateExtra(flatbuffers::FlatBufferBuilder &_f
   auto _engine = _o->engine.empty() ? 0 : _fbb.CreateString(_o->engine);
   auto _info = _o->info.size() ? _fbb.CreateVector(_o->info) : 0;
   auto _attr = _o->attr.size() ? _fbb.CreateVector<flatbuffers::Offset<Attribute>> (_o->attr.size(), [](size_t i, _VectorArgs *__va) { return CreateAttribute(*__va->__fbb, __va->__o->attr[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _vector = _o->vector;
   return MNN::CreateExtra(
       _fbb,
       _type,
       _engine,
       _info,
-      _attr);
+      _attr,
+      _vector);
 }
 
 inline StringVecT *StringVec::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -7984,7 +7998,8 @@ inline const flatbuffers::TypeTable *ExtraTypeTable() {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_CHAR, 1, -1 },
-    { flatbuffers::ET_SEQUENCE, 1, 0 }
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     AttributeTypeTable
@@ -7993,10 +8008,11 @@ inline const flatbuffers::TypeTable *ExtraTypeTable() {
     "type",
     "engine",
     "info",
-    "attr"
+    "attr",
+    "vector"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -256,6 +256,55 @@ class OnnxLpNormTransform : public OnnxExtraManager::Transform {
     }
 };
 
+class OnnxLayerNormTransform : public OnnxExtraManager::Transform {
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        auto inputs = expr->inputs();
+        auto input = expr->inputs()[0];
+        int axis = -1;
+        float eps = 1e-05;
+        auto attrs = expr->get()->main_as_Extra()->attr();
+        if (attrs != nullptr) {
+            for (const auto& attr : *attrs) {
+                auto attrName = attr->key()->str();
+                if (attrName == "axis") {
+                    axis = attr->i();
+                }
+                if (attrName == "epsilon") {
+                    eps = attr->f();
+                }
+            }
+        }
+        auto axisVar = _Scalar<int>(axis);
+        // Add negative protect, may decrease performance
+        auto rankVar = _Rank(inputs[0]);
+        axisVar = _Mod(axisVar + rankVar, rankVar);
+        auto reduceAxis = _Range(axisVar, rankVar, _Scalar<int>(1));
+        auto mean = _ReduceMeanMutable(input, reduceAxis, true);
+        auto sub = input - mean;
+        auto normal = _Rsqrt(_ReduceMeanMutable(_Square(sub), reduceAxis, true) + _Scalar<float>(eps));
+        auto y = sub * normal * inputs[1];
+        if (inputs.size() > 2) {
+            y = y + inputs[2];
+        }
+        std::vector<VARP> identityOutputs = {y};
+        if (expr->outputSize() > 1) {
+            identityOutputs.emplace_back(mean);
+        }
+        if (expr->outputSize() > 2) {
+            identityOutputs.emplace_back(normal);
+        }
+        std::unique_ptr<OpT> copyOp(new OpT);
+        copyOp->type = OpType_Identity;
+        auto resultExpr = Expr::create(copyOp.get(), identityOutputs, identityOutputs.size());
+        resultExpr->setName(expr->name());
+        for (int i=0; i<expr->outputSize(); ++i) {
+            auto var = MNN::Express::Variable::create(resultExpr, i);
+            var->setName(expr->outputName(i));
+        }
+        return resultExpr;
+    }
+};
+
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("BatchNormalization",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxBatchNormTransform));
@@ -265,6 +314,8 @@ static auto gRegister = []() {
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxMeanVarianceNormTransform));
     OnnxExtraManager::get()->insert("LpNormalization",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxLpNormTransform));
+    OnnxExtraManager::get()->insert("LayerNormalization",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxLayerNormTransform));
     return true;
 }();
 

@@ -68,6 +68,35 @@ __kernel void raster_buffer(
     output[outputIndex] = input[inputIndex];
 }
 
+__kernel void raster_buffer_combine(
+                    GLOBAL_SIZE_3_DIMS
+                    __global FLOAT *input,
+                    __private const int inputOffset,
+                    __private const int combineSrcOffset,
+                    __private const int inputStride0,
+                    __private const int inputStride1,
+                    __private const int inputStride2,
+                    __global FLOAT *output,
+                    __private const int outputOffset,
+                    __private const int combineDstOffset,
+                    __private const int outputStride0,
+                    __private const int outputStride1,
+                    __private const int outputStride2,
+                    __private const int global_size0
+                    ) {
+    const int idx = get_global_id(0);
+    const int y = get_global_id(1);
+    const int z = get_global_id(2);
+    
+    DEAL_NON_UNIFORM_DIM3(idx, y, z);
+    const int x = idx % global_size0;
+    const int id = idx / global_size0;
+    
+    int inputIndex = inputOffset + id * combineSrcOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
+    int outputIndex = outputOffset + id * combineDstOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
+    output[outputIndex] = input[inputIndex];
+}
+
 
 __kernel void raster_image(
                     GLOBAL_SIZE_3_DIMS

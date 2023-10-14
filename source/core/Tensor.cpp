@@ -164,7 +164,7 @@ Tensor* Tensor::clone(const Tensor* src, bool deepCopy) {
 
 bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
     auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->backend;
+    auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return false;
     }
@@ -174,7 +174,7 @@ bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
 
 bool Tensor::copyToHostTensor(Tensor* hostTensor) const {
     auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->backend;
+    auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return false;
     }
@@ -391,8 +391,8 @@ void Tensor::printShape() const {
     MNN_PRINT("\n");
 }
 
-int Tensor::size() const {
-    auto dataSize = mBuffer.type.bytes();
+size_t Tensor::usize() const {
+    size_t dataSize = mBuffer.type.bytes();
     MNN_ASSERT(dataSize >= 1);
     auto nativeDescribe = mDescribe->mContent.get();
     for (int i = 0; i < this->buffer().dimensions; i++) {
@@ -405,11 +405,15 @@ int Tensor::size() const {
     return dataSize;
 }
 
+int Tensor::size() const {
+    return static_cast<int>(usize());
+}
+
 void* Tensor::map(MapType mtype, DimensionType dtype) {
     auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->backend;
+    auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
-        return nullptr;
+        return mBuffer.host;
     }
 
     auto mapPtr = bn->onMapTensor(mtype, dtype, this);
@@ -435,7 +439,7 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
 
 void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
     auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->backend;
+    auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return;
     }
@@ -461,7 +465,7 @@ void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
 }
 int Tensor::wait(MapType mtype, bool finish) {
     auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->backend;
+    auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return 0;
     }

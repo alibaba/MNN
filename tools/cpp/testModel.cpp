@@ -90,11 +90,18 @@ int main(int argc, const char* argv[]) {
     MNN::BackendConfig backendConfig;
     backendConfig.precision = precision;
     
-    MNNDeviceContext cudaDeviceConfig;
-    // CUDA BAckend support user set_device_id
+    MNNDeviceContext gpuDeviceConfig;
+    // CUDA Backend support user set device_id
     if(type == MNN_FORWARD_CUDA) {
-        cudaDeviceConfig.deviceId = 0;
-        backendConfig.sharedContext = &cudaDeviceConfig;
+        gpuDeviceConfig.deviceId = 0;
+        backendConfig.sharedContext = &gpuDeviceConfig;
+    }
+    // OpenCL Backend support user set platform_size, platform_id, device_id
+    if(type == MNN_FORWARD_OPENCL) {
+        gpuDeviceConfig.platformSize = 1;// GPU Cards number
+        gpuDeviceConfig.platformId = 0;  // Execute on Which GPU Card
+        gpuDeviceConfig.deviceId = 0;    // Execute on Which GPU device
+        backendConfig.sharedContext = &gpuDeviceConfig;
     }
     config.backendConfig = &backendConfig;
     auto session         = net->createSession(config);

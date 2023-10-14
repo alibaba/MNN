@@ -14,6 +14,7 @@
 #include "GLBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/BufferAllocator.hpp"
 #include <mutex>
 #include <MNN/Tensor.hpp>
 
@@ -490,7 +491,7 @@ public:
 bool placeholder = []() {
     static std::once_flag createOnce;
     std::call_once(createOnce, []() {
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, true);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, false);
     });
     return true;
 }();

@@ -275,15 +275,170 @@ static void _MNNPackedMatMulRemain(float* C, const float* A, const float* B, siz
         }
     }
 }
-void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {
+
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     return _MNNPackedMatMulRemain(C, A, B, 16, parameter, postParameters, bias, 16);
 }
 
-void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     auto aStride = parameter[0] / sizeof(float);
     _MNNPackedMatMulRemain(C, A, B, eSize, parameter, postParameters, bias, aStride);
 }
 
+#ifdef MNN_LOW_MEMORY
+static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride, const float* k, const float* b) {
+    auto B = reinterpret_cast<const uint8_t*>(fB);
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
+    auto hRemain = parameter[4];
+    auto bExtraStride = parameter[5] / sizeof(float);
+    auto bStride = bExtraStride + l * 4;
+    auto hC4 = UP_DIV(h, 4);
+    for (int y=0; y<hC4; ++y) {
+        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
+    }
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    float minValue = -std::numeric_limits<float>().max();
+    float maxValue = std::numeric_limits<float>().max();
+    if (nullptr != postParameters) {
+        minValue = postParameters[2];
+        maxValue = postParameters[3];
+        alpha = postParameters[0];
+        beta = postParameters[1];
+    }
+
+    for (int x=0; x<eSize; ++x) {
+        auto dst = C + 4 * x;
+        auto src = A + x;
+        for (int y=0; y<hC4; ++y) {
+            auto dstY = dst + y * cStride;
+            auto weight = B + y * bStride / 2;
+            auto alpha = k + y * 4;
+            auto qbias  = b + y * 4;
+            float summer[4] = {
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+            };
+            if (nullptr != bias) {
+                for (int v=0; v<4; ++v) {
+                    summer[v] = bias[4 * y + v];
+                }
+            }
+            for (int z=0; z<l; ++z) {
+                auto aZ = src + z * aStride;
+                auto i4wZ = weight + z * 2;
+                float wZ[4];
+                {
+                    auto w01    = i4wZ[0];
+                    auto w23    = i4wZ[1];
+                    int iw01    = w01;
+                    int iw23    = w23;
+                    int iw0     = iw01 / 16 - 7;
+                    int iw1     = iw01 % 16 - 7;
+                    int iw2     = iw23 / 16 - 7;
+                    int iw3     = iw23 % 16 - 7;
+                    wZ[0]       = iw0 * alpha[0] + qbias[0];
+                    wZ[1]       = iw1 * alpha[1] + qbias[1];
+                    wZ[2]       = iw2 * alpha[2] + qbias[2];
+                    wZ[3]       = iw3 * alpha[3] + qbias[3];
+                }
+                summer[0] += wZ[0] * aZ[0];
+                summer[1] += wZ[1] * aZ[0];
+                summer[2] += wZ[2] * aZ[0];
+                summer[3] += wZ[3] * aZ[0];
+            }
+            for (int v=0; v<4; ++v) {
+                auto dstValue = std::min(summer[v], maxValue);
+                dstValue = std::max(dstValue, minValue);
+                dstY[v] = dstValue;
+            }
+        }
+    }
+}
+static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride, const float* k, const float* b) {
+    auto B = reinterpret_cast<const int8_t*>(fB);
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
+    auto hRemain = parameter[4];
+    auto bExtraStride = parameter[5] / sizeof(float);
+    auto bStride = bExtraStride + l * 4;
+    auto hC4 = UP_DIV(h, 4);
+    for (int y=0; y<hC4; ++y) {
+        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
+    }
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    float minValue = -std::numeric_limits<float>().max();
+    float maxValue = std::numeric_limits<float>().max();
+    if (nullptr != postParameters) {
+        minValue = postParameters[2];
+        maxValue = postParameters[3];
+        alpha = postParameters[0];
+        beta = postParameters[1];
+    }
+
+    for (int x=0; x<eSize; ++x) {
+        auto dst = C + 4 * x;
+        auto src = A + x;
+        for (int y=0; y<hC4; ++y) {
+            auto dstY = dst + y * cStride;
+            auto weight = B + y * bStride;
+            auto alpha = k + y * 4;
+            auto qbias  = b + y * 4;
+            float summer[4] = {
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+            };
+            if (nullptr != bias) {
+                for (int v=0; v<4; ++v) {
+                    summer[v] = bias[4 * y + v];
+                }
+            }
+            for (int z=0; z<l; ++z) {
+                auto aZ = src + z * aStride;
+                auto i8wZ = weight + z * 4;
+                float wZ[4];
+                {
+                    wZ[0]       = i8wZ[0] * alpha[0] + qbias[0];
+                    wZ[1]       = i8wZ[1] * alpha[1] + qbias[1];
+                    wZ[2]       = i8wZ[2] * alpha[2] + qbias[2];
+                    wZ[3]       = i8wZ[3] * alpha[3] + qbias[3];
+                }
+                summer[0] += (i8wZ[0] * alpha[0] + qbias[0]) * aZ[0];
+                summer[1] += wZ[1] * aZ[0];
+                summer[2] += wZ[2] * aZ[0];
+                summer[3] += wZ[3] * aZ[0];
+            }
+            for (int v=0; v<4; ++v) {
+                auto dstValue = std::min(summer[v], maxValue);
+                dstValue = std::max(dstValue, minValue);
+                dstY[v] = dstValue;
+            }
+        }
+    }
+}
+void MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
+    _MNNPackedMatMulRemain_int4(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
+}
+void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
+    auto aStride = parameter[0] / sizeof(float);
+    _MNNPackedMatMulRemain_int4(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
+}
+void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
+    _MNNPackedMatMulRemain_int8(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
+}
+void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
+    auto aStride = parameter[0] / sizeof(float);
+    _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
+}
+#endif
 
 void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
     int number = info[0];
@@ -2771,6 +2926,12 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B;
     gCoreFunction->MNNPackedMatMul = MNNPackedMatMul;
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
+#ifdef MNN_LOW_MEMORY
+    gCoreFunction->MNNPackedMatMul_int4 = MNNPackedMatMul_int4;
+    gCoreFunction->MNNPackedMatMulRemain_int4 = MNNPackedMatMulRemain_int4;
+    gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;
+    gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8;
+#endif
 
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
@@ -2841,6 +3002,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNC1ToFloatC1 = MNNC1ToFloatC1;
     gCoreFunction->MNNC3ToFloatC3 = MNNC3ToFloatC3;
     gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
+    gCoreFunction->MNNSamplerC4Nearest = MNNSamplerC4Nearest;
+    gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear;
 
     cpuinfo_arm_isa gCPUInfo;
     cpuinfo_arm_init(&gCPUInfo);
@@ -2878,6 +3041,15 @@ void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int*
     MNNUnpackC2Common<double>(dst, src, area, depth, areaOffset);
 }
 
+void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNPackC2Common<float>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNUnpackC2Common<float>(dst, src, area, depth, areaOffset);
+}
+
+
 void MNNUnpackC2Origin(double* dst, const double* src, size_t area, size_t depth, int areaOffset) {
     int offset[] = {
         areaOffset,
@@ -2891,4 +3063,19 @@ void MNNPackC2Origin(double* dst, const double* src, size_t area, size_t depth, 
         areaOffset,
     };
     MNNPackC2(dst, src, area, depth, offset);
+}
+
+void MNNUnpackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNUnpackInt8C2(dst, src, area, depth, offset);
+}
+void MNNPackInt8C2Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNPackInt8C2(dst, src, area, depth, offset);
 }

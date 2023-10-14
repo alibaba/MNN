@@ -1131,7 +1131,7 @@ static void _AVX512_MNNPackednMatMulRemainCommon(float* C, const float* A, const
     }
 }
 
-void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {
+void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
 #ifdef MNN_X86_USE_ASM
     if (nullptr == postParameters) {
         _AVX512_MNNGemmFloatUnit48x8(C, A, B, parameter);
@@ -1147,7 +1147,7 @@ void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const siz
 }
 
 //#define MNN_X86_DEBUG
-void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
 #ifdef MNN_X86_DEBUG
     static std::set<int> gSize;
     if (gSize.find(eSize) == gSize.end()) {

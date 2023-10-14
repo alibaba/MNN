@@ -40,9 +40,15 @@
    :name: inference
 
    inference/session
-   inference/expr
    inference/module
    inference/python
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 表达式
+   :name: expr
+
+   inference/expr
 
 .. toctree::
    :maxdepth: 1

@@ -39,6 +39,12 @@ bool AVX2Functions::init(int cpuFlags) {
 
     coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMul;
     coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemain;
+#ifdef MNN_LOW_MEMORY
+    coreFunction->MNNPackedMatMul_int4       = _AVX_MNNPackedMatMul_int4;
+    coreFunction->MNNPackedMatMulRemain_int4 = _AVX_MNNPackedMatMulRemain_int4;
+    coreFunction->MNNPackedMatMul_int8       = _AVX_MNNPackedMatMul_int8;
+    coreFunction->MNNPackedMatMulRemain_int8 = _AVX_MNNPackedMatMulRemain_int8;
+#endif
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;
     coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
@@ -56,8 +62,6 @@ bool AVX2Functions::init(int cpuFlags) {
         coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1FMA;
         _AVX_ExtraInitFMA(coreFunction);
     }
-    // For ImageProcess Functions
-    _SSE_ImageProcessInit(coreFunction, cpuFlags);
 #ifdef MNN_AVX512
     if ((cpuFlags & libyuv::kCpuHasAVX512VNNI)
         || (cpuFlags & libyuv::kCpuHasAVX512VL)

@@ -50,6 +50,12 @@ void MNNFunctionInit() {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
         coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
+#ifdef MNN_LOW_MEMORY
+        coreFunction->MNNPackedMatMul_int4       = _SSE_MNNPackedMatMul_int4;
+        coreFunction->MNNPackedMatMulRemain_int4 = _SSE_MNNPackedMatMulRemain_int4;
+        coreFunction->MNNPackedMatMul_int8       = _SSE_MNNPackedMatMul_int8;
+        coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
+#endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
     }
@@ -64,6 +70,7 @@ void MNNFunctionInit() {
         }
         gFunc.MNNNorm = _AVX_MNNNorm;
     }
+    _SSE_ImageProcessInit(coreFunction, cpuFlags);
 }
 
 void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
@@ -117,12 +124,31 @@ void MNNInt8FunctionInit() {
     auto core = MNN::MNNGetInt8CoreFunctions();
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
     core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
+    core->MNNNormInt8    = _SSE_MNNNormInt8;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
         core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+    }
+}
+
+
+void _SSE_ImageProcessInit(void* functions, int cpuFlags) {
+    auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
+    coreFunction->MNNRGBAToBGRA = _SSE_MNNRGBAToBGRA;
+    coreFunction->MNNNV21ToRGBA = _SSE_MNNNV21ToRGBA;
+    coreFunction->MNNNV21ToRGB = _SSE_MNNNV21ToRGB;
+    coreFunction->MNNNV21ToBGRA = _SSE_MNNNV21ToBGRA;
+    coreFunction->MNNNV21ToBGR = _SSE_MNNNV21ToBGR;
+    //coreFunction->MNNsampleBilinearCommon = _SSE_sampleBilinearCommon;
+    if (cpuFlags & libyuv::kCpuHasSSE41) {
+        coreFunction->MNNC1ToFloatC1 = _SSE_MNNC1ToFloatC1;
+        coreFunction->MNNC3ToFloatC3 = _SSE_MNNC3ToFloatC3;
+        coreFunction->MNNC3ToFloatRGBA = _SSE_MNNC3ToFloatRGBA;
+        coreFunction->MNNSamplerC4Nearest = _SSE_MNNSamplerC4Nearest;
+        coreFunction->MNNSamplerC4Bilinear = _SSE_MNNSampleC4Bilinear;
     }
 }
 

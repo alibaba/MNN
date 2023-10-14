@@ -245,6 +245,7 @@ void MNNRGBAToGRAY(const unsigned char* source, unsigned char* dest, size_t coun
     }
 #endif
     */
+
     for (int i = sta; i < count; ++i) {
         int r = source[4 * i + 0];
         int g = source[4 * i + 1];
@@ -875,7 +876,6 @@ void MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV
     float dx     = points[1].fX;
     float xMax   = iw - 1;
     float yMax   = ih - 1;
-
     for (int i = 0; i < count; ++i) {
         int y = (int)roundf(__clamp(curPoints.fY, 0, yMax));
         int x = (int)roundf(__clamp(curPoints.fX, 0, xMax));

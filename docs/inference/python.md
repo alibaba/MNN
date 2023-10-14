@@ -29,7 +29,59 @@ MNN在C++的基础上，增加了Python扩展。扩展单元包括两个部分�
 ### MNNTools
 MNNTools提供目前主要是2个工具，用法可以参考[mnnconvert](../tools/python.html#mnnconvert)和[mnnquant](../tools/python.html#mnnquant)
 
-## 使用Python Session API
+## 使用Python Module API
+### 数据类型
+Python中的`Module API`与C++中的函数名略有区别，用法相似。主要数据类型如下：
+- [_Module](../pymnn/_Module.md) 模型实例
+- [Var](../pymnn/Var.md) 模型的输入输出
+### 推理流程
+基本推理流程如下：
+- [创建Module](../pymnn/nn.html#load-module-from-file-file-name-input-names-output-names-dynamic-shape-mutable-rearrange-backend-memory-mode-power-mode-precision-mode)
+- 创建输入: 使用`expr`或`numpy`函数创建`Var`即可作为输入
+- [执行推理](../pymnn/_Module.html#forward-input)
+- 获取输出: 输出为`Var`类型，可以通过`expr`或`numpy`函数执行后处理
+### 示例
+```python
+import MNN.nn as nn
+import MNN.cv as cv
+import MNN.numpy as np
+import MNN.expr as expr
+
+# 配置执行后端，线程数，精度等信息；key-vlaue请查看API介绍
+config = {}
+config['precision'] = 'low' # 当硬件支持（armv8.2）时使用fp16推理
+config['backend'] = 0       # CPU
+config['numThread'] = 4     # 线程数
+
+rt = nn.create_runtime_manager((config,))
+# 加载模型创建_Module
+net = nn.load_module_from_file('mobilenet_v1.mnn', ['data'], ['prob'], runtime_manager=rt)
+
+# 读取图片
+image = cv.imread('cat.jpg')
+# 转换为float32, 形状为[224,224,3]
+image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
+# 增加batch HWC to NHWC
+input_var = np.expand_dims(image, 0)
+# NHWC to NC4HW4
+input_var = expr.convert(input_var, expr.NC4HW4)
+
+# 执行推理
+output_var = net.forward(input_var)
+
+# NC4HW4 to NHWC
+output_var = expr.convert(output_var, expr.NHWC)
+# 打印出分类结果, 282为猫
+print("output belong to class: {}".format(np.argmax(output_var)))
+# output belong to class: 282
+```
+其他示例可以参考[示例](../pymnn/RuntimeManager.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
+
+
+## 使用Python Session API *[deprecated]*
+
+不建议使用该API执行推理，建议使用Module API
+
 ### 数据类型
 Python中`Session API`的函数名与用法与C++基本一样。使用的主要数据类型如下：
 - [Interpreter](../pymnn/Interpreter.md) 解释器，持有模型资源
@@ -118,107 +170,7 @@ print("output belong to class: {}".format(np.argmax(output_var, 1)))
 # output belong to class: array([282, 385], dtype=int32)
 ```
 其他示例可以参考[示例](../pymnn/Interpreter.html#example)；也可以参考[示例工程](../start/demo.html#session)。
-## 使用Python Module API
-### 数据类型
-Python中的`Module API`与C++中的函数名略有区别，用法相似。主要数据类型如下：
-- [_Module](../pymnn/_Module.md) 模型实例
-- [Var](../pymnn/Var.md) 模型的输入输出
-### 推理流程
-基本推理流程如下：
-- [创建Module](../pymnn/nn.html#load-module-from-file-file-name-input-names-output-names-dynamic-shape-mutable-rearrange-backend-memory-mode-power-mode-precision-mode)
-- 创建输入: 使用`expr`或`numpy`函数创建`Var`即可作为输入
-- [执行推理](../pymnn/_Module.html#forward-input)
-- 获取输出: 输出为`Var`类型，可以通过`expr`或`numpy`函数执行后处理
-### 示例
-```python
-import MNN.nn as nn
-import MNN.cv as cv
-import MNN.numpy as np
-import MNN.expr as expr
 
-# 配置执行后端，线程数，精度等信息；key-vlaue请查看API介绍
-config = {}
-config['precision'] = 'low' # 当硬件支持（armv8.2）时使用fp16推理
-config['backend'] = 0       # CPU
-config['numThread'] = 4     # 线程数
-
-rt = nn.create_runtime_manager((config,))
-# 加载模型创建_Module
-net = nn.load_module_from_file('mobilenet_v1.mnn', ['data'], ['prob'], runtime_manager=rt)
-
-# 读取图片
-image = cv.imread('cat.jpg')
-# 转换为float32, 形状为[224,224,3]        
-image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
-# 增加batch HWC to NHWC
-input_var = np.expand_dims(image, 0)
-# NHWC to NC4HW4
-input_var = expr.convert(input_var, expr.NC4HW4)
-
-# 执行推理
-output_var = net.forward(input_var)
-
-# NC4HW4 to NHWC 
-output_var = expr.convert(output_var, expr.NHWC)
-# 打印出分类结果, 282为猫
-print("output belong to class: {}".format(np.argmax(output_var)))
-# output belong to class: 282
-```
-其他示例可以参考[示例](../pymnn/RuntimeManager.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
-
-## 使用Python Expr API
-### 数据类型
-Python的`Expr API`相比C++在命名和使用方式上略有区别，但是功能一致。主要数据类型如下：
-- [Var](../pymnn/Var.md) 表达式计算中的变量
-### 主要用法
-因为`Expr`不仅有模型推理的能力，还具备数值计算的能力。在实际使用中`Expr`被用作构图或者计算的情况更多，实际用来执行模型推理的情况并不多，当`Expr`用作模型推理时的主要流程如下：
-- [加载计算图](../pymnn/expr.html#load-as-dict-filename)
-- 获取输入输出：直接使用Python中的`dict`的方式获取，如：`net['input']`
-- [写入输入数据](../pymnn/Var.html#write-data)
-- [读取输出数据](../pymnn/Var.html#read)：读取数据不限于`read`，尝试打印和使用都可能触发读取操作
-### 示例
-`Expr`用作模型推理：
-```python
-import MNN.cv as cv
-import MNN.numpy as np
-import MNN.expr as expr
-
-net = expr.load_as_dict('mobilenet_v1.mnn')
-input_var = net['data']
-output_var = net['prob']
-
-# 读取图片
-image = cv.imread('cat.jpg')
-# 转换为float32, 形状为[224,224,3]        
-image = cv.resize(image, (224, 224), mean=[103.94, 116.78, 123.68], norm=[0.017, 0.017, 0.017])
-# 增加batch HWC to NHWC
-input_data = np.expand_dims(image, 0)
-# NHWC to NC4HW4
-input_data = expr.convert(input_data, expr.NC4HW4)
-
-input_var.write(input_data.read_as_tuple())
-
-# 打印出分类结果, 282为猫
-print("output belong to class: {}".format(np.argmax(output_var)))
-```
-`Expr`用于数值计算与数据存取：
-```python
-import MNN.numpy as np
-import MNN.expr as expr
-
-x = expr.range(0., 10., 1.)
-y = expr.fill([10], 3.1415)
-z = expr.sin(x * y + x / y)
-expr.save([z], 'z.mnn')
-a = expr.load_as_list('z.mnn')[0]
-print(a)
-'''
-array([ 0.        , -0.31288275,  0.59434694, -0.8161286 ,  0.955958  ,
-       -0.9997932 ,  0.943233  , -0.79195637,  0.561154  , -0.27400237],
-      dtype=float32)
-'''
-```
-其他示例可以参考[示例](../pymnn/Var.html#example)；也可以参考[示例工程](../start/demo.html#id5)。
 ## 使用cv/numpy API
 ### 数据类型
 Python的`cv`和`numpy`接口，其中`cv`是对C++中`tools/cv`实现的封装；`numpy`则是对`expr`接口的封装；这两个接口主要为了提高MNN的易用性，与`opencv`与`numpy`做到了再接口上的部分兼容，在用法和思路上基本一致。主要数据类型如下：
