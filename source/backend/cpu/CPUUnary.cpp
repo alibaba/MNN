@@ -480,14 +480,14 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
         return NO_ERROR;
     }
     if (mProcInt8) {
-        QuanPrePostParameters params;
-        params.inputScale = mInpScale.data();
-        params.outputScale = mOupScale.data();
-        params.inputZeroPoint= mInpZeroPoint.data();
-        params.outputZeroPoint = mOupZeroPoint.data();
-        params.maxValue = mMaxMinValue[1];
-        params.minValue = mMaxMinValue[0];
         MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
+            QuanPrePostParameters params;
+            params.inputScale = mInpScale.data();
+            params.outputScale = mOupScale.data();
+            params.inputZeroPoint= mInpZeroPoint.data();
+            params.outputZeroPoint = mOupZeroPoint.data();
+            params.maxValue = mMaxMinValue[1];
+            params.minValue = mMaxMinValue[0];
             int start = schedule.first * (int)tId;
             int realSize = schedule.first;
             if (tId == schedule.second -1 ) {
