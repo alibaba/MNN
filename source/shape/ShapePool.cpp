@@ -17,10 +17,17 @@ public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == inputs.size());
-        MNN_ASSERT(1 == outputs.size());
+        MNN_ASSERT(2 >= outputs.size());
 
         auto input  = inputs[0];
         auto output = outputs[0];
+        bool returnRedice = outputs.size() == 2;
+        Tensor *indice;
+        if(returnRedice){
+            indice = outputs[1];
+            ::memcpy(indice->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
+            indice->buffer().dimensions = input->dimensions();
+        }
 
         ::memcpy(output->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
         output->buffer().dimensions = input->dimensions();
@@ -76,12 +83,24 @@ public:
         if (format == MNN_DATA_FORMAT_NHWC) {
             output->buffer().dim[2].extent = outw;
             output->buffer().dim[1].extent = outh;
+            if(returnRedice){
+                indice->buffer().dim[2].extent = outw;
+                indice->buffer().dim[1].extent = outh;
+            }
         } else {
             output->buffer().dim[3].extent = outw;
             output->buffer().dim[2].extent = outh;
+            if(returnRedice){
+                indice->buffer().dim[3].extent = outw;
+                indice->buffer().dim[2].extent = outh;
+            }
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = format;
         output->buffer().type          = input->buffer().type;
+        if(returnRedice){
+            TensorUtils::getDescribe(outputs[1])->dimensionFormat = format;
+            indice->buffer().type          = halide_type_of<int>();
+        }
 
         return true;
     }

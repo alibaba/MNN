@@ -222,7 +222,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      )
     (
      "targetVersion",
-     "compability for old mnn engine, default: 1.2f",
+     "compability for old mnn engine, default the same as converter",
      cxxopts::value<float>()
      )
     (
@@ -477,7 +477,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
         dumpModelInfo(modelPath.modelFile.c_str());
         return true;
     }
-    std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
+    std::cout << "Start to Convert Other Model Format To MNN Model..., target version: " << modelPath.targetVersion << std::endl;
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     int parseRes = 1;
     if (modelPath.model == modelConfig::CAFFE) {

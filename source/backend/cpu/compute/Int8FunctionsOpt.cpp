@@ -27,7 +27,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
-
+void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                         const QuanPostTreatParameters* post, size_t realDstCount);
@@ -1472,6 +1472,29 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
     }
 }
 
+static void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
+    float mulVal = 0.f;
+    float inputScale = params->inputScale[0];
+    float outputScale = params->outputScale[0];
+    int32_t inputZero = static_cast<int32_t>(params->inputZeroPoint[0]);
+    int32_t outputZero = static_cast<int32_t>(params->outputZeroPoint[0]);
+    for (int j = 0;j < depthQuad; ++j) {
+        const float* slopeZ = slope + 4 * j;
+        const int8_t* srcZ = src + 4 * j * planeNumber;
+        int8_t* dstZ = dst + 4 * j * planeNumber;
+        for (int i = 0; i < planeNumber; ++i) {
+            for (int c = 0; c < 4; ++c) {
+                if (srcZ[4 * i + c] < 0) {
+                    mulVal = (srcZ[4 * i + c] - inputZero) * slopeZ[c];
+                    dstZ[4 * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)) + outputZero, params->minValue), params->maxValue);
+                } else {
+                    dstZ[4 * i + c] = srcZ[4 * i + c];
+                }
+            }
+        }
+    }
+}
+
 static void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }
@@ -2108,6 +2131,9 @@ void MNNCoreInt8FunctionInit() {
     
     // Norm
     gCoreFunc->MNNNormInt8 = MNNNormInt8;
+
+    // ReluWithSlopeChannel
+    gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8;
 
 #if defined(__aarch64__)
     auto core = MNNGetCoreFunctions();

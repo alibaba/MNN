@@ -33,6 +33,10 @@ protected:
         for (int i = 0; i < shape_y.size(); ++i) {
             size_out *= shape_out[i];
         }
+        if (format == NC4HW4 && data_x.size() > size_x) {
+            size_x = shape_x[0] * UP_DIV(shape_x[1], 4) * shape_x[2] * shape_x[3] * 4;
+            size_y = shape_y[0] * UP_DIV(shape_y[1], 4) * shape_y[2] * shape_y[3] * 4;
+        }
 
         auto input_x = _Input(shape_x, format, halide_type_of<Tin>());
         auto input_y = _Input(shape_y, format, halide_type_of<Tin>());
@@ -53,9 +57,11 @@ protected:
         input_x->unMap();
         input_y->unMap();
         auto output = opFunc(input_x, input_y);
+        
         if (quantScales[2] != -100){
             output->writeScaleMap(quantScales[2], zeroPoints[2]);
         }
+        
         auto gotOutput = output->template readMap<Tout>();
 
         auto shape_got = output->getInfo()->dim;
@@ -69,7 +75,7 @@ protected:
                 return false;
             }
         }
-        if (quantScales.size() > 0) {
+        if (quantScales[0] > 0) {
             for (int i = 0; i < size_out; ++i) {
                 auto error = (int32_t)data_out[i] - (int32_t)gotOutput[i];
                 if (error * error > 1) {
@@ -77,6 +83,28 @@ protected:
                     MNN_PRINT("%s Test error: compute result=%d, right value=%d\n", name.c_str(), (int32_t)gotOutput[i], (int32_t)data_out[i]);
                     return false;
                 }
+            }
+            return true;
+        }
+        std::vector<Tout> computeOut(size_out);
+        std::vector<Tout> targetOut(size_out);
+        if (format == NC4HW4) {
+            int ob = output->getInfo()->dim[0];
+            int oc = output->getInfo()->dim[1];
+            int plane = output->getInfo()->dim[2] * output->getInfo()->dim[3];
+            for (int b = 0; b < ob; ++b){
+                for (int c = 0; c < oc; ++c) {
+                    for (int p = 0; p < plane; ++p) {
+                        int idx0 = p + c * plane + b * oc * plane;
+                        int idx1 = (c % 4) + 4 * p + 4 * plane * b + 4 * plane * ob * (c / 4);
+                        computeOut[idx0] = gotOutput[idx1];
+                        targetOut[idx0] = data_out[idx1];
+                    }
+                }
+            }
+            if (!checkVectorByRelativeError<Tout>(computeOut.data(), targetOut.data(), size_out, threshold)) {
+                MNN_ERROR("%s test failed!\n", name.c_str());
+                return false;
             }
             return true;
         }
@@ -281,18 +309,28 @@ class GreaterTest : public BinaryTestCommon {
 public:
     virtual ~GreaterTest() = default;
     virtual bool run(int precision) {
-        return test<float, int>(MNN::Express::_Greater, "GreaterTest", 0,
+        auto res = test<int, int>(MNN::Express::_Greater, "GreaterTest", 0,
+                                   {1, 2, 3, 4, 5, 6, 7, 8},
+                                   {3, 4},
+                                   {0, 0, 0, 0, 1, 1, 1, 1},
+                                   {4, 2}, {2}, {4, 2});
+        return res && test<float, int>(MNN::Express::_Greater, "GreaterTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {0, 0, 0, 0, 1, 1, 1, 1},
-                    {4, 2}, {2}, {4, 2});
+                    {4, 2}, {2}, {4, 2});;
     }
 };
 class GreaterEqualTest : public BinaryTestCommon {
 public:
     virtual ~GreaterEqualTest() = default;
     virtual bool run(int precision) {
-        return test<float, int>(MNN::Express::_GreaterEqual, "GreaterEqualTest", 0,
+        auto res = test<int, int>(MNN::Express::_GreaterEqual, "GreaterEqualTest", 0,
+                                    {1, 2, 3, 4, 5, 6, 7, 8},
+                                    {3, 4},
+                                    {0, 0, 1, 1, 1, 1, 1, 1},
+                                    {4, 2}, {2}, {4, 2});
+        return res && test<float, int>(MNN::Express::_GreaterEqual, "GreaterEqualTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {0, 0, 1, 1, 1, 1, 1, 1},
@@ -303,7 +341,17 @@ class LessTest : public BinaryTestCommon {
 public:
     virtual ~LessTest() = default;
     virtual bool run(int precision) {
-        return test<float, int>(MNN::Express::_Less, "LessTest", 0,
+        auto res0 = test<int, int>(MNN::Express::_Less, "LessTest", 0,
+                                    {1, 2, 3, 4, 5, 6, 7, 8},
+                                    {3, 4},
+                                    {1, 1, 0, 0, 0, 0, 0, 0},
+                                    {4, 2}, {2}, {4, 2});
+        auto res1 = test<int, int>(MNN::Express::_LessEqual, "LessEqualTest", 0,
+                                    {1, 2, 3, 4, 5, 6, 7, 8},
+                                    {3, 4},
+                                    {1, 1, 1, 1, 0, 0, 0, 0},
+                                    {4, 2}, {2}, {4, 2});
+        return res0 && res1 && test<float, int>(MNN::Express::_Less, "LessTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {1, 1, 0, 0, 0, 0, 0, 0},
@@ -608,18 +656,18 @@ public:
             }
         }
         std::vector<float> i1 = {
-            -1.0, -2.0, 0.f, 0.f
-            -3.0, -4.0, 0.f, 0.f
-            -5.0, -6.0, 0.f, 0.f
+            -1.0, -2.0, 0.f, 0.f,
+            -3.0, -4.0, 0.f, 0.f,
+            -5.0, -6.0, 0.f, 0.f,
             -7.0, -8.0, 0.f, 0.f
         };
         std::vector<float> i0 = {
             1.0f, 0.0f, 0.f, 0.f
         };
         std::vector<float> i2 = {
-            0.0, -1.0, 0.f, 0.f
-            -2.0, -3.0, 0.f, 0.f
-            -4.0, -5.0, 0.f, 0.f
+            0.0, -1.0, 0.f, 0.f,
+            -2.0, -3.0, 0.f, 0.f,
+            -4.0, -5.0, 0.f, 0.f,
             -6.0, -7.0, 0.f, 0.f
         };
         return test<float, float>(MNN::Express::_BiasAdd, "AddC4FloatTest", 0.01,

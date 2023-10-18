@@ -40,6 +40,8 @@ public:
         return Compiler_Loop;
     }
     virtual float onGetMemoryInMB() override;
+    virtual std::pair<const void*, size_t> onGetCache() override;
+    virtual bool onSetCache(const void* buffer, size_t size) override;
 
 private:
     std::shared_ptr<EagerBufferAllocator> mBufferPool;

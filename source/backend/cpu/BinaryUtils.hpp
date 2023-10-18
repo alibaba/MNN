@@ -187,14 +187,14 @@ struct BinaryBitwiseXor {
     }
 };
 
-template<typename Func, typename V, int pack>
+template<typename Func, typename V, int pack, typename U>
 void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int needBroadcastIndex) {
     Func compute;
     const int sizeDivUnit = elementSize / pack;
     const int remainCount = elementSize - sizeDivUnit * pack;
-    auto src0 = (const float*)(inputRaw0);
-    auto src1 = (const float*)(inputRaw1);
-    auto dst = (float*)outputRaw;
+    auto src0 = (const U*)(inputRaw0);
+    auto src1 = (const U*)(inputRaw1);
+    auto dst = (U*)outputRaw;
 
     if (-1 == needBroadcastIndex) {
         if (sizeDivUnit > 0) {
@@ -208,18 +208,18 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
             }
         }
         if (remainCount > 0) {
-            float tempSrc0[pack];
-            float tempSrc1[pack];
-            float tempDst[pack];
-            ::memcpy(tempSrc0, src0, remainCount * sizeof(float));
-            ::memcpy(tempSrc1, src1, remainCount * sizeof(float));
+            U tempSrc0[pack];
+            U tempSrc1[pack];
+            U tempDst[pack];
+            ::memcpy(tempSrc0, src0, remainCount * sizeof(U));
+            ::memcpy(tempSrc1, src1, remainCount * sizeof(U));
             V a = V::load(tempSrc0);
             V b = V::load(tempSrc1);
             V::save(tempDst, compute(a, b));
-            ::memcpy(dst, tempDst, remainCount * sizeof(float));
+            ::memcpy(dst, tempDst, remainCount * sizeof(U));
         }
     } else if (0 == needBroadcastIndex) {
-        const float srcValue0 = src0[0];
+        const U srcValue0 = src0[0];
         V a = V(srcValue0);
         if (sizeDivUnit > 0) {
             for (int i = 0; i < sizeDivUnit; ++i) {
@@ -232,15 +232,15 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
             }
         }
         if (remainCount > 0) {
-            float tempSrc1[pack];
-            float tempDst[pack];
-            ::memcpy(tempSrc1, src1, remainCount * sizeof(float));
+            U tempSrc1[pack];
+            U tempDst[pack];
+            ::memcpy(tempSrc1, src1, remainCount * sizeof(U));
             V b = V::load(tempSrc1);
             V::save(tempDst, compute(a, b));
-            ::memcpy(dst, tempDst, remainCount * sizeof(float));
+            ::memcpy(dst, tempDst, remainCount * sizeof(U));
         }
     } else {
-        const float srcValue1 = src1[0];
+        const auto srcValue1 = static_cast<U>(src1[0]);
         V b = V(srcValue1);
         if (sizeDivUnit > 0) {
             for (int i = 0; i < sizeDivUnit; ++i) {
@@ -253,12 +253,12 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
             }
         }
         if (remainCount > 0) {
-            float tempSrc0[pack];
-            float tempDst[pack];
-            ::memcpy(tempSrc0, src0, remainCount * sizeof(float));
+            U tempSrc0[pack];
+            U tempDst[pack];
+            ::memcpy(tempSrc0, src0, remainCount * sizeof(U));
             V a = V::load(tempSrc0);
             V::save(tempDst, compute(a, b));
-            ::memcpy(dst, tempDst, remainCount * sizeof(float));
+            ::memcpy(dst, tempDst, remainCount * sizeof(U));
         }
     }
 }
@@ -304,6 +304,42 @@ struct VecBinarySqd  {
         return (x-y)*(x-y);
     }
 };
+
+template<typename Vec>
+struct VecBinaryLess  {
+    Vec operator()(Vec& x, Vec& y) const {
+        return x < y;
+    }
+};
+
+template<typename Vec>
+struct VecBinaryGreater  {
+    Vec operator()(Vec& x, Vec& y) const {
+        return x > y;
+    }
+};
+
+template<typename Vec>
+struct VecBinaryLessEqual  {
+    Vec operator()(Vec& x, Vec& y) const {
+        return x <= y;
+    }
+};
+
+template<typename Vec>
+struct VecBinaryGreaterEqual  {
+    Vec operator()(Vec& x, Vec& y) const {
+        return x >= y;
+    }
+};
+
+template<typename Vec>
+struct VecBinaryEqual  {
+    Vec operator()(Vec& x, Vec& y) const {
+        return x == y;
+    }
+};
+
 namespace MNN {
 template<typename Tin, typename Tout, typename Func>
 void execute(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex) {
@@ -375,21 +411,31 @@ void executeInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inpu
     }
 }
 
-template<typename V, int pack>
+template<typename V, int pack, typename U>
 MNNBinaryExecute selectVector(int type) {
     switch (type) {
         case BinaryOpOperation_ADD:
-            return executeVec<VecBinaryAdd<V>, V, pack>;
+            return executeVec<VecBinaryAdd<V>, V, pack, U>;
         case BinaryOpOperation_SUB:
-            return executeVec<VecBinarySub<V>, V, pack>;
+            return executeVec<VecBinarySub<V>, V, pack, U>;
         case BinaryOpOperation_MUL:
-            return executeVec<VecBinaryMul<V>, V, pack>;
+            return executeVec<VecBinaryMul<V>, V, pack, U>;
         case BinaryOpOperation_MINIMUM:
-            return executeVec<VecBinaryMin<V>, V, pack>;
+            return executeVec<VecBinaryMin<V>, V, pack, U>;
         case BinaryOpOperation_MAXIMUM:
-            return executeVec<VecBinaryMax<V>, V, pack>;
+            return executeVec<VecBinaryMax<V>, V, pack, U>;
         case BinaryOpOperation_SquaredDifference:
-            return executeVec<VecBinarySqd<V>, V, pack>;
+            return executeVec<VecBinarySqd<V>, V, pack, U>;
+        case BinaryOpOperation_LESS:
+            return executeVec<VecBinaryLess<V>, V, pack, U>;
+        case BinaryOpOperation_LESS_EQUAL:
+            return executeVec<VecBinaryLessEqual<V>, V, pack, U>;
+        case BinaryOpOperation_GREATER:
+            return executeVec<VecBinaryGreater<V>, V, pack, U>;
+        case BinaryOpOperation_GREATER_EQUAL:
+            return executeVec<VecBinaryGreaterEqual<V>, V, pack, U>;
+        case BinaryOpOperation_EQUAL:
+            return executeVec<VecBinaryEqual<V>, V, pack, U>;
     }
     return nullptr;
 }

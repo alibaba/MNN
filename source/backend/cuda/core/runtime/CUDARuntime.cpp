@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 #include "core/Macro.h"
+#include "execution/cutlass_common/tune/CudaCache_generated.h"
 
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -164,6 +165,71 @@ void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     checkKernelErrors;
 }
 
+std::pair<const void*, size_t> CUDARuntime::makeCache() {
+    std::unique_ptr<CudaCache::CacheT> cache(new CudaCache::CacheT);
 
+    for (auto& iter : mTunedBlockWarpShape) {
+        std::unique_ptr<CudaCache::AutotuningT> tuning(new CudaCache::AutotuningT);
+        tuning->params = iter.first.first;
+        tuning->problemSize = iter.first.second;
+        
+        tuning->threadBlockSize = iter.second.first;
+        tuning->timeCost = iter.second.second;
+
+        cache->tunings.emplace_back(std::move(tuning));
+    }
+
+    flatbuffers::FlatBufferBuilder builder;
+    auto lastOffset = CudaCache::Cache::Pack(builder, cache.get());
+    builder.Finish(lastOffset);
+    mBuffer.resize(builder.GetSize());
+    ::memcpy(mBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
+    return std::make_pair(mBuffer.data(), mBuffer.size());
+}
+
+bool CUDARuntime::setCache(std::pair<const void*, size_t> cache) {
+    auto buffer = cache.first;
+    auto size = cache.second;
+    if (nullptr == buffer) {
+        mCacheOutside = nullptr;
+        mCacheOutsideSize = 0;
+        mBuffer.clear();
+        return false;//actually get nothing
+    }
+    mCacheOutsideSize = size;
+    mCacheOutside = buffer;
+    auto cacheBuffer = CudaCache::GetCache(buffer);
+    flatbuffers::Verifier verify((const uint8_t*)buffer, size);
+    if (false == CudaCache::VerifyCacheBuffer(verify)) {
+        return false;
+    }
+    if (nullptr == cacheBuffer->tunings()) {
+        return false;
+    }
+
+    // Load Auto Tuning Info
+    if (nullptr != cacheBuffer->tunings()) {
+        auto tuningInfo = cacheBuffer->tunings();
+        for (int i=0; i<tuningInfo->size(); ++i) {
+            auto tun = tuningInfo->GetAs<CudaCache::Autotuning>(i);
+            if (nullptr == tun->params() || nullptr == tun->problemSize()) {
+                MNN_ERROR("Error tunning info\n");
+                continue;
+            }
+            std::vector<int32_t> param(tun->params()->size());
+            for (int v=0; v<param.size(); ++v) {
+                param[v] = tun->params()->data()[v];
+            }
+            std::vector<uint32_t> problem(tun->problemSize()->size());
+            for (int v=0; v<problem.size(); ++v) {
+                problem[v] = tun->problemSize()->data()[v];
+            }
+            std::string blockShape = tun->threadBlockSize()->str();
+            uint32_t cost = tun->timeCost();
+            mTunedBlockWarpShape.insert(std::make_pair(std::make_pair(param, problem), std::make_pair(blockShape, cost)));
+        }
+    }
+    return true;
+}
 
 } // namespace MNN

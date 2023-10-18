@@ -125,6 +125,7 @@ void MNNInt8FunctionInit() {
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
     core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
     core->MNNNormInt8    = _SSE_MNNNormInt8;
+    core->MNNReluWithSlopeChannelInt8 = _SSE_MNNReluWithSlopeChannelInt8;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
         core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;

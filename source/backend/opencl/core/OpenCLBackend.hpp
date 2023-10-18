@@ -127,6 +127,8 @@ public:
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
     }
+    
+    DataType getDataType(const Tensor* tensor);
 
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;

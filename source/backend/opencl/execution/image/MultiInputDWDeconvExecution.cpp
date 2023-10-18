@@ -265,7 +265,7 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         mUnits[3].kernel = kernel;
         mUnits[3].localWorkSize = {lws[0], lws[1], lws[2]};
         mUnits[3].globalWorkSize = {gws[0], gws[1], gws[2]};
-        recordKernel2d(mUnits[2].kernel, gws, lws, runtime);
+        recordKernel3d(mUnits[3].kernel, gws, lws, runtime);
     }
     endRecord(runtime, mRecording);
    

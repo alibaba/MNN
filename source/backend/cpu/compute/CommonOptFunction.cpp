@@ -173,6 +173,262 @@ void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* are
     }
 }
 
+void MNN4BitcopyWithStride (uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    auto src = (uint32_t*)srcO;
+    auto dst = (uint32_t*)dstO;
+    for (int i = 0; i < size; ++i) {
+        dst[0] = *src;
+        dst += ds;
+        src += stride;
+    }
+}
+
+void MNN4BitcopyFast (uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    // ds=1, stride=0||1
+    auto src = (float*)srcO;
+    auto dst = (float*)dstO;
+    int cnt  = size;
+    if (stride == 1) { // stride=1
+#ifdef MNN_USE_NEON
+        for (; cnt >= 8; cnt -= 8) {
+            auto v4 = vld1q_f32(src);
+            auto u4 = vld1q_f32(src + 4);
+            vst1q_f32(dst, v4);
+            vst1q_f32(dst + 4, u4);
+            dst += 8;
+            src += 8;
+        }
+        for (; cnt >= 4; cnt -= 4) {
+            auto v4 = vld1q_f32(src);
+            vst1q_f32(dst, v4);
+            dst += 4;
+            src += 4;
+        }
+#elif defined(MNN_USE_SSE)
+        for (; cnt >= 8; cnt -= 8) {
+            __m128 v4 = _mm_loadu_ps(src);
+            __m128 u4 = _mm_loadu_ps(src + 4);
+            _mm_storeu_ps(dst, v4);
+            _mm_storeu_ps(dst + 4, u4);
+            dst += 8;
+            src += 8;
+        }
+        for (; cnt >= 4; cnt -= 4) {
+            __m128 v4 = _mm_loadu_ps(src);
+            _mm_storeu_ps(dst, v4);
+            dst += 4;
+            src += 4;
+        }
+#endif
+    } else { // stride=0
+        int i = 0;
+        float val = *src;
+#ifdef MNN_USE_NEON
+        auto val4 = vdupq_n_f32(val);
+        for (; cnt >= 8; cnt -= 8) {
+            vst1q_f32(dst, val4);
+            vst1q_f32(dst + 4, val4);
+            dst += 8;
+        }
+        for (; cnt >= 4; cnt -= 4) {
+            vst1q_f32(dst, val4);
+            dst += 4;
+        }
+#elif defined(MNN_USE_SSE)
+        __m128 val4 = _mm_set_ps(val, val, val, val);
+        for (; cnt >= 8; cnt -= 8) {
+            _mm_storeu_ps(dst, val4);
+            _mm_storeu_ps((dst + 4), val4);
+            dst += 8;
+        }
+        for (; cnt >= 4; cnt -= 4) {
+            _mm_storeu_ps(dst, val4);
+            dst += 4;
+        }
+#endif
+    }
+    for (; cnt > 0; --cnt) {
+        dst[0] = *src;
+        dst += ds;
+        src += stride;
+    }
+}
+
+void MNN2BitcopyWithStride(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    auto src = (uint16_t*)srcO;
+    auto dst = (uint16_t*)dstO;
+    for (int i=0; i<size; ++i) {
+        *dst = *src;
+        src+=stride;
+        dst+=ds;
+    }
+}
+
+void MNN2BitcopyFast(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    auto src = (uint16_t*)srcO;
+    auto dst = (uint16_t*)dstO;
+    int cnt  = size;
+    uint16_t val = *src;
+    if (stride == 1) {
+#ifdef MNN_USE_NEON
+        for (; cnt >= 8; cnt-=8) {
+            auto val8 = vld1q_u16(src);
+            vst1q_u16(dst, val8);
+            src += 8;
+            dst += 8;
+        }
+        for (; cnt >= 4; cnt-=4) {
+            auto val4 = vld1_u16(src);
+            vst1_u16(dst, val4);
+            src += 4;
+            dst += 4;
+        }
+#elif defined(MNN_USE_SSE)
+        for (; cnt >= 8; cnt-=8) {
+            auto tmp = _mm_loadu_ps((float*)src);
+            _mm_storeu_ps((float*)dst, tmp);
+            src += 8;
+            dst += 8;
+        }
+#endif
+    } else { // stride=0
+#ifdef MNN_USE_NEON
+        auto val4 = vdup_n_u16(val);
+        auto val8 = vdupq_n_u16(val);
+        for (; cnt >= 8; cnt-=8) {
+            vst1q_u16(dst, val8);
+            dst += 8;
+        }
+        for (; cnt >= 4; cnt-=4) {
+            vst1_u16(dst, val4);
+            dst += 4;
+        }
+#elif defined(MNN_USE_SSE)
+        uint16_t arr[8] = {val, val, val, val, val, val, val, val};
+        auto val8 = _mm_loadu_ps((float*)arr);
+        for (; cnt >= 8; cnt-=8) {
+            _mm_storeu_ps((float*)dst, val8);
+            dst += 8;
+        }
+#endif
+    }
+    for (; cnt > 0; --cnt) {
+        *dst = *src;
+        src += stride;
+        dst += ds;
+    }
+}
+
+void MNN1BitcopyWithStride (uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    for (int i = 0; i < size; ++i) {
+        dstO[0] = *srcO;
+        dstO += ds;
+        srcO += stride;
+    }
+
+}
+
+void MNN1BitCopyFast (uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
+    int cnt = size;
+    uint8_t val = *srcO;
+    if (stride == 1) {
+#ifdef MNN_USE_SSE
+        for (; cnt >= 16; cnt-=16) {
+            auto tmp = _mm_loadu_ps((float*)srcO);
+            _mm_storeu_ps((float*)dstO, tmp);
+            srcO += 16;
+            dstO += 16;
+        }
+#elif defined(MNN_USE_NEON)
+        for (; cnt >= 16; cnt-=16) {
+            auto val16 = vld1q_u8(srcO);
+            vst1q_u8(dstO, val16);
+            srcO += 16;
+            dstO += 16;
+        }
+        for (; cnt >= 8; cnt-=8) {
+            auto val8 = vld1_u8(srcO);
+            vst1_u8(dstO, val8);
+            srcO += 8;
+            dstO += 8;
+        }
+#endif
+    } else { // stride=0
+#ifdef MNN_USE_SSE
+        std::vector<uint8_t> arr(16, val);
+        auto val16 = _mm_loadu_ps((float*)arr.data());
+        
+        for (; cnt >= 16; cnt-=16) {
+            _mm_storeu_ps((float*)dstO, val16);
+            dstO += 16;
+        }
+#elif defined(MNN_USE_NEON)
+        auto val16 = vdupq_n_u8(val);
+        auto val8 = vdup_n_u8(val);
+        for (; cnt >= 16; cnt-=16) {
+            vst1q_u8(dstO, val16);
+            dstO += 16;
+        }
+        for (; cnt >= 8; cnt-=8) {
+            vst1_u8(dstO, val8);
+            dstO += 8;
+        }
+#endif
+    }
+    for (; cnt > 0; --cnt) {
+        dstO[0] = *srcO;
+        dstO += ds;
+        srcO += stride;
+    }
+}
+
+void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
+    // mode: 0:Add, 1:Sub, 2:Min, 3:Max
+    int size8 = (size / 8) * 8;
+    int i = 0;
+    float sum = 0.f;
+    float tmp[4];
+#ifdef MNN_USE_NEON
+    if (size >= 8) {
+        auto sum4_1 = vdupq_n_f32(0.f);
+        auto sum4_2 = vdupq_n_f32(0.f);
+        for (; i < size8; i += 8) {
+            auto v4 = vld1q_f32(src);
+            auto u4 = vld1q_f32(src + 4);
+            sum4_1 = vaddq_f32(sum4_1, v4);
+            sum4_2 = vaddq_f32(sum4_2, u4);
+            src += 8;
+        }
+        sum4_1 = vaddq_f32(sum4_1, sum4_2);
+        for (int j = 0;j < 4; ++j) {
+            sum += sum4_1[j];
+        }
+    }
+#elif defined(MNN_USE_SSE)
+    if (size >= 8) {
+        auto sum4_1 = _mm_set_ps1(0.f);
+        auto sum4_2 = _mm_set_ps1(0.f);
+        
+        for (; i < size8; i += 8) {
+            auto v4 = _mm_loadu_ps(src);
+            auto u4 = _mm_loadu_ps(src + 4);
+            sum4_1 = _mm_add_ps(sum4_1, v4);
+            sum4_2 = _mm_add_ps(sum4_2, u4);
+            src += 8;
+        }
+        
+        sum4_1 = _mm_add_ps(sum4_1, sum4_2);
+        _mm_storeu_ps(tmp, sum4_1);
+        sum += (tmp[0] + tmp[1] + tmp[2] + tmp[3]);
+    }
+#endif
+    for (; i < size; ++i) {
+        sum += (*src);
+        src += 1;
+    }
+    *dst = sum;
+}
+
 #ifndef MNN_USE_NEON
 
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
@@ -2309,7 +2565,7 @@ void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slo
 }
 
 void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
-    int sizeQuad = size / 4;
+    int sizeQuad = static_cast<int32_t>(size / 4);
     int start = 0;
 #ifdef MNN_USE_SSE
     if (sizeQuad > 0) {
@@ -2347,7 +2603,7 @@ void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
 }
 
 void MNNGeluCommon(float* dst, const float* src, size_t size) {
-    int sizeQuad = size / 8;
+    int sizeQuad = static_cast<int32_t>(size / 8);
     int start = 0;
 #if defined(MNN_USE_SSE) || defined(MNN_USE_NEON)
     if (sizeQuad > 0) {
@@ -2989,10 +3245,13 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
     gCoreFunction->MNNSelectBinaryFunctionForFloat = CPUBinary::selectForFloat;
     gCoreFunction->MNNSelectUnaryFunctionForFloat = CPUUnary::selectForFloat;
+    gCoreFunction->MNNSelectUnaryFunctionForInt8 = CPUUnary::selectForInt8;
     gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
     gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
     // Set min value as 1 << 24
     gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
+    
+    gCoreFunction->MNNPoolingMaxWithRedice = (decltype(gCoreFunction->MNNPoolingMaxWithRedice))(poolingMaxWithRedice<float, -16777216>);
     // ImageProcess Functions
     gCoreFunction->MNNRGBAToBGRA = MNNRGBAToBGRA;
     gCoreFunction->MNNNV21ToRGBA = MNNNV21ToRGBA;
@@ -3004,6 +3263,15 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNC3ToFloatRGBA = MNNC3ToFloatRGBA;
     gCoreFunction->MNNSamplerC4Nearest = MNNSamplerC4Nearest;
     gCoreFunction->MNNSamplerC4Bilinear = MNNSamplerC4Bilinear;
+
+    gCoreFunction->MNN4BitcopyWithStride = MNN4BitcopyWithStride;
+    gCoreFunction->MNN1BitcopyWithStride = MNN1BitcopyWithStride;
+    gCoreFunction->MNN2BitcopyWithStride = MNN2BitcopyWithStride;
+    gCoreFunction->MNN4BitcopyFast = MNN4BitcopyFast;
+    gCoreFunction->MNN2BitcopyFast = MNN2BitcopyFast;
+    gCoreFunction->MNN1BitcopyFast = MNN1BitCopyFast;
+    
+    gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber;
 
     cpuinfo_arm_isa gCPUInfo;
     cpuinfo_arm_init(&gCPUInfo);

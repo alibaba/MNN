@@ -10,7 +10,7 @@
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-#include "cutlass/CutlassDeconvCommonExecution.hpp"
+#include "cutlass_common/CutlassDeconvCommonExecution.hpp"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
 

@@ -1,0 +1,18 @@
+namespace CudaCache;
+attribute "priority";
+
+table Autotuning {
+    // layout, alignment, precisionType
+    params:[int];
+    // B, M, N, K
+    problemSize:[uint];
+
+    threadBlockSize:string;
+    timeCost:uint;
+}
+
+table Cache {
+    tunings:[Autotuning];
+}
+
+root_type Cache;

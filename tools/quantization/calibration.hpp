@@ -16,6 +16,7 @@
 #include "TensorStatistic.hpp"
 #include "MNN_generated.h"
 #include "Helper.hpp"
+#include "logkit.h"
 
 // Calibration find the optimal threshold according to KL-divergence
 // process: the below process is applied on the whole Conv|DepthwiseConv layers
@@ -31,11 +32,15 @@ public:
     void runQuantizeModel();
     
     void dumpTensorScales(const std::string& modelFile);
-
+    void ComputeUnaryBuffer(MNN::NetT* net);
+    bool valid() const {
+        return mValid;
+    }
 private:
     Calibration();
     MNN::NetT* _originalModel;
     std::shared_ptr<MNN::CV::ImageProcess> _process;
+    bool mValid = true;
     const int _binNums = 2048;
     int _calibrationFileNum      = 0;
     int _width;
@@ -58,7 +63,7 @@ private:
     std::map<int, const MNN::Tensor*> _tensorMap;
 
     // The scale results
-    std::map<const MNN::Tensor*, float> _scales;
+    std::map<const MNN::Tensor*, std::pair<float, int8_t>> _scales;
 
     std::shared_ptr<MNN::Interpreter> _interpreter;
     // keep mnn forward information
@@ -94,5 +99,6 @@ private:
     void _computeQuantError();
     void _insertScale();
 };
+int quant_main(int argc, const char* argv[]);
 
 #endif // CALIBRATION_HPP

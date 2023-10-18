@@ -55,6 +55,7 @@ option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
 option(MNN_BUILD_PROTOBUFFER "Build with protobuffer in MNN" ON)
 option(MNN_BUILD_OPENCV "Build OpenCV api in MNN." OFF)
+option(MNN_BUILD_LLM "Build llm library based MNN." OFF)
 option(MNN_INTERNAL "Build with MNN internal features, such as model authentication, metrics logging" OFF)
 option(MNN_JNI "Build MNN Jni for java to use" OFF)
 
@@ -610,6 +611,11 @@ ENDIF()
 IF(MNN_BUILD_CODEGEN)
     add_definitions(-DMNN_BUILD_CODEGEN)
     include(${CMAKE_CURRENT_LIST_DIR}/codegen/CMakeLists.txt)
+ENDIF()
+
+IF(MNN_BUILD_LLM)
+    # add_definitions(-DMNN_BUILD_LLM)
+    include(${CMAKE_CURRENT_LIST_DIR}/llm/CMakeLists.txt)
 ENDIF()
 
 # NPU

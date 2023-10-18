@@ -743,6 +743,8 @@
 		958375352A496E5C007C0A3E /* MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3.S in Sources */ = {isa = PBXBuildFile; fileRef = 958375342A496E5C007C0A3E /* MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3.S */; };
 		958B046429D2C89D00FC3AEF /* GemmInt8Executor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 958B046329D2C89D00FC3AEF /* GemmInt8Executor.cpp */; };
 		958B046629D2C8AF00FC3AEF /* GemmInt8Executor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 958B046529D2C8AF00FC3AEF /* GemmInt8Executor.hpp */; };
+		95CE1DFF2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 95CE1DFE2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S */; };
+		95CE1E012AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 95CE1E002AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S */; };
 		C43C81FA251894A600A0FF84 /* CommonOptFunctionNeon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81F8251894A500A0FF84 /* CommonOptFunctionNeon.cpp */; };
 		C43C81FE251894BD00A0FF84 /* CPUPlugin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81FB251894BD00A0FF84 /* CPUPlugin.cpp */; };
 		C43C81FF251894BD00A0FF84 /* ThreadPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81FC251894BD00A0FF84 /* ThreadPool.cpp */; };
@@ -1570,6 +1572,8 @@
 		958375342A496E5C007C0A3E /* MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3.S; path = arm/arm64/MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3.S; sourceTree = "<group>"; };
 		958B046329D2C89D00FC3AEF /* GemmInt8Executor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GemmInt8Executor.cpp; sourceTree = "<group>"; };
 		958B046529D2C8AF00FC3AEF /* GemmInt8Executor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GemmInt8Executor.hpp; sourceTree = "<group>"; };
+		95CE1DFE2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNReluWithSlopeChannelInt8.S; sourceTree = "<group>"; };
+		95CE1E002AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNReluWithSlopeChannelInt8.S; sourceTree = "<group>"; };
 		C43C81F8251894A500A0FF84 /* CommonOptFunctionNeon.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CommonOptFunctionNeon.cpp; sourceTree = "<group>"; };
 		C43C81FB251894BD00A0FF84 /* CPUPlugin.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUPlugin.cpp; sourceTree = "<group>"; };
 		C43C81FC251894BD00A0FF84 /* ThreadPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ThreadPool.cpp; sourceTree = "<group>"; };
@@ -2504,6 +2508,7 @@
 		92FF013A23AA0B4E00AC97F6 /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
+				95CE1DFE2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S */,
 				CE125CC72A52BF6B003698C9 /* MNNBilinearLineC8.S */,
 				CE125CC62A52BF6B003698C9 /* MNNBilinearSampleC8.S */,
 				CEE9B94F2A3AA4C4006438F2 /* MNNCubicLineC16.S */,
@@ -2584,6 +2589,7 @@
 		92FF017C23AA0B4E00AC97F6 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				95CE1E002AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S */,
 				CEE9B9572A3AA4D4006438F2 /* MNNBilinearLineC8.S */,
 				CEE9B9582A3AA4D4006438F2 /* MNNBilinearSampleC8.S */,
 				CEE9B9562A3AA4D4006438F2 /* MNNCubicLineC16.S */,
@@ -3540,6 +3546,7 @@
 				489D7AB32550FDC900AD896A /* MetalPReLU.mm in Sources */,
 				19D0FE7028534C4500B74B1A /* MetalSoftmax.mm in Sources */,
 				4AF4FB24269ED235005BA97B /* SparseConvInt8TiledExecutor.cpp in Sources */,
+				95CE1DFF2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S in Sources */,
 				48FB9DCE24AB080C008E1A2D /* MNNPackC8.S in Sources */,
 				4D9A937A26255BDA00F9B43C /* CoreMLActivation.cpp in Sources */,
 				950B28FE2A0C9B310002F454 /* MNNScaleAndAddBiasInt8.S in Sources */,
@@ -3618,6 +3625,7 @@
 				92FF043E23AA0B7100AC97F6 /* ShapeBatchToSpaceND.cpp in Sources */,
 				48C84B88250F711700EE7666 /* IfModule.cpp in Sources */,
 				481FA84F259C27B30047F01F /* GeometryTensorArray.cpp in Sources */,
+				95CE1E012AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S in Sources */,
 				4DCF538A2892B15200B5B393 /* histograms.cpp in Sources */,
 				48C84B86250F711700EE7666 /* StaticModule.cpp in Sources */,
 				92FF043223AA0B7100AC97F6 /* ShapeWhere.cpp in Sources */,

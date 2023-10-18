@@ -37,7 +37,7 @@
 #include "train/source/transformer/Transformer.hpp"
 #include "cpp/ConvertToFullQuant.hpp"
 #include "core/ConvolutionCommon.hpp"
-
+#include <MNN/expr/Expr.hpp>
 
 using namespace MNN::CV;
 using namespace MNN::Train;
@@ -57,6 +57,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
         document.Parse(outputStr.c_str());
         if (document.HasParseError()) {
             MNN_ERROR("Invalid json\n");
+            mValid = false;
             return;
         }
     }
@@ -578,7 +579,7 @@ void Calibration::_computeFeatureScaleADMM() {
     MNN_PRINT("\n");
     _scales.clear();
 
-    const int totalLayers = _featureInfo.size();
+    const int totalLayers = static_cast<int32_t>(_featureInfo.size());
     count                 = 0;
 
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
@@ -642,7 +643,7 @@ void Calibration::_fake_quant_weights() {
         auto param = op->main.AsConvolution2D();
         const int kernelNum = param->common->outputCount;
         std::vector<float> weights = param->weight;
-        const int weightSize = weights.size();
+        const int weightSize = static_cast<int32_t>(weights.size());
         const int kernelSize = weightSize / kernelNum;
 
         for (int i = 0; i < kernelNum; i++) {
@@ -669,9 +670,13 @@ void Calibration::_insertScale() {
     for (const auto iter :  _scales) {
         std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
         auto des = TensorUtils::getDescribe(iter.first);
+        if (des->index < 0) {
+            continue;
+        }
         describe->index = des->index;
         describe->quantInfo.reset(new MNN::TensorQuantInfoT);
-        describe->quantInfo->scale = iter.second;
+        describe->quantInfo->scale = iter.second.first;
+        describe->quantInfo->zero = iter.second.second;
         describe->quantInfo->type = MNN::DataType_DT_INT8;
         describe->quantInfo->min = -1 * _featureClampValue;
         describe->quantInfo->max = 1 * _featureClampValue;
@@ -694,8 +699,8 @@ void Calibration::_insertScale() {
         auto inputTensor = _tensorMap[op->inputIndexes[0]];
         auto outputTensor = _tensorMap[op->outputIndexes[0]];
         // below is Conv/DepthwiseConv weight quant
-        const float inputScale  = _scales[inputTensor];
-        const float outputScale = _scales[outputTensor];
+        const float inputScale  = _scales[inputTensor].first;
+        const float outputScale = _scales[outputTensor].first;
         const int inputChannel = inputTensor->channel();
         const int outputChannel = outputTensor->channel();
         auto param                = op->main.AsConvolution2D();
@@ -704,7 +709,7 @@ void Calibration::_insertScale() {
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         param->symmetricQuan->nbits = _quant_bits;
         const float* originWeight = param->weight.data();
-        int originWeightSize   = param->weight.size();
+        int originWeightSize   = static_cast<int32_t>(param->weight.size());
         auto conv2d = param;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
@@ -976,6 +981,23 @@ void Calibration::_quantizeModelEMA() {
     }
     Variable::save(predicts, _destModelFile.c_str());
     ConvertToFullQuant::convert(_destModelFile);
+    
+    std::unique_ptr<MNN::NetT> netT;
+    {
+        std::ifstream input(_destModelFile, std::ifstream::in | std::ifstream::binary);
+        std::ostringstream outputOs;
+        outputOs << input.rdbuf();
+        netT = MNN::UnPackNet(outputOs.str().c_str());
+    }
+    ComputeUnaryBuffer(netT.get());
+    {
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        builderOutput.ForceDefaults(true);
+        auto len = MNN::Net::Pack(builderOutput, netT.get());
+        builderOutput.Finish(len);
+        std::ofstream output(_destModelFile, std::ofstream::binary);
+        output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
+    }
 }
 
 void Calibration::runQuantizeModel() {
@@ -993,13 +1015,14 @@ void Calibration::runQuantizeModel() {
         _computeQuantError();
     }
     _insertScale();
+    ComputeUnaryBuffer(_originalModel);
 
     {
         flatbuffers::FlatBufferBuilder builderOutput(1024);
         builderOutput.ForceDefaults(true);
         auto len = MNN::Net::Pack(builderOutput, _originalModel);
         builderOutput.Finish(len);
-        std::ofstream output(_destModelFile);
+        std::ofstream output(_destModelFile, std::ofstream::binary);
         output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
     }
 }
@@ -1025,7 +1048,7 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
         writer.String(rapidjson::StringRef(name.c_str(), name.size()));
 
         auto& inputIndexes  = op->inputIndexes;
-        const int inputSize = inputIndexes.size();
+        const int inputSize = static_cast<int32_t>(inputIndexes.size());
 
         if (inputSize > 0) {
             writer.Key("inputs");
@@ -1042,7 +1065,12 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
 
                 writer.Key("scales");
                 writer.StartArray();
-                writer.Double(inputOpScale);
+                writer.Double(inputOpScale.first);
+                writer.EndArray();
+
+                writer.Key("zeropoint");
+                writer.StartArray();
+                writer.Double(inputOpScale.second);
                 writer.EndArray();
 
                 writer.EndObject();
@@ -1051,7 +1079,7 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
         }
  
         auto& outputIndexes  = op->outputIndexes;
-        const int outputSize = outputIndexes.size();
+        const int outputSize = static_cast<int32_t>(outputIndexes.size());
 
         if (outputSize > 0) {
             writer.Key("outputs");
@@ -1068,7 +1096,12 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
 
                 writer.Key("scales");
                 writer.StartArray();
-                writer.Double(outputOpScale);
+                writer.Double(outputOpScale.first);
+                writer.EndArray();
+
+                writer.Key("zeropoint");
+                writer.StartArray();
+                writer.Double(outputOpScale.second);
                 writer.EndArray();
 
                 writer.EndObject();
@@ -1088,4 +1121,189 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
     } else {
         std::cerr << "open scale file " << scaleFile << " fail. error code:" << os.failbit << std::endl;
     }
+}
+
+typedef VARP (*unaryProc)(VARP input);
+static unaryProc selectUnaryProc(int type) {
+    switch (type) {
+        case UnaryOpOperation_ABS:
+            return MNN::Express::_Abs;
+        case UnaryOpOperation_SQUARE:
+            return MNN::Express::_Square;
+        case UnaryOpOperation_NEG:
+            return MNN::Express::_Negative;
+        case UnaryOpOperation_RSQRT:
+            return MNN::Express::_Rsqrt;
+        case UnaryOpOperation_EXP:
+            return MNN::Express::_Exp;
+        case UnaryOpOperation_COS:
+            return MNN::Express::_Cos;
+        case UnaryOpOperation_SIN:
+            return MNN::Express::_Sin;
+        case UnaryOpOperation_SIGMOID:
+            return MNN::Express::_Sigmoid;
+        case UnaryOpOperation_TANH:
+            return MNN::Express::_Tanh;
+        case UnaryOpOperation_TAN:
+            return MNN::Express::_Tan;
+        case UnaryOpOperation_ATAN:
+            return MNN::Express::_Atan;
+        case UnaryOpOperation_SQRT:
+            return MNN::Express::_Sqrt;
+        case UnaryOpOperation_RECIPROCAL:
+            return MNN::Express::_Reciprocal;
+        case UnaryOpOperation_LOG1P:
+            return MNN::Express::_Log1p;
+        case UnaryOpOperation_LOG:
+            return MNN::Express::_Log;
+        case UnaryOpOperation_ACOSH:
+            return MNN::Express::_Acosh;
+        case UnaryOpOperation_SINH:
+            return MNN::Express::_Sinh;
+        case UnaryOpOperation_ASINH:
+            return MNN::Express::_Asinh;
+        case UnaryOpOperation_ATANH:
+            return MNN::Express::_Atanh;
+        case UnaryOpOperation_SIGN:
+            return MNN::Express::_Sign;
+        case UnaryOpOperation_COSH:
+            return MNN::Express::_Cosh;
+        case UnaryOpOperation_ERF:
+            return MNN::Express::_Erf;
+        case UnaryOpOperation_ERFC:
+            return MNN::Express::_Erfc;
+        case UnaryOpOperation_ERFINV:
+            return MNN::Express::_Erfinv;
+        case UnaryOpOperation_EXPM1:
+            return MNN::Express::_Expm1;
+        case UnaryOpOperation_ASIN:
+            return MNN::Express::_Asin;
+        case UnaryOpOperation_ACOS:
+            return MNN::Express::_Acos;
+        case UnaryOpOperation_HARDSWISH:
+            return MNN::Express::_Hardswish;
+        case UnaryOpOperation_GELU:
+            return MNN::Express::_Gelu;
+        default:
+            MNN_ASSERT(false);
+            break;
+    }
+    return nullptr;
+}
+void Calibration::ComputeUnaryBuffer(MNN::NetT* net) {
+    for (auto iter = net->oplists.begin(); iter != net->oplists.end(); ++iter) {
+        auto op = iter->get();
+        const auto opType = op->type;
+        std::map<int, TensorDescribeT*> describes;
+        for (auto& des : _originalModel->extraTensorDescribe) {
+            describes.insert(std::make_pair(des->index, des.get()));
+        }
+        if (opType == MNN::OpType_UnaryOp) {
+            auto type = op->main.AsUnaryOp()->opType;
+            if (type == UnaryOpOperation_ABS || type == UnaryOpOperation_NEG || type == UnaryOpOperation_SIGN) {
+                continue;
+            }
+            op->main.AsUnaryOp()->tableInt8.resize(255);
+            auto unaryParam = op->main.AsUnaryOp()->tableInt8.data();
+
+            auto outputId = op->outputIndexes[0];
+            if (describes.find(outputId) == describes.end()) {
+                continue;
+            }
+            auto unaryDes = describes.find(outputId)->second;
+            float outScale = unaryDes->quantInfo->scale;
+            float outZero  = unaryDes->quantInfo->zero;
+            auto inputId = op->inputIndexes[0];
+            if (describes.find(inputId) == describes.end()) {
+                MNN_ERROR("Can't find extraTensorDescribe for %s\n", op->name.c_str());
+            }
+            unaryDes = describes.find(inputId)->second;
+            float inpScale = unaryDes->quantInfo->scale;
+            float inpZero  = unaryDes->quantInfo->zero;
+
+            // Read input data.
+            std::vector<float> dataInput;
+            float fx = 0.f;
+            for (int i = -127; i <= 127; ++i) {
+                fx = (i - inpZero) * inpScale;
+                dataInput.push_back(fx);
+            }
+            auto input = _Input({255}, NCHW, halide_type_of<float>());
+            input->setName("input_tensor");
+            auto ptr_in = input->template writeMap<float>();
+            memcmp(ptr_in, dataInput.data(), 255);
+            input->unMap();
+            // Compute output data.
+            VARP output;
+            auto func = selectUnaryProc(type);
+            if (nullptr == func) {
+                MNN_ERROR("Don't support quantizing UnaryOP: %s to Int8\n", op->name.c_str());
+            }
+            output = func(input);
+            auto gotOutput = output->template readMap<float>();
+            // Write output data.
+            int val;
+            for (int i = 0; i < 255; ++i) {
+                val = gotOutput[i] / outScale + outZero;
+                if (val > 127) {
+                    val = 127;
+                }
+                if (val < -127) {
+                    val = -127;
+                }
+                unaryParam[i] = val;
+            }
+        }
+    }
+}
+
+int quant_main(int argc, const char* argv[]) {
+    if (argc < 4) {
+        DLOG(INFO) << "Usage: ./quantized.out src.mnn dst.mnn preTreatConfig.json\n";
+        return 0;
+    }
+    const char* modelFile      = argv[1];
+    const char* preTreatConfig = argv[3];
+    const char* dstFile        = argv[2];
+    DLOG(INFO) << ">>> modelFile: " << modelFile;
+    DLOG(INFO) << ">>> preTreatConfig: " << preTreatConfig;
+    DLOG(INFO) << ">>> dstFile: " << dstFile;
+    std::unique_ptr<MNN::NetT> netT;
+    {
+        std::shared_ptr<MNN::Interpreter> interp(MNN::Interpreter::createFromFile(modelFile), MNN::Interpreter::destroy);
+        if (nullptr == interp.get()) {
+            return 0;
+        }
+        netT = MNN::UnPackNet(interp->getModelBuffer().first);
+    }
+
+    // temp build net for inference
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = MNN::Net::Pack(builder, netT.get());
+    builder.Finish(offset);
+    int size      = builder.GetSize();
+    auto ocontent = builder.GetBufferPointer();
+
+    // model buffer for creating mnn Interpreter
+    std::unique_ptr<uint8_t> modelForInference(new uint8_t[size]);
+    memcpy(modelForInference.get(), ocontent, size);
+
+    std::unique_ptr<uint8_t> modelOriginal(new uint8_t[size]);
+    memcpy(modelOriginal.get(), ocontent, size);
+
+    netT.reset();
+    netT = MNN::UnPackNet(modelOriginal.get());
+
+    // quantize model's weight
+    DLOG(INFO) << "Calibrate the feature and quantize model...";
+    std::shared_ptr<Calibration> calibration(
+        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig, std::string(modelFile), std::string(dstFile)));
+    if (!calibration->valid()) {
+        return 0;
+    }
+    calibration->runQuantizeModel();
+    calibration->dumpTensorScales(dstFile);
+    DLOG(INFO) << "Quantize model done!";
+
+    return 0;
 }

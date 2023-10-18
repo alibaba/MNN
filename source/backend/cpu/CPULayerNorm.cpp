@@ -66,11 +66,10 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
     const float* beta = mIniGammaBeta ? mBeta->host<float>() : nullptr;
     
     if (mInpZero.data()) {
-        auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-        
         const int8_t* input = inputs[0]->host<int8_t>();
         int8_t* output = outputs[0]->host<int8_t>();
         MNN_CONCURRENCY_BEGIN(tId, mOutterSize) {
+            auto core = static_cast<CPUBackend*>(backend())->int8Functions();
             QuanPrePostParameters params;
             params.maxValue = mMaxMinValue[0];
             params.minValue = mMaxMinValue[1];

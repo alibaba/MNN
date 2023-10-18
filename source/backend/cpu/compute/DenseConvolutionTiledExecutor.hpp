@@ -15,6 +15,8 @@
 #include "ConvolutionTiledExecutor.hpp"
 // Tiled Slide Window or Im2Col + GEMM
 namespace MNN {
+typedef void(*lowMemoryMatmulUnit)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+typedef void(*lowMemoryMatmulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 class DenseConvolutionTiledImpl : public ConvolutionTiledImpl {
 public:
     DenseConvolutionTiledImpl(const Convolution2DCommon *common, Backend *b, CPUConvolution::Resource* resource = nullptr) : ConvolutionTiledImpl(common, b) {
@@ -47,6 +49,8 @@ public:
                                           const Tensor *outputTensor, int threadNumber, Backend* b) {
         return DenseConvolutionTiledImpl::bestTileConvolutionConfig(common, inputTensor, outputTensor, threadNumber, b);
     }
+    static bool initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes);
+    static void selectLowMemoryMatmulFunc(lowMemoryMatmulUnit* matmulUnit, lowMemoryMatmulRemain* matmulRemain, float* weightBytes, int32_t weightQuantBits, const CoreFunctions* core);
     struct DequantizeCache {
         std::shared_ptr<MNN::Tensor> weight;
         std::shared_ptr<MNN::Tensor> weightInt8;
@@ -72,7 +76,6 @@ private:
     std::shared_ptr<DenseConvolutionTiledImpl> mProxy;
     std::vector<Tensor *> mInputs;
 };
-
 } // namespace MNN
 
 #endif /* DenseConvolutionTiledExecutor_hpp */

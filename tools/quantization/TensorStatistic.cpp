@@ -77,6 +77,12 @@ void TensorStatistic::updateRange() {
             mRange.second = maxValue;
         }
     }
+//    if (mRange.first > 0.0f) {
+//        mRange.first = 0.0f;
+//    }
+//    if (mRange.second < 0.0f) {
+//        mRange.second = 0.0f;
+//    }
     mVisited = true;
 }
 
@@ -105,7 +111,8 @@ void TensorStatistic::updateDistribution() {
     if (area == 0) {
         area = 1;
     }
-
+//    float midValue = (mRange.second + mRange.first) / 2.0f;
+    float midValue = 0.f;
     for (int n = 0; n < batch; ++n) {
         auto dataBatch = mHostTensor->host<float>() + n * mHostTensor->stride(0);
         for (int c = 0; c < channel; ++c) {
@@ -116,7 +123,7 @@ void TensorStatistic::updateDistribution() {
             auto target      = mDistribution.data();
             auto dataChannel = dataBatch + c * mHostTensor->stride(1);
             for (int v = 0; v < area; ++v) {
-                auto data = dataChannel[v];
+                auto data = dataChannel[v] - midValue;
                 if (data == 0) {
                     continue;
                 }
@@ -230,9 +237,9 @@ int TensorStatistic::_computeThreshold(const std::vector<float>& distribution) {
     return threshold;
 }
 
-float TensorStatistic::finishAndCompute() {
+std::pair<float, int8_t> TensorStatistic::finishAndCompute() {
     if (!mValid) {
-        return 0.f;
+        return std::make_pair(0.f, 0);
     }
     float sum          = 0.0f;
     std::for_each(mDistribution.begin(), mDistribution.end(), [&](float n) { sum += n; });
@@ -241,10 +248,14 @@ float TensorStatistic::finishAndCompute() {
     auto threshold = _computeThreshold(mDistribution);
     mScale     = ((float)threshold + 0.5) / mInterval / mFeatureClampValue;
     // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], mScale * mFeatureClampValue);
-    return mScale;
+    float midValue = (mRange.second + mRange.first) / 2.0f;
+//    mZeroPoint = fmaxf(fminf(-midValue / mScale, 127.0f), -127.0f);
+    mZeroPoint = 0;
+
+    return std::make_pair(mScale, mZeroPoint);
 }
 
-float TensorStatistic::computeScaleADMM() {
+std::pair<float, int8_t> TensorStatistic::computeScaleADMM() {
     const int count         = mOriginTensor->elementSize();
     float max               = 0;
     const float bound       = mFeatureClampValue;
@@ -283,7 +294,8 @@ float TensorStatistic::computeScaleADMM() {
     // DLOG(INFO) << "alpha final: " << alpha;
     mScale = alpha;
     mVisited = true;
-    return mScale;
+    mZeroPoint = 0;
+    return std::make_pair(mScale, mZeroPoint);
 }
 
 std::pair<std::vector<float>, float> TensorStatistic::fakeQuantFeature() {
@@ -295,9 +307,9 @@ std::pair<std::vector<float>, float> TensorStatistic::fakeQuantFeature() {
     int overflowCount = 0;
 
     for (int i = 0; i < count; i++) {
-        float dataQuant = std::roundf(originData[i] / scale);
+        float dataQuant = std::roundf(originData[i] / scale) + mZeroPoint;
         dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
-        float dataDequant = dataQuant * scale;
+        float dataDequant = (dataQuant - mZeroPoint) * scale;
 
         originData[i] = dataDequant;
         fakeQuantedFeature.emplace_back(dataDequant);

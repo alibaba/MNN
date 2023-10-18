@@ -11,7 +11,13 @@
 namespace MNN {
 namespace CUDA {
 
-CutlassConvCommonExecution::CutlassConvCommonExecution(Backend *backend) : Execution(backend) {
+CutlassConvCommonExecution::CutlassConvCommonExecution(Backend *backend) :
+#ifdef ENABLE_CUDA_TUNE_PARAM
+CutlassGemmTuneCommonExecution(backend)
+#else
+Execution(backend)
+#endif
+{
     mBackendPtr = backend;
 }
 
@@ -103,6 +109,9 @@ ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
         return NO_ERROR;
     }
 
+#ifdef ENABLE_CUDA_TUNE_PARAM
+    runGemmTensorCoreFloat16Infer(&mInfo);
+#else
     if(mActivationType == 1) {
         if(mFp16Fp32MixInfer) {
             cutlass::Status status = mGemmF16F32ReluSm75();
@@ -128,7 +137,7 @@ ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
             cutlass_check(status);
         }
     }
-
+#endif
     return NO_ERROR;
 }
 

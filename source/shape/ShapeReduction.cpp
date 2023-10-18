@@ -29,7 +29,14 @@ public:
         auto reduce                                       = op->main_as_ReductionParam();
         output->buffer().type = inputs[0]->buffer().type;
         if (nullptr == reduce->dim() && inputs.size() == 1) {
-            output->buffer().dimensions = 0;
+            if (reduce->keepDims()) {
+                output->buffer().dimensions = inputs[0]->dimensions();
+                for (int i = 0; i < inputs[0]->dimensions(); i++) {
+                    output->setLength(i, 1);
+                }
+            } else {
+                output->buffer().dimensions = 0;
+            }
             return true;
         }
         uint8_t reduceMask[MNN_MAX_TENSOR_DIM];

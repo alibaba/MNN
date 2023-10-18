@@ -27,13 +27,13 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(SQUARE, square);
         op_case(SQRT, sqrt);
         op_case(RSQRT, rsqrt);
-        op_case(EXP, exp);
+        op_case(EXP, MNNEXP);
         op_case(EXPM1, expm1);
         op_case(LOG, log);
         op_case(SIN, sin);
         op_case(COS, cos);
         op_case(TAN, tan);
-        op_case(TANH, tanh);
+        op_case(TANH, MNNTANH);
         op_case(SIGMOID, sigmoid);
         op_case(ASIN, asin);
         op_case(ACOS, acos);

@@ -62,6 +62,13 @@ fadd v3.8h, v3.8h, v1.8h
 fmul v2.8h, v2.8h, v14.8h
 fmul v3.8h, v3.8h, v14.8h
 
+fmov v6.8h, #-5
+fmov v7.8h, #5
+fmin v2.8h, v2.8h, v7.8h
+fmin v3.8h, v3.8h, v7.8h
+fmax v2.8h, v2.8h, v6.8h
+fmax v3.8h, v3.8h, v6.8h
+
 // tanh(value)
 fmul v4.8h, v2.8h, v2.8h     // q4: value*value
 fmul v5.8h, v3.8h, v3.8h     // q5: value*value

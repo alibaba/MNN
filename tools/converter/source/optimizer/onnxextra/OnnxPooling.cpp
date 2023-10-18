@@ -60,6 +60,7 @@ public:
     }
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
+        auto outputSize = expr->outputSize();
         auto op     = expr->get();
         std::unique_ptr<OpT> poolOp(new OpT);
         poolOp->name     = op->name()->c_str();
@@ -186,7 +187,7 @@ public:
             res->setName(expr->outputName(0));
             return res->expr().first;
         }
-        auto poolExpr = Expr::create(poolOp.get(), {inputs[0]});
+        auto poolExpr = Expr::create(poolOp.get(), {inputs[0]}, outputSize);
         auto res      = Variable::create(poolExpr);
         poolExpr->setName(expr->name());
         return res->expr().first;

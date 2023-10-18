@@ -31,8 +31,13 @@ __kernel void unary_buf(GLOBAL_SIZE_3_DIMS
     const int height_idx = hb % height;
 
     const int offset = (((batch_idx*global_size_dim0+channel_block_idx)*height+height_idx)*global_size_dim1+w) * 4;
+#ifdef OPENCL_INPUT_INT
+    FLOAT4 in  = CONVERT_FLOAT4(convert_int4(vload4(0, input+offset)));
+    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
+#else
     FLOAT4 in  = vload4(0, input+offset);
     FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+#endif
     vstore4(out, 0, output+offset);
 }
 

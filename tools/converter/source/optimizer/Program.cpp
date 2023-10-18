@@ -75,26 +75,6 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
 
 VARPS Program::input(const std::unordered_map<std::string, VARP>& inputs, bool lazy) {
     VARPS inputUpdate;
-    for (auto& it : mVars) {
-        auto var = it.second;
-        auto expr = var->expr().first;
-        if (expr->get() != nullptr || expr->inputType() != VARP::INPUT) {
-            continue;
-        }
-        if (inputs.count(var->name())) {
-            VARP input = inputs.at(var->name());
-            inputUpdate.emplace_back(var);
-            if (lazy) {
-                // only replace expr, not do getInfo, avoid unnecessary getInfo error
-                // replace will override var(and expr)'s name, remain them so we can track input var
-                // origin input var will be used when save program to net
-                mOriginInputs.emplace_back(var, var->expr().first, var->expr().second);
-                var->setExpr(input->expr().first, input->expr().second);
-            } else {
-                var->input(input);
-            }
-        }
-    }
     return inputUpdate;
 }
 
@@ -148,9 +128,6 @@ std::shared_ptr<Program> Program::create(const std::vector<std::unique_ptr<OpT>>
     }
     std::shared_ptr<Program> newProgram(new Program);
     Program& program = *newProgram;
-    if (saveAllVars) {
-        program.mVars    = std::move(varMap);
-    }
     for (auto output : outputs) {
         program.mOutputs.emplace_back(output.second);
     }

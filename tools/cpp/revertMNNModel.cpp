@@ -77,7 +77,7 @@ const size_t Revert::getBufferSize() const {
 }
 
 void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
-    int opCounts = mMNNNet->oplists.size();
+    int opCounts = static_cast<int32_t>(mMNNNet->oplists.size());
     for (int opIndex = 0; opIndex < opCounts; ++opIndex) {
         std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
         describe->index = opIndex;
@@ -95,12 +95,16 @@ void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
             continue;
         }
         // Conv/ConvDepthwise/Deconv weight quant.
+        const float inputScale = *scale;
+        const float outputScale = *scale;
+        const int outputChannel = static_cast<int32_t>(op->outputIndexes.size());
+        
         auto param = op->main.AsConvolution2D();
         float* originWeight = param->weight.data();
-        int weightSize = param->weight.size();
         const int channels = param->common->outputCount;
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         param->symmetricQuan->nbits = 8;
+        const int weightSize = static_cast<int32_t>(param->weight.size());
         param->common->inputCount = weightSize / (channels * param->common->kernelX * param->common->kernelY);
         std::vector<int8_t> quantizedWeight(weightSize);
         std::vector<float> quantizedWeightScale(channels);

@@ -30,10 +30,6 @@ PoolBufExecution::PoolBufExecution(const std::vector<Tensor *> &inputs, const MN
     mPaddings[0] = mPoolParams->padY() * 2;
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
-    if (mPadType == PoolPadType_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
     if (inputs[0]->channel() >= 16) {
         TensorUtils::setTensorChannelPack(inputs[0], 16);
     }
@@ -45,6 +41,8 @@ ErrorCode PoolBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 #endif
     auto input  = inputs[0];
     auto output = outputs[0];
+    bool returnRedice = outputs.size() == 2;
+    auto redice = returnRedice ? outputs[1] : outputs[0];
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
@@ -65,6 +63,21 @@ ErrorCode PoolBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;
+    }else if (mPoolParams->padType() == PoolPadType_VALID) {
+        mPaddings[0] = mPaddings[1] = 0;
+    }
+    
+    auto countType         = mPoolParams->countType();
+    if (mPoolParams->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
+        mPadType = PoolPadType_VALID;
+    }
+    
+    if (countType == MNN::AvgPoolCountType_DEFAULT) {
+        if (mPadType == MNN::PoolPadType_CAFFE) {
+            countType = MNN::AvgPoolCountType_INCLUDE_PADDING;
+        } else {
+            countType = MNN::AvgPoolCountType_EXCLUDE_PADDING;
+        }
     }
 
     MNN_ASSERT(mDilations[0] == 1 && mDilations[1] == 1);
@@ -86,6 +99,12 @@ ErrorCode PoolBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     if (mPoolType == PoolType_AVEPOOL) {
         buildOptions.emplace("-DPOOL_AVG");
+        if(countType == MNN::AvgPoolCountType_INCLUDE_PADDING){
+            buildOptions.emplace("-DCOUNT_INCLUDE_PADDING");
+        }
+    }
+    if(returnRedice){
+        buildOptions.emplace("-DRETURN_REDICE");
     }
     
     mKernel           = runtime->buildKernel("pooling_buf", kernelName, buildOptions);
@@ -115,6 +134,7 @@ ErrorCode PoolBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
     ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
     ret |= mKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mKernel.setArg(idx++, openCLBuffer(redice));
     ret |= mKernel.setArg(idx++, channelBlocks);
     MNN_CHECK_CL_SUCCESS(ret, "setArg PoolBufExecution");
     
@@ -135,6 +155,8 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
 #endif
     auto input  = inputs[0];
     auto output = outputs[0];
+    bool returnRedice = outputs.size() == 2;
+    auto redice = returnRedice ? outputs[1] : outputs[0];
 
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
@@ -185,6 +207,9 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     if (mPoolType == PoolType_AVEPOOL) {
         buildOptions.emplace("-DPOOL_AVG");
     }
+    if(returnRedice){
+        buildOptions.emplace("-DRETURN_REDICE");
+    }
     int input_line_size = mStrides[1] * (8 - 1) + mKernels[1];
     buildOptions.emplace("-DINPUT_LINE_SIZE=" + std::to_string(input_line_size));
     if (channels % 16 != 0) {
@@ -221,6 +246,7 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     ret |= mKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
     ret |= mKernel.setArg(idx++, sizeof(paddingShape), paddingShape);
     ret |= mKernel.setArg(idx++, openCLBuffer(output));
+    ret |= mKernel.setArg(idx++, openCLBuffer(redice));
     ret |= mKernel.setArg(idx++, channels);
     ret |= mKernel.setArg(idx++, in_channel_block);
     ret |= mKernel.setArg(idx++, out_channel_block);

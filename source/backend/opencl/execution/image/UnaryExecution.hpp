@@ -33,6 +33,7 @@ private:
     uint32_t mMaxWorkGroupSize;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalSize = {1, 1, 1};
+    std::set<std::string> mBuildOptions;
 };
 
 } // namespace OpenCL

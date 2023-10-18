@@ -350,11 +350,12 @@ public:
         {
             tmpOutput.reset(new Tensor);
             tmpOutput->buffer().type       = halide_type_of<float>();
-            tmpOutput->buffer().dimensions = 4;
-            tmpOutput->setLength(0, ob);
-            tmpOutput->setLength(1, oc);
-            tmpOutput->setLength(2, ih);
-            tmpOutput->setLength(3, iw);
+            tmpOutput->buffer().dimensions = 5;
+            tmpOutput->setLength(0, 1);
+            tmpOutput->setLength(1, ob);
+            tmpOutput->setLength(2, oc);
+            tmpOutput->setLength(3, ih);
+            tmpOutput->setLength(4, iw);
             auto des = TensorUtils::getDescribe(tmpOutput.get());
             // des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;

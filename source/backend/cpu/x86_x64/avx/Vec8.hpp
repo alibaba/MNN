@@ -73,6 +73,7 @@ r4 = t4, r5 = t5, r6 = t6, r7 = t7;\
 struct Vec8 {
     using VecType = Vec8;
     __m256 value;
+    __m256 one = _mm256_set1_ps(1.0f);
     VecType operator+(const VecType& lr) const {
         VecType dst = { _mm256_add_ps(value, lr.value) };
         return dst;
@@ -101,6 +102,31 @@ struct Vec8 {
     VecType& operator=(const VecType& lr) {
         value = lr.value;
         return *this;
+    }
+    VecType operator==(const VecType& lr) const {
+        __m256 mask = _mm256_cmp_ps(value, lr.value, 0);
+        VecType dst =  { _mm256_and_ps(one, mask) } ;
+        return dst;
+    }
+    VecType operator>(const VecType& lr) {
+        __m256 mask = _mm256_cmp_ps(lr.value, value, 0x01);
+        VecType dst =  { _mm256_and_ps(one, mask) } ;
+        return dst;
+    }
+    VecType operator>=(const VecType& lr) {
+        __m256 mask = _mm256_cmp_ps(value, lr.value, 0x0D);
+        VecType dst =  { _mm256_and_ps(one, mask) } ;
+        return dst;
+    }
+    VecType operator<(const VecType& lr) {
+        __m256 mask = _mm256_cmp_ps(value, lr.value, 0x01);
+        VecType dst =  { _mm256_and_ps(one, mask) } ;
+        return dst;
+    }
+    VecType operator<=(const VecType& lr) {
+        __m256 mask = _mm256_cmp_ps(value, lr.value, 0x02);
+        VecType dst =  { _mm256_and_ps(one, mask) } ;
+        return dst;
     }
     VecType operator-() {
         VecType dst;

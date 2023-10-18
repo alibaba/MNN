@@ -237,7 +237,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")){
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
-                    if(MaxRecordableQueueSize > 0){
+                    if(MaxRecordableQueueSize > 0 && IMAGE == mMemType){
                         // TODO: Use setSessionHint to set the number of mUseRecordableQueueSize
                         mUseRecordableQueueSize = 10;
                         mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;

@@ -14,7 +14,8 @@ Param(
     [Parameter(Mandatory=$true)][String]$path,
     [String]$backends,
     [Switch]$x86,
-    [Switch]$cibuild
+    [Switch]$cibuild,
+    [Switch]$internalbuild
 )
 
 $erroractionpreference = "stop"
@@ -46,6 +47,10 @@ if ($backends -ne $null) {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_CUDA=ON"
         }
     }
+}
+
+if ($internalbuild) {
+    $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_INTERNAL=ON"
 }
 
 Remove-Item build -Recurse -ErrorAction Ignore

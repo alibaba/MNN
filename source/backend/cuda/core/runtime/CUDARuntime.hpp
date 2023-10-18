@@ -121,6 +121,11 @@ public:
         return mProp.sharedMemPerBlock;
     }
 
+    std::map<std::pair<std::vector<int32_t>, std::vector<uint32_t>>, std::pair<std::string, uint32_t>> & getTunedBlockWarpShape() {
+        return mTunedBlockWarpShape;
+    };
+    std::pair<const void*, size_t> makeCache();
+    bool setCache(std::pair<const void*, size_t> cache);
 
     int selectDeviceMaxFreeMemory();
 
@@ -134,6 +139,12 @@ private:
     float mFlops            = 4.0f;
     bool mIsCreateError{false};
     size_t mThreadPerBlock = 128;
+
+private:
+    std::map<std::pair<std::vector<int32_t>, std::vector<uint32_t>>, std::pair<std::string, uint32_t>> mTunedBlockWarpShape;
+    std::vector<uint8_t> mBuffer;
+    const void* mCacheOutside = nullptr;
+    size_t mCacheOutsideSize = 0;
 };
 
 } // namespace MNN

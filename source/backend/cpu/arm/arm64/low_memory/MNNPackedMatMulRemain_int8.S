@@ -17,12 +17,14 @@ asm_function MNNPackedMatMulRemain_int8
 //void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 //Auto x0: C, x1:A, x2:B, x3:eSize, x4:parameter, x5:postParameters, x6:bias, x7: k, x8: b
 ldr x8, [sp]
-sub sp, sp, #64
-str x19, [sp, #0]
-str x20, [sp, #8]
-str x21, [sp, #16]
-str x22, [sp, #24]
-str x23, [sp, #32]
+stp d14, d15, [sp, #(-16 * 8)]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
+stp x25, x26, [sp, #(16 * 4)]
+stp x23, x24, [sp, #(16 * 5)]
+stp x21, x22, [sp, #(16 * 6)]
+stp x19, x20, [sp, #(16 * 7)]
 
 mov x22, x7 // alpha
 mov x23, x8 // bias
@@ -35,7 +37,8 @@ ldr x19, [x4, #40] // bExtraStride
 
 add x10, x10, #3
 lsr x10, x10, #2
-
+lsl x25, x9, #3 // l*hPack
+add x25, x25, x19
 cbz x5, Start
 ld1 {v5.4s}, [x5]
 dup v6.4s, v5.s[2] // Min Value
@@ -196,7 +199,6 @@ LoopE8:
         add x13, x13, x19
         sub x8, x8, #2
         cmp x8, #2
-
         cbz x5, StoreLH8
         AddBiasLH8:
         ld1 {v0.4s, v1.4s}, [x20], #32
@@ -255,7 +257,7 @@ LoopE8:
         fmin v29.4s, v29.4s, v7.4s
         fmin v30.4s, v30.4s, v7.4s
         fmin v31.4s, v31.4s, v7.4s
-
+        
         StoreLH8:
         stp q16, q17, [x0]
         stp q18, q19, [x0, #(32 * 1)]
@@ -438,7 +440,7 @@ LoopE8:
             subs x12, x12, #4
             bne LoopLR
         LoopLREnd:
-
+        
         cbz x5, StoreLH8x4
         AddBiasLH8x4:
         ld1 {v0.4s}, [x20]
@@ -471,7 +473,7 @@ LoopE8:
         fmin v21.4s, v21.4s, v7.4s
         fmin v22.4s, v22.4s, v7.4s
         fmin v23.4s, v23.4s, v7.4s
-
+        
         StoreLH8x4:
 
         stp q16, q17, [x0]
@@ -800,96 +802,151 @@ LoopE1:
     mov x14, x22
     mov x16, x23
 
-    cmp x8, #2
-    blt E1LH4
+    E1H16:
+    cmp x8, #4
+    blt E1LH8
+    E1LoopH16:
+        mov x15, x1
+        add x24, x13, x25
+        ld1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x14], #64 // Weight dequantize scale
+        mov x12, x9
+        ld1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x20], #64 // Bias
+
+        E1LoopH16L:
+            ld1 {v0.s}[0], [x15], x11 // Input Float
+            ld1 {v0.s}[1], [x15], x11
+            ld1 {v1.16b}, [x13], #16  // Weight Int8
+            ld1 {v2.16b}, [x24], #16
+            ld1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x16] // bias for dequantizing weight.
+            ld1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x16]
+            subs x12, x12, #2 // Compute 2 point along L.
+
+            // Dequantize Int8 weight.
+            sxtl v3.8h, v1.8b
+            sxtl2 v4.8h, v1.16b
+            sxtl v5.8h, v2.8b
+            sxtl2 v15.8h, v2.16b
+
+            sxtl2 v8.4s, v3.8h
+            sxtl v9.4s, v4.4h
+            sxtl2 v10.4s, v4.8h
+            sxtl v11.4s, v5.4h
+            sxtl2 v12.4s, v5.8h
+            sxtl v13.4s, v15.4h
+            sxtl2 v14.4s, v15.8h
+            sxtl v1.4s, v3.4h
+
+            
+            scvtf v8.4s, v8.4s
+            scvtf v9.4s, v9.4s
+            scvtf v10.4s, v10.4s
+            scvtf v11.4s, v11.4s
+            scvtf v12.4s, v12.4s
+            scvtf v13.4s, v13.4s
+            scvtf v14.4s, v14.4s
+            scvtf v1.4s, v1.4s
+
+            fmla v17.4s, v8.4s, v25.4s
+            fmla v20.4s, v9.4s, v24.4s
+            fmla v21.4s, v10.4s, v25.4s
+            fmla v18.4s, v11.4s, v26.4s
+            fmla v19.4s, v12.4s, v27.4s
+            fmla v22.4s, v13.4s, v26.4s
+            fmla v23.4s, v14.4s, v27.4s
+            fmla v16.4s, v1.4s, v24.4s
+
+            fmla v28.4s, v16.4s, v0.s[0]
+            fmla v29.4s, v17.4s, v0.s[0]
+            fmla v28.4s, v20.4s, v0.s[1]
+            fmla v29.4s, v21.4s, v0.s[1]
+            fmla v30.4s, v18.4s, v0.s[0]
+            fmla v31.4s, v19.4s, v0.s[0]
+            fmla v30.4s, v22.4s, v0.s[1]
+            fmla v31.4s, v23.4s, v0.s[1]
+
+            bne E1LoopH16L
+        E1LoopH16LEnd:
+            sub x8, x8, #4
+            add x13, x24, x19
+            add x16, x16, #64
+
+            cbz x5, StoreE1H16
+
+            PostTreatE1H16:
+            fmax v28.4s, v28.4s, v6.4s
+            fmax v29.4s, v29.4s, v6.4s
+            fmin v30.4s, v30.4s, v7.4s
+            fmin v31.4s, v31.4s, v7.4s
+            
+            StoreE1H16:
+            cmp x8, #4
+            st1 {v28.4s}, [x0], x7
+            st1 {v29.4s}, [x0], x7
+            st1 {v30.4s}, [x0], x7
+            st1 {v31.4s}, [x0], x7
+            bge E1LoopH16
 
     E1LH8:
+    cmp x8, #2
+    blt E1LH4
     E1LoopH8:
         mov x15, x1
         ld1 {v24.4s, v25.4s}, [x14], #32 // alpha
-        ld1 {v26.4s, v27.4s}, [x16], #32 // bias
-        subs x12, x9, #2
-        // ld1 {v3.4s, v4.4s}, [x13], #32
-        ld1 {v0.16b}, [x13], #16
-        sxtl v11.8h, v0.8b
-        sxtl2 v12.8h, v0.16b
-        sxtl v8.4s, v11.4h
-        sxtl2 v9.4s, v11.8h
-        sxtl v10.4s, v12.4h
-        sxtl2 v11.4s, v12.8h
-        scvtf v12.4s, v8.4s
-        scvtf v13.4s, v9.4s
-        mov v8.16b, v26.16b
-        mov v9.16b, v27.16b
-        fmla v8.4s, v12.4s, v24.4s
-        fmla v9.4s, v13.4s, v25.4s
-        scvtf v12.4s, v10.4s
-        scvtf v13.4s, v11.4s
-        mov v10.16b, v26.16b
-        mov v11.16b, v27.16b
-        fmla v10.4s, v12.4s, v24.4s
-        fmla v11.4s, v13.4s, v25.4s
-        ld1 {v0.s}[0], [x15], x11
-        ld1 {v0.s}[1], [x15], x11
-        fmul v16.4s, v8.4s, v0.s[0]
-        fmul v20.4s, v9.4s, v0.s[0]
-        fmla v16.4s, v10.4s, v0.s[1]
-        fmla v20.4s, v11.4s, v0.s[1]
-        beq E1LoopLEnd
+        mov x12, x9
+        ld1 {v27.4s, v28.4s}, [x20], #32 // Bias
 
-        E1LoopL:
-            subs x12, x12, #2
-            // ld1 {v3.4s, v4.4s}, [x13], #32
+        E1LoopH8L:
             ld1 {v0.16b}, [x13], #16
-            sxtl v11.8h, v0.8b
-            sxtl2 v12.8h, v0.16b
-            sxtl v8.4s, v11.4h
-            sxtl2 v9.4s, v11.8h
-            sxtl v10.4s, v12.4h
-            sxtl2 v11.4s, v12.8h
-            scvtf v12.4s, v8.4s
-            scvtf v13.4s, v9.4s
-            mov v8.16b, v26.16b
-            mov v9.16b, v27.16b
-            fmla v8.4s, v12.4s, v24.4s
-            fmla v9.4s, v13.4s, v25.4s
-            scvtf v12.4s, v10.4s
-            scvtf v13.4s, v11.4s
-            mov v10.16b, v26.16b
-            mov v11.16b, v27.16b
-            fmla v10.4s, v12.4s, v24.4s
-            fmla v11.4s, v13.4s, v25.4s
-            ld1 {v0.s}[0], [x15], x11
-            ld1 {v0.s}[1], [x15], x11
-            fmla v16.4s, v8.4s, v0.s[0]
-            fmla v20.4s, v9.4s, v0.s[0]
-            fmla v16.4s, v10.4s, v0.s[1]
-            fmla v20.4s, v11.4s, v0.s[1]
-            bne E1LoopL
+            ld1 {v29.s}[0], [x15], x11 // Input Float
+            ld1 {v29.s}[1], [x15], x11
+            ld1 {v8.4s, v9.4s},[x16] // bias for dequantizing weight.
+            ld1 {v10.4s, v11.4s}, [x16]
 
-        E1LoopLEnd:
+            subs x12, x12, #2
+            // Weight Int8->Int32.
+            sxtl v30.8h, v0.8b
+            sxtl2 v31.8h, v0.16b
+            sxtl v1.4s, v30.4h
+            sxtl2 v2.4s, v30.8h
+            sxtl v3.4s, v31.4h
+            sxtl2 v4.4s, v31.8h
+            scvtf v1.4s, v1.4s
+            scvtf v2.4s, v2.4s
+            scvtf v3.4s, v3.4s
+            scvtf v4.4s, v4.4s
+
+            // Dequantize Weight.
+            fmla v8.4s, v1.4s, v24.4s
+            fmla v9.4s, v2.4s, v25.4s
+            fmla v10.4s, v3.4s, v24.4s
+            fmla v11.4s, v4.4s, v25.4s
+
+            fmla v27.4s, v8.4s, v29.s[0]
+            fmla v28.4s, v9.4s, v29.s[0]
+            fmla v27.4s, v10.4s, v29.s[1]
+            fmla v28.4s, v11.4s, v29.s[1]
+
+            bne E1LoopH8L
+
+        E1LoopH8LEnd:
 
         add x13, x13, x19
+        add x16, x16, #32
         sub x8, x8, #2
         cmp x8, #2
 
         cbz x5, StoreLH1x8
-        AddBiasLH1x8:
-        ld1 {v0.4s, v1.4s}, [x20], #32
-
-        fmla v16.4s, v0.4s, v5.s[1]
-        fmla v20.4s, v1.4s, v5.s[1]
 
         PostTreatLH1x8:
-        fmax v16.4s, v16.4s, v6.4s
-        fmax v20.4s, v20.4s, v6.4s
-        fmin v16.4s, v16.4s, v7.4s
-        fmin v20.4s, v20.4s, v7.4s
+        fmax v27.4s, v27.4s, v6.4s
+        fmax v28.4s, v28.4s, v6.4s
+        fmin v27.4s, v27.4s, v7.4s
+        fmin v28.4s, v28.4s, v7.4s
 
         StoreLH1x8:
 
-        st1 {v16.4s}, [x0], x7
-        st1 {v20.4s}, [x0], x7
+        st1 {v27.4s}, [x0], x7
+        st1 {v28.4s}, [x0], x7
 
         bge E1LoopH8
 
@@ -979,6 +1036,7 @@ LoopE1:
     fmax v16.4s, v16.4s, v6.4s
     fmin v16.4s, v16.4s, v7.4s
 
+
     StoreLH1x4:
     st1 {v16.4s}, [x0]
 
@@ -991,12 +1049,14 @@ LoopE1:
 
 
 End:
-ldr x19, [sp, #0]
-ldr x20, [sp, #8]
-ldr x21, [sp, #16]
-ldr x22, [sp, #24]
-ldr x23, [sp, #32]
-add sp, sp, #64
+ldp x19, x20, [sp, #(16 * 7)]
+ldp x21, x22, [sp, #(16 * 6)]
+ldp x23, x24, [sp, #(16 * 5)]
+ldp x25, x26, [sp, #(16 * 4)]
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #(16 * 8)
 
 ret
 

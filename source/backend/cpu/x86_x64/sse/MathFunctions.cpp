@@ -167,6 +167,8 @@ void _SSE_MNNGelu(float* dst, const float* src, size_t size, float* parameters) 
     auto var10 = _mm_set1_ps(0.5);
     auto varOne = _mm_set1_ps(1.f);
     auto varNegOne = _mm_set1_ps(-1.f);
+    auto clamp_min = _mm_set1_ps(-5.0f);
+    auto clamp_max = _mm_set1_ps(5.0f);
     for (int i = 0; i < size * 2; i++) {
         auto x = _mm_loadu_ps(src + i * 4);
         auto y = _mm_mul_ps(x, x);
@@ -174,6 +176,8 @@ void _SSE_MNNGelu(float* dst, const float* src, size_t size, float* parameters) 
         y = _mm_mul_ps(y, var1);
         y = _mm_add_ps(y, x);
         y = _mm_mul_ps(y, var2);
+        y = _mm_max_ps(y, clamp_min);
+        y = _mm_min_ps(y, clamp_max);
         // y = tanh(y)
         {
             auto y2 = _mm_mul_ps(y, y);
@@ -270,7 +274,6 @@ void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float 
         }
     }
 }
-
 void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params) {
     float tmpfloat4[4];
     int count  = static_cast<int32_t>(size / 4);
@@ -341,3 +344,47 @@ void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const 
     // step 4: Float -> Int8
     _SSE_MNNFloat2Int8(dstf, dst, size / 4, outScale.data(), params->minValue, params->maxValue, params->outputZeroPoint[0]);
 }
+
+void _SSE_MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
+    uint8_t* dstO = (uint8_t*)dst;
+    uint8_t* srcO = (uint8_t*)src;
+    auto outputZero = _mm_set1_ps(static_cast<float>(params->outputZeroPoint[0]));
+    __m128 maxValue = _mm_set1_ps(params->maxValue);
+    __m128 minValue = _mm_set1_ps(params->minValue);
+    auto offset = _mm_set1_epi32(128);
+    auto zero = _mm_set1_epi32(0);
+    __m128 plus = _mm_set1_ps(0.5f);
+    __m128 minus = _mm_set1_ps(-0.5f);
+    __m128i zeroPointValue = _mm_set1_epi32(static_cast<int32_t>(params->inputZeroPoint[0]) + 128);
+    for (int j = 0;j < depthQuad; ++j) {
+        auto slopeZ = _mm_loadu_ps(slope + 4 * j);
+        const uint8_t* srcZ = srcO + 4 * j * planeNumber;
+        uint8_t* dstZ = dstO + 4 * j * planeNumber;
+        int32_t srcZ_ext[4] = {*(int32_t*)srcZ, 0, 0, 0};
+        for (int i = 0; i < planeNumber; ++i) {
+            // auto srcData8 = _mm_loadu_si32(srcZ);
+            auto srcData8 = _mm_castps_si128(_mm_loadu_ps((float*)srcZ_ext));
+            auto srcData16 = _mm_unpacklo_epi8(srcData8, zero);
+            auto srcData32 = _mm_unpacklo_epi16(srcData16, zero);
+            srcData32 = _mm_sub_epi32(srcData32, zeroPointValue);
+            auto srcDataf  = _mm_cvtepi32_ps(srcData32);
+            auto mask1 = _mm_cmplt_ps(srcDataf, _mm_castsi128_ps(zero));
+            auto mask0 = _mm_cmpge_ps(srcDataf, _mm_castsi128_ps(zero));
+            auto f = _mm_mul_ps(srcDataf, slopeZ);
+            f = _mm_add_ps(f, outputZero);
+            f = _mm_min_ps(f, maxValue);
+            f = _mm_max_ps(f, minValue);
+            auto r = _mm_add_ps(_mm_and_ps(srcDataf, mask0), _mm_and_ps(f, mask1));
+            auto m0 = _mm_cmplt_ps(r, _mm_castsi128_ps(zero));
+            m0 = _mm_blendv_ps(plus, minus, m0);
+            r = _mm_add_ps(r, m0);
+            // Round to zero
+            auto d0 = _mm_cvtps_epi32(_mm_round_ps(r, 3));
+            d0 = _mm_add_epi32(d0, offset);
+            d0 = _mm_packs_epi32(d0, d0);
+            d0 = _mm_packus_epi16(d0, d0);
+            *((int*)dst + i) = _mm_cvtsi128_si32(d0);
+        }
+    }
+}
+

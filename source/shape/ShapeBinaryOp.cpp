@@ -48,11 +48,13 @@ public:
         }
 
         if (input0->getType().code != input1->getType().code) {
+#ifdef DEBUG
             MNN_PRINT("Error for binary op: input0's type != input1's type, %d != %d, optype:%d, ", input0->getType().code, input1->getType().code, opType);
             if (nullptr != op->name()) {
                 MNN_PRINT("op name: %s", op->name()->c_str());
             }
             MNN_PRINT("\n");
+#endif
             return false;
         }
 

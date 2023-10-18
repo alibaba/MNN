@@ -70,6 +70,7 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         ret |= mKernel.setArg(idx++, static_cast<int>(height));
         ret |= mKernel.setArg(idx++, static_cast<int>(heightblocks));
         ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
+        ret |= mKernel.setArg(idx++, static_cast<int>(width));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
 
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
@@ -94,6 +95,7 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
         ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
         ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
+        ret |= mKernel.setArg(idx++, static_cast<int>(width));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution");
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
     }

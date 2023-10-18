@@ -7,6 +7,7 @@
 //
 
 #include "StrassenMatmulComputor.hpp"
+#include "DenseConvolutionTiledExecutor.hpp"
 #include "CommonOptFunction.h"
 #include "backend/cpu/CPUBackend.hpp"
 #include <string.h>
@@ -41,9 +42,12 @@ private:
     BufferAllocator* mAllocator;
 };
 
-StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth) : mBackend(bn) {
+StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth, uint8_t* dequantAlpha, uint8_t* dequantBias, int32_t dequantBits) : mBackend(bn) {
     mMaxDepth = maxDepth;
     mSupportMultiThread = multithread;
+    mDequantBias = dequantBias;
+    mDequantAlpha = dequantAlpha;
+    mDequantBits = dequantBits;
 };
 StrassenMatrixComputor::~StrassenMatrixComputor() {
     // Do nothing
@@ -70,8 +74,20 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
     int unitNumber = e / eP;
     int xCount     = e - unitNumber * eP;
     auto eReal = aStride / core->bytes / core->pack;
+    auto matmulUnit = core->MNNPackedMatMul;
+    auto matmulRemain = core->MNNPackedMatMulRemain;
+    const float* dequantAlpha = nullptr;
+    const float* dequantBias  = nullptr;
+    float weightBytes           = 1;
+#ifdef MNN_LOW_MEMORY
+    if (nullptr != mDequantAlpha && nullptr != mDequantBias) {
+        dequantAlpha = reinterpret_cast<const float*>(mDequantAlpha);
+        dequantBias = reinterpret_cast<const float*>(mDequantBias);
+        DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(&matmulUnit, &matmulRemain, &weightBytes, mDequantBits, core);
+    }
+#endif
     mFunctions.emplace_back(
-        std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, active, this](int tId) {
+        std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, active, matmulUnit, matmulRemain, dequantAlpha, dequantBias, this](int tId) {
             auto core = static_cast<CPUBackend*>(backend())->functions();
             size_t parameters[6];
             parameters[0] = xCount * core->bytes;
@@ -96,7 +112,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
             int32_t info[4];
             int32_t stride[4];
             stride[0] = eP;
-            stride[1] = parameters[1];
+            stride[1] = (int32_t)parameters[1];
             stride[2] = 0;
             stride[3] = 0;
             info[0] = 1;
@@ -107,21 +123,21 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
                 int xStart    = i * eP;
                 auto aStart   = aHost + xStart * packUnit;
                 core->MNNPackC4ForMatMul_A((float*)(tileHost), (const float**)(&aStart), info, stride);
-                core->MNNPackedMatMul((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, parameters, postParametersPtr, (const float*)biasPtr, nullptr, nullptr);
+                matmulUnit((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, parameters, postParametersPtr, (const float*)biasPtr, dequantAlpha, dequantBias);
             }
             if (tId != numberThread -1) {
                 return;
             }
             if (xCount > 0) {
                 stride[0] = xCount;
-                stride[1] = parameters[1];
+                stride[1] = (int32_t)parameters[1];
                 info[2] = xCount;
 
                 int xStart    = unitNumber * eP;
                 auto aStart   = aHost + xStart * packUnit;
                 // Copy
                 core->MNNPackC4ForMatMul_A((float*)(tileHost), (const float**)(&aStart), info, stride);
-                core->MNNPackedMatMulRemain((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, xCount, parameters, postParametersPtr, (const float*)biasPtr, nullptr, nullptr);
+                matmulRemain((float*)(cHost + xStart * packUnit), (float*)tileHost, (float*)bHost, xCount, parameters, postParametersPtr, (const float*)biasPtr, dequantAlpha, dequantBias);
             }
         }, numberThread));
     static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(tileBufferBasic);

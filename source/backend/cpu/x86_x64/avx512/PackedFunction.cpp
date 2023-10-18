@@ -690,6 +690,7 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNPoolingAvg = (decltype(coreFunction->MNNPoolingAvg))(MNN::poolingAvg<float, Vec16, 16>);
     // Set min value as 1 << 24
     coreFunction->MNNPoolingMax = (decltype(coreFunction->MNNPoolingMax))(MNN::poolingMax<float, Vec16, 16, -16777216>);
+    coreFunction->MNNPoolingMaxWithRedice = (decltype(coreFunction->MNNPoolingMaxWithRedice))(MNN::poolingMaxWithRedice<float, -16777216>);
     coreFunction->MNNSelectBinaryFunctionForFloat = _AVX512_MNNSelectBinaryFunctionForFloat;
     coreFunction->MNNCopyC4WithStride = _AVX512_MNNCopyC4WithStride;
     coreFunction->MNNAddC4WithStride = _AVX512_MNNAddC4WithStride;
