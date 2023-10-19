@@ -187,14 +187,14 @@ struct BinaryBitwiseXor {
     }
 };
 
-template<typename Func, typename V, int pack, typename U>
+template<typename Func, typename V, int pack, typename U, typename Tout>
 void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int needBroadcastIndex) {
     Func compute;
     const int sizeDivUnit = elementSize / pack;
     const int remainCount = elementSize - sizeDivUnit * pack;
     auto src0 = (const U*)(inputRaw0);
     auto src1 = (const U*)(inputRaw1);
-    auto dst = (U*)outputRaw;
+    auto dst = (Tout*)outputRaw;
 
     if (-1 == needBroadcastIndex) {
         if (sizeDivUnit > 0) {
@@ -210,7 +210,7 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
         if (remainCount > 0) {
             U tempSrc0[pack];
             U tempSrc1[pack];
-            U tempDst[pack];
+            Tout tempDst[pack];
             ::memcpy(tempSrc0, src0, remainCount * sizeof(U));
             ::memcpy(tempSrc1, src1, remainCount * sizeof(U));
             V a = V::load(tempSrc0);
@@ -233,7 +233,7 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
         }
         if (remainCount > 0) {
             U tempSrc1[pack];
-            U tempDst[pack];
+            Tout tempDst[pack];
             ::memcpy(tempSrc1, src1, remainCount * sizeof(U));
             V b = V::load(tempSrc1);
             V::save(tempDst, compute(a, b));
@@ -254,7 +254,7 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
         }
         if (remainCount > 0) {
             U tempSrc0[pack];
-            U tempDst[pack];
+            Tout tempDst[pack];
             ::memcpy(tempSrc0, src0, remainCount * sizeof(U));
             V a = V::load(tempSrc0);
             V::save(tempDst, compute(a, b));
@@ -415,27 +415,27 @@ template<typename V, int pack, typename U>
 MNNBinaryExecute selectVector(int type) {
     switch (type) {
         case BinaryOpOperation_ADD:
-            return executeVec<VecBinaryAdd<V>, V, pack, U>;
+            return executeVec<VecBinaryAdd<V>, V, pack, U, U>;
         case BinaryOpOperation_SUB:
-            return executeVec<VecBinarySub<V>, V, pack, U>;
+            return executeVec<VecBinarySub<V>, V, pack, U, U>;
         case BinaryOpOperation_MUL:
-            return executeVec<VecBinaryMul<V>, V, pack, U>;
+            return executeVec<VecBinaryMul<V>, V, pack, U, U>;
         case BinaryOpOperation_MINIMUM:
-            return executeVec<VecBinaryMin<V>, V, pack, U>;
+            return executeVec<VecBinaryMin<V>, V, pack, U, U>;
         case BinaryOpOperation_MAXIMUM:
-            return executeVec<VecBinaryMax<V>, V, pack, U>;
+            return executeVec<VecBinaryMax<V>, V, pack, U, U>;
         case BinaryOpOperation_SquaredDifference:
-            return executeVec<VecBinarySqd<V>, V, pack, U>;
+            return executeVec<VecBinarySqd<V>, V, pack, U, U>;
         case BinaryOpOperation_LESS:
-            return executeVec<VecBinaryLess<V>, V, pack, U>;
+            return executeVec<VecBinaryLess<V>, V, pack, U, int32_t>;
         case BinaryOpOperation_LESS_EQUAL:
-            return executeVec<VecBinaryLessEqual<V>, V, pack, U>;
+            return executeVec<VecBinaryLessEqual<V>, V, pack, U, int32_t>;
         case BinaryOpOperation_GREATER:
-            return executeVec<VecBinaryGreater<V>, V, pack, U>;
+            return executeVec<VecBinaryGreater<V>, V, pack, U, int32_t>;
         case BinaryOpOperation_GREATER_EQUAL:
-            return executeVec<VecBinaryGreaterEqual<V>, V, pack, U>;
+            return executeVec<VecBinaryGreaterEqual<V>, V, pack, U, int32_t>;
         case BinaryOpOperation_EQUAL:
-            return executeVec<VecBinaryEqual<V>, V, pack, U>;
+            return executeVec<VecBinaryEqual<V>, V, pack, U, int32_t>;
     }
     return nullptr;
 }

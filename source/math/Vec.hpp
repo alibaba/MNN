@@ -413,6 +413,9 @@ struct Vec<float, 4> {
     static void save(float* addr, const VecTypeInt32& v) {
         vst1q_f32(addr, reinterpret_cast<float32x4_t>(v.value));
     }
+    static void save(int32_t* addr, const VecType& v) {
+        vst1q_s32(addr, reinterpret_cast<int32x4_t>(v.value));
+    }
     static VecType max(const VecType& v1, const VecType& v2) {
         VecType dst = { vmaxq_f32(v1.value, v2.value) };
         return dst;
@@ -762,6 +765,9 @@ struct Vec<float, 4> {
     }
     static void save(float* addr, const VecTypeInt32& v) {
         _mm_storeu_ps(addr, _mm_castsi128_ps(v.value));
+    }
+    static void save(int32_t* addr, const VecType& v) {
+        _mm_storeu_si128((__m128i*)addr, _mm_castps_si128(v.value));
     }
     static VecType max(const VecType& v1, const VecType& v2) {
         VecType dst = { _mm_max_ps(v1.value, v2.value) };
