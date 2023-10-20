@@ -109,7 +109,7 @@ struct Vec8 {
         return dst;
     }
     VecType operator>(const VecType& lr) {
-        __m256 mask = _mm256_cmp_ps(lr.value, value, 0x01);
+        __m256 mask = _mm256_cmp_ps(value, lr.value, 14);
         VecType dst =  { _mm256_and_ps(one, mask) } ;
         return dst;
     }

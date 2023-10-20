@@ -146,7 +146,7 @@ void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const floa
 }
 
 static MNNBinaryExecute _AVX512_MNNSelectBinaryFunctionForFloat(int opType) {
-    auto vecF = MNN::selectVector<Vec16, 16>(opType);
+    auto vecF = MNN::selectVector<Vec16, 16, float>(opType);
     if (nullptr != vecF) {
         return vecF;
     }

@@ -30,7 +30,7 @@ protected:
         for (int i = 0; i < shape_y.size(); ++i) {
             size_y *= shape_y[i];
         }
-        for (int i = 0; i < shape_y.size(); ++i) {
+        for (int i = 0; i < shape_out.size(); ++i) {
             size_out *= shape_out[i];
         }
         if (format == NC4HW4 && data_x.size() > size_x) {
