@@ -259,6 +259,41 @@ struct Vec16 {
         return value[i];
 #endif
     }
+    VecType operator==(const VecType& lr) const {
+        __m512 one = _mm512_set1_ps(1.0f);
+        __m512 zero = _mm512_set1_ps(0.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(value, lr.value, 0);
+        VecType dst =  { _mm512_mask_blend_ps(mask, zero, one) } ;
+        return dst;
+    }
+    VecType operator>(const VecType& lr) {
+        __m512 one = _mm512_set1_ps(1.0f);
+        __m512 zero = _mm512_set1_ps(0.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(value, lr.value, 14);
+         VecType dst =  { _mm512_mask_blend_ps(mask, zero, one) } ;
+        return dst;
+    }
+    VecType operator>=(const VecType& lr) {
+        __m512 one = _mm512_set1_ps(1.0f);
+        __m512 zero = _mm512_set1_ps(0.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(value, lr.value, 13);
+        VecType dst =  { _mm512_mask_blend_ps(mask, zero, one) } ;
+        return dst;
+    }
+    VecType operator<(const VecType& lr) {
+        __m512 one = _mm512_set1_ps(1.0f);
+        __m512 zero = _mm512_set1_ps(0.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(value, lr.value, 0x01);
+        VecType dst =  { _mm512_mask_blend_ps(mask, zero, one) } ;
+        return dst;
+    }
+    VecType operator<=(const VecType& lr) {
+        __m512 one = _mm512_set1_ps(1.0f);
+        __m512 zero = _mm512_set1_ps(0.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(value, lr.value, 0x02);
+        VecType dst =  { _mm512_mask_blend_ps(mask, zero, one) } ;
+        return dst;
+    }
     static VecType load(const float* addr) {
         VecType v = { _mm512_loadu_ps(addr) };
         return v;
@@ -269,6 +304,9 @@ struct Vec16 {
     }
     static void save(float* addr, const VecType& v) {
         _mm512_storeu_ps(addr, v.value);
+    }
+    static void save(int32_t* addr, const VecType& v) {
+        _mm512_storeu_ps((float*)addr, v.value);
     }
     static VecType max(const VecType& v1, const VecType& v2) {
         VecType dst = { _mm512_max_ps(v1.value, v2.value) };

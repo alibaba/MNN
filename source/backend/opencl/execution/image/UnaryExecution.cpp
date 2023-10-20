@@ -17,17 +17,22 @@ namespace OpenCL {
 UnaryExecution::UnaryExecution(const std::string& compute, Backend* backend) : Execution(backend) {
     auto openCLBackend = static_cast<OpenCLBackend*>(backend);
     std::set<std::string> buildOptions;
-    buildOptions.emplace(" -DOPERATOR=" + compute);
-    // FUNC_PRINT_ALL(buildOptions.begin()->c_str(), s);
-    auto runtime      = openCLBackend->getOpenCLRuntime();
-    mKernel           = runtime->buildKernel("unary", "unary", buildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    mBuildOptions.emplace(" -DOPERATOR=" + compute);
 }
 ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    startRecord(openCLBackend->getOpenCLRuntime(), mRecording);
+    
+    auto dataType = inputs[0]->getType();
+    if (dataType.code == halide_type_int){
+        mBuildOptions.emplace("-DOPENCL_INPUT_INT");
+    }
+    // FUNC_PRINT_ALL(buildOptions.begin()->c_str(), s);
+    auto runtime      = openCLBackend->getOpenCLRuntime();
+    mKernel           = runtime->buildKernel("unary", "unary", mBuildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    startRecord(runtime, mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -59,7 +64,7 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, mKernel).first;
     mLocalSize = lws;
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize, openCLBackend->getOpenCLRuntime());
-    endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
+    endRecord(runtime, mRecording);
     return NO_ERROR;
 }
 

@@ -146,7 +146,7 @@ void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const floa
 }
 
 static MNNBinaryExecute _AVX512_MNNSelectBinaryFunctionForFloat(int opType) {
-    auto vecF = MNN::selectVector<Vec16, 16>(opType);
+    auto vecF = MNN::selectVector<Vec16, 16, float>(opType);
     if (nullptr != vecF) {
         return vecF;
     }
@@ -690,6 +690,7 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNPoolingAvg = (decltype(coreFunction->MNNPoolingAvg))(MNN::poolingAvg<float, Vec16, 16>);
     // Set min value as 1 << 24
     coreFunction->MNNPoolingMax = (decltype(coreFunction->MNNPoolingMax))(MNN::poolingMax<float, Vec16, 16, -16777216>);
+    coreFunction->MNNPoolingMaxWithRedice = (decltype(coreFunction->MNNPoolingMaxWithRedice))(MNN::poolingMaxWithRedice<float, -16777216>);
     coreFunction->MNNSelectBinaryFunctionForFloat = _AVX512_MNNSelectBinaryFunctionForFloat;
     coreFunction->MNNCopyC4WithStride = _AVX512_MNNCopyC4WithStride;
     coreFunction->MNNAddC4WithStride = _AVX512_MNNAddC4WithStride;

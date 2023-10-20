@@ -428,7 +428,12 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 #endif
     auto creators = gCreator();
     auto iter      = creators->find(std::make_pair(op->type(), mOpenCLRuntime->getGpuMemType()));
-
+    if (0 != inputs.size() && (getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1)) {
+        #if 0//close log
+        MNN_PRINT("Don't support type %s for int8 input\n", EnumNameOpType(op->type()));
+        #endif
+        return NULL;
+    }
     if (iter == creators->end()) {
         mOpenCLRuntime->setDevideOpRecord();
         #if 0//close log
@@ -906,11 +911,13 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start onCopyBuffer !\n");
 #endif
-    if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
+    auto srcDevice = (srcTensor->deviceId() != 0 && srcTensor->deviceId() != 1);
+    auto dstDevice = (dstTensor->deviceId() != 0 && dstTensor->deviceId() != 1);
+    if (!srcDevice && dstDevice) {
         copyToDevice(srcTensor, dstTensor);
-    }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
+    }else if(srcDevice && !dstDevice){
         copyFromDevice(srcTensor, dstTensor);
-    }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0){
+    }else if(srcDevice && dstDevice){
         mCLRuntime->copyBetweenDevice(srcTensor, dstTensor);
     }else{
         MNN_PRINT("onCopyBuffer float error !!! \n");
@@ -1119,6 +1126,14 @@ bool placeholder = []() {
     });
     return true;
 }();
+
+DataType OpenCLBackend::getDataType(const Tensor* tensor) {
+    auto des = TensorUtils::getDescribe(tensor);
+    if (nullptr == des->quantAttr.get()) {
+        return DataType_DT_FLOAT;
+    }
+    return des->type;
+}
 
 } // namespace OpenCL
 } // namespace MNN

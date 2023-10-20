@@ -59,8 +59,16 @@ vadd.f32 q2, q2, q0
 vmul.f32 q3, q3, q15
 vadd.f32 q3, q3, q1
 
-vmul.f32 q2, q2, q14
-vmul.f32 q3, q3, q14
+vmul.f32 q2, q2, q14 // value
+vmul.f32 q3, q3, q14 // value
+
+// if value > 5, then value=5; if value<-5, then value=-5
+vmov.f32 q7, #5.0
+vmov.f32 q6, #-5.0
+vmax.f32 q2, q2, q6
+vmax.f32 q3, q3, q6
+vmin.f32 q2, q2, q7
+vmin.f32 q3, q3, q7
 
 // tanh(value)
 vmul.f32 q4, q2, q2     // q4: value*value

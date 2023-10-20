@@ -865,6 +865,7 @@ bool BF16Functions::init() {
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_BF16;
     gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<int16_t, BFVec4, 4>);
     gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<int16_t, BFVec4, 4, -65535>);
+    gInstance->MNNPoolingMaxWithRedice = (decltype(gInstance->MNNPoolingMaxWithRedice))(poolingMaxWithRedice<int16_t, -65535>);
 
 #if defined(MNN_USE_SSE)
     gInstance->MNNPackForMatMul_B = _SSE_MNNPackForMatMul_B_BF16;

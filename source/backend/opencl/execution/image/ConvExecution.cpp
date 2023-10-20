@@ -78,7 +78,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
     int kernelHeight  = conv2dCommonParams->kernelY();
     int outputChannel = conv2dCommonParams->outputCount();
     auto gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
+#ifndef MNN_OPENCL_BUFFER_CLOSED
     mWeightUseBuffer = gpuType == GpuType::MALI;
+#endif
 
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;
@@ -253,7 +255,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
             MNN_ERROR("Map error ptrCL == nullptr \n");
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
-
+#ifndef MNN_OPENCL_BUFFER_CLOSED
         if(mWeightUseBuffer){
             mFilter.reset(Tensor::createDevice<float>({UP_DIV(inputChannel, 4)*4, UP_DIV(outputChannel, 4), kernelWidth * kernelHeight, 4}));
             int kernel_buffer_size = UP_DIV(outputChannel, 4)*4* UP_DIV(inputChannel, 4)*4* kernelWidth* kernelHeight;
@@ -271,7 +273,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
                 needTrans = true;
             }
             bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mFilter.get(), needTrans);
-        } else{
+        } else
+#endif
+        {
             mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
             mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);
             MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
@@ -607,6 +611,11 @@ public:
     virtual ~ConvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if(op->main_as_Convolution2D()->common()->group() > 1){
+            // Don't support group > 1 now
+            return nullptr;
+        }
+        
         if (inputs.size() > 1) {
             return nullptr;
         }

@@ -23,6 +23,11 @@ ErrorCode UnaryBufExecution::onResize(const std::vector<Tensor*>& inputs, const 
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
+    
+    auto dataType = inputs[0]->getType();
+    if (dataType.code == halide_type_int){
+        mBuildOptions.emplace("-DOPENCL_INPUT_INT");
+    }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if (runtime->isSupportedIntelSubgroup()) {
         return SubgrouponResize(inputs, outputs);

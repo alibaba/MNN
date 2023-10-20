@@ -54,19 +54,6 @@ PoolExecution::PoolExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mPaddings[0] = mPoolParams->padY() * 2;
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
-    if (mPadType == PoolPadType_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
-    std::set<std::string> buildOptions;
-    std::string kernelName = "pooling";
-    auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-
-    if (mPoolType == PoolType_AVEPOOL) {
-        buildOptions.emplace("-DPOOL_AVG");
-    }
-    mKernel           = runtime->buildKernel("pooling", kernelName, buildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 }
 
 ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -76,6 +63,8 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
+    bool returnRedice = outputs.size() == 2;
+    auto redice = returnRedice ? outputs[1] : outputs[0];
 
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
@@ -90,7 +79,38 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;
+    }else if (mPadType == PoolPadType_VALID) {
+        mPaddings[0] = mPaddings[1] = 0;
     }
+    
+    auto countType = mPoolParams->countType();
+    if (mPoolParams->pads() != nullptr && mPadType == PoolPadType_CAFFE) {
+        mPadType = PoolPadType_VALID;
+    }
+    
+    if (countType == MNN::AvgPoolCountType_DEFAULT) {
+        if (mPadType == MNN::PoolPadType_CAFFE) {
+            countType = MNN::AvgPoolCountType_INCLUDE_PADDING;
+        } else {
+            countType = MNN::AvgPoolCountType_EXCLUDE_PADDING;
+        }
+    }
+    
+    std::set<std::string> buildOptions;
+    std::string kernelName = "pooling";
+    auto runtime           = mOpenCLBackend->getOpenCLRuntime();
+
+    if (mPoolType == PoolType_AVEPOOL) {
+        buildOptions.emplace("-DPOOL_AVG");
+        if(countType == MNN::AvgPoolCountType_INCLUDE_PADDING){
+            buildOptions.emplace("-DCOUNT_INCLUDE_PADDING");
+        }
+    }
+    if(returnRedice){
+        buildOptions.emplace("-DRETURN_REDICE");
+    }
+    mKernel           = runtime->buildKernel("pooling", kernelName, buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
     MNN_ASSERT(mDilations[0] == 1 && mDilations[1] == 1);
 
@@ -131,6 +151,7 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     ret |= mKernel.setArg(idx++, sizeof(strideShape), strideShape);
     ret |= mKernel.setArg(idx++, sizeof(kernelShape), kernelShape);
     ret |= mKernel.setArg(idx++, openCLImage(output));
+    ret |= mKernel.setArg(idx++, openCLImage(redice));
     MNN_CHECK_CL_SUCCESS(ret, "setArg PoolExecution");
 
     recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());

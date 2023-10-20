@@ -16,10 +16,19 @@
 #include "../MNNCUDADefine.hpp"
 #include "../MNNCUDAFunction.cuh"
 
+#ifdef ENABLE_CUDA_TUNE_PARAM
+#include "tune/CutlassGemmTuneCommonExecution.hpp"
+#endif
 namespace MNN {
 namespace CUDA {
 
-class CutlassConvCommonExecution : public Execution {
+class CutlassConvCommonExecution :
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    public CutlassGemmTuneCommonExecution
+    #else
+    public Execution 
+    #endif
+{
 public:
     CutlassConvCommonExecution(Backend* backend);
     virtual ~CutlassConvCommonExecution() = default;

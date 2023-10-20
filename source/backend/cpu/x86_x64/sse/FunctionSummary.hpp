@@ -39,6 +39,7 @@ void _SSE_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride,
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 void _SSE_MNNGelu(float* dst, const float* src, size_t size, float* parameters);
+void _SSE_MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
 
 void _SSE_MNNHardSwish(float* dst, const float* src, size_t size);
 

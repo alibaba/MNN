@@ -999,7 +999,7 @@ static void _AVX_MNNPackedMatMul_int4_16(TYPE* C, const TYPE* A, const uint8_t* 
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
-        auto weight = B + y * bStride;
+        auto weight = B + y * bStride / 2;
         auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto alpha  = _mm_loadu_ps(k + y * 4);
         auto bias   = _mm_loadu_ps(b + y * 4);

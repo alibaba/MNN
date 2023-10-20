@@ -108,7 +108,7 @@ public:
         }
         {
             std::shared_ptr<Tensor> maxValue;
-            maxValue.reset(Tensor::createDevice<float>({depth, 1, computeNum}));
+            maxValue.reset(Tensor::createDevice<float>({depth, 1, computeNum}, Tensor::CAFFE));
             E = maxValue.get();
             auto cmd = GeometryComputerUtils::makeReduce(ReductionType_MAXIMUM, D, E);
             res.extras.emplace_back(maxValue);

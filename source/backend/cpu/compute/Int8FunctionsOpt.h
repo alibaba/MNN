@@ -46,7 +46,6 @@ struct QuanPostTreatParameters {
     float roundValueNeg = -0.5f;
 
 };
-
 struct QuanPrePostParameters{
     float* inputScale;
     float* outputScale;
@@ -101,11 +100,13 @@ struct CoreInt8Functions {
 
     // Pooling
     void (*MNNMaxPoolInt8)(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
-
     void (*MNNAvgPoolInt8)(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
     
     // Norm
     void (*MNNNormInt8)(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
+
+    // Relu
+    void (*MNNReluWithSlopeChannelInt8)(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
 };
 void MNNCoreInt8FunctionInit();
 CoreInt8Functions* MNNGetInt8CoreFunctions();

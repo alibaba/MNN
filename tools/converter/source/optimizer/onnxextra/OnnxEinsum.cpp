@@ -94,6 +94,68 @@ public:
         auto iPos = left.find(",");
         auto input0 = left.substr(0, iPos);
         auto input1 = left.substr(iPos+1, left.size());
+        auto var0 = expr->inputs()[0];
+        auto var1 = expr->inputs()[1];
+        // dim = 4
+        if (right.size() == 4) {
+            // batch align:
+            // bhwc,bhkc -> bhwk  batch = `bh`, reduce_dim = `c`
+            // bhwc,hkc -> bhwk   batch = `bh`, reduce_dim = `c`, need broadcast
+            // bhwc,wkc -> bhwk   batch = `bhw`, reduce_dim = `c`, need unsqeeze, broadcast, squeeze
+            int sqeeze_axis = -1;
+            if (input0.size() != input1.size()) {
+                int pos0 = 0, pos1 = 0;
+                if (input0.size() > input1.size()) {
+                    for (int i = 0; i < input1.size(); i++) {
+                        auto c = input1[i];
+                        bool right_has = right.find(c) != std::string::npos;
+                        auto upos0 = input0.find(c);
+                        bool input0_has = upos0 != std::string::npos;
+                        if (right_has && input0_has) {
+                            pos0 = static_cast<int>(upos0);
+                            pos1 = i;
+                        }
+                    }
+                } else {
+                    for (int i = 0; i < input0.size(); i++) {
+                        auto c = input0[i];
+                        bool right_has = right.find(c) != std::string::npos;
+                        auto upos1 = input1.find(c);
+                        bool input1_has = upos1 != std::string::npos;
+                        if (right_has && input1_has) {
+                            pos0 = i;
+                            pos1 = static_cast<int>(upos1);
+                        }
+                    }
+                }
+                if (input0.size() - pos0 < 3) {
+                    sqeeze_axis = pos0 + 1;
+                    var0 = _Unsqueeze(var0, {sqeeze_axis});
+                }
+                if (input1.size() - pos1 < 3) {
+                    sqeeze_axis = pos1 + 1;
+                    var1 = _Unsqueeze(var1, {sqeeze_axis});
+                }
+            }
+            // find reduce dim
+            char reduce_dim;
+            for (int i = 0; i < input0.size(); ++i) {
+                auto c = input0[i];
+                if (right.find(c) == std::string::npos) {
+                    reduce_dim = c;
+                    break;
+                }
+            }
+            auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
+            // matmul: matmul auto broadcast such: `bhwc @ hkc` -> `bhwc @ bhkc`
+            auto output = _MatMul(var0, var1, false, need_transpose);
+            // squeeze
+            if (sqeeze_axis >= 0) {
+                output = _Squeeze(output, {sqeeze_axis});
+            }
+            output->setName(expr->name());
+            return output->expr().first;
+        }
         
         std::map<char, int> input0Pos;
         for (int i=0; i<input0.size(); ++i) {
@@ -132,8 +194,7 @@ public:
                 sumPos.emplace_back(input0[i]);
             }
         }
-        auto var0 = expr->inputs()[0];
-        auto var1 = expr->inputs()[1];
+        // dim < 4
         if (sumPos.empty()) {
             // Broadcast Mul
             {
@@ -254,7 +315,7 @@ public:
                 var0 = _BroadcastTo(var0, _Concat({outsideLength, ALength, sumLength}, 0));
             } else {
                 var0 = _ReshapeF(var0, _Concat({outsideLength, ALength, sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
-            } 
+            }
         }
         {
             // Transpose

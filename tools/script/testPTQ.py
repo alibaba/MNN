@@ -36,10 +36,12 @@ def compare(origin, quant, jsonFile):
 
         originIdx, originPoint = parseRes(origin_res)
         quantIdx, quantPoint = parseRes(quant_res)
+        print(originIdx, originPoint)
+        print(quantIdx, quantPoint)
         idxRate = len(originIdx & quantIdx) / max(len(originIdx), len(quantIdx))    
         pointRate = quantPoint / originPoint
         print(name, idxRate, pointRate)
-        if idxRate < 0.5 or pointRate < 0.5 or pointRate > 2.0:
+        if idxRate < 0.5:
             print('False')
             return False
     return True

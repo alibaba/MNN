@@ -15,7 +15,7 @@
 #include "CutlassGemmBf16Param.hpp"
 #include "../MNNCUDADefine.hpp"
 #include "../MNNCUDAFunction.cuh"
-#include "../cutlass/CutlassConvCommonExecution.hpp"
+#include "../cutlass_common/CutlassConvCommonExecution.hpp"
 
 namespace MNN {
 namespace CUDA {

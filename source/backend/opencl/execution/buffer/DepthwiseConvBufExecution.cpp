@@ -327,7 +327,7 @@ public:
         
         MNN_ASSERT(inputs.size() <= 3);
         if (inputs.size() > 1) {
-            MNN_PRINT("multi input depthwise conv for opencl buffer not supoort!\n");
+            //MNN_PRINT("multi input depthwise conv for opencl buffer not supoort!\n");
             return nullptr;
         }
         

@@ -45,6 +45,9 @@ dup v10.4s, w9        // v10: [28.f]x4
 dup v9.4s, w10        // v9: [3150.f]x4
 dup v8.4s, w11        // v8: [62370.f]x4
 
+fmov v30.4s, #5
+fmov v31.4s, #-5
+
 GeluZLoop:
 
 ld1 {v0.4s, v1.4s}, [x1], #32   // v0, v1: fp32x4
@@ -63,6 +66,11 @@ fmul v2.4s, v2.4s, v14.4s
 fmul v3.4s, v3.4s, v14.4s
 
 // tanh(value)
+fmax v2.4s, v31.4s, v2.4s
+fmax v3.4s, v31.4s, v3.4s
+fmin v2.4s, v30.4s, v2.4s
+fmin v3.4s, v30.4s, v3.4s
+
 fmul v4.4s, v2.4s, v2.4s     // q4: value*value
 fmul v5.4s, v3.4s, v3.4s     // q5: value*value
 // a

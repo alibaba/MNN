@@ -15,6 +15,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __private const int2 stride_shape,
                       __private const int2 kernel_shape,
                       __global FLOAT *output,
+                      __global FLOAT *rediceOutput,
                       __private const int channel_block) {
                           
     const int ow_idx   = get_global_id(0);
@@ -31,7 +32,11 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #ifdef POOL_AVG
     FLOAT4 result = (FLOAT4)(0);
     const int inp_offset = (((b_idx*channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
+    #ifdef COUNT_INCLUDE_PADDING
+    int total_count = (min(ih_start + kernel_shape.x, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + kernel_shape.y, input_shape.y + pad_shape.y) - iw_start);
+    #else
     int total_count = 0;
+    #endif
     for(int kh=0; kh<kernel_shape.x; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -44,12 +49,17 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
             }
             FLOAT4 inp_data = vload4(0, input+inp_offset+(kh*input_shape.y+kw)*4);
             result += inp_data;
+            #ifndef COUNT_INCLUDE_PADDING
             total_count++;
+            #endif
         }
     }
     result = result / (FLOAT4)(1.0*total_count);
     #else
     FLOAT4 result = (FLOAT4)(-FLT_MAX);
+    #if RETURN_REDICE
+    int4 redice = (int4)0;
+    #endif
     const int inp_offset = (((b_idx*channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
     for(int kh=0; kh<kernel_shape.x; kh++) {
         int ih_cur = ih_start + kh;
@@ -62,6 +72,9 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                 continue;
             }
             FLOAT4 inp_data = vload4(0, input+inp_offset+(kh*input_shape.y+kw)*4);
+            #if RETURN_REDICE
+            redice = inp_data > result ? (int4)((ih_start + kh) * input_shape.y + iw_start + kw) : redice;
+            #endif
             result = fmax(result, inp_data);
         }
     }
@@ -69,4 +82,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     
     const int out_offset = (((b_idx*channel_block + c_idx)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
     vstore4(result, 0, output+out_offset);
+    #if RETURN_REDICE
+    vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
+    #endif
 }

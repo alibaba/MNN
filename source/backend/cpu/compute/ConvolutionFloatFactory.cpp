@@ -25,8 +25,7 @@
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
-                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize,
-                              const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse) {
+                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse) {
     auto cpuBackend = (CPUBackend*)backend;
 #ifdef MNN_LOW_MEMORY
     bool lowMemory = cpuBackend->memoryMode() == BackendConfig::Memory_Low;
@@ -46,14 +45,14 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         }
     }
 #endif
-    if (lowMemory || originWeightSize == 0) {
-        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
-    }
     bool fastWay = common->kernelY() == 1 && common->kernelX() == 1
         && output->width() == input->width() && output->height() == input->height()
         && common->strideX() == 1 && common->strideY() == 1;
     if (fastWay) {
-        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
+        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+    }
+    if (originWeightSize == 0) {
+        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
     if (!ConvolutionWinogradBridge::canUseWinograd(common)) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);

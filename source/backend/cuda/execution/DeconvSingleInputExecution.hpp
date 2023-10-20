@@ -13,7 +13,7 @@
 #include "MNNCUDADefine.hpp"
 #include "CutlassGemmParam.hpp"
 #include "MNNCUDAFunction.cuh"
-#include "cutlass/CutlassDeconvCommonExecution.hpp"
+#include "cutlass_common/CutlassDeconvCommonExecution.hpp"
 namespace MNN {
 namespace CUDA {
 

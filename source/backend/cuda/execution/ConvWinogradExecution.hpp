@@ -14,10 +14,19 @@
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
 
+#ifdef ENABLE_CUDA_TUNE_PARAM
+#include "cutlass_common/tune/CutlassGemmTuneCommonExecution.hpp"
+#endif
 namespace MNN {
 namespace CUDA {
 
-class ConvWinogradExecution : public Execution {
+class ConvWinogradExecution : 
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    public CutlassGemmTuneCommonExecution
+    #else
+    public Execution 
+    #endif
+{
 public:
     struct Resource;
     static bool isValid(const Convolution2D* conv);

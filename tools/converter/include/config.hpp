@@ -46,7 +46,7 @@ public:
     std::string compressionParamsFile = "";
     bool saveStaticModel = false;
     int optimizePrefer = 0;
-    float targetVersion = 1.3;
+    float targetVersion = (float)MNN_VERSION_MAJOR + (float)MNN_VERSION_MINOR * 0.1f;
     int defaultBatchSize = 0;
     int optimizeLevel = 1;
     bool keepInputFormat = false;

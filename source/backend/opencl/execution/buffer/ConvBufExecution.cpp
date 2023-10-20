@@ -700,6 +700,11 @@ public:
             }
         }
         
+        if(op->main_as_Convolution2D()->common()->group() > 1){
+            // Don't support group > 1 now
+            return nullptr;
+        }
+        
         if (inputs.size() > 1) {
             // Multi inputs
             for (int i = 0; i < inputs.size(); ++i) {

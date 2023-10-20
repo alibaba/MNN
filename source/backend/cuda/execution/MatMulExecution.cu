@@ -123,7 +123,13 @@ __global__ void PackPadFill(
 
 }
 
-MatMulExecution::MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS, int bS, int cS) : Execution(backend) {
+MatMulExecution::MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS, int bS, int cS) : 
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    CutlassGemmTuneCommonExecution(backend)
+    #else
+    Execution(backend)
+    #endif
+{
     mTransposeA = transposeA;
     mTransposeB = transposeB;
     mBackend = backend;
@@ -397,6 +403,82 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
     }
 
     if(mFp16Infer) {
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+        /*
+        // 0 -> Gemm, 1~N -> BatchGemm
+        int32_t batchSize = 0;
+        // [0]->A, [1]->B, [2]->bias, [3]->output
+        std::pair<void *, int32_t> ptrOffset[4]; 
+        int32_t batchOffset[4];
+        // [0]->alpha, [1]->beta, [2]->splitK
+        int32_t coefs[3]; 
+        // 0 -> RowColumn, 1 -> RowRow
+        int32_t layout;
+        bool epilogueVectorize
+        */
+        mInfo.problemSize[0] = mGemmInfo.elh[0];
+        mInfo.problemSize[1] = mGemmInfo.elh[2];
+        mInfo.problemSize[2] = mGemmInfo.elhPad[1];
+
+        mInfo.coefs[0] = 1;
+        mInfo.coefs[1] = 0;
+        if (inputs.size() > 2) {
+            mInfo.coefs[1] = 1;
+        }
+        mInfo.epilogueVectorize = true;
+        mInfo.epilogueType = 0;// Linear
+        mInfo.precisionType = 2;// FP16_FP16
+        mInfo.backend = mBackend;
+
+        if(mUseRRLayout) {
+            mInfo.batchSize = mBatch;
+            mInfo.layout = 1;
+
+            mInfo.ptrOffset[0] = std::make_pair((void *)mTempMatA, mGemmInfo.elhPad[1]);
+            mInfo.ptrOffset[1] = std::make_pair((void *)mTempMatB, mGemmInfo.elhPad[2]);
+            mInfo.ptrOffset[2] = std::make_pair((void *)mBiasPtr, 0);
+            mInfo.ptrOffset[3] = std::make_pair((void *)C->deviceId(), mGemmInfo.elhPad[2]);
+
+            mInfo.batchOffset[0] = mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs;
+            mInfo.batchOffset[1] = mGemmInfo.elhPad[1] * mGemmInfo.elhPad[2]* mBs;
+            mInfo.batchOffset[2] = 0;
+            mInfo.batchOffset[3] = mGemmInfo.elh[0] * mGemmInfo.elhPad[2];
+        } else {
+            if(hAlignment) {
+                mInfo.epilogueVectorize = true;
+            } else {
+                mInfo.epilogueVectorize = false;
+            }
+
+            if(hAlignment && mConvertGemmSplitK) {
+                mInfo.batchSize = 0;
+                mInfo.layout = 0;
+                mInfo.coefs[2] = 16;
+
+                mInfo.ptrOffset[0] = std::make_pair((void *)mTempMatA, mGemmInfo.elhPad[1]);
+                mInfo.ptrOffset[1] = std::make_pair((void *)mTempMatB, mGemmInfo.elhPad[1]);
+                mInfo.ptrOffset[2] = std::make_pair((void *)mBiasPtr, 0);
+                mInfo.ptrOffset[3] = std::make_pair((void *)C->deviceId(), mGemmInfo.elh[2]);
+            } else {
+                mInfo.batchSize = mBatch;
+                mInfo.layout = 0;
+    
+                mInfo.ptrOffset[0] = std::make_pair((void *)mTempMatA, mGemmInfo.elhPad[1]);
+                mInfo.ptrOffset[1] = std::make_pair((void *)mTempMatB, mGemmInfo.elhPad[1]);
+                mInfo.ptrOffset[2] = std::make_pair((void *)mBiasPtr, 0);
+                mInfo.ptrOffset[3] = std::make_pair((void *)C->deviceId(), mGemmInfo.elh[2]);
+    
+                mInfo.batchOffset[0] = mGemmInfo.elh[0] * mGemmInfo.elhPad[1]* mAs;
+                mInfo.batchOffset[1] = mGemmInfo.elhPad[1] * mGemmInfo.elh[2]* mBs;
+                mInfo.batchOffset[2] = 0;
+                mInfo.batchOffset[3] = mGemmInfo.elh[0] * mGemmInfo.elh[2];
+            }
+        }
+        getGemmBatchedTensorCoreFloat16Param(&mInfo);
+
+        // set preferd block shape argments
+        setGemmBatchedTensorCoreFloat16Argments(&mInfo);
+    #else
         if(mUseRRLayout) {
             typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                 {(ElementInput_F16 *)mTempMatA, mGemmInfo.elhPad[1]},  // Ptr + ldm
@@ -530,7 +612,7 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
                 }
             }
         }
-
+    #endif
     } else {
         if(mUseRRLayout) {
             if(mNeedConvertMatAB) {
@@ -1044,6 +1126,9 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         }
 
     } else {
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+        runGemmBatchedTensorCoreFloat16Infer(&mInfo);
+    #else
         if(mUseRRLayout) {
             cutlass::Status status = mGemmBatchedF16F16LnAlign8RRSm75();
             cutlass_check(status);
@@ -1066,6 +1151,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                 }
             }
         }
+    #endif
     }
     // printf("normal:%d rrlayout:%d convertab:%d halign:%d\n", mFp16Fp32MixInfer, mUseRRLayout, mNeedConvertMatAB, hAlignment);
     return NO_ERROR;

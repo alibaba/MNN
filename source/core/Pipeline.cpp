@@ -79,6 +79,10 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             return true;
         case OpType_LayerNorm:
             return true;
+        case OpType_UnaryOp:
+            return true;
+        case OpType_PReLU:
+            return true;
         default:
             break;
     }
@@ -258,7 +262,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
 #endif
     }
     // Propagate Scale and insert new command
-    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION || mBackend->type() == MNN_FORWARD_CUDA || mBackend->type() == MNN_FORWARD_NN)) {
+    if (mIsQuantModel && (mBackend->type() == MNN_FORWARD_CPU || mBackend->type() == MNN_FORWARD_CPU_EXTENSION || mBackend->type() == MNN_FORWARD_CUDA || mBackend->type() == MNN_FORWARD_NN || mBackend->type() == MNN_FORWARD_OPENCL)) {
         // get propagate map
         using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
         PropagateMap forwardMap, backwardMap;
@@ -768,6 +772,12 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                     buffer.extras.emplace_back(copyWrap.second);
                     cmd.execution.reset(copyWrap.first);
                     buffer.command.emplace_back(cmdP);
+                    for(int i = 0; i < iter.inputs.size(); ++i){
+                        if(t == iter.inputs[i]){
+                            iterP->workOutputs[v] = iter.workInputs[i];
+                            cmd.workInputs = {iter.workInputs[i]};
+                        }
+                    }
                 }
             }
         }

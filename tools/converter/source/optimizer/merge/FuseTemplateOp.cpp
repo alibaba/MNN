@@ -192,6 +192,55 @@ static auto gRegister = []() {
         TemplateMerge::getInstance("Merge").insertTemplateV2("FuseHardSwish", transform2);
     }
     {
+        auto zero0 = _Scalar<int>(0);
+        auto zero1 = _Scalar<float>(0);
+        auto one0 = _Scalar<int>(1);
+        auto one1 = _Scalar<float>(1);
+        auto input0 = _Input({}, NHWC, halide_type_of<int>());
+        auto input1 = _Input({}, NHWC, halide_type_of<float>());
+        std::vector<MNN::Express::VARP> binaryAddZero({
+            zero0 + input1,
+            input1 + zero0,
+            zero1 + input1,
+            input1 + zero1,
+            input0 - zero0,
+            input1 - zero1,
+            input0 * one0,
+            one0 * input0,
+            input1 * one1,
+            one1 * input1,
+        });
+        auto transform2 = [binaryAddZero, input0, input1](EXPRP expr) {
+            std::map<EXPRP, VARP> inputConst;
+            for (int index=0; index<binaryAddZero.size(); ++index) {
+                auto res = binaryAddZero[index];
+                if (isTheSameRec(res->expr().first, expr, inputConst)) {
+                    auto inputVarIter0 = inputConst.find(input0->expr().first);
+                    auto inputVarIter1 = inputConst.find(input1->expr().first);
+                    MNN::Express::VARP inputVar;
+                    if (inputVarIter0 == inputConst.end() && inputVarIter1 == inputConst.end()) {
+                        MNN_ERROR("Invalid Match, may be something is wrong for Fuse\n");
+                        return false;
+                    }
+                    if (inputVarIter0 != inputConst.end()) {
+                        inputVar = inputVarIter0->second;
+                    } else {
+                        inputVar = inputVarIter1->second;
+                    }
+                    std::unique_ptr<MNN::OpT> newOp(new OpT);
+                    newOp->type = OpType_Identity;
+                    newOp->main.type = OpParameter_NONE;
+                    auto newVar = Variable::create(Expr::create(newOp.get(), {inputVar}, 1));
+                    newVar->setName(expr->outputName(0));
+                    Expr::replace(expr, newVar->expr().first);
+                    return true;
+                }
+            }
+            return false;
+        };
+        TemplateMerge::getInstance("Merge").insertTemplateV2("RemoveUselessBinary", transform2);
+    }
+    {
         auto input0 = _Input({}, NCHW);
         auto input1 = _Input({}, NCHW);
         auto diff = input0 - input1;
@@ -346,7 +395,7 @@ static auto gRegister = []() {
                     newUnary->type = OpType_UnaryOp;
                     newUnary->main.type = OpParameter_UnaryOp;
                     newUnary->main.value = new UnaryOpT;
-                    newUnary->main.AsUnaryOp()->opType = UnaryOpOperation_GELU_STANDARD;
+                    newUnary->main.AsUnaryOp()->opType = UnaryOpOperation_GELU;
                     auto newVar = MNN::Express::Variable::create(MNN::Express::Expr::create(newUnary.get(), {inputVar}));
                     newVar->setName(expr->outputName(0));
                     Expr::replace(expr, newVar->expr().first);

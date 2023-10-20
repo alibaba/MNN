@@ -30,6 +30,10 @@ static string swapComputeIn0In1(const string& computeOrigin) {
 EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend)
     : CommonExecution(backend, op), mCompute(compute) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
+    auto dataType = inputs[0]->getType();
+    if (dataType.code == halide_type_int){
+        mBuildOptions.emplace("-DOPENCL_INPUT_INT");
+    }
 }
 
 uint32_t EltwiseExecution::realSize(const Tensor* tensor) {

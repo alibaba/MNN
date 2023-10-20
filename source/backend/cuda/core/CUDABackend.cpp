@@ -19,7 +19,6 @@
 #include "execution/MNNCUDADefine.hpp"
 #include "execution/CastExecution.hpp"
 #include "CUDATools.hpp"
-
 // #define MNN_CUDA_COPY_DEBUG
 
 namespace MNN {
@@ -68,6 +67,14 @@ CUDARuntimeWrapper::~CUDARuntimeWrapper() {
 float CUDARuntimeWrapper::onGetMemoryInMB() {
     auto staticMemoryInMB = mBufferPool->totalSize() / 1024.0f / 1024.0f;
     return staticMemoryInMB;
+}
+
+std::pair<const void*, size_t> CUDARuntimeWrapper::onGetCache() {//make Cache
+    return mCUDARuntime->makeCache();
+}
+
+bool CUDARuntimeWrapper::onSetCache(const void* buffer, size_t size) {//set Cache
+    return mCUDARuntime->setCache(std::make_pair(buffer, size));
 }
 
 Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config) const {

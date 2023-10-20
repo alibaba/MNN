@@ -154,7 +154,7 @@ L4Loop:
     vqmovn.s32 d8, q10
     vqmovn.s32 d9, q11
     vdup.8 q12, r3
-    vdup.8 q15, r11
+    vdup.8 q1, r11
 
     vaddw.s8 q3, q3, d4
     vaddw.s8 q4, q4, d4
@@ -162,7 +162,7 @@ L4Loop:
     vqmovn.s16 d12, q3
     vqmovn.s16 d13, q4
     vmax.s8 q6, q6, q12
-    vmin.s8 q6, q6, q15
+    vmin.s8 q6, q6, q1
     cmp r6, #4
     vst1.32 {q6}, [r0]!
     bge L4Loop

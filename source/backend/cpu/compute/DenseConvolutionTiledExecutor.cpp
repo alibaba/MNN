@@ -27,7 +27,7 @@ void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source,
     function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize * depth, true);
 
 }
-static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
+bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
     int weightLength = hU * lU * hP * lP;
     resource->mWeight.reset(Tensor::createDevice<uint8_t>(
         {weightLength}));
@@ -40,8 +40,9 @@ static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common>
     resource->hU = hU;
     resource->lP = lP;
     resource->hP = hP;
-    // Reorder weight
     MNN_ASSERT(lP == 1);
+    // Reorder weight
+
     auto dstWInt8 = resource->mWeight->host<int8_t>();
     auto srcWInt8 = int8Info->weight.get();
     for (int y=0; y<outputCount; ++y) {
@@ -117,6 +118,19 @@ static bool _initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common>
     return true;
 }
 
+void DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(lowMemoryMatmulUnit* matmulUnit, lowMemoryMatmulRemain* matmulRemain, float* weightBytes, int32_t weightQuantBits, const CoreFunctions* core) {
+    if (weightQuantBits == 8) {
+        *matmulUnit = core->MNNPackedMatMul_int8;
+        *matmulRemain = core->MNNPackedMatMulRemain_int8;
+        *weightBytes  = 1;
+    }
+    if (weightQuantBits == 4) {
+        *matmulUnit   = core->MNNPackedMatMul_int4;
+        *matmulRemain = core->MNNPackedMatMulRemain_int4;
+        *weightBytes  = 0.5;
+    }
+}
+
 DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2DCommon* common, Backend* b,
                                                    const float* originWeight, size_t originWeightSize,
                                                    const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> int8Info)
@@ -139,7 +153,7 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto lU = UP_DIV(lSize, lP);
     if (useInt8Weight) {
         // Quantize weight to int8
-        auto allocSuccess = _initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
+        auto allocSuccess = DenseConvolutionTiledExecutor::initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
         if (!allocSuccess) {
             mValid = false;
             return;
@@ -414,16 +428,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     const uint8_t* dequantBias = nullptr;
 #ifdef MNN_LOW_MEMORY
     if (mResource && mResource->mDequantize.bits <= 8) {
-        if (mResource->mDequantize.bits == 8) {
-            matmulUnit   = core->MNNPackedMatMul_int8;
-            matmulRemain = core->MNNPackedMatMulRemain_int8;
-            weightBytes  = 1;
-        }
-        if (mResource->mDequantize.bits == 4) {
-            matmulUnit   = core->MNNPackedMatMul_int4;
-            matmulRemain = core->MNNPackedMatMulRemain_int4;
-            weightBytes  = 0.5;
-        }
+        DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(&matmulUnit, &matmulRemain, &weightBytes, mResource->mDequantize.bits, core);
         dequantAlpha = mResource->mDequantize.mScaleBias->host<uint8_t>();
         dequantBias = dequantAlpha + mResource->hU * mResource->hP * bytes;
     }

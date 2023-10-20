@@ -11,6 +11,8 @@
 
 #include "core/AutoStorage.h"
 #include "core/Execution.hpp"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 
 namespace MNN {
 class CPURelu : public Execution {
@@ -31,9 +33,15 @@ public:
     CPUPRelu(Backend *b, const Op *op);
     virtual ~CPUPRelu();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     Tensor mSlope;
+    int mUseInt8 = 0;
+    std::vector<float> mQuanScalesInput;
+    std::vector<float> mQuanScalesOutput;
+    std::vector<ssize_t> mQuanZerosInput;
+    std::vector<ssize_t> mQuanZerosOutput;
+    std::shared_ptr<QuanPrePostParameters> mParams;
 };
 
 class CPURelu6 : public Execution {

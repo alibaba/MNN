@@ -159,6 +159,7 @@ enum UnaryOpOperation : int {
 table UnaryOp {
     opType:UnaryOpOperation;
     T:DataType;
+    tableInt8:[int8];
 }
 
 table TopKV2 {

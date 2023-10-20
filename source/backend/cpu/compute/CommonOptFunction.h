@@ -175,6 +175,7 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
 
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
+typedef void(*MNNUnaryExecuteInt8)(void* outputRaw, const void* inputRaw, int elementSize, QuanPrePostParameters* params);
 typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
 typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize, size_t needBroadcast);
 
@@ -211,6 +212,7 @@ struct CoreFunctions {
     // For Atomic Op
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
     MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
+    MNNUnaryExecuteInt8(*MNNSelectUnaryFunctionForInt8)(int opType);
 
     // B matrix is sparsed
     typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
@@ -288,6 +290,10 @@ struct CoreFunctions {
     void(*MNNPoolingMax)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                            int strideHeight, int padWidth, int padHeight, int padType, int countType);
+    
+    void(*MNNPoolingMaxWithRedice)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
+                           int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
+                           int strideHeight, int padWidth, int padHeight, int padType, int countType, int *RediceOutput);
     // ImageProcess Funtions
     void(*MNNRGBAToBGRA)(const unsigned char* source, unsigned char* dest, size_t count);
     void(*MNNNV21ToRGBA)(const unsigned char* source, unsigned char* dest, size_t count);
@@ -307,6 +313,14 @@ struct CoreFunctions {
                               size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
     void(*MNNSampleBilinear)(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
                                       size_t iw, size_t ih, size_t yStride, size_t bpp);
+
+    void(*MNN4BitcopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNN2BitcopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNN1BitcopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNN4BitcopyFast)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNN2BitcopyFast)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNN1BitcopyFast)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
+    void(*MNNAccumulateSequenceNumber)(float* dst, const float* src, int size);
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

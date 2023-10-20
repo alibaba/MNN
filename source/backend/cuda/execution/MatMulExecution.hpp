@@ -15,9 +15,19 @@
 #include "CutlassGemmParam.hpp"
 #include "MNNCUDAFunction.cuh"
 
+#ifdef ENABLE_CUDA_TUNE_PARAM
+#include "cutlass_common/tune/CutlassGemmTuneCommonExecution.hpp"
+#endif
+
 namespace MNN {
 namespace CUDA {
-class MatMulExecution : public Execution {
+class MatMulExecution : 
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    public CutlassGemmTuneCommonExecution
+    #else
+    public Execution 
+    #endif 
+{
 public:
     MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS = 1, int bS = 1, int cS = 1);
     virtual ~MatMulExecution();
@@ -34,6 +44,7 @@ private:
     Backend* mBackend = nullptr;
 
     std::shared_ptr<Tensor> mBiasTensor;
+
     GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF16F16LnAlign1RCSm75;
     GemmTensor_F16_F16_Linear_AlignCuda_Sm75 mGemmF16F16LnAlign1Sm75;
     GemmBatchedTensor_F32_F32_Linear_AlignCuda_Row_Column_Sm75 mGemmBatchedF32F32LnAlign1RCSm75;
