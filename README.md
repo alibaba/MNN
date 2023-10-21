@@ -5,7 +5,7 @@
 [MNN Homepage](http://www.mnn.zone)
 
 ## Intro
-MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models, and has industry leading performance for inference and training on-device. At present, MNN has been integrated in more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, Dingtalk, Xianyu and etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
+MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models and has industry-leading performance for inference and training on-device. At present, MNN has been integrated into more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, DingTalk, Xianyu, etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
 
 ![architecture](doc/architecture.png)
 
@@ -26,7 +26,7 @@ Inside Alibaba, [MNN](https://mp.weixin.qq.com/s/5I1ISpx8lQqvCS8tGd6EJw) works a
 
 
 ## Documentation and Workbench
-MNN's docs are in placed in [Yuque docs here](https://www.yuque.com/mnn/en) and [Read the docs](https://mnn-docs.readthedocs.io/en/latest).
+MNN's docs are in place in [Yuque docs here](https://www.yuque.com/mnn/en) and [Read the docs](https://mnn-docs.readthedocs.io/en/latest).
 
 MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), which provides pretrained models, visualized training tools, and one-click deployment of models to devices.
 
@@ -35,14 +35,14 @@ MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), wh
 - Optimized for devices, no dependencies, can be easily deployed to mobile devices and a variety of embedded devices.
 - iOS platform: static library size will full option for armv7+arm64 platforms is about 12MB, size increase of linked executables is about 2M.
 - Android platform: core so size is about 800KB (armv7a - c++_shared).
-- Use MNN_BUILD_MINI can reduce package size about 25% , with limit of fix model input size
+- Using MNN_BUILD_MINI can reduce package size by about 25%, with a limit of fixed model input size
 - Support FP16 / Int8 quantize, can reduce model size 50%-70%
 
 ### Versatility
 - Supports `Tensorflow`, `Caffe`, `ONNX`,`Torchscripts` and supports common neural networks such as `CNN`, `RNN`, `GAN`, `Transformer`.
 - Supports AI model with multi-inputs or multi-outputs, every kind of dimension format, dynamic inputs, controlflow.
-- MNN supports approximate full OPs used for AI Model. The converter supports 178 `Tensorflow` OPs, 52 `Caffe` OPs, 163 `Torchscripts` OPs, 158 `ONNX` OPs.
-- Supports iOS 8.0+, Android 4.3+ and embedded devices with POSIX interface.
+- MNN supports approximate full OPs used for the AI Model. The converter supports 178 `Tensorflow` OPs, 52 `Caffe` OPs, 163 `Torchscripts` OPs, 158 `ONNX` OPs.
+- Supports iOS 8.0+, Android 4.3+, and embedded devices with POSIX interface.
 - Supports hybrid computing on multiple devices. Currently supports CPU and GPU.
 
 
@@ -57,7 +57,7 @@ MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), wh
 - Support use MNN's OP to do numerical calculating like numpy.
 - Support lightweight image process module like OpenCV, which is only 100k.
 - Support build model and train it on PC / mobile.
-- MNN Python API helps ML engineers to easily use MNN to inference, train, process image, without dipping their toes in C++ code.
+- MNN Python API helps ML engineers to easily use MNN to infer, train, and process images, without dipping their toes in C++ code.
 
 The Architecture / Precision MNN supported is shown below:
 
@@ -88,13 +88,13 @@ The Architecture / Precision MNN supported is shown below:
 
 Base on MNN (Tensor compute engine), we provided a series of tools for inference, train and general computation.
 
-- MNN-Converter: Convert other model to MNN model for inference, such as Tensorflow(lite), Caffe, ONNX, Torchscripts. And do graph optimization to reduce computation.
+- MNN-Converter: Convert other models to MNN models for inference, such as Tensorflow(lite), Caffe, ONNX, Torchscripts. And do graph optimization to reduce computation.
 - MNN-Compress: Compress model to reduce size and increase performance / speed
-- MNN-Express: Support model with controlflow, use MNN's OP to do general-purpose compute.
-- MNN-CV: An OpenCV liked library, but based on MNN and then much more lightweight.
+- MNN-Express: Support model with controlflow, use MNN's OP to do general-purpose computing.
+- MNN-CV: An OpenCV-like library, but based on MNN and then much more lightweight.
 - MNN-Train: Support train MNN model.
 
-## How to Discuss and Get Help From MNN Community
+## How to Discuss and Get Help From the MNN Community
 
 The group discussions are predominantly Chinese. But we welcome and will help English speakers.
 
