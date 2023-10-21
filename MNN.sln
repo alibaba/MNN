@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.002.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "3rd_party", "3rd_party", "{5CD18987-C4CA-49D5-942F-14B15F46B1ED}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "flatbuffers", "flatbuffers", "{89B04BB7-86CB-4D4F-B65C-C3D0995DBD36}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{797AC14A-1653-469D-A240-76EF0F36E60A}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FlatBuffers.Test", "3rd_party\flatbuffers\tests\FlatBuffers.Test\FlatBuffers.Test.csproj", "{E5A80CC7-62B1-4887-B637-455F34CCC9B3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E5A80CC7-62B1-4887-B637-455F34CCC9B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5A80CC7-62B1-4887-B637-455F34CCC9B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5A80CC7-62B1-4887-B637-455F34CCC9B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5A80CC7-62B1-4887-B637-455F34CCC9B3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{89B04BB7-86CB-4D4F-B65C-C3D0995DBD36} = {5CD18987-C4CA-49D5-942F-14B15F46B1ED}
+		{797AC14A-1653-469D-A240-76EF0F36E60A} = {89B04BB7-86CB-4D4F-B65C-C3D0995DBD36}
+		{E5A80CC7-62B1-4887-B637-455F34CCC9B3} = {797AC14A-1653-469D-A240-76EF0F36E60A}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {11D826E1-518B-4BC2-8E45-03F5F48170D6}
+	EndGlobalSection
+EndGlobal
