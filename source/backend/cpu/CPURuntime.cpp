@@ -1508,6 +1508,10 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 #ifndef CPUFAMILY_ARM_EVEREST_SAWTOOTH
 #define CPUFAMILY_ARM_EVEREST_SAWTOOTH 0x8765edea
 #endif
+// A17 Pro
+#ifndef CPUFAMILY_ARM_PCORE_ECORE_COLL
+#define CPUFAMILY_ARM_PCORE_ECORE_COLL 0x2876f5b5
+#endif
 
     const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
     // const uint32_t cpu_type = get_sys_info_by_name("hw.cputype");
@@ -1518,12 +1522,14 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
                              cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
                              cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
                              cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD ||
-                             cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH;
+                             cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
+                             cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
 
     cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
                        cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
                        cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD ||
-                       cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH;
+                       cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
+                       cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
 
 #endif // iOS
 
