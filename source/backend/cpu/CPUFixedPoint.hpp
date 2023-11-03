@@ -17,7 +17,7 @@ limitations under the License.
 #define CPUFixedPoint_HPP
 
 #include <math.h>
-#include <stdint.h>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
