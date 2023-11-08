@@ -44,7 +44,6 @@ function build_android_bench() {
           -DCMAKE_BUILD_TYPE=Release \
           -DANDROID_ABI="${ABI}" \
           -DANDROID_STL=c++_static \
-          -DCMAKE_BUILD_TYPE=Release \
           -DANDROID_NATIVE_API_LEVEL=android-21  \
           -DMNN_USE_LOGCAT:BOOL=OFF \
           -DMNN_VULKAN:BOOL=$VULKAN \
