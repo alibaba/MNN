@@ -82,7 +82,7 @@ public:
         halide_type_code_t type;
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr != inputs[i] && nullptr != inputs[i]->getInfo()) {
-                type = inputs[i]->getInfo()->type.code;
+                type = static_cast<halide_type_code_t>(inputs[i]->getInfo()->type.code);
                 break;
             }
         }

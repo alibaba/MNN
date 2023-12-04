@@ -116,7 +116,7 @@ public:
      * @brief callback after resize ops.
      */
     virtual ErrorCode onResizeEnd() {
-        return NO_ERROR;
+        return MNN::NO_ERROR;
     }
 
     /**
