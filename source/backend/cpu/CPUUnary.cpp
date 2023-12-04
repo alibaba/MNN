@@ -226,8 +226,8 @@ static void _SignInt8(void* out, const void* inp, int realSize, QuanPrePostParam
 #ifdef MNN_USE_NEON
     int8_t* outPtr = (int8_t*)out;
     int8_t* inPtr  = (int8_t*)inp;
-    int8x16_t one = vdupq_n_s8(1);
-    int8x16_t negone = vdupq_n_s8(-1);
+    int16x8_t one = vdupq_n_s8(1);
+    int16x8_t negone = vdupq_n_s8(-1);
     int16x8_t zero = vdupq_n_s16(0);
     int8x8_t inZeroPoint = vdup_n_s8(params->inputZeroPoint[0]);
     int8x8_t outZeroPoint = vdup_n_s8(params->outputZeroPoint[0]);

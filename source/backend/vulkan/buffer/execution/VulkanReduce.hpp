@@ -19,7 +19,7 @@ public:
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     std::shared_ptr<VulkanBuffer> mConstBuffer;
     const VulkanPipeline* mPipeline;
     const Op* mOp;

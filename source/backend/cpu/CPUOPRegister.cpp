@@ -66,7 +66,14 @@ extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 extern void ___CPUSvdCreator__OpType_Svd__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
+extern void ___CPUQuantizeLinearCreator__OpType_QuantizeLinear__();
+extern void ___CPUDequantizeLinearCreator__OpType_DequantizeLinear__();
 
+#ifdef MNN_SUPPORT_RENDER
+extern void ___CPURasterAndInterpolateCreator__OpType_RasterAndInterpolate__();
+extern void ___CPURasterDiffCreator__OpType_RasterDiff__();
+extern void ___CPUTextureCreator__OpType_Texture__();
+#endif
 void registerCPUOps() {
 ___CPUCropAndResizeCreator__OpType_CropAndResize__();
 ___CPUArgMaxCreator__OpType_ArgMax__();
@@ -134,5 +141,13 @@ ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
 ___CPUSvdCreator__OpType_Svd__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
+#ifdef MNN_SUPPORT_RENDER
+___CPURasterAndInterpolateCreator__OpType_RasterAndInterpolate__();
+___CPURasterDiffCreator__OpType_RasterDiff__();
+___CPUTextureCreator__OpType_Texture__();
+#endif
+___CPUQuantizeLinearCreator__OpType_QuantizeLinear__();
+___CPUDequantizeLinearCreator__OpType_DequantizeLinear__();
+//CPUQuantizeLinearCreator
 }
 }

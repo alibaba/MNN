@@ -129,12 +129,14 @@ public:
             return _transformConv3D(expr);
         }
         auto inputs         = expr->inputs();
-        const int inputSize = inputs.size();
+        const int inputSize = static_cast<int32_t>(inputs.size());
+        auto x            = inputs[0];
         if (inputSize != 3 && inputSize != 2) {
             MNN_ERROR("Convolution Input ERROR!\n");
             return nullptr;
         }
         auto weight = inputs[1];
+        auto weight_expr = weight->expr().first;
 
         auto weightInfo = weight->getInfo();
         if (nullptr == weightInfo) {
@@ -273,11 +275,78 @@ public:
             // Fastest
             limitNumber = 100;
         }
-        if (weight->linkNumber() <= limitNumber) {
+        if ( weight->linkNumber() <= limitNumber) {
             weightDataPtr = weight->readMap<float>();
         }
-        // weight is Constant node
-        if (weightDataPtr) {
+        bool mergeQuantizeLinearToConvInt8 = weight_expr->get() && weight_expr->get()->type() == OpType_DequantizeLinear;
+        if (true == mergeQuantizeLinearToConvInt8) {
+            // Get output quant info.
+            auto outputExpr = expr->outputs().front().lock();
+            auto outputScaleVar = outputExpr->inputs()[1];
+            float outputScale = outputScaleVar->readMap<float>()[0];
+            int8_t outputZero = 0;
+            if (outputExpr->inputs().size() > 2) {
+                outputZero = outputExpr->inputs()[2]->readMap<int8_t>()[0];
+            }
+            // Get weight quant info.
+            float inputClampMin = -128;
+            float inputClampMax = 127;
+            auto weightexpr = weight->expr().first;
+            auto weightInt8 = weightexpr->inputs()[0];
+            auto pw= weightInt8->readMap<int8_t>();
+            const size_t weightSize = co * ci * kh * kw;
+            std::vector<int8_t> weightData(weightSize);
+            for (int cnt = 0; cnt < weightSize; ++cnt) {
+                weightData[cnt] = pw[cnt];
+            }
+            std::vector<int32_t> biasInt32(common->outputCount, 0);
+            if (inputSize > 2) {
+                auto biasExpr = inputs[2]->expr().first;
+                auto biasInt32Var = biasExpr->inputs()[0];
+                auto ptr = biasInt32Var->readMap<int32_t>();
+                if (!ptr) {
+                    MNN_ERROR("Convolution bias should be constant\n");
+                    return nullptr;
+                }
+                for (int cnt = 0; cnt < common->outputCount; ++cnt) {
+                    biasInt32[cnt] = ptr[cnt];
+                }
+            }
+            convParam->symmetricQuan.reset(new QuantizedFloatParamT);
+            convParam->symmetricQuan->bias = std::move(biasInt32);
+            convParam->symmetricQuan->weight = std::move(weightData);
+            convParam->symmetricQuan->nbits = 8;
+            
+            // Get input quant info.
+            auto inputExpr = inputs[0]->expr().first;
+            x = inputExpr->inputs()[0];
+            auto inputScaleVar = inputExpr->inputs()[1];
+            float inputScale = inputScaleVar->readMap<float>()[0];
+            int8_t inputZero = 0;
+            if (inputExpr->inputs().size() > 2) {
+                auto inputZeroVar = inputExpr->inputs()[2];
+                inputZero = inputZeroVar->readMap<int8_t>()[0];
+            }
+            
+            // Compute convInt8 scale=(inputScale * weightScale)/outputScale
+            std::vector<float> scale(co);
+            auto weightScale = weightexpr->inputs()[1];
+            auto ptrscale = weightScale->readMap<float>();
+            for (int cnt = 0; cnt < co; ++cnt) {
+                if (outputScale != 0){
+                    scale[cnt] = ptrscale[cnt] * inputScale / outputScale;
+                } else {
+                    scale[cnt] = 0.f;
+                }
+            }
+            convParam->symmetricQuan->scale = std::move(scale);
+            convParam->symmetricQuan->clampMax = 127;
+            convParam->symmetricQuan->clampMin = -127;
+            convParam->symmetricQuan->zeroPoint = std::move(inputZero);
+            convParam->symmetricQuan->outputZeroPoint = std::move(outputZero);
+        }
+        // Do not return convInt8.
+        if (false == mergeQuantizeLinearToConvInt8 && weightDataPtr) {
             if (weight->linkNumber() > 1) {
                 static bool gPrint = false;
                 if (!gPrint) {
@@ -289,7 +358,7 @@ public:
             // MNN_PRINT("MNNCountNNZBlock:%p\n", MNNCountNNZBlock);
             const size_t weightSize = co * ci * kh * kw;
             convParam->weight.resize(weightSize);
-            ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
+                ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
             convParam->bias.resize(common->outputCount);
             if (inputSize == 3) {
                 // read bias data
@@ -300,12 +369,14 @@ public:
                     MNN_ERROR("[TODO] Conv's bias support broadcast!\n");
                     return nullptr;
                 }
+                
                 auto biasDataPtr = bias->readMap<float>();
                 if (!biasDataPtr) {
                     MNN_ERROR("Conv's bias input should be Constant!\n");
                     return nullptr;
                 }
                 ::memcpy(convParam->bias.data(), biasDataPtr, common->outputCount * sizeof(float));
+                
             } else {
                 ::memset(convParam->bias.data(), 0, common->outputCount * sizeof(float));
             }
@@ -325,10 +396,17 @@ public:
                 newOp->type = OpType_ConvolutionDepthwise;
             }
         }
+        
+        if (!isDeconv && true == mergeQuantizeLinearToConvInt8) {
+            newOp->type = OpType_ConvInt8;
+            if (common->inputCount == common->outputCount && common->outputCount == common->group) {
+                newOp->type = OpType_DepthwiseConvInt8;
+            }
+        }
 
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convParam.release();
-        auto x            = inputs[0];
+        
         bool needSqueeze  = false;
         if (nullptr != x->getInfo()) {
             if (x->getInfo()->dim.size() == 3) {
@@ -336,7 +414,7 @@ public:
                 needSqueeze = true;
             }
         }
-        EXPRP convolutinExpr;
+        EXPRP convolutionExpr;
         if (!outputShape.empty()) {
             // [1, outputHeight, outputWidth, 1]
             outputShape.insert(outputShape.begin(), 1);
@@ -344,30 +422,30 @@ public:
             auto output_shape = _Const(outputShape.data(), {4}, NHWC, halide_type_of<int>());
             if (weightDataPtr) {
                 // merge weight(bias) node to Conv parameter
-                convolutinExpr = Expr::create(newOp.get(), {x, output_shape});
+                convolutionExpr = Expr::create(newOp.get(), {x, output_shape});
             } else {
                 // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
                 // Constant
                 if (inputs.size() > 2) {
-                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2], output_shape});
+                    convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2], output_shape});
                 } else {
-                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
+                    convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
                 }
             }
         } else if (weightDataPtr) {
             // merge weight(bias) node to Conv parameter
-            convolutinExpr = Expr::create(newOp.get(), {x});
+            convolutionExpr = Expr::create(newOp.get(), {x});
         } else {
             // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
             // Constant
             if (inputs.size() > 2) {
-                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2]});
+                convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2]});
             } else {
-                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1]});
+                convolutionExpr = Expr::create(newOp.get(), {x, inputs[1]});
             }
         }
-        convolutinExpr->setName(expr->name());
-        auto res = Variable::create(convolutinExpr);
+        convolutionExpr->setName(expr->name());
+        auto res = Variable::create(convolutionExpr);
         if (needSqueeze) {
             res = _Squeeze(res, {3});
         }

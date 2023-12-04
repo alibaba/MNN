@@ -203,37 +203,37 @@ void BF16Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const in
 }
 
 
-struct VecBinaryAdd : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinaryAdd {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return x + y;
     }
 };
 
-struct VecBinarySub : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinarySub {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return x - y;
     }
 };
 
-struct VecBinaryMul : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinaryMul {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return x * y;
     }
 };
 
-struct VecBinaryMin : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinaryMin {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return Vec4Half::min(x, y);
     }
 };
 
-struct VecBinaryMax : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinaryMax {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return Vec4Half::max(x, y);
     }
 };
 
-struct VecBinarySqd : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
+struct VecBinarySqd {
     Vec4Half operator()(const Vec4Half& x, const Vec4Half& y) const {
         return (x-y)*(x-y);
     }

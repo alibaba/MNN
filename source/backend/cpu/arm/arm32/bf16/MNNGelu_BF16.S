@@ -45,6 +45,9 @@ vdup.32 q10, r8        //q10: [28.f]x4
 vdup.32 q9, r10        //q9: [3150.f]x4
 vdup.32 q8, r11        //q8: [62370.f]x4
 
+mov r4, #5.0
+mov r5, #-5.0
+
 GeluZLoop:
 
 vld1.16 q0, [r1]!   // q0: 8* sizeof(int16_t)
@@ -65,8 +68,8 @@ vadd.f32 q3, q3, q1
 vmul.f32 q2, q2, q14
 vmul.f32 q3, q3, q14
 
-vmov.f32 q7, #5.0
-vmov.f32 q6, #-5.0
+vdup.32 q7, r4
+vdup.32 q6, r5
 vmax.f32 q2, q2, q6
 vmax.f32 q3, q3, q6
 vmin.f32 q2, q2, q7

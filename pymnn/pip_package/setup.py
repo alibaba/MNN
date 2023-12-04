@@ -26,6 +26,8 @@ parser.add_argument('--version', dest='version', type=str, default=get_version()
                     help='MNN dist version')
 parser.add_argument('--serving', dest='serving', action='store_true', default=False,
                     help='build for internal serving, default False')
+parser.add_argument('--deps', dest='deps', type=str, required=False,
+                    help='MNN library deps')
 parser.add_argument('--env', dest='env', type=str, required=False,
                     help='build environment, e.g. :daily/pre/production')
 args, unknown = parser.parse_known_args()
@@ -58,21 +60,46 @@ def report(*args):
     print(*args)
 
 package_name = 'MNN'
-USE_TRT=check_env_flag('USE_TRT')
-USE_CUDA = check_env_flag("USE_CUDA")
-IS_INTERNAL_BUILD = False
+USE_INTERNAL = False
+USE_TRT      = False
+USE_CUDA     = False
+USE_OPENCL   = False
+USE_VULKAN   = False
+USE_RENDER   = False
 
-print ("USE_TRT ", USE_TRT)
-print("USE_CUDA:", USE_CUDA)
+if args.deps != None:
+    if "trt" in args.deps:
+        USE_TRT = True
+    if "cuda" in args.deps:
+        USE_CUDA = True
+    if "opencl" in args.deps:
+        USE_OPENCL = True
+    if "vulkan" in args.deps:
+        USE_VULKAN = True
+    if "internal" in args.deps:
+        USE_INTERNAL = True
+    if "render" in args.deps:
+        USE_RENDER = True
 
-if os.path.isdir('../../schema/private'):
-    IS_INTERNAL_BUILD = args.serving
-    if USE_TRT:
-        print("Build Internal NNN with TRT")
-        package_name = 'MNN_Internal_TRT'
-    else:
-        print("Build Internal NNN")
-        package_name = 'MNN_Internal'
+print ("USE_INTERNAL:", USE_INTERNAL)
+print ("USE_TRT:", USE_TRT)
+print ("USE_CUDA:", USE_CUDA)
+print ("USE_OPENCL:", USE_OPENCL)
+print ("USE_VULKAN:", USE_VULKAN)
+print ("USE_RENDER:", USE_RENDER)
+
+if USE_INTERNAL:
+    package_name += '_Internal'
+if USE_TRT:
+    package_name += '_TRT'
+if USE_CUDA:
+    package_name += '_CUDA'
+if USE_VULKAN:
+    package_name += '_VULKAN'
+if USE_OPENCL:
+    package_name += '_OPENCL'
+if USE_RENDER:
+    package_name += '_RENDER'
 
 print ('Building with python wheel with package name ', package_name)
 
@@ -137,7 +164,7 @@ def configure_extension_build():
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
     extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         extra_compile_args += ['-DPYMNN_INTERNAL_SERVING']
         if args.env == 'daily':
             extra_compile_args += ['-DPYMNN_INTERNAL_SERVING_DAILY']
@@ -154,13 +181,13 @@ def configure_extension_build():
         engine_library_dirs += ['/usr/local/cuda/lib64/']
 
     # Logging is enabled on Linux. Add the dependencies.
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         engine_library_dirs += ['/usr/include/curl/']
 
     print(engine_library_dirs)
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "monitor_service.cc")]
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "verify_service.cc")]
         engine_sources += [os.path.join(root_dir, "pymnn", "src", "internal", "http_util.cc")]
@@ -180,18 +207,19 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         engine_include_dirs += [os.path.join(root_dir, "3rd_party", "rapidjson")]
     # cv include
     engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
     engine_include_dirs += [np.get_include()]
 
+    lib_files = []
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
     cuda_depend = ['-lMNN_Cuda_Main']
     engine_depend = ['-lMNN']
 
     # enable logging & model authentication on linux.
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         engine_depend += ['-lcurl', '-lssl', '-lcrypto']
 
     if USE_TRT:
@@ -199,6 +227,7 @@ def configure_extension_build():
 
     if USE_CUDA:
         engine_depend += cuda_depend
+        lib_files += [('lib', [os.path.join(root_dir, BUILD_DIR, "source", "backend", "cuda", "libMNN_Cuda_Main.so")])]
 
     tools_compile_args = []
     tools_libraries = []
@@ -210,7 +239,6 @@ def configure_extension_build():
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "3rd_party", "protobuf", "cmake")]
 
     # add libTorch dependency
-    lib_files = []
     torch_lib = None
     cmakecache = os.path.join(root_dir, BUILD_DIR, 'CMakeCache.txt')
     for line in open(cmakecache, 'rt').readlines():
@@ -224,11 +252,11 @@ def configure_extension_build():
         elif IS_DARWIN:
             torch_path = os.path.dirname(torch_lib)
             tools_library_dirs += [torch_lib]
-            lib_files = [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
+            lib_files += [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
                                   os.path.join(torch_lib, 'libc10.dylib')]),
                          ('.dylibs', [os.path.join(torch_lib, 'libiomp5.dylib')])]
             '''
-            lib_files = [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
+            lib_files += [('lib', [os.path.join(torch_lib, 'libtorch.dylib'), os.path.join(torch_lib, 'libtorch_cpu.dylib'),
                                   os.path.join(torch_lib, 'libc10.dylib')]),
                          ('.dylibs', [os.path.join(torch_path, '.dylibs', 'libiomp5.dylib')])]
             '''
@@ -236,7 +264,7 @@ def configure_extension_build():
         # Note: TensorRT-5.1.5.0/lib should be set in $LIBRARY_PATH of the build system.
         tools_library_dirs += ['/usr/local/cuda/lib64/']
 
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         tools_library_dirs += ['/usr/include/curl/']
 
     tools_link_args = []
@@ -268,7 +296,7 @@ def configure_extension_build():
     tools_include_dirs += [np.get_include()]
 
     # enable logging and model authentication on linux.
-    if IS_LINUX and IS_INTERNAL_BUILD:
+    if IS_LINUX and USE_INTERNAL:
         tools_depend += ['-lcurl', '-lssl', '-lcrypto']
 
     if USE_TRT:

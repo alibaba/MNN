@@ -211,22 +211,32 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             int num_output = info->dim[0];
 
             std::unique_ptr<MNN::Convolution2DT> dense(new MNN::Convolution2DT);
-            dense->bias.resize(num_output);
-            if (expr->inputs().size() == 3) {
-                auto bias = expr->inputs()[2];
-                auto biasPtr = bias->readMap<float>();
-                ::memcpy(dense->bias.data(), biasPtr, num_output * sizeof(float));
+            
+            const float* weightDataPtr = nullptr;
+            const float* biasPtr = nullptr;
+            weightDataPtr = weight->readMap<float>();
+            
+            if (weightDataPtr) {
+                // Weight is a const node.
+                dense->weight.resize(info->size);
+                memcpy(dense->weight.data(), weightDataPtr, info->size * sizeof(float));
                 // Release compute cache for save memory
-                bias->expr().first->inside()->mCache = nullptr;
-            } else if (param->bias() && param->bias()->size() == num_output) {
-                ::memcpy(dense->bias.data(), param->bias()->data(), num_output * sizeof(float));
-            } else {
-                std::fill(dense->bias.begin(), dense->bias.end(), 0.0f);
+                weight->expr().first->inside()->mCache = nullptr;
+
+                dense->bias.resize(num_output);
+                if (expr->inputs().size() == 3) { // bias is a const node.
+                    auto bias = expr->inputs()[2];
+                    biasPtr = bias->readMap<float>();
+                    ::memcpy(dense->bias.data(), biasPtr, num_output * sizeof(float));
+                    // Release compute cache for save memory
+                    bias->expr().first->inside()->mCache = nullptr;
+                } else if (param->bias() && param->bias()->size() == num_output) {
+                    ::memcpy(dense->bias.data(), param->bias()->data(), num_output * sizeof(float));
+                } else {
+                    std::fill(dense->bias.begin(), dense->bias.end(), 0.0f);
+                }
             }
-            dense->weight.resize(info->size);
-            memcpy(dense->weight.data(), weight->readMap<float>(), info->size * sizeof(float));
-            // Release compute cache for save memory
-            weight->expr().first->inside()->mCache = nullptr;
+            
             dense->common.reset(new Convolution2DCommonT);
             dense->common->inputCount  = num_input;
             dense->common->outputCount = num_output;
@@ -261,7 +271,17 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (config->externalFile && info->size >= config->externalTreshold) {
                 RemoveAndStoreParam(dense_op, config->externalFile, config->externalOffset);
             }
-            EXPRP dense_expr = Expr::create(dense_op.get(), {input}, 1);
+            EXPRP dense_expr;
+            if (weightDataPtr) {
+                dense_expr = Expr::create(dense_op.get(), {input}, 1);
+            } else {
+                if (expr->inputs().size() > 2) {
+                    dense_expr = Expr::create(dense_op.get(), {input, weight}, 1);
+                } else {
+                    dense_expr = Expr::create(dense_op.get(), {input, weight, expr->inputs()[2]}, 1);
+                }
+            }
+            
             VARP output = Variable::create(dense_expr);
             output->setName(expr->outputName(0) + "__matmul_converted");
             //MNN_PRINT("%d\n", output->getInfo()->order);

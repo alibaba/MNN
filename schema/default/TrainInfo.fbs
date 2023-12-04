@@ -1,0 +1,18 @@
+namespace MNNTrain;
+
+table OpInfo {
+    op:string;
+    weight:string;
+    bias:string;
+}
+
+table KV {
+    key:string;
+    value:string;
+}
+
+table TrainInfo {
+    trainables:[KV];
+    convolutions:[OpInfo];
+    batchnormal:[KV];
+}

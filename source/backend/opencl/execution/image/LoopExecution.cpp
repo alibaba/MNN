@@ -259,7 +259,7 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpBuffers[i] = bufferPool->alloc(input->elementSize() * bufferUnitSize); 
+        mTmpBuffers[i] = bufferPool->alloc(Batch * Channel * ROUND_UP(Height, 4) * ROUND_UP(Width, 4) * bufferUnitSize);
 
         Unit unit;
         _TileTensor(input, mTmpBuffers[i], unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, mBuildOptions);
@@ -284,7 +284,7 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
 
      // matmul
      {
-        mTmpBuffers[0] = bufferPool->alloc(n * e * h * bufferUnitSize); 
+        mTmpBuffers[0] = bufferPool->alloc(n * e * h * bufferUnitSize);
         int offset_index = 0;
 
         Unit unit;
@@ -298,9 +298,10 @@ ErrorCode LoopBatchMatMulExecution::onResize(const std::vector<Tensor *> &inputs
         if (mTransposeB) {
             mBuildOptions.emplace("-DTRANSPOSE_B");
         }
+        mBuildOptions.emplace("-DH_LEAVES=" + std::to_string(h % 4));
         unit.kernel = runTime->buildKernel("loop", KernelName, mBuildOptions);
         uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
-        std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(h), (uint32_t)(e),(uint32_t)(n)};
+        std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(UP_DIV(h, 4)), (uint32_t)(UP_DIV(e, 4)),(uint32_t)(n)};
 
         uint32_t index = 0;
         cl_int ret = CL_SUCCESS;

@@ -247,6 +247,20 @@ table Scale {
     external:[int64]; // [offset, scaleData_bytes_size, biasData_bytes_size]
 }
 
+table QuantizeLinear {
+    scaleSize: int;
+    scaleAxis: int;
+    scaleData:[float];
+    zeroPointData:[byte];
+}
+
+table DequantizeLinear {
+    scaleSize: int;
+    scaleAxis: int;
+    scaleData:[float];
+    zeroPointData:[byte];
+}
+
 enum EltwiseType : byte {
     PROD = 0,
     SUM = 1,

@@ -225,7 +225,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         const int Width = Shape.at(2);
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
-        mTmpTensors[i] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel, Height, Width}, Tensor::CAFFE));
+        mTmpTensors[i] = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{Batch, Channel,  ROUND_UP(Height, 4), ROUND_UP(Width, 4)}, Tensor::CAFFE));
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[i].get(), Backend::DYNAMIC);       
 
         Unit unit;
@@ -267,9 +267,10 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         if (mTransposeB) {
             mBuildOptions.emplace("-DTRANSPOSE_B");
         }
+        mBuildOptions.emplace("-DH_LEAVES=" + std::to_string(h % 4));
         unit.kernel = runTime->buildKernel("loop", KernelName, mBuildOptions);
         uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
-        std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(h), (uint32_t)(e),(uint32_t)(n)};
+        std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(UP_DIV(h, 4)), (uint32_t)(UP_DIV(e, 4)),(uint32_t)(n)};
 
         uint32_t index = 0;
         cl_int ret = CL_SUCCESS;

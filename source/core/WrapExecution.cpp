@@ -163,6 +163,9 @@ Tensor* WrapExecution::copyConstCache(Tensor* t, Backend* curBackend, std::map<T
             if (des->stageMask & Tensor::InsideDescribe::CONVERTED_STAGE) {
                 canReplace = false;
             }
+            if (des->memoryType == Tensor::InsideDescribe::MEMORY_HOST){
+                canReplace = false;
+            }
             if (forbidReplace) {
                 canReplace = false;
             }

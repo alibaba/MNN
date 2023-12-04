@@ -24,7 +24,7 @@ public:
 private:
     std::shared_ptr<VulkanBuffer> mConstBuffer;
     const VulkanPipeline* mArgmaxPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     int mAxis;
 };
 

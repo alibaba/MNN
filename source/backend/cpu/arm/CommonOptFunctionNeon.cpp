@@ -7,6 +7,7 @@
 
 extern "C" {
 void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);
+void MNNTranspose16Bit8x8(int16_t* dstO, const int16_t* srcO, int32_t* dim);
 }
 void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
     int w = dim[0];
@@ -33,6 +34,39 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
         auto si = srcO + i;
         auto di = dstO + i * dstStride;
         for (int j=wC4 * 4; j<w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+}
+
+void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
+    int w = dim[0];
+    int h = dim[1];
+    auto wC8 = w / 8;
+    auto hC8 = h / 8;
+    int srcStride = dim[2];
+    int dstStride = dim[3];
+    if (wC8 > 0 && hC8 > 0) {
+        MNNTranspose16Bit8x8(dstO, srcO, dim);
+    }
+
+    // Down
+    for (int i = hC8 * 8; i < h; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j = 0; j < w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+    // Right
+    for (int i = 0; i < hC8 * 8; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j = wC8 * 8; j < w; ++j) {
             auto sj = si + j * srcStride;
             auto dj = di + j;
             *dj = *sj;

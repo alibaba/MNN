@@ -87,11 +87,12 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 - 16 : 适用于使用 GPU 的情况，由 MNN 优先选择 CPU 运行，并将 GPU 的 tuning 信息存到 cache 文件，所有算子 tuning 完成则启用 GPU
 - 32 : rearrange 设为 true ，降低模型加载后的内存大小，但会增加模型加载的初始化时间
 - 64 : 创建模型后，clone 出一个新的模型运行，用于测试 clone 功能（主要用于多并发推理）的正确性
+- 128 : 使用文件夹下面的 input.mnn 和 output.mnn 做为输入和对比输出，对于数据量较大的情况宜用此方案
 
 
 ### 示例
 ```bash
-$ python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx
+$ python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx
 $ ./ModuleBasic.out mobilenetv2-7.mnn onnx 0 0 10   
 Test mobilenetv2-7.mnn from input info: onnx
 input
@@ -114,7 +115,7 @@ Avg= 9.946699 ms, min= 9.472000 ms, max= 10.227000 ms
 - `model:str` 模型文件路径
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)
 - `shapeMutable:int` 输入形状是否可变
-- `dir_n:str` 输入输出信息文件夹，可使用 fastTestOnnx.py / fastTestTf.py / fastTestTflite.py 等脚本生成，参考模型转换的正确性校验部分
+- `dir_n:str` 输入输出信息文件夹，可使用 testMNNFromOnnx.py 等脚本生成，参考模型转换的正确性校验部分
 ```bash
 ./SequenceModuleTest.out transformer.mnn 0 1 tr tr1 tr2 tr3 tr4 > error.txt
 ```

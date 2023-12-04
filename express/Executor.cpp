@@ -145,6 +145,7 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         info.type = MNN_FORWARD_CPU;
         info.numThread = 1;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
+        bn->setAllocatorType(info.allocator);
         gExecutor = new std::shared_ptr<Executor>(new Executor(bn, MNN_FORWARD_CPU, 1));
     });
     return *gExecutor;
@@ -668,10 +669,9 @@ std::shared_ptr<Executor::SubGraph> Executor::findSubGraph(const std::string& su
     }
     return iter->second;
 }
-void Executor::setLazyComputeMode(LazyMode mode) {
+void Executor::setLazyComputeMode(uint32_t mode) {
     mLazyMode = mode;
 }
-
 
 } // namespace Express
 } // namespace MNN

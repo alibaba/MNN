@@ -32,6 +32,10 @@ public:
         if (inputs.size() > 2) {
             bias = inputs[2];
         }
+        if (input0->dimensions() < 2 || input1->dimensions() < 2) {
+            // TODO: Support one-dimenstion matmul
+            return false;
+        }
         auto outputDes = TensorUtils::getDescribe(output);
         // Fill output by zero if one of inputs is empty.
         if (input0->elementSize() == 0 || input1->elementSize() == 0) {
@@ -135,7 +139,16 @@ public:
                                     const std::vector<Tensor*>& outputs, Context& context, CommandBuffer& res) const override {
         bool transposeA = false;
         bool transposeB = false;
-        
+        if (op->type() == OpType_BatchMatMul) {
+            auto param = op->main_as_BatchMatMulParam();
+            transposeA = param->adjX();
+            transposeB = param->adjY();
+        } else {
+            auto param = op->main_as_MatMul();
+            transposeA = param->transposeA();
+            transposeB = param->transposeB();
+        }
+
         auto input0          = inputs[0];
         auto input1          = inputs[1];
         Tensor* bias         = nullptr;
@@ -150,28 +163,37 @@ public:
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             return true;
         }
-        if (outputs[0]->dimensions() == 2) {
-            // Use normal MatMul
-            SharedPtr<Command> cmd = new Command;
-            cmd->op      = op;
-            cmd->inputs  = std::move(inputs);
-            cmd->outputs = std::move(outputs);
-            res.command.emplace_back(cmd);
-            return true;
+        int outputNeedSqueeze = 0;
+        bool eInsert = false;
+        bool hInsert = false;
+        if (input0->dimensions() < 2) {
+            std::shared_ptr<Tensor> newTensor(new Tensor);
+            TensorUtils::copyShape(input0, newTensor.get(), true);
+            newTensor->buffer().type = input0->buffer().type;
+            newTensor->buffer().dimensions = 2;
+            newTensor->setLength(0, 1);
+            newTensor->setLength(1, input0->length(0));
+            TensorUtils::getDescribe(newTensor.get())->regions = {TensorUtils::makeFullSlice(input0)};
+            TensorUtils::getDescribe(newTensor.get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            input0 = newTensor.get();
+            res.extras.emplace_back(newTensor);
+            outputNeedSqueeze++;
+            eInsert = true;
         }
-        // Broadcast matmul don't support bias
-        // Split MatMul
-        if (op->type() == OpType_BatchMatMul) {
-            auto param = op->main_as_BatchMatMulParam();
-            transposeA = param->adjX();
-            transposeB = param->adjY();
-        } else {
-            auto param = op->main_as_MatMul();
-            transposeA = param->transposeA();
-            transposeB = param->transposeB();
+        if (input1->dimensions() < 2) {
+            std::shared_ptr<Tensor> newTensor(new Tensor);
+            TensorUtils::copyShape(input1, newTensor.get(), true);
+            newTensor->buffer().type = input1->buffer().type;
+            newTensor->buffer().dimensions = 2;
+            newTensor->setLength(0, input1->length(0));
+            newTensor->setLength(1, 1);
+            TensorUtils::getDescribe(newTensor.get())->regions = {TensorUtils::makeFullSlice(input1)};
+            TensorUtils::getDescribe(newTensor.get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            input1 = newTensor.get();
+            res.extras.emplace_back(newTensor);
+            outputNeedSqueeze++;
+            hInsert = true;
         }
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
-        auto o0Dim = output->dimensions();
         int input0_end1 = input0->length(input0->dimensions()-2);
         int input0_end0 = input0->length(input0->dimensions()-1);
         int input1_end1 = input1->length(input1->dimensions()-2);
@@ -186,6 +208,38 @@ public:
         if (transposeB) {
             h = input1_end1;
         }
+        if (outputNeedSqueeze > 0) {
+            std::shared_ptr<Tensor> newTensor(new Tensor);
+            TensorUtils::copyShape(output, newTensor.get(), true);
+            newTensor->buffer().dimensions = output->dimensions() + outputNeedSqueeze;
+            newTensor->setLength(newTensor->dimensions() - 1, e);
+            newTensor->setLength(newTensor->dimensions() - 2, h);
+            newTensor->buffer().type = output->buffer().type;
+            outputDes->regions = {TensorUtils::makeFullSlice(newTensor.get())};
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            res.extras.emplace_back(newTensor);
+
+            output = newTensor.get();
+            outputDes = TensorUtils::getDescribe(output);
+        }
+
+        if (output->dimensions() == 2) {
+            // Use normal MatMul
+            SharedPtr<Command> cmd = new Command;
+            cmd->op      = op;
+            if (bias == nullptr) {
+                cmd->inputs  = {input0, input1};
+            } else {
+                cmd->inputs  = {input0, input1, bias};
+            }
+            cmd->outputs = {output};
+            res.command.emplace_back(cmd);
+            return true;
+        }
+        // Broadcast matmul don't support bias
+        // Split MatMul
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+        auto o0Dim = output->dimensions();
         // Compute BroastCast Dims
         auto dimOffset = o0Dim - 2;
         const int maxDimensions = dimOffset;

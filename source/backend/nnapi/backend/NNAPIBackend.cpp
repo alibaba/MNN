@@ -256,6 +256,7 @@ namespace MNN {
         buildModel();
         mHalfBuffer.clear();
         mQuantCacheMap.clear();
+        return NO_ERROR;
     }
     uint32_t NNAPIBackend::getTensorIdx(const Tensor* t, bool dequant) {
         if (dequant) {

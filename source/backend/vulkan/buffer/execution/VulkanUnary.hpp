@@ -24,7 +24,7 @@ public:
 private:
     std::shared_ptr<VulkanBuffer> mParam;
     const VulkanPipeline* mUnaryPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDesSet;
     vec4 mSlopes;
 };
 

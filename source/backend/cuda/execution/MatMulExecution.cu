@@ -123,6 +123,83 @@ __global__ void PackPadFill(
 
 }
 
+template<typename T0, typename T1>
+__global__ void GENERAL_BATCH_MATMUL(
+    const T0* A, const T0* B, const T0* bias,
+    bool transA, bool transB,
+    const int coefBatchA, const int coefBatchB,
+    const int e, const int l, const int h,
+    const int maxCount, T1* C,
+    DivModFast d_e, DivModFast d_h
+) {
+    for (size_t index = blockIdx.x * blockDim.x + threadIdx.x; index < maxCount; index += blockDim.x * gridDim.x) {
+        int bIndex, hIndex, eIndex, tmp;
+        d_h.divmod(index, tmp, hIndex);
+        d_e.divmod(tmp, bIndex, eIndex);
+
+        float sum = 0.0;
+        // [b, e, l] x [b, l, h] -> [b, e, h]
+        if(!transA && !transB) {
+            const T0* basePtrA = A + (coefBatchA * bIndex * e + eIndex) * l;
+            const T0* basePtrB = B + (coefBatchB * bIndex * l + 0) * h + hIndex;
+            T1* basePtrC       = C + (bIndex * e + eIndex) * h + hIndex;
+            for(int i = 0; i < l; i++) {
+                sum += (float)basePtrA[i] * (float)basePtrB[i * h];
+            }
+            if(bias != nullptr) {
+                sum += (float)bias[hIndex];
+            }
+            basePtrC[0] = (T1)sum;
+            return;
+        }
+
+        // [b, l, e] x [b, l, h] -> [b, e, h]
+        if(transA && !transB) {
+            const T0* basePtrA = A + (coefBatchA * bIndex * l + 0) * e + eIndex;
+            const T0* basePtrB = B + (coefBatchB * bIndex * l + 0) * h + hIndex;
+            T1* basePtrC       = C + (bIndex * e + eIndex) * h + hIndex;
+            for(int i = 0; i < l; i++) {
+                sum += (float)basePtrA[i * e] * (float)basePtrB[i * h];
+            }
+            if(bias != nullptr) {
+                sum += (float)bias[hIndex];
+            }
+            basePtrC[0] = (T1)sum;
+            return;
+        }     
+
+        // [b, l, e] x [b, h, l] -> [b, e, h]
+        if(transA && transB) {
+            const T0* basePtrA = A + (coefBatchA * bIndex * l + 0) * e + eIndex;
+            const T0* basePtrB = B + (coefBatchB * bIndex * h + hIndex) * l + 0;
+            T1* basePtrC       = C + (bIndex * e + eIndex) * h + hIndex;
+            for(int i = 0; i < l; i++) {
+                sum += (float)basePtrA[i * e] * (float)basePtrB[i];
+            }
+            if(bias != nullptr) {
+                sum += (float)bias[hIndex];
+            }
+            basePtrC[0] = (T1)sum;
+            return;
+        }    
+
+        // [b, e, l] x [b, h, l] -> [b, e, h]
+        if(!transA && transB) {
+            const T0* basePtrA = A + (coefBatchA * bIndex * e + eIndex) * l + 0;
+            const T0* basePtrB = B + (coefBatchB * bIndex * h + hIndex) * l + 0;
+            T1* basePtrC       = C + (bIndex * e + eIndex) * h + hIndex;
+            for(int i = 0; i < l; i++) {
+                sum += (float)basePtrA[i] * (float)basePtrB[i];
+            }
+            if(bias != nullptr) {
+                sum += (float)bias[hIndex];
+            }
+            basePtrC[0] = (T1)sum;
+            return;
+        }    
+    }
+}
+
 MatMulExecution::MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS, int bS, int cS) : 
     #ifdef ENABLE_CUDA_TUNE_PARAM
     CutlassGemmTuneCommonExecution(backend)
@@ -913,6 +990,12 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mGemmInfo.elh[0] = e;
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
+
+    mLargeBatchSmallGemm = (mBatch > 2048 && l < 8 && e < 8 && h < 8);
+    if(mLargeBatchSmallGemm) {
+        return NO_ERROR;
+    }
+
     mGemmInfo.elhPad[0] = UP_DIV(e, PACK_NUMBER) * PACK_NUMBER;
     mGemmInfo.elhPad[1] = UP_DIV(l, PACK_NUMBER) * PACK_NUMBER;
     mGemmInfo.elhPad[2] = UP_DIV(h, PACK_NUMBER) * PACK_NUMBER;
@@ -977,6 +1060,36 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     bool hAlignment = (mGemmInfo.elhPad[2] == mGemmInfo.elh[2]);
 
+    if(mLargeBatchSmallGemm) {
+        auto total = mBatch * mGemmInfo.elh[0] * mGemmInfo.elh[2];
+        DivModFast eD(mGemmInfo.elh[0]);
+        DivModFast hD(mGemmInfo.elh[2]);
+        int block_num = runtime->blocks_num(total);
+        int block_size = runtime->threads_num();
+
+        void * biasPtr = nullptr;
+        if(inputs.size() > 2) {
+            biasPtr = (void *)inputs[2]->deviceId();
+        }
+        if(mFp16Infer) {
+            GENERAL_BATCH_MATMUL<<<block_num, block_size>>>((const half*)inputs[0]->deviceId(), \
+                    (const half*)inputs[1]->deviceId(), (const half*)biasPtr, \
+                    mTransposeA, mTransposeB, mAs, mBs, \
+                    mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    total, (half*)outputs[0]->deviceId(), \
+                    eD, hD);
+            checkKernelErrors;        
+        } else {
+            GENERAL_BATCH_MATMUL<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), \
+                    (const float*)inputs[1]->deviceId(), (const float*)biasPtr, \
+                    mTransposeA, mTransposeB, mAs, mBs, \
+                    mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
+                    total, (float*)outputs[0]->deviceId(), \
+                    eD, hD);
+            checkKernelErrors;   
+        }
+        return NO_ERROR;
+    }
     // PreProcess for Alignment
     if(mNeedConvertMatAB) {
         int aBatch = mBatch;

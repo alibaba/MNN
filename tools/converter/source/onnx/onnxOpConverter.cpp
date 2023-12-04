@@ -362,7 +362,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         }
         case onnx::TensorProto_DataType_UINT32: {
             auto source = (uint32_t*)tensor_content;
-            constantParam->float32s.resize(dataSize);
+            constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->int32s[i] = source[i];
             }
@@ -370,9 +370,9 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         }
         case onnx::TensorProto_DataType_UINT64: {
             auto source = (uint64_t*)tensor_content;
-            constantParam->float32s.resize(dataSize);
+            constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = _limit(source[i]);
             }
             break;
         }

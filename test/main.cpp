@@ -38,10 +38,11 @@ int main(int argc, char* argv[]) {
         if (argc > 5) {
             flag = argv[5];
         }
+        FUNC_PRINT(thread);
+        FUNC_PRINT(precision);
         MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, thread);
-        MNN_PRINT("After update, precision in TestUtil:%d\n", precision);
     }
     if (argc > 1) {
         auto name = argv[1];

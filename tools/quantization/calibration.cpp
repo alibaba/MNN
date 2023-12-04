@@ -351,14 +351,14 @@ void Calibration::_initMaps() {
     _featureInfo.clear();
     _featureInfoOrigin.clear();
     _tensorMap.clear();
-    // run mnn once, initialize featureMap, opInfo map
+        // run mnn once, initialize featureMap, opInfo map
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
         std::string opName = info->name();
         std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
         if (iter != _skip_quant_ops.end()) {
             return false;
         }
-        for (auto t : nTensors) {
+                for (auto t : nTensors) {
             auto des = TensorUtils::getDescribe(t);
             if (des->index >= 0) {
                 _tensorMap[des->index] = t;;
@@ -1224,14 +1224,14 @@ void Calibration::ComputeUnaryBuffer(MNN::NetT* net) {
             // Read input data.
             std::vector<float> dataInput;
             float fx = 0.f;
-            for (int i = -127; i <= 127; ++i) {
-                fx = (i - inpZero) * inpScale;
-                dataInput.push_back(fx);
-            }
             auto input = _Input({255}, NCHW, halide_type_of<float>());
             input->setName("input_tensor");
             auto ptr_in = input->template writeMap<float>();
-            memcmp(ptr_in, dataInput.data(), 255);
+            for (int i = -127; i <= 127; ++i) {
+                fx = (i - inpZero) * inpScale;
+                dataInput.push_back(fx);
+                ptr_in[i + 127] = fx;
+            }
             input->unMap();
             // Compute output data.
             VARP output;
@@ -1244,7 +1244,7 @@ void Calibration::ComputeUnaryBuffer(MNN::NetT* net) {
             // Write output data.
             int val;
             for (int i = 0; i < 255; ++i) {
-                val = gotOutput[i] / outScale + outZero;
+                val = (int)roundf(gotOutput[i] / outScale) + outZero;
                 if (val > 127) {
                     val = 127;
                 }
@@ -1252,7 +1252,7 @@ void Calibration::ComputeUnaryBuffer(MNN::NetT* net) {
                     val = -127;
                 }
                 unaryParam[i] = val;
-            }
+                            }
         }
     }
 }

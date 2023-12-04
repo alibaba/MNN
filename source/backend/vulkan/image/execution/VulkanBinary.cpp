@@ -140,7 +140,7 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
                 binaryOpParam->posLimit[1] = 0;
             }
             constBuffer->unmap();
-            std::shared_ptr<VulkanPipeline::DescriptorSet> desSet = mDescriptorSet[tensorIndex * imageSize + index];
+            std::shared_ptr<VulkanLayout::DescriptorSet> desSet = mDescriptorSet[tensorIndex * imageSize + index];
             auto sampler = vkBn->getCommonSampler(true);
             desSet->writeImage(output->view(), sampler->get(),
                                        VK_IMAGE_LAYOUT_GENERAL, 0);

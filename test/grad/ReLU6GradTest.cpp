@@ -21,30 +21,58 @@ public:
     virtual ~ReLU6GradTest() = default;
 
     virtual bool run(int precision) {
-        const int len = 4;
-        auto input = _Input({len}, NCHW);
-        const float inpudata[] = {-1.0, -2.0, 3.0, 6.0};
-        auto inputPtr          = input->writeMap<float>();
-        memcpy(inputPtr, inpudata, len * sizeof(float));
+        {
+            const int len = 4;
+            auto input = _Input({len}, NCHW);
+            const float inpudata[] = {-1.0, -2.0, 3.0, 6.0};
+            auto inputPtr          = input->writeMap<float>();
+            memcpy(inputPtr, inpudata, len * sizeof(float));
 
-        auto output = _Relu6(input);
-        auto opExpr = output->expr().first;
+            auto output = _Relu6(input);
+            auto opExpr = output->expr().first;
 
-        auto grad = OpGrad::get(opExpr->get()->type());
-        float outputDiff[len] = {0.1, -0.2, -0.3, 0.4};
-        auto inputGrad = grad->onGrad(opExpr, {_Const(outputDiff, {len})});
+            auto grad = OpGrad::get(opExpr->get()->type());
+            float outputDiff[] = {0.1, -0.2, -0.3, 0.4};
+            auto inputGrad = grad->onGrad(opExpr, {_Const(outputDiff, {len})});
 
-        const std::vector<float> expectedOutput = {0.0, 0.0, -0.3, 0.0};
-        auto gotOutput = inputGrad[0]->readMap<float>();
+            const std::vector<float> expectedOutput = {0.0f, 0.0f, -0.3f, 0.0f};
+            auto gotOutput = inputGrad[0]->readMap<float>();
 
-        for (int i = 0; i < len; ++i) {
-            auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);
-            if (diff > 0.000001) {
-                MNN_ERROR("%s grad test failed, expected: %f, but got: %f!\n", name, expectedOutput[i], gotOutput[i]);
-                return false;
+            for (int i = 0; i < len; ++i) {
+                auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);
+                if (diff > 0.000001) {
+                    MNN_ERROR("%s grad test failed, expected: %f, but got: %f!\n", name, expectedOutput[i], gotOutput[i]);
+                    return false;
+                }
             }
         }
+        {
+            float minValue = -3.0f;
+            float maxValue = 1.0f;
+            const int len = 4;
+            auto input = _Input({len}, NCHW);
+            const float inpudata[] = {-1.0f, -2.0f, 3.0f, 6.0f};
+            auto inputPtr          = input->writeMap<float>();
+            memcpy(inputPtr, inpudata, len * sizeof(float));
 
+            auto output = _Relu6(input, minValue, maxValue);
+            auto opExpr = output->expr().first;
+
+            auto grad = OpGrad::get(opExpr->get()->type());
+            float outputDiff[] = {0.1f, -0.2f, -0.3f, 0.4f};
+            auto inputGrad = grad->onGrad(opExpr, {_Const(outputDiff, {len})});
+
+            const std::vector<float> expectedOutput = {0.1f, -0.2f, 0.0f, 0.0f};
+            auto gotOutput = inputGrad[0]->readMap<float>();
+
+            for (int i = 0; i < len; ++i) {
+                auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);
+                if (diff > 0.000001) {
+                    MNN_ERROR("%f-%f, %s grad test failed, expected: %f, but got: %f!\n", minValue, maxValue, name, expectedOutput[i], gotOutput[i]);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 };

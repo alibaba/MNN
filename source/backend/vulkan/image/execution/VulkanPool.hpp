@@ -23,7 +23,7 @@ private:
     std::shared_ptr<VulkanBuffer> mConstBuffer;
     const VulkanPipeline* mPoolPipeline;
     const Pool* mCommon;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
 };
 } // namespace MNN
 #endif /* VulkanPool_hpp */

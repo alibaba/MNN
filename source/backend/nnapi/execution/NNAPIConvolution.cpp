@@ -16,17 +16,31 @@ NNAPIConvolution::NNAPIConvolution(MNN::Backend *b, const MNN::Op *op, const std
     isDeconv = mOp->type() == OpType_Deconvolution;
 }
 template<typename T>
-static void NCHW2NHWC(const T* source, T* dest, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = sourceBatchsize;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        for (int i = 0; i < area; ++i) {
-            auto srcArea = srcBatch + i;
-            auto dstArea = dstBatch + i * c;
-            for (int ci = 0; ci < c; ++ci) {
-                dstArea[ci] = srcArea[ci * area];
+static void NCHW2NHWC(const T* source, T* dest, int b, int c, int area, bool isdeconv) {
+    if (isdeconv) { // (n, c, h, w) -> (c, h, w, n)
+        for (int ci = 0; ci < c; ++ci) {
+            auto dstStride0 = dest + area * b * ci;
+            auto srcStride0 = source + area * ci;
+            for (int i = 0; i < area; ++i) {
+                auto dstStride1 = dstStride0 + b * i;
+                auto srcStride1 = srcStride0 + i;
+                for (int bi = 0; bi < b; ++bi) {
+                    dstStride1[bi] = srcStride1[bi * area * c];
+                }
+            }
+        }
+    } else { // (n, c, h, w) -> (n, h, w, c)
+        int sourceBatchsize = c * area;
+        int destBatchSize   = sourceBatchsize;
+        for (int bi = 0; bi < b; ++bi) {
+            auto srcBatch = source + bi * sourceBatchsize;
+            auto dstBatch = dest + bi * destBatchSize;
+            for (int i = 0; i < area; ++i) {
+                auto srcArea = srcBatch + i;
+                auto dstArea = dstBatch + i * c;
+                for (int ci = 0; ci < c; ++ci) {
+                    dstArea[ci] = srcArea[ci * area];
+                }
             }
         }
     }
@@ -113,7 +127,7 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             quantWeight.reset(new int8_t[weightSize]);
             quantBias.reset(new int32_t[biasSize]);
             // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
-            NCHW2NHWC<int8_t>(reinterpret_cast<const int8_t*>(weightPtr), quantWeight.get(), n, c, h * w);
+            NCHW2NHWC<int8_t>(reinterpret_cast<const int8_t*>(weightPtr), quantWeight.get(), n, c, h * w, isDeconv);
             // bias to int32
             auto alpha = conv2D->quanParameter()->alpha()->data();
             auto scaleIn = conv2D->quanParameter()->scaleIn();
@@ -130,7 +144,7 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             // std::unique_ptr<float[]> nhwcWeight(new float[weightSize]);
             nhwcWeight.reset(new float[weightSize]);
             // [outputCount, inputChannel, h, w] -> [outputCount, h, w, inputChannel]
-            NCHW2NHWC<float>(reinterpret_cast<const float*>(weightPtr), nhwcWeight.get(), n, c, h * w);
+            NCHW2NHWC<float>(reinterpret_cast<const float*>(weightPtr), nhwcWeight.get(), n, c, h * w, isDeconv);
             inputIdxs.push_back(buildConstant(nhwcWeight.get(), weightSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, weightDims));
             inputIdxs.push_back(buildConstant(biasPtr, biasSize * sizeof(float), ANEURALNETWORKS_TENSOR_FLOAT32, biasDims));
         }
@@ -162,12 +176,13 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     auto op = ANEURALNETWORKS_CONV_2D;
     if (mOp->type() == OpType_ConvolutionDepthwise) {
         op = ANEURALNETWORKS_DEPTHWISE_CONV_2D;
-    } else {
-        // TODO: deconv
+    } else if (mOp->type() == OpType_Deconvolution){
+        op = ANEURALNETWORKS_TRANSPOSE_CONV_2D;
     }
     return buildOperation(op, inputIdxs, getTensorIdxs(outputs));
 }
 
 REGISTER_NNAPI_OP_CREATOR(NNAPIConvolution, OpType_Convolution)
 REGISTER_NNAPI_OP_CREATOR(NNAPIConvolution, OpType_ConvolutionDepthwise)
+REGISTER_NNAPI_OP_CREATOR(NNAPIConvolution, OpType_Deconvolution)
 } // namespace MNN

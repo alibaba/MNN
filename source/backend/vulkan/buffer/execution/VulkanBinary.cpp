@@ -17,9 +17,7 @@ struct ConstBuffer {
     ivec4 stride00;
     int activationType = 0;
 };
-static std::string _getShaderName(const Op* op, bool image) {
-    std::string prefix = "glsl_binary_";
-    std::string posfix = "_comp";
+std::string VulkanBinary::getMidName(const Op *op) {
     std::string mid = "";
     if (op->type() == OpType_Eltwise) {
         if (op->main_as_Eltwise()->coeff() != nullptr) {
@@ -87,10 +85,21 @@ static std::string _getShaderName(const Op* op, bool image) {
             case BinaryOpOperation_NOTEQUAL:
                 mid = "NOTEQUAL";
                 break;
+            case BinaryOpOperation_MOD:
+            case BinaryOpOperation_FLOORMOD:
+                mid = "VMOD";
+                break;
             default:
+                FUNC_PRINT(op->main_as_BinaryOp()->opType());
                 break;
         }
     }
+    return mid;
+}
+static std::string _getShaderName(const Op* op, bool image) {
+    std::string prefix = "glsl_binary_";
+    std::string posfix = "_comp";
+    auto mid = VulkanBinary::getMidName(op);
     if (mid.empty()) {
         return mid;
     }
@@ -145,7 +154,7 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
         }
         binaryOpParam->activationType = mActivationType;
         constBuffer->unmap();
-        std::shared_ptr<VulkanPipeline::DescriptorSet> desSet = mDescriptorSet[index];
+        std::shared_ptr<VulkanLayout::DescriptorSet> desSet = mDescriptorSet[index];
         desSet->writeBuffer(output, 0);
         desSet->writeBuffer(input0, 1);
         desSet->writeBuffer(input1, 2);

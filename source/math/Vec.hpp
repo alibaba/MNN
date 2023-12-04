@@ -216,8 +216,6 @@ template<>
 struct Vec<int32_t, 4> {
     using VecType = Vec<int32_t, 4>;
     int32x4_t value;
-    int32x4_t one = vdupq_n_s32(1);
-    int32x4_t zero = vdupq_n_s32(0);
     Vec() {
     }
     Vec(const int32_t v) {
@@ -285,10 +283,10 @@ struct Vec<int32_t, 4> {
         auto m1 = vtrn2q_s32(vec0.value, vec1.value);
         auto m2 = vtrn1q_s32(vec2.value, vec3.value);
         auto m3 = vtrn2q_s32(vec2.value, vec3.value);
-        vec0.value = vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2));
-        vec1.value = vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3));
-        vec2.value = vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2));
-        vec3.value = vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3));
+        vec0.value = reinterpret_cast<int32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec1.value = reinterpret_cast<int32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+        vec2.value = reinterpret_cast<int32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+        vec3.value = reinterpret_cast<int32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
 #else
 
         auto m0m1 = vtrnq_s32(vec0.value, vec1.value);
@@ -297,10 +295,10 @@ struct Vec<int32_t, 4> {
         vec1.value = m0m1.val[1];
         vec2.value = m2m3.val[0];
         vec3.value = m2m3.val[1];
-        vec0.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1);
-        vec1.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1);
-        vec2.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0);
-        vec3.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0);
+        vec0.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1));
+        vec1.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1));
+        vec2.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0));
+        vec3.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0));
 #endif
     }
 
@@ -345,26 +343,36 @@ struct Vec<int32_t, 4> {
         return dst;
     }
     VecType operator<(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcltq_s32(value, lr.value);
         VecType dst = { vbslq_s32(res, one, zero) };
         return dst;
     }
     VecType operator>(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgtq_s32(value, lr.value);
         VecType dst = { vbslq_s32(res, one, zero) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcleq_s32(value, lr.value);
         VecType dst = { vbslq_s32(res, one, zero) };
         return dst;
     }
     VecType operator>=(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgeq_s32(value, lr.value);
         VecType dst = { vbslq_s32(res, one, zero) };
         return dst;
     }
     VecType operator==(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vceqq_s32(value, lr.value);
         VecType dst = { vbslq_s32(res, one, zero) };
         return dst;
@@ -376,8 +384,6 @@ struct Vec<float, 4> {
     using VecType = Vec<float, 4>;
     using VecTypeInt32 = Vec<int32_t, 4>;
     float32x4_t value;
-    int32x4_t one = vdupq_n_s32(1);
-    int32x4_t zero = vdupq_n_s32(0);
     Vec() {
     }
     Vec(const float v) {
@@ -504,28 +510,38 @@ struct Vec<float, 4> {
         return dst;
     }
     VecType operator<(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcltq_f32(value, lr.value);
-        VecType dst = { vbslq_s32(res, one, zero) };
+        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator>(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgtq_f32(value, lr.value);
-        VecType dst = { vbslq_s32(res, one, zero) };
+        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcleq_f32(value, lr.value);
-        VecType dst = { vbslq_s32(res, one, zero) };
+        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator>=(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgeq_f32(value, lr.value);
-        VecType dst = { vbslq_s32(res, one, zero) };
+        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator==(const VecType& lr) const {
+        int32x4_t one = vdupq_n_s32(1);
+        int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vceqq_f32(value, lr.value);
-        VecType dst = { vbslq_s32(res, one, zero) };
+        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
         return dst;
     }
 };
@@ -536,7 +552,6 @@ struct Vec<int32_t, 4> {
     using VecType = Vec<int32_t, 4>;
     using VecTypeArray = std::array<VecType, 4>;
     __m128i value;
-    __m128i one = _mm_set1_epi32(1);
     VecType operator+(const VecType& lr) const {
         VecType dst = { _mm_add_epi32(value, lr.value) };
         return dst;
@@ -563,26 +578,31 @@ struct Vec<int32_t, 4> {
         return *this;
     }
     VecType operator==(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmpeq_epi32(value, lr.value);
         VecType dst = { _mm_and_si128(one, mask) };
         return dst;
     }
     VecType operator<(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmplt_epi32(value, lr.value);
         VecType dst = { _mm_and_si128(one, mask) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmpgt_epi32(value, lr.value);
         VecType dst = { _mm_andnot_si128(mask, one) };
         return dst;
     }
     VecType operator>(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmpgt_epi32(value, lr.value);
         VecType dst = { _mm_and_si128(one, mask) };
         return dst;
     }
     VecType operator>=(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmplt_epi32(value, lr.value);
         VecType dst = { _mm_andnot_si128(mask, one) };
         return dst;
@@ -668,7 +688,6 @@ struct Vec<float, 4> {
     using VecTypeInt32 = Vec<int32_t, 4>;
     using VecTypeArray = std::array<VecType, 4>;
     __m128 value;
-    __m128i one = _mm_set1_epi32(1);
     VecType operator+(const VecType& lr) const {
         VecType dst = { _mm_add_ps(value, lr.value) };
         return dst;
@@ -708,26 +727,31 @@ struct Vec<float, 4> {
         return dst;
     }
     VecType operator==(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmpeq_epi32(_mm_castps_si128(value), _mm_castps_si128(lr.value));
         VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, mask)) };
         return dst;
     }
     VecType operator<(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128i mask = _mm_cmplt_epi32(_mm_castps_si128(value), _mm_castps_si128(lr.value));
         VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, mask)) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128 mask = _mm_cmple_ps(value, lr.value);
         VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, _mm_castps_si128(mask))) };
         return dst;
     }
     VecType operator>(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128 mask = _mm_cmpgt_ps(value, lr.value);
         VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, _mm_castps_si128(mask))) };
         return dst;
     }
     VecType operator>=(const VecType& lr) const {
+        __m128i one = _mm_set1_epi32(1);
         __m128 mask = _mm_cmpge_ps(value, lr.value);
         VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, _mm_castps_si128(mask))) };
         return dst;

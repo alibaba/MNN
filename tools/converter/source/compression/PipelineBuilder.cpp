@@ -10,6 +10,10 @@
 
 #include "PipelineBuilder.hpp"
 #include "MNN/MNNDefine.h"
+#include <sstream>
+#include "rapidjson/document.h"
+#include "cli.hpp"
+#include "commonKit.hpp"
 
 namespace compression {
 
@@ -20,10 +24,17 @@ Pipeline PipelineBuilder::Build() const {
     Pipeline pipeline;
     if (!filename_.empty()) {
         MNN::Compression::Pipeline proto;
-        std::fstream input(filename_.c_str(), std::ios::in | std::ios::binary);
-        if (!proto.ParseFromIstream(&input)) {
-          MNN_ERROR("Failed to parse compression pipeline proto.\n");
+        std::string jsonSuffix = "json";
+        std::string suffix = filename_.substr(filename_.find_last_of('.') + 1);
+        if (jsonSuffix.compare(suffix) != 0) { // protobuf.bin
+            std::fstream input(filename_.c_str(), std::ios::in | std::ios::binary);
+            if (!proto.ParseFromIstream(&input)) {
+                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            } else {
+                ParsePipeline(proto, &pipeline);
+            }
         } else {
+            CommonKit::json2protobuf(filename_.c_str(), nullptr, &proto);
             ParsePipeline(proto, &pipeline);
         }
     }

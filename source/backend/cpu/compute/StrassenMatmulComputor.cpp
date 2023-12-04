@@ -48,6 +48,11 @@ StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, in
     mDequantBias = dequantBias;
     mDequantAlpha = dequantAlpha;
     mDequantBits = dequantBits;
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    mWeightBytes = core->bytes;
+    if (mDequantBits == 8 || mDequantBits == 4) {
+        mWeightBytes = (float)mDequantBits / 8;
+    }
 };
 StrassenMatrixComputor::~StrassenMatrixComputor() {
     // Do nothing
@@ -64,7 +69,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
     auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    auto bExtraStride = bStride - UP_DIV(l, lP)*lP*hP * core->bytes;
+    auto bExtraStride = bStride - UP_DIV(l, lP)*lP*hP * mWeightBytes;
     MNN_ASSERT(bExtraStride >= 0);
     auto tileBufferBasic = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(numberThread * UP_DIV(l, lP) * eP * lP * bytes);
     if (tileBufferBasic.invalid()) {
@@ -538,7 +543,7 @@ ErrorCode StrassenMatrixComputor::onEncode(int e, int l, int h, int as, int bs, 
     a.offsetBytes = 0;
 
     b.stackIndex = 1;
-    b.lineStrideBytes = bs * core->bytes;
+    b.lineStrideBytes = bs * mWeightBytes;
     b.offsetBytes = 0;
     
     c.stackIndex = 2;

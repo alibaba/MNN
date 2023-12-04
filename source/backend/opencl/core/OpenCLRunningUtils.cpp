@@ -49,10 +49,15 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 3);
     auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
         return tunedLws[info];
+    }
+    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
+    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+        return tuneLwsRes;
     }
     
     std::vector<uint32_t> lws(3, 1);
@@ -259,7 +264,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end()) {
+    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
         //printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -274,10 +279,15 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
         return tunedLws[info];
+    }
+    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
+    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+        return tuneLwsRes;
     }
     
     std::vector<uint32_t> lws(3, 1);
@@ -453,7 +463,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end()) {
+    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
         //printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -698,6 +708,38 @@ void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws
     MNN_PRINT("end recordKernel !\n");
 #endif
 #endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res){
+    float minScale = 0.1;
+    auto iter = tuneMap.find(kernelName);
+    if(iter == tuneMap.end()){
+        return false;
+    }
+    auto gwsAndLws = iter->second;
+    int size = gws.size();
+    int minPoint = INT_MAX;
+    int index = -1;
+    for(int i = 0; i < gwsAndLws.size(); ++i){
+        int point = 0;
+        for(int j = 0; j < size; ++j){
+            point += std::abs((int)gws[j] - (int)gwsAndLws[i].first[j]);
+        }
+        if(point < minPoint){
+            index = i;
+            minPoint = point;
+        }
+    }
+    if(index != -1){
+//        for(int i = 0; i < size; ++i){
+//            float scale = (std::abs((float)gws[i] - (float)gwsAndLws[index].second[i])) / (float)gws[i];
+//            if(scale >= minScale){
+//                return localSize;
+//            }
+//        }
+        res = gwsAndLws[index].second;
+    }
+    return true;
 }
 
 } // namespace OpenCL

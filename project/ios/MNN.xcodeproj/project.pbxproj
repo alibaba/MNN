@@ -357,6 +357,8 @@
 		4DD1791B2684815A00B0098F /* ShapeSetDiff1D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DD1791A2684815A00B0098F /* ShapeSetDiff1D.cpp */; };
 		4DD1793A2694076700B0098F /* MNNSoftmax.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DD179392694076700B0098F /* MNNSoftmax.S */; };
 		4DD1793C2694078000B0098F /* MNNSoftmax.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DD1793B2694078000B0098F /* MNNSoftmax.S */; };
+		4DDD8E102B1D70C1005065D1 /* MNNTranspose16Bit8x8.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DDD8E0F2B1D70C1005065D1 /* MNNTranspose16Bit8x8.S */; };
+		4DDD8E122B1D70CC005065D1 /* MNNTranspose16Bit8x8.S in Sources */ = {isa = PBXBuildFile; fileRef = 4DDD8E112B1D70CC005065D1 /* MNNTranspose16Bit8x8.S */; };
 		4DDE2019263809920085AC8F /* CoreMLExecutorWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DDE2017263809920085AC8F /* CoreMLExecutorWrapper.mm */; };
 		4DDE201A263809920085AC8F /* CoreMLExecutorWrapper.h in Headers */ = {isa = PBXBuildFile; fileRef = 4DDE2018263809920085AC8F /* CoreMLExecutorWrapper.h */; };
 		4DE4E82C275E307B0016A916 /* cv in Headers */ = {isa = PBXBuildFile; fileRef = 4DE4E82B275E307B0016A916 /* cv */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1178,6 +1180,8 @@
 		4DD1791A2684815A00B0098F /* ShapeSetDiff1D.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeSetDiff1D.cpp; sourceTree = "<group>"; };
 		4DD179392694076700B0098F /* MNNSoftmax.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNSoftmax.S; sourceTree = "<group>"; };
 		4DD1793B2694078000B0098F /* MNNSoftmax.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNSoftmax.S; sourceTree = "<group>"; };
+		4DDD8E0F2B1D70C1005065D1 /* MNNTranspose16Bit8x8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNTranspose16Bit8x8.S; sourceTree = "<group>"; };
+		4DDD8E112B1D70CC005065D1 /* MNNTranspose16Bit8x8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNTranspose16Bit8x8.S; sourceTree = "<group>"; };
 		4DDE2017263809920085AC8F /* CoreMLExecutorWrapper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = CoreMLExecutorWrapper.mm; sourceTree = "<group>"; };
 		4DDE2018263809920085AC8F /* CoreMLExecutorWrapper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreMLExecutorWrapper.h; sourceTree = "<group>"; };
 		4DE4E82B275E307B0016A916 /* cv */ = {isa = PBXFileReference; lastKnownFileType = folder; name = cv; path = ../tools/cv/include/cv; sourceTree = "<group>"; };
@@ -2508,6 +2512,7 @@
 		92FF013A23AA0B4E00AC97F6 /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
+				4DDD8E112B1D70CC005065D1 /* MNNTranspose16Bit8x8.S */,
 				95CE1DFE2AC57F6200EFB51E /* MNNReluWithSlopeChannelInt8.S */,
 				CE125CC72A52BF6B003698C9 /* MNNBilinearLineC8.S */,
 				CE125CC62A52BF6B003698C9 /* MNNBilinearSampleC8.S */,
@@ -2589,6 +2594,7 @@
 		92FF017C23AA0B4E00AC97F6 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				4DDD8E0F2B1D70C1005065D1 /* MNNTranspose16Bit8x8.S */,
 				95CE1E002AC57F7600EFB51E /* MNNReluWithSlopeChannelInt8.S */,
 				CEE9B9572A3AA4D4006438F2 /* MNNBilinearLineC8.S */,
 				CEE9B9582A3AA4D4006438F2 /* MNNBilinearSampleC8.S */,
@@ -3536,6 +3542,7 @@
 				92FF029A23AA0B5A00AC97F6 /* CPUQuantizedMaxPool.cpp in Sources */,
 				48F5881124DEA3F000C484A2 /* GeometryPooling3D.cpp in Sources */,
 				92FF042423AA0B7100AC97F6 /* ShapeROIPooling.cpp in Sources */,
+				4DDD8E122B1D70CC005065D1 /* MNNTranspose16Bit8x8.S in Sources */,
 				92FF033723AA0B5A00AC97F6 /* MNNConvDwF23MulTransUnit.S in Sources */,
 				4896D37A25FE2A6B00717702 /* MNNPackedMatMulRemainFP16.S in Sources */,
 				92FF043023AA0B7100AC97F6 /* ShapeQuantizedAvgPool.cpp in Sources */,
@@ -3597,6 +3604,7 @@
 				48FA474523AA127B00172C3B /* Executor.cpp in Sources */,
 				92FF02EA23AA0B5A00AC97F6 /* MNNGemmInt8AddBiasScale_16x4_Unit.S in Sources */,
 				48A8A61A21D101DE00C2B9A7 /* Matrix_CV.cpp in Sources */,
+				4DDD8E102B1D70C1005065D1 /* MNNTranspose16Bit8x8.S in Sources */,
 				489D7A8C2550FDC900AD896A /* MetalDeconvolution.mm in Sources */,
 				489D7AA62550FDC900AD896A /* MetalBackend.mm in Sources */,
 				92FF031823AA0B5A00AC97F6 /* MNNConvRunForUnitDepthWiseUint8.S in Sources */,
@@ -4019,7 +4027,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				DEFINES_MODULE = YES;
-				DEVELOPMENT_TEAM = Q48UX93J22;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -4062,7 +4070,7 @@
 				METAL_LIBRARY_FILE_BASE = mnn;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.abcd111;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.v3;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -4083,7 +4091,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				DEFINES_MODULE = YES;
-				DEVELOPMENT_TEAM = Q48UX93J22;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -4124,7 +4132,7 @@
 				MACH_O_TYPE = staticlib;
 				METAL_LIBRARY_FILE_BASE = mnn;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.abcd111;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.v3;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -4143,7 +4151,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = Q48UX93J22;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
 				HEADER_SEARCH_PATHS = (
@@ -4156,7 +4164,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.abcd111;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.v3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4168,7 +4176,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = Q48UX93J22;
+				DEVELOPMENT_TEAM = 6G7464HHUS;
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
 				HEADER_SEARCH_PATHS = (
@@ -4181,7 +4189,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.abcd111;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.playground.v3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

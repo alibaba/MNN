@@ -7,6 +7,7 @@
 //
 
 #include "OpGrad.hpp"
+#include "core/TensorUtils.hpp"
 using namespace std;
 using namespace MNN;
 using namespace MNN::Express;
@@ -20,12 +21,38 @@ public:
         auto rasterInfo = expr->get()->main_as_Extra();
         const int32_t* regionData = nullptr;
         const int REGION_LENGTH = 11;
-        for (int i=0; i<rasterInfo->attr()->size(); ++i) {
-            auto attr = rasterInfo->attr()->GetAs<Attribute>(i);
-            if (attr->key()->str() == "region") {
-                regionData = attr->list()->i()->data();
-                MNN_ASSERT(inputs.size() * REGION_LENGTH == attr->list()->i()->size());
-                break;
+        std::vector<int32_t> regionDataHolder;
+        if (nullptr != rasterInfo && nullptr != rasterInfo->attr()) {
+            for (int i=0; i<rasterInfo->attr()->size(); ++i) {
+                auto attr = rasterInfo->attr()->GetAs<Attribute>(i);
+                if (attr->key()->str() == "region") {
+                    regionData = attr->list()->i()->data();
+                    MNN_ASSERT(inputs.size() * REGION_LENGTH == attr->list()->i()->size());
+                    break;
+                }
+            }
+        } else {
+            regionDataHolder.resize(inputs.size() * REGION_LENGTH);
+            regionData = regionDataHolder.data();
+            auto outputTensor = Variable::create(expr)->getTensor();
+            auto des = TensorUtils::getDescribe(outputTensor);
+            MNN_ASSERT(des->regions.size() == inputs.size());
+            for (int i=0; i<inputs.size(); ++i) {
+                auto& r = des->regions[i];
+                auto dstPtr = regionDataHolder.data() + REGION_LENGTH * i;
+                dstPtr[0] = r.src.offset;
+                dstPtr[1] = r.src.stride[0];
+                dstPtr[2] = r.src.stride[1];
+                dstPtr[3] = r.src.stride[2];
+
+                dstPtr[4] = r.dst.offset;
+                dstPtr[5] = r.dst.stride[0];
+                dstPtr[6] = r.dst.stride[1];
+                dstPtr[7] = r.dst.stride[2];
+                
+                dstPtr[8] = r.size[0];
+                dstPtr[9] = r.size[1];
+                dstPtr[10] = r.size[2];
             }
         }
         for (int i=0; i<inputs.size(); ++i) {

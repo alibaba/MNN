@@ -425,7 +425,7 @@ L1Loop:
     L1_SQXTN_S8:
     sqxtn v5.8b, v1.8h
     smax v5.8b, v5.8b, v30.8b
-    smin v6.8b, v6.8b, v31.8b
+    smin v5.8b, v5.8b, v31.8b
     st1 {v5.s}[0], [x0], #4
 
     subs x6, x6, #1

@@ -170,7 +170,7 @@ public:
                 case UnaryOpOperation_SQUARE:
                     return new UnaryBufExecution("in*in", backend);
                 case UnaryOpOperation_RSQRT:
-                    return new UnaryBufExecution("rsqrt(convert_float4(in))", backend);
+                    return new UnaryBufExecution("rsqrt(convert_float4(in)>(float4)(0.000001)?convert_float4(in):(float4)(0.000001))", backend);
                 case UnaryOpOperation_NEG:
                     return new UnaryBufExecution("-(in)", backend);
                 case UnaryOpOperation_EXP:

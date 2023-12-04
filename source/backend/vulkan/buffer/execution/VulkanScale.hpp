@@ -23,7 +23,7 @@ public:
 private:
     std::shared_ptr<VulkanBuffer> mScaleParam;
     const VulkanPipeline* mScalePipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     std::shared_ptr<VulkanBuffer> mScaleBuffer;
     std::shared_ptr<VulkanBuffer> mBiasBuffer;
     const VulkanSampler* mSampler;

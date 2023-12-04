@@ -105,7 +105,17 @@ static bool crossBoundary(EXPRP origin, EXPRP opt, const std::unordered_set<EXPR
     return false;
 }
 
-bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority priority, const std::vector<VARP>& boundary) {
+static std::map<std::string, VARP> updateInputVarOfExpr(EXPRP expr) {
+    std::map<std::string, VARP> res;
+    auto inputs = expr->inputs();
+    for (int i = 0; i < inputs.size(); ++i) {
+        VARP input = inputs.at(i);
+        res[input->name()] = input;
+    }
+    return res;
+}
+
+bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority priority, std::map<std::string, VARP>& updateVars, const std::vector<VARP>& boundary) {
     if (mPriorities.size() <= priority) {
         return false;
     }
@@ -144,6 +154,10 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
 #endif
                 } else {
                     invalidVARP.insert(var);
+                }
+                if (var->get() && var->get()->type() == 19) {
+                    auto updateInputs = updateInputVarOfExpr(var);
+                    updateVars.insert(updateInputs.begin(), updateInputs.end());
                 }
             }
         }

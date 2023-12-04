@@ -196,8 +196,8 @@ private:
     std::shared_ptr<VulkanImage> mBias;
     std::shared_ptr<VulkanImage> mKernel;
     const Convolution2DCommon* mConvCommonOption;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mCol2ImSet;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mIm2ColSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mCol2ImSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mIm2ColSet;
     std::vector<std::shared_ptr<VulkanBuffer>> mConvParams;
     std::vector<std::shared_ptr<VulkanMatrixMultier4x4>> mMultilers;
     std::function<std::shared_ptr<VulkanMatrixMultier4x4>()> mMultiCreator;

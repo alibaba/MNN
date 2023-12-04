@@ -10,12 +10,15 @@
 
 #include <MNN/expr/Optimizer.hpp>
 #include <set>
+#include <MNN/expr/ExecutorScope.hpp>
 #include "PostConverter.hpp"
 #include "PostTreatUtils.hpp"
 #include "Program.hpp"
 #include "SubGraphComplete.hpp"
 #include "GenerateSubGraph.hpp"
 #include "TemplateMerge.hpp"
+#include "core/Backend.hpp"
+#include <MNN/expr/ExecutorScope.hpp>
 //#define MNN_POST_CONVERTER_DEBUG
 
 namespace MNN {
@@ -184,7 +187,15 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 
     std::string pass = "Merge";
     auto& merge      = MNN::Express::TemplateMerge::getInstance(pass);
-    merge.onExecute(program->outputs(), priority, boundary);
+    std::map<std::string, VARP> updateVars;
+    merge.onExecute(program->outputs(), priority, updateVars, boundary);
+
+    auto Update = [&](std::shared_ptr<Program> program, const std::vector<std::string>& tensorName) {
+        program->updateVars(updateVars, tensorName);
+    };
+
+    Update(program, originNet->tensorName);
+
     originNet->oplists.clear();
     originNet->tensorName.clear();
 
@@ -200,6 +211,10 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 
 std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet,
                                            const std::unordered_map<std::string, VARP>& inputs) {
+    ExecutorScope::Current()->lazyEval = true;
+    ExecutorScope::Current()->setLazyComputeMode(Executor::LAZY_FULL);
+    auto rtInfo = ExecutorScope::Current()->getRuntime();
+    rtInfo.second->setExternalFile(".__convert_external_data.bin");
     auto* ctx = Global<OptimizeContext>::Get();
     MNN_ASSERT(ctx != nullptr);
 
@@ -256,7 +271,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-    auto tensorDescribe = std::move(originNet->extraTensorDescribe);
+//    auto tensorDescribe = std::move(originNet->extraTensorDescribe);
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -326,7 +341,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
-    newNet->extraTensorDescribe = std::move(tensorDescribe);
+//    newNet->extraTensorDescribe = std::move(tensorDescribe);
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 

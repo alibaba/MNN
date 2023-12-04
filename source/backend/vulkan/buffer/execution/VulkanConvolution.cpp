@@ -146,15 +146,10 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     MNN_ASSERT(OpType_ConvolutionDepthwise == convOp->type());
     auto macro = getPostTreatMacro(common);
-    if (extra->gpuType() == VulkanRuntime::ADRENO) {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
-        mLocalX       = 16;
-        mLocalY       = 16;
-    } else {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwiseMali_" + macro + "comp", convTypes);
-        mLocalX       = 8;
-        mLocalY       = 8;
-    }
+    mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
+    mLocalX       = 16;
+    mLocalY       = 16;
+
     mConvSet.reset(mConvPipeline->createSet());
     if (!initweights) {
         return true;
@@ -178,9 +173,9 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
     if (nullptr != convReal->bias()) {
         // Create Buffer
         ::memcpy(bias, convReal->bias()->data(), common->outputCount() * sizeof(float));
-        mBias = biasBuffer;
     }
     biasBuffer->unmap();
+    mBias = biasBuffer;
     return true;
 }
 
@@ -226,7 +221,7 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         });
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(pipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(pipeline->createSet());
         des->writeBuffer(weight.first->buffer(), 1, weightSize, weight.second);
         des->writeBuffer(mKernel->buffer(), 0, mKernel->size());
         int dim[4] = {

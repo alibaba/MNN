@@ -124,7 +124,7 @@ public:
             }
             case BinaryOpOperation_POW: {
                 // d (pow(x, y)) = dv * pow(x, y) / x * y , dv * pow(x, y) * ln(x)
-                res[0] = outputDiff * output[0] * _Divide(inputs[1], inputs[0]);
+                res[0] = outputDiff * output[0] * OpGrad::divideAvoidZero(inputs[1], inputs[0]);
                 res[1] = outputDiff * output[0] * _Log(inputs[0]);
                 break;
             }
@@ -144,6 +144,7 @@ public:
                 break;
             }
             default:
+                MNN_ERROR("Can't grad for binary: %d\n", op->main_as_BinaryOp()->opType());
                 return res;
         }
         for (int i = 0; i < inputs.size(); ++i) {

@@ -28,6 +28,8 @@ private:
     const float *weightPtr, *biasPtr;
     int weightSize, biasSize;
     bool isDeconv = false;
+    bool isSamePadding = false;
+    int outputHeight, outputWidth, inputHeight, inputWidth;
 };
 } // namespace MNN
 

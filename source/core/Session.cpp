@@ -338,10 +338,7 @@ ErrorCode Session::updateToModel(Net* net) const {
     int opSize = net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
-        if ((net->usage() == Usage_INFERENCE || net->usage() == Usage_INFERENCE_STATIC) && op->type() != OpType_Const) {
-            continue;
-        }
-        if (net->usage() == Usage_TRAIN && op->type() != OpType_TrainableParam) {
+        if (op->type() != OpType_Const && op->type() != OpType_TrainableParam) {
             continue;
         }
         if (!op->outputIndexes() || op->outputIndexes()->size() != 1) {

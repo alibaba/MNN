@@ -23,8 +23,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat32(const std
         // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
         // instantiated CUTLASS kernel
         typename GemmCuda_F32_F32_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                        {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                         {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                        {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                         {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                         {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                         {alpha, beta},          // <- tuple of alpha and beta
@@ -49,8 +49,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat32(const std
         // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
         // instantiated CUTLASS kernel
         typename GemmCuda_F32_F32_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
@@ -74,8 +74,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat32(const std
     } else {
 
         typename GemmCuda_F32_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             {(ElementInput_F32 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                            {(ElementInput_F32 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                             {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta

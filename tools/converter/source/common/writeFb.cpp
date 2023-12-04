@@ -20,6 +20,7 @@
 #include "cpp/ConfigFile.hpp"
 #include <MNN/MNNDefine.h>
 #include "cli.hpp"
+#include "commonKit.hpp""
 #include "MNN_compression.pb.h"
 
 using namespace MNN;
@@ -29,9 +30,15 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     std::string compressFileName = config.compressionParamsFile;
     Compression::Pipeline proto;
     if (compressFileName != "") {
-        std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
-        if (!proto.ParseFromIstream(&input)) {
-            MNN_ERROR("Failed to parse compression pipeline proto.\n");
+        string jsonSuffix = "json";
+        string suffix = compressFileName.substr(compressFileName.find_last_of('.') + 1);
+        if (jsonSuffix.compare(suffix) != 0) { // protobuf.bin file
+            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
+            if (!proto.ParseFromIstream(&input)) {
+                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            }
+        } else {
+            CommonKit::json2protobuf(compressFileName.c_str(), nullptr, &proto);
         }
     }
 

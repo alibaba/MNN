@@ -85,6 +85,9 @@ void main()
 #ifdef NOTEQUAL
         value = FLOAT4(notEqual(x0, x1));
 #endif
+#ifdef VMOD
+        value = mod(x0, x1);
+#endif
         if(uConstant.activationType == 1) {
             value = max(value, vec4(0));
         }

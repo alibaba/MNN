@@ -1,4 +1,5 @@
 #include "util.h"
+#include "OpGrad.hpp"
 
 // Optim Module
 def_enum(Regularization_Method, ParameterOptimizer::RegularizationMethod,
@@ -18,7 +19,10 @@ def_class_getset(
     regularization_method, 1
 )
 def_class_methods(Optimizer,
-    step, "Optimizer step"
+    step, "Optimizer step",
+    grad, "Grad for variables",
+    get_update_graph, "Get Update Graph for parameters",
+    save_graph, "Save Update Graph to MNN File"
 )
 def_class_end(Optimizer, ParameterOptimizer)
 // impl
@@ -104,6 +108,70 @@ static int PyMNNOptimizer_setregularization_method(PyMNNOptimizer *self, PyObjec
     }
     return 0;  
 }
+
+static PyObject* _makeTupleFromPairVector(const std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>>& values) {
+    PyObject* obj0 = PyList_New(values.first.size());
+    for (int i = 0; i < values.first.size(); i++) {
+        PyList_SetItem(obj0, i, toPyObj(values.first[i]));
+    }
+    PyObject* obj1 = PyList_New(values.second.size());
+    for (int i = 0; i < values.second.size(); i++) {
+        PyList_SetItem(obj1, i, toPyObj(values.second[i]));
+    }
+    PyObject* obj = PyTuple_New(2);
+    PyTuple_SetItem(obj, 0, obj0);
+    PyTuple_SetItem(obj, 1, obj1);
+    return obj;
+}
+static PyObject* PyMNNOptimizer_grad(PyMNNOptimizer *self, PyObject *args) {
+    PyObject* outputs;
+    PyObject* outputDiffs;
+    PyObject* parameters;
+    if (PyArg_ParseTuple(args, "OOO", &outputs, &outputDiffs, &parameters)) {
+        if (isVars(outputs) && isVals(outputDiffs) && isVars(parameters)) {
+            auto values = OpGrad::gradCommon(toVars(outputs), toVars(outputDiffs), toVars(parameters));
+            return _makeTupleFromPairVector(values);
+        }
+    }
+    PyMNN_ERROR("grad require args: ([Var](outputs),[Var](output Diff), [Var](parameters))");
+    return Py_None;
+}
+static PyObject* PyMNNOptimizer_get_update_graph(PyMNNOptimizer *self, PyObject *args) {
+    PyObject* parameter;
+    PyObject* parameterGrad;
+    PyObject* learningRate;
+    if (PyArg_ParseTuple(args, "OOO", &parameter, &parameterGrad, &learningRate)) {
+        if (isVars(parameter) && isVals(parameterGrad) && isVars(learningRate)) {
+            if (self->ptr) {
+                auto p = toVars(parameter);
+                auto pd = toVars(parameterGrad);
+                auto lr = toVars(learningRate);
+                auto values = static_cast<ParameterOptimizer*>(self->ptr)->makeParameterUpdateGraphByGrad(p, pd, lr);
+                return _makeTupleFromPairVector(values);
+            }
+        }
+    }
+    PyMNN_ERROR("get_update_graph require args: ([Var](parameter),[Var](parameter grad), [Var](learningRate))");
+    return Py_None;
+}
+static PyObject* PyMNNOptimizer_save_graph(PyMNNOptimizer *self, PyObject *args) {
+    const char* modelFile      = NULL;
+    PyObject* outputs;
+    PyObject* parameter;
+    PyObject* parameterUpdate;
+    if (PyArg_ParseTuple(args, "sOOO", &modelFile, &outputs, &parameter, &parameterUpdate)) {
+        if (isVars(parameter) && isVals(parameterUpdate) && isVars(outputs)) {
+            auto o = toVars(outputs);
+            auto p = toVars(parameter);
+            auto pu = toVars(parameterUpdate);
+            ParameterOptimizer::makeLoopModel(modelFile, o, std::make_pair(p, pu));
+            return Py_None;
+        }
+    }
+    PyMNN_ERROR("save_graph require args: ([string](outputPath),[Var](outputs), [Var](parameter),  [Var](parameterUpdate))");
+    return Py_None;
+}
+
 // PyMNNOptimizer methods impl
 static PyObject* PyMNNOptimizer_step(PyMNNOptimizer *self, PyObject *args) {
     PyObject *loss;
@@ -111,6 +179,12 @@ static PyObject* PyMNNOptimizer_step(PyMNNOptimizer *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     return toPyObj(self->ptr->step(toVar(loss)));
+}
+static PyObject* PyMNNOptim_Grad(PyObject *self, PyObject *args, PyObject *kwargs) {
+    float learning_rate = 1e-3, momentum = 0.9, weight_decay = 0.0;
+    std::shared_ptr<Module> m;
+    return toPyObj(ParameterOptimizer::createSGD(m, learning_rate, momentum,
+                                                 weight_decay, RegularizationMethod::L2));
 }
 static PyObject* PyMNNOptim_SGD(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *module = nullptr, *method = nullptr /* L2 */;
@@ -141,6 +215,7 @@ static PyObject* PyMNNOptim_ADAM(PyObject *self, PyObject *args, PyObject *kwarg
 }
 static PyMethodDef PyMNNOptim_methods[] = {
     register_methods_kw(Optim,
+        Grad, "Grad Only",
         SGD, "SGD Optimizer",
         ADAM, "ADAM Optimizer"
     )

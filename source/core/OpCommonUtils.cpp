@@ -14,6 +14,23 @@
 #include <fstream>
 
 namespace MNN {
+Tensor::DimensionType OpCommonUtils::convertDimType(MNN_DATA_FORMAT dimensionFormat) {
+    auto dimType = Tensor::CAFFE;
+    switch (dimensionFormat) {
+        case MNN_DATA_FORMAT_NCHW:
+            break;
+        case MNN_DATA_FORMAT_NC4HW4:
+            dimType = Tensor::CAFFE_C4;
+            break;
+        case MNN_DATA_FORMAT_NHWC:
+            dimType = Tensor::TENSORFLOW;
+            break;
+        default:
+            break;
+    }
+    return dimType;
+}
+
 void OpCommonUtils::loadBlobData(Backend* backend, const Op* op, char* ptr, int size) {
     if (OpParameter_Blob != op->main_type()) {
         return;
@@ -464,6 +481,18 @@ bool OpCommonUtils::opNeedContent(int type, int index) {
                 return false;
             }
             break;
+        case OpType_GridSample:
+            if (2 == index) {
+                return false;
+            }
+            break;
+#ifdef MNN_SUPPORT_RENDER
+        case OpType_RasterAndInterpolate:
+            if (0 == index) {
+                return false;
+            }
+            break;
+#endif
         default:
             break;
     }
@@ -637,6 +666,49 @@ void OpCommonUtils::turnRegion2Convert(const Tensor::InsideDescribe::Region& reg
         }
     }
     return;
+}
+bool OpCommonUtils::computeMatMulSize(bool transposeA, bool transposeB, const Tensor* A, const Tensor* B, int& e, int& l, int& h) {
+    auto i0Dim = A->dimensions();
+    auto i1Dim = B->dimensions();
+    if (i0Dim < 1 || i1Dim < 1) {
+        return false;
+    }
+    int w0, h0;
+    int w1, h1;
+    if (i0Dim == 1) {
+        w0 = A->length(0);
+        h0 = 1;
+        transposeA = false;
+    } else {
+        w0 = A->length(i0Dim - 1);
+        h0 = A->length(i0Dim - 2);
+    }
+    if (i1Dim == 1) {
+        w1 = 1;
+        h1 = B->length(0);
+        transposeB = false;
+    } else {
+        w1 = B->length(i1Dim - 1);
+        h1 = B->length(i1Dim - 2);
+    }
+    if (transposeA) {
+        auto t = w0;
+        w0     = h0;
+        h0     = t;
+    }
+    if (transposeB) {
+        auto t = w1;
+        w1     = h1;
+        h1     = t;
+    }
+
+    if (w0 != h1) {
+        return false;
+    }
+    e = h0;
+    l = w0;
+    h = w1;
+    return true;
 }
 
 

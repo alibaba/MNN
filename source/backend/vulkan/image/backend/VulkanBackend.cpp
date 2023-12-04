@@ -135,17 +135,44 @@ private:
     std::shared_ptr<VulkanTensor> mTensor;
 };
 
+static VkFormat _getFormat(halide_type_t type) {
+    switch (type.code) {
+        case halide_type_float:
+            return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case halide_type_int: {
+            if (8 == type.bits) {
+                return VK_FORMAT_R8G8B8A8_SINT;
+            } else if (type.bits == 16) {
+                return VK_FORMAT_R16G16B16A16_SINT;
+            }
+            return VK_FORMAT_R32G32B32A32_SINT;
+        }
+        case halide_type_uint: {
+            if (8 == type.bits) {
+                return VK_FORMAT_R8G8B8A8_UINT;
+            } else if (type.bits == 16) {
+                return VK_FORMAT_R16G16B16A16_UINT;
+            }
+            return VK_FORMAT_R32G32B32A32_UINT;
+        }
+        default:
+            break;
+    }
+    return VK_FORMAT_R32G32B32A32_SFLOAT;
+}
+
 Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
     //FUNC_PRINT_ALL(tensor, p);
 
     auto MTensor     = const_cast<Tensor*>(tensor);
+    auto format = _getFormat(tensor->getType());
     if (Backend::STATIC == storageType) {
-        auto newBuffer           = std::make_shared<VulkanTensor>(MTensor, getMemoryPool(), device().proty().limits);
+        auto newBuffer           = std::make_shared<VulkanTensor>(MTensor, format, getMemoryPool(), device().proty().limits);
         MTensor->buffer().device = (uint64_t)(newBuffer.get());
         return new VulkanMemRelease(newBuffer);
     }
     bool separate  = storageType == Backend::DYNAMIC_SEPERATE;
-    auto newBuffer = std::make_shared<VulkanTensor>(MTensor, getDynamicMemoryPool(), device().proty().limits, separate);
+    auto newBuffer = std::make_shared<VulkanTensor>(MTensor, format, getDynamicMemoryPool(), device().proty().limits, separate);
     MTensor->buffer().device = (uint64_t)(newBuffer.get());
     mAllBuffers.insert(std::make_pair(MTensor->buffer().device, newBuffer));
     return new VulkanMemRelease(newBuffer);;
@@ -368,7 +395,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             ivec4 dstOffset;
             ivec4 dstStride;
         };
-        std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDesSet(srcVkTensor->imageSize());
+        std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDesSet(srcVkTensor->imageSize());
         auto needSize = sizeof(Param);
         if (needSize < proty().limits.nonCoherentAtomSize) {
             needSize = proty().limits.nonCoherentAtomSize;
@@ -455,7 +482,7 @@ void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanIm
             break;
     }
 
-    std::unique_ptr<VulkanPipeline::DescriptorSet> sets(transformPipeline->createSet());
+    std::unique_ptr<VulkanLayout::DescriptorSet> sets(transformPipeline->createSet());
     auto constBuffer = std::make_shared<VulkanBuffer>(getMemoryPool(), false, dimVector.size() * sizeof(int),
                                                       dimVector.data(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     sets->writeImage(image->view(), mRuntime->mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);

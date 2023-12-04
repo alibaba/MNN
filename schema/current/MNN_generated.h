@@ -143,10 +143,10 @@ enum OpType {
   OpType_QuantizedConcat = 54,
   OpType_QuantizedDepthwiseConv2D = 55,
   OpType_QuantizedLogistic = 56,
-  OpType_QuantizedMatMul = 57,
+  OpType_RasterAndInterpolate = 57,
   OpType_QuantizedMaxPool = 58,
-  OpType_QuantizedRelu = 59,
-  OpType_QuantizedRelu6 = 60,
+  OpType_Texture = 59,
+  OpType_RasterDiff = 60,
   OpType_QuantizedReshape = 61,
   OpType_QuantizedSoftmax = 62,
   OpType_QuantizeMaxMin = 63,
@@ -236,6 +236,8 @@ enum OpType {
   OpType_GatherElements = 152,
   OpType_Svd = 153,
   OpType_Histogram = 154,
+  OpType_QuantizeLinear = 155,
+  OpType_DequantizeLinear = 156,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -265,7 +267,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[175] {
+inline const OpType (&EnumValuesOpType())[177] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -324,10 +326,10 @@ inline const OpType (&EnumValuesOpType())[175] {
     OpType_QuantizedConcat,
     OpType_QuantizedDepthwiseConv2D,
     OpType_QuantizedLogistic,
-    OpType_QuantizedMatMul,
+    OpType_RasterAndInterpolate,
     OpType_QuantizedMaxPool,
-    OpType_QuantizedRelu,
-    OpType_QuantizedRelu6,
+    OpType_Texture,
+    OpType_RasterDiff,
     OpType_QuantizedReshape,
     OpType_QuantizedSoftmax,
     OpType_QuantizeMaxMin,
@@ -417,6 +419,8 @@ inline const OpType (&EnumValuesOpType())[175] {
     OpType_GatherElements,
     OpType_Svd,
     OpType_Histogram,
+    OpType_QuantizeLinear,
+    OpType_DequantizeLinear,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -505,10 +509,10 @@ inline const char * const *EnumNamesOpType() {
     "QuantizedConcat",
     "QuantizedDepthwiseConv2D",
     "QuantizedLogistic",
-    "QuantizedMatMul",
+    "RasterAndInterpolate",
     "QuantizedMaxPool",
-    "QuantizedRelu",
-    "QuantizedRelu6",
+    "Texture",
+    "RasterDiff",
     "QuantizedReshape",
     "QuantizedSoftmax",
     "QuantizeMaxMin",
@@ -603,8 +607,8 @@ inline const char * const *EnumNamesOpType() {
     "GatherElements",
     "Svd",
     "Histogram",
-    "",
-    "",
+    "QuantizeLinear",
+    "DequantizeLinear",
     "",
     "",
     "",
@@ -1160,11 +1164,13 @@ enum OpParameter {
   OpParameter_LoopParam = 92,
   OpParameter_ImageProcessParam = 93,
   OpParameter_CumSum = 94,
+  OpParameter_QuantizeLinear = 95,
+  OpParameter_DequantizeLinear = 96,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_CumSum
+  OpParameter_MAX = OpParameter_DequantizeLinear
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[95] {
+inline const OpParameter (&EnumValuesOpParameter())[97] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1260,7 +1266,9 @@ inline const OpParameter (&EnumValuesOpParameter())[95] {
     OpParameter_GridSample,
     OpParameter_LoopParam,
     OpParameter_ImageProcessParam,
-    OpParameter_CumSum
+    OpParameter_CumSum,
+    OpParameter_QuantizeLinear,
+    OpParameter_DequantizeLinear
   };
   return values;
 }
@@ -1362,13 +1370,15 @@ inline const char * const *EnumNamesOpParameter() {
     "LoopParam",
     "ImageProcessParam",
     "CumSum",
+    "QuantizeLinear",
+    "DequantizeLinear",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_CumSum) return "";
+  if (e < OpParameter_NONE || e > OpParameter_DequantizeLinear) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1751,6 +1761,14 @@ template<> struct OpParameterTraits<ImageProcessParam> {
 
 template<> struct OpParameterTraits<CumSum> {
   static const OpParameter enum_value = OpParameter_CumSum;
+};
+
+template<> struct OpParameterTraits<QuantizeLinear> {
+  static const OpParameter enum_value = OpParameter_QuantizeLinear;
+};
+
+template<> struct OpParameterTraits<DequantizeLinear> {
+  static const OpParameter enum_value = OpParameter_DequantizeLinear;
 };
 
 struct OpParameterUnion {
@@ -2535,6 +2553,22 @@ struct OpParameterUnion {
   const CumSumT *AsCumSum() const {
     return type == OpParameter_CumSum ?
       reinterpret_cast<const CumSumT *>(value) : nullptr;
+  }
+  QuantizeLinearT *AsQuantizeLinear() {
+    return type == OpParameter_QuantizeLinear ?
+      reinterpret_cast<QuantizeLinearT *>(value) : nullptr;
+  }
+  const QuantizeLinearT *AsQuantizeLinear() const {
+    return type == OpParameter_QuantizeLinear ?
+      reinterpret_cast<const QuantizeLinearT *>(value) : nullptr;
+  }
+  DequantizeLinearT *AsDequantizeLinear() {
+    return type == OpParameter_DequantizeLinear ?
+      reinterpret_cast<DequantizeLinearT *>(value) : nullptr;
+  }
+  const DequantizeLinearT *AsDequantizeLinear() const {
+    return type == OpParameter_DequantizeLinear ?
+      reinterpret_cast<const DequantizeLinearT *>(value) : nullptr;
   }
 };
 
@@ -3599,6 +3633,12 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const CumSum *main_as_CumSum() const {
     return main_type() == OpParameter_CumSum ? static_cast<const CumSum *>(main()) : nullptr;
   }
+  const QuantizeLinear *main_as_QuantizeLinear() const {
+    return main_type() == OpParameter_QuantizeLinear ? static_cast<const QuantizeLinear *>(main()) : nullptr;
+  }
+  const DequantizeLinear *main_as_DequantizeLinear() const {
+    return main_type() == OpParameter_DequantizeLinear ? static_cast<const DequantizeLinear *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -4005,6 +4045,14 @@ template<> inline const ImageProcessParam *Op::main_as<ImageProcessParam>() cons
 
 template<> inline const CumSum *Op::main_as<CumSum>() const {
   return main_as_CumSum();
+}
+
+template<> inline const QuantizeLinear *Op::main_as<QuantizeLinear>() const {
+  return main_as_QuantizeLinear();
+}
+
+template<> inline const DequantizeLinear *Op::main_as<DequantizeLinear>() const {
+  return main_as_DequantizeLinear();
 }
 
 struct OpBuilder {
@@ -5628,6 +5676,14 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_QuantizeLinear: {
+      auto ptr = reinterpret_cast<const QuantizeLinear *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_DequantizeLinear: {
+      auto ptr = reinterpret_cast<const DequantizeLinear *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -6022,6 +6078,14 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_QuantizeLinear: {
+      auto ptr = reinterpret_cast<const QuantizeLinear *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case OpParameter_DequantizeLinear: {
+      auto ptr = reinterpret_cast<const DequantizeLinear *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6404,6 +6468,14 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const CumSumT *>(value);
       return CreateCumSum(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_QuantizeLinear: {
+      auto ptr = reinterpret_cast<const QuantizeLinearT *>(value);
+      return CreateQuantizeLinear(_fbb, ptr, _rehasher).Union();
+    }
+    case OpParameter_DequantizeLinear: {
+      auto ptr = reinterpret_cast<const DequantizeLinearT *>(value);
+      return CreateDequantizeLinear(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6784,6 +6856,14 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_CumSum: {
       value = new CumSumT(*reinterpret_cast<CumSumT *>(u.value));
+      break;
+    }
+    case OpParameter_QuantizeLinear: {
+      value = new QuantizeLinearT(*reinterpret_cast<QuantizeLinearT *>(u.value));
+      break;
+    }
+    case OpParameter_DequantizeLinear: {
+      value = new DequantizeLinearT(*reinterpret_cast<DequantizeLinearT *>(u.value));
       break;
     }
     default:
@@ -7263,6 +7343,16 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_QuantizeLinear: {
+      auto ptr = reinterpret_cast<QuantizeLinearT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_DequantizeLinear: {
+      auto ptr = reinterpret_cast<DequantizeLinearT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -7445,12 +7535,14 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7509,10 +7601,10 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "QuantizedConcat",
     "QuantizedDepthwiseConv2D",
     "QuantizedLogistic",
-    "QuantizedMatMul",
+    "RasterAndInterpolate",
     "QuantizedMaxPool",
-    "QuantizedRelu",
-    "QuantizedRelu6",
+    "Texture",
+    "RasterDiff",
     "QuantizedReshape",
     "QuantizedSoftmax",
     "QuantizeMaxMin",
@@ -7602,6 +7694,8 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GatherElements",
     "Svd",
     "Histogram",
+    "QuantizeLinear",
+    "DequantizeLinear",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7629,7 +7723,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 175, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 177, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7730,7 +7824,9 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 90 },
     { flatbuffers::ET_SEQUENCE, 0, 91 },
     { flatbuffers::ET_SEQUENCE, 0, 92 },
-    { flatbuffers::ET_SEQUENCE, 0, 93 }
+    { flatbuffers::ET_SEQUENCE, 0, 93 },
+    { flatbuffers::ET_SEQUENCE, 0, 94 },
+    { flatbuffers::ET_SEQUENCE, 0, 95 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7826,7 +7922,9 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     GridSampleTypeTable,
     LoopParamTypeTable,
     ImageProcessParamTypeTable,
-    CumSumTypeTable
+    CumSumTypeTable,
+    QuantizeLinearTypeTable,
+    DequantizeLinearTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7923,10 +8021,12 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "GridSample",
     "LoopParam",
     "ImageProcessParam",
-    "CumSum"
+    "CumSum",
+    "QuantizeLinear",
+    "DequantizeLinear"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 95, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 97, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

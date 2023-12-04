@@ -83,9 +83,6 @@ bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribe(tensor)->mem.reset(mem);
     return true;
 }
-ErrorCode Backend::onResizeEnd() {
-    return NO_ERROR;
-}
 bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
     return true;

@@ -23,6 +23,11 @@
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
 #include "../CPUPool.hpp"
+#define PACK 4
+#define FLOAT float
+using Vec = MNN::Math::Vec<float, 4>;
+#include "../GridSampler.hpp"
+
 #ifndef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     // Should not be called
@@ -142,7 +147,7 @@ void MNNPackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaO
 }
 
 template<typename T>
-void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset, int pack = 1) {
     int depthC2     = depth / 2;
     int depthRemain = depthC2 * 2;
     int remain      = depth - depthRemain;
@@ -151,24 +156,28 @@ void MNNUnpackC2Common(T* dst, const T* src, size_t area, size_t depth, int* are
     const T* srcOffset = src;
     for(z = 0; z < depthC2; ++z) {
         for(y = 0; y < 2; ++y) {
-            auto dstZ = dst + (z * 2 + y) * areaOffset[1];
-            srcChannel[y] = srcOffset + y;
+            auto dstZ = dst + (z * 2 + y) * areaOffset[1] * pack;
+            srcChannel[y] = srcOffset + y * pack;
             for(x = 0; x < area; ++x) {
-                dstZ[x] = srcChannel[y][0];
-                srcChannel[y] += 2;
+                for (int p = 0; p < pack; ++p) {
+                    dstZ[x * pack + p] = srcChannel[y][p];
+                }
+                srcChannel[y] += (2 * pack);
             }
         }
-        srcOffset += areaOffset[0] * 2;
+        srcOffset += areaOffset[0] * 2 * pack;
     }
     if(remain > 0){
-        auto dstZ = dst + depthC2 * areaOffset[1] * 2;
+        auto dstZ = dst + depthC2 * areaOffset[1] * 2 * pack;
         for(y = 0; y < remain; ++y) {
-            srcChannel[y] = srcOffset + y;
+            srcChannel[y] = srcOffset + y * pack;
             for(x = 0; x < area; ++x) {
-                dstZ[x] = srcChannel[y][0];
-                srcChannel[y] += 2;
+                for (int p = 0; p < pack; ++p) {
+                    dstZ[x * pack + p] = srcChannel[y][p];
+                }
+                srcChannel[y] += 2 * pack;
             }
-            dstZ += areaOffset[1];
+            dstZ += areaOffset[1] * pack;
         }
     }
 }
@@ -430,7 +439,6 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
 }
 
 #ifndef MNN_USE_NEON
-
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 16;
     *lP = 1;
@@ -693,6 +701,161 @@ void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t
 void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     auto aStride = parameter[0] / sizeof(float);
     _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
+}
+void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    // source: (ic/4, N, 4)
+    auto srcStep = pack * realSize;
+    for (int i = 0; i < realSize; ++i) {
+        float absmaxVal = 0.f; // absmaxVal>=0
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto src = source + c * srcStep + i * pack;
+            for (int k = 0; k < pack; ++k) {
+                absmaxVal = std::max(absmaxVal, std::abs(src[k]));
+            }
+        }
+        absmax[i] = absmaxVal;
+    }
+}
+void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch) {
+    for (int i = 0; i < batch; ++i) {
+        auto absmaxPtr = absmax + i;
+        float absVal = 0.f;
+        for (int t = 0; t < thread; ++t) {
+            absVal = std::max(absVal, absmaxPtr[t * batch]);
+        }
+        quant_scale[i] = 127.0f / absVal;
+        dequant_scale[i] = absVal / 127.0f;
+    }
+}
+void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size_t batch) {
+    for (int i = 0; i < batch; ++i) {
+        auto sumPtr = reinterpret_cast<int*>(sum) + i;
+        int sumVal = 0.f;
+        for (int t = 0; t < thread; ++t) {
+            sumVal += sumPtr[t * batch];
+        }
+        sum[i] = sumVal * dequant_scale[i];
+    }
+}
+void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack) {
+#ifdef MNN_USE_SSE
+    uint8_t* dstPtr = reinterpret_cast<uint8_t*>(dst);
+#else
+    int8_t* dstPtr = dst;
+#endif
+    for (int i = 0; i < realSize; ++i) {
+        auto scaleVal = scale[i];
+        int acc = 0;
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto srcZ = src + c * pack * realSize + i * pack;
+            auto dstZ = dstPtr + c * pack * realSize + i * pack;
+            for (int k = 0; k < pack; ++k) {
+                int val = (int)roundf(srcZ[k] * scaleVal);
+                acc += val;
+                dstZ[k] = val;
+            }
+        }
+        ((int32_t*)sum)[i] = acc;
+    }
+}
+void MNNGemmHybridInt8FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
+    int pack = 4;
+    size_t weight_step = src_depth_quad * pack * pack;
+    const float* alpha_ptr = param[0];
+    const float* zero_ptr = param[1];
+    const float* bias_ptr = param[2];
+    const float* sums_ptr = param[3];
+    const float* scale_ptr = param[4];
+    for (int ci = 0; ci < dst_depth_quad; ++ci) {
+        float* dstZ = C + ci * pack * realSize;
+        const int8_t*    weight = B + ci * weight_step;
+        auto alpha = alpha_ptr + ci * pack;
+        auto zero  = zero_ptr + ci * pack;
+        auto bias  = bias_ptr + ci * pack;
+        //const float* sums = param[2];
+        for (int j = 0; j < realSize; ++j) {
+            const float* sums = sums_ptr + j;
+            const float* scale = scale_ptr + j;
+            float* dstX = dstZ + j * pack;
+            std::vector<int> tmp(pack);
+            // int8_t* weightPtr = B + weight_step;
+            const int8_t* srcBatch = A + j * pack;
+            for (int k = 0; k < src_depth_quad; ++k) {
+                const int8_t* srcZ = srcBatch + k * pack * realSize;
+                const int8_t* weightZ = weight + k * pack * pack;
+                for (int cn = 0; cn < pack; ++cn) { // pack for oc
+                    const auto weightj = weightZ + cn * pack;
+                    for (int ck = 0; ck < pack; ++ck) { // pack for ic
+                        tmp[cn] += (int32_t)srcZ[ck] * (int32_t)weightj[ck];
+                    }
+                }
+            }
+            
+            // int32->float
+            for (int cn = 0; cn < pack; ++cn) {
+                float val = (float)tmp[cn] * scale[0];
+                val = bias[cn] + val * alpha[cn] + zero[cn] * sums[0];
+                dstX[cn] = val;
+            }
+        }
+    }
+}
+void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
+    int pack = 4;
+    size_t weight_step = src_depth_quad * pack * pack * 0.5;
+    size_t weight_stride = pack * pack / 2;
+    const float* alpha_ptr = param[0];
+    const float* zero_ptr = param[1];
+    const float* bias_ptr = param[2];
+    const float* sums_ptr = param[3];
+    const float* scale_ptr = param[4];
+    for (int ci = 0; ci < dst_depth_quad; ++ci) {
+        float* dstZ = C + ci * pack * realSize;
+        const int8_t*    weight = B + ci * weight_step;
+        auto alpha = alpha_ptr + ci * pack;
+        auto zero  = zero_ptr + ci * pack;
+        auto bias  = bias_ptr + ci * pack;
+        //const float* sums = param[2];
+        for (int j = 0; j < realSize; ++j) {
+            const float* sums = sums_ptr + j;
+            const float* scale = scale_ptr + j;
+            float* dstX = dstZ + j * pack;
+            int tmp[4] = {0, 0, 0, 0};
+            // int8_t* weightPtr = B + weight_step;
+            const int8_t* srcBatch = A + j * pack;
+            for (int k = 0; k < src_depth_quad; ++k) {
+                const int8_t* srcZ = srcBatch + k * pack * realSize;
+                const uint8_t* weightZ = (uint8_t*)weight + k * weight_stride;
+                int32_t tmpw[16];
+                uint32_t c = 0xf;
+                for (int kk = 0; kk < 8; ++kk) {
+                    tmpw[2 * kk] = (weightZ[kk]>>4) - 8;
+                    tmpw[2 * kk + 1] = (weightZ[kk] & c) - 8;
+                }
+                for (int cn = 0; cn < pack; ++cn) { // pack for oc
+                    const auto weightj = tmpw + cn * pack;
+                    for (int ck = 0; ck < pack; ++ck) { // pack for ic
+                        tmp[cn] += (int32_t)srcZ[ck] * (int32_t)weightj[ck];
+                    }
+                }
+            }
+            
+            // int32->float
+            for (int cn = 0; cn < pack; ++cn) {
+                float val = (float)tmp[cn] * scale[0];
+                val = bias[cn] + val * alpha[cn] + zero[cn] * sums[0];
+                dstX[cn] = val;
+            }
+        }
+    }
+}
+void MNNGemmHybridInt8FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    MNNGemmHybridInt8FP32_smmla(C, A, B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
+}
+void MNNGemmHybridInt4FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    MNNGemmHybridInt4FP32_smmla(C, A, B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
 }
 #endif
 
@@ -1710,6 +1873,21 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
         }
     }
 }
+void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
+    int w = dim[0];
+    int h = dim[1];
+    int srcStride = dim[2];
+    int dstStride = dim[3];
+    for (int i=0; i<h; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j=0; j<w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+}
 #endif
 void MNNFunctionInit() {
     // Do nothing
@@ -1967,22 +2145,7 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
 }
 #endif
 
-size_t MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
-    if (padMode == true) { //padMode == BorderMode_ZEROS
-        if (h < 0 || h >= height || w < 0 || w >= width) {
-            return -1;
-        }
-    } else {
-        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
-        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
-        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
-        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
-        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
-    }
-    return h * width * 4 + w * 4;
-}
-
-size_t MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, int width, bool padMode) {
+int MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, int width, bool padMode) {
     if (padMode == true) { //padMode == BorderMode_ZEROS
         if (h < 0 || h >= height || w < 0 || w >= width || d < 0 || d >= depth) {
             return -1;
@@ -1998,52 +2161,6 @@ size_t MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, 
     return ((d * height + h) * width + w) * 4;
 }
 
-void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
-    for (auto ow = 0; ow < outW; ++ow) {
-        auto w = cordPtr[2 * ow + 0];
-        auto h = cordPtr[2 * ow + 1];
-        Vec4 interp;
-
-        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nh = ::floor(h + 0.5f);
-            int nw = ::floor(w + 0.5f);
-            size_t ns = MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
-            for (int k = 0; k < channelCUnit; ++k) {
-                interp = ns == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + ns);
-                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
-            }
-        } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_h = ::floor(h);
-            int w0_w = ::floor(w);
-            int w1_h = ::ceil(h);
-            int w1_w = ::ceil(w);
-            auto oneV = Vec4(1.0f);
-
-            auto f0 = Vec4((float)w1_w - w);
-            auto f1 = oneV - f0;
-            auto h0 = Vec4((float)w1_h - h);
-            auto h1 = oneV - h0;
-
-            size_t s00 = MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
-            size_t s01 = MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
-            size_t s10 = MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
-            size_t s11 = MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
-
-            for (int k = 0; k < channelCUnit; ++k) {
-                Vec4 i00 = s00 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s00);
-                Vec4 i01 = s01 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s01);
-                Vec4 i10 = s10 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s10);
-                Vec4 i11 = s11 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s11);
-
-                Vec4 i0 = i00 * f0 + i01 * f1;
-                Vec4 i1 = i10 * f0 + i11 * f1;
-
-                interp = i0 * h0 + i1 * h1;
-                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
-            }
-        }
-    }
-}
 
 void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
     Vec4 max = Vec4(-FLT_MAX);
@@ -3187,6 +3304,10 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackedMatMulRemain_int4 = MNNPackedMatMulRemain_int4;
     gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;
     gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8;
+    gCoreFunction->MNNAbsMax = MNNAbsMaxFP32;
+    gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32;
+    gCoreFunction->MNNQuantScale = MNNQuantScaleFP32;
+    gCoreFunction->MNNQuantSum = MNNQuantSumFP32;
 #endif
 
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
@@ -3230,6 +3351,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias;
     gCoreFunction->MNNGridSampleComputeCord = MNNGridSampleComputeCord;
     gCoreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    gCoreFunction->MNNGridSampleInterpGrad = MNNGridSampleInterpGrad;
     gCoreFunction->MNNGridSampleComputeCord3D = MNNGridSampleComputeCord3D;
     gCoreFunction->MNNGridSampleInterp3D = MNNGridSampleInterp3D;
     gCoreFunction->MNNRoiPoolingMax = MNNRoiPoolingMax;
@@ -3278,6 +3400,18 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportFp16arith = gCPUInfo.fp16arith;
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
+#ifdef MNN_LOW_MEMORY
+    gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_sdot;
+    gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_sdot;
+    if (gCoreFunction->supportSDot) {
+        gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_sdot;
+        gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_sdot;
+    }
+    if (gCoreFunction->supportI8mm) {
+        gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_smmla;
+        gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_smmla;
+    }
+#endif
     MNNCoreInt8FunctionInit();
     MNNFunctionInit();
 }
@@ -3307,6 +3441,10 @@ void MNNPackC2(double* dst, const double* src, size_t area, size_t depth, int* a
 
 void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int* areaOffset) {
     MNNUnpackC2Common<double>(dst, src, area, depth, areaOffset);
+}
+
+void MNNUnpackC2Float(float* dst, const float* src, size_t area, size_t depth, int* areaOffset, int pack) {
+    MNNUnpackC2Common<float>(dst, src, area, depth, areaOffset, pack);
 }
 
 void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {

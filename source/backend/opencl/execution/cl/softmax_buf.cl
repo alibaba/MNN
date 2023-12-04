@@ -262,7 +262,7 @@ __kernel void softmax_width(GLOBAL_SIZE_3_DIMS
     
     /*Compute Exp Sum*/
     FLOAT4 sumValue = (FLOAT4)0;
-    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+    for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {
         sumValue += exp(vload4(i, input+offset) - maxValue);
     }
     sum[lid] = sumValue;
@@ -287,7 +287,7 @@ __kernel void softmax_width(GLOBAL_SIZE_3_DIMS
     }
     /*Compute Exp Sum*/
     FLOAT4 sumValue = (FLOAT4)0;
-    for (int i=0; i<shape.z; i++) {
+    for (int i=0; i<shape.w; i++) {
         sumValue += exp(vload4(i, input+offset) - maxValue);
     }
     

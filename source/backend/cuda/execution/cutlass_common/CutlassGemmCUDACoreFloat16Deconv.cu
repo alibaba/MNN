@@ -25,8 +25,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
             // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmCuda_F16_F16_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
@@ -50,8 +50,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmCuda_F16_F32_Relu_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
@@ -79,8 +79,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
             // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmCuda_F16_F16_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
@@ -104,8 +104,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmCuda_F16_F32_Relu6_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
@@ -131,8 +131,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
     
         if(mFp16Infer) {
             typename GemmCuda_F16_F16_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                        {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                         {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                        {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                         {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                         {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                         {alpha, beta},          // <- tuple of alpha and beta
@@ -153,8 +153,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmCudaCoreFloat16(const std
             cutlass_check(status);
         } else {
             typename GemmCuda_F16_F32_Linear_AlignCuda::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta

@@ -15,28 +15,53 @@ layout(set=0, binding=2) uniform constBuffer {
     int h;//axis
     int c;//outside
     float k;//For mean
+    int reduceAxis;
 }uConst;
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
+shared float local_buffer[256];
+
 void main()
 {
     ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    posTmp.x = posTmp.x / uConst.reduceAxis;
+    int lidIndex = int(gl_LocalInvocationID.x);
+    int lidx = lidIndex / uConst.reduceAxis;
+    int lid = lidIndex % uConst.reduceAxis;
     ivec2 pos;
     pos.x = posTmp.x / uConst.w;
     pos.y = posTmp.x % uConst.w;
     // x: index in outside, y: index in inside
-    if(pos.y < uConst.w && pos.x < uConst.c)
-    {
-        int h = uConst.h;
-        int W = uConst.w;
-        int H = uConst.h;
-        int C = uConst.c;
+    if(pos.y < uConst.w && pos.x < uConst.c && lid < uConst.h) {
         int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
-        FLOAT res = uInput.data[basicOffset];
-        for(int i = 1; i < uConst.h; ++i)
-        {
+        FLOAT res = uInput.data[basicOffset + lid * uConst.w];
+        for(int i = lid+uConst.reduceAxis; i < uConst.h; i+=uConst.reduceAxis) {
             FLOAT next = uInput.data[basicOffset + i * uConst.w];
+#ifdef VMAX
+            res = max(res, next);
+#endif
+#ifdef VMIN
+            res = min(res, next);
+#endif
+#ifdef SUM
+            res = res + next;
+#endif
+#ifdef PROD
+            res = res * next;
+#endif
+#ifdef MEAN
+            res = res + next;
+#endif
+        }
+        local_buffer[lid + lidx * uConst.reduceAxis] = res;
+    }
+    barrier();
+
+    if(pos.y < uConst.w && pos.x < uConst.c && lid == 0) {
+        FLOAT res = local_buffer[lidx * uConst.reduceAxis];
+        for (int t=1; t<uConst.reduceAxis && t < uConst.h; ++t) {
+            FLOAT next = local_buffer[t + lidx * uConst.reduceAxis];
 #ifdef VMAX
             res = max(res, next);
 #endif

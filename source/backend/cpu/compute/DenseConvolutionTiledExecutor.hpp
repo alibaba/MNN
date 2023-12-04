@@ -36,7 +36,7 @@ protected:
 class DenseConvolutionTiledExecutor : public ConvolutionTiledExecutor {
 public:
     DenseConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-                             size_t originWeightSize, const float *bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common>);
+                                  size_t originWeightSize, const float *bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common>);
 
     DenseConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, const Convolution2DCommon *common, Backend* b);
     virtual ~DenseConvolutionTiledExecutor();

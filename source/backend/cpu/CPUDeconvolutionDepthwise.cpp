@@ -16,7 +16,7 @@
 
 namespace MNN {
 CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const Op* convOp, Backend* b)
-    : MNN::CPUDeconvolutionCommon(input, convOp, b) {
+    : MNN::CPUDeconvolutionCommon(input, convOp, b, false) {
     auto conv               = convOp->main_as_Convolution2D();
     auto layer              = convOp->main_as_Convolution2D()->common();
     int kw                  = layer->kernelX();

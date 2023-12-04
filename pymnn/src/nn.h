@@ -18,6 +18,7 @@ def_class_methods(_Module,
     forward, "forward",
     onForward, "onForward",
     set_name, "set name",
+    get_info, "get module info",
     train, "set is_training",
     load_parameters, "load parameters",
     clear_cache, "clear cache",
@@ -142,6 +143,40 @@ static PyObject* PyMNN_Module_forward(PyMNN_Module *self, PyObject *args) {
 #endif
     }
     PyMNN_ERROR("PyMNN_Module_forward: args must be Var/[Var].");
+}
+static PyObject* PyMNN_Module_get_info(PyMNN_Module *self, PyObject *args) {
+    auto m = (*(self->ptr));
+    auto info = m->getInfo();
+    if (nullptr == info) {
+        PyMNN_ERROR("The module can't get info");
+        Py_RETURN_NONE;
+    }
+    auto res = PyDict_New();
+    PyDict_SetItemString(res, "version", char2Object(info->version.c_str()));
+    {
+        auto names = PyList_New(info->inputNames.size());
+        for (int i=0; i<info->inputNames.size(); ++i) {
+            PyList_SetItem(names, i, char2Object(info->inputNames[i].c_str()));
+        }
+        PyDict_SetItemString(res, "inputNames", names);
+    }
+    {
+        auto names = PyList_New(info->outputNames.size());
+        for (int i=0; i<info->outputNames.size(); ++i) {
+            PyList_SetItem(names, i, char2Object(info->outputNames[i].c_str()));
+        }
+        PyDict_SetItemString(res, "outputNames", names);
+    }
+    {
+        auto inputs = PyList_New(info->inputs.size());
+        for (int i=0; i<info->inputs.size(); ++i) {
+            auto& v = info->inputs[i];
+            auto var = MNN::Express::_Input(v.dim, v.order, v.type);
+            PyList_SetItem(inputs, i, toPyObj(var));
+        }
+        PyDict_SetItemString(res, "inputs", inputs);
+    }
+    return res;
 }
 static PyObject* PyMNN_Module_onForward(PyMNN_Module *self, PyObject *args) {
     PyObject *inputs;

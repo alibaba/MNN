@@ -45,6 +45,9 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         if (queueFamilyProperties[queueFamilyIndex].queueFlags & VK_QUEUE_COMPUTE_BIT) {
             break;
         }
+        if (!(queueFamilyProperties[queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+            MNN_PRINT("The queue can't support graphic render\n");
+        }
     }
     MNN_ASSERT(queueFamilyIndex < queueFamilyCount);
     mQueueFamilyIndex = queueFamilyIndex;
@@ -295,7 +298,7 @@ const void VulkanDevice::destroySemaphore(const VkSemaphore& semaphore, const Vk
 }
 
 const VkResult VulkanDevice::createImage(VkImage& image, const VkImageType imageType, const uint32_t width,
-                                         const uint32_t height, const uint32_t depth, const VkFormat format,
+                                         const uint32_t height, const uint32_t depth, const VkFormat format, VkImageUsageFlags usage,
                                          const VkAllocationCallbacks* allocator) const {
     VkImageCreateInfo info = {};
     info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -308,7 +311,7 @@ const VkResult VulkanDevice::createImage(VkImage& image, const VkImageType image
     info.format            = format;
     info.tiling            = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    info.usage             = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    info.usage             = usage;
     info.samples           = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
     info.pNext             = nullptr;

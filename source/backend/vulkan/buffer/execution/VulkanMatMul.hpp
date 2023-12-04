@@ -25,7 +25,7 @@ public:
 private:
     const VulkanPipeline* mPipeline;
     std::shared_ptr<VulkanBuffer> mParam;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescribe;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescribe;
     bool mTransposeA;
     bool mTransposeB;
     bool mHasBias;

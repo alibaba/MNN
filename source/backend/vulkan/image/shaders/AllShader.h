@@ -132,6 +132,8 @@ extern const unsigned char glsl_softmaxHeight_NHWC_comp[];
 extern unsigned int glsl_softmaxHeight_NHWC_comp_len;
 extern const unsigned char glsl_resizeNearest_comp[];
 extern unsigned int glsl_resizeNearest_comp_len;
+extern const unsigned char glsl_resizeNearest_NEAREST_ROUND_comp[];
+extern unsigned int glsl_resizeNearest_NEAREST_ROUND_comp_len;
 extern const unsigned char glsl_reduce_comp[];
 extern unsigned int glsl_reduce_comp_len;
 extern const unsigned char glsl_reduce_VMAX_comp[];

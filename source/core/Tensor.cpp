@@ -212,7 +212,7 @@ void Tensor::setType(int type) {
             mBuffer.type = halide_type_of<float>();
             break;
         case DataType_DT_BFLOAT16:
-            mBuffer.type = halide_type_t(halide_type_float, 16);
+            mBuffer.type = halide_type_t(halide_type_bfloat, 16);
             break;
         case DataType_DT_QINT32:
         case DataType_DT_INT32:

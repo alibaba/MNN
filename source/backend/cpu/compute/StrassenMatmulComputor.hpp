@@ -86,6 +86,7 @@ private:
     uint8_t* mDequantAlpha = nullptr;
     uint8_t* mDequantBias = nullptr;
     int32_t mDequantBits;
+    float mWeightBytes = 4;
 };
 } // namespace MNN
 

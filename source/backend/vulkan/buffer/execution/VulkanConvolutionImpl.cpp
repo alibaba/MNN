@@ -20,7 +20,7 @@ private:
     const VulkanPipeline* mSlideWindow;
 
     std::shared_ptr<VulkanBuffer> mBias;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mConvSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mConvSet;
     const Convolution2DCommon* mConvCommonOption;
     VulkanRaster::Componet mKernelReorder;
     std::shared_ptr<Tensor> mKernel;

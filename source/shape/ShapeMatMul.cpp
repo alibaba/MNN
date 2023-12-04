@@ -9,15 +9,14 @@
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 
 class MatMulSizeComputer : public SizeComputer {
-    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
-                               const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == outputs.size());
-        bool transposeA = false;
-        bool transposeB = false;
+    static void _getTranspose(const MNN::Op* op, bool& transposeA, bool& transposeB) {
+        transposeA = false;
+        transposeB = false;
         if (op->type() == OpType_MatMul) {
             transposeA = op->main_as_MatMul()->transposeA();
             transposeB = op->main_as_MatMul()->transposeB();
@@ -26,35 +25,24 @@ class MatMulSizeComputer : public SizeComputer {
             transposeA = op->main_as_BatchMatMulParam()->adjX();
             transposeB = op->main_as_BatchMatMulParam()->adjY();
         }
-        auto i0Dim = inputs[0]->dimensions();
-        auto i1Dim = inputs[1]->dimensions();
-        if (i0Dim < 2 || i1Dim < 2) {
-            return false;
-        }
-
+    }
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(1 == outputs.size());
         auto output = outputs[0];
-        auto w0 = inputs[0]->length(i0Dim - 1);
-        auto h0 = inputs[0]->length(i0Dim - 2);
         output->buffer().type = inputs[0]->buffer().type;
-
-        if (transposeA) {
-            auto t = w0;
-            w0     = h0;
-            h0     = t;
-        }
-
-        auto w1 = inputs[1]->length(i1Dim - 1);
-        auto h1 = inputs[1]->length(i1Dim - 2);
-        if (transposeB) {
-            auto t = w1;
-            w1     = h1;
-            h1     = t;
-        }
-
-        if (w0 != h1) {
+        bool transposeA;
+        bool transposeB;
+        _getTranspose(op, transposeA, transposeB);
+        int e, l, h;
+        bool valid = OpCommonUtils::computeMatMulSize(transposeA, transposeB, inputs[0], inputs[1], e, l, h);
+        if (!valid) {
             return false;
         }
         // Compute BroastCast Dims
+        auto i0Dim = inputs[0]->dimensions();
+        auto i1Dim = inputs[1]->dimensions();
+
         auto input0 = inputs[0];
         auto input1 = inputs[1];
         auto o0Dim = i0Dim;
@@ -89,26 +77,45 @@ class MatMulSizeComputer : public SizeComputer {
             }
         }
         // Last Two dim
-        output->setLength(o0Dim - 2, h0);
-        output->setLength(o0Dim - 1, w1);
-        
+        output->setLength(o0Dim - 2, e);
+        output->setLength(o0Dim - 1, h);
+        bool eValid = inputs[0]->dimensions() > 1;
+        bool hValid = inputs[1]->dimensions() > 1;
+        int squeezeDim = 0;
+        if (!eValid) {
+            squeezeDim++;
+            output->setLength(o0Dim - 2, h);
+        }
+        if (!hValid) {
+            squeezeDim++;
+            output->setLength(o0Dim - 1, e);
+        }
+        if (squeezeDim > 0) {
+            output->buffer().dimensions = o0Dim - squeezeDim;
+        }
+
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) const override {
+        bool transposeA;
+        bool transposeB;
+        _getTranspose(op, transposeA, transposeB);
+        int e=0, l=0, h=0;
+        OpCommonUtils::computeMatMulSize(transposeA, transposeB, inputs[0], inputs[1], e, l, h);
         Tensor* C       = outputs[0];
-        auto w0         = inputs[0]->length(1);
-        auto h0         = inputs[0]->length(0);
-        auto e = C->length(0);
-        auto h = C->length(1);
-        auto l = w0;
-        const auto mat = op->main_as_MatMul();
-        if (mat->transposeA()) {
-            l = h0;
-        }
         auto flops = (float)e * l * h / FLOPS_M;
-        for (int i=0; i<C->dimensions() - 2; ++i) {
+        bool eValid = inputs[0]->dimensions() > 1;
+        bool hValid = inputs[1]->dimensions() > 1;
+        int squeezeDim = 0;
+        if (!eValid) {
+            squeezeDim++;
+        }
+        if (!hValid) {
+            squeezeDim++;
+        }
+        for (int i=0; i<C->dimensions() - 2 + squeezeDim; ++i) {
             flops *= C->length(i);
         }
         return flops;

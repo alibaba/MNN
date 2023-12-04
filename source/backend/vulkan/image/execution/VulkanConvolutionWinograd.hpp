@@ -33,8 +33,8 @@ private:
     const VulkanPipeline* mDestTransform   = nullptr;
     const VulkanSampler* mSampler          = nullptr;
 
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mSourceTransformSet;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDestTransformSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mSourceTransformSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDestTransformSet;
     std::shared_ptr<VulkanBuffer> mWinogradConst;
 
     ivec3 mTransformLocalSize;

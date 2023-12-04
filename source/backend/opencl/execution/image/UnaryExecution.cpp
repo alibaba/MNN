@@ -111,7 +111,7 @@ public:
                 case UnaryOpOperation_SQUARE:
                     return new UnaryExecution("in*in", backend);
                 case UnaryOpOperation_RSQRT:
-                    return new UnaryExecution("rsqrt(convert_float4(in))", backend);
+                    return new UnaryExecution("rsqrt(convert_float4(in)>(float4)(0.000001)?convert_float4(in):(float4)(0.000001))", backend);
                 case UnaryOpOperation_NEG:
                     return new UnaryExecution("-(in)", backend);
                 case UnaryOpOperation_EXP:

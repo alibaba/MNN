@@ -1021,6 +1021,27 @@ static PyObject* PyMNNExpr_lazy_eval(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNExpr_set_lazy_mode(PyObject *self, PyObject *args) {
+    int lazy = 0;
+    if (!PyArg_ParseTuple(args, "i", &lazy)) {
+        return NULL;
+    }
+    ExecutorScope::Current()->setLazyComputeMode((Executor::LazyMode)lazy);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNExpr_set_global_executor_config(PyObject *self, PyObject *args) {
+    int numberThread, backendType, precisionType;
+    if (!PyArg_ParseTuple(args, "iii", &backendType, &precisionType, &numberThread)) {
+        Py_RETURN_NONE;
+    }
+
+    auto exe = ExecutorScope::Current();
+    BackendConfig config;
+    config.precision = (BackendConfig::PrecisionMode)precisionType;
+    exe->setGlobalExecutorConfig((MNNForwardType)backendType, config, numberThread);
+    Py_RETURN_NONE;
+}
+
 def_unary(Expr,
     sign, Express::_Sign,
     abs, Express::_Abs,
@@ -1692,13 +1713,15 @@ static PyMethodDef PyMNNExpr_methods[] = {
     )
     register_methods(Expr,
         // Var methods
-        set_thread_number, "set threan number of expr.",
+        set_thread_number, "set thread number of expr.",
         load_as_list, "load file as var list.",
         save, "save vars to file.",
         load_as_dict, "load file as var dict.",
         get_inputs_and_outputs, "get input and output of var dict.",
         gc, "do gc full or part.",
-        lazy_eval, "expr do lazy evaluation or not."
+        lazy_eval, "expr do lazy evaluation or not.",
+        set_lazy_mode, "set lazy compute mode, content: 0 or full: 1.",
+        set_global_executor_config, "set global executor config for expr."
     )
     register_methods(Expr,
         // unary expr

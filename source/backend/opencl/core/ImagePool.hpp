@@ -24,6 +24,7 @@ public:
     cl::Image* alloc(int w, int h, cl_channel_type type, bool separate = false);
     void recycle(cl::Image* image, bool release = false);
     void clear();
+    void releaseFreeList();
 
     struct Node {
         int w;

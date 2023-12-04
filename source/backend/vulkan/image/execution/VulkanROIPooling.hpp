@@ -22,7 +22,7 @@ private:
     float mSpatialScale;
     std::shared_ptr<VulkanBuffer> mParamBuffer;
     const VulkanPipeline* mVulkanROIPoolingPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     const VulkanSampler* mSampler;
 };
 } // namespace MNN

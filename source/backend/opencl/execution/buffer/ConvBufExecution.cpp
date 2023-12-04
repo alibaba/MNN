@@ -25,10 +25,15 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
     MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     
     auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("ConvBuf2dGeneralLocalWS Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
         return tunedLws[info];
+    }
+    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
+    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+        return tuneLwsRes;
     }
     
     std::vector<uint32_t> lws(3, 1);
@@ -191,7 +196,7 @@ std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune
         min_cost = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
     }
     
-    if (tunedLws.find(info) == tunedLws.end()) {
+    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
         //printf("ConvBuf2dGeneralLocalWS %d Insert! gws:%d %d, lws:%d %d, time:%dus\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1], min_cost);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }

@@ -2,8 +2,8 @@
 ## 本地安装
 ```bash
 cd /path/to/MNN/pymnn/pip_package
-python build_deps.py
-python setup.py install --version {MNN版本}
+python build_deps.py {MNN依赖包组合} #internal,cuda,trt,cuda_tune,opencl,vulkan,render,no_sse,torch这几个字符串的任意组合，例如字符串可为:"cuda,reder,no_sse"
+python setup.py install --version {MNN版本} --deps {MNN依赖包组合}
 ```
 ## 构建Python Wheel包
 - Linux

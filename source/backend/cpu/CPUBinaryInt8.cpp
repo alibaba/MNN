@@ -85,6 +85,7 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
         params.inputZeroPoint = mInputZeros.data();
         params.minValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->min;
         params.maxValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->max;
+
         int start = schedule.first * (int)tId;
         int realSize = schedule.first;
         if (tId == schedule.second -1 ) {

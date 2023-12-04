@@ -38,12 +38,13 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
 
     CutlassGemmInfo param;
-    int e = mKernelInfo.kernelN * mKernelInfo.kernelX * mKernelInfo.kernelY;
-    int l = mKernelInfo.kernelC;
-    param.elh[0] = e;
+    int l = UP_DIV(mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
+    int h = mKernelInfo.kernelN * mKernelInfo.kernelX * mKernelInfo.kernelY;
+
     param.elh[1] = l;
-    param.elhPad[0] = UP_DIV(e, PACK_NUMBER) * PACK_NUMBER;
+    param.elh[2] = h;
     param.elhPad[1] = UP_DIV(l, PACK_NUMBER) * PACK_NUMBER;
+    param.elhPad[2] = UP_DIV(h, PACK_NUMBER) * PACK_NUMBER;
 
     auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
     float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
@@ -51,9 +52,9 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     
     // Reorder weight
     if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
-        weightTensor.reset(Tensor::createDevice<int32_t>({param.elh[0] * param.elhPad[1]}));
+        weightTensor.reset(Tensor::createDevice<int32_t>({param.elhPad[1] * param.elh[2]}));
     } else {
-        weightTensor.reset(Tensor::createDevice<int16_t>({param.elh[0] * param.elhPad[1]}));
+        weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPad[1] * param.elh[2]}));
     }
     bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
     mFilter = (void *)weightTensor.get()->buffer().device;    
@@ -141,9 +142,9 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     mActivationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
 
     // Matmul Param
-    int e = output->channel() * mCol2ImParamter.kernelX * mCol2ImParamter.kernelY;
-    int l = input->channel();
-    int h = input->height() * input->width() * output->batch();
+    int e = input->height() * input->width() * output->batch();
+    int l = UP_DIV(input->channel(), PACK_NUMBER) * PACK_NUMBER;
+    int h = output->channel() * mCol2ImParamter.kernelX * mCol2ImParamter.kernelY;
 
     mGemmInfo.elh[0] = e;
     mGemmInfo.elh[1] = l;
@@ -157,7 +158,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
     MemChunk buffer_input, buffer_im2col;
     if(mFp16Fp32MixInfer) {
-        buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elhPad[1] * mGemmInfo.elh[2]);
+        buffer_input = pool->alloc(sizeof(__half) * mGemmInfo.elh[0] * mGemmInfo.elhPad[1]);
         mInputBuffer = (void*)((uint8_t*)buffer_input.first + buffer_input.second);
     } else {
         mInputBuffer = (void*)input->deviceId();
@@ -211,7 +212,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
 
     // Do input Rerange Pack
     if(mFp16Fp32MixInfer) {
-        size_t maxCount = mGemmInfo.elhPad[1] * mGemmInfo.elh[2];
+        size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
         callFloat2Half((const void*)input_addr, (void*)mInputBuffer, maxCount, runtime);
     } 
 

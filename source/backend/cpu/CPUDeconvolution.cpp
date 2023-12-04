@@ -39,12 +39,16 @@ ErrorCode CPUDeconvolutionBasic::onResize(const std::vector<Tensor*>& inputs, co
     return NO_ERROR;
 }
 
-CPUDeconvolutionCommon::CPUDeconvolutionCommon(const Tensor* input, const Op* convOp, Backend* b)
+CPUDeconvolutionCommon::CPUDeconvolutionCommon(const Tensor* input, const Op* convOp, Backend* b, bool dynamicWeight)
     : CPUDeconvolutionBasic(input, convOp, b) {
     auto conv2D     = convOp->main_as_Convolution2D();
     int outputCount = mCommon->outputCount();
     auto core = static_cast<CPUBackend*>(b)->functions();
+    mDynamicWeight = dynamicWeight;
     mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, core->pack) * core->pack}));
+    if (dynamicWeight) {
+        return;
+    }
     bool success = b->onAcquireBuffer(mBias.get(), Backend::STATIC);
     if (!success) {
         mValid = false;
@@ -78,7 +82,7 @@ CPUDeconvolutionCommon::CPUDeconvolutionCommon(const Tensor* input, const Op* co
 }
 
 CPUDeconvolutionCommon::~CPUDeconvolutionCommon() {
-    backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    // Do nothing
 }
 
 // Float Weight.
@@ -137,28 +141,45 @@ static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, c
         }
     }
 }
-CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend)
-    : MNN::CPUDeconvolutionCommon(input, convOp, backend) {
+CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend, bool dynamicWeight)
+    : MNN::CPUDeconvolutionCommon(input, convOp, backend, dynamicWeight) {
     auto core               = static_cast<CPUBackend*>(backend)->functions();
     auto coreInt8           = static_cast<CPUBackend*>(backend)->int8Functions();
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
     int UNIT, SRC_UNIT, DST_XUNIT;
     coreInt8->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    
+    bool ModeInt8        =  false;
+
     if (CPUBackend::getDataType(input) == DataType_DT_INT8 || input->getType().bytes() == 1) {
         eP = DST_XUNIT;
         lP = SRC_UNIT;
         hP = UNIT;
+        ModeInt8 = true;
     }
     auto conv2d                  = convOp->main_as_Convolution2D();
     auto layer                   = conv2d->common();
     int outputCount              = layer->outputCount();
     const auto outputChannleUp4  = UP_DIV(outputCount, hP) * hP;
+    int fw                  = layer->kernelX();
+    int fh                  = layer->kernelY();
+    int srcCount            = mSrcCount;
+    mParam.fh = fh;
+    mParam.fw = fw;
+    mParam.srcCount = srcCount;
+    mParam.outputCount = outputCount;
+    auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
+    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+    std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
+    if (dynamicWeight) {
+        mOrigin.reset(new CPUDeconvolutionOrigin(input, mWeight.get(), convOp, backend, ModeInt8));
+        mWeightTransformCache = cache;
+        return;
+    }
+
     const float* tempWeight      = nullptr;
     const int8_t* quanWeightInt8 = nullptr;
 
-    bool ModeInt8        =  false;
     int tempWeightSize   = 0;
     std::unique_ptr<Tensor> externalWeightTensor;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
@@ -180,22 +201,15 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
         OpCommonUtils::loadExternalData(backend, externalWeightTensor->host<char>(), conv2d->external()->Get(0), bytes);
         tempWeight = externalWeightTensor->host<float>();
     } else {
-        if (CPUBackend::getDataType(input) == DataType_DT_INT8 || input->getType().bytes() == 1) {
+        if (ModeInt8) {
             ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
-            ModeInt8 = true;
         } else {
             ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2d, &tempWeight, &tempWeightSize);
         }
     }
-
-    int fw                  = layer->kernelX();
-    int fh                  = layer->kernelY();
-    int srcCount            = mSrcCount;
     
-    auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
-    
-    std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
-    bool success =  backend->onAcquireBuffer(cache.get(), Backend::STATIC);
+    bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
+                   backend->onAcquireBuffer(cache.get(), Backend::STATIC);
     if (!success) {
         mValid = false;
         return;
@@ -233,7 +247,45 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
 }
 
 CPUDeconvolution::~CPUDeconvolution() {
-    backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+    // Do nothing
+}
+ErrorCode CPUDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (mDynamicWeight) {
+        auto core = static_cast<CPUBackend*>(backend())->functions();
+        _transformWeight(inputs[1]->host<uint8_t>(), mWeight->host<uint8_t>(), mParam.outputCount, mParam.srcCount, mParam.fh, mParam.fw, mWeightTransformCache->host<uint8_t>(), core);
+        ::memset(mBias->host<uint8_t>(), 0, mBias->length(0) * core->bytes);
+        if (inputs.size() >= 3) {
+            ::memcpy(mBias->host<uint8_t>(), inputs[2]->host<uint8_t>(), TensorUtils::getRawSize(inputs[2]) * core->bytes);
+        }
+    }
+    return mOrigin->onExecute(mTempInputs, outputs);
+}
+ErrorCode CPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (mDynamicWeight) {
+        bool res = backend()->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        res = backend()->onAcquireBuffer(mWeightTransformCache.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        res = backend()->onAcquireBuffer(mBias.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+    }
+    mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
+    auto code = mOrigin->onResize(mTempInputs, outputs);
+    if (NO_ERROR != code) {
+        return code;
+    }
+    if (mDynamicWeight) {
+        backend()->onReleaseBuffer(mWeight.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mWeightTransformCache.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mBias.get(), Backend::DYNAMIC);
+    }
+    return NO_ERROR;
 }
 
 
@@ -274,8 +326,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto allocator = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     //int zeroPoint = 0;
 
-    auto biasPtr      = inputs[2]->host<float>();
-    auto inputPtr  = input->host<float>();
+    auto biasTensor = inputs[2];
     
     // prepare for float2int8 if necessary.
     auto outputQuant = TensorUtils::getQuantInfo(outputs[0]);
@@ -323,9 +374,11 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     }
 
     mPostFunctions.emplace_back(std::make_pair([ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
-                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this, core, gcore, batch, outi8, scales,
+                       strideX, threadNumber, src_width, src_height, plane, input, biasTensor, this, core, gcore, batch, outi8, scales,
                        minValue, maxValue, zeroPoint, outputFp32Ptr](uint8_t* outputPtr, int tId) {
         auto colBufferPtr = mTempOutput->host<uint8_t>();
+        auto biasPtr      = biasTensor->host<float>();
+        auto inputPtr  = input->host<float>();
         auto unitBytes = core->pack * core->bytes;
         auto tempOutPtr = outputPtr;
         auto float2Int8_step = src_height * src_width * batch;
@@ -409,7 +462,7 @@ public:
                                 const MNN::Op* op, Backend* backend) const {
         auto convOp = op->main_as_Convolution2D();
         auto common = convOp->common();
-        if (backend->type() == MNN_FORWARD_CPU) {
+        if (backend->type() == MNN_FORWARD_CPU && inputs.size() == 1) {
             if (common->strideY() > 1 || common->strideX() > 1) {
                 if (common->dilateX() == 1 && common->dilateY() == 1) {
                     if (common->kernelX() / common->strideX() > 2 || common->kernelY() / common->strideY() > 2) {
@@ -418,7 +471,7 @@ public:
                 }
             }
         }
-        return new CPUDeconvolution(inputs[0], op, backend);
+        return new CPUDeconvolution(inputs[0], op, backend, inputs.size() > 1);
     }
 };
 

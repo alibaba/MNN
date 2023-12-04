@@ -136,6 +136,8 @@ public:
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
     
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>>& getTuneLwsMap();
+    
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
     ::cl::Kernel buildKernelFromSource(const std::string&, const std::string &kernelName,
@@ -206,6 +208,7 @@ private:
     double mStopNanos;
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
     std::vector<uint8_t> mBuffer;
     const void* mCacheOutside = nullptr;
     size_t mCacheOutsideSize = 0;

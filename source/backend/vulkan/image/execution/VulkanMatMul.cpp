@@ -210,7 +210,7 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
             mWeightPipline = vkBn->getPipeline("glsl_matmul_input_comp", types);
         }
         mKernelImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(l), UP_DIV(h, 4)}));
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(mWeightPipline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(mWeightPipline->createSet());
         OffsetBuffer buffer;
         buffer.size[0] = UP_DIV(l, 4);
         buffer.size[1] = UP_DIV(h, 4);
@@ -268,7 +268,7 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
             mInputPipline = vkBn->getPipeline("glsl_matmul_input_TRANSPOSE_comp", types);
         }
         mInputImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(l), UP_DIV(e, 4)}));
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(mInputPipline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(mInputPipline->createSet());
         OffsetBuffer buffer;
         buffer.size[0] = UP_DIV(l, 4);
         buffer.size[1] = UP_DIV(e, 4);
@@ -330,7 +330,7 @@ bool VulkanMatMul::encode(const std::vector<Tensor *> &inputs, const std::vector
         auto offsete = comp.computePos(info.cStride[0]);
         auto offseth = comp.computePos(info.cStride[2]);
 
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(mOutputPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(mOutputPipeline->createSet());
         OffsetBuffer buffer;
         buffer.size[0] = UP_DIV(h, 4);
         buffer.size[1] = UP_DIV(e, 4);

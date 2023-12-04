@@ -9,6 +9,7 @@
 #ifndef Transformer_hpp
 #define Transformer_hpp
 #include <MNN/expr/Optimizer.hpp>
+#include "OpConverter.hpp"
 #include <MNN_generated.h>
 
 namespace MNN {
@@ -25,7 +26,7 @@ public:
     static std::shared_ptr<Express::Optimizer> turnModelToInfer();
 };
 
-class TurnTrainable : public Express::Optimizer {
+class MNN_PUBLIC TurnTrainable : public Express::Optimizer {
 public:
     TurnTrainable(Transformer::TrainConfig config) {
         mConfig = std::move(config);
@@ -37,7 +38,7 @@ public:
     virtual bool onExecute(const std::vector<Express::VARP>& outputs, std::shared_ptr<Parameters> p = nullptr) override;
 
 public:
-    std::map<std::string, Express::VARP> trainInfo;
+    TrainInfo mTrainInfo;
 
 private:
     Transformer::TrainConfig mConfig;

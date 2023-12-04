@@ -17,6 +17,11 @@
 #include "backend/cpu/BinaryUtils.hpp"
 #include "Vec8.hpp"
 #define PACK_UNIT 8
+#define PACK PACK_UNIT
+#define FLOAT float
+using Vec = Vec8;
+#include "backend/cpu/GridSampler.hpp"
+
 extern "C" {
 void _AVX_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 void _AVX_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
@@ -26,8 +31,6 @@ void _AVX_MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float
 void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
                                        size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
 void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
-void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, 
-                                    size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
 void _AVX_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw);
 void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
 void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
@@ -875,7 +878,8 @@ void _AVX_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForLineDepthwise = _AVX_MNNDeconvRunForLineDepthwise;
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX_MNNGridSampleComputeCord;
-    coreFunction->MNNGridSampleInterp = _AVX_MNNGridSampleInterp;
+    coreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    coreFunction->MNNGridSampleInterpGrad = MNNGridSampleInterpGrad;
     coreFunction->MNNGridSampleComputeCord3D = _AVX_MNNGridSampleComputeCord3D;
     coreFunction->MNNGridSampleInterp3D = _AVX_MNNGridSampleInterp3D;
     coreFunction->MNNRoiPoolingMax = _AVX_MNNRoiPoolingMax;

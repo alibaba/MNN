@@ -1327,7 +1327,6 @@ VARP _Range(VARP start, VARP limit, VARP delta) {
     std::unique_ptr<OpT> op(new OpT);
     op->type       = OpType_Range;
     auto rangeParam = new RangeT;
-    rangeParam->Tidx = (MNN::DataType)Utils::convertDataType(start->getInfo()->type);
     op->main.type = OpParameter_Range;
     op->main.value = rangeParam;
     return Variable::create(Expr::create(std::move(op), {start, limit, delta}));

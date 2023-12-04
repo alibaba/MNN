@@ -933,7 +933,6 @@ void CutlassGemmTuneCommonExecution::setGemmTensorCoreFloat16Argments(const Gemm
             }
         }
     } 
-    MNN_ASSERT(false);
     return;
 }
 

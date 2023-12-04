@@ -11,16 +11,6 @@
 #include <string.h>
 #include <mutex>
 #include "core/Macro.h"
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
-#ifdef MNN_USE_SSE
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-#endif
 #include <map>
 #include <utility>
 

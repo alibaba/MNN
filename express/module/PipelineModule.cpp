@@ -518,7 +518,7 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
     scheduleInfo.allTensors = sharedConst->allTensors;
-    initTensors(scheduleInfo.allTensors, net);
+    scheduleInfo.validForResize = initTensors(scheduleInfo.allTensors, net);
     std::vector<Schedule::OpCacheInfo> oplists;
     std::vector<const Op*> ops;
     ops.reserve(info.opList.size());

@@ -65,10 +65,10 @@ private:
 
     const VulkanPipeline* mConvPipeline;
 
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mConvSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mConvSet;
     std::shared_ptr<VulkanBuffer> mBias;
     std::shared_ptr<VulkanBuffer> mKernel;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mExtraSets;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mExtraSets;
     std::shared_ptr<VulkanBuffer> mExtraBuffers;
 
     int mLocalX = 0;

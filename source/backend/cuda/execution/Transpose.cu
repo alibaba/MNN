@@ -52,6 +52,46 @@ __global__ void UNPACKCOMMON(const T0 *input, T1 *output,
     }
 }
 
+__global__ void UNPACKCOMMON_REARRANGE_half_4(const double *input, double *output,
+    int inside, int axis, int outside,
+    int insideStride, int axisStride
+    ) {
+    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER / 4;
+    int insideAlign = inside / 4;
+    int axisNum = axis / 16;
+    int insideNum = inside / 32;
+
+    __shared__ double sharedData[128];
+    int tid = blockIdx.x;
+    int localIdx = threadIdx.x;
+
+    int tmpI = tid / axisNum;
+    int y = tid % axisNum;
+    int x = tmpI % insideNum;
+    int z = tmpI / insideNum;
+
+    int y_mod = localIdx % 4; // [0 ~ 3]
+    int x_mod = localIdx / 4; // [0 ~ 31]
+    int srcOffset = (z * inside + 32*x+x_mod) * axisAlign + 4*y+y_mod;
+    sharedData[localIdx] = input[srcOffset];// [HW_32, C4_4]
+
+    __syncthreads();
+
+    int oy_mod = localIdx % 16; // [0 ~ 15]
+    int ox_mod = localIdx / 16; // [0 ~ 7]
+
+    // [4*ox_mod, oy_mod]
+    half tmp_data[4];
+    tmp_data[0] = ((half*)sharedData)[(4*ox_mod+0) * 16 + oy_mod];
+    tmp_data[1] = ((half*)sharedData)[(4*ox_mod+1) * 16 + oy_mod];
+    tmp_data[2] = ((half*)sharedData)[(4*ox_mod+2) * 16 + oy_mod];
+    tmp_data[3] = ((half*)sharedData)[(4*ox_mod+3) * 16 + oy_mod];
+
+    int dstOffset = (8*x+ox_mod) + (z * axis + (16*y+oy_mod)) * insideAlign;
+
+    output[dstOffset] = ((double*)tmp_data)[0];
+}
+
 template<typename T0, typename T1>
 __global__ void PACKCOMMON_4(const T0 *input, T1 *output, 
     int inside, int axis, int outside, 
@@ -121,6 +161,46 @@ __global__ void PACKCOMMON(const T0 *input, T1 *output,
     }
 }
 
+__global__ void PACKCOMMON_REARRANGE_half_4(const double *input, double *output,
+    int inside, int axis, int outside,
+    int insideStride, int axisStride
+    ) {
+    int axisAlign = UP_DIV(axis, PACK_NUMBER) * PACK_NUMBER / 4;
+
+    int insideAlign = inside / 4;
+    int axisNum = axis / 16;
+    int insideNum = inside / 32;
+
+    __shared__ double sharedData[128];
+    int tid = blockIdx.x;
+    int localIdx = threadIdx.x;
+
+    int tmpI = tid / axisNum;
+    int y = tid % axisNum;
+    int x = tmpI % insideNum;
+    int z = tmpI / insideNum;
+
+    int x_mod = localIdx % 8; // [0 ~ 8]
+    int y_mod = localIdx / 8; // [0 ~ 15]
+    int srcOffset = (8*x+x_mod) + (z * axis + (16*y+y_mod)) * insideAlign;
+    sharedData[localIdx] = input[srcOffset];// [C_16, HW4_8]
+
+    __syncthreads();
+
+    int oy_mod = localIdx % 4; // [0 ~ 3]
+    int ox_mod = localIdx / 4; // [0 ~ 31]
+    int dstOffset = (z * inside + 32*x+ox_mod) * axisAlign + 4*y+oy_mod;
+
+    // [4*oy_mod, ox_mod]
+    half tmp_data[4];
+    tmp_data[0] = ((half*)sharedData)[(4*oy_mod+0) * 32 + ox_mod];
+    tmp_data[1] = ((half*)sharedData)[(4*oy_mod+1) * 32 + ox_mod];
+    tmp_data[2] = ((half*)sharedData)[(4*oy_mod+2) * 32 + ox_mod];
+    tmp_data[3] = ((half*)sharedData)[(4*oy_mod+3) * 32 + ox_mod];
+
+    output[dstOffset] = ((double*)tmp_data)[0];
+}
+
 void PackBuffer(void* output, const void* input, const PackInfo* info, int bytes, CUDARuntime* runtime) {
     auto& prop = runtime->prop();
     int cores = prop.multiProcessorCount;
@@ -146,6 +226,15 @@ void PackBuffer(void* output, const void* input, const PackInfo* info, int bytes
             checkKernelErrors;
             return;
         }
+    }
+    if (info->axis % 16 == 0 && info->inside % 32 == 0 && info->insideStride == 1 && info->axisStride == info->inside && bytes == 2) {
+        int thread=128;
+        int block=info->axis/16 * info->inside/32 * info->outside;
+        PACKCOMMON_REARRANGE_half_4<<<block, thread>>>((const double*)input, (double*)output,
+                        info->inside, info->axis, info->outside,
+                        info->insideStride, info->axisStride);
+        checkKernelErrors;
+        return;
     }
     switch (bytes) {
         case 4:
@@ -194,6 +283,17 @@ void UnpackBuffer(void* output, const void* input, const PackInfo* info, int byt
             checkKernelErrors;
             return;
         }    
+    }
+    //printf("unpack size:%d %d %d, stride:%d %d, %p %p\n", info->outside, info->axis, info->inside, info->axisStride, info->insideStride, input, output); 
+
+    if (info->axis % 16 == 0 && info->inside % 32 == 0 && info->insideStride == 1 && info->axisStride == info->inside && bytes == 2) {
+        int thread=128;
+        int block=info->axis/16 * info->inside/32 * info->outside;
+        UNPACKCOMMON_REARRANGE_half_4<<<block, thread>>>((const double*)input, (double*)output,
+                        info->inside, info->axis, info->outside,
+                        info->insideStride, info->axisStride);
+	checkKernelErrors;	
+	return;
     }
     switch (bytes) {
         case 4:

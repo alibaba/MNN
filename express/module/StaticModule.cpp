@@ -367,7 +367,11 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         if (mResource->mUseContentInputs) {
             mSession->setNeedResize();
         }
-        mSession->resize();
+        auto code = mSession->resize();
+        if (NO_ERROR != code) {
+            FUNC_PRINT(code);
+            return {};
+        }
     } else {
         // Resize
         for (int i = 0; i < inputs.size(); ++i) {

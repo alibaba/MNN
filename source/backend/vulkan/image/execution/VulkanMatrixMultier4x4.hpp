@@ -30,7 +30,7 @@ public:
 
 private:
     const VulkanPipeline* mPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
     VulkanBackend* mBackend;
 
     std::shared_ptr<VulkanImage> mKernel;
