@@ -20,8 +20,9 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
                          __private const int4 iters,
                          __private const int4 steps) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
+        pos.x <<= 2;
+        pos.y <<= 2;
         int4 index = (int4)(pos.z);
         if (iters.x >= 0) {
             index.x = (int)(offset_O[pos.z]);
@@ -52,28 +53,165 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
 #endif
 
 #ifdef BIAS
-        FLOAT value = input_C[offset.w + pos.x];
+        FLOAT4 value0 = vload4(0, input_C + offset.w + pos.x);
+        FLOAT4 value1 = value0;
+        FLOAT4 value2 = value0;
+        FLOAT4 value3 = value0;
 #else
-        FLOAT value = 0;
+        FLOAT4 value0 = (FLOAT4)0;
+        FLOAT4 value1 = (FLOAT4)0;
+        FLOAT4 value2 = (FLOAT4)0;
+        FLOAT4 value3 = (FLOAT4)0;
 #endif
 
-        for(int i = 0; i < l; ++i){
+        const int l_pack = (l + 3) >> 2;
+        for(int i = 0; i < l_pack - 1; ++i){
+            int l_offset = i << 2;
+            FLOAT4 value_a0, value_a1, value_a2, value_a3, value_b0, value_b1, value_b2, value_b3;
 #if TRANSPOSE_A
-            FLOAT value_a = A_ptr[i * e];
+            value_a0 = vload4(0, A_ptr + l_offset * e);
+            value_a1 = vload4(0, A_ptr + (l_offset + 1) * e);
+            value_a2 = vload4(0, A_ptr + (l_offset + 2) * e);
+            value_a3 = vload4(0, A_ptr + (l_offset + 3) * e);
 #else
-            FLOAT value_a = A_ptr[i];
+            value_a0 = vload4(0, A_ptr + l_offset);
+            value_a1 = vload4(0, A_ptr + l_offset + l);
+            value_a2 = vload4(0, A_ptr + l_offset + 2 * l);
+            value_a3 = vload4(0, A_ptr + l_offset + 3 * l);
 #endif
 
 #if TRANSPOSE_B
-            FLOAT value_b = B_ptr[i];
+            FLOAT4 value_tmp0 = vload4(0, B_ptr + l_offset);
+            FLOAT4 value_tmp1 = vload4(0, B_ptr + l_offset + l);
+            FLOAT4 value_tmp2 = vload4(0, B_ptr + l_offset + 2 * l);
+            FLOAT4 value_tmp3 = vload4(0, B_ptr + l_offset + 3 * l);
+            value_b0 = (FLOAT4)(value_tmp0.x, value_tmp1.x, value_tmp2.x, value_tmp3.x);
+            value_b1 = (FLOAT4)(value_tmp0.y, value_tmp1.y, value_tmp2.y, value_tmp3.y);
+            value_b2 = (FLOAT4)(value_tmp0.z, value_tmp1.z, value_tmp2.z, value_tmp3.z);
+            value_b3 = (FLOAT4)(value_tmp0.w, value_tmp1.w, value_tmp2.w, value_tmp3.w);
 #else
-            FLOAT value_b = B_ptr[i * h];
+            value_b0 = vload4(0, B_ptr + l_offset * h);
+            value_b1 = vload4(0, B_ptr + (l_offset + 1) * h);
+            value_b2 = vload4(0, B_ptr + (l_offset + 2) * h);
+            value_b3 = vload4(0, B_ptr + (l_offset + 3) * h);
 #endif
 
-            value = mad(value_a, value_b, value);
+#ifdef TRANSPOSE_A
+            value0 = mad((FLOAT4)value_a0.x, value_b0, value0);
+            value0 = mad((FLOAT4)value_a1.x, value_b1, value0);
+            value0 = mad((FLOAT4)value_a2.x, value_b2, value0);
+            value0 = mad((FLOAT4)value_a3.x, value_b3, value0);
+            
+            value1 = mad((FLOAT4)value_a0.y, value_b0, value1);
+            value1 = mad((FLOAT4)value_a1.y, value_b1, value1);
+            value1 = mad((FLOAT4)value_a2.y, value_b2, value1);
+            value1 = mad((FLOAT4)value_a3.y, value_b3, value1);
+            
+            value2 = mad((FLOAT4)value_a0.z, value_b0, value2);
+            value2 = mad((FLOAT4)value_a1.z, value_b1, value2);
+            value2 = mad((FLOAT4)value_a2.z, value_b2, value2);
+            value2 = mad((FLOAT4)value_a3.z, value_b3, value2);
+            
+            value3 = mad((FLOAT4)value_a0.w, value_b0, value3);
+            value3 = mad((FLOAT4)value_a1.w, value_b1, value3);
+            value3 = mad((FLOAT4)value_a2.w, value_b2, value3);
+            value3 = mad((FLOAT4)value_a3.w, value_b3, value3);
+#else
+            value0 = mad((FLOAT4)value_a0.x, value_b0, value0);
+            value0 = mad((FLOAT4)value_a0.y, value_b1, value0);
+            value0 = mad((FLOAT4)value_a0.z, value_b2, value0);
+            value0 = mad((FLOAT4)value_a0.w, value_b3, value0);
+            
+            value1 = mad((FLOAT4)value_a1.x, value_b0, value1);
+            value1 = mad((FLOAT4)value_a1.y, value_b1, value1);
+            value1 = mad((FLOAT4)value_a1.z, value_b2, value1);
+            value1 = mad((FLOAT4)value_a1.w, value_b3, value1);
+            
+            value2 = mad((FLOAT4)value_a2.x, value_b0, value2);
+            value2 = mad((FLOAT4)value_a2.y, value_b1, value2);
+            value2 = mad((FLOAT4)value_a2.z, value_b2, value2);
+            value2 = mad((FLOAT4)value_a2.w, value_b3, value2);
+            
+            value3 = mad((FLOAT4)value_a3.x, value_b0, value3);
+            value3 = mad((FLOAT4)value_a3.y, value_b1, value3);
+            value3 = mad((FLOAT4)value_a3.z, value_b2, value3);
+            value3 = mad((FLOAT4)value_a3.w, value_b3, value3);
+#endif
         }
 
-        output[offset.x + pos.y * h + pos.x] = value;
+        for(int i = ((l_pack - 1) << 2); i < l; ++i){
+#if TRANSPOSE_A
+            FLOAT4 value_a = vload4(0, A_ptr + i * e);
+#else
+            FLOAT4 value_a;
+            value_a.x = A_ptr[i];
+            value_a.y = A_ptr[i + l];
+            value_a.z = A_ptr[i + 2 * l];
+            value_a.w = A_ptr[i + 3 * l];
+#endif
+
+#if TRANSPOSE_B
+            FLOAT4 value_b;
+            value_b.x = B_ptr[i];
+            value_b.y = B_ptr[i + l];
+            value_b.z = B_ptr[i + 2 * l];
+            value_b.w = B_ptr[i + 3 * l];
+#else
+            FLOAT4 value_b = vload4(0, B_ptr + i * h);
+#endif
+
+            value0 = mad((FLOAT4)value_a.x, value_b, value0);
+            value1 = mad((FLOAT4)value_a.y, value_b, value1);
+            value2 = mad((FLOAT4)value_a.z, value_b, value2);
+            value3 = mad((FLOAT4)value_a.w, value_b, value3);
+        }
+        
+        const int output_offset = offset.x + pos.y * h + pos.x;
+#if H_LEAVES == 0
+        vstore4(value0, 0, output + output_offset);
+        if(pos.y + 1 >= e) return;
+        vstore4(value1, 0, output + output_offset + h);
+        if(pos.y + 2 >= e) return;
+        vstore4(value2, 0, output + output_offset + 2 * h);
+        if(pos.y + 3 >= e) return;
+        vstore4(value3, 0, output + output_offset + 3 * h);
+#else
+        if(pos.x + 3 < h){
+            vstore4(value0, 0, output + output_offset);
+            if(pos.y + 1 >= e) return;
+            vstore4(value1, 0, output + output_offset + h);
+            if(pos.y + 2 >= e) return;
+            vstore4(value2, 0, output + output_offset + 2 * h);
+            if(pos.y + 3 >= e) return;
+            vstore4(value3, 0, output + output_offset + 3 * h);
+        }else{
+#if H_LEAVES == 1
+            output[output_offset] = value0.x;
+            if(pos.y + 1 >= e) return;
+            output[output_offset + h] = value1.x;
+            if(pos.y + 2 >= e) return;
+            output[output_offset + 2 * h] = value2.x;
+            if(pos.y + 3 >= e) return;
+            output[output_offset + 3 * h] = value3.x;
+#elif H_LEAVES == 2
+            vstore2((FLOAT2)value0.xy, 0, output + output_offset);
+            if(pos.y + 1 >= e) return;
+            vstore2((FLOAT2)value1.xy, 0, output + output_offset + h);
+            if(pos.y + 2 >= e) return;
+            vstore2((FLOAT2)value2.xy, 0, output + output_offset + 2 * h);
+            if(pos.y + 3 >= e) return;
+            vstore2((FLOAT2)value3.xy, 0, output + output_offset + 3 * h);
+#elif H_LEAVES == 3
+            vstore3((FLOAT3)value0.xyz, 0, output + output_offset);
+            if(pos.y + 1 >= e) return;
+            vstore3((FLOAT3)value1.xyz, 0, output + output_offset + h);
+            if(pos.y + 2 >= e) return;
+            vstore3((FLOAT3)value2.xyz, 0, output + output_offset + 2 * h);
+            if(pos.y + 3 >= e) return;
+            vstore3((FLOAT3)value3.xyz, 0, output + output_offset + 3 * h);
+#endif
+        }
+#endif
     }
 }
 

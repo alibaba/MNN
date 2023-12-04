@@ -24,8 +24,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
             // Create a tuple of gemm fp16 + relu kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
@@ -49,8 +49,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F32_Relu_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
@@ -78,8 +78,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
             // Create a tuple of gemm fp16 + relu6 kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F16_Relu6_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                            {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                             {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                             {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                             {alpha, beta},          // <- tuple of alpha and beta
@@ -103,8 +103,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
             // Create a tuple of gemm kernel arguments. This is later passed as arguments to launch
             // instantiated CUTLASS kernel
             typename GemmTensor_F16_F32_Relu6_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta
@@ -130,8 +130,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
     
         if(mFp16Infer) {
             typename GemmTensor_F16_F16_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                        {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                        {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                        {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                        {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                         {(ElementOutput_F16 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                         {(ElementOutput_F16 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                         {alpha, beta},          // <- tuple of alpha and beta
@@ -152,8 +152,8 @@ ErrorCode CutlassDeconvCommonExecution::callCutlassGemmTensorCore(const std::vec
             cutlass_check(status);
         } else {
             typename GemmTensor_F16_F32_Linear_AlignCuda_Sm75::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
-                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  // Ptr + ldm
-                                                {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  //  Ptr + ldm
+                                                {(ElementInput_F16 *)mInputBuffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
+                                                {(ElementInput_F16 *)mFilterAddr, mGemmInfo.elhPad[1]},  //  Ptr + ldm
                                                 {(ElementOutput_F32 *)mZeroPtr, 0},  //  Ptr + ldm  if ldm = 0, vector, 
                                                 {(ElementOutput_F32 *)mIm2ColBuffer, mGemmInfo.elh[2]},  //  Ptr + ldm
                                                 {alpha, beta},          // <- tuple of alpha and beta

@@ -106,16 +106,6 @@ void VulkanMemoryPool::clear() {
         iter->release(false);
     }
 }
-VkImage VulkanMemoryPool::allocImage(const std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>& info) {
-    VkImage image;
-    VkImageView imageView;
-    CALL_VK(mDevice.createImage(image, std::get<0>(info), std::get<1>(info), std::get<2>(info), std::get<3>(info), std::get<4>(info)));
-    return image;
-}
-void VulkanMemoryPool::returnImage(VkImage dst, std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>&& info) {
-    mDevice.destroyImage(dst);
-}
-
 
 float VulkanMemoryPool::computeSize() const {
     float totalSize = 0;

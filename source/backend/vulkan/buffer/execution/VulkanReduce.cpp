@@ -15,6 +15,7 @@ struct constBuffer {
     int h;//axis
     int c;//outside
     float k;//For mean
+    int reduceAxis;
 };
 #define MAX_VALUE 10001.f
 VulkanReduce::VulkanReduce(const std::string& name, const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
@@ -55,6 +56,18 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     ptr->w = inside;
     ptr->k = 1.0f/(float)axis;
     auto total = outside * inside;
+    int outsideParallel = 1;
+    if (total >= 256) {
+        ptr->reduceAxis = 1;
+        outsideParallel = 256;
+    } else if (total < 16) {
+        ptr->reduceAxis = 256;
+        outsideParallel = 1;
+    } else {
+        ptr->reduceAxis = 16;
+        outsideParallel = 16;
+    }
+    //MNN_PRINT("o, i, axis: %d - %d - %d => op %d, ra %d\n", outside, inside, axis, outsideParallel, ptr->reduceAxis);
     mConstBuffer->unmap();
     // Encode
     mDescriptorSet->writeBuffer(outputTensor, 0);
@@ -62,7 +75,7 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
     cmdBuffer->barrierSource(inputTensor);
     mPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, outsideParallel), 1, 1);
     return NO_ERROR;
 }
 

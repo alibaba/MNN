@@ -49,8 +49,8 @@ public:
         };
         Mode mode = DIRECT;
         enum Allocator {
-            EAGER = 0,
-            DEFER = 1
+            DEFER = 0,
+            EAGER = 1
         };
         Allocator allocator = DEFER;
     };
@@ -115,7 +115,9 @@ public:
     /**
      * @brief callback after resize ops.
      */
-    virtual ErrorCode onResizeEnd();
+    virtual ErrorCode onResizeEnd() {
+        return NO_ERROR;
+    }
 
     /**
      * @brief callback before executing ops.
@@ -309,7 +311,7 @@ public:
 private:
     std::future<int> mFuture;
     std::string mExternalFile;
-    AllocatorType mAllocatorType;
+    AllocatorType mAllocatorType = Allocator_Eager;
 };
 
 /** abstract Runtime register */

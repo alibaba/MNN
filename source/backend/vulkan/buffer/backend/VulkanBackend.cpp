@@ -270,6 +270,9 @@ void VulkanBackend::_finish() const {
 const VulkanDevice& VulkanBackend::device() const {
     return (* mRuntime->mDevice);
 }
+const VulkanPipelineFactory* VulkanBackend::getPipelineFactory() const {
+    return mRuntime->mPipelineFactory.get();
+}
 
 static Tensor::DimensionType _convert(MNN_DATA_FORMAT format) {
     switch (format) {

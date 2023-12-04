@@ -42,6 +42,7 @@ mkdir -p Debug\Dynamic\MD, Debug\Dynamic\MT, Debug\Static\MD, Debug\Static\MT, R
 popd
 
 $CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AVX512=ON"
+$ONLY_DYNAMIC_MT = $False
 if ($backends -ne $null) {
     Foreach ($backend in $backends.Split(",")) {
         if ($backend -eq "opencl") {
@@ -50,6 +51,7 @@ if ($backends -ne $null) {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_VULKAN=ON"
         } elseif ($backend -eq "cuda") {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_CUDA=ON"
+            $ONLY_DYNAMIC_MT = $True
         }
     }
 }
@@ -90,26 +92,28 @@ Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=
 cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Debug\Dynamic\MT
 rm MNN.*
 
-##### Debug/Dynamic/MD ####
-log "Debug/Dynamic/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF .."
-cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Debug\Dynamic\MD
-rm MNN.*
+if ($ONLY_DYNAMIC_MT -eq $False) {
+    ##### Debug/Dynamic/MD ####
+    log "Debug/Dynamic/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF .."
+    cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Debug\Dynamic\MD
+    rm MNN.*
 
-##### Debug/Static/MT ####
-log "Debug/Static/MT"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MT
-rm MNN.*
+    ##### Debug/Static/MT ####
+    log "Debug/Static/MT"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MT
+    rm MNN.*
 
-##### Debug/Static/MD ####
-log "Debug/Static/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MD
-rm MNN.*
+    ##### Debug/Static/MD ####
+    log "Debug/Static/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Debug\Static\MD
+    rm MNN.*
+}
 
 ##### Release/Dynamic/MT ####
 log "Release/Dynamic/MT"
@@ -118,23 +122,24 @@ Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_M
 cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MT
 rm MNN.*
 
-##### Release/Dynamic/MD ####
-log "Release/Dynamic/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
-cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
-rm MNN.*
+if ($ONLY_DYNAMIC_MT -eq $False) {
+    ##### Release/Dynamic/MD ####
+    log "Release/Dynamic/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
+    cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
+    rm MNN.*
 
-##### Release/Static/MT ####
-log "Release/Static/MT"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
+    ##### Release/Static/MT ####
+    log "Release/Static/MT"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
 
-##### Release/Static/MD ####
-log "Release/Static/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MD
-
+    ##### Release/Static/MD ####
+    log "Release/Static/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MD
+}
 popd

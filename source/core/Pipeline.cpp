@@ -21,7 +21,7 @@
 //#define MNN_PIPELINE_DEBUG
 namespace MNN {
 
-
+// FIXME: Move in Backend
 static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, MNNForwardType type) {
     auto otype = op->type();
     switch (otype) {
@@ -960,8 +960,13 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
             }
 #endif
             auto code = iter.execution->onResize(iter.workInputs, iter.workOutputs);
-            if (NO_ERROR != code && (!iter.info.get())) {
-                MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());
+            if (NO_ERROR != code) {
+#ifdef MNN_PIPELINE_DEBUG
+                MNN_ERROR("Pipeline Resize error: %d\n", code);
+#endif
+                if (!iter.info.get()) {
+                    MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());
+                }
                 return code;
             }
             // Free mid tensor

@@ -23,7 +23,25 @@
         "GREATER",
         "GREATEREQUAL",
         "EQUAL",
-        "NOTEQUAL"
+        "NOTEQUAL",
+        "VMOD"
+    ],
+    "binary_blit.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "POW",
+        "VMAX",
+        "SQUDIFF",
+        "VMIN",
+        "LESS",
+        "LESSEQUAL",
+        "GREATER",
+        "GREATEREQUAL",
+        "EQUAL",
+        "NOTEQUAL",
+        "VMOD"
     ],
     "unary.comp":[
         "SIGMOID",
@@ -115,5 +133,8 @@
     ],
     "gridSampleBilinear.comp":[
         "PAD_MODE_ZEROS"
+    ],
+    "resizeNearest.comp":[
+        "NEAREST_ROUND"
     ]
 }

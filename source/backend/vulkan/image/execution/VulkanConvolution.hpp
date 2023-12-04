@@ -64,7 +64,7 @@ public:
     private:
         const VulkanBackend* mBackend;
         const VulkanPipeline* mPipeline;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mSets;
+        std::shared_ptr<VulkanLayout::DescriptorSet> mSets;
         std::shared_ptr<VulkanBuffer> mConstBuffer;
     };
     static int gImage2ColLocal;
@@ -94,10 +94,10 @@ private:
 
     const VulkanPipeline* mConvPipeline;
 
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mConvSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mConvSet;
     const VulkanSampler* mSampler;
     std::shared_ptr<VulkanImage> mBias;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mExtraSets;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mExtraSets;
     std::vector<std::shared_ptr<VulkanBuffer>> mExtraBuffers;
 
     int mLocalX = 0;

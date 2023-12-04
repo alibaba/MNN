@@ -33,6 +33,7 @@ public:
     virtual const Runtime* getRuntime() override {
         return mRuntime;
     }
+    const VulkanPipelineFactory* getPipelineFactory() const;
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
 
@@ -78,8 +79,8 @@ public:
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
 
-private:
     const VulkanDevice& device() const;
+private:
     void _finish() const;
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;

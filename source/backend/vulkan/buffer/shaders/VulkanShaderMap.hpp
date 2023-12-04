@@ -16,11 +16,17 @@ class VulkanShaderMap {
 public:
     VulkanShaderMap() {
         init();
+#ifdef MNN_SUPPORT_RENDER
+        initRender();
+#endif
     }
     ~VulkanShaderMap() {
     }
 
     void init();
+#ifdef MNN_SUPPORT_RENDER
+    void initRender();
+#endif
 
     std::pair<const unsigned char*, size_t> search(const std::string& key) {
         auto iter = mMaps.find(key);

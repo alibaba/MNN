@@ -5,51 +5,30 @@
 - MNN 编译时打开 MNN_BUILD_TRAIN 开关：cmake .. -DMNN_BUILD_TRAIN=true
 
 ### 产物
-- transformer.out
-- rawDataTransform.out
-- dataTransformer.out
-- train.out
-- backendTest.out
-- backwardTest.out
+- transformer
+- extractForInfer
 - runTrainDemo.out
 
 
 ## 使用
 ### 制作训练模型
-eg: ./transformer.out mobilenet.mnn mobilenet-train.mnn transformerConfig.json
+eg: ./transformer mobilenet.mnn mobilenet-train.mnn transformerConfig.json [revert.json]
 
-- 第一个参数为推理模型
-- 第二个参数为产出物训练模型
-- 第三个参数为json配置文件, 参考 transformerConfig.json 和 transformerConfig2.json 编写
+- 第一个参数：输入，推理模型或计算Loss的模型
+- 第二个参数：输出，训练模型
+- 第三个参数：输入，为json配置文件, 参考 transformerConfig.json 和 transformerConfig2.json 编写
+- 第四个参数：输出，还原参数所需要的配置文件，若不指定，默认为当前路径下的 revert.json
 
 ### 制作训练数据
-#### 基于图像数据制作
-eg: ./dataTransformer.out mobilenet.mnn filePath.json testData.bin
-
-- 第一个参数为推理模型
-- 第二个参数为图片描述，参考 filePath.json
-- 第三个参数为产出物训练数据
-
-#### 基于文本形式制作
-eg: ./rawDataTransform.out dataConfig.json data.bin
-
-- 第一个参数为配置文件，参考 dataConfig.json 编写
-- 第二个参数为产出物训练数据
+- 根据模型输入和标注准备
 
 ### 训练
-eg: ./train.out mobilenet-train.mnn testData.bin 1000 0.01 32 Loss
+- 用 Interpreter-Session API 加载训练模型，得到 Session
+- 根据 transformer 打印的输入，传入 Session
+- 运行 Session
+- （可选）获取 Session 中的 loss 并查看
+- 若干次迭代后，调用 Interpreter 的 updateSessionToModel 更新权重, 然后调用 getModelBuffer 获取新的模型内存并自行写入到新的模型文件中
 
-- 默认程序运行完成后输出模型文件 trainResult.bin
-- 第一个参数为训练模型
-- 第二个参数为训练数据
-- 第三个参数为迭代次数
-- 第四个参数为学习率
-- 第五个参数为Batch size
-- 第六个参数为 Loss 函数名，若不输视为 "Loss"
-
-
-## 目前支持转换的模型
-- MobilenetV2: ../../AliNNModel/MobileNetV2/mobilenet_v2_1.0_224.tflite.alinn
-- Lenet
-
-注：Caffe 的 mobilenet 产生的 MNN 模型，在转成训练模型过程中会出现反卷积与卷积维度不一的情况，待解决
+### 应用
+- 使用 extractForInfer 将训练模型的参数提取到 推理模型
+- 重新加载推理模型，即训练好的模型

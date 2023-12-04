@@ -227,7 +227,8 @@ Backend* CLRuntime::onCreate(const BackendConfig* config) const {
 }
 
 void CLRuntime::onGabageCollect(int level) {
-    //nothing now
+    mImagePool->releaseFreeList();
+    mBufferPool->releaseFreeList();
 }
 
 bool CLRuntime::isCLRuntimeError() {

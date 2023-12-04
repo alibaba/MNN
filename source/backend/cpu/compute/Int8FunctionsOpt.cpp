@@ -1643,22 +1643,19 @@ void MNNBinaryAddInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const int minValue = static_cast<int32_t>(params->minValue) + offset;
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             sum =  inp0 + inp1;
         } else if (needBroadcast == 1) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             sum = inp0 + inp1;
         } else {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
-            sum = inp0 + inp1;
+           float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
+           sum = inp0 + inp1;
         }
-        int value  = (sum + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        if (sum < 0) {
-            value  = (sum - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        }
+        int value = (int)roundf(sum * inputScalesFp32[2]) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (value > maxValue) {
             value = maxValue;
         }
@@ -1686,22 +1683,19 @@ void MNNBinarySubInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const int minValue = static_cast<int32_t>(params->minValue) + offset;
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[0] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+           float inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         } else if (needBroadcast == 1) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[0] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+            float inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         } else {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+            float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         }
-        int value  = (res + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        if (res < 0) {
-            value  = (res - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        }
+        int value = (int)roundf(res * inputScalesFp32[2]) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (value > maxValue) {
             value = maxValue;
         }
@@ -1781,9 +1775,9 @@ void MNNBinaryMinInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
             int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
             res = std::min(inp0, inp1);
         }
-        int value  = (res + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
+        int value  = roundf((res + (1<<15)) / (1 << 16)) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (res < 0) {
-            value  = (res - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
+            value  = roundf((res - (1<<15)) / (1 << 16)) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         }
         if (value > maxValue) {
             value = maxValue;
@@ -1906,9 +1900,9 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
             for (int i = 0; i < pack; ++i) {
                 int32_t val = static_cast<int32_t>(srcX[i] - intputZeroPointValue) * alphaZ[i] + biasZ[i];
 
-                int valOut  = (val + (1<<d)) / (1 << mShiftBits) + outputZeroPointValue;
+                int valOut  = roundf((val + (1<<d)) / (1 << mShiftBits)) + outputZeroPointValue;
                 if (val < 0) {
-                    valOut  = (val - (1<<d)) / (1 << mShiftBits) + outputZeroPointValue;
+                    valOut  = roundf((val - (1<<d)) / (1 << mShiftBits)) + outputZeroPointValue;
                 }
 
                 if (valOut > maxValue + offset) {

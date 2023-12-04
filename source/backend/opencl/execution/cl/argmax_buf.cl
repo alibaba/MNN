@@ -10,6 +10,18 @@ __private const int global_size_dim0, __private const int global_size_dim1, __pr
         return;                                                                                   \
     }
 
+#define ARGMAX_SELECT(a, b, c, d)    \
+    a.x = b.x < c.x ? d : a.x;     \
+    a.y = b.y < c.y ? d : a.y;     \
+    a.z = b.z < c.z ? d : a.z;     \
+    a.w = b.w < c.w ? d : a.w;     \
+
+#define ARGMIN_SELECT(a, b, c, d)    \
+    a.x = b.x > c.x ? d : a.x;     \
+    a.y = b.y > c.y ? d : a.y;     \
+    a.z = b.z > c.z ? d : a.z;     \
+    a.w = b.w > c.w ? d : a.w;     \
+
 __kernel void argmax_width_buf(GLOBAL_SIZE_3_DIMS
                             __global const FLOAT* input,
                             __global FLOAT* output,
@@ -39,10 +51,10 @@ __kernel void argmax_width_buf(GLOBAL_SIZE_3_DIMS
     for(int i = 1; i < inputWidth; ++i){
         FLOAT4 value = vload4(i, input + offset);
 #ifdef ARGMAX
-        index = maxValue < value ? (int4)i : index;
+        ARGMAX_SELECT(index, maxValue, value, i);
         maxValue = fmax(maxValue, value);
 #else
-        index = maxValue > value ? (int4)i : index;
+        ARGMIN_SELECT(index, maxValue, value, i);
         maxValue = fmin(maxValue, value);
 #endif
     }
@@ -79,10 +91,10 @@ __kernel void argmax_height_buf(GLOBAL_SIZE_3_DIMS
     for(int i = 1; i < inputHeight; ++i){
         FLOAT4 value = vload4(i * inputWidth, input + offset);
 #ifdef ARGMAX
-        index = maxValue < value ? (int4)i : index;
+        ARGMAX_SELECT(index, maxValue, value, i);
         maxValue = fmax(maxValue, value);
 #else
-        index = maxValue > value ? (int4)i : index;
+        ARGMIN_SELECT(index, maxValue, value, i);
         maxValue = fmin(maxValue, value);
 #endif
     }
@@ -243,10 +255,10 @@ __kernel void argmax_batch_buf(GLOBAL_SIZE_3_DIMS
     for(int i = 1; i < inputBatch; ++i){
         FLOAT4 value = vload4(i * batchOffset, input + offset);
 #ifdef ARGMAX
-        index = maxValue < value ? (int4)i : index;
+        ARGMAX_SELECT(index, maxValue, value, i);
         maxValue = fmax(maxValue, value);
 #else
-        index = maxValue > value ? (int4)i : index;
+        ARGMIN_SELECT(index, maxValue, value, i);
         maxValue = fmin(maxValue, value);
 #endif
     }

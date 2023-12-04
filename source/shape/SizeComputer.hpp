@@ -159,4 +159,18 @@ public:
 #endif
 
 
+#ifdef MNN_SUPPORT_RENDER
+#define REGISTER_SHAPE_INPUTS_RENDER(name, op, index)            \
+    void ___##name##__##op##__() {                        \
+        SizeComputerSuite* ts = SizeComputerSuite::get(); \
+        name* computer = new name;                             \
+        computer->setInputIndex(index);                    \
+        ts->insert(computer, op);                        \
+    }
+
+#else
+#define REGISTER_SHAPE_INPUTS_RENDER(name, op, index) void ___##name##__##op##__() {}
+
+#endif
+
 #endif

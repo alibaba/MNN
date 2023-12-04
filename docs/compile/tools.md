@@ -29,10 +29,8 @@
 - 编译产物
   - `MNNTrain` 训练框架库
   - `runTrainDemo.out` 运行训练框架demo的入口程序
-  - `transformer.out` 训练模型转换器
-  - `train.out` 训练功能入口程序
-  - `rawDataTransform.out` 将json文件转换为flatbuffers文件
-  - `dataTransformer.out` 将图片转换为flatbuffers文件
+  - `transformer` 训练模型转换器，将推理用的MNN模型转换为执行训练的MNN模型
+  - `extractForInfer` 从执行训练的MNN模型中提取参数，对应更新推理用的MNN模型
 ## 测试工具
 - 相关编译选项
   - `MNN_BUILD_TOOL` 是否编译测试工具

@@ -58,4 +58,11 @@ void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
     _SSE_MNNPackednMatMulRemainCommon_int8(C, A, B, eSize, parameter, postParameters, bias, k, b);
     _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
 }
+
+void _SSE_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    _SSE_MNNGemmHybrid_int4(C, A,  B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
+}
+void _SSE_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    _SSE_MNNGemmHybrid_int8(C, A,  B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
+}
 #endif

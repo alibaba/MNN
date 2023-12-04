@@ -194,6 +194,9 @@ L8Loop:
     fcvtas v21.4s, v21.4s
     fcvtas v22.4s, v22.4s
 
+    dup v11.16b, w11
+    dup v12.16b, w12
+
     sqxtn v1.4h, v15.4s
     sqxtn2 v1.8h, v16.4s
     sqxtn v2.4h, v17.4s
@@ -408,7 +411,7 @@ L1Loop:
     L1_SQXTN_S8:
     sqxtn v5.8b, v1.8h
     smax v5.8b, v5.8b, v30.8b
-    smin v6.8b, v6.8b, v31.8b
+    smin v5.8b, v5.8b, v31.8b
     st1 {v5.s}[0], [x0], #4
 
     subs x6, x6, #1

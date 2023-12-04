@@ -60,5 +60,15 @@ void ImagePool::clear() {
     mFreeList.clear();
     mAllImage.clear();
 }
+
+void ImagePool::releaseFreeList() {
+    for(auto mf : mFreeList){
+        auto iter = mAllImage.find(mf->image.get());
+        if (iter != mAllImage.end()) {
+            mAllImage.erase(iter);
+        }
+    }
+    mFreeList.clear();
+}
 } // namespace OpenCL
 } // namespace MNN

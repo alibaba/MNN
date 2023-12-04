@@ -106,7 +106,7 @@ public:
 
         {
             auto output = _Sqrt(input);
-            const std::vector<float> expectedOutput = {NAN, NAN, -INFINITY, 0.1000, NAN};
+            const std::vector<float> expectedOutput = {NAN, NAN, 0.0f, 0.1000, NAN};
             if (!checkResult(output, outputDiff, expectedOutput, "Sqrt")) {
                 return false;
             }

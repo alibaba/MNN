@@ -65,11 +65,41 @@ void CoreMLConvolution::addPadLayer(const Tensor * input, const Convolution2DCom
     if (top == 0 && left == 0 && bottom == 0 && right == 0) {
         return;
     }
-    
+    if (isDeconv && outputWidth == inputWidth * common->strideX() && outputHeight == inputHeight * common->strideY()) {
+        isSamePadding = true;
+        return;
+    }
+    if (!isDeconv && outputWidth == UP_DIV(inputWidth, common->strideX()) && outputHeight == UP_DIV(outputHeight, common->strideY())) {
+        isSamePadding = true;
+        return;
+    }
+    if (isDeconv) {
+        int ky = common->kernelY();
+        int kx = common->kernelX();
+        int sy = common->strideY();
+        int sx = common->strideX();
+        int pad_out_height = (outputHeight - ky) / sy + 1;
+        int pad_out_width = (outputWidth - kx) / sx + 1;
+        top = (pad_out_height - inputHeight) / 2;
+        bottom = (pad_out_height - inputHeight) - top;
+        left = (pad_out_width - inputWidth) / 2;
+        right = (pad_out_width - inputWidth) - left;
+        
+        if (top < 0 || bottom < 0 || left < 0 || right < 0) {
+            isSamePadding = true;
+            pad_out_width = outputWidth / sx;
+            pad_out_height = outputHeight / sy;
+            bottom = 0;
+            top = pad_out_height - inputHeight;
+            right = 0;
+            left = pad_out_width - inputWidth;
+        }
+    }
+    std::string layerName = "ConvPadding-" + mConvInputName;
     auto paddingLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
     core_ml__specification__neural_network_layer__init(paddingLayer);
     paddingLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_PADDING;
-    mCoreMLBackend->setLayerName(paddingLayer, "ConvPadding");
+    mCoreMLBackend->setLayerName(paddingLayer, layerName.c_str());
     paddingLayer->padding = mCoreMLBackend->create<CoreML__Specification__PaddingLayerParams>();
     core_ml__specification__padding_layer_params__init(paddingLayer->padding);
     paddingLayer->padding->padding_type_case = CORE_ML__SPECIFICATION__PADDING_LAYER_PARAMS__PADDING_TYPE_CONSTANT;
@@ -97,6 +127,10 @@ void CoreMLConvolution::addPadLayer(const Tensor * input, const Convolution2DCom
 ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mConvInputName = mCoreMLBackend->getTensorName(inputs[0]);
     mConvOutputName = mCoreMLBackend->getTensorName(outputs[0]);
+    inputWidth = inputs[0]->width();
+    inputHeight = inputs[0]->height();
+    outputWidth = outputs[0]->width();
+    outputHeight = outputs[0]->height();
     loadWeightBias(inputs);
     auto conv2D      = mOp->main_as_Convolution2D();
     auto common      = conv2D->common();
@@ -135,10 +169,17 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
             break;
         case PadMode_CAFFE:
             addPadLayer(inputs[0], common);
-            mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_VALID;
-            mLayer_->convolution->valid = mCoreMLBackend->create<CoreML__Specification__ValidPadding>();
-            core_ml__specification__valid_padding__init(mLayer_->convolution->valid);
-            break;
+            if (isSamePadding){
+                mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_SAME;
+                mLayer_->convolution->same = mCoreMLBackend->create<CoreML__Specification__SamePadding>();
+                core_ml__specification__same_padding__init(mLayer_->convolution->same);
+                break;
+            } else {
+                mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_VALID;
+                mLayer_->convolution->valid = mCoreMLBackend->create<CoreML__Specification__ValidPadding>();
+                core_ml__specification__valid_padding__init(mLayer_->convolution->valid);
+                break;
+            }
         default:
             break;
     }

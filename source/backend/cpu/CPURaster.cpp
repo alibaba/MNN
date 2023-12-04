@@ -235,7 +235,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     }
     return NO_ERROR;
 }
-static void _transpose4Bit(int32_t* dstO, const int32_t* srcO, const Tensor::InsideDescribe::Region& region) {
+static void _transpose(int32_t* dstO, const int32_t* srcO, const Tensor::InsideDescribe::Region& region, int bytes) {
     int dims[4], keepDim = -1;
     for (int i = 0; i < 3; i++) {
         if (region.src.stride[i] == 1 && region.size[i] != 1) {
@@ -248,10 +248,23 @@ static void _transpose4Bit(int32_t* dstO, const int32_t* srcO, const Tensor::Ins
             keepDim = i;
         }
     }
-    for (int z=0; z<region.size[keepDim]; ++z) {
-        auto srcZ = srcO + region.src.stride[keepDim] * z;
-        auto dstZ = dstO + region.dst.stride[keepDim] * z;
-        MNNTranspose32Bit(dstZ, srcZ, dims);
+    if (bytes == 4) {
+        for (int z=0; z<region.size[keepDim]; ++z) {
+            auto srcZ = srcO + region.src.stride[keepDim] * z;
+            auto dstZ = dstO + region.dst.stride[keepDim] * z;
+            MNNTranspose32Bit(dstZ, srcZ, dims);
+        }
+        return;
+    }
+    if (bytes == 2) {
+        auto srcH = reinterpret_cast<const int16_t*>(srcO);
+        auto dstH = reinterpret_cast<int16_t*>(dstO);
+        for (int z = 0; z < region.size[keepDim]; ++z) {
+            auto srcZ = srcH + region.src.stride[keepDim] * z;
+            auto dstZ = dstH + region.dst.stride[keepDim] * z;
+            MNNTranspose16Bit(dstZ, srcZ, dims);
+        }
+        return;
     }
 }
 typedef void (*BlitProc)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
@@ -497,8 +510,9 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
         return;
     }
     int srcOne, dstOne;
-    if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && 4 == bytes) {
-        _transpose4Bit((int32_t*)dstPtr, (const int32_t*)srcPtr, slice);
+    if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && (4 == bytes || 2 == bytes)) {
+    // if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && 4 == bytes) {
+        _transpose((int32_t*)dstPtr, (const int32_t*)srcPtr, slice, bytes);
         return;
     }
     if (1 == slice.src.stride[2] && 1 == slice.dst.stride[2]) {
@@ -789,7 +803,7 @@ public:
                     auto inputSize = input->elementSize();
                     auto output = mStack[cmd->indexes()->data()[0]];
                     auto bytes = input->getType().bytes();
-                    if (halide_type_float == input->getType().code && bytes == 4) {
+                    if (halide_type_float == input->getType().code) {
                         bytes = cpubackend->functions()->bytes;
                     }
                     _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>());
@@ -827,7 +841,7 @@ public:
                 auto inputSize = input->elementSize();
                 auto output = mStack[cmd->indexes()->data()[0]];
                 auto bytes = input->getType().bytes();
-                if (halide_type_float == input->getType().code && bytes == 4) {
+                if (halide_type_float == input->getType().code) {
                     bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
                 }
                 auto step0 = cmd->steps()->data()[0];

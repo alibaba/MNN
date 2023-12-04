@@ -15,6 +15,7 @@
 #include "core/Concurrency.h"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "math/Vec.hpp"
 
 
@@ -63,21 +64,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     const Tensor* A = inputs[0];
     const Tensor* B = inputs[1];
     Tensor* C       = outputs[0];
-    auto w0         = inputs[0]->length(1);
-    auto h0         = inputs[0]->length(0);
     auto core = static_cast<CPUBackend*>(backend())->functions();
     mPreFunctions.clear();
     mPostFunctions.clear();
-    auto e = A->length(0);
-    auto h = B->length(1);
-    auto l = A->length(1);
-    if (mTransposeA) {
-        l = A->length(0);
-        e = A->length(1);
-    }
-    if (mTransposeB) {
-        h = B->length(0);
-    }
+    int e, l, h;
+    OpCommonUtils::computeMatMulSize(mTransposeA, mTransposeB, A, B, e, l, h);
+
     // If encoded but resized as h=1/e=1, the computer should clear firstly
     mComputer->onReset();
     if (h == 1) {

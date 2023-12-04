@@ -40,16 +40,17 @@ public:
 
     bool lazyEval = true;
     enum LazyMode {
-        // Don't compute at all until user needed.
-        LAZY_FULL,
-        
+        LAZY_FULL = 0,
         // Don't compute content until user needed.
-        LAZY_CONTENT
+        LAZY_CONTENT = 1 << 0,
+        
+        // Expr can only compute once, it can reduce the create cost of expr
+        LAZY_COMPUTE_ONCE = 1 << 1,
     };
-    LazyMode getLazyMode() const {
+    uint32_t getLazyMode() const {
         return mLazyMode;
     }
-    void setLazyComputeMode(LazyMode mode);
+    void setLazyComputeMode(uint32_t mode);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
     enum GCFlag {
@@ -139,7 +140,7 @@ private:
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;
-    LazyMode mLazyMode = LAZY_FULL;
+    uint32_t mLazyMode = 0;
     std::shared_ptr<ExecutorAttr> mAttr;
     std::mutex mMutex;
 };

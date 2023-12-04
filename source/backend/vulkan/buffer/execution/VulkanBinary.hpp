@@ -17,14 +17,15 @@ class VulkanBinary : public VulkanBasicExecution {
 public:
     VulkanBinary(const std::string& shaderName, Backend* bn, int activationType, int inputSize);
     virtual ~VulkanBinary();
+    static std::string getMidName(const Op* op);
 
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
     std::vector<std::shared_ptr<VulkanBuffer>> mConstBuffer;
     const VulkanPipeline* mBinaryPipeline;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDescriptorSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDescriptorSet;
     int mActivationType = 0;
 };
 } // namespace MNN

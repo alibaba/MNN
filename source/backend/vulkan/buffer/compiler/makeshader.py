@@ -16,6 +16,10 @@ gOutputSourceFile = "AllShader.cpp"
 def findAllShader(path):
     cmd = "find " + path + " -name \"*.comp\""
     vexs = os.popen(cmd).read().split('\n')
+    cmd = "find " + path + " -name \"*.frag\""
+    vexs += os.popen(cmd).read().split('\n')
+    cmd = "find " + path + " -name \"*.vert\""
+    vexs += os.popen(cmd).read().split('\n')
     output = []
     for f in vexs:
         if len(f) > 1:

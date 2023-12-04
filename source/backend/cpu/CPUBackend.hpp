@@ -33,7 +33,6 @@ public:
     void onConcurrencyEnd() const;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
-
 private:
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
@@ -89,6 +88,9 @@ public:
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
+
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
     
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
@@ -180,6 +182,12 @@ private:
     void ___##name##__##opType##__() {            \
     }
 #endif
+
+#define REGISTER_CPU_OP_CREATOR_RENDER(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static name _temp;\
+        CPUBackend::addCreator(opType, &_temp); \
+    }
 
 } // namespace MNN
 

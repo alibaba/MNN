@@ -67,7 +67,7 @@ public:
                 // d (-sqrt(x)) = 0.5 / sqrt(x) * dx
                 auto oneConst = _Const(0.5f, {}, NHWC);
                 auto mul      = _Multiply(outputDiff, oneConst);
-                res[0]        = _Divide(mul, output[0]);
+                res[0]        = OpGrad::divideAvoidZero(mul, output[0]);
                 break;
             }
             case MNN::UnaryOpOperation_SQUARE: {
@@ -182,10 +182,11 @@ public:
                 break;
             }
             default:
+                MNN_ERROR("Can't grad for unary: %d\n", forwardOp->main.AsUnaryOp()->opType);
+
                 return res;
         }
 
-        res[0]->setName(expr->name() + "_Grad");
         return res;
     }
 };
@@ -202,7 +203,6 @@ public:
         auto sub  = _Subtract(output[0], mul);
         auto grad = _Multiply(sub, outputDiff);
         result[0] = grad;
-        result[0]->setName(expr->name() + "_Grad");
         return result;
     }
 };

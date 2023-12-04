@@ -31,9 +31,12 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 
     int l = weightSize / oc;
     int h = oc;
+    int ic = common->inputCount();
+    if(ic == 0) {
+        ic = l / common->kernelX() / common->kernelY();
+    }
     int lp = UP_DIV(l, 8) * 8;
     int hp = UP_DIV(h, 8) * 8;
-
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
@@ -51,7 +54,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         if(precision == 2) {
             precision == 0;
         }
-        callWeightFill((const void *)cacheWeight, (void *)mFilter, l, h, lp, hp, static_cast<CUDABackend*>(bn)->getPrecision() == 1, runtime);
+        callWeightFill((const void *)cacheWeight, (void *)mFilter, ic, l, h, lp, hp, static_cast<CUDABackend*>(bn)->getPrecision() == 1, runtime);
 
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     }
@@ -129,6 +132,7 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     mIm2ColParamter.strideX         = convCommon->strideX();
     mIm2ColParamter.strideY         = convCommon->strideY();
     mIm2ColParamter.icDiv4          = icDiv;
+    mIm2ColParamter.ic              = ic;
     mIm2ColParamter.kernelX         = convCommon->kernelX();
     mIm2ColParamter.kernelY         = convCommon->kernelY();
     mIm2ColParamter.padX = std::get<0>(pads);

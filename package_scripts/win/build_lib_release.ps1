@@ -41,10 +41,13 @@ if ($cibuild) {
 popd
 
 $CMAKE_ARGS = "-DMNN_SEP_BUILD=OFF -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON  -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_AVX512=ON -DMNN_LOW_MEMORY=ON"
+$ONLY_DYNAMIC_MT = $False
+
 if ($backends -ne $null) {
     Foreach ($backend in $backends.Split(",")) {
         if ($backend -eq "cuda") {
             $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_CUDA=ON"
+            $ONLY_DYNAMIC_MT = $True
         }
     }
 }
@@ -96,23 +99,24 @@ if ($cibuild) {
     return
 }
 
-##### Release/Dynamic/MD ####
-log "Release/Dynamic/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
-cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
-rm MNN.*
+if ($ONLY_DYNAMIC_MT -eq $False) {
+    ##### Release/Dynamic/MD ####
+    log "Release/Dynamic/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF .."
+    cp MNN.lib, MNN.dll, MNN.pdb $PACKAGE_LIB_PATH\Release\Dynamic\MD
+    rm MNN.*
 
-##### Release/Static/MT ####
-log "Release/Static/MT"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
+    ##### Release/Static/MT ####
+    log "Release/Static/MT"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MT
 
-##### Release/Static/MD ####
-log "Release/Static/MD"
-Remove-Item CMakeCache.txt -ErrorAction Ignore
-Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
-cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MD
-
+    ##### Release/Static/MD ####
+    log "Release/Static/MD"
+    Remove-Item CMakeCache.txt -ErrorAction Ignore
+    Build "cmake -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=OFF -DMNN_BUILD_SHARED_LIBS=OFF .."
+    cp MNN.lib $PACKAGE_LIB_PATH\Release\Static\MD
+}
 popd

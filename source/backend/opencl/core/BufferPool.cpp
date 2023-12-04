@@ -49,5 +49,14 @@ void BufferPool::clear() {
     mAllBuffer.clear();
 }
 
+void BufferPool::releaseFreeList() {
+    for(auto mf : mFreeList){
+        auto iter = mAllBuffer.find(mf.second->buffer.get());
+        if (iter != mAllBuffer.end()) {
+            mAllBuffer.erase(iter);
+        }
+    }
+    mFreeList.clear();
+}
 } // namespace OpenCL
 } // namespace MNN

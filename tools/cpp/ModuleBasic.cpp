@@ -95,7 +95,6 @@ int main(int argc, char *argv[]) {
     std::string modelName = argv[1];
     std::string directName = argv[2];
     MNN_PRINT("Test %s from input info: %s\n", modelName.c_str(), directName.c_str());
-    rapidjson::Document document;
     std::map<std::string, float> inputInfo;
     std::map<std::string, std::vector<int>> inputShape;
     std::vector<std::string> inputNames;
@@ -113,7 +112,25 @@ int main(int argc, char *argv[]) {
     }
     int repeatNumber = 1;
     bool shapeMutable = true;
-    {
+    std::vector<VARP> inputs;
+    std::vector<VARP> outputs;
+    if (runMask & 128) {
+        MNN_PRINT("Use input.mnn and output.mnn for test\n");
+        inputs = MNN::Express::Variable::load((directName + "/input.mnn").c_str());
+        outputs = MNN::Express::Variable::load((directName + "/output.mnn").c_str());
+        if (inputs.size() > 0 && outputs.size() > 0) {
+            MNN_PRINT("Has input.mnn, use input.mnn and output.mnn instead of json\n");
+        }
+        for (auto v : inputs) {
+            inputNames.emplace_back(v->name());
+        }
+        for (auto v : outputs) {
+            outputNames.emplace_back(v->name());
+        }
+        checkOutput = outputs.size() > 0;
+    }
+    if (inputNames.empty()) {
+        rapidjson::Document document;
         std::ostringstream jsonNameOs;
         jsonNameOs << directName << "/input.json";
         std::ifstream fileNames(jsonNameOs.str().c_str());
@@ -264,32 +281,33 @@ int main(int argc, char *argv[]) {
         }\
     }
 
-
-    std::vector<VARP> inputs(mInfo->inputs.size());
-    for (int i=0; i<inputs.size(); ++i) {
-        inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
-    }
-    // Load inputs
-    for (int i=0; i<inputs.size(); ++i) {
-        auto inputName = inputNames[i];
-        // Resize
-        auto shapeIter = inputShape.find(inputName);
-        if (shapeIter != inputShape.end()) {
-            auto s = shapeIter->second;
-            inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+    if (inputs.empty()) {
+        inputs.resize(mInfo->inputs.size());
+        for (int i=0; i<inputs.size(); ++i) {
+            inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
         }
-        auto info = inputs[i]->getInfo();
-        if (info->type == halide_type_of<float>()){
-            auto ptr = inputs[i]->writeMap<float>();
-            LOAD_DATA(float)
-        } else {
-            auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
-            auto ptr = floatVar->writeMap<float>();
-            LOAD_DATA(float)
-            auto temp = _Cast(floatVar, info->type);
-            inputs[i]->input(temp);
+        // Load inputs
+        for (int i=0; i<inputs.size(); ++i) {
+            auto inputName = inputNames[i];
+            // Resize
+            auto shapeIter = inputShape.find(inputName);
+            if (shapeIter != inputShape.end()) {
+                auto s = shapeIter->second;
+                inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+            }
+            auto info = inputs[i]->getInfo();
+            if (info->type == halide_type_of<float>()){
+                auto ptr = inputs[i]->writeMap<float>();
+                LOAD_DATA(float)
+            } else {
+                auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
+                auto ptr = floatVar->writeMap<float>();
+                LOAD_DATA(float)
+                auto temp = _Cast(floatVar, info->type);
+                inputs[i]->input(temp);
+            }
+            inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
         }
-        inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
     }
 #undef LOAD_DATA
 

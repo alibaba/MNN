@@ -52,3 +52,11 @@ class Module(_nn._Module):
             else:
                 self._vars[name] = value
                 self._add_parameter(value)
+
+
+class EmptyModule(_nn._Module):
+    def __init(self):
+        super(EmptyModule, self).__init__()
+    def forward(self):
+        return None
+dummy = EmptyModule()

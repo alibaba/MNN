@@ -101,5 +101,8 @@
     ],
     "gridSampleBilinear.comp":[
         "PAD_MODE_ZEROS"
+    ],
+    "resizeNearest.comp":[
+        "NEAREST_ROUND"
     ]
 }

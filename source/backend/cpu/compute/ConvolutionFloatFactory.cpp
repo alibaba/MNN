@@ -15,6 +15,7 @@
 
 #include "backend/cpu/compute/ConvolutionWinogradBridge.hpp"
 #include "backend/cpu/compute/DenseConvolutionTiledExecutor.hpp"
+#include "backend/cpu/compute/ConvolutionHybrid.hpp"
 #ifdef MNN_USE_SPARSE_COMPUTE
 #include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
 #endif
@@ -48,6 +49,15 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     bool fastWay = common->kernelY() == 1 && common->kernelX() == 1
         && output->width() == input->width() && output->height() == input->height()
         && common->strideX() == 1 && common->strideY() == 1;
+
+    if (lowMemory) {
+        if (fastWay) {
+            // return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+            return new ConvolutionHybrid(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        } else {
+            return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        }
+    }
     if (fastWay) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }

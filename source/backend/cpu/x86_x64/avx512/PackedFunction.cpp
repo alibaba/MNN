@@ -17,6 +17,10 @@
 #include "backend/cpu/BinaryUtils.hpp"
 #include "Vec16.hpp"
 #define PACK_UNIT 16
+#define PACK PACK_UNIT
+#define FLOAT float
+using Vec = Vec16;
+#include "backend/cpu/GridSampler.hpp"
 
 void _AVX512_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
     for (int i = 0; i < count; ++i) {
@@ -709,10 +713,11 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNDeconvRunForLineDepthwise = _AVX512_MNNDeconvRunForLineDepthwise;
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX512_MNNDeconvRunForUnitDepthWise;
     coreFunction->MNNGridSampleComputeCord = _AVX512_MNNGridSampleComputeCord;
-    coreFunction->MNNGridSampleInterp = _AVX512_MNNGridSampleInterp;
     coreFunction->MNNRoiPoolingMax = _AVX512_MNNRoiPoolingMax;
     coreFunction->MNNRoiAlignMax = _AVX512_MNNRoiAlignMax;
     coreFunction->MNNRoiAlignAvg = _AVX512_MNNRoiAlignAvg;
+    coreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    coreFunction->MNNGridSampleInterpGrad = MNNGridSampleInterpGrad;
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;

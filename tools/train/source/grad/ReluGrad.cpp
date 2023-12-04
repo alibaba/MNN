@@ -71,9 +71,13 @@ public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result{nullptr};
+        auto op = expr->get();
+        MNN_ASSERT(nullptr != op);
+        auto relu6 = op->main_as_Relu6();
+        MNN_ASSERT(nullptr != relu6);
         auto input = expr->inputs()[0];
-        auto mask0 = _Cast<float>(_Greater(input, _Scalar(0.0f)));
-        auto mask1 = _Cast<float>(_Less(input, _Scalar(6.0f)));
+        auto mask0 = _Cast<float>(_Greater(input, _Scalar(relu6->minValue())));
+        auto mask1 = _Cast<float>(_Less(input, _Scalar(relu6->maxValue())));
 
         result[0] = mask0 * mask1 * backwardOutput[0];
         return result;

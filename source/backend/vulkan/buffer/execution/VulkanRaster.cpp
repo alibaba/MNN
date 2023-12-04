@@ -90,7 +90,7 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         writeSamplerInfo(info, newRegion);
         auto total = info.size[0] * info.size[1] * info.size[2];
         auto group = UP_DIV(total, 256);
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(blitPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe(blitPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkBn->allocUniform();
         auto srcTensor = vkBn->getTensorBuffer(slice.origin);
         auto srcTensorSize = vkBn->getTensorSize(slice.origin);
@@ -178,7 +178,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
             dims.stride[2] = 0;
             dims.stride[3] = convertParameter.channel;
         }
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(convertPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe(convertPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
         mExtraDescribes.emplace_back(describe);
         mExtraUniform.emplace_back(uniform);
@@ -227,7 +227,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         NCHWInfo dims;
         writeNCHW(dims, origin);
         auto convertPipeline = vkBn->getPipeline("glsl_nc4hw4Tonchw_comp", nchwConvertTypes);
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(convertPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe(convertPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
         mExtraDescribes.emplace_back(describe);
         mExtraUniform.emplace_back(uniform);
@@ -265,7 +265,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         SamplerInfo info;
         writeSamplerInfo(info, origin);
         auto total = info.size[0] * info.size[1] * info.size[2];
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(blitPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe(blitPipeline->createSet());
         auto src = vkBn->getTensorBuffer(origin.origin);
         auto srcSize = vkBn->getTensorSize(origin.origin);
         if (TensorUtils::getDescribe(origin.origin)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -291,7 +291,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         NCHWInfo dims;
         writeNCHW(dims, output);
         auto convertPipeline = vkBn->getPipeline("glsl_nchwTonc4hw4_comp", nchwConvertTypes);
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe(convertPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe(convertPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
         mExtraDescribes.emplace_back(describe);
         mExtraUniform.emplace_back(uniform);

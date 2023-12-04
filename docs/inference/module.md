@@ -56,6 +56,41 @@ std::unique_ptr<Module> module; // module
 module.reset(Module::load(input_names, output_names, model_filename.c_str(), rtMgr, &mdconfig));
 ```
 
+### Module::Config 
+创建`Module`时可传入`Module::Config`，具体结构如下：
+
+```cpp
+struct Config {
+    // Load module as dynamic, default static
+    bool dynamic = false;
+
+    // for static mode, if the shape is mutable, set true, otherwise set false to avoid resizeSession freqencily
+    bool shapeMutable = true;
+    // Pre-rearrange weights or not. Disabled by default.
+    // The weights will be rearranged in a general way, so the best implementation
+    // may not be adopted if `rearrange` is enabled.
+    bool rearrange = false;
+
+    BackendInfo* backend = nullptr;
+};
+```
+
+#### dynamic
+- 默认为 false ，输出的变量为const ，只能得到数据
+- 若 dynamic = true ，加载出的模型将按动态图方式运行，会增加额外构图耗时，但可以保存输出变量的计算路径，存成模型
+- 若 dynamic = true ，后面的 shapeMutable / rearrange 不再生效
+
+#### shapeMutable
+- 默认为 true ，表示输入形状易变，将延迟进行形状相关计算
+- 设置为 false 时，会提前申请内存，在 onForward 时做输入数据的拷贝而不是直接使用指针
+
+#### rearrange
+- 若为 true ，在创建 Module 时会预先创建卷积算子，做权重重排，以降低运行时的内存
+- 目前只支持 CPU 和 CUDA 后端
+
+#### backend
+已经废弃，不要设置此项
+
 ### 获取模型信息
 调用`getInfo`函数可获取`Module`信息，可以参考代码：`tools/cpp/GetMNNInfo.cpp`，[工具](../tools/test.html#getmnninfo)
 ```cpp

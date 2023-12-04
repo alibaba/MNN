@@ -59,15 +59,17 @@ enum BorderMode {
   BorderMode_ZEROS = 0,
   BorderMode_CLAMP = 1,
   BorderMode_REFLECTION = 2,
+  BorderMode_CUBE = 3,
   BorderMode_MIN = BorderMode_ZEROS,
-  BorderMode_MAX = BorderMode_REFLECTION
+  BorderMode_MAX = BorderMode_CUBE
 };
 
-inline const BorderMode (&EnumValuesBorderMode())[3] {
+inline const BorderMode (&EnumValuesBorderMode())[4] {
   static const BorderMode values[] = {
     BorderMode_ZEROS,
     BorderMode_CLAMP,
-    BorderMode_REFLECTION
+    BorderMode_REFLECTION,
+    BorderMode_CUBE
   };
   return values;
 }
@@ -77,13 +79,14 @@ inline const char * const *EnumNamesBorderMode() {
     "ZEROS",
     "CLAMP",
     "REFLECTION",
+    "CUBE",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameBorderMode(BorderMode e) {
-  if (e < BorderMode_ZEROS || e > BorderMode_REFLECTION) return "";
+  if (e < BorderMode_ZEROS || e > BorderMode_CUBE) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBorderMode()[index];
 }
@@ -293,10 +296,12 @@ struct GridSampleT : public flatbuffers::NativeTable {
   SampleMode mode;
   BorderMode paddingMode;
   bool alignCorners;
+  bool backward;
   GridSampleT()
       : mode(SampleMode_BILINEAR),
         paddingMode(BorderMode_ZEROS),
-        alignCorners(false) {
+        alignCorners(false),
+        backward(false) {
   }
 };
 
@@ -314,11 +319,15 @@ struct GridSample FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool alignCorners() const {
     return GetField<uint8_t>(8, 0) != 0;
   }
+  bool backward() const {
+    return GetField<uint8_t>(10, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
            VerifyField<int8_t>(verifier, 6) &&
            VerifyField<uint8_t>(verifier, 8) &&
+           VerifyField<uint8_t>(verifier, 10) &&
            verifier.EndTable();
   }
   GridSampleT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -338,6 +347,9 @@ struct GridSampleBuilder {
   void add_alignCorners(bool alignCorners) {
     fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(alignCorners), 0);
   }
+  void add_backward(bool backward) {
+    fbb_.AddElement<uint8_t>(10, static_cast<uint8_t>(backward), 0);
+  }
   explicit GridSampleBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -354,8 +366,10 @@ inline flatbuffers::Offset<GridSample> CreateGridSample(
     flatbuffers::FlatBufferBuilder &_fbb,
     SampleMode mode = SampleMode_BILINEAR,
     BorderMode paddingMode = BorderMode_ZEROS,
-    bool alignCorners = false) {
+    bool alignCorners = false,
+    bool backward = false) {
   GridSampleBuilder builder_(_fbb);
+  builder_.add_backward(backward);
   builder_.add_alignCorners(alignCorners);
   builder_.add_paddingMode(paddingMode);
   builder_.add_mode(mode);
@@ -569,6 +583,7 @@ inline void GridSample::UnPackTo(GridSampleT *_o, const flatbuffers::resolver_fu
   { auto _e = mode(); _o->mode = _e; };
   { auto _e = paddingMode(); _o->paddingMode = _e; };
   { auto _e = alignCorners(); _o->alignCorners = _e; };
+  { auto _e = backward(); _o->backward = _e; };
 }
 
 inline flatbuffers::Offset<GridSample> GridSample::Pack(flatbuffers::FlatBufferBuilder &_fbb, const GridSampleT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -582,11 +597,13 @@ inline flatbuffers::Offset<GridSample> CreateGridSample(flatbuffers::FlatBufferB
   auto _mode = _o->mode;
   auto _paddingMode = _o->paddingMode;
   auto _alignCorners = _o->alignCorners;
+  auto _backward = _o->backward;
   return MNN::CreateGridSample(
       _fbb,
       _mode,
       _paddingMode,
-      _alignCorners);
+      _alignCorners,
+      _backward);
 }
 
 inline ImageProcessParamT *ImageProcessParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -667,6 +684,7 @@ inline const flatbuffers::TypeTable *BorderModeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -675,10 +693,11 @@ inline const flatbuffers::TypeTable *BorderModeTypeTable() {
   static const char * const names[] = {
     "ZEROS",
     "CLAMP",
-    "REFLECTION"
+    "REFLECTION",
+    "CUBE"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -789,6 +808,7 @@ inline const flatbuffers::TypeTable *GridSampleTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -798,10 +818,11 @@ inline const flatbuffers::TypeTable *GridSampleTypeTable() {
   static const char * const names[] = {
     "mode",
     "paddingMode",
-    "alignCorners"
+    "alignCorners",
+    "backward"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

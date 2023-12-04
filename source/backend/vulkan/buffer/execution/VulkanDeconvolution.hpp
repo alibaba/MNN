@@ -27,7 +27,7 @@ private:
     std::shared_ptr<Tensor> mKernel;
 
     const VulkanPipeline* mPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mPipelineSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mPipelineSet;
 
     const Convolution2DCommon* mConvCommonOption;
     std::shared_ptr<VulkanBuffer> mConvParam;

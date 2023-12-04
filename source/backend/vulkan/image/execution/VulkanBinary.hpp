@@ -24,7 +24,7 @@ public:
 private:
     std::vector<std::shared_ptr<VulkanBuffer>> mConstBuffer;
     const VulkanPipeline* mBinaryPipeline;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDescriptorSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDescriptorSet;
     int mActivationType = 0;
 };
 } // namespace MNN

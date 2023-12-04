@@ -184,9 +184,13 @@ static void genStaticModel(CommandBuffer buffer, const std::string& modelName, s
         auto index = tensorPair.second;
         //FUNC_PRINT(index);
         auto des = TensorUtils::getDescribe(tensor);
-        if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+        if (des->usage == Tensor::InsideDescribe::CONSTANT || des->usage == MNN::Tensor::InsideDescribe::TRAINABLE) {
             std::unique_ptr<OpT> op(new OpT);
-            op->type = OpType_Const;
+            if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+                op->type = OpType_Const;
+            } else {
+                op->type = OpType_TrainableParam;
+            }
             auto blob = new BlobT;
             op->main.type = OpParameter_Blob;
             op->main.value = blob;

@@ -44,6 +44,8 @@ bool AVX2Functions::init(int cpuFlags) {
     coreFunction->MNNPackedMatMulRemain_int4 = _AVX_MNNPackedMatMulRemain_int4;
     coreFunction->MNNPackedMatMul_int8       = _AVX_MNNPackedMatMul_int8;
     coreFunction->MNNPackedMatMulRemain_int8 = _AVX_MNNPackedMatMulRemain_int8;
+    coreFunction->MNNGemmHybridInt4 = _AVX_MNNGemmHybridInt4;
+    coreFunction->MNNGemmHybridInt8 = _AVX_MNNGemmHybridInt8;
 #endif
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;

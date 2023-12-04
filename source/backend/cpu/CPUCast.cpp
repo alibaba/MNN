@@ -189,7 +189,7 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
         return new CastDataType<int8_t, float>(backend);
     }
-    if (dstT == MNN::DataType_DT_FLOAT && halide_type_t(halide_type_float, 16) == inputDataType) {
+    if (dstT == MNN::DataType_DT_FLOAT && halide_type_t(halide_type_bfloat, 16) == inputDataType) {
         return new BF16ToFP32(backend);
     }
     if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
@@ -200,6 +200,9 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     }
     if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<int32_t>() == inputDataType) {
         return new CastDataType<int32_t, uint8_t>(backend);
+    }
+    if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<int8_t>() == inputDataType) {
+        return new CastDataType<int8_t, uint8_t>(backend);
     }
     if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
         return new CastDataType<uint8_t, int32_t>(backend);

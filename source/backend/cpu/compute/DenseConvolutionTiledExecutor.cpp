@@ -65,7 +65,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
         return false;
     }
     auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
-    auto biasPtr = resource->mDequantize.mScaleBias->host<float>() + hU * hP;
+    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + hU * hP * bytes);
     ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
     int h = int8Info->alpha.size();
     if (bytes == 2) {
@@ -414,6 +414,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     auto input   = inputs[0];
     auto weight  = inputs[1];
     Tensor *bias = nullptr;
+    if (inputs.size() > 2) {
+        bias = inputs[2];
+    }
     auto core    = static_cast<CPUBackend *>(backend())->functions();
     int bytes    = core->bytes;
     float weightBytes  = bytes;
@@ -444,12 +447,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     int  LRoundup = ROUND_UP(L, lP);
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
-    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParameters, mCommon, input, output, mPadX, mPadY, core, nullptr);
-    if (inputs.size() > 2) {
-        bias = inputs[2];
-    }
+    auto tileC    = std::max(unit, hP);
+    auto oC4      = UP_DIV(outputChannel, tileC);
     auto kernelSize               = mCommon->kernelX() * mCommon->kernelY();
 
+    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParameters, mCommon, input, output, mPadX, mPadY, core, nullptr);
     mTempBufferTranspose.buffer().type          = halide_type_of<uint8_t>();
     mTempBufferTranspose.buffer().dimensions    = 2;
     mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
@@ -457,8 +459,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
     auto plane    = mIm2ColParameters.ow * mIm2ColParameters.oh * batch;
     int tileCount = UP_DIV(plane, eP);
-    auto tileC    = std::max(unit, hP);
-    auto oC4      = UP_DIV(outputChannel, tileC);
     mConvPerfconfig = bestTileConvolutionConfig(mCommon, input, output, threadNumber, backend());
 
     auto threadNumberFirst = mConvPerfconfig.isParallelInner ? threadNumber : std::min(threadNumber, tileCount);
@@ -483,8 +483,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
         mFunction.second = [=](int placeholder) {
 #ifdef PROFILE_DETAIL
-        MNN_PRINT("dense conv: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, threadNumberFirst:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
-        batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, threadNumberFirst, tileCount, eP, unit, bytes);
+        MNN_PRINT("dense conv: n:%d, ic:%d, oc:%d, kh:%d, kw:%d, plane:%d, threadNumberFirst:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
+        batch, ic, outputChannel, kernel_width, kernel_height, plane, threadNumberFirst, tileCount, eP, unit, bytes);
 #endif
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
@@ -612,8 +612,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
 #ifdef PROFILE_DETAIL
             if (tId == 0) {
-                MNN_PRINT("dense conv: n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kh:%d, kw:%d, plane:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
-                batch, src_height, src_width, ic, height, width, outputChannel, kernel_width, kernel_height, plane, tileCount, eP, unit, bytes);
+                MNN_PRINT("dense conv: n:%d, ic:%d, oc:%d, kh:%d, kw:%d, plane:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
+                batch, ic, outputChannel, kernel_width, kernel_height, plane, tileCount, eP, unit, bytes);
             }
 #endif
             const float* biasPtr = bias ? bias->host<float>() : nullptr;

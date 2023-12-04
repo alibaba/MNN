@@ -1,0 +1,68 @@
+{
+    "pipeline": {
+        "version": "0.0.0",
+        "algo": [{
+            "type": 0,
+            "quant_params": {
+                "round_mode": 0,
+                "layer": [{
+                    "weight": [
+                        {
+                            "name": "weight_0",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        },
+                        {
+                            "name": "weight_1",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        }
+                    ],
+                    "input": [
+                        {
+                            "name": "input_0",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        },
+                        {
+                            "name": "input_1",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        }
+                    ],
+                    "output": [
+                        {
+                            "name": "output_0",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        },
+                        {
+                            "name": "output_1",
+                            "bits": 8,
+                            "scales": [0.001, 0.001, 0.001],
+                            "zero_point": 0,
+                            "clamp_min": -128,
+                            "clamp_max": 127
+                        }
+                    ],
+                    "method": 0
+                }]
+            }
+        }]
+    }
+}

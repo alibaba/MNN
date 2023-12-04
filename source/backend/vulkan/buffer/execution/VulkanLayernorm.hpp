@@ -26,7 +26,7 @@ private:
     std::shared_ptr<Tensor> mGamma;
     std::shared_ptr<Tensor> mBias;
     const VulkanPipeline* mPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDesSet;
     float mEps;
     bool mHasScale = false;
     int mGroup = 0;

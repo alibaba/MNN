@@ -34,9 +34,10 @@ public:
     }
     bool onExecute(const std::vector<VARP>& outputs,
                    std::shared_ptr<Parameters> parameters = nullptr) override {
-        return onExecute(outputs, PASS_PRIORITY_HIGH);
+        std::map<std::string, VARP> map;
+        return onExecute(outputs, PASS_PRIORITY_HIGH, map);
     }
-    bool onExecute(const std::vector<VARP>& outputs, PassPriority priority, const std::vector<VARP>& boundary = {});
+    bool onExecute(const std::vector<VARP>& outputs, PassPriority priority, std::map<std::string, VARP>& updateVars, const std::vector<VARP>& boundary = {});
 
     static TemplateMerge& getInstance(const std::string& pass);
 

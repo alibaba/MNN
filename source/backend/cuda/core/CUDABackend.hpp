@@ -93,6 +93,7 @@ public:
     int getPrecision() const;
     #ifdef MNN_CODEGEN_CUDA
     std::map<std::pair<std::string, std:: string>, CUmodule> kernelCuModuleMap();
+    void compile(CUmodule* dst, std::pair<string, string> code, std::vector<const char*> compile_params);
     #endif
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;

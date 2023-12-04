@@ -26,7 +26,7 @@ private:
     std::shared_ptr<VulkanImage> mKernel;
 
     const VulkanPipeline* mPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mPipelineSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mPipelineSet;
 
     const VulkanSampler* mSampler;
 

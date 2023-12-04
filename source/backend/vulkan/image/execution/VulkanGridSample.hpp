@@ -24,7 +24,7 @@ private:
     bool mAlignCorners;
     std::shared_ptr<VulkanBuffer> mGridSampleParam;
     const VulkanPipeline* mGridSamplePipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
 };
 } // namespace MNN
 

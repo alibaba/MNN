@@ -167,6 +167,7 @@ public:
                 dstCommands.emplace_back(std::move(currentCommand));
                 return;
             }
+            FUNC_PRINT(1);
         }
         int inputSize = 0;
         std::vector<VARP> inputs;

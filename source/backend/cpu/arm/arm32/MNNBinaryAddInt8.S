@@ -41,10 +41,12 @@ ldr r7, [sp, #44]
 
 vpush {q4-q7}
 
-ldr r12, [r3]
-vdup.s32 q13, r12     // scale
-ldr r4, [r3, #4]
-vdup.s32 q14, r4
+ldr r12, [r4]
+vdup.f32 q13, r12     // scale
+ldr lr, [r4, #4]
+vdup.f32 q14, lr
+ldr lr, [r4, #8]
+vdup.f32 q15, lr
 
 ldr lr, [r5, #8]
 ldr r8, [lr, #0]
@@ -104,31 +106,50 @@ L4Loop:
 
     vmovl.s16 q3, d12
     vmovl.s16 q12, d13
-    vmovl.s16 q15, d14
+    vmovl.s16 q1, d14
     vmovl.s16 q4, d15
 
-    vmulq.s32 q8, q8, q13
-    vmulq.s32 q9, q9, q13
-    vmulq.s32 q10, q10, q13
-    vmulq.s32 q11, q11, q13
+    vcvt.f32.s32 q8, q8
+    vcvt.f32.s32 q9, q9
+    vcvt.f32.s32 q10, q10
+    vcvt.f32.s32 q11, q11
 
-    vmulq.s32 q3, q3, q14
-    vmulq.s32 q12, q12, q14
-    vmulq.s32 q15, q15, q14
-    vmulq.s32 q4, q4, q14
+    vcvt.f32.s32 q3, q3
+    vcvt.f32.s32 q12, q12
+    vcvt.f32.s32 q1, q1
+    vcvt.f32.s32 q4, q4
 
-    vaddq.s32 q8, q8, q3
-    vaddq.s32 q9, q9, q12
-    vaddq.s32 q10, q10, q15
-    vaddq.s32 q11, q11, q4
+    vmul.f32 q8, q8, q13
+    vmul.f32 q9, q9, q13
+    vmul.f32 q10, q10, q13
+    vmul.f32 q11, q11, q13
 
+    vmul.f32 q3, q3, q14
+    vmul.f32 q12, q12, q14
+    vmul.f32 q1, q1, q14
+    vmul.f32 q4, q4, q14
+
+    vadd.f32 q8, q8, q3
+    vadd.f32 q9, q9, q12
+    vadd.f32 q10, q10, q1
+    vadd.f32 q11, q11, q4
+
+    vmul.f32 q8, q8, q15
+    vmul.f32 q9, q9, q15
+    vmul.f32 q10, q10, q15
+    vmul.f32 q11, q11, q15
+
+    vcvt.s32.f32 q8, q8
+    vcvt.s32.f32 q9, q9
+    vcvt.s32.f32 q10, q10
+    vcvt.s32.f32 q11, q11
+
+    vqmovn.s32 d6, q8
+    vqmovn.s32 d7, q9
+    vqmovn.s32 d8, q10
+    vqmovn.s32 d9, q11
     vdup.8 q12, r3
-    vdup.8 q15, r11
-
-    vqshrn.s32 d6, q8, #16
-    vqshrn.s32 d7, q9, #16
-    vqshrn.s32 d8, q10, #16
-    vqshrn.s32 d9, q11, #16
+    vdup.8 q1, r11
 
     vaddw.s8 q3, q3, d4
     vaddw.s8 q4, q4, d4
@@ -136,7 +157,7 @@ L4Loop:
     vqmovn.s16 d12, q3
     vqmovn.s16 d13, q4
     vmax.s8 q6, q6, q12
-    vmin.s8 q6, q6, q15
+    vmin.s8 q6, q6, q1
     cmp r6, #4
     vst1.32 {q6}, [r0]!
     bge L4Loop
@@ -174,15 +195,19 @@ L1Loop:
     vmovl.s8 q3, d6
     vsubw.s8 q3, q3, d0
     vmovl.s16 q3, d6
-    vmulq.s32 q3, q3, q13
+    vcvt.f32.s32 q3, q3
+    vmul.f32 q3, q3, q13
 
     vmovl.s8 q5, d8
     vsubw.s8 q5, q5, d1
     vmovl.s16 q6, d10
-    vmulq.s32 q6, q6, q14
+    vcvt.f32.s32 q6, q6
+    vmul.f32 q6, q6, q14
 
-    vaddq.s32 q3, q3, q6
-    vqshrn.s32 d6, q3, #16
+    vadd.f32 q3, q3, q6
+    vmul.f32 q3, q3, q15
+    vcvt.s32.f32 q3, q3
+    vqmovn.s32 d6, q3
     vaddw.s8 q3, q3, d4
     vqmovn.s16 d6, q3
     vmax.s8 d6, d6, d20

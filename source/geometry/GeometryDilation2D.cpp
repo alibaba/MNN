@@ -52,9 +52,12 @@ public:
             padVal->host<float>()[0] = -std::numeric_limits<float>::infinity();
             // Im2Col: n, ic, ih, iw -> (ic * kh * kw) * (batch * oh * ow)
             std::shared_ptr<Tensor> im2Col(new Tensor);
-            GeometryConvUtils::im2Col(im2Col.get(), input, inputChannel, kernelHeight, kernelWidth, batch,
+            auto tmpT = GeometryConvUtils::im2Col(im2Col.get(), input, inputChannel, kernelHeight, kernelWidth, batch,
                                       outputHeight, outputWidth, inputHeight, inputWidth, strideHeight,
                                       strideWidth, dialteHeight, dialteWidth, pads, 0, padVal.get());
+            if (nullptr != tmpT.get()) {
+                res.extras.emplace_back(tmpT);
+            }
             A = im2Col.get();
             res.extras.emplace_back(im2Col);
         }

@@ -46,6 +46,10 @@ void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const s
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b);
+void _AVX_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, size_t realSize, const float** param);
+void _AVX_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, size_t realSize, const float** param);
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 

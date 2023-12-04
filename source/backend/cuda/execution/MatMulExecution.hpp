@@ -88,6 +88,7 @@ private:
     bool mFp32Infer = false;
     bool mFp16Fp32MixInfer = false;
     bool mConvertGemmSplitK = false;
+    bool mLargeBatchSmallGemm = false;
 };
 } // namespace CUDA
 } // namespace MNN

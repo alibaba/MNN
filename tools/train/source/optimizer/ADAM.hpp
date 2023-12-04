@@ -24,6 +24,7 @@ public:
     virtual ~ ADAM() = default;
 
     virtual Express::VARP onComputeUpdateValue(Express::VARP param, Express::VARP grad) override;
+    virtual std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>>  onMakeParameterUpdateGraphByGrad(const std::vector<ParameterOptGrad>& parameterGrads) override;
 
     float getMomentum2();
 

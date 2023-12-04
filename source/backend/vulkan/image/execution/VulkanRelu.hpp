@@ -24,9 +24,9 @@ public:
 
 private:
     float mSlope[4];
-    std::shared_ptr<VulkanBuffer> mGpuReluParam;
+    std::vector<std::shared_ptr<VulkanBuffer>> mGpuReluParam;
     const VulkanPipeline* mReluPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDescriptorSet;
 };
 
 class VulkanPrelu : public VulkanBasicExecution {
@@ -40,7 +40,7 @@ private:
     std::shared_ptr<VulkanBuffer> mGpuPreluParam;
     std::shared_ptr<VulkanImage> mSlope;
     const VulkanPipeline* mPreluPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
 };
 
 } // namespace MNN

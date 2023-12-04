@@ -62,8 +62,10 @@ vadd.f16 q3, q3, q1
 vmul.f16 q2, q2, q14
 vmul.f16 q3, q3, q14
 
-vmov.f16 q4, #5.0
-vmov.f16 q5, #-5.0
+mov lr, #5.0
+vdup.16 q4, lr
+mov lr, #-5.0
+vdup.16 q5, lr
 vmax.f16 q2, q2, q5
 vmin.f16 q2, q2, q4
 vmax.f16 q3, q3, q5

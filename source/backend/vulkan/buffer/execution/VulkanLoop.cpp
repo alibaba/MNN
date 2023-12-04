@@ -1,4 +1,5 @@
 #include "VulkanLoop.hpp"
+#include "VulkanBinary.hpp"
 #include "core/TensorUtils.hpp"
 #include <algorithm>
 #include "core/OpCommonUtils.hpp"
@@ -108,11 +109,78 @@ private:
     const LoopParam* mLoop;
     const VulkanPipeline* mPipeline;
     std::shared_ptr<VulkanBuffer> mParam;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescribe;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescribe;
     std::vector<Tensor*> mTensors;
     bool mHasBias = false;
 };
 
+
+struct BinaryBroadCastInfo {
+    ivec4 srcview0;
+    ivec4 srcview1;
+    ivec4 dstview;
+    ivec4 size;
+};
+
+class VulkanBinaryBroadCast : public VulkanBasicExecution {
+public:
+    VulkanBinaryBroadCast(const LoopParam* loop, Backend *bn) : VulkanBasicExecution(bn) {
+        mLoop = loop;
+        auto vkbackend = static_cast<VulkanBackend*>(bn);
+        mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(BinaryBroadCastInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+        std::string shaderName = "glsl_binary_blit_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
+        
+        mPipeline = vkbackend->getPipeline(shaderName, {
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        });
+        mDescribe.reset(mPipeline->createSet());
+        mTensors.resize(mLoop->tensorNumber());
+    }
+    virtual ~VulkanBinaryBroadCast() = default;
+    virtual ErrorCode onEncode(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs,
+                               const VulkanCommandPool::Buffer* cmdBuffer) override {
+        _setTensorStack(mTensors, inputs, outputs, mLoop);
+        auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
+        auto size = cmd->size()->data();
+        auto vkBn = static_cast<VulkanBackend*>(backend());
+        auto srcStride0 = cmd->view()->GetAs<View>(1)->stride()->data();
+        auto srcStride1 = cmd->view()->GetAs<View>(2)->stride()->data();
+        auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
+        int totalSize = size[0] * size[1] * size[2];
+        auto param = reinterpret_cast<BinaryBroadCastInfo*>(mParam->map());
+        for (int i=0; i<3; ++i) {
+            param->size[i] = size[i];
+            param->srcview0[i] = srcStride0[i];
+            param->srcview1[i] = srcStride1[i];
+            param->dstview[i] = dstStride[i];
+        }
+        param->srcview0[3] = cmd->view()->GetAs<View>(1)->offset();
+        param->srcview1[3] = cmd->view()->GetAs<View>(2)->offset();
+        param->dstview[3] = cmd->view()->GetAs<View>(0)->offset();
+        param->size[3] = size[0] * size[1] * size[2];
+        mParam->unmap();
+        auto dstTensor = mTensors[cmd->indexes()->data()[0]];
+        auto srcTensor = mTensors[cmd->indexes()->data()[1]];
+        auto srcTensor1 = mTensors[cmd->indexes()->data()[2]];
+        mDescribe->writeBuffer(vkBn->getBuffer(dstTensor), 0);
+        mDescribe->writeBuffer(vkBn->getBuffer(srcTensor), 1);
+        mDescribe->writeBuffer(vkBn->getBuffer(srcTensor1), 2);
+        mDescribe->writeBuffer(mParam->buffer(), 3, mParam->size());
+        mPipeline->bind(cmdBuffer->get(), mDescribe->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize,256), 1, 1);
+
+        return NO_ERROR;
+    }
+private:
+    const LoopParam* mLoop;
+    const VulkanPipeline* mPipeline;
+    std::shared_ptr<VulkanBuffer> mParam;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescribe;
+    std::vector<Tensor*> mTensors;
+};
 struct GatherInfo {
     ivec4 stride;
     ivec4 size;
@@ -202,7 +270,7 @@ private:
     const LoopParam* mLoop;
     const VulkanPipeline* mPipeline;
     std::shared_ptr<VulkanBuffer> mParam;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescribe;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescribe;
     std::vector<Tensor*> mTensors;
 };
 
@@ -223,6 +291,9 @@ VulkanBasicExecution* VulkanLoop::create(const std::vector<Tensor*>& inputs, con
         }
         if (OpType_MatMul == subop->type() && loop->parallel()) {
             return new VulkanBatchMatMul(loop, bn);
+        }
+        if (OpType_BinaryOp == subop->type() && cmd->fuse() < 0 && 1 == loop->loopNumber()) {
+            return new VulkanBinaryBroadCast(loop, bn);
         }
     }
     return nullptr;

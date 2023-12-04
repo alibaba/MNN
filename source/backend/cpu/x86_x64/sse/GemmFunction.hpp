@@ -643,4 +643,162 @@ static void _SSE_MNNPackednMatMulRemainCommon_int8(float* C, const float* A, con
         }
     }
 }
+// int4 -> int8
+static inline __m128i _load_int4_to_int8(const uint8_t* src) {
+    uint8_t c = 0xf;
+    int32_t data[4];
+    int8_t temp[16];
+    for (int i = 0; i < 8; ++i) {
+        temp[2 * i] = (src[i] >> 4) - 8;
+        temp[2 * i +1] = (src[i] & c) - 8;
+    }
+    auto int8_tx16 = _mm_loadu_si128((const __m128i*)temp);
+    return int8_tx16;
+}
+static void _SSE_MNNGemmHybrid_int4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
+    int pack = 4;
+    __m128i zero_128i = _mm_set1_epi32(0);
+    size_t weight_step = src_depth_quad * pack * pack * 0.5;
+    size_t weight_stride = pack * pack * 0.5;
+    const float* alpha_ptr = param[0];
+    const float* zero_ptr = param[1];
+    const float* bias_ptr = param[2];
+    const float* sums_ptr = param[3];
+    const float* scale_ptr = param[4];
+    std::vector<int8_t> tmpsrc(16, 0);
+    
+    for (int ci = 0; ci < dst_depth_quad; ++ci) {
+        float* dstZ = C + ci * pack * realSize;
+        const int8_t*    weight = B + ci * weight_step;
+        auto alpha = alpha_ptr + ci * pack;
+        auto zero  = zero_ptr + ci * pack;
+        auto bias  = bias_ptr + ci * pack;
+        __m128 alphaValue = _mm_load_ps(alpha);
+        //const float* sums = param[2];
+        for (int j = 0; j < realSize; ++j) {
+            const float* sums = sums_ptr + j;
+            const float* scale = scale_ptr + j;
+            float* dstX = dstZ + j * pack;
+            __m128i sum4 = _mm_set1_epi32(0);
+            __m128  scaleValue = _mm_set1_ps(scale[0]);
+            __m128 biasValue  = _mm_add_ps(_mm_load_ps(bias), _mm_mul_ps(_mm_load_ps(zero), _mm_set1_ps(sums[0])));
+            const int8_t* srcBatch = A + j * pack;
+            for (int k = 0; k < src_depth_quad; ++k) {
+                const int8_t* srcZ = srcBatch + k * pack * realSize;
+                const uint8_t* weightZ = (uint8_t*)weight + k * weight_stride;
+                auto w0 = _load_int4_to_int8(weightZ);
+                
+                ::memcpy(tmpsrc.data(), srcZ, 4 * sizeof(int8_t));
+                auto s0 = _mm_loadu_si128((const __m128i*)tmpsrc.data());
+                // src,weight: int8->int16
+                auto s0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero_128i, s0), 8);
+                auto w0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero_128i, w0), 8);
+                auto w1_16 = _mm_srai_epi16(_mm_unpackhi_epi8(zero_128i, w0), 8);
+                auto w2_16 = _mm_unpackhi_epi64(w0_16, zero_128i);
+                auto w3_16 = _mm_unpackhi_epi64(w1_16, zero_128i);
+                
+                auto oc0 = _mm_madd_epi16(s0_16, w0_16);
+                auto oc1 = _mm_madd_epi16(s0_16, w2_16);
+                auto oc2 = _mm_madd_epi16(s0_16, w1_16);
+                auto oc3 = _mm_madd_epi16(s0_16, w3_16);
+                
+                auto d0 = _mm_unpacklo_epi32(oc0, oc1);
+                auto d1 = _mm_unpackhi_epi32(oc0, oc1);
+                auto d2 = _mm_unpacklo_epi32(oc2, oc3);
+                auto d3 = _mm_unpackhi_epi32(oc2, oc3);
+                
+                auto e0 = _mm_unpacklo_epi64(d0, d2);
+                auto e1 = _mm_unpackhi_epi64(d0, d2);
+                auto e2 = _mm_unpacklo_epi64(d1, d3);
+                auto e3 = _mm_unpackhi_epi64(d1, d3);
+                
+                e0 = _mm_add_epi32(e0, e1);
+                e2 = _mm_add_epi32(e2, e3);
+                e0 = _mm_add_epi32(e0, e2);
+                
+                sum4 = _mm_add_epi32(e0, sum4);
+                
+            }
+            __m128 f0 = _mm_cvtepi32_ps(sum4);
+            __m128 fs = _mm_mul_ps(_mm_mul_ps(f0, scaleValue), alphaValue);
+            fs = _mm_add_ps(biasValue, fs);
+            _mm_storeu_ps(dstX, fs);
+        }
+    }
+}
+static void _SSE_MNNGemmHybrid_int8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+    // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
+    int pack = 4;
+    __m128i zero_128i = _mm_set1_epi32(0);
+    size_t weight_step = src_depth_quad * pack * pack;
+    size_t weight_stride = pack * pack;
+    const float* alpha_ptr = param[0];
+    const float* zero_ptr = param[1];
+    const float* bias_ptr = param[2];
+    const float* sums_ptr = param[3];
+    const float* scale_ptr = param[4];
+    std::vector<int8_t> tmpsrc(16, 0);
+    
+    for (int ci = 0; ci < dst_depth_quad; ++ci) {
+        float* dstZ = C + ci * pack * realSize;
+        const int8_t*    weight = B + ci * weight_step;
+        auto alpha = alpha_ptr + ci * pack;
+        auto zero  = zero_ptr + ci * pack;
+        auto bias  = bias_ptr + ci * pack;
+        __m128 alphaValue = _mm_load_ps(alpha);
+        //const float* sums = param[2];
+        for (int j = 0; j < realSize; ++j) {
+            const float* sums = sums_ptr + j;
+            const float* scale = scale_ptr + j;
+            float* dstX = dstZ + j * pack;
+
+            __m128i sum4 = _mm_set1_epi32(0);
+            __m128  scaleValue = _mm_set1_ps(scale[0]);
+            __m128 biasValue  = _mm_add_ps(_mm_load_ps(bias), _mm_mul_ps(_mm_load_ps(zero), _mm_set1_ps(sums[0])));
+            const int8_t* srcBatch = A + j * pack;
+            for (int k = 0; k < src_depth_quad; ++k) {
+                const int8_t* srcZ = srcBatch + k * pack * realSize;
+                const int8_t* weightZ = weight + k * weight_stride;
+                auto w0 = _mm_loadu_si128((__m128i*)(weightZ)); // 16xint8_t weight
+                
+                ::memcpy(tmpsrc.data(), srcZ, 4 * sizeof(int8_t));
+                auto s0 = _mm_loadu_si128((const __m128i*)tmpsrc.data());
+                // src,weight: int8->int16
+//                auto s0_16 = _mm_unpacklo_epi8(s0, zero_128i);
+                auto s0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero_128i, s0), 8);
+                auto w0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero_128i, w0), 8);
+                auto w1_16 = _mm_srai_epi16(_mm_unpackhi_epi8(zero_128i, w0), 8);
+                auto w2_16 = _mm_unpackhi_epi64(w0_16, zero_128i);
+                auto w3_16 = _mm_unpackhi_epi64(w1_16, zero_128i);
+
+                auto oc0 = _mm_madd_epi16(s0_16, w0_16);
+                auto oc1 = _mm_madd_epi16(s0_16, w2_16);
+                auto oc2 = _mm_madd_epi16(s0_16, w1_16);
+                auto oc3 = _mm_madd_epi16(s0_16, w3_16);
+                
+                auto d0 = _mm_unpacklo_epi32(oc0, oc1);
+                auto d1 = _mm_unpackhi_epi32(oc0, oc1);
+                auto d2 = _mm_unpacklo_epi32(oc2, oc3);
+                auto d3 = _mm_unpackhi_epi32(oc2, oc3);
+                
+                auto e0 = _mm_unpacklo_epi64(d0, d2);
+                auto e1 = _mm_unpackhi_epi64(d0, d2);
+                auto e2 = _mm_unpacklo_epi64(d1, d3);
+                auto e3 = _mm_unpackhi_epi64(d1, d3);
+                
+                e0 = _mm_add_epi32(e0, e1);
+                e2 = _mm_add_epi32(e2, e3);
+                e0 = _mm_add_epi32(e0, e2);
+
+                sum4 = _mm_add_epi32(e0, sum4);
+                
+            }
+            __m128 f0 = _mm_cvtepi32_ps(sum4);
+            __m128 fs = _mm_mul_ps(_mm_mul_ps(f0, scaleValue), alphaValue);
+            fs = _mm_add_ps(biasValue, fs);
+            _mm_storeu_ps(dstX, fs);
+        }
+    }
+}
 #endif

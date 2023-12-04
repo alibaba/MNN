@@ -16,21 +16,21 @@ static void _unaryOp(void* outputPtr, const void* inputPtr, int elementSize) {
 }
 
 template <typename T>
-struct UnarySquare : std::unary_function<T, T> {
+struct UnarySquare {
     T operator()(const T &x) const {
         return x * x;
     }
 };
 
 template <typename T>
-struct UnaryRsqrt : std::unary_function<T, T> {
+struct UnaryRsqrt {
     T operator()(const T &x) const {
         return 1.f / sqrtf(x);
     }
 };
 
 template <typename T>
-struct UnarySqrt : std::unary_function<T, T> {
+struct UnarySqrt {
     T operator()(const T &x) const {
         return sqrtf(x);
     }
@@ -44,77 +44,77 @@ struct UnaryNeg {
 };
 
 template <typename T>
-struct UnaryExp : std::unary_function<T, T> {
+struct UnaryExp {
     T operator()(const T &x) const {
         return expf(x);
     }
 };
 
 template <typename T>
-struct UnaryAbs : std::unary_function<T, T> {
+struct UnaryAbs {
     T operator()(const T &x) const {
         return fabsf((float)x);
     }
 };
 
 template <typename T>
-struct UnaryCeil : std::unary_function<T, T> {
+struct UnaryCeil {
     T operator()(const T &x) const {
         return ceilf(x);
     }
 };
 template <typename T>
-struct UnaryRecipocal : std::unary_function<T, T> {
+struct UnaryRecipocal {
     T operator()(const T &x) const {
         return (T)1 / (x);
     }
 };
 template <typename T>
-struct UnaryLog1p : std::unary_function<T, T> {
+struct UnaryLog1p {
     T operator()(const T &x) const {
         return (T)logf((T)1 + (x));
     }
 };
 template <typename T>
-struct UnaryLog : std::unary_function<T, T> {
+struct UnaryLog {
     T operator()(const T &x) const {
         return (T)logf((T)(x));
     }
 };
 template <typename T>
-struct UnaryCos : std::unary_function<T, T> {
+struct UnaryCos {
     T operator()(const T &x) const {
         return (T)cosf((T)(x));
     }
 };
 template <typename T>
-struct UnarySin : std::unary_function<T, T> {
+struct UnarySin {
     T operator()(const T &x) const {
         return (T)sinf((T)(x));
     }
 };
 template <typename T>
-struct UnaryTan : std::unary_function<T, T> {
+struct UnaryTan {
     T operator()(const T &x) const {
         return (T)tanf((T)(x));
     }
 };
 template <typename T>
-struct UnaryATan : std::unary_function<T, T> {
+struct UnaryATan {
     T operator()(const T &x) const {
         return (T)atanf((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryFloor : std::unary_function<T, T> {
+struct UnaryFloor {
     T operator()(const T &x) const {
         return (T)floor((T)(x));
     }
 };
 
 template <typename T>
-struct UnarySign : std::unary_function<T, T> {
+struct UnarySign {
     T operator()(const T &x) const {
         if (x > 0) {
             return 1;
@@ -127,7 +127,7 @@ struct UnarySign : std::unary_function<T, T> {
 };
 
 template <typename T>
-struct UnaryBNLL : std::unary_function<T, T> {
+struct UnaryBNLL {
     T operator()(const T &x) const {
         float r = x > 0 ? (x + log(1. + exp(-x))) : log(1. + exp(x));
         return (T)r;
@@ -135,41 +135,41 @@ struct UnaryBNLL : std::unary_function<T, T> {
 };
 
 template <typename T>
-struct UnaryAcosh : std::unary_function<T, T> {
+struct UnaryAcosh {
     T operator()(const T &x) const {
         return (T)acoshf((T)(x));
     }
 };
 
 template <typename T>
-struct UnarySinh : std::unary_function<T, T> {
+struct UnarySinh {
     T operator()(const T &x) const {
         return (T)sinhf((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryAsinh : std::unary_function<T, T> {
+struct UnaryAsinh {
     T operator()(const T &x) const {
         return (T)asinhf((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryAtanh : std::unary_function<T, T> {
+struct UnaryAtanh {
     T operator()(const T &x) const {
         return (T)atanhf((T)(x));
     }
 };
 template <typename T>
-struct UnaryRound : std::unary_function<T, T> {
+struct UnaryRound {
     T operator()(const T &x) const {
         return (T)roundf((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryCosh : std::unary_function<T, T> {
+struct UnaryCosh {
     T operator()(const T &x) const {
         return (T)coshf((T)(x));
     }
@@ -177,21 +177,21 @@ struct UnaryCosh : std::unary_function<T, T> {
 
 
 template <typename T>
-struct UnaryErf : std::unary_function<T, T> {
+struct UnaryErf {
     T operator()(const T &x) const {
         return erff(x);
     }
 };
 
 template <typename T>
-struct UnaryErfc : std::unary_function<T, T> {
+struct UnaryErfc {
     T operator()(const T &x) const {
         return erfc(x);
     }
 };
 
 template <typename T>
-struct UnaryErfinv : std::unary_function<T, T> {
+struct UnaryErfinv {
     // referenced from tensorflow
     const int kDegree = 9;
     const std::vector<float> w_less_than_5_constants = {
@@ -235,21 +235,21 @@ struct UnaryErfinv : std::unary_function<T, T> {
 };
 
 template <typename T>
-struct UnaryExpm1 : std::unary_function<T, T> {
+struct UnaryExpm1 {
     T operator()(const T &x) const {
         return (T)expm1((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryAsin : std::unary_function<T, T> {
+struct UnaryAsin {
     T operator()(const T &x) const {
         return (T)asin((T)(x));
     }
 };
 
 template <typename T>
-struct UnaryAcos : std::unary_function<T, T> {
+struct UnaryAcos {
     T operator()(const T &x) const {
         return (T)acos((T)(x));
     }

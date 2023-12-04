@@ -145,6 +145,52 @@ array([0., 1., 2., 3.], dtype=float32)
 'Input'
 ```
 ---
+### `set_lazy_mode(mode)`
+设置惰性计算的模式，仅在开启惰性求值的状态下生效，
+
+- 0 : 所有计算均延迟执行
+- 1 : 立即进行几何计算，内容计算延迟执行，适用于构建静态模型或训练时求导
+
+默认为0
+
+
+参数：
+- `x:int` 模式类型
+
+返回：`None`
+
+返回类型：`None`
+
+示例：
+```python
+>>> expr.lazy_eval(True)
+>>> expr.set_lazy_mode(0)
+>>> y = expr.concat([x], -1)
+>>> expr.save([y], "concat.mnn") # 模型中为 concat 算子
+>>> expr.set_lazy_mode(1)
+>>> y = expr.concat([x], -1)
+>>> expr.save([y], "concat_static.mnn") # 模型中为 raster 算子
+```
+
+---
+### `set_global_executor_config(backend, precision, threadnum)`
+设置expr运行后端、精度、线程数(gpu代表mode)：
+
+参数：
+- `backend:int` 例如：0->CPU 1->Metal 2->CUDA 3->OPENCL 
+- `precision:int` 例如：0—>Normal 1->High 2->Low 
+- `threadnum:int` 例如：CPU表示线程数  GPU表示Mode
+
+返回：`None`
+
+返回类型：`None`
+
+示例：
+
+```python
+>>> expr.set_global_executor_config(2, 2, 1)
+```
+---
 ### `sign(x)`
 返回输入值的符号，正数返回1，负数返回-1
 

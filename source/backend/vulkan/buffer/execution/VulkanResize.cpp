@@ -31,9 +31,8 @@ VulkanResize::VulkanResize(Backend* bn, float xScale, float yScale, int resizeTy
         mVulkanResizePipeline = extra->getPipeline(
                                                    "glsl_resizeBilinear_comp", VulkanResizeTypes);
     } else {
-        MNN_ERROR("Vulkan don't Support %d resize Type, use Bilinear instead\n", resizeType);
         mVulkanResizePipeline = extra->getPipeline(
-                                                   "glsl_resizeBilinear_comp", VulkanResizeTypes);
+                                                   "glsl_resizeNearest_NEAREST_ROUND_comp", VulkanResizeTypes);
     }
     mParamBuffer.reset(
         new VulkanBuffer(extra->getMemoryPool(), false, sizeof(GpuParam), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
