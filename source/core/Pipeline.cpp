@@ -964,7 +964,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
 #ifdef MNN_PIPELINE_DEBUG
                 MNN_ERROR("Pipeline Resize error: %d\n", code);
 #endif
-                if (!iter.info.get()) {
+                if (iter.info != nullptr) {
                     MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());
                 }
                 return code;
