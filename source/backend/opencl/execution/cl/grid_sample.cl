@@ -169,8 +169,8 @@ __kernel void bilinear(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
     FLOAT4 i11 = sample(in_h1, in_w1, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
 
     // bilinear interpolation
-    FLOAT4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
-                    ((float4)x_weight * CONVERT_FLOAT4(i10)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (float4)(1.0f- y_weight)); 
+    FLOAT4 value = CONVERT_FLOAT4(((FLOAT4)x_weight * CONVERT_FLOAT4(i00)  + (FLOAT4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (FLOAT4)y_weight  +
+                    ((FLOAT4)x_weight * CONVERT_FLOAT4(i10)  + (FLOAT4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (FLOAT4)(1.0f- y_weight));
 
     const int output_w_offset = mad24(output_channel_block_idx, output_width, output_width_block_idx);
     const int output_h_offset = mad24(output_batch_idx, output_height, output_height_idx);

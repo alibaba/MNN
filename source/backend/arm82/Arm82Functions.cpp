@@ -45,8 +45,12 @@ void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, si
 void MNNQuantScaleFP16(float* sum, float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantSumFP16(float* sum, const float* dequant_scale, size_t thread, size_t batch);
+#if defined(__aarch64__)
 void MNNGemmHybridInt8FP16_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
 void MNNGemmHybridInt4FP16_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+void MNNGemmHybridInt4FP16_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+void MNNGemmHybridInt8FP16_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+#endif
 #endif
 
 void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, size_t ow);
@@ -671,6 +675,7 @@ bool Arm82Functions::init() {
     gInstance->supportFp16arith = gCPUInfo.fp16arith;
     gInstance->supportSDot = gCPUInfo.dot;
     gInstance->supportI8mm = gCPUInfo.i8mm;
+    #if defined(__aarch64__)
     if (gInstance->supportSDot) {
         gInstance->MNNGemmHybridInt8 = MNNGemmHybridInt8FP16_sdot;
         gInstance->MNNGemmHybridInt4 = MNNGemmHybridInt4FP16_sdot;
@@ -679,6 +684,7 @@ bool Arm82Functions::init() {
         gInstance->MNNGemmHybridInt8 = MNNGemmHybridInt8FP16_smmla;
         gInstance->MNNGemmHybridInt4 = MNNGemmHybridInt4FP16_smmla;
     }
+    #endif
 #endif
     FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);

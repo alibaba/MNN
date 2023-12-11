@@ -11,13 +11,6 @@
 .text
 .align 5
 
-.macro Add d0, d1, d2, d3, z0, z1, z2, z3
-    fadd \d0\().4s, \d0\().4s, \z0\().4s
-    fadd \d1\().4s, \d1\().4s, \z1\().4s
-    fadd \d2\().4s, \d2\().4s, \z2\().4s
-    fadd \d3\().4s, \d3\().4s, \z3\().4s
-.endm
-
 .macro Abs z0, z1, z2, z3
     fabs \z0\().4s, \z0\().4s
     fabs \z1\().4s, \z1\().4s

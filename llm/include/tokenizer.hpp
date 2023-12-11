@@ -18,6 +18,7 @@
 class Tokenizer {
 public:
     Tokenizer() = default;
+    virtual ~Tokenizer() = default;
     virtual bool load(const std::string& filename) = 0;
     virtual std::vector<int> encode(const std::string& str) = 0;
     virtual std::string decode(int id) = 0;

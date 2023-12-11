@@ -374,6 +374,7 @@ static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) 
         return Py_None;
     }
     for (auto i = 0; i < PySequence_Size(dicts); ++i) {
+        backendConfig[i].sharedContext = nullptr;
         config[i].backendConfig = &backendConfig[i];
         bool ret = getScheduleConfig(PySequence_GetItem(dicts, i), config[i]);
         if (!ret) {

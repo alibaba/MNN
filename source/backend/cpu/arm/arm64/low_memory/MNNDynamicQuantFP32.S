@@ -31,7 +31,7 @@
     trn2 \z3\().2d, \t2\().2d, \t3\().2d
 .endm
 
-.macro Add d0, d1, d2, d3
+.macro Add_4x4 d0, d1, d2, d3
     add \d0\().4s, \d1\().4s, \d0\().4s
     add \d2\().4s, \d3\().4s, \d2\().4s
     add \d0\().4s, \d0\().4s, \d2\().4s
@@ -88,7 +88,7 @@ sqxtn2 v6.16b, v5.8h
 st1 {v6.16b}, [x10], x6
 // sum
 Transpose v0, v1, v2, v3, v14, v15, v16, v17
-Add v0, v1, v2, v3
+Add_4x4 v0, v1, v2, v3
 add v10.4s, v0.4s, v10.4s
 
 subs x12, x12, #1
@@ -129,7 +129,7 @@ sqxtn v7.4h, v0.4s
 sqxtn v7.8b, v7.8h
 // sum
 
-Add v0, v1, v2, v3
+Add_4x4 v0, v1, v2, v3
 add v4.4s, v0.4s, v4.4s
 
 st1 {v7.s}[0], [x10], x6

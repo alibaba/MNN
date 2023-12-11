@@ -73,9 +73,9 @@ TILE_4:
     mov x14, x4       // dst_step
     lsr x15, x4, #2   // src_step = dst_step / 4
     sub x14, x14, #64
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -85,7 +85,7 @@ LoopDz_TILE_4:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -97,11 +97,9 @@ LoopDz_TILE_4:
     dup v22.4s, wzr
     dup v23.4s, wzr
     // mask
-    mov w27, #0x0f
-    dup v10.16b, w27
+    movi v10.16b, #15
     // offset
-    mov w27, #8
-    dup v11.16b, w27
+    movi v11.16b, #8
 LoopSz_TILE_4:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
@@ -134,8 +132,8 @@ LoopSz_TILE_4:
     bne LoopSz_TILE_4
 
 LoopSzEnd_TILE_4:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
 
     trn1 v24.2d, v16.2d, v17.2d // batch:0 oc:0-3
     trn1 v25.2d, v18.2d, v19.2d // batch:0 oc:4-7
@@ -165,9 +163,9 @@ Tile4Dequant:
     Dequant v29, v1, v3, v9, v6, 2
     Dequant v30, v0, v2, v8, v6, 3 // Batch3
     Dequant v31, v1, v3, v9, v6, 3
-    st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x17], #64
-    st1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x17], x14
-    cmp x16, #1
+    st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x28], #64
+    st1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_4
 Tile4End:
     sub x6, x6, #4      // bach -= 4
@@ -182,9 +180,9 @@ TILE_2:
     blt TILE_1
     mov x14, x4       // dst_step
     lsr x15, x4, #2   // src_step = dst_step / 4
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -193,7 +191,7 @@ LoopDz_TILE_2:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -201,11 +199,9 @@ LoopDz_TILE_2:
     dup v18.4s, wzr
     dup v19.4s, wzr
     // mask
-    mov w27, #0x0f
-    dup v14.16b, w27
+    movi v14.16b, #15
     // offset
-    mov w27, #8
-    dup v15.16b, w27
+    movi v15.16b, #8
 LoopSz_TILE_2:
     // src    : 1 x [2 x 8] : v4
     // weight : 4 x [2 x 8] : v0-3
@@ -234,8 +230,8 @@ LoopSz_TILE_2:
     bne LoopSz_TILE_2
 
 LoopSzEnd_TILE_2:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     trn1 v20.2d, v16.2d, v17.2d
     trn1 v21.2d, v18.2d, v19.2d
     trn2 v22.2d, v16.2d, v17.2d
@@ -257,8 +253,8 @@ Tile2Dequant:
     Dequant v21, v1, v3, v9, v10, 0
     Dequant v22, v0, v2, v8, v10, 1
     Dequant v23, v1, v3, v9, v10, 1
-    st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x17], x14
-    cmp x16, #1
+    st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_2
 Tile2End:
     sub x6, x6, #2      // batch -= 2
@@ -273,9 +269,9 @@ TILE_1:
     blt End
     mov x14, x4       // dst_step
     lsr x15, x4, #2   // src_step = dst_step / 4, sizeof(float32_t)/4=sizeof(int8_t)
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -284,7 +280,7 @@ LoopDz_TILE_1:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -292,11 +288,9 @@ LoopDz_TILE_1:
     dup v18.4s, wzr
     dup v19.4s, wzr
     // mask
-    mov w27, #0x0f
-    dup v14.16b, w27
+    movi v14.16b, #15
     // offset
-    mov w27, #8
-    dup v15.16b, w27
+    movi v15.16b, #8
 
 LoopSz_TILE_1:
     // src    : 1 x [1 x 8] : v4
@@ -327,8 +321,8 @@ LoopSz_TILE_1:
     bne LoopSz_TILE_1
 
 LoopSzEnd_TILE_1:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     uzp1 v20.4s, v16.4s, v17.4s
     uzp1 v21.4s, v18.4s, v19.4s
     scvtf v20.4s, v20.4s
@@ -347,8 +341,8 @@ Tile1Dequant:
     fmla v13.4s, v21.4s, v1.4s
     fmla v12.4s, v2.4s, v6.s[0]
     fmla v13.4s, v3.4s, v6.s[0]
-    st1 {v12.4s, v13.4s}, [x17], x14
-    cmp x16, #1
+    st1 {v12.4s, v13.4s}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_1
 Tile1End:
     sub x6, x6, #1      // batch -= 1

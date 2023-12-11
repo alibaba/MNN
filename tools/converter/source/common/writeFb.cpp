@@ -20,7 +20,7 @@
 #include "cpp/ConfigFile.hpp"
 #include <MNN/MNNDefine.h>
 #include "cli.hpp"
-#include "commonKit.hpp""
+#include "commonKit.hpp"
 #include "MNN_compression.pb.h"
 
 using namespace MNN;

@@ -19,7 +19,7 @@
 
 using namespace std;
 typedef vector<int> INTS;
-#define PyMNN_ERROR_LOG(x) PyErr_SetString(PyExc_TypeError, x);
+#define PyMNN_ERROR_LOG(x) PyErr_SetString(PyExc_TypeError, x);MNN_PRINT(x);
 #define PyMNN_ERROR(x) PyMNN_ERROR_LOG(x) \
     Py_RETURN_NONE
 #if PY_MAJOR_VERSION < 3
