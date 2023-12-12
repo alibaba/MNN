@@ -35,7 +35,7 @@ static int CLAMP(int v, int min, int max) {
 
 FLOAT4 sample(int h, int w, 
               const int offset_base, 
-              __global const float *buffer, 
+              __global const FLOAT *buffer, 
               int height, int width, 
               enum BorderMode paddingMode){
 
@@ -170,8 +170,8 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     FLOAT4 i10 = sample(in_h1, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
     FLOAT4 i11 = sample(in_h1, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
 
-    FLOAT4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
-                    ((float4)x_weight * CONVERT_FLOAT4(i10)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (float4)(1.0f- y_weight));  
+    FLOAT4 value = CONVERT_FLOAT4(((FLOAT4)x_weight * CONVERT_FLOAT4(i00)  + (FLOAT4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (FLOAT4)y_weight  +
+                    ((FLOAT4)x_weight * CONVERT_FLOAT4(i10)  + (FLOAT4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (FLOAT4)(1.0f- y_weight));
     
     const int output_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx ) * output_height + output_height_idx) * output_width + output_width_block_idx;
     vstore4(value, output_offset, output);

@@ -51,8 +51,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         && common->strideX() == 1 && common->strideY() == 1;
 
     if (lowMemory) {
-        if (fastWay) {
-            // return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        if (fastWay && nullptr != weightQuantInfo.get()) {
             return new ConvolutionHybrid(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);

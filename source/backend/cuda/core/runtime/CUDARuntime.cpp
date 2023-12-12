@@ -33,9 +33,11 @@ CUDARuntime::CUDARuntime(int device_id) {
     int version;
     cuda_check(cudaRuntimeGetVersion(&version));
     int id = device_id;
-    if (id < 0) {
+    cuda_check(cudaGetDeviceCount(&mDeviceCount));
+    if (id < 0 || id >= mDeviceCount) {
         cuda_check(cudaGetDevice(&id));
     }
+    
     // printf("use GPU device id:%d\n", id);
     // id = selectDeviceMaxFreeMemory();
     cuda_check(cudaSetDevice(id));
@@ -59,8 +61,6 @@ CUDARuntime::~CUDARuntime() {
 
 int CUDARuntime::selectDeviceMaxFreeMemory() {
     cudaDeviceProp deviceProp;
-    int deviceCount;
-    cuda_check(cudaGetDeviceCount(&deviceCount));
 
     // Check id:0 card info
     int id = 0;
@@ -70,7 +70,7 @@ int CUDARuntime::selectDeviceMaxFreeMemory() {
     cuda_check(memStatus);
     // printf("card:0, free:%zu, total:%zu, memStatusSuccess:%d\n", free_size_max, total_size, memStatus == cudaSuccess);
 
-    for(int i = 1; i < deviceCount; i++) {
+    for(int i = 1; i < mDeviceCount; i++) {
         cuda_check(cudaSetDevice(i));
         size_t free_size;
         cuda_check(cudaMemGetInfo(&free_size, &total_size));

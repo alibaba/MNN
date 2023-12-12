@@ -339,6 +339,8 @@ bool Tiktoken::load(const std::string& filename) {
     }
     tokens_.resize(start + CHARACTER_VOCABULARY_SIZE);
     token_ids_.resize(start + CHARACTER_VOCABULARY_SIZE);
+    tokens_.shrink_to_fit();
+    token_ids_.shrink_to_fit();
     return true;
 }
 

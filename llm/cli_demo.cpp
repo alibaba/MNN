@@ -1,5 +1,5 @@
 //
-//  llm_demo.cpp
+//  cli_demo.cpp
 //
 //  Created by MNN on 2023/03/24.
 //  ZhaodeWang

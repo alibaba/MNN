@@ -132,6 +132,7 @@ public:
 private:
     cudaDeviceProp mProp;
     int mDeviceId;
+    int mDeviceCount;
 
     bool mIsSupportedFP16   = false;
     bool mSupportDotInt8    = false;

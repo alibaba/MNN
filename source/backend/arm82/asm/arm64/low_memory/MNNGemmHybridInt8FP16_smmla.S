@@ -85,9 +85,9 @@ TILE_8:
     //mov x14, x4       // dst_step
     lsr x15, x4, #1   // src_step = dst_step / 2
     sub x14, x4, #64
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -97,7 +97,7 @@ LoopDz_TILE_8:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -143,8 +143,8 @@ LoopSz_TILE_8:
     bne LoopSz_TILE_8
 
 LoopSzEnd_TILE_8:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     Int32ToFloat v16, v17, v18, v19
     Int32ToFloat v20, v21, v22, v23
     Int32ToFloat v24, v25, v26, v27
@@ -199,9 +199,9 @@ Tile8Dequant:
     Dequant v25, v1, v2, v3, 5
     Dequant v26, v1, v2, v3, 6
     Dequant v27, v1, v2, v3, 7
-    st1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x17], #64
-    st1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x17], x14
-    cmp x16, #1
+    st1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x28], #64
+    st1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_8
 Tile8End:
     sub x6, x6, #8      // bach -= 8
@@ -216,9 +216,9 @@ TILE_4:
     blt TILE_2
     mov x14, x4       // dst_step
     lsr x15, x4, #1   // src_step = dst_step / 2
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -228,7 +228,7 @@ LoopDz_TILE_4:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -257,8 +257,8 @@ LoopSz_TILE_4:
     bne LoopSz_TILE_4
 
 LoopSzEnd_TILE_4:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     Int32ToFloat v16, v17, v18, v19
     Int32ToFloat v20, v21, v22, v23
     // using float scale dequant for precison
@@ -290,8 +290,8 @@ Tile4Dequant:
     Dequant v13, v1, v2, v3, 1
     Dequant v14, v1, v2, v3, 2
     Dequant v15, v1, v2, v3, 3
-    st1 {v12.8h, v13.8h, v14.8h, v15.8h}, [x17], x14
-    cmp x16, #1
+    st1 {v12.8h, v13.8h, v14.8h, v15.8h}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_4
 Tile4End:
     sub x6, x6, #4      // bach -= 4
@@ -306,9 +306,9 @@ TILE_2:
     blt TILE_1
     mov x14, x4       // dst_step
     lsr x15, x4, #1   // src_step = dst_step / 2
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -317,7 +317,7 @@ LoopDz_TILE_2:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     // init
     dup v16.4s, wzr
@@ -338,8 +338,8 @@ LoopSz_TILE_2:
     bne LoopSz_TILE_2
 
 LoopSzEnd_TILE_2:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     uzp1 v13.2d, v16.2d, v17.2d
     uzp1 v14.2d, v18.2d, v19.2d
     uzp2 v15.2d, v16.2d, v17.2d
@@ -364,8 +364,8 @@ Tile2Dequant:
     // alpha * sum + (zero * sumx) + bias
     Dequant v11, v1, v2, v3, 0
     Dequant v12, v1, v2, v3, 1
-    st1 {v11.8h, v12.8h}, [x17], x14
-    cmp x16, #1
+    st1 {v11.8h, v12.8h}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_2
 Tile2End:
     sub x6, x6, #2      // batch -= 2
@@ -381,9 +381,9 @@ TILE_1:
     blt End
     mov x14, x4       // dst_step
     lsr x15, x4, #1   // src_step = dst_step / 2
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -392,7 +392,7 @@ LoopDz_TILE_1:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     ld1 {v29.8h}, [x20], #16  // zero
     ld1 {v30.8h}, [x21], #16  // bias
@@ -419,8 +419,8 @@ LoopSz_TILE_1:
     bne LoopSz_TILE_1
 
 LoopSzEnd_TILE_1:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
     uzp1 v22.4s, v16.4s, v17.4s
     uzp1 v23.4s, v18.4s, v19.4s
     scvtf v22.4s, v22.4s
@@ -441,8 +441,8 @@ LoopSzEnd_TILE_1:
 Tile1Dequant:
     // sum + (zero * sumx) + bias
     fadd v30.8h, v30.8h, v17.8h
-    st1 {v30.8h}, [x17], x14
-    cmp x16, #1
+    st1 {v30.8h}, [x28], x14
+    cmp x27, #1
     bge LoopDz_TILE_1
 Tile1End:
     sub x6, x6, #1      // batch -= 1
@@ -456,9 +456,9 @@ TILE_EQ_1:
 
     mov x14, x4       // dst_step
     lsr x15, x4, #1   // src_step = dst_step / 2
-    mov x16, x5 // dst_depth_quad
-    mov x17, x0 // dst
-    mov x18, x2 // weight
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
     // dequant info
     mov x19, x8 // alpha
     mov x20, x9 // zero
@@ -467,7 +467,7 @@ LoopDz:
     mov x22, x11 // sums
     mov x23, x12 // scales
     mov x24, x1  // src
-    mov x25, x18 // weight
+    mov x25, x7 // weight
     mov x26, x3  // src_depth_quad
     ld1 {v29.8h}, [x20], #16  // zero
     ld1 {v30.8h}, [x21], #16  // bias
@@ -520,8 +520,8 @@ LoopSz_1:
     bne LoopSz_1
 
 LoopSzEnd:
-    add x18, x18, x13
-    sub x16, x16, #1
+    add x7, x7, x13
+    sub x27, x27, #1
 
     trn1 v26.2d, v14.2d, v15.2d
     trn1 v27.2d, v16.2d, v17.2d
@@ -547,8 +547,8 @@ LoopSzEnd:
 Int8ToFP16:
     // sum + (zero * sumx) + bias
     fadd v30.8h, v30.8h, v17.8h
-    st1 {v30.8h}, [x17], x14
-    cmp x16, #1
+    st1 {v30.8h}, [x28], x14
+    cmp x27, #1
     bge LoopDz
 
 End:

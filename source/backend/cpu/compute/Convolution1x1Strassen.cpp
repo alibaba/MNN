@@ -34,9 +34,7 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
         return;
     }
 #ifdef MNN_LOW_MEMORY
-    if (originWeightSize == 0 || nullptr == originWeight) { // Use Int8 Weight.
-        MNN_ASSERT(nullptr != quantInfo.get());
-
+    if ((originWeightSize == 0 || nullptr == originWeight) && nullptr != quantInfo.get()) { // Use Int8 Weight.
         originWeightSize = quantInfo->weight.size();
         int lSize = (int)originWeightSize / (int)biasSize * common->kernelX() * common->kernelY();
         auto hU = UP_DIV(outputCount, hPack);

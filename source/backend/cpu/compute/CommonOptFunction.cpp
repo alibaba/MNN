@@ -35,6 +35,16 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
 }
 #endif
 
+#if defined(__aarch64__)
+#ifdef MNN_LOW_MEMORY
+extern "C" {
+void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+void MNNGemmHybridInt8FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+void MNNGemmHybridInt4FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+void MNNGemmHybridInt8FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param);
+}
+#endif
+#endif
 
 template<typename T>
 void MNNPackC4Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
@@ -758,7 +768,7 @@ void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, floa
         ((int32_t*)sum)[i] = acc;
     }
 }
-void MNNGemmHybridInt8FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+void MNNGemmHybridInt8FP32(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
     // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
     int pack = 4;
     size_t weight_step = src_depth_quad * pack * pack;
@@ -801,7 +811,7 @@ void MNNGemmHybridInt8FP32_smmla(float* C, const int8_t* A, const int8_t* B, siz
         }
     }
 }
-void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
+void MNNGemmHybridInt4FP32(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
     // C:(oc/4,N,4) A:(ic/4,N,4) B:(oc/4,ic/4,4,4)
     int pack = 4;
     size_t weight_step = src_depth_quad * pack * pack * 0.5;
@@ -850,12 +860,6 @@ void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, siz
             }
         }
     }
-}
-void MNNGemmHybridInt8FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
-    MNNGemmHybridInt8FP32_smmla(C, A, B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
-}
-void MNNGemmHybridInt4FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {
-    MNNGemmHybridInt4FP32_smmla(C, A, B, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
 }
 #endif
 
@@ -3401,8 +3405,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
 #ifdef MNN_LOW_MEMORY
-    gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_sdot;
-    gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_sdot;
+    gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32;
+    gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32;
+#if defined(__aarch64__)
     if (gCoreFunction->supportSDot) {
         gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_sdot;
         gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_sdot;
@@ -3411,6 +3416,7 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNGemmHybridInt8 = MNNGemmHybridInt8FP32_smmla;
         gCoreFunction->MNNGemmHybridInt4 = MNNGemmHybridInt4FP32_smmla;
     }
+#endif
 #endif
     MNNCoreInt8FunctionInit();
     MNNFunctionInit();

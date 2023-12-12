@@ -439,11 +439,6 @@ static void dealSlice(PyObject* slice, std::vector<int>& begin, std::vector<int>
             Py_ssize_t startl = 0, stopl = 0, stepl = 1;
             auto slice_res = PySlice_Unpack(item, &startl, &stopl, &stepl);
             // py2 don't check return value.
-#if PY_MAJOR_VERSION >= 3
-            if (!slice_res) {
-                PyMNN_ERROR_LOG("slice is invalid.");
-            }
-#endif
             int start = static_cast<int>(startl);
             int stop = static_cast<int>(stopl);
             int step = static_cast<int>(stepl);
