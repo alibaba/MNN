@@ -15,7 +15,7 @@
 namespace MNN {
 
 MetalPooling::MetalPooling(Backend *backend, const Pool *pooling)
-    : Execution(backend),
+    : MetalExecution(backend),
       mGlobal(pooling->isGlobal()),
       mPoolType(pooling->type()),
       mKernelX(pooling->kernelX()),
@@ -60,38 +60,20 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int *)mConstBuffer.contents)[9]  = padWidth;
     ((int *)mConstBuffer.contents)[10] = padHeight;
     auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
-    mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg"];
+    mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg" fp16:backend->useFp16InsteadFp32()];
     auto size = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
     mLocal = size.second;
     mGroup = size.first;
     return NO_ERROR;
 }
 
-ErrorCode MetalPooling::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mGroup threadsPerThreadgroup:mLocal];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+void MetalPooling::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:mGroup threadsPerThreadgroup:mLocal];
 }
 
 class MetalPoolingCreator : public MetalBackend::Creator {

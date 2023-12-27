@@ -58,6 +58,10 @@ ExprModule::ExprModule(EXPRP expr) {
                 break;
         }
     }
+    // TODO: Optimize the logic
+    if (!mExpr->mCanDecompose) {
+        ExecutorScope::Current()->setLazyComputeMode(Executor::LAZY_CONTENT);
+    }
 }
 
 std::vector<VARP> ExprModule::onForward(const std::vector<VARP>& inputs) {
@@ -72,6 +76,14 @@ std::vector<VARP> ExprModule::onForward(const std::vector<VARP>& inputs) {
     std::vector<VARP> outputVars;
     auto newExpr = Expr::create(mExpr->extra(), std::move(tempInputs), mExpr->outputSize());
     newExpr->setName(mExpr->name());
+    if (!mExpr->mCanDecompose) {
+        // Set tensor shape from net
+        newExpr->mCanDecompose = false;
+        for (int index = 0; index < mExpr->outputSize(); ++index) {
+            TensorUtils::copyShape(mExpr->inside()->mOutputTensors[index], newExpr->inside()->mOutputTensors[index], true, true);
+            Utils::copyTensorToInfo(newExpr->inside()->mOutputInfos.data() + index, newExpr->inside()->mOutputTensors[index]);
+        }
+    }
     for (int i = 0; i < mExpr->outputSize(); ++i) {
         outputVars.emplace_back(Variable::create(newExpr, i));
     }
@@ -562,6 +574,23 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         config = &defaultConfig;
     }
     auto subGraphs = net->subgraphs();
+    if (config->dynamic) {
+        // TODO: Support subgraph
+        if (nullptr == subGraphs) {
+            auto varMap = MNN::Express::Variable::loadMap(buffer, length);
+            std::vector<MNN::Express::VARP> inputsVar(inputs.size());
+            for (int i=0; i<inputs.size(); ++i) {
+                inputsVar[i] = varMap[inputs[i]];
+            }
+            std::vector<MNN::Express::VARP> outputsVar(outputs.size());
+            for (int i=0; i<outputs.size(); ++i) {
+                outputsVar[i] = varMap[outputs[i]];
+            }
+            return extract(inputsVar, outputsVar, false);
+        } else {
+            MNN_ERROR("Don't support subgraph for dynamic load, turn back to static load\n");
+        }
+    }
     std::map<std::string, SubGraph> subGraphMap;
     _createSubGraph(net, rtMgr, config, subGraphMap);
     std::shared_ptr<BufferStorage> bufferStorage(new BufferStorage);

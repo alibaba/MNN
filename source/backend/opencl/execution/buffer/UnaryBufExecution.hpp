@@ -16,11 +16,12 @@
 #include "MNN_generated.h"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class UnaryBufExecution : public Execution {
+class UnaryBufExecution : public Execution, public CommonExtension {
 public:
     UnaryBufExecution(const std::string &compute, Backend *backend);
     virtual ~UnaryBufExecution() = default;

@@ -233,6 +233,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
     int padX = pad.first;
 
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if (mUseSubgroup) {
@@ -337,6 +338,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
                 } else {
                     mLWS_S[b] = {1, 16};
                 }
+                mOpenCLBackend->recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b]);
             }
 
             // MatMul
@@ -359,6 +361,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
                 ret |= mMatMul[b].setArg(index++, icC16);
                 ret |= mMatMul[b].setArg(index++, alpha * alpha);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf MatMul");
+                mOpenCLBackend->recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b]);
             }
 
             // Dest Transform
@@ -391,6 +394,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
                 } else {
                     mLWS_D[b] = {1, 16};
                 }
+                mOpenCLBackend->recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b]);
             }
         }
     } else 
@@ -472,6 +476,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
 
                 std::string kernelName = "winoTransSrcBuf";
                 mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
+                mOpenCLBackend->recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b]);
             }
 
             // MatMul
@@ -536,6 +541,7 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
                 ret |= mMatMul[b].setArg(index++, icC4);
                 ret |= mMatMul[b].setArg(index++, alpha * alpha);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf SubGroup MatMul");
+                mOpenCLBackend->recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b]);
             }
 
             // Dest Transform
@@ -559,9 +565,11 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
                 
                 std::string kernelName = "winoTransDstBuf";
                 mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
+                mOpenCLBackend->recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b]);
             }
         }
     }
+    mOpenCLBackend->endRecord(mRecording);
     
     return NO_ERROR;
 }
@@ -569,7 +577,15 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
 ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-
+    
+#ifndef ENABLE_OPENCL_TIME_PROFILER
+if(mOpenCLBackend->isUseRecordQueue()){
+    if(mOpenCLBackend->isDevideOpRecord())
+        mOpenCLBackend->addRecord(mRecording);
+    return NO_ERROR;
+}
+#endif
+    
     for (int b = 0; b < input->batch(); ++b) {
         int index = b;
         /*Source Transform*/

@@ -94,6 +94,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
       auto& p = properties[i];
       FUNC_PRINT_ALL(p.extensionName, s);
     }
+    FUNC_PRINT(mDeviceProty.limits.maxComputeWorkGroupSize[0]);
+    FUNC_PRINT(mDeviceProty.limits.maxComputeWorkGroupCount[0]);
+    FUNC_PRINT(mDeviceProty.limits.maxComputeWorkGroupInvocations);
+    FUNC_PRINT(mDeviceProty.limits.maxComputeSharedMemorySize);
 #endif
 }
 

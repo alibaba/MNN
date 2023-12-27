@@ -14,10 +14,11 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
-class GridSampleBufExecution : public Execution {
+class GridSampleBufExecution : public Execution, public CommonExtension {
 public:
     GridSampleBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~GridSampleBufExecution() = default;

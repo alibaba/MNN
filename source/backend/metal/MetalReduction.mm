@@ -16,7 +16,7 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalReduction::MetalReduction(Backend *backend, const ReductionParam *p, halide_type_t type) : Execution(backend) {
+MetalReduction::MetalReduction(Backend *backend, const ReductionParam *p, halide_type_t type) : MetalExecution(backend) {
     auto integer = type.code == halide_type_int;
     NSString *kernel;
     switch (p->operation()) {
@@ -47,7 +47,7 @@ MetalReduction::MetalReduction(Backend *backend, const ReductionParam *p, halide
     auto mkbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mkbn->context();
     mConst = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
-    mPipeline = [context pipelineWithName:kernel];
+    mPipeline = [context pipelineWithName:kernel  fp16:mkbn->useFp16InsteadFp32()];
 }
 
 ErrorCode MetalReduction::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -69,31 +69,13 @@ ErrorCode MetalReduction::onResize(const std::vector<Tensor *> &inputs, const st
     return NO_ERROR;
 }
 
-ErrorCode MetalReduction::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-
-    auto func = [=](){
-        auto &input = inputs[0], &output = outputs[0];
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConst offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+void MetalReduction::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto &input = inputs[0], &output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConst offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalReductionCreator : public MetalBackend::Creator {

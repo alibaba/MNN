@@ -54,11 +54,11 @@ static NSString *kernelForType(UnaryOpOperation type) {
     }
 }
 
-MetalUnary::MetalUnary(Backend *backend, UnaryOpOperation optype) : Execution(backend), mOpType(optype) {
+MetalUnary::MetalUnary(Backend *backend, UnaryOpOperation optype) : MetalExecution(backend), mOpType(optype) {
     auto mtbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mConstBuffer                 = [context newDeviceBuffer:3 * sizeof(int) access:CPUWriteOnly];
-    mPipeline = [context pipelineWithName:kernelForType(mOpType)];
+    mPipeline = [context pipelineWithName:kernelForType(mOpType) fp16:mtbn->useFp16InsteadFp32()];
 }
 ErrorCode MetalUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto mtbn = static_cast<MetalBackend *>(backend());
@@ -71,31 +71,13 @@ ErrorCode MetalUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
     return NO_ERROR;
 }
 
-ErrorCode MetalUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+void MetalUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalUnaryCreator : public MetalBackend::Creator {

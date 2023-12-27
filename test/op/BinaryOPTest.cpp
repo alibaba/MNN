@@ -125,6 +125,16 @@ public:
     }
 };
 
+class AddBroastTest : public BinaryTestCommon {
+public:
+    virtual ~AddBroastTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(MNN::Express::_Add, "AddBroast", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {0.0, 0.0, 0.0, 0.0},
+                    {1, 1, 4}, {4}, {1, 1, 4});
+    }
+};
+
 class AddInt8Test : public BinaryTestCommon {
     public: 
         virtual ~AddInt8Test() = default;
@@ -412,7 +422,7 @@ public:
                 z[i + j * 2] = FP32Converter[precision](fmodf(FP32Converter[precision](x[i+j*2]), FP32Converter[precision](y[i])));
             }
         }
-        return test<float, float>(MNN::Express::_Mod, "ModTestFloat", 0,
+        return test<float, float>(MNN::Express::_Mod, "ModTestFloat", 0.01,
                     x,y,z,
                     {4, 2}, {2}, {4, 2});
     }
@@ -719,3 +729,5 @@ MNNTestSuiteRegister(Atan2Int8Test, "op/binary/atan2Int8");
 MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
 
 MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");
+MNNTestSuiteRegister(AddBroastTest, "op/binary/AddBroast");
+

@@ -25,14 +25,6 @@ public:
             output->buffer().type = halide_type_of<float>();
             return true;
         }
-        if (OpType_QuantizeLinear == op->type()) {
-            output->buffer().type = halide_type_of<int8_t>();
-            return true;
-        }
-        if (OpType_DequantizeLinear == op->type()) {
-            output->buffer().type = halide_type_of<float>();
-            return true;
-        }
 
         const auto opParam = op->main_as_CastParam();
         outputs[0]->setType(opParam->dstT());
@@ -43,7 +35,4 @@ public:
 REGISTER_SHAPE(CastSizeComputer, OpType_Cast);
 REGISTER_SHAPE(CastSizeComputer, OpType_FloatToInt8);
 REGISTER_SHAPE(CastSizeComputer, OpType_Int8ToFloat);
-REGISTER_SHAPE(CastSizeComputer, OpType_QuantizeLinear);
-REGISTER_SHAPE(CastSizeComputer, OpType_DequantizeLinear);
-
 } // namespace MNN

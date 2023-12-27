@@ -45,8 +45,8 @@ dup v10.8h, w9        // v10: [28.f]x4
 dup v9.8h, w10        // v9: [3150.f]x4
 dup v8.8h, w11        // v8: [62370.f]x4
 
-mov w4, #5.0
-mov w5, #-5.0
+mov w4, #5
+mov w5, #-5
 
 GeluZLoop:
 
@@ -67,6 +67,8 @@ fmul v3.8h, v3.8h, v14.8h
 
 dup v6.8h, w5
 dup v7.8h, w4
+scvtf v6.8h, v6.8h
+scvtf v7.8h, v7.8h
 fmin v2.8h, v2.8h, v7.8h
 fmin v3.8h, v3.8h, v7.8h
 fmax v2.8h, v2.8h, v6.8h

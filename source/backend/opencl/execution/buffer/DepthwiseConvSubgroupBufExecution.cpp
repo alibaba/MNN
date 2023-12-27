@@ -152,6 +152,8 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onResize(const std::vector<Tensor *
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     auto padding = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
@@ -215,6 +217,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onResize(const std::vector<Tensor *
         mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
 
         mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", mTranseKernel).first;
+        mOpenCLBackend->recordKernel3d(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
     }
     mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(2), 8) * outputShape.at(1)),
                        static_cast<uint32_t>(ROUND_UP(outputShape.at(3), 16)),
@@ -245,7 +248,9 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onResize(const std::vector<Tensor *
     mKernel.setArg(idx++, static_cast<uint32_t>(outputpad.right));
     mKernel.setArg(idx++, static_cast<uint32_t>(paddingShape[1]));
     mKernel.setArg(idx++, static_cast<uint32_t>(paddingShape[0]));
-
+    
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -253,7 +258,16 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onExecute(const std::vector<Tensor 
 #ifdef LOG_VERBOSE
     MNN_PRINT("start DepthwiseConvSubgroupBufExecution onExecute !\n");
 #endif
-
+#ifndef ENABLE_OPENCL_TIME_PROFILER
+if(mOpenCLBackend->isUseRecordQueue()){
+    if(mOpenCLBackend->isDevideOpRecord())
+        mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end DepthwiseConvSubgroupBufExecution onExecute !\n");
+#endif
+    return NO_ERROR;
+}
+#endif
     if (mNeedTranse) {
 #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;

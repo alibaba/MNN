@@ -42,6 +42,9 @@ list(APPEND MNN_CPP_TOOLS timeProfile.out)
 add_executable(testTrain.out ${CMAKE_CURRENT_LIST_DIR}/testTrain.cpp)
 list(APPEND MNN_CPP_TOOLS testTrain.out)
 
+add_executable(fuseTest ${CMAKE_CURRENT_LIST_DIR}/fuseTest.cpp)
+list(APPEND MNN_CPP_TOOLS fuseTest)
+
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})
     if (MSVC)

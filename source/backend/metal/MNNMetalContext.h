@@ -42,6 +42,7 @@ typedef struct {
 @property (strong, nonatomic, readonly) id<MTLDevice> device;
 /** max memory length cound be used in threadgroup */
 @property (assign, nonatomic, readonly) BOOL isCommitEachShader;
+@property (assign, nonatomic, readonly) BOOL isIphone;
 
 /**
  * @brief alloc temp buffer on device
@@ -60,19 +61,6 @@ typedef struct {
  */
 - (id<MTLBuffer>)newDeviceBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access;
 
-/**
- * @brief create compute encoder on default command buffer
- * @return created encoder
- */
-- (id<MTLComputeCommandEncoder>)encoder;
-- (id<MTLComputeCommandEncoder>)encoder_net;
-
-/**
- * @brief create fill encoder on default command buffer
- * @return created encoder
- */
-- (id<MTLBlitCommandEncoder>)encoderBlit;
-- (id<MTLBlitCommandEncoder>)encoderBlit_net;
 
 /**
  * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
@@ -80,7 +68,7 @@ typedef struct {
  * @param encoder   command encoder
  * @return bandwidth info for function
  */
-- (MNN::MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder;
+- (MNN::MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder fp16:(BOOL)fp16;
 
 /**
  * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
@@ -88,22 +76,15 @@ typedef struct {
  * @param encoder   command encoder
  * @return bandwidth info for function
  */
-- (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex;
+- (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex queue:(id<MTLCommandQueue>) cmdqueue;
 
 - (NSUInteger)timeUsed:(id<MTLCommandBuffer>) buffer;
 
-- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MNN::MetalRuntime *) rt shaderName:(std::string) kernelName;
+- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MNN::MetalRuntime *) rt shaderName:(std::string) kernelName queue:(id<MTLCommandQueue>) cmdqueue;
+- (NSUInteger)PipelinetimeUsed: (id<MTLComputePipelineState>)pipeline global:(MTLSize)globals local:(MTLSize)locals loop:(NSUInteger)count buffer:(NSArray *)buffers queue:(id<MTLCommandQueue>) cmdqueue;
+
 
 - (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device;
-/**
- * @brief commit commands
- */
-- (void)commit;
-- (void)commit_net;
-/**
- * @brief wait for completion
- */
-- (void)wait;
 
 /**
  * @brief dispatch encoder with default settings
@@ -126,8 +107,8 @@ typedef struct {
                 threads:(MTLSize)threads
         threadsPerGroup:(MTLSize)threadsPerGroup
               bandwidth:(MNN::MetalBandwidth)bandwidth;
-- (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name;
-- (id<MTLComputePipelineState>)pipelineWithSource:(NSString *)source name:(NSString *)name;
+- (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name fp16:(BOOL)fp16;
+- (id<MTLComputePipelineState>)pipelineWithSourceOption:(NSString *)source name:(NSString *)name options:(MTLCompileOptions *)options;
 - (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) pipeline threads:(MTLSize)threads;
 
 - (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t;

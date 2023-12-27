@@ -109,35 +109,38 @@ ErrorCode CutlassConvCommonExecution::runCutlassGemmFunc() {
         return NO_ERROR;
     }
 
-#ifdef ENABLE_CUDA_TUNE_PARAM
-    runGemmTensorCoreFloat16Infer(&mInfo);
-#else
-    if(mActivationType == 1) {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32ReluSm75();
-            cutlass_check(status);
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    if(mIsTuned) {
+        runGemmTensorCoreFloat16Infer(&mInfo);
+    } 
+    #endif
+    if(!mIsTuned) {
+        if(mActivationType == 1) {
+            if(mFp16Fp32MixInfer) {
+                cutlass::Status status = mGemmF16F32ReluSm75();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmF16F16ReluSm75();
+                cutlass_check(status);
+            }
+        } else if(mActivationType == 2) {
+            if(mFp16Fp32MixInfer) {
+                cutlass::Status status = mGemmF16F32Relu6Sm75();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmF16F16Relu6Sm75();
+                cutlass_check(status);
+            }
         } else {
-            cutlass::Status status = mGemmF16F16ReluSm75();
-            cutlass_check(status);
-        }
-    } else if(mActivationType == 2) {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32Relu6Sm75();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmF16F16Relu6Sm75();
-            cutlass_check(status);
-        }
-    } else {
-        if(mFp16Fp32MixInfer) {
-            cutlass::Status status = mGemmF16F32LnSm75();
-            cutlass_check(status);
-        } else {
-            cutlass::Status status = mGemmF16F16LnSm75();
-            cutlass_check(status);
+            if(mFp16Fp32MixInfer) {
+                cutlass::Status status = mGemmF16F32LnSm75();
+                cutlass_check(status);
+            } else {
+                cutlass::Status status = mGemmF16F16LnSm75();
+                cutlass_check(status);
+            }
         }
     }
-#endif
     return NO_ERROR;
 }
 

@@ -38,13 +38,9 @@ static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, int group, int oc
     auto dst    = (TType *)buffer.contents;
 
     for (int g = 0; g < group; g++) {
-#pragma clang loop vectorize(enable)
         for (int i = 0; i < gic; i++) {
-#pragma clang loop vectorize(enable)
             for (int o = 0; o < goc; o++) {
-#pragma clang loop vectorize(enable)
                 for (int h = 0; h < kh; h++) {
-#pragma clang loop vectorize(enable) unroll(enable)
                     for (int w = 0; w < kw; w++) {
                         auto zo = o / 4, ro = o % 4;
                         auto zi = i / 4, ri = i % 4;
@@ -85,7 +81,8 @@ static id<MTLBuffer> weightForDepthwise(MNNMetalContext *context, int group, int
     return buffer;
 }
 
-static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, bool depthwise, const Convolution2D *deconv,
+template <typename TType>
+id<MTLBuffer> weightForDeconv(MNNMetalContext *context, bool depthwise, const Convolution2D *deconv,
                                      ConvolutionCommon::Int8Common *qnt) {
     auto size   = qnt ? qnt->weightFloat.size() : deconv->weight()->size();
     auto common = deconv->common();
@@ -95,31 +92,43 @@ static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, bool depthwise, c
     auto oc     = common->outputCount();
     auto ic     = size / kw / kh / (oc / group);
     if (depthwise) {
-        return weightForDepthwise<float, metal_float>(context, group, kh, kw,
+        return weightForDepthwise<float, TType>(context, group, kh, kw,
                                                       qnt ? qnt->weightFloat.get() : deconv->weight()->data());
     } else {
-        return weightForDeconv<float, metal_float>(context, group, oc, ic, kh, kw,
+        return weightForDeconv<float, TType>(context, group, oc, ic, kh, kw,
                                                    qnt ? qnt->weightFloat.get() : deconv->weight()->data());
     }
 }
 
-static id<MTLBuffer> biasForDeconv(MNNMetalContext *context, const Convolution2D *deconv) {
+static id<MTLBuffer> biasForDeconv(MNNMetalContext *context, const Convolution2D *deconv, bool fp16) {
     auto bias = deconv->bias();
     if (!bias || bias->size() == 0)
         return [context newDeviceBuffer:0 access:CPUTransparent];
 
     auto oc     = deconv->common()->outputCount();
-    auto buffer = [context newDeviceBuffer:UP_DIV(oc, 4) * 4 * sizeof(metal_float) access:CPUWriteOnly];
+    int bytes = 4;
+    if (fp16) {
+        bytes = 2;
+    }
+    auto buffer = [context newDeviceBuffer:UP_DIV(oc, 4) * 4 * bytes access:CPUWriteOnly];
     auto src    = bias->data();
-    auto dst    = (metal_float *)buffer.contents;
-#pragma clang loop vectorize(enable) unroll(enable)
-    for (int i = 0; i < oc; i++)
-        dst[i] = src[i];
+    if (fp16) {
+        auto dst    = (__fp16 *)buffer.contents;
+        for (int i = 0; i < oc; i++) {
+            dst[i] = src[i];
+        }
+    } else {
+        auto dst    = (float *)buffer.contents;
+        for (int i = 0; i < oc; i++) {
+            dst[i] = src[i];
+        }
+    }
     return buffer;
 }
 
-MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Execution(backend) {
+MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : MetalExecution(backend) {
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
+    auto mtbn = static_cast<MetalBackend *>(backend);
     auto deconv  = op->main_as_Convolution2D();
     auto common  = deconv->common();
     mOp          = op;
@@ -141,12 +150,16 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     if (deconv->quanParameter()) {
         qnt = ConvolutionCommon::load(deconv, backend, true);
     }
-    mWeight = weightForDeconv(context, mDepthwise, deconv, qnt.get());
-    mBias   = biasForDeconv(context, deconv);
-    if (mDepthwise) {
-        mPipeline = [context pipelineWithName:@"deconv_depthwise"];
+    if (mtbn->useFp16InsteadFp32()) {
+        mWeight = weightForDeconv<__fp16>(context, mDepthwise, deconv, qnt.get());
     } else {
-        mPipeline = [context pipelineWithName:@"deconv"];
+        mWeight = weightForDeconv<float>(context, mDepthwise, deconv, qnt.get());
+    }
+    mBias   = biasForDeconv(context, deconv, mtbn->useFp16InsteadFp32());
+    if (mDepthwise) {
+        mPipeline = [context pipelineWithName:@"deconv_depthwise" fp16:mtbn->useFp16InsteadFp32()];
+    } else {
+        mPipeline = [context pipelineWithName:@"deconv" fp16:mtbn->useFp16InsteadFp32()];
     }
 }
 
@@ -198,35 +211,15 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     return NO_ERROR;
 }
 
-ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
+void MetalDeconvolution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
         auto input = inputs[0], output = outputs[0];
-
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mWeight offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    
-    return NO_ERROR;
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mWeight offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalDeconvolutionCreator : public MetalBackend::Creator {

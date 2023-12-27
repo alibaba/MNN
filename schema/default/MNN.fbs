@@ -167,8 +167,6 @@ enum OpType : int {
     GatherElements = 152,
     Svd = 153,
     Histogram = 154,
-    QuantizeLinear = 155,
-    DequantizeLinear = 156,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -392,8 +390,6 @@ union OpParameter {
     LoopParam,
     ImageProcessParam,
     CumSum,
-    QuantizeLinear,
-    DequantizeLinear,
 }
 
 table Op {

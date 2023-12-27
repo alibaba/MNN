@@ -220,6 +220,9 @@ int main(int argc, char *argv[]) {
     config.backendConfig     = &backendConfig;
 
     MNN::Express::Module::Config mConfig;
+    if (runMask & 256) {
+        mConfig.dynamic = true;
+    }
     mConfig.shapeMutable = shapeMutable;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
@@ -387,6 +390,9 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
+            for (auto o : out) {
+                ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+            }
             times[i] = _l.durationInUs() / 1000.0f;
         }
         if (nullptr != gTimeTraceInfo) {

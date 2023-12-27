@@ -76,12 +76,6 @@ struct BatchNormT;
 struct Scale;
 struct ScaleT;
 
-struct QuantizeLinear;
-struct QuantizeLinearT;
-
-struct DequantizeLinear;
-struct DequantizeLinearT;
-
 struct Eltwise;
 struct EltwiseT;
 
@@ -164,10 +158,6 @@ inline const flatbuffers::TypeTable *SliceTypeTable();
 inline const flatbuffers::TypeTable *BatchNormTypeTable();
 
 inline const flatbuffers::TypeTable *ScaleTypeTable();
-
-inline const flatbuffers::TypeTable *QuantizeLinearTypeTable();
-
-inline const flatbuffers::TypeTable *DequantizeLinearTypeTable();
 
 inline const flatbuffers::TypeTable *EltwiseTypeTable();
 
@@ -1149,13 +1139,15 @@ struct QuantizedFloatParamT : public flatbuffers::NativeTable {
   int8_t clampMin;
   int8_t clampMax;
   std::vector<int32_t> winogradAttr;
+  DataType outputDataType;
   QuantizedFloatParamT()
       : method(QuantizeAlgo_DEFAULT),
         nbits(8),
         zeroPoint(0),
         outputZeroPoint(0),
         clampMin(-128),
-        clampMax(127) {
+        clampMax(127),
+        outputDataType(DataType_DT_INT8) {
   }
 };
 
@@ -1197,6 +1189,9 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   const flatbuffers::Vector<int32_t> *winogradAttr() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(24);
   }
+  DataType outputDataType() const {
+    return static_cast<DataType>(GetField<int32_t>(26, 6));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -1215,6 +1210,7 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyField<int8_t>(verifier, 22) &&
            VerifyOffset(verifier, 24) &&
            verifier.VerifyVector(winogradAttr()) &&
+           VerifyField<int32_t>(verifier, 26) &&
            verifier.EndTable();
   }
   QuantizedFloatParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1258,6 +1254,9 @@ struct QuantizedFloatParamBuilder {
   void add_winogradAttr(flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr) {
     fbb_.AddOffset(24, winogradAttr);
   }
+  void add_outputDataType(DataType outputDataType) {
+    fbb_.AddElement<int32_t>(26, static_cast<int32_t>(outputDataType), 6);
+  }
   explicit QuantizedFloatParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1282,8 +1281,10 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(
     int8_t outputZeroPoint = 0,
     int8_t clampMin = -128,
     int8_t clampMax = 127,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr = 0,
+    DataType outputDataType = DataType_DT_INT8) {
   QuantizedFloatParamBuilder builder_(_fbb);
+  builder_.add_outputDataType(outputDataType);
   builder_.add_winogradAttr(winogradAttr);
   builder_.add_nbits(nbits);
   builder_.add_tensorScale(tensorScale);
@@ -2922,180 +2923,6 @@ inline flatbuffers::Offset<Scale> CreateScale(
 
 flatbuffers::Offset<Scale> CreateScale(flatbuffers::FlatBufferBuilder &_fbb, const ScaleT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
-struct QuantizeLinearT : public flatbuffers::NativeTable {
-  typedef QuantizeLinear TableType;
-  int32_t scaleSize;
-  int32_t scaleAxis;
-  std::vector<float> scaleData;
-  std::vector<int8_t> zeroPointData;
-  QuantizeLinearT()
-      : scaleSize(0),
-        scaleAxis(0) {
-  }
-};
-
-struct QuantizeLinear FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
-  typedef QuantizeLinearT NativeTableType;
-  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
-    return QuantizeLinearTypeTable();
-  }
-  int32_t scaleSize() const {
-    return GetField<int32_t>(4, 0);
-  }
-  int32_t scaleAxis() const {
-    return GetField<int32_t>(6, 0);
-  }
-  const flatbuffers::Vector<float> *scaleData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(8);
-  }
-  const flatbuffers::Vector<int8_t> *zeroPointData() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(10);
-  }
-  bool Verify(flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, 4) &&
-           VerifyField<int32_t>(verifier, 6) &&
-           VerifyOffset(verifier, 8) &&
-           verifier.VerifyVector(scaleData()) &&
-           VerifyOffset(verifier, 10) &&
-           verifier.VerifyVector(zeroPointData()) &&
-           verifier.EndTable();
-  }
-  QuantizeLinearT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(QuantizeLinearT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static flatbuffers::Offset<QuantizeLinear> Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizeLinearT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-};
-
-struct QuantizeLinearBuilder {
-  flatbuffers::FlatBufferBuilder &fbb_;
-  flatbuffers::uoffset_t start_;
-  void add_scaleSize(int32_t scaleSize) {
-    fbb_.AddElement<int32_t>(4, scaleSize, 0);
-  }
-  void add_scaleAxis(int32_t scaleAxis) {
-    fbb_.AddElement<int32_t>(6, scaleAxis, 0);
-  }
-  void add_scaleData(flatbuffers::Offset<flatbuffers::Vector<float>> scaleData) {
-    fbb_.AddOffset(8, scaleData);
-  }
-  void add_zeroPointData(flatbuffers::Offset<flatbuffers::Vector<int8_t>> zeroPointData) {
-    fbb_.AddOffset(10, zeroPointData);
-  }
-  explicit QuantizeLinearBuilder(flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  QuantizeLinearBuilder &operator=(const QuantizeLinearBuilder &);
-  flatbuffers::Offset<QuantizeLinear> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = flatbuffers::Offset<QuantizeLinear>(end);
-    return o;
-  }
-};
-
-inline flatbuffers::Offset<QuantizeLinear> CreateQuantizeLinear(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t scaleSize = 0,
-    int32_t scaleAxis = 0,
-    flatbuffers::Offset<flatbuffers::Vector<float>> scaleData = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int8_t>> zeroPointData = 0) {
-  QuantizeLinearBuilder builder_(_fbb);
-  builder_.add_zeroPointData(zeroPointData);
-  builder_.add_scaleData(scaleData);
-  builder_.add_scaleAxis(scaleAxis);
-  builder_.add_scaleSize(scaleSize);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<QuantizeLinear> CreateQuantizeLinear(flatbuffers::FlatBufferBuilder &_fbb, const QuantizeLinearT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-
-struct DequantizeLinearT : public flatbuffers::NativeTable {
-  typedef DequantizeLinear TableType;
-  int32_t scaleSize;
-  int32_t scaleAxis;
-  std::vector<float> scaleData;
-  std::vector<int8_t> zeroPointData;
-  DequantizeLinearT()
-      : scaleSize(0),
-        scaleAxis(0) {
-  }
-};
-
-struct DequantizeLinear FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
-  typedef DequantizeLinearT NativeTableType;
-  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
-    return DequantizeLinearTypeTable();
-  }
-  int32_t scaleSize() const {
-    return GetField<int32_t>(4, 0);
-  }
-  int32_t scaleAxis() const {
-    return GetField<int32_t>(6, 0);
-  }
-  const flatbuffers::Vector<float> *scaleData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(8);
-  }
-  const flatbuffers::Vector<int8_t> *zeroPointData() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(10);
-  }
-  bool Verify(flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, 4) &&
-           VerifyField<int32_t>(verifier, 6) &&
-           VerifyOffset(verifier, 8) &&
-           verifier.VerifyVector(scaleData()) &&
-           VerifyOffset(verifier, 10) &&
-           verifier.VerifyVector(zeroPointData()) &&
-           verifier.EndTable();
-  }
-  DequantizeLinearT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(DequantizeLinearT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static flatbuffers::Offset<DequantizeLinear> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DequantizeLinearT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-};
-
-struct DequantizeLinearBuilder {
-  flatbuffers::FlatBufferBuilder &fbb_;
-  flatbuffers::uoffset_t start_;
-  void add_scaleSize(int32_t scaleSize) {
-    fbb_.AddElement<int32_t>(4, scaleSize, 0);
-  }
-  void add_scaleAxis(int32_t scaleAxis) {
-    fbb_.AddElement<int32_t>(6, scaleAxis, 0);
-  }
-  void add_scaleData(flatbuffers::Offset<flatbuffers::Vector<float>> scaleData) {
-    fbb_.AddOffset(8, scaleData);
-  }
-  void add_zeroPointData(flatbuffers::Offset<flatbuffers::Vector<int8_t>> zeroPointData) {
-    fbb_.AddOffset(10, zeroPointData);
-  }
-  explicit DequantizeLinearBuilder(flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  DequantizeLinearBuilder &operator=(const DequantizeLinearBuilder &);
-  flatbuffers::Offset<DequantizeLinear> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = flatbuffers::Offset<DequantizeLinear>(end);
-    return o;
-  }
-};
-
-inline flatbuffers::Offset<DequantizeLinear> CreateDequantizeLinear(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t scaleSize = 0,
-    int32_t scaleAxis = 0,
-    flatbuffers::Offset<flatbuffers::Vector<float>> scaleData = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int8_t>> zeroPointData = 0) {
-  DequantizeLinearBuilder builder_(_fbb);
-  builder_.add_zeroPointData(zeroPointData);
-  builder_.add_scaleData(scaleData);
-  builder_.add_scaleAxis(scaleAxis);
-  builder_.add_scaleSize(scaleSize);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<DequantizeLinear> CreateDequantizeLinear(flatbuffers::FlatBufferBuilder &_fbb, const DequantizeLinearT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-
 struct EltwiseT : public flatbuffers::NativeTable {
   typedef Eltwise TableType;
   EltwiseType type;
@@ -4672,6 +4499,7 @@ inline void QuantizedFloatParam::UnPackTo(QuantizedFloatParamT *_o, const flatbu
   { auto _e = clampMin(); _o->clampMin = _e; };
   { auto _e = clampMax(); _o->clampMax = _e; };
   { auto _e = winogradAttr(); if (_e) { _o->winogradAttr.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->winogradAttr[_i] = _e->Get(_i); } } };
+  { auto _e = outputDataType(); _o->outputDataType = _e; };
 }
 
 inline flatbuffers::Offset<QuantizedFloatParam> QuantizedFloatParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4693,6 +4521,7 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
   auto _clampMin = _o->clampMin;
   auto _clampMax = _o->clampMax;
   auto _winogradAttr = _o->winogradAttr.size() ? _fbb.CreateVector(_o->winogradAttr) : 0;
+  auto _outputDataType = _o->outputDataType;
   return MNN::CreateQuantizedFloatParam(
       _fbb,
       _weight,
@@ -4705,7 +4534,8 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
       _outputZeroPoint,
       _clampMin,
       _clampMax,
-      _winogradAttr);
+      _winogradAttr,
+      _outputDataType);
 }
 
 inline Convolution2DT *Convolution2D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5340,76 +5170,6 @@ inline flatbuffers::Offset<Scale> CreateScale(flatbuffers::FlatBufferBuilder &_f
       _scaleData,
       _biasData,
       _external);
-}
-
-inline QuantizeLinearT *QuantizeLinear::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = new QuantizeLinearT();
-  UnPackTo(_o, _resolver);
-  return _o;
-}
-
-inline void QuantizeLinear::UnPackTo(QuantizeLinearT *_o, const flatbuffers::resolver_function_t *_resolver) const {
-  (void)_o;
-  (void)_resolver;
-  { auto _e = scaleSize(); _o->scaleSize = _e; };
-  { auto _e = scaleAxis(); _o->scaleAxis = _e; };
-  { auto _e = scaleData(); if (_e) { _o->scaleData.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->scaleData[_i] = _e->Get(_i); } } };
-  { auto _e = zeroPointData(); if (_e) { _o->zeroPointData.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->zeroPointData[_i] = _e->Get(_i); } } };
-}
-
-inline flatbuffers::Offset<QuantizeLinear> QuantizeLinear::Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizeLinearT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
-  return CreateQuantizeLinear(_fbb, _o, _rehasher);
-}
-
-inline flatbuffers::Offset<QuantizeLinear> CreateQuantizeLinear(flatbuffers::FlatBufferBuilder &_fbb, const QuantizeLinearT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
-  (void)_rehasher;
-  (void)_o;
-  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const QuantizeLinearT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _scaleSize = _o->scaleSize;
-  auto _scaleAxis = _o->scaleAxis;
-  auto _scaleData = _o->scaleData.size() ? _fbb.CreateVector(_o->scaleData) : 0;
-  auto _zeroPointData = _o->zeroPointData.size() ? _fbb.CreateVector(_o->zeroPointData) : 0;
-  return MNN::CreateQuantizeLinear(
-      _fbb,
-      _scaleSize,
-      _scaleAxis,
-      _scaleData,
-      _zeroPointData);
-}
-
-inline DequantizeLinearT *DequantizeLinear::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = new DequantizeLinearT();
-  UnPackTo(_o, _resolver);
-  return _o;
-}
-
-inline void DequantizeLinear::UnPackTo(DequantizeLinearT *_o, const flatbuffers::resolver_function_t *_resolver) const {
-  (void)_o;
-  (void)_resolver;
-  { auto _e = scaleSize(); _o->scaleSize = _e; };
-  { auto _e = scaleAxis(); _o->scaleAxis = _e; };
-  { auto _e = scaleData(); if (_e) { _o->scaleData.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->scaleData[_i] = _e->Get(_i); } } };
-  { auto _e = zeroPointData(); if (_e) { _o->zeroPointData.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->zeroPointData[_i] = _e->Get(_i); } } };
-}
-
-inline flatbuffers::Offset<DequantizeLinear> DequantizeLinear::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DequantizeLinearT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
-  return CreateDequantizeLinear(_fbb, _o, _rehasher);
-}
-
-inline flatbuffers::Offset<DequantizeLinear> CreateDequantizeLinear(flatbuffers::FlatBufferBuilder &_fbb, const DequantizeLinearT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
-  (void)_rehasher;
-  (void)_o;
-  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DequantizeLinearT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _scaleSize = _o->scaleSize;
-  auto _scaleAxis = _o->scaleAxis;
-  auto _scaleData = _o->scaleData.size() ? _fbb.CreateVector(_o->scaleData) : 0;
-  auto _zeroPointData = _o->zeroPointData.size() ? _fbb.CreateVector(_o->zeroPointData) : 0;
-  return MNN::CreateDequantizeLinear(
-      _fbb,
-      _scaleSize,
-      _scaleAxis,
-      _scaleData,
-      _zeroPointData);
 }
 
 inline EltwiseT *Eltwise::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6243,10 +6003,12 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_INT, 0, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
-    QuantizeAlgoTypeTable
+    QuantizeAlgoTypeTable,
+    DataTypeTypeTable
   };
   static const char * const names[] = {
     "weight",
@@ -6259,10 +6021,11 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     "outputZeroPoint",
     "clampMin",
     "clampMax",
-    "winogradAttr"
+    "winogradAttr",
+    "outputDataType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 12, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -6641,44 +6404,6 @@ inline const flatbuffers::TypeTable *ScaleTypeTable() {
     "scaleData",
     "biasData",
     "external"
-  };
-  static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
-  };
-  return &tt;
-}
-
-inline const flatbuffers::TypeTable *QuantizeLinearTypeTable() {
-  static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_FLOAT, 1, -1 },
-    { flatbuffers::ET_CHAR, 1, -1 }
-  };
-  static const char * const names[] = {
-    "scaleSize",
-    "scaleAxis",
-    "scaleData",
-    "zeroPointData"
-  };
-  static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
-  };
-  return &tt;
-}
-
-inline const flatbuffers::TypeTable *DequantizeLinearTypeTable() {
-  static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_FLOAT, 1, -1 },
-    { flatbuffers::ET_CHAR, 1, -1 }
-  };
-  static const char * const names[] = {
-    "scaleSize",
-    "scaleAxis",
-    "scaleData",
-    "zeroPointData"
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names

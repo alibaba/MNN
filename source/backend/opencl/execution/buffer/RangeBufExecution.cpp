@@ -22,6 +22,7 @@ RangeBufExecution::RangeBufExecution(const std::string &compute, Backend* backen
 ErrorCode RangeBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
+    openCLBackend->startRecord(mRecording);
     mKernel = runtime->buildKernel("range_buf", "range_buf", mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
@@ -55,6 +56,8 @@ ErrorCode RangeBufExecution::onResize(const std::vector<Tensor*>& inputs, const 
 
     std::string kernelName = "range_buf";
     mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -71,6 +74,14 @@ ErrorCode RangeBufExecution::onExecute(const std::vector<Tensor*>& inputs, const
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Range", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End RangeBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -103,7 +114,8 @@ public:
     }
 };
 
-OpenCLCreatorRegister<RangeBufCreator> __RangeBuf__(OpType_Range, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(RangeBufCreator, OpType_Range, BUFFER);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

@@ -2196,6 +2196,25 @@ array([[[[0., 1.]],
 ```
 
 ---
+### `reverse(x, axis)`
+在输入x变量在axis[0]维度进行翻转
+
+参数：
+- `x : var_like` 输入变量
+- `axis : var_like` 输入变量
+
+返回：反转序列的值
+
+返回类型：`Var`
+
+示例：
+
+```python
+>>> expr.reverse(expr.range(-4., 4., 1.), [0])
+array([ 3.,  2.,  1.,  0., -1., -2., -3., -4.], dtype=float32)
+```
+
+---
 ### `reverse_sequence(x, y, batch_dim, seq_dim)`
 沿着batch_dim维度对x进行切片并反转维度seq_dim上的y[i]元素
 

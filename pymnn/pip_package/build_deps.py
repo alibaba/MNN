@@ -78,7 +78,7 @@ def build_deps():
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" ' + extra_opts +' -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON\
-            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNTrain MNNConvertDeps')
+            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNConvertDeps')
     elif IS_LINUX:
         extra_opts += '-DMNN_TENSORRT=ON \
         -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs/ ' if USE_TRT else ' '
@@ -98,9 +98,9 @@ def build_deps():
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '
         print(extra_opts)
         os.system('cmake ' + extra_opts + '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
-            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
+            -DMNN_BUILD_SHARED_LIBS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
             -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-            .. && make MNN MNNTrain MNNConvertDeps -j32')
+            .. && make MNN MNNConvertDeps -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

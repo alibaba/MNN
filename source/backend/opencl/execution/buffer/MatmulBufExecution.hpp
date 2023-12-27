@@ -14,11 +14,12 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class MatMulBufExecution : public Execution {
+class MatMulBufExecution : public Execution, public CommonExtension {
 public:
     MatMulBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, bool transposeA, bool transposeB);
     virtual ~MatMulBufExecution() = default;

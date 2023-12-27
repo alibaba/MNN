@@ -119,6 +119,8 @@ ErrorCode ScaleBufExecution::onResize(const std::vector<Tensor *> &inputs, const
 #endif
 
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     const int batch    = inputShape.at(0);
     const int height   = inputShape.at(1);
@@ -147,6 +149,8 @@ ErrorCode ScaleBufExecution::onResize(const std::vector<Tensor *> &inputs, const
     std::string name = "scale_buf";
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
     
+    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -162,6 +166,14 @@ ErrorCode ScaleBufExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Scale", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End ScaleBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -187,7 +199,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<ScaleBufCreator> __scaleBuf_op(OpType_Scale, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ScaleBufCreator, OpType_Scale, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

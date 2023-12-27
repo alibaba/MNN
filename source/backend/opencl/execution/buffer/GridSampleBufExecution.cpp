@@ -45,6 +45,7 @@ ErrorCode GridSampleBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     auto gridTensor = inputs[1];
     auto outputTensor = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     const int batches = inputTensor->buffer().dim[0].extent;
     const int channels = inputTensor->buffer().dim[1].extent;
@@ -81,7 +82,9 @@ ErrorCode GridSampleBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleBufExecution");
 
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
-
+    
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mGlobalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -93,6 +96,11 @@ ErrorCode GridSampleBufExecution::onExecute(const std::vector<Tensor *> &inputs,
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"GridSample", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
 #endif
     return NO_ERROR;
@@ -117,7 +125,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<GridSampleBufCreator> __GridSampleBuf_op_(OpType_GridSample, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(GridSampleBufCreator, OpType_GridSample, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

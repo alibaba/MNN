@@ -43,6 +43,7 @@ ErrorCode InterpBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -82,6 +83,8 @@ ErrorCode InterpBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpBufExecution");
 
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 
 }
@@ -98,6 +101,14 @@ ErrorCode InterpBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End InterpBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
 
@@ -126,7 +137,7 @@ public:
     }
 };
     
-OpenCLCreatorRegister<InterpBufCreator> __InterpBuf_op_(OpType_Interp, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(InterpBufCreator, OpType_Interp, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

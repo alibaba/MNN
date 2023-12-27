@@ -66,10 +66,10 @@ ErrorCode ReluExecution::onResize(const std::vector<Tensor *> &inputs, const std
     int reluStride[4]       = {0, 0, 0, 1};
     cl::NDRange localSize  = {4, 4};
     cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4};
-
-    auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    startRecord(runTime, mRecording);
-    mUnits[0].kernel = runTime->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
+    
+    auto mOpenCLBackend  = static_cast<OpenCLBackend *>(backend());
+    mOpenCLBackend->startRecord(mRecording);
+    mUnits[0].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
     cl_int ret = CL_SUCCESS;
     ret |= mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
     ret |= mUnits[0].kernel.setArg(1, openCLImage(mPreluParam.get()));
@@ -81,8 +81,8 @@ ErrorCode ReluExecution::onResize(const std::vector<Tensor *> &inputs, const std
 
     mUnits[0].globalWorkSize = globalSize;
     mUnits[0].localWorkSize  = localSize;
-    recordKernel2d(mUnits[0].kernel, {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4}, {4, 4}, runTime);
-    endRecord(runTime, mRecording);
+    mOpenCLBackend->recordKernel2d(mUnits[0].kernel, {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4}, {4, 4});
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 class ReluCreator : public OpenCLBackend::Creator {
@@ -147,10 +147,9 @@ public:
         return nullptr;
     }
 };
-
-OpenCLCreatorRegister<ReluCreator> __Relu_op(OpType_ReLU, IMAGE);
-OpenCLCreatorRegister<ReluCreator> __PRelu_op(OpType_PReLU, IMAGE);
-OpenCLCreatorRegister<ReluCreator> __Relu6_op(OpType_ReLU6, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(ReluCreator, OpType_ReLU, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(ReluCreator, OpType_PReLU, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(ReluCreator, OpType_ReLU6, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

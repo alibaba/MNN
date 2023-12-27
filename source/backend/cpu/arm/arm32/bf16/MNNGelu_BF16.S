@@ -45,8 +45,8 @@ vdup.32 q10, r8        //q10: [28.f]x4
 vdup.32 q9, r10        //q9: [3150.f]x4
 vdup.32 q8, r11        //q8: [62370.f]x4
 
-mov r4, #5.0
-mov r5, #-5.0
+mov r4, #5
+mov r5, #-5
 
 GeluZLoop:
 
@@ -70,6 +70,8 @@ vmul.f32 q3, q3, q14
 
 vdup.32 q7, r4
 vdup.32 q6, r5
+vcvt.f32.s32 q7, q7
+vcvt.f32.s32 q6, q6
 vmax.f32 q2, q2, q6
 vmax.f32 q3, q3, q6
 vmin.f32 q2, q2, q7

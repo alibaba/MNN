@@ -13,40 +13,55 @@
 
 #if MNN_METAL_ENABLED
 namespace MNN {
+static const char* gCastTemplate =
+        R"glsl(
+    #include <metal_stdlib>
+    using namespace metal;
+    kernel void main0(const device T0 *in [[buffer(0)]],
+                                device T1 *out      [[buffer(1)]],
+                                device uint4& s   [[buffer(2)]],
+                                uint3 gid               [[thread_position_in_grid]]) {
+        if (gid.x < (uint)s.x) {
+            int off = gid.x;
+            T0 x = in[off];
+            T1 y;
+            y.x = x.x;
+            y.y = x.y;
+            y.z = x.z;
+            y.w = x.w;
+            TRANSOFRM;
+            out[off] = y;
+        }
+    }
+    )glsl";
 
-MetalCast::MetalCast(Backend *backend, DataType srcType, DataType dstType)
-    : Execution(backend), mSrcType(srcType), mDstType(dstType) {
-    // nothing to do
+MetalCast::MetalCast(Backend *backend, id<MTLComputePipelineState> pipeline)
+    : MetalExecution(backend) {
+    auto mtbn = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mPipeline = pipeline;
+    mConstBuffer = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
+}
+ErrorCode MetalCast::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto mtbn = static_cast<MetalBackend *>(backend());
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    auto input = inputs[0];
+    auto element = input->elementSize();
+    auto sizeDiv4 = UP_DIV(element, 4);
+    ((int *)mConstBuffer.contents)[0] = sizeDiv4;
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(sizeDiv4, 1, 1)];
+    return NO_ERROR;
 }
 
-ErrorCode MetalCast::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+void MetalCast::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-
-    NSString *kernel = nil;
-    if (mSrcType == DataType_DT_FLOAT && mDstType == DataType_DT_INT32) {
-        kernel = @"cast_float_to_int32";
-    } else if (mSrcType == DataType_DT_INT32 && mDstType == DataType_DT_FLOAT) {
-        kernel = @"cast_int32_to_float";
-    } else if (mSrcType == DataType_DT_UINT8 && mDstType == DataType_DT_FLOAT) {
-        kernel = @"cast_uint8_to_float";
-    } else if (mSrcType == DataType_DT_UINT8 && mDstType == DataType_DT_INT32) {
-        kernel = @"cast_uint8_to_int";
-    } else if (mSrcType == DataType_DT_FLOAT && mDstType == DataType_DT_UINT8) {
-        kernel = @"cast_float_to_uint8";
-    } else {
-        return NOT_SUPPORT;
-    }
-
-    auto encoder   = backend->encoder();
-    auto bandwidth = [context load:kernel encoder:encoder];
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-    [context dispatchEncoder:encoder
-                     threads:{ (NSUInteger) output->elementSize(), (NSUInteger)1, (NSUInteger)1 }
-                   bandwidth:bandwidth];
-    return NO_ERROR;
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 static DataType _mapDataType(DataType src) {
     if (DataType_DT_BOOL == src) {
@@ -63,27 +78,88 @@ static DataType _mapDataType(DataType src) {
 class MetalCastCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
-        auto cast = op->main_as_CastParam();
+        auto mtbn = static_cast<MetalBackend *>(backend);
+        MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
+        NSString* T0 = nil;
+        NSString* T1 = nil;
+        NSString* TRANSOFRM = @"";
+        auto dstT = op->main_as_CastParam()->dstT();
+        if (dstT == DataType_DT_BOOL) {
+            TRANSOFRM = @"y=select(int4(0),int4(1),y>0);";
+        }
+        auto dstType = _mapDataType(dstT);
+        bool useFp16 = mtbn->useFp16InsteadFp32();
+        switch (dstType) {
+            case DataType_DT_FLOAT:
+                if (useFp16) {
+                    T1 = @"half4";
+                } else {
+                    T1 = @"float4";
+                }
+                break;
+            case DataType_DT_INT8:
+                T1 = @"char4";
+                break;
+            case DataType_DT_UINT8:
+                T1 = @"uchar4";
+                break;
+            case DataType_DT_INT32:
+                T1 = @"int4";
+                break;
+            default:
+                MNN_ERROR("Don't support cast dst : %d\n", dstType);
+                return nullptr;
+                break;
+        }
         auto srcType = inputs[0]->getType();
-        auto dst = _mapDataType(cast->dstT());
+        switch (srcType.code) {
+            case halide_type_float:
+                if (useFp16) {
+                    T0 = @"half4";
+                } else {
+                    T0 = @"float4";
+                }
+                break;
+            case halide_type_int:
+            {
+                if (srcType.bits == 32) {
+                    T0 = @"int4";
+                } else if (srcType.bits == 8) {
+                    T0 = @"char4";
+                } else {
+                    MNN_ERROR("Don't support cast src : %d\n", srcType.code);
+                    return nullptr;
+                }
+                break;
+            }
+            case halide_type_uint:
+            {
+                if (srcType.bits == 32) {
+                    T0 = @"uint4";
+                } else if (srcType.bits == 8) {
+                    T0 = @"uchar4";
+                } else {
+                    MNN_ERROR("Don't support cast src : %d\n", srcType.code);
+                    return nullptr;
+                }
+                break;
+            }
+            default:
+                MNN_ERROR("Don't support cast src : %d\n", srcType.code);
+                return nullptr;
+        }
 
-        if (srcType.code == halide_type_float && dst == DataType_DT_INT32) {
-            return new MetalCast(backend, DataType_DT_FLOAT, dst);
+        compileOptions.preprocessorMacros = @{
+            @"T0" : T0,
+            @"T1" : T1,
+            @"TRANSOFRM" : TRANSOFRM
+        };
+        auto pipeline = mtbn->makeComputePipelineWithSourceOption(gCastTemplate, "main0", compileOptions);
+        if (nil == pipeline) {
+            MNN_ERROR("Create Cast execution error for metal\n");
+            return nullptr;
         }
-        if (srcType.code == halide_type_int && srcType.bits == 32 && dst == DataType_DT_FLOAT) {
-            return new MetalCast(backend, DataType_DT_INT32, dst);
-        }
-        if (srcType.code == halide_type_float && dst == DataType_DT_UINT8) {
-            return new MetalCast(backend, DataType_DT_FLOAT, dst);
-        }
-        if (srcType.code == halide_type_uint && srcType.bits == 8 && dst == DataType_DT_FLOAT) {
-            return new MetalCast(backend, DataType_DT_UINT8, dst);
-        }
-        if (srcType.code == halide_type_uint && srcType.bits == 8 && dst == DataType_DT_INT32) {
-            return new MetalCast(backend, DataType_DT_UINT8, dst);
-        }
-        MNN_PRINT("%d, %d - %d\n", srcType.code, srcType.bits, dst);
-        return NULL;
+        return new MetalCast(backend, pipeline);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalCastCreator, OpType_Cast);

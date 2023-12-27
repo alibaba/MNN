@@ -18,7 +18,7 @@ public:
         // Do nothing
     }
     virtual MemChunk onAlloc(size_t size, size_t align) override {
-        VulkanBuffer* newBuffer = new VulkanBuffer(mPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        VulkanBuffer* newBuffer = new VulkanBuffer(mPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0);
         return MemChunk(newBuffer, 0);
     }
     virtual void onRelease(MemChunk ptr) override {
@@ -95,6 +95,7 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
     mClampSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);
+    mQueryPool = std::make_shared<VulkanQueryPool>(dev);
 }
 
 VulkanRuntime::~VulkanRuntime() {
@@ -102,6 +103,7 @@ VulkanRuntime::~VulkanRuntime() {
     while (!mUniformCache.empty()) {
         mUniformCache.pop();
     }
+    mQueryPool = nullptr;
     mCmdPool = nullptr;
     mSampler = nullptr;
     mClampSampler = nullptr;

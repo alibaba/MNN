@@ -71,6 +71,7 @@ private:
     int mPadY;
     int mBlock2;
     int mGpuComputeCap;
+    bool mIsTuned =false;
     int mActivationType;
     bool mFp16Infer = false;
     bool mFp32Infer = false;

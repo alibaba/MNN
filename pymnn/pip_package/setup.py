@@ -224,6 +224,9 @@ def configure_extension_build():
 
     if USE_TRT:
         engine_depend += trt_depend
+    if IS_DARWIN:
+        lib_files += [('lib', [os.path.join(root_dir, BUILD_DIR, "libMNN.dylib")])]
+        lib_files += [('lib', [os.path.join(root_dir, BUILD_DIR, "tools","converter", "libMNNConvertDeps.dylib")])]
 
     if USE_CUDA:
         engine_depend += cuda_depend
@@ -307,9 +310,7 @@ def configure_extension_build():
 
     if IS_DARWIN:
         engine_link_args += ['-stdlib=libc++']
-        engine_link_args += ['-Wl,-all_load']
         engine_link_args += engine_depend
-        engine_link_args += ['-Wl,-noall_load']
     if IS_LINUX:
         engine_link_args += ['-Wl,--whole-archive']
         engine_link_args += engine_depend
@@ -318,9 +319,7 @@ def configure_extension_build():
     if IS_WINDOWS:
         engine_link_args += ['/WHOLEARCHIVE:MNN.lib']
     if IS_DARWIN:
-        tools_link_args += ['-Wl,-all_load']
         tools_link_args += tools_depend
-        tools_link_args += ['-Wl,-noall_load']
     if IS_LINUX:
         tools_link_args += ['-Wl,--whole-archive']
         tools_link_args += tools_depend

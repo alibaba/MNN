@@ -36,8 +36,8 @@ VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend) : VulkanBasicEx
             return;
         }
         const float* gamma_data = layer_norm_param->gamma()->data();
-        memcpy(reinterpret_cast<VulkanBuffer*>(mGamma->deviceId())->map(TensorUtils::getDescribe(mGamma.get())->extra.offset), gamma_data, size * sizeof(float));
-        reinterpret_cast<VulkanBuffer*>(mGamma->deviceId())->unmap();
+        auto gammaBuffer = vkbackend->getBuffer(mGamma.get());
+        vkbackend->copyToGPUBuffer(gamma_data, std::get<0>(gammaBuffer), std::get<1>(gammaBuffer), std::get<2>(gammaBuffer));
 
         if (layer_norm_param->beta()->size() != size) {
             MNN_ERROR("Size of gamma and beta are not match in LayerNorm.\n");
@@ -50,8 +50,8 @@ VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend) : VulkanBasicEx
             return;
         }
         const float* beta_data = layer_norm_param->beta()->data();
-        memcpy(reinterpret_cast<VulkanBuffer*>(mBias->deviceId())->map(TensorUtils::getDescribe(mBias.get())->extra.offset), beta_data, size * sizeof(float));
-        reinterpret_cast<VulkanBuffer*>(mBias->deviceId())->unmap();
+        auto betaBuffer = vkbackend->getBuffer(mBias.get());
+        vkbackend->copyToGPUBuffer(beta_data, std::get<0>(betaBuffer), std::get<1>(betaBuffer), std::get<2>(betaBuffer));
     }
 
     if (!mHasScale) {

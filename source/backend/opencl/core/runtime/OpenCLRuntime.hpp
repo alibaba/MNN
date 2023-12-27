@@ -69,26 +69,14 @@ public:
     uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
-    std::vector<cl_recording_qcom> *getRecordings(){
-        return &mRecordings;
-    }
     uint32_t getUseRecordableQueueSize(){
         return mUseRecordableQueueSize;
     }
-    bool isUseRecordQueue(){
+    bool isSupportRecordQueue(){
         return mUseRecordQueue;
     }
     bool isDevideOpRecord(){
         return mDevideOpRecord;
-    }
-    void setDevideOpRecord(){
-        mDevideOpRecord = true;
-    }
-    void setRecordNum(int num){
-        mRecordNums = num;
-    }
-    uint32_t getRecordNum(){
-        return mRecordNums;
     }
     GpuType getGpuType() {
         return mGpuType;
@@ -124,10 +112,6 @@ public:
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
-    void clearRecord();
-    void enqeueRecord();
-    void endRecord();
-    void releaseRecord();
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
@@ -170,7 +154,6 @@ private:
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
     std::map<std::tuple<std::string, std::string>, ::cl::Program> mBuildProgramMap;
     std::shared_ptr<::cl::CommandQueue> mRecordableQueuePtr;
-    std::vector<cl_recording_qcom> mRecordings;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
@@ -179,7 +162,6 @@ private:
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
     uint32_t mUseRecordableQueueSize;
-    uint32_t mRecordNums = 0;
     bool mUseRecordQueue = false;
     bool mDevideOpRecord = true;
     bool mIsSupportedFP16     = false;

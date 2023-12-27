@@ -100,6 +100,8 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     auto padding = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
@@ -294,6 +296,8 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
 
         //printf("DepthwiseConvBuf!! %d, %d %d, %d %d, %d %d\n", min_index, mGlobalWorkSize[0], mGlobalWorkSize[1], mLocalWorkSize[0], mLocalWorkSize[1], outputChannel, outputWidth);
     }
+    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -309,6 +313,14 @@ ErrorCode DepthwiseConvBufExecution::onExecute(const std::vector<Tensor *> &inpu
                 &event);
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConvBuf", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End DepthwiseConvBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
                 mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -352,7 +364,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<DepthwiseConvolutionBufCreator> __DepthwiseConvBuf_op(OpType_ConvolutionDepthwise, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(DepthwiseConvolutionBufCreator, OpType_ConvolutionDepthwise, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

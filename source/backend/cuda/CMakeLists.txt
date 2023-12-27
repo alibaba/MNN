@@ -6,7 +6,6 @@ if(MNN_CUDA_PROFILE)
     set(EXTRA_LIBS  -lnvToolsExt)
 endif()
 
-
 if(CUDA_FOUND)
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -D_FORCE_INLINES -Wno-deprecated-gpu-targets -w ${EXTRA_LIBS}")
     if(CMAKE_BUILD_TYPE MATCHES Debug)
@@ -52,6 +51,7 @@ if(CUDA_FOUND)
     ENDIF()
 
     # Limit minimum cuda version for each archs
+
     IF (${arch_count} EQUAL 1)
         IF ((CUDA_ARCH_FLAGS_readable_code VERSION_GREATER "80") OR (CUDA_ARCH_FLAGS_readable_code VERSION_EQUAL "80"))
             IF (CUDA_VERSION VERSION_LESS "11.2")

@@ -20,10 +20,11 @@
 #include <vector>
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class ConvSubgroupBuf : public Execution {
+class ConvSubgroupBuf : public Execution, public CommonExtension {
 public:
     virtual ~ConvSubgroupBuf();
 

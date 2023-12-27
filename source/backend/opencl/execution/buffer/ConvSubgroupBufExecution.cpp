@@ -238,6 +238,8 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
     int in_c_pack                = TensorUtils::getTensorChannelPack(input);
     int out_c_pack               = TensorUtils::getTensorChannelPack(output);
     const int height             = outputShape.at(1);
@@ -304,6 +306,7 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
              mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
              
              mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c1", mTranseKernel).first;
+             mOpenCLBackend->recordKernel3d(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          } else {
              mSource.reset(Tensor::createDevice<float>(std::vector<int>{inputShape.at(0), UP_DIV(input->channel(), 16),inputHeight * inputWidth, 16}, Tensor::CAFFE_C4));
              mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
@@ -329,6 +332,7 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
              mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
              
              mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c16", mTranseKernel).first;
+             mOpenCLBackend->recordKernel3d(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          }
     } 
     
@@ -385,12 +389,26 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvSubgroupBuf onResize !\n");
 #endif
+    
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
 ErrorCode ConvSubgroupBuf::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvSubgroupBuf onExecute !\n");
+#endif
+    
+#ifndef ENABLE_OPENCL_TIME_PROFILER
+if(mOpenCLBackend->isUseRecordQueue()){
+    if(mOpenCLBackend->isDevideOpRecord())
+        mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end ConvSubgroupBuf onExecute !\n");
+#endif
+    return NO_ERROR;
+}
 #endif
     if (mNeedTranse) {
 #ifdef ENABLE_OPENCL_TIME_PROFILER

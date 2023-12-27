@@ -137,13 +137,30 @@ public:
         }
         auto weight = inputs[1];
         auto weight_expr = weight->expr().first;
-
-        auto weightInfo = weight->getInfo();
-        if (nullptr == weightInfo) {
+        bool weightIden = false;
+        bool xIden = false;
+        if (weight_expr->get()) {
+            weightIden = weight_expr->get()->type() == OpType_Int8ToFloat;
+        }
+        if (inputs[0]->expr().first->get()) {
+            xIden = inputs[0]->expr().first->get()->type() == OpType_Int8ToFloat;
+        }
+        if (false == weightIden && nullptr == weight->getInfo()) {
             MNN_ERROR("Convolution should know weight shape infromation!\n");
             return nullptr;
         }
-        auto& weightShape = weightInfo->dim;
+        INTS weightShape;
+        if (weightIden) {
+            auto dim = weight_expr->inputs().at(4)->readMap<int32_t>();
+            int dimSize = weight_expr->inputs().at(4)->getInfo()->dim[0];
+            for (int k = 0; k < dimSize; ++k) {
+                weightShape.emplace_back(dim[k]);
+            }
+        } else {
+            weightShape = weight->getInfo()->dim;
+        }
+        bool convertToConvint8 = false;
+        convertToConvint8 = (true == weightIden && true == xIden && weight_expr->inputs().size() == 5);
 
         auto op         = expr->get();
         auto extraParam = op->main_as_Extra();
@@ -275,18 +292,17 @@ public:
             // Fastest
             limitNumber = 100;
         }
-        if ( weight->linkNumber() <= limitNumber) {
+        if ( weight->linkNumber() <= limitNumber && !convertToConvint8) {
             weightDataPtr = weight->readMap<float>();
         }
-        bool mergeQuantizeLinearToConvInt8 = weight_expr->get() && weight_expr->get()->type() == OpType_DequantizeLinear;
-        if (true == mergeQuantizeLinearToConvInt8) {
+        if (convertToConvint8) {
             // Get output quant info.
             auto outputExpr = expr->outputs().front().lock();
             auto outputScaleVar = outputExpr->inputs()[1];
             float outputScale = outputScaleVar->readMap<float>()[0];
             int8_t outputZero = 0;
             if (outputExpr->inputs().size() > 2) {
-                outputZero = outputExpr->inputs()[2]->readMap<int8_t>()[0];
+                outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0]);
             }
             // Get weight quant info.
             float inputClampMin = -128;
@@ -319,18 +335,15 @@ public:
             
             // Get input quant info.
             auto inputExpr = inputs[0]->expr().first;
-            x = inputExpr->inputs()[0];
-            auto inputScaleVar = inputExpr->inputs()[1];
+            //x = inputExpr->inputs()[0]; // for op merge to convint8, so remain int8ToFloat layer for the moment
+            auto inputScaleVar = inputExpr->inputs()[2];
+            auto inputZeroVar = inputExpr->inputs()[3];
             float inputScale = inputScaleVar->readMap<float>()[0];
-            int8_t inputZero = 0;
-            if (inputExpr->inputs().size() > 2) {
-                auto inputZeroVar = inputExpr->inputs()[2];
-                inputZero = inputZeroVar->readMap<int8_t>()[0];
-            }
-            
+            int8_t inputZero = static_cast<int8_t>(inputZeroVar->readMap<float>()[0]);
+
             // Compute convInt8 scale=(inputScale * weightScale)/outputScale
             std::vector<float> scale(co);
-            auto weightScale = weightexpr->inputs()[1];
+            auto weightScale = weightexpr->inputs().at(2);
             auto ptrscale = weightScale->readMap<float>();
             for (int cnt = 0; cnt < co; ++cnt) {
                 if (outputScale != 0){
@@ -341,12 +354,12 @@ public:
             }
             convParam->symmetricQuan->scale = std::move(scale);
             convParam->symmetricQuan->clampMax = 127;
-            convParam->symmetricQuan->clampMin = -127;
+            convParam->symmetricQuan->clampMin = -128;
             convParam->symmetricQuan->zeroPoint = std::move(inputZero);
             convParam->symmetricQuan->outputZeroPoint = std::move(outputZero);
         }
         // Do not return convInt8.
-        if (false == mergeQuantizeLinearToConvInt8 && weightDataPtr) {
+        if (false == convertToConvint8 && weightDataPtr) {
             if (weight->linkNumber() > 1) {
                 static bool gPrint = false;
                 if (!gPrint) {
@@ -397,7 +410,7 @@ public:
             }
         }
         
-        if (!isDeconv && true == mergeQuantizeLinearToConvInt8) {
+        if (!isDeconv && true == weightIden && true == xIden && weight_expr->inputs().size() == 5) {
             newOp->type = OpType_ConvInt8;
             if (common->inputCount == common->outputCount && common->outputCount == common->group) {
                 newOp->type = OpType_DepthwiseConvInt8;
@@ -420,7 +433,7 @@ public:
             outputShape.insert(outputShape.begin(), 1);
             outputShape.push_back(1);
             auto output_shape = _Const(outputShape.data(), {4}, NHWC, halide_type_of<int>());
-            if (weightDataPtr) {
+            if (weightDataPtr || convertToConvint8) {
                 // merge weight(bias) node to Conv parameter
                 convolutionExpr = Expr::create(newOp.get(), {x, output_shape});
             } else {
@@ -432,7 +445,7 @@ public:
                     convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
                 }
             }
-        } else if (weightDataPtr) {
+        } else if (weightDataPtr || convertToConvint8) {
             // merge weight(bias) node to Conv parameter
             convolutionExpr = Expr::create(newOp.get(), {x});
         } else {

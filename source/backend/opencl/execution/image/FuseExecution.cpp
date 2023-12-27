@@ -35,7 +35,7 @@ bool FuseExecution::buildFuseKernel(const Op* op) {
 }
 
 ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
 
@@ -69,8 +69,8 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     MNN_CHECK_CL_SUCCESS(ret, "setArg FuseExecution");
 
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
-    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -85,9 +85,9 @@ ErrorCode FuseExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Fuse", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("end SoftmaxExecution onExecute !\n");
 #endif
@@ -110,7 +110,7 @@ public:
         return new FuseExecution(inputs, backend, op);
     }
 };
-OpenCLCreatorRegister<FuseCreator> __Fuse_op(OpType_Extra, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(FuseCreator, OpType_Extra, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

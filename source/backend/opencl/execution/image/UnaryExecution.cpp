@@ -32,7 +32,7 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     auto runtime      = openCLBackend->getOpenCLRuntime();
     mKernel           = runtime->buildKernel("unary", "unary", mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
-    startRecord(runtime, mRecording);
+    openCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -63,8 +63,8 @@ ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std
     const std::vector<uint32_t> lws =
     localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, mKernel).first;
     mLocalSize = lws;
-    recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize, openCLBackend->getOpenCLRuntime());
-    endRecord(runtime, mRecording);
+    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -82,9 +82,9 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Unary", event});
 #else
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    if(openCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(openCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End UnaryExecution onExecute... \n");
 #endif
@@ -181,8 +181,9 @@ public:
     }
 };
 
-OpenCLCreatorRegister<UnaryCreator> __UnaryExecution(OpType_UnaryOp, IMAGE);
-OpenCLCreatorRegister<UnaryCreator> __SigmoidExecution(OpType_Sigmoid, IMAGE);
-OpenCLCreatorRegister<UnaryCreator> __TanhExecution(OpType_TanH, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(UnaryCreator, OpType_UnaryOp, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(UnaryCreator, OpType_Sigmoid, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(UnaryCreator, OpType_TanH, IMAGE);
+
 } // namespace OpenCL
 } // namespace MNN

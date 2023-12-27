@@ -237,7 +237,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")){
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
-                    if(MaxRecordableQueueSize > 0 && IMAGE == mMemType){
+                    if(MaxRecordableQueueSize > 0){
                         // TODO: Use setSessionHint to set the number of mUseRecordableQueueSize
                         mUseRecordableQueueSize = 10;
                         mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;
@@ -369,9 +369,7 @@ OpenCLRuntime::~OpenCLRuntime() {
     MNN_PRINT("start ~OpenCLRuntime !\n");
 #endif
     clearEvent();
-    releaseRecord();
     mBuildProgramMap.clear();
-    mRecordings.clear();
     mCommandQueuePtr.reset();
     mRecordableQueuePtr.reset();
     mContext.reset();
@@ -488,9 +486,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DCONVERT_FLOAT8=convert_half8 -DCONVERT_FLOAT16=convert_half16 -DMNN_SUPPORT_FP16";
     } else {
-        buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT3=float3 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
+        buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT3=float3 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4 -DCONVERT_FLOAT8=convert_float8 -DCONVERT_FLOAT16=convert_float16";
     }
     
     if(isSetWorkGroupAttribute) {
@@ -734,56 +732,6 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
         }
     }
     return true;
-}
-
-void OpenCLRuntime::clearRecord(){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && mDevideOpRecord){
-        for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = mCommandQueuePtr->EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
-                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
-            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
-        }
-        mCommandQueuePtr->finish();
-        mRecordings.clear();
-    }
-#endif
-}
-
-void OpenCLRuntime::enqeueRecord(){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && !mDevideOpRecord){
-        for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = mCommandQueuePtr->EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
-                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
-            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
-        }
-        mCommandQueuePtr->finish();
-    }
-#endif
-}
-
-void OpenCLRuntime::endRecord(){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue  && !mDevideOpRecord){
-        if(!mRecordings.empty()){
-            cl_int res = clEndRecordingQCOM(mRecordings.back());
-            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
-        }
-    }
-#endif
-}
-
-void OpenCLRuntime::releaseRecord(){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue  && !mDevideOpRecord){
-        for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = clReleaseRecordingQCOM(mRecordings[i]);
-            MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
-        }
-        mRecordings.clear();
-    }
-#endif
 }
 
 void OpenCLRuntime::printEventTime(){

@@ -18,7 +18,6 @@ mMaps.insert(std::make_pair("shader_MetalScale_metal", shader_MetalScale_metal))
 mMaps.insert(std::make_pair("shader_MetalDeconvolution_metal", shader_MetalDeconvolution_metal));
 mMaps.insert(std::make_pair("shader_MetalPooling_metal", shader_MetalPooling_metal));
 mMaps.insert(std::make_pair("shader_MetalROIPooling_metal", shader_MetalROIPooling_metal));
-mMaps.insert(std::make_pair("shader_MetalCast_metal", shader_MetalCast_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolution1x1_metal", shader_MetalConvolution1x1_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolutionGEMM_metal", shader_MetalConvolutionGEMM_metal));
 mMaps.insert(std::make_pair("shader_MetalResize_metal", shader_MetalResize_metal));

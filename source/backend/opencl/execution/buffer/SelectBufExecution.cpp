@@ -23,6 +23,7 @@ ErrorCode SelectBufExecution::onResize(const std::vector<Tensor*>& inputs, const
     auto inSize2 = inputs[2]->elementSize();
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
+    openCLBackend->startRecord(mRecording);
     if(inSize1 == 1)
         mBuildOptions.emplace("-DINSIZE1_EUQAL_1");
     if(inSize2 == 1)
@@ -56,6 +57,8 @@ ErrorCode SelectBufExecution::onResize(const std::vector<Tensor*>& inputs, const
 
     std::string kernelName = "select_buf";
     mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    openCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -72,6 +75,14 @@ ErrorCode SelectBufExecution::onExecute(const std::vector<Tensor*>& inputs, cons
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Select", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End SelectBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -96,7 +107,8 @@ public:
     }
 };
 
-OpenCLCreatorRegister<SelectBufCreator> __SelectBuf__(OpType_Select, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(SelectBufCreator, OpType_Select, BUFFER);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

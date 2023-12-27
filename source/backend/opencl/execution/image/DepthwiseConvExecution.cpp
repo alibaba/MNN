@@ -96,7 +96,7 @@ DepthwiseConvExecution::~DepthwiseConvExecution() {
 }
 
 ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     auto input                   = inputs[0];
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -149,8 +149,8 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
     }
     
     mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
-    recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -167,9 +167,9 @@ ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs,
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseConv", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End DepthwiseConvExecution onExecute... \n");
 #endif
@@ -201,7 +201,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<DepthwiseConvolutionCreator> __DepthwiseConv_op(OpType_ConvolutionDepthwise, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(DepthwiseConvolutionCreator, OpType_ConvolutionDepthwise, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

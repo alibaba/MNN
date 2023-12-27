@@ -55,14 +55,10 @@
   - `checkInvalidValue.out` 检测输出目录里的数据
   - `timeProfile.out` 测试模型在指定后端上执行的时间，并获取每层的执行时间占比
   - `testTrain.out` 测试训练功能
-  - `aoa_nlu_encoder.out` 测试NLU编码
-  - `aoa_nlu_decoder1.out` 测试NLU解码1
-  - `aoa_nlu_decoder2.out` 测试NLU解码2
   - `checkDir.out`  测试两个文件夹是否一致
   - `checkFile.out` 测试两个文件是否一致
   - `winogradExample.out` winograd示例
-  - `winogradGenerateGLSL.out` winograd生成GLSL
-  - `winogradGenerateCL.out`  winograd生成CL
+  - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

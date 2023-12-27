@@ -13,7 +13,7 @@
 namespace MNN {
 
 MetalGridSample::MetalGridSample(Backend *backend, const GridSample *gridSample)
-        : Execution(backend) {
+        : MetalExecution(backend) {
     mMode = gridSample->mode();
     mPaddingMode = gridSample->paddingMode();
     mAlignCorners = gridSample->alignCorners();
@@ -40,7 +40,7 @@ ErrorCode MetalGridSample::onResize(const std::vector<Tensor *> &inputs,
 
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    mPipeline = [context pipelineWithName:@"grid_sample"];
+    mPipeline = [context pipelineWithName:@"grid_sample" fp16:backend->useFp16InsteadFp32()];
 
     int batches = ((int *)mParams.contents)[0];
     int channels = ((int *)mParams.contents)[1];
@@ -52,32 +52,13 @@ ErrorCode MetalGridSample::onResize(const std::vector<Tensor *> &inputs,
     return NO_ERROR;
 }
 
-ErrorCode MetalGridSample::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-        auto encoder = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[0])->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[1]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[1])->extra.offset atIndex:1];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(outputs[0])->extra.offset atIndex:2];
-        [encoder setBuffer:mParams offset:0 atIndex:3];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    
-    return NO_ERROR;
+void MetalGridSample::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[0])->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[1]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[1])->extra.offset atIndex:1];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)outputs[0]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(outputs[0])->extra.offset atIndex:2];
+    [encoder setBuffer:mParams offset:0 atIndex:3];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalGridSampleCreator : public MetalBackend::Creator {

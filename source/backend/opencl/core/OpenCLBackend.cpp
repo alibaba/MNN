@@ -17,18 +17,23 @@
 #include <thread>
 #include "core/Macro.h"
 #include "runtime/OpenCLTuneInfo.hpp"
-
+//#define OPENCL_FALLBACK_LOG
 namespace MNN {
 namespace OpenCL {
+#ifndef MNN_OPENCL_SEP_BUILD
+void registerOpenCLOps();
+#endif
 
 CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId){
     mInfo = info;
 
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
     BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
+    BackendConfig::MemoryMode memory       = BackendConfig::Memory_Normal;
     if (nullptr != mInfo.user) {
         precision = mInfo.user->precision;
         power     = mInfo.user->power;
+        memory    = mInfo.user->memory;
     }
 
     // Shader precision
@@ -36,6 +41,7 @@ CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
+    mMemory = memory;
     mTunedInfo = new TuneInfo;
     
     mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
@@ -231,6 +237,11 @@ void CLRuntime::onGabageCollect(int level) {
     mBufferPool->releaseFreeList();
 }
 
+float CLRuntime::onGetMemoryInMB() {
+    auto staticMemoryInMB = mBufferPool->totalSize() / 1024.0f / 1024.0f;
+    return staticMemoryInMB;
+}
+
 bool CLRuntime::isCLRuntimeError() {
     return mCLRuntimeError;
 }
@@ -248,6 +259,7 @@ OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<
     mCLRuntime = runtime;
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
     mPrecision = mCLRuntime->mPrecision;
+    mMemory = mCLRuntime->mMemory;
     mStaticImagePool = imgPool;
     mStaticBufferPool = bufPool;
     if(mOpenCLRuntime.get()){
@@ -259,12 +271,17 @@ OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
     }
     mMapMem = std::make_pair(0, nullptr);
+    mUseRecordQueue = mOpenCLRuntime->isSupportRecordQueue();
+    mDevideOpRecord = mOpenCLRuntime->isDevideOpRecord();
+    mUseRecordableQueueSize = mOpenCLRuntime->getUseRecordableQueueSize();
 }
 
 OpenCLBackend::~OpenCLBackend() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("enter OpenCLBackend::~OpenCLBackend \n");
 #endif
+    releaseRecord();
+    mRecordings.clear();
     mImagePool = nullptr;
     mBufferPool = nullptr;
     if(mMapMem.second != nullptr) {
@@ -370,8 +387,23 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             return new CLMemReleaseBuffer(buffer, mBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
+#ifdef MNN_LOW_MEMORY
+        // for weight quant model's weight
+        if ((nativeTensor->getType().code == halide_type_int) &&
+            (nativeTensor->getType().bits == 8 || nativeTensor->getType().bits == 4)) {
+            // int8 quant
+            size_t alloc_size = size;
+            if (nativeTensor->getType().bits == 4) {
+                // int4 quant
+                alloc_size = size / 2;
+            }
+            auto buffer = mStaticBufferPool->alloc(alloc_size);
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
+            return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
+        }
+#endif
         auto buffer = mStaticBufferPool->alloc(size*
-                     (dataType==CL_HALF_FLOAT?sizeof(half_float::half):sizeof(float)));
+                     (dataType == CL_HALF_FLOAT ? sizeof(half_float::half) : sizeof(float)));
         ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
         return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
     }
@@ -430,14 +462,14 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     auto creators = gCreator();
     auto iter      = creators->find(std::make_pair(op->type(), mOpenCLRuntime->getGpuMemType()));
     if (0 != inputs.size() && (getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1)) {
-        #if 0//close log
+        #ifdef OPENCL_FALLBACK_LOG
         MNN_PRINT("Don't support type %s for int8 input\n", EnumNameOpType(op->type()));
         #endif
         return NULL;
     }
     if (iter == creators->end()) {
-        mOpenCLRuntime->setDevideOpRecord();
-        #if 0//close log
+        mDevideOpRecord = true;
+        #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %s memObject:%d, %s\n", EnumNameOpType(op->type()), mOpenCLRuntime->getGpuMemType(), op->name()->c_str());
         } else {
@@ -470,8 +502,8 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
 
         if (!valid) {
-            mOpenCLRuntime->setDevideOpRecord();
-            #if 0//close log
+            mDevideOpRecord = true;
+            #ifdef OPENCL_FALLBACK_LOG
             for (auto t : inputs) {
                 auto tensorShape = OpenCL::tensorShapeFormat(t);
                 MNN_PRINT("input n:%d, h:%d, w:%d, c:%d\n", tensorShape[0], tensorShape[1], tensorShape[2], tensorShape[3]);
@@ -488,8 +520,8 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        mOpenCLRuntime->setDevideOpRecord();
-        #if 0//close log
+        mDevideOpRecord = true;
+        #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %s, memObject:%d, %s\n", MNN::EnumNameOpType(op->type()), mOpenCLRuntime->getGpuMemType(), op->name()->c_str());
         } else {
@@ -508,27 +540,29 @@ void OpenCLBackend::onResizeBegin() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
-    mOpenCLRuntime->releaseRecord();
+    releaseRecord();
 }
 
 ErrorCode OpenCLBackend::onResizeEnd() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileDisable();
 #endif
-    mOpenCLRuntime->endRecord();
+    if(!mRecordings.empty()){
+        endRecord(mRecordings.back(), true);
+    }
     return NO_ERROR;
 }
 
 void OpenCLBackend::onExecuteBegin() const {
     mOpenCLRuntime->mQueueCount = 0;
-    mOpenCLRuntime->clearRecord();
-    mOpenCLRuntime->clearEvent();   
+    clearRecord();
+    mOpenCLRuntime->clearEvent();
 }
 
 void OpenCLBackend::onExecuteEnd() const {
     mOpenCLRuntime->mQueueCount = 0;
-    mOpenCLRuntime->clearRecord();
-    mOpenCLRuntime->enqeueRecord();
+    clearRecord();
+    enqeueRecord();
     mOpenCLRuntime->printEventTime();
 }
 
@@ -703,7 +737,6 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
 
     MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     
-    mOpenCLRuntime->clearRecord();
     //Convert format
     mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, data_format, false);
     mOpenCLRuntime->printEventTime();
@@ -868,7 +901,6 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     }
     #else
-    mOpenCLRuntime->clearRecord();
     mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     #endif
 
@@ -887,7 +919,6 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
 }
 
 void CLRuntime::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
-    mOpenCLRuntime->clearRecord();
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
@@ -912,6 +943,7 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start onCopyBuffer !\n");
 #endif
+    clearRecord();
     auto srcDevice = (srcTensor->deviceId() != 0 && srcTensor->deviceId() != 1);
     auto dstDevice = (dstTensor->deviceId() != 0 && dstTensor->deviceId() != 1);
     if (!srcDevice && dstDevice) {
@@ -968,7 +1000,7 @@ void* OpenCLBackend::allocMapTensorMemory(int length, bool svmFlag, cl_device_sv
 
 void* OpenCLBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
     auto needSize = srcTensor->size();
-    mOpenCLRuntime->clearRecord();
+    clearRecord();
 #ifdef MNN_OPENCL_SVM_ENABLE
     auto svm_cap_ = mOpenCLRuntime->getSvmCapabilities();
     bool use_svm = (svm_cap_ & CL_DEVICE_SVM_FINE_GRAIN_BUFFER);//support fine grain svm
@@ -1120,14 +1152,6 @@ class CLRuntimeCreator : public RuntimeCreator {
     }
 };
 
-bool placeholder = []() {
-    static std::once_flag createOnce;
-    std::call_once(createOnce, []() {
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENCL, new CLRuntimeCreator, false);
-    });
-    return true;
-}();
-
 DataType OpenCLBackend::getDataType(const Tensor* tensor) {
     auto des = TensorUtils::getDescribe(tensor);
     if (nullptr == des->quantAttr.get()) {
@@ -1136,5 +1160,209 @@ DataType OpenCLBackend::getDataType(const Tensor* tensor) {
     return des->type;
 }
 
+cl_channel_type OpenCLBackend::fpType() {
+    if (getOpenCLRuntime()->isSupportedFP16() &&
+        mPrecision != BackendConfig::Precision_High) {
+        return CL_HALF_FLOAT;
+    }
+    return CL_FLOAT;
+}
+
+int OpenCLBackend::fpBytes() {
+    return (fpType() == CL_FLOAT ?  sizeof(float) : sizeof(half_float::half));
+}
+
+void OpenCLBackend::clearRecord() const{
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue && mDevideOpRecord){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
+                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
+        }
+        mOpenCLRuntime->commandQueue().finish();
+        mRecordings.clear();
+    }
+#endif
+}
+
+void OpenCLBackend::enqeueRecord() const{
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue && !mDevideOpRecord){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
+                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
+        }
+        mOpenCLRuntime->commandQueue().finish();
+    }
+#endif
+}
+
+void OpenCLBackend::releaseRecord(){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(mUseRecordQueue  && !mDevideOpRecord){
+        for(int i = 0; i < mRecordings.size(); ++i){
+            cl_int res = clReleaseRecordingQCOM(mRecordings[i]);
+            MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
+        }
+        mRecordings.clear();
+    }
+#endif
+}
+
+void OpenCLBackend::startRecord(cl_recording_qcom &recording){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!mUseRecordQueue){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start startRecord !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    if(mDevideOpRecord){
+        if(recording != NULL){
+            clReleaseRecordingQCOM(recording);
+        }
+        recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
+        MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end startRecord !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!mUseRecordQueue){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start endRecord !\n");
+#endif
+    if(mDevideOpRecord){
+        cl_int res = CL_SUCCESS;
+        res = clEndRecordingQCOM(recording);
+        MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+    } else if(flag) {
+        if(!mRecordings.empty()){
+            cl_int res = clEndRecordingQCOM(mRecordings.back());
+            mRecordNums = 0;
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+        }
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end endRecord !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void OpenCLBackend::recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws) {
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!mUseRecordQueue){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start record2dKernel !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    if(!mDevideOpRecord){
+        if(mRecordNums == 0){
+            cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            mRecordings.emplace_back(recording);
+        }else if(mRecordNums == mUseRecordableQueueSize){
+            res = clEndRecordingQCOM(mRecordings.back());
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+            cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            mRecordings.emplace_back(recording);
+            mRecordNums = 0;
+        }
+        mRecordNums++;
+    }
+    
+    std::vector<uint32_t> internalGlobalWS = gws;
+    for (size_t i = 0; i < 2; ++i) {
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+    }
+
+    if(lws[0]==0 || lws[1]==0){
+        res = mOpenCLRuntime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, nullptr);
+
+    }else{
+        res = mOpenCLRuntime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws[0], lws[1]), nullptr, nullptr);
+    }
+    MNN_CHECK_CL_SUCCESS(res, "recordKernel2d");
+
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end record2dKernel !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+void OpenCLBackend::recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws) {
+#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
+    if(!mUseRecordQueue){
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start record3dKernel !\n");
+#endif
+    cl_int res = CL_SUCCESS;
+    std::vector<uint32_t> internalGlobalWS = gws;
+    for (size_t i = 0; i < 3; ++i) {
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+    }
+    if(!mDevideOpRecord){
+        if(mRecordNums == 0){
+            cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            mRecordings.emplace_back(recording);
+        }else if(mRecordNums == mUseRecordableQueueSize){
+            res = clEndRecordingQCOM(mRecordings.back());
+            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
+            cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
+            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
+            mRecordings.emplace_back(recording);
+            mRecordNums = 0;
+        }
+        mRecordNums++;
+    }
+
+    if(lws[0]==0 || lws[1]==0 || lws[2]==0){
+        res = mOpenCLRuntime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NullRange, nullptr, nullptr);
+
+    }else{
+        res = mOpenCLRuntime->recordableQueue().enqueueNDRangeKernel(
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NDRange(lws[0], lws[1], lws[2]), nullptr, nullptr);
+    }
+    MNN_CHECK_CL_SUCCESS(res, "recordKernel3d");
+    
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end record3dKernel !\n");
+#endif
+#endif //ENABLE_OPENCL_TIME_PROFILER
+}
+
+#ifdef MNN_OPENCL_SEP_BUILD
+bool placeholder = []() {
+    static std::once_flag createOnce;
+    std::call_once(createOnce, []() {
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENCL, new CLRuntimeCreator, false);
+    });
+    return true;
+}();
+#else
+void registerOpenCLRuntimeCreator() {
+    registerOpenCLOps();
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENCL, new CLRuntimeCreator, false);
+}
+#endif
 } // namespace OpenCL
+
 } // namespace MNN

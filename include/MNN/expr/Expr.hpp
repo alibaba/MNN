@@ -267,6 +267,7 @@ private:
     bool mVisited                   = false;
     std::vector<WeakEXPRP> mTo;
     bool mCanDecompose = true;
+    friend class ExprModule;
 
 };
 } // namespace Express

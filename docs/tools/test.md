@@ -457,3 +457,14 @@ Matrix:
 0.0000000	0.0000000	1.0000000
 ```
 
+## fuseTest
+### 功能
+测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
+
+### 参数
+`Usage: ./fuseTest user.spirv config.json`
+- `user.spirv:str`：SPIRV文件路径，可以用 glslangValidator -V user.comp -o user.spirv 编译获得
+- `config.json:str`: 配置文件路径
+### 示例
+```bash
+$ ./fuseTest user.spirv user.json

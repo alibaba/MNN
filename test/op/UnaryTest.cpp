@@ -859,9 +859,15 @@ public:
     virtual ~SignTestInt8() = default;
     virtual bool run(int precision) {
         float scale[2] = {0.0125490196, 1.0}, zeros[2] = {1.0, 0.};
+        float inp[5] = {-1.2, 0., 0.4, 1.6, 0.4};
+        float oup[5] = {-1., 0., 1., 1., 1.};
+        std::vector<float> input(20), output(20);
+        for (int i = 0; i < 4; ++i) {
+            ::memcpy(input.data() + i * 5, inp, 5 * sizeof(float));
+            ::memcpy(output.data() + i * 5, oup, 5 * sizeof(float));
+        }
         return test<float, float>(_Sign, "SignTestInt8", 0.01,
-                    {-1.2, 0., 0.4, 1.6}, {-1., 0., 1., 1.},
-                                  {4}, {4}, scale, zeros);
+                    input, output, {20}, {20}, scale, zeros);
     }
 };
 class NegativeTestInt8 : public UnaryTestCommon {
@@ -1133,7 +1139,7 @@ public:
                     {4}, {4});
     }
 };
-/*
+
 MNNTestSuiteRegister(AbsTest, "op/unary/abs");
 MNNTestSuiteRegister(NegativeTest, "op/unary/negative");
 MNNTestSuiteRegister(FloorTest, "op/unary/floor");
@@ -1164,7 +1170,7 @@ MNNTestSuiteRegister(ErfcTest, "op/unary/erfc");
 MNNTestSuiteRegister(ErfinvTest, "op/unary/erfinv");
 MNNTestSuiteRegister(Expm1Test, "op/unary/expm1");
 MNNTestSuiteRegister(SinhTest, "op/unary/sinh");
-MNNTestSuiteRegister(GeluTest, "op/unary/gelu");*/
+MNNTestSuiteRegister(GeluTest, "op/unary/gelu");
 MNNTestSuiteRegister(AbsTestInt8, "op/unary/absInt8");
 MNNTestSuiteRegister(SignTestInt8, "op/unary/signInt8");
 MNNTestSuiteRegister(NegativeTestInt8, "op/unary/negativeInt8");

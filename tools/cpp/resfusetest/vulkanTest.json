@@ -1,0 +1,35 @@
+{
+    "inputs":[
+        {
+            "dims":[
+                20
+            ],
+            "binding":1,
+            "type":"uint32",
+            "filename":"point.txt"
+        }
+    ],
+    "outputs":[
+        {
+            "dims":[
+                20
+            ],
+            "type":"uint32",
+            "binding":0
+        }
+    ],
+    "uniforms":[
+        {
+            "dims":[4],
+            "binding":2,
+            "type":"int32",
+            "data":[20, 600, 20, 20]
+        }
+    ],
+    "group_size":[
+        1,1,1
+    ],
+    "local_size":[
+        256, 1, 1
+    ]
+}

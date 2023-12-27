@@ -37,6 +37,7 @@ private:
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1};
     bool mUseLocal = false;
+    uint32_t mMaxWorkGroupSize;
 };
 
 } // namespace OpenCL

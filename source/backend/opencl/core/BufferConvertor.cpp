@@ -309,7 +309,7 @@ bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor
     return true;
 }
 
-bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image, bool needTrans, bool needWait) {
+bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image, bool needTrans, bool needWait, bool lowMemory, int quantBit) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start convertBufferToNC4HW4Buffer !\n");
 #endif
@@ -323,7 +323,23 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
     std::string kernelName;
     switch (type) {
         case CONV2D_FILTER:
-            kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer";//NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
+#ifdef MNN_LOW_MEMORY
+            if (lowMemory) {
+                if (quantBit != 8 && quantBit != 4) {
+                    MNN_ERROR("For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
+                    MNN_ASSERT(false);
+                }
+                // shared part for all cases
+                if (quantBit == 8) {
+                    kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer_int8"; //NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
+                } else if (quantBit == 4){
+                    kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer_int4"; //NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
+                } else {/* More types to be supported. */}
+            } else
+#endif
+            {
+                kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer";//NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
+            }
             break;
         case DW_CONV2D_FILTER:
             kernelName = "dw_filter_buffer_to_nc4hw4_buffer";//NC4HW4 (1, kw*kh, oc/4, 1)*4
@@ -341,6 +357,17 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
             //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
             kernelName += "_floatin";
         }
+#ifdef MNN_LOW_MEMORY
+        if (lowMemory) {
+            if (quantBit == 8) {
+                // int8 case
+                buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT8");
+            } else if (quantBit == 4){
+                // int4 case
+                buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
+            } else {/* More types to be supported. */}
+        }
+#endif
         mBufferToImageKernel = runtime->buildKernel("buffer_convert_buf", kernelName, buildOptions);
     }
 

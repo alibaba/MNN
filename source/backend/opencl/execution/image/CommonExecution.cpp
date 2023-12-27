@@ -15,13 +15,14 @@ CommonExecution::CommonExecution(Backend *backend, const MNN::Op *Op)
     mOpType = Op->type();
 }
 ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime = openCLBackend->getOpenCLRuntime();
 #ifdef ENABLE_OPENCL_TIME_PROFILER
     int idx = 0;
 #else
-    if(runtime->isUseRecordQueue()){
-        if(runtime->isDevideOpRecord())
-            runtime->getRecordings()->emplace_back(mRecording);
+    if(openCLBackend->isUseRecordQueue()){
+        if(openCLBackend->isDevideOpRecord())
+            openCLBackend->addRecord(mRecording);
         return NO_ERROR;
     }
 #endif

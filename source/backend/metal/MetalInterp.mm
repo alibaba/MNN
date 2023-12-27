@@ -15,7 +15,7 @@
 namespace MNN {
 
 MetalInterp::MetalInterp(Backend *backend, const Op* op)
-    : Execution(backend) {
+    : MetalExecution(backend) {
     auto interpParam = op->main_as_Interp();
     auto mBk = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)mBk->context();
@@ -43,12 +43,12 @@ ErrorCode MetalInterp::onResize(const std::vector<Tensor *> &inputs, const std::
     ((int *)mShape.contents)[6] = slice;
     if (mReiszeType == 2 || mReiszeType == 1) {
         if (2 == mReiszeType) {
-            mPipeline  = [context pipelineWithName:@"resize_bilinear"];
+            mPipeline  = [context pipelineWithName:@"resize_bilinear"  fp16:backend->useFp16InsteadFp32()];
         } else {
-            mPipeline  = [context pipelineWithName:@"resize_nearest"];
+            mPipeline  = [context pipelineWithName:@"resize_nearest"  fp16:backend->useFp16InsteadFp32()];
         }
     } else if (mReiszeType == 3) {
-        mPipeline  = [context pipelineWithName:@"resize_cubic"];
+        mPipeline  = [context pipelineWithName:@"resize_cubic"  fp16:backend->useFp16InsteadFp32()];
     } else {
         MNN_ASSERT(false);
     }
@@ -57,36 +57,15 @@ ErrorCode MetalInterp::onResize(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-
-ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-
-        auto input = inputs[0], output = outputs[0];
-        // encode
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mShape offset:0 atIndex:2];
-        [encoder setBuffer:mCordTransform offset:0 atIndex:3];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    
-    func();
-    backend->addOpEncoder(func);
-
-    return NO_ERROR;
+void MetalInterp::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    // encode
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mShape offset:0 atIndex:2];
+    [encoder setBuffer:mCordTransform offset:0 atIndex:3];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalInterpCreator : public MetalBackend::Creator {

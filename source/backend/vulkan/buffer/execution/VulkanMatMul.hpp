@@ -16,9 +16,7 @@ namespace MNN {
 class VulkanMatMul : public VulkanBasicExecution {
 public:
     VulkanMatMul(bool transposeA, bool transposeB, Backend* vkBn, bool hasBias);
-    ~ VulkanMatMul() {
-        // Do nothing
-    }
+    ~ VulkanMatMul();
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const VulkanCommandPool::Buffer *cmdBuffer) override;
 

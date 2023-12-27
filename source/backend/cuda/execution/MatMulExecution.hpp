@@ -84,6 +84,7 @@ private:
     CutlassGemmInfo mGemmInfo;
     int mBatch = 1;
     int mGpuComputeCap;
+    bool mIsTuned = false; 
     bool mFp16Infer = false;
     bool mFp32Infer = false;
     bool mFp16Fp32MixInfer = false;

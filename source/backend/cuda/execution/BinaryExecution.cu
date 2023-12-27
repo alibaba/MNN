@@ -52,7 +52,8 @@ ErrorCode BinaryExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int stride1[3] = {0, 0, s1};
     int stride2[3] = {0, 0, 1};
 
-    auto type = outputs[0]->getType();
+    // use input type. output type maybe fixed, for example greater/less
+    auto type = inputs[0]->getType();
     if (type.code == halide_type_float) {
         // Use Half or float
         type.bits = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]) * 8;

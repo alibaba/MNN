@@ -110,9 +110,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     mUnits.clear();
-    auto inputPtr = TensorUtils::getDescribe(input)->mem->chunk();
-    auto outputPtr = TensorUtils::getDescribe(output)->mem->chunk();
-    
     std::shared_ptr<char> __autoFunction;
     auto padY     = mPadY;
     auto padX     = mPadX;
@@ -156,9 +153,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int e = planeSize;
             int l = ic;
             int h = oc;
-            auto aPtr = inputPtr + core->pack * planeStart * bytes;
+            uint8_t* aPtr = nullptr;
             auto bPtr = TensorUtils::getDescribe(weightTensor)->mem->chunk();;
-            auto cPtr = outputPtr + core->pack * planeStart * bytes;
+            uint8_t* cPtr = nullptr;
             auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk();
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
@@ -200,9 +197,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int e = matrixSizeE;
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
-            auto aPtr = inputPtr;
+            uint8_t* aPtr = nullptr;
             auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * bytes;
-            auto cPtr = outputPtr + core->pack * matrixSizeE * ocStart * bytes;
+            uint8_t* cPtr = nullptr;
             auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);

@@ -1453,7 +1453,9 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
                     const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
                     for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+//                        if (j == 2) printf("%d, %d\n", (int32_t)src_z[i], (int32_t)weight_j[i]);
                         dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+//                        if (j == 0) printf("%d\n", dstTemp[j]);
                     }
                 }
             }

@@ -9,17 +9,16 @@
 #ifndef MetalSoftmax_hpp
 #define MetalSoftmax_hpp
 
-#import "core/Execution.hpp"
-
+#import "MetalExecution.hpp"
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalSoftmax : public Execution {
+class MetalSoftmax : public MetalExecution {
 public:
     MetalSoftmax(Backend *backend, int32_t axis);
     virtual ~MetalSoftmax() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     int32_t mAxis;

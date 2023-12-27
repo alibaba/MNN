@@ -22,6 +22,7 @@ public:
         mOutputBinding.resize(outputSize);
         mInputBinding.resize(inputSize);
         mGroupSize.resize(3);
+        mGlobalSize.resize(3);
         // Find shader
         const uint8_t* data = nullptr;
         size_t dataSize = 0;
@@ -35,11 +36,24 @@ public:
         }
         for (int i=0; i<extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
+            if (attr->key()->str() == "global_size") {
+                // Use Auto set group size
+                auto ptr = attr->tensor()->int32s()->data();
+                mGlobalSize[0] = ptr[0];
+                mGlobalSize[1] = ptr[1];
+                mGlobalSize[2] = ptr[2];
+                mNeedAutoTuning = true;
+                break;
+            }
+        }
+        for (int i=0; i<extra->attr()->size(); ++i) {
+            auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "group_size") {
                 auto ptr = attr->tensor()->int32s()->data();
                 mGroupSize[0] = ptr[0];
                 mGroupSize[1] = ptr[1];
                 mGroupSize[2] = ptr[2];
+                break;
             }
         }
 
@@ -58,10 +72,12 @@ public:
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "input") {
                 auto list = attr->list()->i()->data();
-                if (0 == list[0]) {
-                    mInputBinding[list[1]] = attr->i();
-                } else {
-                    mOutputBinding[list[1]] = attr->i();
+                if (list[1] >= 0) {
+                    if (0 == list[0]) {
+                        mInputBinding[list[1]] = attr->i();
+                    } else {
+                        mOutputBinding[list[1]] = attr->i();
+                    }
                 }
                 if (attr->b()) {
                     types[attr->i()] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -94,13 +110,14 @@ public:
                         MNN_ASSERT(false);
                         break;
                 }
-                std::shared_ptr<VulkanBuffer> vkBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, bufferSize, result, usageBit));
+                std::shared_ptr<VulkanBuffer> vkBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, bufferSize, nullptr, usageBit, VK_SHARING_MODE_EXCLUSIVE, 0));
+                vkBn->copyToGPUBuffer(result, vkBuffer->buffer(), bufferSize, 0);
                 mConstIndides.emplace_back(std::make_pair(attr->i(), vkBuffer));
                 continue;
             }
         }
         mPipeline = factory->createComputePipeline(data, dataSize, types, std::vector<uint32_t>{});
-        mDescriptorSet.reset(mPipeline->createSet());
+        mDescriptorSet = mPipeline->createSet();
     }
     virtual ~VulkanFuse() {
         // Remove set firstly before destroy pipeline
@@ -118,18 +135,26 @@ public:
         for (auto& iter : mConstIndides) {
             mDescriptorSet->writeBuffer(iter.second->buffer(), iter.first, iter.second->size());
         }
+        if (mNeedAutoTuning) {
+            auto localSize = vkBn->autoTunePipeline(mPipeline.get(), mDescriptorSet, mGlobalSize);
+            mPipeline->changePipeline(localSize);
+            mGroupSize[0] = UP_DIV(mGlobalSize[0], localSize[0]);
+            mGroupSize[1] = UP_DIV(mGlobalSize[1], localSize[1]);
+            mGroupSize[2] = UP_DIV(mGlobalSize[2], localSize[2]);
+        }
         mPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
         vkCmdDispatch(cmdBuffer->get(), mGroupSize[0], mGroupSize[1], mGroupSize[2]);
         return NO_ERROR;
     }
 private:
     std::vector<int> mGroupSize;
+    std::vector<int> mGlobalSize;
     std::vector<int> mInputBinding;
     std::vector<int> mOutputBinding;
-    std::vector<std::pair<int, VulkanBuffer*>> mInputUniforms;
     std::vector<std::pair<int, std::shared_ptr<VulkanBuffer>>> mConstIndides;
     SharedPtr<VulkanPipeline> mPipeline;
-    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
+    SharedPtr<VulkanLayout::DescriptorSet> mDescriptorSet;
+    bool mNeedAutoTuning = false;
 };
 
 class VulkanFuseCreator : public VulkanBackend::Creator {

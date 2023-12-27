@@ -307,81 +307,48 @@ const int CHARACTER_VOCABULARY_SIZE = 256;
 
 bool Tiktoken::load(const std::string& filename) {
     std::ifstream tok_file(filename);
-    int index = -1, start = 0, rough_count = 0;
     std::string token;
     while (tok_file >> token) {
         token = base64_decode(token);
+        encoder_[token] = static_cast<int>(decoder_.size());
         decoder_.push_back(token);
-        rough_count += token.size();
     }
     tok_file.close();
-    tokens_.resize(rough_count * CHARACTER_VOCABULARY_SIZE, -1);
-    token_ids_.resize(rough_count * CHARACTER_VOCABULARY_SIZE, -1);
-    for (int n = 0; n < decoder_.size(); n++) {
-        token = decoder_[n];
-        int root = 0;
-        for (int i = 0; i < token.size(); i++) {
-            unsigned char x = token[i];
-            // record the token id at the parent of leaf node
-            if (i == token.size() - 1) {
-                token_ids_[root + x] = n;
-            }
-            // trace down a tree node.
-            // insert a subtree when needed.
-            if (tokens_[root + x] == -1) {
-                start += CHARACTER_VOCABULARY_SIZE;
-                tokens_[root + x] = start;
-                root = start;
-            } else {
-                root = tokens_[root + x];
-            }
-        }
-    }
-    tokens_.resize(start + CHARACTER_VOCABULARY_SIZE);
-    token_ids_.resize(start + CHARACTER_VOCABULARY_SIZE);
-    tokens_.shrink_to_fit();
-    token_ids_.shrink_to_fit();
     return true;
 }
 
-// ref: https://github.com/youkaichao/fast_bpe_tokenizer
 std::vector<int> Tiktoken::encode(const std::string& str) {
     std::vector<int> ids;
     if (str.empty()) {
         return ids;
     }
-    int i = 0;
-    int root = 0;
-    int root_token_id = -1;
-    int last_found_position = -1;
-    int last_found_token_id = -1;
+    size_t i = 0;
     while (i < str.size()) {
-        unsigned char x = str[i];
-        bool should_fall_back = false;
-        if (tokens_[root + x] != -1) {
-            root_token_id = token_ids_[root + x];
-            root = tokens_[root + x];
-            if (root_token_id != -1) {
-                // a token ends at position i
-                last_found_position = i;
-                last_found_token_id = root_token_id;
+        bool found_pair = false;
+        // Attempt to match the longest possible symbol
+        size_t longest_match_len = 0;
+        std::string longest_match;
+
+        // Check substrings of decreasing length
+        for (size_t len = str.size() - i; len > 0; --len) {
+            std::string token = str.substr(i, len);
+            auto it = encoder_.find(token);
+            if (it != encoder_.end()) {
+                if (len > longest_match_len) {
+                    longest_match_len = len;
+                    longest_match = it->first;
+                }
             }
-            i++;
-            if (i == str.size()) {
-                should_fall_back = true;
-            }
-        } else {
-            // assert(last_found_position != -1);
-            should_fall_back = true;
         }
-        if (should_fall_back) {
-            i = last_found_position + 1;
-            ids.push_back(last_found_token_id);
-            // start searching from the root again
-            root = 0;
-            root_token_id = -1;
-            last_found_position = -1;
-            last_found_token_id = -1;
+
+        if (!longest_match.empty()) {
+            ids.push_back(encoder_.at(longest_match));
+            i += longest_match_len;
+        } else {
+            // If no matching symbol is found, this typically means an error in the encoding
+            // or the input text contains characters that the encoder doesn't know how to handle
+            std::cerr << "Error: No encoding found for the sequence starting at position " << i << std::endl;
+            return {};
         }
     }
     return ids;

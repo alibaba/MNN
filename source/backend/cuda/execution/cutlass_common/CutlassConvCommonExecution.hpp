@@ -94,6 +94,7 @@ protected:
     GemmTensor_BF16_BF16_Relu6_AlignTensor_Sm80 mGemmBF16BF16Relu6Sm80;
     #endif
     int mGpuComputeCap = 75;
+    bool mIsTuned = false;
     int mActivationType = 0;
     bool mFp16Infer = false;
     bool mFp32Infer = false;

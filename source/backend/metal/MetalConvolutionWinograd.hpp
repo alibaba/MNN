@@ -22,7 +22,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
+    virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
 
 private:

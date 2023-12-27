@@ -16,11 +16,12 @@
 #include "MNN_generated.h"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class ArgMaxBufExecution : public Execution {
+class ArgMaxBufExecution : public Execution, public CommonExtension {
 public:
     ArgMaxBufExecution(const std::string &compute, Backend *backend, const int axis);
     virtual ~ArgMaxBufExecution() = default;

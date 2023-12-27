@@ -1499,6 +1499,13 @@ static PyObject* PyMNNExpr_transpose(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("transpose require args: (Var, [int]|Var)");
 }
+static PyObject* PyMNNExpr_reverse(PyObject *self, PyObject *args) {
+    PyObject *x, *y;
+    if (PyArg_ParseTuple(args, "OO", &x, &y) && isVar(x) && isVar(y)) {
+        return toPyObj(Express::_Reverse(toVar(x), toVar(y)));
+    }
+    PyMNN_ERROR("reverse require args: (Var, Var)");
+}
 static PyObject* PyMNNExpr_reverse_sequence(PyObject *self, PyObject *args) {
     PyObject *x, *y;
     int batchDim, seqDim;
@@ -1839,6 +1846,7 @@ static PyMethodDef PyMNNExpr_methods[] = {
     {"transpose",  PyMNNExpr_transpose, METH_VARARGS, "build transpose: (Var, [int]/Var)"},
     register_methods(Expr,
         channel_shuffle, "build channel_shuffle expr",
+        reverse, "build reverse expr",
         reverse_sequence, "build reverse_sequence expr",
         crop, "build crop expr",
         resize, "build resize expr",

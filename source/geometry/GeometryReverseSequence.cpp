@@ -159,21 +159,25 @@ public:
         }
         auto outputDes        = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        for (int i = 0; i < outsideSize; i++) {
-            Tensor::InsideDescribe::Region region;
-            region.origin = input;
 
-            region.size[0] = reverseSize;
-            region.size[1] = insideSize;
-            region.size[2] = 1;
+        Tensor::InsideDescribe::Region region;
+        region.origin = input;
 
-            region.src.offset = (i + 1) * reverseSize * insideSize - insideSize;
-            region.src.stride[0] = -insideSize;
+        region.size[0] = outsideSize;
+        region.size[1] = reverseSize;
+        region.size[2] = insideSize;
 
-            region.dst.offset    = i * reverseSize * insideSize;
-            region.dst.stride[0] = insideSize;
-            outputDes->regions.emplace_back(std::move(region));
-        }
+        region.src.offset = reverseSize * insideSize - insideSize;
+        region.src.stride[0] = reverseSize*insideSize;
+        region.src.stride[1] = -insideSize;
+        region.src.stride[2] = 1;
+
+        region.dst.offset    = 0;
+        region.dst.stride[0] = reverseSize*insideSize;
+        region.dst.stride[1] = insideSize;
+        region.dst.stride[2] = 1;
+        outputDes->regions.emplace_back(std::move(region));
+
         return true;
     }
 };

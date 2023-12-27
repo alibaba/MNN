@@ -17,6 +17,8 @@ SoftmaxExecution::SoftmaxExecution(const std::vector<Tensor *> &inputs, int axis
     : Execution(backend) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax", "softmax_channel", {"-DSOFTMAX_LOCAL_SIZE=512"});
+    mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
 bool SoftmaxExecution::buildSoftmaxKernel(int localSize) {
@@ -47,7 +49,8 @@ int SoftmaxExecution::getLocalSize(int size, int maxGroupSize){
 }
 
 ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
+    auto MaxLocalSize = std::min(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     
@@ -77,14 +80,13 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
-    auto MaxWorkItems = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
-    int localSize = getLocalSize(channel, MaxWorkItems[0]);
+    int localSize = getLocalSize(channel, MaxLocalSize);
     if(localSize < 4){
         localSize = 1;
     }
     if(inputBatch == outside && channel == inputChannels && inside == inputWidth * inputHeight){
         mAxis = 1;
-        localSize = getLocalSize(channelBlocks, MaxWorkItems[0]);
+        localSize = getLocalSize(channelBlocks, MaxLocalSize);
     }else if(inputBatch * inputChannels == outside && channel == inputHeight && inside == inputWidth){
         mAxis = 2;
     }else if(inputBatch * inputChannels * inputHeight == outside && channel == inputWidth && inside == 1){
@@ -118,8 +120,8 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
     if(localSize == 1){
         mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax", mKernel).first;
     }
-    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -135,9 +137,9 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Softmax", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End SoftmaxExecution onExecute... \n");
 #endif
@@ -184,7 +186,7 @@ public:
         }
     }
 };
-OpenCLCreatorRegister<SoftmaxCreator> __Softmax_op(OpType_Softmax, IMAGE);
 
+REGISTER_OPENCL_OP_CREATOR(SoftmaxCreator, OpType_Softmax, IMAGE);
 } // namespace OpenCL
 } // namespace MNN

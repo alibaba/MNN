@@ -11,8 +11,10 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <iostream>
+#include <streambuf>
+#include <functional>
+#include <unordered_map>
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Expr.hpp>
@@ -24,6 +26,25 @@
 using namespace MNN;
 using namespace Express;
 class Tokenizer;
+
+// llm stream buffer with callback
+
+class LlmStreamBuffer : public std::streambuf {
+public:
+    using CallBack = std::function<void(const char* str, size_t len)>;;
+    LlmStreamBuffer(CallBack callback) : callback_(callback) {}
+
+protected:
+    virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
+        if (callback_) {
+            callback_(s, n);
+        }
+        return n;
+    }
+
+private:
+    CallBack callback_ = nullptr;
+};
 
 class MNN_PUBLIC Llm {
 public:

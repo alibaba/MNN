@@ -9,17 +9,16 @@
 #ifndef MetalInterp_hpp
 #define MetalInterp_hpp
 
-#include "core/Execution.hpp"
-#include "MetalDefine.h"
+#include "MetalExecution.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalInterp : public Execution {
+class MetalInterp : public MetalExecution {
 public:
     MetalInterp(Backend *backend, const Op* op);
     virtual ~MetalInterp() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:

@@ -17,11 +17,12 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class InterpBufExecution : public Execution {
+class InterpBufExecution : public Execution, public CommonExtension {
 public:
     InterpBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~InterpBufExecution() = default;

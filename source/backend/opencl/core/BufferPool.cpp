@@ -20,6 +20,7 @@ cl::Buffer* BufferPool::alloc(int size, bool separate) {
     }
     std::shared_ptr<Node> node(new Node);
     cl_int ret = CL_SUCCESS;
+    mTotalSize += size;
     node->size = size;
     node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
     if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
@@ -47,6 +48,7 @@ void BufferPool::recycle(cl::Buffer* buffer, bool release) {
 void BufferPool::clear() {
     mFreeList.clear();
     mAllBuffer.clear();
+    mTotalSize = 0;
 }
 
 void BufferPool::releaseFreeList() {

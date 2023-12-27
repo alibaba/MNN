@@ -60,7 +60,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
             if (TensorUtils::getDescribe(info.inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
                 continue;
             }
-            if (OpCommonUtils::opNeedContent(info.op->type(), i)) {
+            if (OpCommonUtils::opNeedContent(info.op, i)) {
                 isConst = false;
                 break;
             }
@@ -346,7 +346,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
         auto type = op->type();
         MNN_ASSERT(OpType_Raster != type);
         for (int i = 0; i < iter.inputs.size(); ++i) {
-            if (!OpCommonUtils::opNeedContent(type, i)) {
+            if (!OpCommonUtils::opNeedContent(op, i)) {
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[i]);

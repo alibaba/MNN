@@ -8,9 +8,6 @@ using namespace metal;
 #define UP_DIV(x, y)    ( ((x) + (y) - 1) / (y) )
 #define ROUND_UP(x, y)  ( ((x) + (y) - 1) / (y) * (y) )
 
-// whether store with float32
-#define MNN_METAL_FULL_PRECISION 0 // should edit in .h too
-
 // whether computer with float32 when store with float16
 #define MNN_METAL_FLOAT32_COMPUTER 1 //
 

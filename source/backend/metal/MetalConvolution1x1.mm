@@ -57,7 +57,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             NSUInteger gid_y = oc_4;
             NSUInteger gid_z = ob;
 
-            mPipeline = [context pipelineWithName:@"conv1x1_g1z8"];
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z8" fp16:backend->useFp16InsteadFp32()];
 
             NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                             (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
@@ -65,14 +65,14 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             
             std::string name = "conv1x1_g1z8";
             MetalRuntime *rt = (MetalRuntime *)backend->runtime();
-            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
             mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
         } else {
             NSUInteger gid_x = UP_DIV(ow * oh, 4);
             NSUInteger gid_y = oc_4;
             NSUInteger gid_z = ob;
             
-            mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
+            mPipeline = [context pipelineWithName:@"conv1x1_g1z4" fp16:backend->useFp16InsteadFp32()];
             
             NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                             (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
@@ -80,7 +80,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
             std::string name = "conv1x1_g1z4";
             MetalRuntime *rt = (MetalRuntime *)backend->runtime();
-            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
             mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
             //printf("conv1x1_z4, %d %d %d %d\n", ow, oh, oc_4, ic_4);
         }
@@ -100,13 +100,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         mConstBuffer, mWeight, mBias, nil];
         
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
+            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:backend->useFp16InsteadFp32()];
             NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
             NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
             NSUInteger gid_z = ob * UP_DIV(oc, itemC[knl_idx]);
             
             std::string name = [shaderName[knl_idx] UTF8String];
-            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
             
             if(min_cost.first > std::get<2>(ret)) {
                 min_cost.first = std::get<2>(ret);
@@ -116,39 +116,20 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             //printf("conv1x1 idx:%d, global:%d %d %d, local:%d %d %d, min_cost:%d\n", knl_idx, (int)retTune.second.first.width, (int)retTune.second.first.height, (int)retTune.second.first.depth, (int)retTune.second.second.width, (int)retTune.second.second.height, (int)retTune.second.second.depth, (int)retTune.first);
         }
         //printf("conv1x1 idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
-        mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
+        mPipeline = [context pipelineWithName:shaderName[min_cost.second] fp16:backend->useFp16InsteadFp32()];
     }
 
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-        auto encoder    = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mWeight offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    
-    return NO_ERROR;
+void MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mWeight offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

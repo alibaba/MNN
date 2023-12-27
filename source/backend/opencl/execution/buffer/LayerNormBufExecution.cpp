@@ -22,6 +22,8 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs
     epsilon_ = layer_norm_param->epsilon();
     group_ = layer_norm_param->group();
     auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
+    auto kernel = runtime->buildKernel("layernorm_buf", "layernorm_w_buf", {"-DLOCAL_SIZE=512"});
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernel));
 
     if(layer_norm_param->gamma() && layer_norm_param->beta()){
         has_gamma_beta_ = true;
@@ -88,6 +90,8 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -96,7 +100,6 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     const int inputHeight   = inputShape[1];
     const int inputWidth    = inputShape[2];
     const int inputChannels = inputShape[3];
-    auto MaxWorkItems = runtime->getMaxWorkItemSizes();
     int local_size;
     int rank = inputs.at(0)->dimensions();
     int outter_size = 1;
@@ -116,7 +119,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     std::string kernelName;
     if (inner_size == inputWidth && outter_size == inputBatch * inputHeight * inputChannels) {
         kernelName = "layernorm_w_buf";
-        local_size = getLocalSize(inputWidth, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
@@ -125,7 +128,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
                 static_cast<uint32_t>(inputBatch)};
     }else if(inner_size == inputWidth * inputHeight && outter_size == inputBatch * inputChannels){
         kernelName = "layernorm_hw_buf";
-        local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
@@ -134,7 +137,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
                 static_cast<uint32_t>(inputBatch)};
     }else if(inner_size == inputWidth * inputHeight * inputChannels && outter_size == inputBatch){
         kernelName = "layernorm_chw_buf";
-        local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
@@ -160,6 +163,8 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     }
     ret |= mKernel.setArg(idx++, epsilon_);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormBufExecution");
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
 
     return NO_ERROR;
 
@@ -177,6 +182,14 @@ ErrorCode LayerNormBufExecution::onExecute(const std::vector<Tensor *> &inputs, 
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"LayerNormBuf", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End LayerNormBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
 #endif
 
@@ -208,7 +221,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<LayerNormBufCreator> __LayerNormBuf_op_(OpType_LayerNorm, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(LayerNormBufCreator, OpType_LayerNorm, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

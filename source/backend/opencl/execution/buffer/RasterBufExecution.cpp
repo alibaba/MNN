@@ -38,7 +38,9 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(output);
     auto regionNum = des->regions.size();
-    auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
     
     mFast = false;
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -83,6 +85,8 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
             {
                 MNN_PRINT("setArg err %d\n", (int)ret);
             }
+            mOpenCLBackend->recordKernel2d(unit.kernel, {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8,
+                (uint32_t)UP_DIV((region[0] * region[1]), 8)*8}, {8, 8});
         }
         
         // nc4hw4 buffer raster
@@ -135,6 +139,7 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
             unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
                                    ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
                                    ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
         }
         if(mNeedZero)
         {
@@ -144,6 +149,7 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         {
             MNN_ASSERT((regionNum==kernel_idx));
         }
+        mOpenCLBackend->endRecord(mRecording);
         return NO_ERROR;
     }
 
@@ -200,6 +206,8 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         {
             MNN_PRINT("setArg err %d\n", (int)ret);
         }
+        mOpenCLBackend->recordKernel2d(unit.kernel, {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8,
+            (uint32_t)UP_DIV((region[0] * region[1]), 8)*8},  {8, 8});
     }
 
     // nc4hw4 buffer to buffer
@@ -242,6 +250,8 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         {
             MNN_PRINT("setArg err %d\n", (int)ret);
         }
+        mOpenCLBackend->recordKernel2d(unit.kernel, {(uint32_t)UP_DIV(region[3] * region[1], 16) * 16,
+            (uint32_t)UP_DIV(region[2] * region[0], 16) * 16},  {16, 16});
     }
     
     // buffer raster
@@ -295,7 +305,7 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
             ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
             ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
-        recordKernel3d(unit.kernel, gws, lws, runtime);
+        mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
     }else{
         for (auto& slice : des->regions)
         {
@@ -335,6 +345,7 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
             unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
                 ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
                 ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
         }
     }
     
@@ -373,6 +384,8 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         {
             MNN_PRINT("setArg err %d\n", (int)ret);
         }
+        mOpenCLBackend->recordKernel2d(unit.kernel, {(uint32_t)UP_DIV(region[3] * region[1], 16) * 16,
+            (uint32_t)UP_DIV(region[2] * region[0], 16) * 16}, {16, 16});
     }
     
     //kernel num check
@@ -385,15 +398,16 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &____inputs, 
         MNN_ASSERT((kernel_idx==regionNum + originNum + 1));
     }
     
+    mOpenCLBackend->endRecord(mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end RasterBufExecution onResize !\n");
 #endif
     return NO_ERROR;
 }
 
-class RasterCreator : public OpenCLBackend::Creator {
+class RasterBufCreator : public OpenCLBackend::Creator {
 public:
-    virtual ~RasterCreator() = default;
+    virtual ~RasterBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
                                 Backend *backend) const override {
         for (int i = 0; i < inputs.size(); ++i) {
@@ -444,7 +458,8 @@ bool RasterBufExecution::CanCombine(const std::vector<Tensor *> &outputs){
     return res;
 }
 
-OpenCLCreatorRegister<RasterCreator> __RasterBuf_op(OpType_Raster, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(RasterBufCreator, OpType_Raster, BUFFER);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

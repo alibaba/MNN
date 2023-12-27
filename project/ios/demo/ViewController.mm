@@ -255,7 +255,7 @@ struct GpuCache {
         [enc setTexture:inputTexture atIndex:0];
         [enc setBuffer:_cache->_constant offset:0 atIndex:1];
         MNNMetalTensorContent sharedContent;
-        MNNMetalGetTensorContent(&sharedContent, _input);
+        _input->getDeviceInfo(&sharedContent, MNN_FORWARD_METAL);
         // For Metal Context to write, don't need finish, just use flush
         _input->wait(MNN::Tensor::MAP_TENSOR_WRITE, false);
         [enc setBuffer:sharedContent.buffer offset:sharedContent.offset atIndex:0];

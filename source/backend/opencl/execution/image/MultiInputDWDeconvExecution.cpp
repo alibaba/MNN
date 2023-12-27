@@ -43,7 +43,7 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
     auto originLayout = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
     auto openclBackend = static_cast<OpenCLBackend *>(backend());
     auto runtime = openclBackend->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    openclBackend->startRecord(mRecording);
 
     auto inputShape  = tensorShapeFormat(inputs[0]);
     auto outputShape = tensorShapeFormat(outputs[0]);
@@ -106,7 +106,7 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         mUnits[0].kernel = kernel;
         mUnits[0].localWorkSize = {lws[0], lws[1]};
         mUnits[0].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[0].kernel, gws, lws, runtime);
+        openclBackend->recordKernel2d(mUnits[0].kernel, gws, lws);
     }
     
     // convert kernel from IOHW to OIHW, similar to DeconvExecution.cpp
@@ -128,10 +128,10 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
             static_cast<uint32_t>(shape[3]),
             static_cast<uint32_t>(shape[0])
         };
-        recordKernel2d(mUnits[1].kernel, {
+        openclBackend->recordKernel2d(mUnits[1].kernel, {
             static_cast<uint32_t>(shape[3]),
             static_cast<uint32_t>(shape[0])
-        }, {0, 0}, runtime);
+        }, {0, 0});
     }
     
     // transform kernel from original form (maybe NCHW or NHWC) to filter format
@@ -177,7 +177,7 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         mUnits[2].kernel = kernel;
         mUnits[2].localWorkSize = {lws[0], lws[1]};
         mUnits[2].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[2].kernel, {gws[0], gws[1]}, {lws[0], lws[1]}, runtime);
+        openclBackend->recordKernel2d(mUnits[2].kernel, {gws[0], gws[1]}, {lws[0], lws[1]});
     }
 
     {
@@ -265,9 +265,9 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         mUnits[3].kernel = kernel;
         mUnits[3].localWorkSize = {lws[0], lws[1], lws[2]};
         mUnits[3].globalWorkSize = {gws[0], gws[1], gws[2]};
-        recordKernel3d(mUnits[3].kernel, gws, lws, runtime);
+        openclBackend->recordKernel3d(mUnits[3].kernel, gws, lws);
     }
-    endRecord(runtime, mRecording);
+    openclBackend->endRecord(mRecording);
    
     return NO_ERROR;
 }

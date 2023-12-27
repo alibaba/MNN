@@ -60,7 +60,7 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
 #ifdef LOG_VERBOSE
     MNN_PRINT("start PoolExecution onResize !\n");
 #endif
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
     bool returnRedice = outputs.size() == 2;
@@ -154,8 +154,8 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     ret |= mKernel.setArg(idx++, openCLImage(redice));
     MNN_CHECK_CL_SUCCESS(ret, "setArg PoolExecution");
 
-    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end PoolExecution onResize !\n");
 #endif
@@ -174,9 +174,9 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Pooling", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End PoolExecution onExecute... \n");
 #endif
@@ -192,6 +192,8 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<PoolExecution>> __Pool_op(OpType_Pooling, IMAGE);
+using PoolCreator = TypedCreator<PoolExecution>;
+REGISTER_OPENCL_OP_CREATOR(PoolCreator, OpType_Pooling, IMAGE);
+
 } // namespace OpenCL
 } // namespace MNN

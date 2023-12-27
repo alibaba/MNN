@@ -19,6 +19,11 @@ extern void registerCPURuntimeCreator();
 #if MNN_METAL_ENABLED
 extern void registerMetalRuntimeCreator();
 #endif
+#if MNN_OPENCL_ENABLED
+namespace OpenCL {
+extern void registerOpenCLRuntimeCreator();
+}
+#endif
 #if MNN_COREML_ENABLED
 extern void registerCoreMLRuntimeCreator();
 #endif
@@ -42,6 +47,9 @@ void registerBackend() {
 #endif
 #ifdef MNN_NNAPI_ENABLED
         registerNNAPIRuntimeCreator();
+#endif
+#if MNN_OPENCL_ENABLED
+        OpenCL::registerOpenCLRuntimeCreator();
 #endif
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();

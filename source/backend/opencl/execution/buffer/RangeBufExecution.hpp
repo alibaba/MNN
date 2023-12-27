@@ -16,11 +16,12 @@
 #include "MNN_generated.h"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class RangeBufExecution : public Execution {
+class RangeBufExecution : public Execution, public CommonExtension {
 public:
     RangeBufExecution(const std::string &compute, Backend *backend);
     virtual ~RangeBufExecution() = default;
