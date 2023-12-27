@@ -9,20 +9,21 @@
 #ifndef MetalROIPooling_hpp
 #define MetalROIPooling_hpp
 
-#import "core/Execution.hpp"
-#import "MetalDefine.h"
+#import "MetalExecution.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalROIPooling : public Execution {
+class MetalROIPooling : public MetalExecution {
 public:
     MetalROIPooling(Backend *backend, float spatialScale);
     virtual ~MetalROIPooling() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     float mSpatialScale;
+    id<MTLBuffer> mShape;
 };
 
 } // namespace MNN

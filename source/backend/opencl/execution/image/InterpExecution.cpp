@@ -40,7 +40,7 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -78,9 +78,9 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpExecution");
 
     std::string name = "interp";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, name, mKernel).first;
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(runtime, mRecording);
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 
 }
@@ -97,9 +97,9 @@ ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End InterpExecution onExecute... \n");
 #endif
@@ -127,7 +127,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<InterpCreator> __Interp_op_(OpType_Interp, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(InterpCreator, OpType_Interp, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

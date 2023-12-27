@@ -2595,35 +2595,20 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, i
 }
 
 void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize) {
-    int countC8        = (int)dataSize / 8;
+    int countC8        = static_cast<int32_t>(dataSize) / 8;
+    int remain = static_cast<int32_t>(dataSize) % 8;
+    float parameters[] = {
+        (float)logf(2.0f), 1.0f / (float)logf(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
     if (countC8 > 0) {
         // Align to eight so asm is easier to write
-        float parameters[] = {
-            (float)logf(2.0f), 1.0f / (float)logf(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
         MNNExpC8(dst, src, offset, parameters, countC8);
     }
-    float alpha = offset[0];
-    float beta = offset[1];
-    int remain = countC8 * 8;
-    auto param = logf(2.0f);
-    float xLimit = 87;
-    for (int i = remain; i < dataSize; i++) {
-        /*Origin Function*/
-        //dst[i] = expf(src[i] * alpha) + beta;
-        /*Approciate Function*/
-
-        auto x         = alpha * src[i];
-        x = ALIMAX(x, -xLimit);
-        x = ALIMIN(x, xLimit);
-
-        int div        = (x / param);
-        int div2       = (div + 127) << 23;
-        auto xReamin   = x - div * param;
-        float expBasic = *(float*)(&div2);
-
-        auto t         = xReamin;
-        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dst[i]  = expBasic * expRemain + beta;
+    if (remain > 0) {
+        float intmp[8] = {0};
+        float outmp[8] = {0};
+        ::memcpy(intmp, src + 8 * countC8, remain * sizeof(float));
+        MNNExpC8(outmp, intmp, offset, parameters, 1);
+        ::memcpy(dst + 8 * countC8, outmp, remain * sizeof(float));
     }
 }
 
@@ -2670,30 +2655,33 @@ void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope
 }
 
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope) {
-    int sizeQuad = size / 4;
-    int start = 0;
+    int sizeQuad = static_cast<int32_t>(size) / 4;
+    int remain = static_cast<int32_t>(size) % 4;
     if (sizeQuad > 0) {
         MNNReluWithSlope(dst, src, sizeQuad, slope);
-        start = sizeQuad * 4;
     }
-    for (int j = start; j < size; j++) {
-        if (src[j] < 0) {
-            dst[j] = src[j] * slope;
-        } else {
-            dst[j] = src[j];
-        }
+    if (remain > 0) {
+        float intmp[4] = {0}, outmp[4] = {0};
+        ::memcpy(intmp, src + sizeQuad * 4, remain * sizeof(float));
+        MNNReluWithSlope(outmp, intmp, 1, slope);
+        ::memcpy(dst + sizeQuad * 4, outmp, remain * sizeof(float));
     }
 }
 
 void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
     int sizeQuad = static_cast<int32_t>(size / 4);
-    int start = 0;
+    int remain = static_cast<int32_t>(size) % 4;
 #ifdef MNN_USE_SSE
     if (sizeQuad > 0) {
         MNNHardSwish(dst, src, sizeQuad);
-        start = sizeQuad * 4;
     }
-#endif
+    if (remain > 0) {
+        float intmp[4] = {0}, outmp[4] = {0};
+        ::memcpy(intmp, src + sizeQuad * 4, remain * sizeof(float));
+        MNNHardSwish(outmp, intmp, 1);
+        ::memcpy(dst + sizeQuad * 4, outmp, remain * sizeof(float));
+    }
+#else
 #ifdef MNN_USE_NEON
     float32x4_t zero = vdupq_n_f32(0.f);
     float32x4_t three = vdupq_n_f32(3.f);
@@ -2704,9 +2692,16 @@ void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
         auto y = vmulq_f32(vmulq_f32(x, vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six)), divsix);
         vst1q_f32(dst + 4 * i, y);
     }
-    start = sizeQuad * 4;
-#endif
-    for (int j = start; j < size; j++) {
+    if (remain > 0) {
+        float intmp[4] = {0}, outmp[4] = {0};
+        ::memcpy(intmp, src + sizeQuad * 4, remain * sizeof(float));
+        auto x = vld1q_f32(intmp);
+        auto y = vmulq_f32(vmulq_f32(x, vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six)), divsix);
+        vst1q_f32(outmp, y);
+        ::memcpy(dst + sizeQuad * 4, outmp, remain * sizeof(float));
+    }
+#else
+    for (int j = 0; j < size; j++) {
         if (src[j] <= -3) {
             dst[j] = 0;
         } else if (src[j] >= 3){
@@ -2715,6 +2710,8 @@ void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
             dst[j] = src[j] * (src[j] + 3) / 6.f;
         }
     }
+#endif
+#endif
 }
 
 void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
@@ -2725,14 +2722,20 @@ void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
 
 void MNNGeluCommon(float* dst, const float* src, size_t size) {
     int sizeQuad = static_cast<int32_t>(size / 8);
-    int start = 0;
+    int remain = static_cast<int32_t>(size) % 8;
 #if defined(MNN_USE_SSE) || defined(MNN_USE_NEON)
+    float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
     if (sizeQuad > 0) {
-        float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
         MNNGelu(dst, src, sizeQuad, parameters);
-        start = sizeQuad * 8;
     }
-#endif
+    if (remain > 0) {
+        float intmp[8] = {0};
+        float outmp[8] = {0};
+        ::memcpy(intmp, src + 8 * sizeQuad, remain * sizeof(float));
+        MNNGelu(outmp, intmp, 1, parameters);
+        ::memcpy(dst + 8 * sizeQuad, outmp, remain * sizeof(float));
+    }
+#else
     auto tanhf_poly = [](float value) -> float {
         if (value > 5.0f) {
             return 1.0f;
@@ -2745,11 +2748,12 @@ void MNNGeluCommon(float* dst, const float* src, size_t size) {
             return a / b;
         }
     };
-    for (int i = start; i < size; i++) {
+    for (int i = 0; i < size; i++) {
         float temp = 0.044715f * src[i] * src[i] * src[i];
         temp = 0.79788458f * (temp + src[i]);
         dst[i] = (1.0f + tanhf_poly(temp)) * src[i] * 0.5f;
     }
+#endif
 }
 
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number) {
@@ -3056,11 +3060,13 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
     };
     MNNExp(dst, src, offset, dataSize);
 #ifdef MNN_USE_NEON
-    int dataC4 = (int)dataSize / 4;
+    int dataC4 = static_cast<int32_t>(dataSize) / 4;
+    int remain = static_cast<int32_t>(dataSize) % 4;
+    float32x4_t value = vdupq_n_f32(1.0f);
+
     if(dataC4 > 0) {
-        // neon optimization for sigmid cpu
-        float32x4_t value = vdupq_n_f32(1.0f);
         float32x4_t out = vld1q_f32(dst);
+        // neon optimization for sigmid cpu
         for (int i = 1; i < dataC4; ++i) {
             out = vrecpeq_f32(vaddq_f32(value,out));
             vst1q_f32(dst ,out);
@@ -3070,12 +3076,20 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
         out = vrecpeq_f32(vaddq_f32(value,out));
         vst1q_f32(dst, out);
         dst += 4;
-        dataSize = dataSize - 4 * dataC4;
     }
-#endif
+    if (remain > 0) {
+        float intmp[4] = {0};
+        ::memcpy(intmp, dst, remain * sizeof(float));
+        float32x4_t out = vld1q_f32(intmp);
+        out = vrecpeq_f32(vaddq_f32(value,out));
+        vst1q_f32(intmp, out);
+        ::memcpy(dst, intmp, remain * sizeof(float));
+    }
+#else
     for (int i = 0; i < dataSize; ++i) {
         dst[i] = 1.0f / (1.0f + dst[i]);
     }
+#endif
 }
 
 void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameters) {

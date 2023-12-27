@@ -37,7 +37,7 @@ public:
                             const SPLITS& dstSplits, int pack = 4, bool swapnc = false, bool swapcw = false);
     static void turnToPackRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& c4Region,
                                  const SPLITS& srcSplits, const SPLITS& dstSplits, int pack = 4, bool swapnc = false);
-    static bool opNeedContent(int type, int index);
+    static bool opNeedContent(const MNN::Op* op, int index);
 
     // For lowp CPU Backend
     static bool opCompabilityForLowp(const Op* op);

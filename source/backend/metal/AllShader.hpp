@@ -16,7 +16,6 @@ extern const char* shader_MetalScale_metal;
 extern const char* shader_MetalDeconvolution_metal;
 extern const char* shader_MetalPooling_metal;
 extern const char* shader_MetalROIPooling_metal;
-extern const char* shader_MetalCast_metal;
 extern const char* shader_MetalConvolution1x1_metal;
 extern const char* shader_MetalConvolutionGEMM_metal;
 extern const char* shader_MetalResize_metal;

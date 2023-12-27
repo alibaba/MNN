@@ -88,7 +88,7 @@ DepthwiseDeconvExecution::~DepthwiseDeconvExecution() {
 }
 ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs,
                                              const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -151,8 +151,8 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
     
     std::string name = "depthwiseDeconv";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -170,9 +170,9 @@ ErrorCode DepthwiseDeconvExecution::onExecute(const std::vector<Tensor *> &input
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DepthwiseDeconv", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End DepthwiseDeconvExecution onExecute... \n");
 #endif
@@ -205,7 +205,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<DepthwiseDeconvolutionCreator> __DepthwiseDeconv_op(OpType_DeconvolutionDepthwise, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(DepthwiseDeconvolutionCreator, OpType_DeconvolutionDepthwise, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

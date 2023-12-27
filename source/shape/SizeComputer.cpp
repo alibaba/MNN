@@ -209,6 +209,27 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize
         if (op->type() == OpType_CumSum) {
             return std::vector<int>{1};
         }
+#ifdef MNN_SUPPORT_RENDER
+        if (op->type() == OpType_RasterAndInterpolate) {
+            int type = 4;
+            if (op->main_type() == OpParameter_Extra) {
+                auto extra = op->main_as_Extra();
+                if (nullptr != extra->attr()) {
+                    for (int i=0; i<extra->attr()->size(); ++i) {
+                        auto attr = extra->attr()->GetAs<Attribute>(i);
+                        if (attr->key()->str() == "primitiveType") {
+                            type = attr->i();
+                            break;
+                        }
+                    }
+                }
+            }
+            if (type <= 4) {
+                return std::vector<int>{0};
+            }
+            return std::vector<int>{};
+        }
+#endif
         auto computer = computeFactory->search(op->type());
         if (nullptr != computer) {
             return computer->mNeedContentInputIndex;

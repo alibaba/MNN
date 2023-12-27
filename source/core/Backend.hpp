@@ -160,6 +160,15 @@ public:
      * @return MemObj for release, if failed, return nullptr.
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
+    
+    /**
+     * @brief get buffer from tensor directly
+     * @param tensor        buffer provider.
+     * @return support or not
+     */
+    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+        return false;
+    }
 
     /**
      * @brief clear all dynamic buffers.

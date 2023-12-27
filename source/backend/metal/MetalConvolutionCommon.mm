@@ -16,23 +16,32 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-static id<MTLBuffer> biasForConv(MNNMetalContext *context, const Convolution2D *conv) {
+static id<MTLBuffer> biasForConv(MNNMetalContext *context, const Convolution2D *conv, bool fp16) {
     auto bias   = conv->bias();
     auto oc     = conv->common()->outputCount();
-    auto bias_size = UP_DIV(oc, 16) * 16 * sizeof(metal_float);
+    int bytes = 4;
+    if (fp16) {
+        bytes = 2;
+    }
+    auto bias_size = UP_DIV(oc, 16) * 16 *bytes;
     auto buffer = [context newDeviceBuffer:bias_size access:CPUWriteOnly];
     auto src    = bias->data();
-    auto dst    = (metal_float *)buffer.contents;
-    ::memset(dst, 0, bias_size);
-#pragma clang loop vectorize(enable) unroll(enable)
-    for (int i = 0; i < oc; i++) {
-        dst[i] = src[i];
+    ::memset(buffer.contents, 0, bias_size);
+    if (fp16) {
+        auto dst    = (__fp16 *)buffer.contents;
+    #pragma clang loop vectorize(enable) unroll(enable)
+        for (int i = 0; i < oc; i++) {
+            dst[i] = src[i];
+        }
+    } else {
+        ::memcpy(buffer.contents, src, oc * sizeof(float));
     }
     return buffer;
 }
 
-MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *op) : Execution(backend) {
+MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *op) : MetalExecution(backend) {
     auto context    = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
+    auto mtbn = static_cast<MetalBackend*>(backend);
     auto conv       = op->main_as_Convolution2D();
     auto common     = conv->common();
     mOp             = op;
@@ -47,7 +56,7 @@ MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *
     mStrideY        = common->strideY();
     mDilateX        = common->dilateX();
     mDilateY        = common->dilateY();
-    mBias           = biasForConv(context, conv);
+    mBias           = biasForConv(context, conv, mtbn->useFp16InsteadFp32());
     mActivationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
 }
 
@@ -55,8 +64,8 @@ ErrorCode MetalConvolutionCommon::onResize(const std::vector<Tensor *> &inputs, 
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionCommon::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    return onFloat(inputs[0], outputs[0]);
+void MetalConvolutionCommon::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    return onFloat(inputs[0], outputs[0], encoder);
 }
 
 template <typename FType, typename TType>
@@ -103,8 +112,10 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
 id<MTLBuffer> MetalConvolutionCommon::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    return weightInBlock<float, metal_float>(context, group, oc, ic, kh, kw, src);
-
+    if (backend->useFp16InsteadFp32()) {
+        return weightInBlock<float, __fp16>(context, group, oc, ic, kh, kw, src);
+    }
+    return weightInBlock<float, float>(context, group, oc, ic, kh, kw, src);
 }
 
 id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionCommon::Int8Common *qnt,

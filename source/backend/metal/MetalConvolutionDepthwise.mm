@@ -62,7 +62,7 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
     auto context = (__bridge MNNMetalContext *)backend->context();
-    mPipeline = [context pipelineWithName:@"conv_depthwise"];
+    mPipeline = [context pipelineWithName:@"conv_depthwise" fp16:backend->useFp16InsteadFp32()];
             
     NSUInteger gid_x = ow;
     NSUInteger gid_y = oh;
@@ -74,39 +74,21 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
 
     std::string name = "conv_depthwise";
     MetalRuntime *rt = (MetalRuntime *)backend->runtime();
-    auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+    auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
     mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-
-    auto func = [=](){
-        auto encoder    = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset: TensorUtils::getDescribe(input)->extra.offset
+void MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset: TensorUtils::getDescribe(input)->extra.offset
 atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset: TensorUtils::getDescribe(output)->extra.offset
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset: TensorUtils::getDescribe(output)->extra.offset
 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mWeight offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-            
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-
-    return NO_ERROR;
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mWeight offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 template <typename FType, typename TType>
@@ -132,7 +114,10 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, 
 id<MTLBuffer> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    return weightInBlock<float, metal_float>(context, group, kh, kw, src);
+    if (backend->useFp16InsteadFp32()) {
+        return weightInBlock<float, __fp16>(context, group, kh, kw, src);
+    }
+    return weightInBlock<float, float>(context, group, kh, kw, src);
 }
 
 class MetalConvolutionDepthwiseCreator : public MetalBackend::Creator {

@@ -97,7 +97,7 @@ DeconvExecution::~DeconvExecution() {
 }
 
 ErrorCode DeconvExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     auto output = outputs[0];
     auto input  = inputs[0];
 
@@ -162,8 +162,8 @@ ErrorCode DeconvExecution::onResize(const std::vector<Tensor *> &inputs, const s
     
     std::string name = "deconv2d";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -180,9 +180,9 @@ ErrorCode DeconvExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Deconv", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End DeconvExecution onExecute... \n");
 #endif
@@ -203,11 +203,13 @@ public:
     virtual ~DeconvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if(inputs.size() != 1){
+            return nullptr;
+        }
         return new DeconvExecution(inputs, op, backend);
     }
 };
 
-OpenCLCreatorRegister<DeconvolutionCreator> __deconv_op(OpType_Deconvolution, IMAGE);
-
+REGISTER_OPENCL_OP_CREATOR(DeconvolutionCreator, OpType_Deconvolution, IMAGE);
 } // namespace OpenCL
 } // namespace MNN

@@ -14,11 +14,12 @@
 #include <vector>
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class SoftmaxBufExecution : public Execution {
+class SoftmaxBufExecution : public Execution, public CommonExtension {
 public:
     SoftmaxBufExecution(const std::vector<Tensor *> &inputs, int axis, Backend *backend);
 

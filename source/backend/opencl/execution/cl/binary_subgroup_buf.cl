@@ -2,6 +2,7 @@
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
 
+#define PI 3.141592653589f
 __kernel void binary_buf_c4_c4_c4(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                          __global FLOAT* input0, __global FLOAT* input1, __global FLOAT* output,
                          __private const int4 shape,//[N,H,W,C]

@@ -1,5 +1,5 @@
 //
-//  OnnxQuantizeLinear.cpp
+//  OnnxDequantizeLinear.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2023/03/03.
@@ -12,44 +12,6 @@
 
 namespace MNN {
 namespace Express {
-
-static VARP _DequantizeLinear(VARP x, VARP scales, VARP zeroPoints) {
-     auto scaleInfo = scales->getInfo();
-     auto zeroInfo = zeroPoints->getInfo();
-     INTS zeroShape;
-     auto& scaleShape = scaleInfo->dim; // e.g [1,1,D,1], D>1
-     if (nullptr != zeroInfo) {
-         zeroShape = zeroInfo->dim;   // e.g [1,1,D,1], D>1
-     }
-     if (zeroInfo && scaleShape.size() != zeroShape.size()) {
-         MNN_ERROR("QuantizeLinear scale and zeroPoints should be the same shape!\n");
-         return nullptr;
-     }
-     int scaleSize = 1, zeroSize = 1;
-     int scaleAxis = 0, zeroAxis = 0;
-     for (int d = 0; d < scaleShape.size(); ++d) {
-         if (scaleShape[d] > scaleSize) {
-             scaleSize = scaleShape[d];
-             scaleAxis = d;
-         }
-         if (zeroInfo && zeroShape[d] > zeroSize) {
-             zeroSize = zeroShape[d];
-             zeroAxis = d;
-         }
-     }
-     if (zeroInfo && (scaleSize != zeroSize || scaleAxis != zeroAxis)) {
-         MNN_ERROR("QuantizeLinear scale and zeroPoints should be the same size and same axis!\n");
-         return nullptr;
-     }
-
-     std::unique_ptr<OpT> dequantizeLinear(new OpT);
-     dequantizeLinear->type = OpType_DequantizeLinear;
-     dequantizeLinear->main.type = OpParameter_DequantizeLinear;
-     dequantizeLinear->main.value = new DequantizeLinearT;
-     dequantizeLinear->main.AsDequantizeLinear()->scaleSize = scaleSize;
-     dequantizeLinear->main.AsDequantizeLinear()->scaleAxis = scaleAxis;
-     return (Variable::create(Expr::create(dequantizeLinear.get(), {x, scales, zeroPoints})));
- }
 
 class OnnxDequantizeLinearTransform : public OnnxExtraManager::Transform {
 public:
@@ -72,9 +34,26 @@ public:
         if (inputs.size() > 2) {
             zeropoint = inputs[2];
         }
-        auto output = _DequantizeLinear(input, scale, zeropoint);
-        output->setName(expr->name());
-        return output->expr().first;
+        
+        std::vector<int32_t> inputDim = {};
+        if (input->getInfo()) {
+            inputDim = input->getInfo()->dim;
+        }
+        if (!scale->getInfo()->dim.empty()) {
+            zeropoint = _Unsqueeze(zeropoint, {1,2,3});
+            scale = _Unsqueeze(scale, {1, 2, 3});
+        } else {
+            scale = _Reshape(scale, {1});
+            zeropoint = _Reshape(zeropoint, {1});
+        }
+        auto _shape  = _Const(inputDim.data(), {static_cast<int32_t>(inputDim.size())}, NHWC, halide_type_of<int>());
+        auto output = (_Cast<float>(input) - _Cast<float>(zeropoint)) * scale;
+        std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
+        iden->type = OpType_Int8ToFloat;
+
+        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, _Cast<float>(zeropoint), _shape}, 5);
+        newExpr->setName(expr->name());
+        return newExpr;
     }
 };
 

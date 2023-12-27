@@ -49,7 +49,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mUnits.resize(inputs.size() - 1);
     
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    startRecord(openCLBackend->getOpenCLRuntime(), mRecording);
+    openCLBackend->startRecord(mRecording);
 
     auto output = outputs[0];
     auto inputShape0 = tensorShapeFormat(inputs[0]);
@@ -92,8 +92,8 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
         
-        recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, openCLBackend->getOpenCLRuntime());
-        endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
+        openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        openCLBackend->endRecord(mRecording);
         return NO_ERROR;
     }
     
@@ -150,9 +150,9 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
         
-        recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize, openCLBackend->getOpenCLRuntime());
+        openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     }
-    endRecord(openCLBackend->getOpenCLRuntime(), mRecording);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -225,8 +225,8 @@ public:
     }
 };
 
-OpenCLCreatorRegister<EltwiseCreator> __eltwise_op(OpType_Eltwise, IMAGE);
-OpenCLCreatorRegister<EltwiseCreator> __binary_op(OpType_BinaryOp, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(EltwiseCreator, OpType_Eltwise, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(EltwiseCreator, OpType_BinaryOp, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

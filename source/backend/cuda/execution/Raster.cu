@@ -1083,9 +1083,17 @@ void BinaryBlit(uint8_t* output, const uint8_t* input, const uint8_t* input1, co
             BinaryBlitTemplateFloat((float*)output, (float*)input, (float*)input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
         } else if (type.bits == 16) {
             BinaryBlitTemplateFloat((half*)output, (half*)input, (half*)input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        } else {
+            MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
         }
     } else if (type.code == halide_type_int) {
-        BinaryBlitTemplateInt32(output, input, input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        if(type.bits == 32) {
+            BinaryBlitTemplateInt32(output, input, input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        } else {
+            MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
+        }
+    } else {
+        MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
     }
 }
 

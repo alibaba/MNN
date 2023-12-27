@@ -15,44 +15,28 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalReLU6::MetalReLU6(Backend *backend, float minV, float maxV) : Execution(backend) {
+MetalReLU6::MetalReLU6(Backend *backend, float minV, float maxV) : MetalExecution(backend) {
     auto metal   = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)metal->context();
     mConst             = [context newDeviceBuffer:4 * sizeof(float) access:CPUWriteOnly];
     ((float*)mConst.contents)[0] = minV;
     ((float*)mConst.contents)[1] = maxV;
 }
-ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+void MetalReLU6::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
+    auto input = inputs[0], output = outputs[0];
+    NSUInteger size = output->elementSize();
+    auto simd       = size % 4 == 0;
+    if (simd) {
+        size /= 4;
     }
 
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
-        NSUInteger size = output->elementSize();
-        auto simd       = size % 4 == 0;
-        if (simd) {
-            size /= 4;
-        }
-
-        auto encoder   = backend->encoder();
-        auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConst offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
-
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+    auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder fp16:backend->useFp16InsteadFp32()];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConst offset:0 atIndex:2];
+    [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
 }
 
 class MetalReLU6Creator : public MetalBackend::Creator {

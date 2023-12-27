@@ -19,11 +19,13 @@
 #include <vector>
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class ConvBufCommonExecution : public Execution {
+class ConvBufCommonExecution : public Execution, public CommonExtension {
 public:
+    ConvBufCommonExecution(Backend *backend);
     ConvBufCommonExecution(const Convolution2D *op, Backend *backend);
     virtual ~ConvBufCommonExecution();
 
@@ -41,8 +43,6 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    static std::shared_ptr<Tensor> getBias(OpenCLBackend *backend, const Convolution2D *conv);
-
     void setConv1x1WeightBuffer(int packCout, int packCin, const float* filterDataPtr);
 private:
     void _generateFilterConvertRegion(Tensor *virtualFilter, Tensor *originBuffer) const;
@@ -57,11 +57,8 @@ private:
     std::shared_ptr<Tensor> mFilter;
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
-    bool mIsTurn = false;
     bool mConv1x1Opt{false};
-    bool mUseLocalMem{false};
     std::shared_ptr<cl::Buffer> mKernelBuffer;
-    std::shared_ptr<cl::Buffer> mBiasBuffer;
     int mKernelWidth;
     int mKernelHeight;
     int mOutputChannel;

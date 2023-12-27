@@ -27,6 +27,7 @@ public:
     void recycle(cl::Buffer* buffer, bool release = false);
     void clear();
     void releaseFreeList();
+    size_t totalSize() { return mTotalSize; }
 
     struct Node {
         int size;
@@ -39,6 +40,7 @@ private:
 
     cl::Context& mContext;
     cl_mem_flags mFlag;
+    size_t mTotalSize = 0;
 };
 
 } // namespace OpenCL

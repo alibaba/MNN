@@ -16,11 +16,12 @@
 #include "MNN_generated.h"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class SelectBufExecution : public Execution {
+class SelectBufExecution : public Execution, public CommonExtension {
 public:
     SelectBufExecution(Backend *backend);
     virtual ~SelectBufExecution() = default;

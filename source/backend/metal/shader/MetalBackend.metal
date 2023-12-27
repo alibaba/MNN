@@ -216,6 +216,17 @@ struct SamplerInfo {
     uint4 extent;//dstStride[3]+dstOffset
     uint4 imageSize;
 };
+struct MemsetInfo {
+    int4 value;
+    uint4 size;
+};
+kernel void fill_intx4(device int4 *out   [[buffer(0)]],
+                       constant MemsetInfo &info        [[buffer(1)]],
+                       uint3 gid                 [[thread_position_in_grid]]) {
+    if (gid.x < info.size.x) {
+        out[gid.x] = info.value;
+    }
+}
 
 kernel void blit_intx4(const device int4 *in   [[buffer(0)]],
                        device int4 *out        [[buffer(1)]],

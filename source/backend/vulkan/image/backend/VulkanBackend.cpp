@@ -201,7 +201,7 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     }
     bool valid = true;
     for (int i=0; i<inputs.size(); ++i) {
-        if (!OpCommonUtils::opNeedContent(op->type(), i)) {
+        if (!OpCommonUtils::opNeedContent(op, i)) {
             continue;
         }
         auto t = inputs[i];

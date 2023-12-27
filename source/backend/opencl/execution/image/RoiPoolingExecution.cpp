@@ -47,8 +47,7 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     Tensor *output = outputs[0];
     Tensor *roi    = inputs[1];
 
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -89,8 +88,8 @@ ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
     MNN_CHECK_CL_SUCCESS(ret, "setArg RoiPoolExecution");
 
     mLWS = roiPoolingLocalWS(mGWS, mMaxWorkGroupSize);
-    recordKernel3d(mKernel, mGWS, mLWS, runtime);
-    endRecord(runtime, mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -131,9 +130,9 @@ ErrorCode RoiPooling::onExecute(const std::vector<Tensor *> &inputs, const std::
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"RoiPooling", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End RoiPooling onExecute... \n");
 #endif
@@ -148,7 +147,8 @@ ErrorCode RoiPooling::onExecute(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<RoiPooling>> __roi_pooling_op(OpType_ROIPooling, IMAGE);
+using RoiPoolingCreator = TypedCreator<RoiPooling>;
+REGISTER_OPENCL_OP_CREATOR(RoiPoolingCreator, OpType_ROIPooling, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

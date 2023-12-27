@@ -9,18 +9,16 @@
 #ifndef MetalPReLU_hpp
 #define MetalPReLU_hpp
 
-#import "core/Execution.hpp"
-#import "MetalDefine.h"
-
+#import "MetalExecution.hpp"
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalPReLU : public Execution {
+class MetalPReLU : public MetalExecution {
 public:
     MetalPReLU(Backend *backend, const float *slope, int count);
     virtual ~MetalPReLU() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     id<MTLBuffer> mSlope;

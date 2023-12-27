@@ -169,6 +169,7 @@ android_static_build() {
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \
     -DMNN_VULKAN=true \
+    -DMNN_OPENCL=true \
     -DMNN_SUPPORT_BF16=true \
     -DMNN_OPENCL=true -DMNN_ARM82=true \
     -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=. $1 $2 $3
@@ -198,6 +199,7 @@ android_static_build() {
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \
     -DMNN_VULKAN=true \
+    -DMNN_OPENCL=true \
     -DMNN_BUILD_MINI=true \
     -DMNN_SUPPORT_BF16=true \
     -DMNN_OPENCL=true\
@@ -235,6 +237,7 @@ linux_build() {
         -DCMAKE_BUILD_TYPE=Release \
         -DMNN_BUILD_TEST=ON \
         -DMNN_CUDA=ON \
+        -DMNN_OPENCL=ON \
         -DMNN_BUILD_QUANTOOLS=ON \
         -DMNN_BUILD_DEMO=ON \
         -DMNN_BUILD_CONVERTER=ON \
@@ -420,6 +423,25 @@ opencv_test() {
     fi
 }
 
+llm_test() {
+    # 1. build llm with low memory
+    cmake -DMNN_OPENCV_TEST=ON -DMNN_BUILD_LLM=ON ..
+    make -j8
+    llm_build_wrong=$[$? > 0]
+    printf "TEST_NAME_LLM_BUILD: LLM编译测试\nTEST_CASE_AMOUNT_LLM_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $llm_build_wrong $[1 - $llm_build_wrong]
+    if [ $llm_build_wrong -ne 0 ]; then
+        echo '### LLM编译失败，测试终止！'
+        failed
+    fi
+    # 2. run llm model test
+    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
+    if [ $? -gt 0 ]; then
+        echo '### LLM模型测试失败，测试终止！'
+        failed
+    fi
+}
+
 coverage_init() {
     popd
     lcov -c -i -d ./ -o init.info
@@ -552,7 +574,7 @@ android_test() {
     # 1. build Android32
     mkdir build_32
     pushd build_32
-    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true
     android32_build_wrong=$[$? > 0]
     mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -570,7 +592,7 @@ android_test() {
     # 3. build Android64
     mkdir build_64
     pushd build_64
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true
+    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true
     android64_build_wrong=$[$? > 0]
     mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -616,6 +638,7 @@ case "$1" in
         ptq_test
         pymnn_test
         opencv_test
+        llm_test
         coverage_report
         ;;
     android)

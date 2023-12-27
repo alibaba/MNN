@@ -192,6 +192,17 @@ EXPRP Expr::create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inp
     EXPRP expr(new Expr(outputSize));
     expr->mStorage = extra;
     expr->mOp = flatbuffers::GetRoot<Op>(extra->buffer());
+    switch (expr->mOp->type()) {
+        case OpType_Const:
+            expr->mType = VARP::CONSTANT;
+            break;
+        case OpType_TrainableParam:
+            expr->mType = VARP::TRAINABLE;
+            break;
+        default:
+            expr->mType = VARP::INPUT;
+            break;
+    }
     expr->mInputs   = std::move(inputs);
     auto exe = ExecutorScope::Current();
     expr->mInside->mReq = exe->getRequirement(expr.get());

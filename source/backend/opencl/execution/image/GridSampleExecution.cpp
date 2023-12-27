@@ -41,11 +41,10 @@ GridSampleExecution::GridSampleExecution(const std::vector<Tensor *> &inputs, co
 }
 
 ErrorCode GridSampleExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     auto inputTensor = inputs[0];
     auto gridTensor = inputs[1];
     auto outputTensor = outputs[0];
-    auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
 
     const int batches = inputTensor->buffer().dim[0].extent;
     const int channels = inputTensor->buffer().dim[1].extent;
@@ -80,9 +79,9 @@ ErrorCode GridSampleExecution::onResize(const std::vector<Tensor *> &inputs, con
     ret |= mKernel.setArg(idx++, mAlignCorners);
     MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, mKernel).first;
-    recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
+    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -94,9 +93,9 @@ ErrorCode GridSampleExecution::onExecute(const std::vector<Tensor *> &inputs, co
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"GridSample", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
         return NO_ERROR;
     }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
@@ -104,7 +103,8 @@ ErrorCode GridSampleExecution::onExecute(const std::vector<Tensor *> &inputs, co
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<GridSampleExecution>> __GridSample_op_(OpType_GridSample, IMAGE);
+using GridSampleCreator = TypedCreator<GridSampleExecution>;
+REGISTER_OPENCL_OP_CREATOR(GridSampleCreator, OpType_GridSample, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

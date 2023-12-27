@@ -16,11 +16,12 @@
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class LayerNormBufExecution : public Execution {
+class LayerNormBufExecution : public Execution, public CommonExtension {
 public:
     LayerNormBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~LayerNormBufExecution() = default;
@@ -42,6 +43,7 @@ private:
     std::shared_ptr<cl::Buffer> mGammaBuffer;
     std::shared_ptr<cl::Buffer> mBetaBuffer;
     bool has_gamma_beta_ = false;
+    uint32_t mMaxWorkGroupSize;
 };
 
 } // namespace OpenCL

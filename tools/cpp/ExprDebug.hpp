@@ -162,6 +162,9 @@ static void _initTimeTrace() {
         return true;
     };
     MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
+        for (auto t : ntensors) {
+            t->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+        }
         gTimeTraceInfo->end();
         return true;
     };

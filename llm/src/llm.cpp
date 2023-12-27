@@ -106,8 +106,7 @@ std::string Llm::response(const std::string& query, std::ostream* os, const char
         history_ = input_ids;
     }
 
-    prompt_len_ = input_ids.size();
-    // printf("token_num : %lu\n", input_ids.size());
+    prompt_len_ = static_cast<int>(input_ids.size());
     auto st = std::chrono::system_clock::now();
     int token = forward(input_ids);
     auto et = std::chrono::system_clock::now();
@@ -168,20 +167,22 @@ void Llm::load(const std::string& model_dir) {
     config.type          = MNN_FORWARD_CPU;
     // config.type          = MNN_FORWARD_OPENCL;
     config.numThread     = 4;
-    // cpuBackendConfig.precision = BackendConfig::Precision_Low;
+    cpuBackendConfig.precision = BackendConfig::Precision_Low;
     cpuBackendConfig.memory = BackendConfig::Memory_Low;
     config.backendConfig = &cpuBackendConfig;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     if (config.type == MNN_FORWARD_OPENCL) {
         const char* cacheFileName = ".tempcache";
-        runtime_manager_->setCache(cacheFileName);
+        // runtime_manager_->setCache(cacheFileName);
     }
     load_progress_ = 0.f;
+    printf("load tokenizer\n");
     // 1. load vocab
     std::string tokenizer_path = model_dir + "/tokenizer.txt";
     load_progress_ += 5.f;
     tokenizer_->load(tokenizer_path);
     load_progress_ += 5.f;
+    printf("load tokenizer Done\n");
     // 2. load model
     Module::Config module_config;
     module_config.shapeMutable = true;
@@ -228,7 +229,7 @@ void Llm::load(const std::string& model_dir) {
         }
     }
     if (config.type == MNN_FORWARD_OPENCL) {
-        warmup();
+        // warmup();
     }
 }
 
@@ -369,8 +370,10 @@ bool Chatglm_6b::is_stop(int token_id) {
 std::vector<int> Chatglm2_6b::tokenizer(const std::string& query) {
     auto prompt = "问：" + query + "\n答：";
     auto ids = tokenizer_encode(prompt);
-    ids.insert(ids.begin(), 64792);
-    ids.insert(ids.begin(), 64790);
+    if (history_.empty()) {
+        ids.insert(ids.begin(), 64792);
+        ids.insert(ids.begin(), 64790);
+    }
     return ids;
 }
 

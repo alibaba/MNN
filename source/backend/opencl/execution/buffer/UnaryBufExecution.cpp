@@ -33,6 +33,7 @@ ErrorCode UnaryBufExecution::onResize(const std::vector<Tensor*>& inputs, const 
         return SubgrouponResize(inputs, outputs);
     }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+    openCLBackend->startRecord(mRecording);
     mKernel = runtime->buildKernel("unary_buf", "unary_buf", mBuildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
@@ -64,6 +65,8 @@ ErrorCode UnaryBufExecution::onResize(const std::vector<Tensor*>& inputs, const 
 
     std::string kernelName = "unary_buf";
     mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -73,6 +76,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
+    openCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -126,6 +130,8 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
     } else {
         mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
     }
+    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
@@ -143,6 +149,14 @@ ErrorCode UnaryBufExecution::onExecute(const std::vector<Tensor*>& inputs, const
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Unary", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End UnaryBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -240,9 +254,10 @@ public:
     }
 };
 
-OpenCLCreatorRegister<UnaryBufCreator> __UnaryBuf__(OpType_UnaryOp, BUFFER);
-OpenCLCreatorRegister<UnaryBufCreator> __SigmoidBuf__(OpType_Sigmoid, BUFFER);
-OpenCLCreatorRegister<UnaryBufCreator> __TanhBuf__(OpType_TanH, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(UnaryBufCreator, OpType_UnaryOp, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(UnaryBufCreator, OpType_Sigmoid, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(UnaryBufCreator, OpType_TanH, BUFFER);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

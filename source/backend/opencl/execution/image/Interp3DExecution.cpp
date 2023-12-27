@@ -39,8 +39,7 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
 ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
-    auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputImageShape  = tensorShapeFormat(input); // {C/4 * H * W, N * D} for 5-D Tensor
     std::vector<int> outputImageShape = tensorShapeFormat(output);
@@ -86,9 +85,9 @@ ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg Intep3DExecution");
 
     std::string name = "interp3D";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, name, mKernel).first;
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(runtime, mRecording);
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 
 }
@@ -105,9 +104,9 @@ ErrorCode Interp3DExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp3D", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End Interp3DExecution onExecute... \n");
 #endif
@@ -123,7 +122,8 @@ ErrorCode Interp3DExecution::onExecute(const std::vector<Tensor *> &inputs, cons
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<Interp3DExecution>> __Interp3D_op_(OpType_Interp3D, IMAGE);
+using Interp3DCreator = TypedCreator<Interp3DExecution>;
+REGISTER_OPENCL_OP_CREATOR(Interp3DCreator, OpType_Interp3D, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

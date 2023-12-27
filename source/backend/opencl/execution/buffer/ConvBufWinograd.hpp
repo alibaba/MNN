@@ -18,10 +18,11 @@
 #include <vector>
 #include "backend/opencl/execution/buffer/ConvBufExecution.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExtension.hpp"
 
 namespace MNN {
 namespace OpenCL {
-class ConvBufWinograd : public Execution {
+class ConvBufWinograd : public Execution, public CommonExtension {
 public:
     ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend);
     virtual ~ConvBufWinograd();

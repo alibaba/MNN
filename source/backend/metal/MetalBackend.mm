@@ -34,6 +34,9 @@ struct TunedInfo {
 };
 
 void registerMetalOps();
+#ifdef MNN_SUPPORT_RENDER
+extern void registerMetalRenderOps();
+#endif
 
 static inline std::map<OpType, MetalBackend::Creator *> *getCreatorMap() {
     static std::once_flag of;
@@ -50,17 +53,40 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime) : Backend(MNN_FORWARD_METAL) {
+MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32) : Backend(MNN_FORWARD_METAL) {
     mRuntime = runtime;
     mBufferPool.reset(new EagerBufferAllocator(EagerBufferAllocator::Allocator::createRecurse(staticMem.get()), 1024));
     mStaticBufferPool = staticMem;
     mShapeH2D = getConstBuffer(4 * sizeof(int));
     mShapeD2H = getConstBuffer(4 * sizeof(int));
-    mOpFullSupport = true;
+    mUseFloatAsFp16 = usefp16AsFp32;
+    auto ctx = (__bridge MNNMetalContext *)context();
+    mIsIphone = ctx.isIphone;
+    if (runtime->getCommandQueue() == nil) {
+        // one command queue can create only a few command buffer, so let each backend own a command queue
+        _commandQueue = [[ctx device] newCommandQueue];
+        mSupportDeferEncode = true;
+    } else {
+        // otherwise forbid defer encode optimize
+        _commandQueue = runtime->getCommandQueue();
+        mSupportDeferEncode = false;
+    }
+    _commandBuffer = nil;
+    _commandBuffer_net = nil;
+    _waiting = nil;
 }
 MetalBackend::~MetalBackend() {
-    // Do nothing
+    flushEncoder();
 }
+
+id<MTLComputeCommandEncoder> MetalBackend::encoder_net() const {
+    id<MTLComputeCommandEncoder> result = [getCommandBufferForNet() computeCommandEncoder];
+#if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
+    result.label = nil;
+#endif
+    return result;
+}
+
 void *MetalBackend::context() const {
     return mRuntime->context();
 }
@@ -81,8 +107,7 @@ private:
     MemChunk mBuffer;
     EagerBufferAllocator* mAllocator;
 };
-Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
-    auto tensor  = const_cast<Tensor *>(_tensor);
+size_t MetalBackend::getTensorSizeInBytes(const Tensor* tensor) const {
     auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
     size_t size;
     if (MNN_DATA_FORMAT_NC4HW4 == format && tensor->dimensions() >= 2) {
@@ -107,16 +132,25 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
         size = ROUND_UP(size, 4);
     }
     if (0 == size) {
-        return nullptr;
+        return 0;
     }
-    
     // use metal_float when meets float
-    if (halide_type_float == tensor->buffer().type.code && tensor->buffer().type.bits == 32) {
-        size*= sizeof(metal_float);
+    if (halide_type_float == tensor->buffer().type.code && tensor->buffer().type.bits == 32 && mUseFloatAsFp16) {
+        size *= 2;
     } else {
         size *= tensor->getType().bytes();
     }
+    size_t align = 4 * sizeof(int);
+    size = ROUND_UP(size, align);
+    return size;
+}
 
+Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
+    auto tensor  = const_cast<Tensor *>(_tensor);
+    size_t size = getTensorSizeInBytes(_tensor);
+    if (0 == size) {
+        return nullptr;
+    }
     // reuse if possible
     MemChunk buffer;
     EagerBufferAllocator* allocator = nullptr;
@@ -159,7 +193,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        mOpFullSupport = false;
+        mSupportDeferEncode = false;
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type [%s], %s\n", EnumNameOpType(op->type()), op->name()->c_str());
         } else {
@@ -170,7 +204,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
 
     auto exe = iter->second->onCreate(inputs, op, this, outputs);
     if (NULL == exe) {
-        mOpFullSupport = false;
+        mSupportDeferEncode = false;
         MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "");
         return NULL;
     }
@@ -192,8 +226,7 @@ void MetalBackend::onExecuteBegin() const {
 }
 void MetalBackend::onExecuteEnd() const {
     flushEncoder();
-    auto ctx = (__bridge MNNMetalContext *)context();
-    [ctx commit_net];
+    commit_net();
 
     if(mFrameEncodeCache) {
         for(auto opEncoder : mOpEncoders) {
@@ -201,6 +234,20 @@ void MetalBackend::onExecuteEnd() const {
         }
         setOpEncoder();
     }
+}
+bool MetalBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+    if (nullptr == dstInfo) {
+        return true;
+    }
+    auto dst = (MNNMetalTensorContent*)dstInfo;
+    dst->type.code = halide_type_float;
+    if (mUseFloatAsFp16) {
+        dst->type.bits = 16;
+    } else {
+        dst->type.bits = 32;
+    }
+    MNNMetalGetTensorContent(dst, (void*)tensor);
+    return true;
 }
 
 bool MetalBackend::isCommandEncoderSet() {
@@ -350,14 +397,13 @@ void MetalBackend::onResizeBegin() {
     
     // Finish last inference task if needed
     flushEncoder();
-    auto ctx = (__bridge MNNMetalContext *)context();
-    [ctx commit_net];
-    [ctx wait];
+    commit_net();
+    wait();
 }
 
 ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
-    mFrameEncodeCache = (!ctx.isCommitEachShader && mOpFullSupport);
+    mFrameEncodeCache = (!ctx.isCommitEachShader && mSupportDeferEncode);
     return NO_ERROR;
 }
 
@@ -368,13 +414,17 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
     auto device  = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *) (dst->deviceId()))->getBuffer();
     auto floats  = src->getType().code == halide_type_float;
 
+    // For command queue from user, need user to make sure last frame's gpu work is ready
+    bool needWait = mRuntime->getCommandQueue() == nil;
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
-        if (floats) {
+        if (floats && mUseFloatAsFp16) {
             NSUInteger size = src->elementSize();
             auto sizeC4 = UP_DIV(size, 4);
             auto host = this->getHostBuffer(sizeC4 * 4 * sizeof(float));
-            [ctx wait];// make sure previous gpu task finished. for reuse mHostBuffer and mShapeH2D
+            if (needWait) {
+                wait();
+            }
             memcpy(host.contents, src->host<float>(), src->size());
             unsigned int limits[] = {
                 (unsigned int)sizeC4,
@@ -383,8 +433,8 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
                 1
             };
             ::memcpy(mShapeH2D.contents, limits, sizeof(limits));
-            auto encoder    = [ctx encoder];
-            auto bandwidth  = [ctx load: @"downcast_float4" encoder:encoder];
+            auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
+            auto bandwidth  = [ctx load: @"downcast_float4" encoder:encoder fp16:mUseFloatAsFp16];
             
             [encoder setBuffer:host offset:0 atIndex:0];
             [encoder setBuffer:device offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
@@ -397,12 +447,14 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
             threads.first.width = UP_DIV(threads.first.width, threads.second.width);
             [encoder dispatchThreadgroups:threads.first threadsPerThreadgroup:threads.second];
             [encoder endEncoding];
-            [ctx commit];
+            commit();
             //[ctx wait];
         } else {
-            [ctx wait];
-            memcpy(device.contents, src->host<uint8_t>(), src->size());
-            [ctx commit];
+            if (needWait) {
+                wait();
+            }
+            memcpy((uint8_t*)device.contents + TensorUtils::getDescribe(dst)->extra.offset, src->host<uint8_t>(), src->size());
+            commit();
             //[ctx wait];
         }
     }
@@ -410,21 +462,23 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
     else {
 
         auto buffer = getHostBuffer(src->elementSize() * sizeof(float));
-        [ctx wait];// make sure previous gpu task finished. for reuse mHostBuffer and mShapeH2D
+        if (needWait) {
+            wait();
+        }
         auto size = getTensorShape(mShapeH2D, src);
         memcpy(buffer.contents, src->host<float>(), src->size());
-        auto encoder = [ctx encoder];
+        auto encoder = [getCommandBufferForBufferCopy() computeCommandEncoder];
         auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Down);
         MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
 
-        auto bandwidth = [ctx load:kernel encoder:encoder];
+        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
         
         [encoder setBuffer:buffer offset:0 atIndex:0];
         [encoder setBuffer:device offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
         [encoder setBuffer:mShapeH2D offset:0 atIndex:2];
         [ctx dispatchEncoder:encoder threads:size bandwidth:bandwidth];
         [encoder endEncoding];
-        [ctx commit];
+        commit();
         //[ctx wait];
     }
 }
@@ -437,14 +491,14 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
     auto floats  = src->getType().code == halide_type_float;
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
-        if (floats) {
+        if (floats && mUseFloatAsFp16) {
             auto eleSize = dst->elementSize();
             eleSize = UP_DIV(eleSize, 4) * 4;
             auto buffer = getHostBuffer(eleSize * dst->getType().bytes());
 
             NSUInteger size = src->elementSize();
-            auto encoder    = [ctx encoder];
-            auto bandwidth  = [ctx load: @"upcast_float4" encoder:encoder];
+            auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
+            auto bandwidth  = [ctx load: @"upcast_float4" encoder:encoder fp16:mUseFloatAsFp16];
             [encoder setBuffer:device offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
             [encoder setBuffer:buffer offset:0 atIndex:1];
             auto sizeC4 = UP_DIV(size, 4);
@@ -465,32 +519,32 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
             [encoder dispatchThreadgroups:threads.first threadsPerThreadgroup:threads.second];
             
             [encoder endEncoding];
-            [ctx commit];
-            [ctx wait];
+            commit();
+            wait();
 
             memcpy(dst->host<float>(), buffer.contents, dst->size());
         } else {
-            [ctx commit];
-            [ctx wait];
-            memcpy(dst->host<uint8_t>(), device.contents, dst->size());
+            commit();
+            wait();
+            memcpy(dst->host<uint8_t>(), (uint8_t*)device.contents + TensorUtils::getDescribe(src)->extra.offset, dst->size());
         }
     }
     // convert
     else {
         auto size = getTensorShape(mShapeD2H, src);
         auto buffer  = getHostBuffer(dst->size());
-        auto encoder = [ctx encoder];
+        auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
         auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Up);
         MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
 
-        auto bandwidth = [ctx load:kernel encoder:encoder];
+        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
         [encoder setBuffer:device offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
         [encoder setBuffer:buffer offset:0 atIndex:1];
         [encoder setBuffer:mShapeD2H offset:0 atIndex:2];
         [ctx dispatchEncoder:encoder threads:size bandwidth:bandwidth];
         [encoder endEncoding];
-        [ctx commit];
-        [ctx wait];
+        commit();
+        wait();
         memcpy(dst->host<float>(), buffer.contents, dst->size());
     }
 }
@@ -499,7 +553,7 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
                                         id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const {
     auto ctx    = (__bridge MNNMetalContext *)context();
     auto standalone = encoder == nil;
-    encoder         = encoder ?: [ctx encoder];
+    encoder         = encoder ?: [getCommandBufferForBufferCopy() computeCommandEncoder];
     auto sfmt       = TensorUtils::getDescribe(src)->dimensionFormat;
     auto dfmt       = TensorUtils::getDescribe(dst)->dimensionFormat;
 
@@ -507,7 +561,7 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
     if (sfmt == dfmt || src->dimensions() <= 1) {
         auto flt       = dst->getType().code == halide_type_float;
         auto size      = flt ? dst->elementSize() : dst->size();
-        auto bandwidth = [ctx load:flt ? @"copy_float" : @"copy_byte" encoder:encoder];
+        auto bandwidth = [ctx load:flt ? @"copy_float" : @"copy_byte" encoder:encoder fp16:mUseFloatAsFp16];
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId())->getBuffer() offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)dst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
         [ctx dispatchEncoder:encoder threads:{(NSUInteger)size, 1, 1} bandwidth:bandwidth];
@@ -521,7 +575,7 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
         }
 
         auto size     = getTensorShape(shape, src);
-        auto bandwidth = [ctx load:kernel encoder:encoder];
+        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
         [encoder setBuffer:( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(src->buffer().device))->getBuffer() offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
         [encoder setBuffer:( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(dst->buffer().device))->getBuffer() offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
         [encoder setBuffer:shape offset:0 atIndex:2];
@@ -538,16 +592,15 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst) const {
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
     if(!mFrameEncodeCache) {
-        [ctx commit_net];
+        commit_net();
     }
 
     onCopyBuffer(src, dst, nil, nil);
 }
 
-id<MTLComputeCommandEncoder> MetalBackend::encoder() const {
+id<MTLComputeCommandEncoder> MetalBackend::encoder_for_net() const {
     if (nil == mComputeEncoder) {
-        auto ctx = (__bridge MNNMetalContext *)context();
-        mComputeEncoder = [ctx encoder_net];//TO DO :: use which cmdBuffer
+        mComputeEncoder = encoder_net();//TO DO :: use which cmdBuffer
     }
     return mComputeEncoder;
 }
@@ -570,13 +623,98 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
-    [ctx commit_net];
+    commit_net();
     if (toCpu) {
-        [ctx wait];
+        wait();
     }
     mFrameEncodeCache = false;
     mOpEncoderSet = false;
     return 0;
+}
+id<MTLCommandBuffer> MetalBackend::getCommandBufferForBufferCopy() const {
+    if (nil == _commandBuffer) {
+        _commandBuffer = [_commandQueue commandBuffer];
+        if (!mSupportDeferEncode) {
+            // In this case _commandBuffer should be the same as _commandBuffer_net
+            _commandBuffer_net = _commandBuffer;
+        }
+    }
+    return _commandBuffer;
+}
+id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
+    if (nil == _commandBuffer_net) {
+        _commandBuffer_net = [_commandQueue commandBuffer];
+        if (!mSupportDeferEncode) {
+            // In this case _commandBuffer should be the same as _commandBuffer_net
+            _commandBuffer = _commandBuffer_net;
+        }
+    }
+    return _commandBuffer_net;
+}
+
+void MetalBackend::commit() const {
+    if (nil != _commandBuffer &&  _commandBuffer.status < MTLCommandBufferStatusCommitted) {
+        [_commandBuffer commit];
+        _waiting = _commandBuffer;
+        _commandBuffer = nil;
+        if (!mSupportDeferEncode) {
+            // In this case _commandBuffer should be the same as _commandBuffer_net
+            _commandBuffer_net = nil;
+        }
+    }
+}
+
+void MetalBackend::commit_net() const {
+    if (nil != _commandBuffer_net && _commandBuffer_net.status < MTLCommandBufferStatusCommitted) {
+        [_commandBuffer_net commit];
+        _waiting = _commandBuffer_net;
+        _commandBuffer_net = nil;
+        if (!mSupportDeferEncode) {
+            // In this case _commandBuffer should be the same as _commandBuffer_net
+            _commandBuffer = nil;
+        }
+    }
+}
+
+void MetalBackend::wait() const {
+    if (nil != _waiting) {
+        auto buffer = _waiting;
+        if (buffer.status >= MTLCommandBufferStatusCompleted) {
+            return;
+        }
+
+#if MNN_METAL_BENCHMARK
+        NSTimeInterval begin = [NSDate timeIntervalSinceReferenceDate];
+        [buffer waitUntilCompleted];
+        NSTimeInterval end = [NSDate timeIntervalSinceReferenceDate];
+        if (@available(iOS 10.3, *)) {
+            printf("[METAL] commit costs: %.3fms\t(kernel: %.3fms, GPU: %.3fms)\n", (end - begin) * 1000.f,
+                   (buffer.kernelEndTime - buffer.kernelStartTime) * 1000.f,
+                   (buffer.GPUEndTime - buffer.GPUStartTime) * 1000.f);
+        } else {
+            printf("[METAL] commit costs: %.3fms\n", (end - begin) * 1000.f);
+        }
+#else
+        [buffer waitUntilCompleted];
+#endif
+
+#if MNN_METAL_DEBUG
+        if (buffer.error) {
+            printf("[METAL] %s\n", buffer.error.localizedDescription.UTF8String);
+        }
+#endif
+    }
+    _waiting = nil;
+}
+
+id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const{
+    auto ctx = (__bridge MNNMetalContext *)context();
+    auto source = [[NSString alloc] initWithUTF8String:csource];
+    auto name = [[NSString alloc] initWithUTF8String:cname];
+    return [ctx pipelineWithSourceOption:source name:name options:options];
+}
+void MetalRuntime::setCommandQueue(id<MTLCommandQueue> queue) {
+    mQueue = queue;
 }
 
 void MetalRuntime::setGpuMode(const int mode_num) {
@@ -642,9 +780,6 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
     if (nil == sharedContext.device) {
         sharedContext.device = device;
     }
-    if (nil == sharedContext.queue) {
-        sharedContext.queue = [sharedContext.device newCommandQueue];
-    }
     auto mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
     auto ctx = (__bridge MNNMetalContext *)mContext;
     BOOL res = [ctx initWithSharedContext:&sharedContext dev:device];
@@ -654,6 +789,18 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
     }
     auto rt = new MetalRuntime(mContext);
     rt->setGpuMode(info.gpuMode);
+    if (nil != sharedContext.queue) {
+        rt->setCommandQueue(sharedContext.queue);
+    }
+#ifdef MNN_METAL_TEST
+    else {
+        id<MTLCommandQueue> queue = [sharedContext.device newCommandQueue];
+        rt->setCommandQueue(queue);
+    }
+#endif
+    if (nullptr != info.user) {
+        rt->mDefaultConfig = *info.user;
+    }
     return rt;
 }
 
@@ -833,7 +980,12 @@ bool MetalRuntime::onMeasure(const std::vector<Tensor*>& inputs, const std::vect
 }
 
 Backend* MetalRuntime::onCreate(const BackendConfig* config) const {
-    return new MetalBackend(mStatic, this);
+    BackendConfig::PrecisionMode precision = mDefaultConfig.precision;
+    if (nullptr != config) {
+        precision = config->precision;
+    }
+    bool useFp16AsFp32 = precision != BackendConfig::Precision_High;
+    return new MetalBackend(mStatic, this, useFp16AsFp32);
 }
 
 void MetalRuntime::onGabageCollect(int level) {
@@ -895,6 +1047,9 @@ void registerMetalRuntimeCreator() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
         registerMetalOps();
+#ifdef MNN_SUPPORT_RENDER
+        registerMetalRenderOps();
+#endif
         MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
     } else {
         MNN_ERROR("Init Metal Error\n");

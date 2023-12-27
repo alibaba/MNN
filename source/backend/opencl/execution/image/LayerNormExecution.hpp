@@ -42,6 +42,7 @@ private:
     std::shared_ptr<cl::Buffer> mGammaBuffer;
     std::shared_ptr<cl::Buffer> mBetaBuffer;
     bool has_gamma_beta_ = false;
+    uint32_t mMaxWorkGroupSize;
 };
 
 } // namespace OpenCL

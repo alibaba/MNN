@@ -14,13 +14,13 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalBinary::MetalBinary(Backend *backend, std::string type, const MNN::Op *op) : Execution(backend) {
+MetalBinary::MetalBinary(Backend *backend, std::string type, const MNN::Op *op) : MetalExecution(backend) {
     auto mKernelName = "binary_" + type + "_x1";
     auto mtbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mConstBuffer             = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     auto kn = [NSString stringWithCString:mKernelName.c_str() encoding:[NSString defaultCStringEncoding]];
-    mPipeline = [context pipelineWithName:kn];
+    mPipeline = [context pipelineWithName:kn fp16:mtbn->useFp16InsteadFp32()];
     mActivationType = op->main_as_BinaryOp()->activationType();
 }
 ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -39,32 +39,14 @@ ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-ErrorCode MetalBinary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-        auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
-        auto encoder           = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+void MetalBinary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 #define CHECK(t, i) if (originOp == t) return i;

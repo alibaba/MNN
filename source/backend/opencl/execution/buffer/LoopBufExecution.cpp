@@ -17,12 +17,12 @@ namespace OpenCL {
 
 static void _TileOrPackTensor(Tensor *input, Tensor *output, cl::Kernel& kernel, cl::NDRange &globalWorkSize,
                         cl::NDRange &localWorkSize, const int Width, const int Height, const int Channel,
-                        const int Batch, OpenCLRuntime *runTime, const std::string &KernelName, std::set<std::string> buildOptions) {
+                        const int Batch, OpenCLBackend *bn, const std::string &KernelName, std::set<std::string> buildOptions) {
     if (TensorUtils::getDescribe(output)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC || TensorUtils::getDescribe(input)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC){
         buildOptions.emplace("-DMNN_NHWC");
     }
-    kernel = runTime->buildKernel("loop_buf", KernelName, buildOptions);
-    uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(kernel));
+    kernel = bn->getOpenCLRuntime()->buildKernel("loop_buf", KernelName, buildOptions);
+    uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(bn->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
 
     uint32_t index = 0;
@@ -37,10 +37,11 @@ static void _TileOrPackTensor(Tensor *input, Tensor *output, cl::Kernel& kernel,
     ret |= kernel.setArg(index++, Channel);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBuf _TileOrPackTensor");
 
-    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, kernel).first;
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, bn->getOpenCLRuntime(), KernelName, kernel).first;
 
     globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    bn->recordKernel3d(kernel, mGlobalWorkSize, mLocalWorkSize);
 }
 
 static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Tensor *> &inputs,
@@ -66,6 +67,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
      auto cmd                      = mLoop->commands()->GetAs<RegionCommand>(0);
      OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
      auto runTime                  = mOpenCLBackend->getOpenCLRuntime();
+     mOpenCLBackend->startRecord(mRecording);
      _setTensorStack(mTensors, inputs, outputs, mLoop);
      mUnits.clear();
      mOffsetTensors.clear();
@@ -99,7 +101,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[1].get(), Backend::DYNAMIC);
 
         Unit unit;
-        _TileOrPackTensor(mTensors[cmd->indexes()->data()[1]], mTmpTensors[1].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height,Channel, Batch, runTime, "tile_buf", mBuildOptions);
+        _TileOrPackTensor(mTensors[cmd->indexes()->data()[1]], mTmpTensors[1].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height,Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions);
         mUnits.emplace_back(unit);
      }
 
@@ -115,7 +117,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
             mOpenCLBackend->onAcquireBuffer(mOffsetTensors.back().get(), Backend::DYNAMIC);
 
             Unit unit;
-            _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, "tile_buf", mBuildOptions);
+            _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions);
             mUnits.emplace_back(unit);
         }
      }
@@ -158,6 +160,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
         mUnits.emplace_back(unit);
+        mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
      }
 
      //pack output
@@ -169,7 +172,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
         Unit unit;
-        _TileOrPackTensor(mTmpTensors[0].get(), mTensors[cmd->indexes()->data()[0]], unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, "pack_buf", mBuildOptions);
+        _TileOrPackTensor(mTmpTensors[0].get(), mTensors[cmd->indexes()->data()[0]], unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "pack_buf", mBuildOptions);
         mUnits.emplace_back(unit);
      }
 
@@ -179,6 +182,7 @@ static void _setTensorStack(std::vector<Tensor *> &result, const std::vector<Ten
      for (int i = 0; i < mOffsetTensors.size(); ++i) {
         mOpenCLBackend->onReleaseBuffer(mOffsetTensors[i].get(), Backend::DYNAMIC);
      }
+     mOpenCLBackend->endRecord(mRecording);
 
      return NO_ERROR;
  }
@@ -197,6 +201,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
      auto cmd     = mLoop->commands()->GetAs<RegionCommand>(0);
      OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
      auto runTime = mOpenCLBackend->getOpenCLRuntime();
+     mOpenCLBackend->startRecord(mRecording);
      _setTensorStack(mTensors, inputs, outputs, mLoop);
 
      mOffset[0] = cmd->view()->GetAs<View>(0)->offset();
@@ -229,7 +234,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[i].get(), Backend::DYNAMIC);       
 
         Unit unit;
-        _TileOrPackTensor(input, mTmpTensors[i].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, "tile_buf", mBuildOptions);
+        _TileOrPackTensor(input, mTmpTensors[i].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions);
         mUnits.emplace_back(unit);
      }
 
@@ -245,7 +250,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
             mOpenCLBackend->onAcquireBuffer(mOffsetTensors.back().get(), Backend::DYNAMIC);
 
             Unit unit;
-            _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, "tile_buf", mBuildOptions);
+            _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions);
             mUnits.emplace_back(unit);
         }
      }
@@ -303,6 +308,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
         mUnits.emplace_back(unit);
+         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
      }
 
      //pack output
@@ -314,7 +320,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
         const int Height = Shape.at(1);
         const int Batch = Shape.at(0);
         Unit unit;
-        _TileOrPackTensor(mTmpTensors[0].get(), output, unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, runTime, "pack_buf", mBuildOptions);
+        _TileOrPackTensor(mTmpTensors[0].get(), output, unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "pack_buf", mBuildOptions);
         mUnits.emplace_back(unit);
      }
 
@@ -324,6 +330,7 @@ ErrorCode LoopBatchMatMulBufExecution::onResize(const std::vector<Tensor *> &inp
     for (int i = 0; i < mOffsetTensors.size(); ++i) {
          mOpenCLBackend->onReleaseBuffer(mOffsetTensors[i].get(), Backend::DYNAMIC);
     }
+    mOpenCLBackend->endRecord(mRecording);
 
     return NO_ERROR;
 }
@@ -340,6 +347,7 @@ ErrorCode LoopBinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     auto cmd                      = mLoop->commands()->GetAs<RegionCommand>(0);
     OpenCLBackend *mOpenCLBackend = (OpenCLBackend *)backend();
     auto runTime                  = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
     _setTensorStack(mTensors, inputs, outputs, mLoop);
     mUnits.clear();
     
@@ -389,6 +397,8 @@ ErrorCode LoopBinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
     mUnits.emplace_back(unit);
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -467,7 +477,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<LoopBufCreator> __LoopBuf_op(OpType_While, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(LoopBufCreator, OpType_While, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

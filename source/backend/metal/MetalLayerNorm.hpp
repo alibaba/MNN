@@ -9,19 +9,18 @@
 #ifndef MetalLayerNorm_hpp
 #define MetalLayerNorm_hpp
 
-#import "core/Execution.hpp"
+#import "MetalExecution.hpp"
 #import "MNN_generated.h"
-#import "MetalDefine.h"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalLayerNorm : public Execution {
+class MetalLayerNorm : public MetalExecution {
 public:
     MetalLayerNorm(Backend *backend, const LayerNorm *layernorm);
     virtual ~MetalLayerNorm() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     int mOutside;

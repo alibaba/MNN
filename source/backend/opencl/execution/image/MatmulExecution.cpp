@@ -19,7 +19,7 @@ MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN:
 }
 ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
 
     Tensor *input0 = inputs[0];
     Tensor *input1 = inputs[1];
@@ -100,8 +100,8 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
 
-    recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(runtime, mRecording);
+    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -118,9 +118,9 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Matmul", event});
     #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End MatMulExecution onExecute... \n");
 #endif
@@ -144,7 +144,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<MatMulCreator> __matmul_op(OpType_MatMul, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(MatMulCreator, OpType_MatMul, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

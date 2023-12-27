@@ -14,7 +14,7 @@
 namespace MNN {
 
 MetalLayerNorm::MetalLayerNorm(Backend *backend, const LayerNorm *layernorm)
-    : Execution(backend), mGroup(layernorm->group()),
+    : MetalExecution(backend), mGroup(layernorm->group()),
         mEps(layernorm->epsilon()) {
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
@@ -69,10 +69,10 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     }
     std::sort(mAxis.begin(), mAxis.end());
 
-    for (int i = 0; i < rank - axis.size(); ++i) {
+    for (int i = 0; i < rank - (int)axis.size(); ++i) {
         mOutside *= input->length(i);
     }
-    for (int i = rank - axis.size(); i < rank; ++i) {
+    for (int i = rank - (int)axis.size(); i < rank; ++i) {
         mInside *= input->length(i);
     }
     
@@ -84,44 +84,26 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
 
     
     bool parallel = (mInside > 32) && ((mInside & 3) == 0);
-    mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1"];
+    mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
     
     auto inside = parallel ? mInside/4 : mInside;
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
     return NO_ERROR;
 }
 
-ErrorCode MetalLayerNorm::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
+    auto input = inputs[0], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mGammaBuffer offset:0 atIndex:3];
+    [encoder setBuffer:mBetaBuffer offset:0 atIndex:4];
 
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mGammaBuffer offset:0 atIndex:3];
-        [encoder setBuffer:mBetaBuffer offset:0 atIndex:4];
-
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        MNN_PRINT_ENCODER(context, encoder);
-
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    MNN_PRINT_ENCODER(context, encoder);
 }
 
 class MetalLayerNormCreator : public MetalBackend::Creator {

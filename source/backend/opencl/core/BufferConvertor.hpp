@@ -40,7 +40,7 @@ public:
     explicit BufferConvertor(OpenCLRuntime *opencl_runtime) : mOpenCLRuntime(opencl_runtime) {
     }
     bool convertToNC4HW4Buffer(const Tensor *input, const OpenCLBufferFormat type, Tensor *output,
-                               bool needTrans, bool needWait = false);
+                               bool needTrans, bool needWait = false, bool lowMemory = false, int quantBit = 0);
 
 private:
     OpenCLRuntime *mOpenCLRuntime;

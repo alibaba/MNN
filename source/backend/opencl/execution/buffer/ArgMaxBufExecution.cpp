@@ -23,6 +23,7 @@ ArgMaxBufExecution::ArgMaxBufExecution(const std::string &compute, Backend* back
 ErrorCode ArgMaxBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
+    openCLBackend->startRecord(mRecording);
     auto input = inputs[0];
     auto output = outputs[0];
     if(mAxis < 0){
@@ -93,6 +94,8 @@ ErrorCode ArgMaxBufExecution::onResize(const std::vector<Tensor*>& inputs, const
 
     std::string kernelName = "gargmax_buf";
     mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
+    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
+    openCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -109,6 +112,14 @@ ErrorCode ArgMaxBufExecution::onExecute(const std::vector<Tensor*>& inputs, cons
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ArgMax", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End ArgMaxBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -142,8 +153,9 @@ public:
     }
 };
 
-OpenCLCreatorRegister<ArgMaxBufCreator> __ArgMaxBuf__(OpType_ArgMax, BUFFER);
-OpenCLCreatorRegister<ArgMaxBufCreator> __ArgMinBuf__(OpType_ArgMin, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ArgMaxBufCreator, OpType_ArgMax, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ArgMaxBufCreator, OpType_ArgMin, BUFFER);
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

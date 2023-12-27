@@ -120,7 +120,7 @@ Executor::Requirement Executor::getRequirement(Expr* expr) const {
         return req;
     }
     for (int i = 0; i < inputSize; ++i) {
-        req.contentNeedContent[i] = OpCommonUtils::opNeedContent(op->type(), i);
+        req.contentNeedContent[i] = OpCommonUtils::opNeedContent(op, i);
         req.shapeNeedContent[i]   = false;
     }
     auto needIndexId = SizeComputer::needInputContent(op, inputSize);

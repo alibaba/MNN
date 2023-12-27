@@ -462,7 +462,8 @@ int OpCommonUtils::computeStride(int32_t* strides, const int* shape, int length)
     return stride;
 }
 
-bool OpCommonUtils::opNeedContent(int type, int index) {
+bool OpCommonUtils::opNeedContent(const MNN::Op* op, int index) {
+    int type = op->type();
     switch (type) {
         case OpType_ZerosLike:
         case OpType_ZeroGrad:
@@ -488,10 +489,27 @@ bool OpCommonUtils::opNeedContent(int type, int index) {
             break;
 #ifdef MNN_SUPPORT_RENDER
         case OpType_RasterAndInterpolate:
+        {
             if (0 == index) {
-                return false;
+                int type = 4;
+                if (op->main_type() == OpParameter_Extra) {
+                    auto extra = op->main_as_Extra();
+                    if (nullptr != extra->attr()) {
+                        for (int i=0; i<extra->attr()->size(); ++i) {
+                            auto attr = extra->attr()->GetAs<Attribute>(i);
+                            if (attr->key()->str() == "primitiveType") {
+                                type = attr->i();
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (type <= 4) {
+                    return false;
+                }
             }
             break;
+        }
 #endif
         default:
             break;

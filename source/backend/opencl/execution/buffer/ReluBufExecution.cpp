@@ -72,7 +72,7 @@ ErrorCode ReluBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         return SubgrouponResize(inputs, outputs);
     }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-
+    mOpenCLBackend->startRecord(mRecording);
     mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
     int fullCount[2] = {1, 1};
@@ -92,6 +92,8 @@ ErrorCode ReluBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     
     mUnits[0].globalWorkSize = {globalSize[0], globalSize[1]};
     mUnits[0].localWorkSize  = {localSize[0], localSize[1]};
+    mOpenCLBackend->recordKernel2d(mUnits[0].kernel, globalSize, localSize);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -102,6 +104,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     int nhwcArray[4]        = {nhwc[0], nhwc[1], nhwc[2], nhwc[3]};
 
     auto runTime     = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
     int input_c_pack = TensorUtils::getTensorChannelPack(inputs[0]);
     int output_c_pack = TensorUtils::getTensorChannelPack(outputs[0]);
     auto inputpad = TensorUtils::getDescribe(inputs[0])->mPads;
@@ -116,10 +119,11 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     
     uint32_t index = 0;
     cl_int ret = CL_SUCCESS;
+    std::vector<uint32_t> gws = {(uint32_t)nhwc[2] * nhwc[1], (uint32_t)UP_DIV(nhwc[3], 4),
+                                        (uint32_t)nhwc[0]};
+    std::vector<uint32_t> lws  = {1, 16, 1};
     if (input_c_pack == 4) {
-        std::vector<uint32_t> globalSize = {(uint32_t)nhwc[2] * nhwc[1], (uint32_t)UP_DIV(nhwc[3], 4),
-                                            (uint32_t)nhwc[0]};
-        mUnits[0].globalWorkSize         = {globalSize[0], globalSize[1], globalSize[2]};
+        mUnits[0].globalWorkSize         = {gws[0], gws[1], gws[2]};
         ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[0]);
         ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[1]);
         ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[2]);
@@ -133,12 +137,13 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup C4");
 
-        auto lws = localWS3DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel).first;
+        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel).first;
         mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
     } else {
-        mUnits[0].globalWorkSize = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),
-                                    (uint32_t)nhwc[0]};
-        mUnits[0].localWorkSize  = {1, 16, 1};
+        gws = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),
+            (uint32_t)nhwc[0]};
+        mUnits[0].globalWorkSize         = {gws[0], gws[1], gws[2]};
+        mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
 
         ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[0]);
         ret |= mUnits[0].kernel.setArg(index++, mUnits[0].globalWorkSize[1]);
@@ -153,6 +158,8 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         ret |= mUnits[0].kernel.setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup");
     }
+    mOpenCLBackend->recordKernel3d(mUnits[0].kernel, gws, lws);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
@@ -225,9 +232,9 @@ public:
     }
 };
 
-OpenCLCreatorRegister<ReluBufCreator> __ReluBuf_op(OpType_ReLU, BUFFER);
-OpenCLCreatorRegister<ReluBufCreator> __PReluBuf_op(OpType_PReLU, BUFFER);
-OpenCLCreatorRegister<ReluBufCreator> __Relu6Buf_op(OpType_ReLU6, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ReluBufCreator, OpType_ReLU, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ReluBufCreator, OpType_PReLU, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(ReluBufCreator, OpType_ReLU6, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

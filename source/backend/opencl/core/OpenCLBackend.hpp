@@ -41,6 +41,7 @@ public:
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
+    virtual float onGetMemoryInMB() override;
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
     bool isCLRuntimeError();
@@ -59,6 +60,7 @@ private:
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
     BackendConfig::PrecisionMode mPrecision;
+    BackendConfig::MemoryMode mMemory;
     bool mCLRuntimeError = false;
 
     friend class OpenCLBackend;
@@ -127,8 +129,32 @@ public:
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
     }
+
+    BackendConfig::MemoryMode getMemory() const {
+        return mMemory;
+    }
     
     DataType getDataType(const Tensor* tensor);
+
+    cl_channel_type fpType();
+    int fpBytes();
+    
+    void clearRecord() const;
+    void enqeueRecord() const;
+    void releaseRecord();
+    bool isUseRecordQueue(){
+        return mUseRecordQueue;
+    }
+    bool isDevideOpRecord(){
+        return mDevideOpRecord;
+    }
+    void addRecord(cl_recording_qcom &record){
+        mRecordings.emplace_back(record);
+    }
+    void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
+    void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
+    void startRecord(cl_recording_qcom &recording);
+    void endRecord(cl_recording_qcom &recording, bool flag = false);
 
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
@@ -153,8 +179,13 @@ private:
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
     BackendConfig::PrecisionMode mPrecision;
+    BackendConfig::MemoryMode mMemory;
     bool mIsCreateError{false};
-
+    mutable std::vector<cl_recording_qcom> mRecordings;
+    bool mUseRecordQueue = false;
+    bool mDevideOpRecord = false;
+    uint32_t mRecordNums = 0;
+    uint32_t mUseRecordableQueueSize;
 private:
 
     void* svmPtr = nullptr;
@@ -173,6 +204,18 @@ public:
     }
     ~OpenCLCreatorRegister() = default;
 };
+
+#ifdef MNN_OPENCL_SEP_BUILD
+#define REGISTER_OPENCL_OP_CREATOR(name, opType, memObj)  \
+    OpenCLCreatorRegister<name> ___OpenCL##name##__##opType##__##memObj##__(opType, memObj)
+#else
+#define REGISTER_OPENCL_OP_CREATOR(name, opType, memObj)                   \
+    void ___OpenCL##name##__##opType##__##memObj##__() {                   \
+        static name _temp;                                                 \
+        OpenCLBackend::addCreator(std::make_pair(opType, memObj), &_temp); \
+    }
+#endif
+
 
 template <typename T>
 class TypedCreator : public OpenCLBackend::Creator {

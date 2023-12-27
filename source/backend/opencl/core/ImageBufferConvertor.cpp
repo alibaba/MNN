@@ -59,7 +59,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     }
     
     #ifdef ENABLE_OPENCL_TIME_PROFILER
-        runtime->pushEvent({"inputFormatTransform", event});
+    runtime->pushEvent({"inputFormatTransform", event});
     #endif
     return true;
 }
@@ -414,7 +414,9 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
 
     MNN_CHECK_CL_SUCCESS(res, "convertImageToBuffer");
-
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    runtime->pushEvent({"convertBufferToImage", event});
+#endif
     if (needWait) {
         event.wait();
     }
@@ -521,7 +523,9 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
     MNN_CHECK_CL_SUCCESS(res, "convertBufferToImage");
-
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    runtime->pushEvent({"convertBufferToImage", event});
+#endif
     if (needWait) {
         event.wait();
     }

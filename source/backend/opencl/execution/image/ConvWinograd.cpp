@@ -189,7 +189,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     const int padX  = pad.first;
     
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
-    startRecord(runTime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
 
     auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
@@ -277,7 +277,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_S[b] = {static_cast<uint32_t>(wUnit * hUnit), static_cast<uint32_t>(icC4)};
             std::string kernelName = "winogradTransformSource";
             mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
-            recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b], mOpenCLBackend->getOpenCLRuntime());
+            mOpenCLBackend->recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b]);
         }
 
         /*MatMul*/
@@ -332,7 +332,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             ret |= mMatMul[b].setArg(7, alpha*alpha);
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
             mGWS_M[b] = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
-            recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b], mOpenCLBackend->getOpenCLRuntime());
+            mOpenCLBackend->recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b]);
         }
 
         // Dest Transform
@@ -340,10 +340,10 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
             mGWS_D[b] = {static_cast<uint32_t>(wUnit*hUnit), static_cast<uint32_t>(ocC4)};
             std::string kernelName = "winogradTransformDest";
             mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
-            recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b], mOpenCLBackend->getOpenCLRuntime());
+            mOpenCLBackend->recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b]);
         }
     }
-    endRecord(runTime, mRecording);
+    mOpenCLBackend->endRecord(mRecording);
     
     return NO_ERROR;
 }
@@ -353,9 +353,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto output = outputs[0];
 
     #ifndef ENABLE_OPENCL_TIME_PROFILER
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
         return NO_ERROR;
     }
     #endif

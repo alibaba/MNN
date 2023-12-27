@@ -14,15 +14,16 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalScale::MetalScale(Backend *backend, const Scale *scale) : Execution(backend) {
+MetalScale::MetalScale(Backend *backend, const Scale *scale) : MetalExecution(backend) {
     auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
+    auto mtbn = static_cast<MetalBackend *>(backend);
     auto channel4 = UP_DIV(scale->channels(), 4) * 4;
     mScale = [context newDeviceBuffer:channel4 * sizeof(float) bytes:scale->scaleData()->data() access:CPUWriteOnly];
     mBias  = scale->biasData()
                 ? [context newDeviceBuffer:channel4 * sizeof(float) bytes:scale->biasData()->data() access:CPUWriteOnly]
                 : [context newDeviceBuffer:channel4 * sizeof(float) access:CPUTransparent];
     mConst = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
-    mPipeline = [context pipelineWithName:@"scale_ca"];
+    mPipeline = [context pipelineWithName:@"scale_ca" fp16:mtbn->useFp16InsteadFp32()];
 }
 
 ErrorCode MetalScale::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -42,34 +43,16 @@ ErrorCode MetalScale::onResize(const std::vector<Tensor *> &inputs, const std::v
     return NO_ERROR;
 }
 
-ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
+void MetalScale::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mConst offset:0 atIndex:2];
+    [encoder setBuffer:mScale offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
-
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConst offset:0 atIndex:2];
-        [encoder setBuffer:mScale offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
 }
 
 class MetalScaleCreator : public MetalBackend::Creator {

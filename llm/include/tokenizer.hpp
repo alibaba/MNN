@@ -80,9 +80,8 @@ public:
     virtual std::vector<int> encode(const std::string& str) override;
     virtual std::string decode(int id) override;
 private:
+    std::unordered_map<std::string, int> encoder_;
     std::vector<std::string> decoder_;
-    std::vector<int> tokens_;
-    std::vector<int> token_ids_;
 };
 
 #endif // TOKENIZER_hpp

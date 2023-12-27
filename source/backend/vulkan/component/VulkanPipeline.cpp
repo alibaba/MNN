@@ -41,7 +41,7 @@ VulkanPipeline* VulkanPipelineFactory::createGraphicPipeline(SharedPtr<VulkanLay
         MNN_ERROR("Create Graphic pipeline error: %d\n", res);
         return nullptr;
     }
-    return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_GRAPHICS);
+    return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_GRAPHICS, nullptr, mCache);
 }
 VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& localSize) const {
     SharedPtr<VulkanShaderModule> shader = VulkanShaderModule::create(mDevice, (const uint32_t*)data, dataSize);
@@ -59,7 +59,7 @@ VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data
     if (localSize.size() > 0) {
         // FUNC_PRINT(localSize.size());
         for (int i = 0; i < localSize.size(); i++) {
-            VkSpecializationMapEntry entry = {(uint32_t)(i + 1), (uint32_t)(sizeof(uint32_t) * i),
+            VkSpecializationMapEntry entry = {(uint32_t)(i), (uint32_t)(sizeof(uint32_t) * i),
                                               sizeof(uint32_t)}; /*id,offset,length*/
             specializationMapEntry.push_back(entry);
         }
@@ -73,13 +73,21 @@ VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data
         FUNC_PRINT(res);
         return nullptr;
     }
-    return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_COMPUTE);
+    return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_COMPUTE, shader, mCache);
 }
 
 const VulkanPipeline* VulkanPipelineFactory::getPipeline(const std::string& key,
                                                          const std::vector<VkDescriptorType>& types,
-                                                         const std::vector<uint32_t>& localSize) const {
-    auto iter = mPipelines.find(key);
+                                                         const std::vector<uint32_t>& localSize,
+                                                         const bool separate) const {
+    std::string pipelineKey = key;
+    for(int i = 0; i < localSize.size(); ++i){
+        pipelineKey += "_" + std::to_string(localSize[i]);
+    }
+    if(separate){
+        pipelineKey += "_tuned";
+    }
+    auto iter = mPipelines.find(pipelineKey);
     if (iter != mPipelines.end()) {
         return iter->second.get();
     }
@@ -90,15 +98,17 @@ const VulkanPipeline* VulkanPipelineFactory::getPipeline(const std::string& key,
     }
     auto pipeline = createComputePipeline((uint8_t*)content.first, content.second, types, localSize);
     SharedPtr<VulkanPipeline> resPipeline = pipeline;
-    mPipelines.insert(std::make_pair(key, resPipeline));
+    mPipelines.insert(std::make_pair(pipelineKey, resPipeline));
     return pipeline;
 }
 
-VulkanPipeline::VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type)
+VulkanPipeline::VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type, SharedPtr<VulkanShaderModule> shader, SharedPtr<VulkanPipelineCache> cache)
     : mDevice(dev) {
     mPipeline    = p;
     mLayout      = layout;
     mType = type;
+    mShader = shader;
+    mCache = cache;
 }
 
 VulkanPipeline::~VulkanPipeline() {
@@ -114,6 +124,31 @@ void VulkanPipeline::bind(VkCommandBuffer cmd, VkDescriptorSet des) const {
 }
 VulkanLayout::DescriptorSet* VulkanPipeline::createSet() const {
     return mLayout->createSet();
+}
+
+void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) const{
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    /*for localSize_x_id = 0,localSize_y_id = 1,localSize_z_id = 2*/
+    std::vector<VkSpecializationMapEntry> specializationMapEntry; /*localSize data description*/
+    std::shared_ptr<VkSpecializationInfo> specializationInfo = std::make_shared<VkSpecializationInfo>();
+    if (localSize.size() > 0) {
+        // FUNC_PRINT(localSize.size());
+        for (int i = 0; i < localSize.size(); i++) {
+            VkSpecializationMapEntry entry = {(uint32_t)(i), (uint32_t)(sizeof(uint32_t) * i),
+                                              sizeof(uint32_t)}; /*id,offset,length*/
+            specializationMapEntry.push_back(entry);
+        }
+        specializationInfo->pData         = localSize.data();
+        specializationInfo->dataSize      = localSize.size() * sizeof(uint32_t); /*bytes*/
+        specializationInfo->pMapEntries   = specializationMapEntry.data();
+        specializationInfo->mapEntryCount = specializationMapEntry.size();
+    }
+    
+    auto res = mDevice.createComputePipeline(pipeline, mShader->get(), mLayout->get(), mCache->get(), specializationInfo.get());
+    if (VK_SUCCESS != res) {
+        FUNC_PRINT(1);
+    }
+    mPipeline = pipeline;
 }
 
 VulkanLayout::DescriptorSet* VulkanLayout::createSet() const {

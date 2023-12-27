@@ -95,6 +95,7 @@ table QuantizedFloatParam{
     clampMax: byte = 127;
     // binary proto: [originKySize, originKxSize, transKySize, transKxSize, {kyStart, kxStart, unitY, unitX}, {...} ...]
     winogradAttr:[int];
+    outputDataType:DataType=DT_INT8;
 }
 
 table Convolution2D {
@@ -245,20 +246,6 @@ table Scale {
     scaleData:[float];
     biasData:[float];
     external:[int64]; // [offset, scaleData_bytes_size, biasData_bytes_size]
-}
-
-table QuantizeLinear {
-    scaleSize: int;
-    scaleAxis: int;
-    scaleData:[float];
-    zeroPointData:[byte];
-}
-
-table DequantizeLinear {
-    scaleSize: int;
-    scaleAxis: int;
-    scaleData:[float];
-    zeroPointData:[byte];
 }
 
 enum EltwiseType : byte {

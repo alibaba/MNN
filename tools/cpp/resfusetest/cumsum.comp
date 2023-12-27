@@ -1,0 +1,53 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer pointoffsetSum{
+    highp uint data[];
+} uPointoffsetSum;
+
+
+layout(set=0, binding=1) readonly buffer pointoffset{
+    highp uint data[];
+} uPointoffset;
+
+layout(set=0, binding=2) uniform constBuffer {
+    ivec4 point; // point size
+} uConstant;
+
+shared uint local_sum[256];
+
+#define UNIT 3
+#define LOCAL_SIZE 8
+layout (local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+	int tId = int(gl_LocalInvocationID.x);
+    int size = uConstant.point.x;
+    int curOffset = 0;
+    uint threadBuffer[UNIT];
+    while (curOffset < size) {
+        int sta = tId * UNIT + curOffset;
+        int fin = min(sta + UNIT, size);
+        for (int i=sta; i<fin; ++i) {
+            int lpos = i - sta;
+            threadBuffer[lpos] = uPointoffset.data[i];
+        }
+        for (int i=sta+1; i<fin; ++i) {
+            int lpos = i - sta;
+            threadBuffer[lpos] = threadBuffer[lpos] + threadBuffer[lpos-1];
+        }
+        local_sum[tId] = threadBuffer[fin-sta-1];
+        barrier();
+        if (fin > sta) {
+            uint sum = 0;
+            for (int i=0; i<tId; ++i) {
+                sum += local_sum[i];
+            }
+            for (int i=sta; i<fin; ++i) {
+                int lpos = i - sta;
+                uPointoffsetSum.data[i] = threadBuffer[lpos] + sum;
+            }
+        }
+        curOffset += LOCAL_SIZE * UNIT;
+    }
+}

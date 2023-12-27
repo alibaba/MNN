@@ -105,6 +105,8 @@ ErrorCode DeconvBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
 
     const int outputBatch    = outputShape.at(0);
     const int outputHeight   = outputShape.at(1);
@@ -163,6 +165,8 @@ ErrorCode DeconvBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     
     std::string name = "deconv2d_buf";
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 }
 
@@ -180,6 +184,14 @@ ErrorCode DeconvBufExecution::onExecute(const std::vector<Tensor *> &inputs, con
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"DeconvBuf", event});
 #else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
+#ifdef LOG_VERBOSE
+        MNN_PRINT("End DeconvBufExecution onExecute... \n");
+#endif
+        return NO_ERROR;
+    }
     run3DKernelDefault(mKernel, mGWS, mLWS,
                        mOpenCLBackend->getOpenCLRuntime());
 #endif
@@ -195,6 +207,9 @@ public:
     virtual ~DeconvolutionBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if(inputs.size() != 1){
+            return nullptr;
+        }
         for (int i = 0; i < inputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(inputs[i], false);
         }
@@ -205,7 +220,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<DeconvolutionBufCreator> __deconvbuf_op(OpType_Deconvolution, BUFFER);
+REGISTER_OPENCL_OP_CREATOR(DeconvolutionBufCreator, OpType_Deconvolution, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN

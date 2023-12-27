@@ -109,6 +109,11 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
     if (!mDirect) {
         mCmdBuffer.reset(runtime->mCmdPool->allocBuffer());
     }
+    std::string deviceName = dev.proty().deviceName;
+    if(deviceName.find("Apple") != std::string::npos){
+        mUseAutoTune = false;
+    }
+    mCmdBufferForCopy.reset(runtime->mCmdPool->allocBuffer());
 }
 
 VulkanBackend::~VulkanBackend() {
@@ -287,6 +292,29 @@ static Tensor::DimensionType _convert(MNN_DATA_FORMAT format) {
     }
     return Tensor::CAFFE;
 }
+void VulkanBackend::copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const {
+    _requireHostBuffer(size);
+    ::memcpy(mHostBuffer->map(), src, size);
+    mHostBuffer->unmap();
+    auto cmdbuffer = mCmdBufferForCopy;
+    cmdbuffer->begin(0);
+    VkBufferCopy bufferCopy;
+    bufferCopy.size = size;
+    bufferCopy.dstOffset = offset;
+    bufferCopy.srcOffset = 0;
+    vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer,
+                    1, &bufferCopy);
+    cmdbuffer->end();
+    pushCommand(cmdbuffer->get());
+    _finish();
+}
+void VulkanBackend::_requireHostBuffer(size_t size) const {
+    _finish();
+    if (nullptr == mHostBuffer || mHostBuffer->size() < size) {
+        mHostBuffer.reset(new VulkanBuffer(*mRuntime->mMemoryPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+    }
+}
+
 void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
 #ifdef MNN_VULKAN_DEBUG
     AUTOTIME;
@@ -313,7 +341,20 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             MNNCPUCopyBuffer(srcTensor, tempTensor.get());
             srcTensor = tempTensor.get();
         }
-        _copyTensorToBuffer(srcTensor, buffer, offset);
+        auto eleSize = srcTensor->elementSize();
+        _requireHostBuffer(eleSize * sizeof(float));
+        _copyTensorToBuffer(srcTensor, mHostBuffer.get(), 0);
+        auto cmdbuffer = mCmdBufferForCopy;
+        cmdbuffer->begin(0);
+        VkBufferCopy bufferCopy;
+        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.dstOffset = offset;
+        bufferCopy.srcOffset = 0;
+        vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer->buffer(),
+                        1, &bufferCopy);
+        cmdbuffer->end();
+        pushCommand(cmdbuffer->get());
+        _finish();
     } else if (dstTensor->host<float>() != nullptr) {
         // gpu->host
         _finish();
@@ -326,10 +367,22 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             });
             dstTensor = tempTensor.get();
         }
+        auto eleSize = dstTensor->elementSize();
+        _requireHostBuffer(eleSize * sizeof(float));
         auto buffer = reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId());
         auto offset = TensorUtils::getDescribe(srcTensor)->extra.offset;
-
-        _copyBufferToTensor(dstTensor, buffer, offset);
+        auto cmdbuffer = mCmdBufferForCopy;
+        cmdbuffer->begin(0);
+        VkBufferCopy bufferCopy;
+        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.dstOffset = 0;
+        bufferCopy.srcOffset = offset;
+        vkCmdCopyBuffer(cmdbuffer->get(), buffer->buffer(), mHostBuffer->buffer(),
+                        1, &bufferCopy);
+        cmdbuffer->end();
+        pushCommand(cmdbuffer->get());
+        _finish();
+        _copyBufferToTensor(dstTensor, mHostBuffer.get(), 0);
     } else if (srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0) {
         // gpu->gpu
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
@@ -348,11 +401,82 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         _finish();
     }
 }
+int VulkanBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    _finish();
+    return 0;
+}
 
 bool VulkanBackend::addCreator(OpType t, Creator* c) {
     auto allKind = getCreatorMap();
     allKind->insert(std::make_pair(t, c));
     return true;
+}
+
+bool VulkanBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+    if (nullptr == dstInfo) {
+        return true;
+    }
+    auto vkBuffer = getBuffer(tensor);
+    auto dst = (MNNVulkanTensorContent*)dstInfo;
+    dst->buffer = std::get<0>(vkBuffer);
+    dst->offset = std::get<2>(vkBuffer);
+    dst->size = std::get<1>(vkBuffer);
+    return true;
+}
+
+float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> groupSize){
+    std::shared_ptr<VulkanCommandPool::Buffer> cmd;
+    cmd.reset(const_cast<VulkanCommandPool::Buffer *>(getPool().allocBuffer()));
+    cmd->begin(0);
+    mRuntime->mQueryPool->VulkanCmdResetQueryPool(cmd.get()->get());
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 0);
+    pipeline->bind(cmd.get()->get(), des->get());
+    vkCmdDispatch(cmd.get()->get(), groupSize[0], groupSize[1], groupSize[2]);
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 1);
+    cmd->end();
+    getPool().submitAndWait(cmd.get()->get());
+    float time = mRuntime->mQueryPool->VulkanGetQueryPoolResults();
+    return time;
+}
+
+std::vector<uint32_t> VulkanBackend::autoTunePipeline(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> gws){
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<int> groupSize(3, 1);
+    std::vector<int> maxGroups(3, 1);
+    int maxGroupSize = mRuntime->mDevice->getMaxComputeWorkGroupInvocations();
+    mRuntime->mDevice->getMaxComputeWorkGroupSize(maxGroups);
+    
+    std::vector<uint32_t> lws_prefer(3, 1);
+    uint32_t min_cost = UINT_MAX;
+    
+    while(lws[2] <= gws[2] && lws[2] <= maxGroups[2]) {
+        lws[1] = 1;
+        while(lws[1] <= gws[1] && lws[1] <= maxGroups[1]) {
+            lws[0] = 1;
+            while(lws[0] <= gws[0] && lws[0] <= maxGroups[0]) {
+                if(lws[0]*lws[1]*lws[2] <= maxGroupSize) {
+                    groupSize[0] = UP_DIV(gws[0], lws[0]);
+                    groupSize[1] = UP_DIV(gws[1], lws[1]);
+                    groupSize[2] = UP_DIV(gws[2], lws[2]);
+                    
+                    pipeline->changePipeline(lws);
+                    int cost_time = (int)getPipelineTime(pipeline, des, groupSize);
+                    if(cost_time < min_cost) {
+                        min_cost = cost_time;
+                        lws_prefer[0] = lws[0];
+                        lws_prefer[1] = lws[1];
+                        lws_prefer[2] = lws[2];
+                    }
+                }
+                lws[0]*=2;
+            }
+            lws[1]*=2;
+        }
+        lws[2]*=2;
+    }
+    
+    pipeline->changePipeline(lws_prefer);
+    return lws_prefer;
 }
 
 } // namespace MNN

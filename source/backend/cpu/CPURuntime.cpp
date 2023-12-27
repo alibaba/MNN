@@ -1531,6 +1531,8 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
                        cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
                        cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
 
+    cpuinfo_isa->i8mm = cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
+                        cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
 #endif // iOS
 
 // arm64-osx

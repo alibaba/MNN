@@ -64,7 +64,7 @@ ErrorCode TrainableParamExecution::onResize(const std::vector<Tensor *> &inputs,
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<TrainableParamExecution>> __TrainParam_op(OpType_TrainableParam, IMAGE);
-
+using TrainableParamCreator = TypedCreator<TrainableParamExecution>;
+REGISTER_OPENCL_OP_CREATOR(TrainableParamCreator, OpType_TrainableParam, IMAGE);
 }
 }

@@ -884,14 +884,14 @@ public:
                     // Loop Op's command's first index must be output
                     outputStride = cmd->view()->GetAs<View>(0)->stride()->data();
                 }
-                halide_type_t outputType;
+                halide_type_t inputType;
                 for (int v=0; v<iterIndexsize; ++v) {
                     auto tensorIndex = cmd->indexes()->data()[v];
                     auto tensor = mStack[tensorIndex];
                     auto iterIndex = cmd->iterIndexes()->data()[v];
                     auto offset = iter;
-                    if (0 == v) {
-                        outputType = tensor->getType();
+                    if (1 == v) {
+                        inputType = tensor->getType();
                     }
                     if (iterIndex >= 0) {
                         offset = mStack[iterIndex]->host<int32_t>()[iter];
@@ -969,10 +969,10 @@ public:
                     if (OpType_BinaryOp == op->type()) {
                         auto src0 = mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
                         MNNBinaryExecute proc;
-                        if (outputType.code == halide_type_float) {
+                        if (inputType.code == halide_type_float) {
                             proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
                         } else {
-                            MNN_ASSERT(outputType.code == halide_type_int);
+                            MNN_ASSERT(inputType.code == halide_type_int);
                             proc = CPUBinary::selectForInt(op->main_as_BinaryOp()->opType());
                         }
                         auto lastS = cmd->size()->data()[2];

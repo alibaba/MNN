@@ -155,6 +155,22 @@ public:
     const bool success() const {
         return (VK_NULL_HANDLE != mDevice);
     }
+    
+    const float getTimestampPeriod() const {
+        return mDeviceProty.limits.timestampPeriod;
+    }
+    
+    const int getMaxComputeWorkGroupInvocations() const {
+        return mDeviceProty.limits.maxComputeWorkGroupInvocations;
+    }
+    
+    const void getMaxComputeWorkGroupSize(std::vector<int> &groups) const{
+        if(groups.size() == 3){
+            groups[0] = mDeviceProty.limits.maxComputeWorkGroupSize[0];
+            groups[1] = mDeviceProty.limits.maxComputeWorkGroupSize[1];
+            groups[2] = mDeviceProty.limits.maxComputeWorkGroupSize[2];
+        }
+    }
 
 private:
     const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,

@@ -477,5 +477,15 @@ void Tensor::destroy(Tensor* tensor) {
         delete tensor;
     }
 }
+bool Tensor::getDeviceInfo(void* dst, int type) const {
+    auto nativeDescribe = mDescribe->mContent.get();
+    if (nullptr == nativeDescribe->getBackend()) {
+        return false;
+    }
+    if (nativeDescribe->getBackend()->type() != type) {
+        return false;
+    }
+    return nativeDescribe->getBackend()->onGetTensorInfo(this, dst);
+}
 
 } // namespace MNN

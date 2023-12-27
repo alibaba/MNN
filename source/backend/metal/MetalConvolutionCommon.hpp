@@ -11,21 +11,22 @@
 
 #import "core/ConvolutionCommon.hpp"
 #import "MetalBackend.hpp"
+#import "MetalExecution.hpp"
 #import "MNNMetalContext.h"
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalConvolutionCommon : public Execution {
+class MetalConvolutionCommon : public MetalExecution {
 public:
     MetalConvolutionCommon(Backend *backend, const MNN::Op *op);
     virtual ~MetalConvolutionCommon() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 protected:
     void loadWeight(const MNN::Convolution2D *conv);
 
-    virtual ErrorCode onFloat(const Tensor *input, const Tensor *output)     = 0;
+    virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder)     = 0;
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
 
 private:

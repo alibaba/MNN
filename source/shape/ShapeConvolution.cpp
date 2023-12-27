@@ -97,6 +97,10 @@ public:
         outputBuffer.dimensions    = input->buffer().dimensions;
         auto format = TensorUtils::getDescribe(input)->dimensionFormat;
         outputBuffer.type = input->getType();
+        if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->symmetricQuan() && op->main_as_Convolution2D()->symmetricQuan()->outputDataType() != DataType_DT_INT8) {
+            auto type = op->main_as_Convolution2D()->symmetricQuan()->outputDataType();
+            outputs[0]->setType(type);
+        }
         outputBuffer.dim[0].extent = input->buffer().dim[0].extent;
         if (MNN_DATA_FORMAT_NHWC == format) {
             outputBuffer.dim[3].extent = outputCount;

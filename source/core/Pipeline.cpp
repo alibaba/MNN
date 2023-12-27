@@ -424,7 +424,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
                     }
                 } else {
                     for (int i = 0; i < cmd.inputs.size(); i++) {
-                        if (OpCommonUtils::opNeedContent(opType, i) && inputs[i]->getType() != halide_type_of<int>()) {
+                        if (OpCommonUtils::opNeedContent(cmd.op, i) && inputs[i]->getType() != halide_type_of<int>()) {
                             bool needCast = CPUBackend::getDataType(inputs[i]) != runType;
                             if (needCast) {
                                 cmd.inputs[i] = makeCommand(info.executeBuffer, inputs[i], runType);
@@ -964,7 +964,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
 #ifdef MNN_PIPELINE_DEBUG
                 MNN_ERROR("Pipeline Resize error: %d\n", code);
 #endif
-                if (!iter.info.get()) {
+                if (iter.info.get()) {
                     MNN_ERROR("Resize error for type = %s, name = %s \n", iter.info->type().c_str(), iter.info->name().c_str());
                 }
                 return code;

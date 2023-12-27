@@ -120,7 +120,7 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
     MNN_PRINT("Start ScaleExecution onResize !\n");
 #endif
     
-    startRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->startRecord(mRecording);
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
 
     const int batch    = inputShape.at(0);
@@ -154,8 +154,8 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }
     
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(mOpenCLBackend->getOpenCLRuntime(), mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleExecution onResize !\n");
 #endif
@@ -173,9 +173,9 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"scale", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End ScaleExecution onExecute... \n");
 #endif
@@ -190,7 +190,8 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<ScaleExecution>> __scale_op(OpType_Scale, IMAGE);
+using ScaleCreator = TypedCreator<ScaleExecution>;
+REGISTER_OPENCL_OP_CREATOR(ScaleCreator, OpType_Scale, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

@@ -21,6 +21,8 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
     epsilon_ = layer_norm_param->epsilon();
     group_ = layer_norm_param->group();
     auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
+    auto kernel = runtime->buildKernel("layernorm", "layernorm_w", {"-DLOCAL_SIZE=512"});
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernel));
 
     if(layer_norm_param->gamma() && layer_norm_param->beta()){
         has_gamma_beta_ = true;
@@ -87,7 +89,8 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    mOpenCLBackend->startRecord(mRecording);
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -96,7 +99,6 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     const int inputHeight   = inputShape[1];
     const int inputWidth    = inputShape[2];
     const int inputChannels = inputShape[3];
-    auto MaxWorkItems = runtime->getMaxWorkItemSizes();
     int local_size;
     int rank = inputs.at(0)->dimensions();
     int outter_size = 1;
@@ -115,7 +117,7 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     std::string kernelName;
     if (inner_size == inputWidth && outter_size == inputBatch * inputHeight * inputChannels) {
         kernelName = "layernorm_w";
-        local_size = getLocalSize(inputWidth, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm", kernelName, buildOptions);
         
@@ -124,7 +126,7 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
                 static_cast<uint32_t>(inputBatch)};
     }else if(inner_size == inputWidth * inputHeight && outter_size == inputBatch * inputChannels){
         kernelName = "layernorm_hw";
-        local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm", kernelName, buildOptions);
         
@@ -133,7 +135,7 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
                 static_cast<uint32_t>(inputBatch)};
     }else if(inner_size == inputWidth * inputHeight * inputChannels && outter_size == inputBatch){
         kernelName = "layernorm_chw";
-        local_size = getLocalSize(inputWidth * inputHeight, MaxWorkItems[0]);
+        local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
         mKernel = runtime->buildKernel("layernorm", kernelName, buildOptions);
         
@@ -160,8 +162,8 @@ ErrorCode LayerNormExecution::onResize(const std::vector<Tensor *> &inputs, cons
     ret |= mKernel.setArg(idx++, epsilon_);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormExecution");
 
-    recordKernel3d(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-    endRecord(runtime, mRecording);
+    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
+    mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
 
 }
@@ -178,9 +180,9 @@ ErrorCode LayerNormExecution::onExecute(const std::vector<Tensor *> &inputs, con
     
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"LayerNorm", event});
 #else
-    if(mOpenCLBackend->getOpenCLRuntime()->isUseRecordQueue()){
-        if(mOpenCLBackend->getOpenCLRuntime()->isDevideOpRecord())
-            mOpenCLBackend->getOpenCLRuntime()->getRecordings()->emplace_back(mRecording);
+    if(mOpenCLBackend->isUseRecordQueue()){
+        if(mOpenCLBackend->isDevideOpRecord())
+            mOpenCLBackend->addRecord(mRecording);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End LayerNormExecution onExecute... \n");
 #endif
@@ -211,7 +213,7 @@ public:
     }
 };
 
-OpenCLCreatorRegister<LayerNormCreator> __LayerNorm_op_(OpType_LayerNorm, IMAGE);
+REGISTER_OPENCL_OP_CREATOR(LayerNormCreator, OpType_LayerNorm, IMAGE);
 
 } // namespace OpenCL
 } // namespace MNN

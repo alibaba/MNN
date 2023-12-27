@@ -38,7 +38,7 @@ ErrorCode MultiInputDWConvExecution::onResize(const std::vector<Tensor *> &input
     auto originLayout = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
     auto openclBackend = static_cast<OpenCLBackend *>(backend());
     auto runtime = openclBackend->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
+    openclBackend->startRecord(mRecording);
 
     auto inputShape  = tensorShapeFormat(inputs[0]);
     auto outputShape = tensorShapeFormat(outputs[0]);
@@ -102,7 +102,7 @@ ErrorCode MultiInputDWConvExecution::onResize(const std::vector<Tensor *> &input
         mUnits[0].kernel = kernel;
         mUnits[0].localWorkSize = {lws[0], lws[1]};
         mUnits[0].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[0].kernel, gws, lws, runtime);
+        openclBackend->recordKernel2d(mUnits[0].kernel, gws, lws);
     }
     
     
@@ -150,7 +150,7 @@ ErrorCode MultiInputDWConvExecution::onResize(const std::vector<Tensor *> &input
         mUnits[1].kernel = kernel;
         mUnits[1].localWorkSize = {lws[0], lws[1]};
         mUnits[1].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[1].kernel, {gws[0], gws[1]}, {lws[0], lws[1]}, runtime);
+        openclBackend->recordKernel2d(mUnits[1].kernel, {gws[0], gws[1]}, {lws[0], lws[1]});
     }
 
     {
@@ -221,9 +221,9 @@ ErrorCode MultiInputDWConvExecution::onResize(const std::vector<Tensor *> &input
         mUnits[2].localWorkSize = {1, 1};
         mUnits[2].globalWorkSize = {gws[0], gws[1]};
         
-        recordKernel2d(mUnits[2].kernel, gws, {1, 1}, runtime);
+        openclBackend->recordKernel2d(mUnits[2].kernel, gws, {1, 1});
     }
-    endRecord(runtime, mRecording);
+    openclBackend->endRecord(mRecording);
 
     return NO_ERROR;
 }

@@ -275,6 +275,12 @@ public:
         mBuffer.dim[index].extent = length;
     }
 
+    /**
+     * @brief For GPU and Other Device, get memory directly, see MNNSharedContext for detail
+     * @return Success or not. If type != tensor's backend's type or type is cpu , return false
+     */
+    bool getDeviceInfo(void* dst, int forwardType) const;
+
 public:
     /**
      * @brief print tensor data. for DEBUG use only.

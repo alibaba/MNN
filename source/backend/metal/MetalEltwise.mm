@@ -14,7 +14,7 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalEltwise::MetalEltwise(Backend *backend, EltwiseType type) : Execution(backend) {
+MetalEltwise::MetalEltwise(Backend *backend, EltwiseType type) : MetalExecution(backend) {
     auto metal   = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)metal->context();
     mConst             = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
@@ -32,7 +32,7 @@ MetalEltwise::MetalEltwise(Backend *backend, EltwiseType type) : Execution(backe
         default:
             break;
     }
-    mPipeline = [context pipelineWithName:kernel];
+    mPipeline = [context pipelineWithName:kernel fp16:metal->useFp16InsteadFp32()];
 }
 ErrorCode MetalEltwise::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     ((int*)(mConst.contents))[0] = outputs[0]->elementSize();
@@ -43,9 +43,7 @@ ErrorCode MetalEltwise::onResize(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-void MetalEltwise::encode(const Tensor *input0, const Tensor *input1, const Tensor *output) {
-    auto metal   = static_cast<MetalBackend *>(this->backend());
-    auto encoder   = metal->encoder();
+void MetalEltwise::encode(const Tensor *input0, const Tensor *input1, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input0->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input0)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input1->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input1)->extra.offset atIndex:1];
@@ -54,30 +52,12 @@ void MetalEltwise::encode(const Tensor *input0, const Tensor *input1, const Tens
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
-ErrorCode MetalEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend   = static_cast<MetalBackend *>(this->backend());
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
+void MetalEltwise::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto output = outputs[0];
+    encode(inputs[0], inputs[1], output, encoder);
+    for (int i = 2; i < inputs.size(); i++) {
+        encode(inputs[i], output, output, encoder);
     }
-    
-    auto func = [=](){
-        auto output = outputs[0];
-        encode(inputs[0], inputs[1], output);
-        for (int i = 2; i < inputs.size(); i++) {
-            encode(inputs[i], output, output);
-        }
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-
-    return NO_ERROR;
 }
 
 class MetalEltwiseCreator : public MetalBackend::Creator {
