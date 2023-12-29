@@ -88,8 +88,11 @@ print ("USE_OPENCL:", USE_OPENCL)
 print ("USE_VULKAN:", USE_VULKAN)
 print ("USE_RENDER:", USE_RENDER)
 
-if USE_INTERNAL:
+if os.path.isdir('../../schema/private'):
     package_name += '_Internal'
+else:
+    USE_INTERNAL = False
+
 if USE_TRT:
     package_name += '_TRT'
 if USE_CUDA:
@@ -352,7 +355,9 @@ def configure_extension_build():
     def make_relative_rpath(path):
         """ make rpath """
         if IS_DARWIN:
-            return ['-Wl,-rpath,@loader_path/' + path]
+            # dylibs instal at .../lib/ for
+            # .../lib/python*/site-packages/_mnncengine.cpython-*-darwin.so
+            return ['-Wl,-rpath,@loader_path/../../../' + path]
         elif IS_WINDOWS:
             return []
         else:
