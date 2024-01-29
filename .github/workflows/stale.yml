@@ -1,0 +1,26 @@
+name: stale
+
+on:
+  schedule:
+  - cron: '30 9 * * *'
+
+jobs:
+  stale:
+
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+    - uses: actions/stale@v5
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        days-before-stale: 60
+        stale-issue-message: 'Marking as stale. No activity in 60 days.'
+        stale-pr-message: 'Marking as stale. No activity in 60 days.'
+        stale-issue-label: 'stale'
+        stale-pr-label: 'stale'
+        remove-stale-when-updated: true
+        operations-per-run: 1000
+        days-before-close: 3
