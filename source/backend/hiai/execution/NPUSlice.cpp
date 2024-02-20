@@ -23,23 +23,25 @@ ErrorCode NPUSlice::onResize(const std::vector<Tensor *> &inputs, const std::vec
 
     auto param = mOp->main_as_Slice();
     auto axis = param->axis();
-    if (axis < 0) {
-        axis = axis + inputs[0]->dimensions();
+    int64_t slice_num = 0;
+    if (param->slicePoints() != nullptr) {
+        if (param->slicePoints()->size() < outputs.size()) {
+            slice_num = static_cast<int64_t>(outputs.size());
+        } else if (param->slicePoints()->size() == 1) {
+            slice_num = static_cast<int64_t>(param->slicePoints()->Get(0));
+        } else {
+            slice_num = static_cast<int64_t>(param->slicePoints()->size());
+        }
+    } else {
+        slice_num = static_cast<int64_t>(outputs.size());
     }
-
-    if(TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC){
-        axis = mNCHW[axis];
-    }else{
-        axis = mNHWC[axis];
-    }
-
     auto xOp = mNpuBackend->getInputOps(mOp);
 
     (*slice)
         .set_input_x(*xOp.get())
         .set_attr_split_dim(axis)
-        .set_attr_num_split(outputs.size())
-        .create_dynamic_output_y(outputs.size());
+        .set_attr_num_split(slice_num)
+        .create_dynamic_output_y(slice_num);
 
     mNpuBackend->setOutputOps(mOp, {slice}, outputs);
     return NO_ERROR;

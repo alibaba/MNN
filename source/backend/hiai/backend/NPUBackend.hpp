@@ -43,6 +43,41 @@ namespace MNN {
     typedef void *(*fp_ATrace_endSection) (void);
 #endif
     void NHWC2NCHW(const float* source, float* dest, int b, int c, int area);
+
+    static ge::DataType mapDataType(DataType src) {
+        ge::DataType retVal = ge::DataType::DT_UNDEFINED;
+        switch (src) {
+            case DataType_DT_FLOAT:
+                retVal = ge::DataType::DT_FLOAT;
+                break;
+            case DataType_DT_DOUBLE:
+                retVal = ge::DataType::DT_DOUBLE;
+                break;
+            case DataType_DT_INT32:
+                retVal = ge::DataType::DT_INT32;
+                break;
+            case DataType_DT_UINT8:
+                retVal = ge::DataType::DT_UINT8;
+                break;
+            case DataType_DT_INT16:
+                retVal = ge::DataType::DT_INT16;
+                break;
+            case DataType_DT_INT8:
+                retVal = ge::DataType::DT_INT8;
+                break;
+            case DataType_DT_INT64:
+                retVal = ge::DataType::DT_INT64;
+                break;
+            case DataType_DT_VARIANT:
+                retVal = ge::DataType::DT_FLOAT;
+                break;
+            default:
+                MNN_ASSERT(false);
+                printf("cast Datatype : %d \n", src);
+                break;
+        }
+        return retVal;
+    }
     inline std::vector<int64_t> tensorShapeFormat(const Tensor *input, const Tensor *broadCastInput=nullptr) {
         auto dimSize = input->buffer().dimensions;
         if(broadCastInput != nullptr) {

@@ -77,6 +77,9 @@ public:
         auto size  = (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
         auto layer = op->main_as_Pool3D();
         float flopsPerElement = 1;
+        if (layer->kernels() == nullptr) {
+            return size * flopsPerElement;
+        }
         for (auto kernel: *layer->kernels()) {
             flopsPerElement *= kernel;
         }

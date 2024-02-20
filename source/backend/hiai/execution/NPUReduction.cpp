@@ -16,18 +16,6 @@ namespace MNN {
 NPUReduction::NPUReduction(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : NPUCommonExecution(b, op) {
 }
 
-vector<int64_t> NPUReduction::convertAxis(vector<int64_t> origAxis, Tensor * input)
-{
-    vector<int64_t> newAxis(origAxis.size(),0);
-    int step = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NCHW ? 0 : 1; 
-    int index = step + (input->buffer().dimensions-1)*2;
-    for (size_t i = 0; i < origAxis.size(); i++) {
-        newAxis[i] = axisMap[index][origAxis[i]];
-        MNN_PRINT("i = %d, newAxis[i] = %ld\n",i,newAxis[i]);
-    }
-    return newAxis;
-}
-
 ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNpuBackend->setNetworkInput(inputs, mOp);
 
@@ -37,41 +25,40 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
 
     auto xOp = mNpuBackend->getInputOps(mOp);
 
-    vector<int64_t> origAxis;
-    vector<int64_t> axis;
+    vector<int32_t> origAxis;
     auto reduct = mOp->main_as_ReductionParam();
-    if (nullptr != reduct->dim()) {
-        for (int i = 0; i < reduct->dim()->size(); ++i) {
-            origAxis.push_back(reduct->dim()->data()[i]);
-        }
-    }else if(inputs.size() == 2){
-        for (int i = 0; i < inputs[1]->length(0);++i) {
+
+    if (inputs.size() >= 2) {
+        for (int i = 0; i < inputs[1]->elementSize(); ++i) {
             int32_t *reduce_dim = inputs[1]->host<int32_t>();
             origAxis.push_back(reduce_dim[i]);
         }
-    }else{
+    } else if (nullptr != reduct->dim()) {
+        for (int i = 0; i < reduct->dim()->size(); ++i) {
+            origAxis.push_back(reduct->dim()->data()[i]);
+        }
+    } else {
         MNN_ASSERT(false);
     }
-
-    axis = convertAxis(origAxis,inputs[0]);
-
     mConstAxis = hiai::op::Const(opName + "_axis");
     {
-        ge::TensorDesc fdesc(ge::Shape({static_cast<long>(axis.size())}), ge::FORMAT_ND, ge::DT_INT32);
+        ge::TensorDesc fdesc(ge::Shape({static_cast<long>(origAxis.size())}), ge::FORMAT_ND, ge::DT_INT32);
         ge::TensorPtr constTensor = std::make_shared<ge::Tensor>();
         constTensor->SetTensorDesc(fdesc);
-        constTensor->SetData((uint8_t *)(axis.data()), axis.size()*sizeof(float));
+        constTensor->SetData((uint8_t *)(origAxis.data()), origAxis.size()*sizeof(int32_t));
         mConstAxis.set_attr_value(constTensor);
     }
-    std::vector<int32_t> shapeDims (tensorShapeFormat(outputs[0]).begin(), tensorShapeFormat(outputs[0]).end()); 
+    vector<int64_t> dims;
+    for (int32_t i = 0; i < outputs[0]->buffer().dimensions; i++) {
+        dims.push_back(outputs[0]->buffer().dim[i].extent);
+    } 
     shapeConst = hiai::op::Const(opName + "_shape_const");
     {
-        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shapeDims.size())}), 
+        ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(dims.size())}), 
             ge::FORMAT_NCHW,  ge::DT_INT32);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         filter->SetTensorDesc(fdesc);
-        filter->SetData((uint8_t *)shapeDims.data(), shapeDims.size() * sizeof(int32_t));
-
+        filter->SetData((uint8_t *)dims.data(), dims.size() * sizeof(int32_t));
         shapeConst.set_attr_value(filter);
     }
 
@@ -101,6 +88,10 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
         }
     } else if(type == ReductionType_ANY) {
         shared_ptr<ge::op::ReduceAll> reduction(new ge::op::ReduceAll(opName));
+        vector<int64_t> axis;
+        for (int32_t j = 0; j < origAxis.size(); j++) {
+            axis.push_back(static_cast<int64_t>(origAxis[j]));
+        }
         (*reduction)
             .set_input_x(*xOp.get()).set_attr_axes(axis)
             .set_attr_keep_dims(mOp->main_as_ReductionParam()->keepDims());
