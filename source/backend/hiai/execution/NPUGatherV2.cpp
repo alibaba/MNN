@@ -19,29 +19,37 @@ NPUGatherV2::NPUGatherV2(Backend *b, const Op *op, const std::vector<Tensor *> &
     bool isConst0 = TensorUtils::getDescribe(inputs[0])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
     bool isConst1 = TensorUtils::getDescribe(inputs[1])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-    if(!isConst0 && isConst1){
-        auto input1 = inputs[1];
+    if (isConst0 && !isConst1) {
+        auto input = inputs[0];
         // om input weight const op
-        mConst = hiai::op::Const(opName + "_w_const");
-        {
-            ge::TensorDesc fdesc(ge::Shape({input1->batch(), input1->channel(), input1->height(), input1->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
-            ge::TensorPtr filter = std::make_shared<ge::Tensor>();
-            filter->SetTensorDesc(fdesc);
-            filter->SetData((uint8_t *)input1->host<float>(), input1->elementSize() * sizeof(float));
-            mConst.set_attr_value(filter);
+        mConst = hiai::op::Const(opName + "_x_const");
+        vector<int64_t> dims;
+        for (int32_t i = 0; i < input->buffer().dimensions; i++) {
+            dims.push_back(input->buffer().dim[i].extent);
         }
-
-    }else if(isConst0 && !isConst1){
-        auto input0 = inputs[0];
+        ge::TensorDesc fdesc(ge::Shape(dims), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        if (input->getType().code == halide_type_int && input->getType().bits == 32) {
+            fdesc.SetDataType(ge::DT_INT32);
+            filter->SetData((uint8_t *)input->host<int32_t>(), input->elementSize() * sizeof(int32_t));
+        } else {
+            filter->SetData((uint8_t *)input->host<float>(), input->elementSize() * sizeof(float));
+        }
+        filter->SetTensorDesc(fdesc);
+        mConst.set_attr_value(filter);
+    } else if (!isConst0 && isConst1) {
+        auto input = inputs[1];
         // om input weight const op
-        mConst = hiai::op::Const(opName + "_w_const");
-        {
-            ge::TensorDesc fdesc(ge::Shape({input0->batch(), input0->channel(), input0->height(), input0->width()}), ge::FORMAT_NCHW, ge::DT_FLOAT); // in o h w ?
-            ge::TensorPtr filter = std::make_shared<ge::Tensor>();
-            filter->SetTensorDesc(fdesc);
-            filter->SetData((uint8_t *)input0->host<float>(), input0->elementSize() * sizeof(float));
-            mConst.set_attr_value(filter);
-        } 
+        vector<int64_t> dims;
+        for (int32_t i = 0; i < input->buffer().dimensions; i++) {
+            dims.push_back(input->buffer().dim[i].extent);
+        }
+        mConst = hiai::op::Const(opName + "_i_const");
+        ge::TensorDesc fdesc(ge::Shape(dims), ge::FORMAT_NCHW, ge::DT_INT32); // in o h w ?
+        ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+        filter->SetTensorDesc(fdesc);
+        filter->SetData((uint8_t *)input->host<int32_t>(), input->elementSize() * sizeof(int32_t));
+        mConst.set_attr_value(filter);
     }
 }
 
@@ -55,57 +63,54 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
     auto param  = mOp->main_as_GatherV2();
 
     shared_ptr<hiai::op::GatherV2D> prob(new hiai::op::GatherV2D(opName));
-    vector<pair<shared_ptr<hiai::Operator>, string>> ops;
-
+    shared_ptr<hiai::op::CastT> castOp(new hiai::op::CastT(opName + "_cast"));
     bool isConst0 = TensorUtils::getDescribe(inputs[0])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
     bool isConst1 = TensorUtils::getDescribe(inputs[1])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
+    bool isConst2 = TensorUtils::getDescribe(inputs[2])->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
     int axis     = 0;
-    if (inputs.size() == 3) {
+    if (isConst2 && inputs.size() == 3) {
         const Tensor *axisTensor = inputs[2];
         axis                     = axisTensor->host<int32_t>()[0];
     }
-
     if (axis < 0) {
         axis = params->buffer().dimensions + axis;
     }
-
-    if(!isConst0 && isConst1){
-        // 
+    auto xOp = mNpuBackend->getInputOps(mOp);
+    if (!isConst0 && isConst1) {
         auto inputIndex0 = mOp->inputIndexes()->data()[0];
         auto iops0       = mNpuBackend->mGrapMap[inputIndex0]; // x
         auto xOp0        = iops0.back().first;
         (*prob)
-            .set_input_indices(*xOp0.get())
-            .set_input_x(mConst)
+            .set_input_x(*xOp0.get())
+            .set_input_indices(mConst)
             .set_attr_axis(axis);
-    }else if(isConst0 && !isConst1){
-        // 
+        mNpuBackend->setOutputOps(mOp, {prob}, outputs);
+    } else if (isConst0 && !isConst1){
         auto inputIndex1 = mOp->inputIndexes()->data()[1];
         auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
         auto xOp1        = iops1.back().first;
-
+        (*castOp).set_input_x(*xOp1.get()).set_attr_dst_dtype(ge::DataType::DT_INT32);
         (*prob)
-            .set_input_indices(mConst)
-            .set_input_x(*xOp1.get())
-            .set_attr_axis(axis);        
-    }else{
+            .set_input_x(mConst)
+            .set_input_indices(*castOp.get())
+            .set_attr_axis(axis);
+        mNpuBackend->setOutputOps(mOp, {castOp, prob}, outputs); 
+    } else {
         auto inputIndex = mOp->inputIndexes()->data()[0];
         auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
-        auto xOp        = iops.back().first;
+        xOp        = iops.back().first;
 
         auto inputIndex1 = mOp->inputIndexes()->data()[1];
         auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
         auto xOp1        = iops1.back().first;
-
+        (*castOp).set_input_x(*xOp1.get()).set_attr_dst_dtype(ge::DataType::DT_INT32);
         (*prob)
-            .set_input_indices(*xOp.get())
-            .set_input_x(*xOp1.get())
+            .set_input_x(*xOp.get())
+            .set_input_indices(*castOp.get())
             .set_attr_axis(axis);
+        mNpuBackend->setOutputOps(mOp, {castOp, prob}, outputs);
     }
-
-    mNpuBackend->setOutputOps(mOp, {prob}, outputs);
-
     return NO_ERROR;
 }
 

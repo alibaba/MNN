@@ -24,20 +24,15 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
     shared_ptr<hiai::op::DepthToSpace> depthToSpace(new hiai::op::DepthToSpace(opName));
     shared_ptr<hiai::op::Permute> permuteBefore(new hiai::op::Permute(opName+"_before"));
     shared_ptr<hiai::op::Permute> permuteAfter(new hiai::op::Permute(opName+"_after"));
-
-    /*
-     * set om op
-     * */
-
-    // 
-    auto inputIndex1 = mOp->inputIndexes()->data()[0];
-    auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
-    auto xOp1        = iops1.back().first;
+    auto xOp = mNpuBackend->getInputOps(mOp);
+    auto inputIndex = mOp->inputIndexes()->data()[0];
+    auto iops = mNpuBackend->mGrapMap[inputIndex]; // x
+    xOp = iops.back().first;
 
     auto param = mOp->main_as_DepthSpaceParam();
 
     (*permuteBefore)
-        .set_input_x(*xOp1.get())
+        .set_input_x(*xOp.get())
         .set_attr_order({0,2,3,1})
         .SetAttr("NCHW_to_NHWC", ge::AttrValue::CreateFrom(static_cast<int64_t>(1)));
     

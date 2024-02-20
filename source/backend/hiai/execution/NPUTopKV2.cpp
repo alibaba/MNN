@@ -22,19 +22,17 @@ ErrorCode NPUTopKV2::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto param  = mOp->main_as_Axis();
 
     shared_ptr<hiai::op::TopK> prob(new hiai::op::TopK(opName));
-
+    auto xOp = mNpuBackend->getInputOps(mOp);
     auto inputIndex = mOp->inputIndexes()->data()[0];
     auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
-    auto xOp        = iops.back().first;
+    xOp        = iops.back().first;
 
     mConst_w = hiai::op::Const(opName + "_w_const");
     {
-        ge::TensorDesc fdesc(ge::Shape({1, 1, 1, 1}), ge::FORMAT_NCHW,
-                             ge::DT_FLOAT); // in o h w ?
+        ge::TensorDesc fdesc(ge::Shape({1}), ge::FORMAT_NCHW, ge::DT_INT32);
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         filter->SetTensorDesc(fdesc);
-        filter->SetData((uint8_t *)inputs[1]->host<float>(), sizeof(float));
-
+        filter->SetData((uint8_t *)inputs[1]->host<int32_t>(), sizeof(int32_t));
         mConst_w.set_attr_value(filter);
     }
 

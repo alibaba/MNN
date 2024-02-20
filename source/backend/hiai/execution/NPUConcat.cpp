@@ -23,21 +23,22 @@ ErrorCode NPUConcat::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto param  = mOp->main_as_Axis();
 
     shared_ptr<hiai::op::ConcatD> concatD(new hiai::op::ConcatD(opName));
-
+    auto xOp = mNpuBackend->getInputOps(mOp);
     auto inputSize = mOp->inputIndexes()->size();
-    (*concatD).create_dynamic_input_x(inputSize)
-    .set_attr_concat_dim(axisFormat(inputs[0], param->axis()));
+    int32_t axis = param->axis();
+    (*concatD).create_dynamic_input_x(inputSize).set_attr_concat_dim(axis);
 
     for (int i = 0; i < inputSize; ++i) {
         auto inputIndex = mOp->inputIndexes()->data()[i];
         auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
-        auto xOp        = iops.back().first;
-        hiai::Operator *px = (hiai::Operator *)xOp.get();
-        (*concatD).set_dynamic_input_x(i + 1, *px);
+        xOp        = iops.back().first;
+        if (mNpuBackend->mSclipMap.find(inputIndex) == mNpuBackend->mSclipMap.end()) {
+            (*concatD).set_dynamic_input_x(i + 1, *xOp.get());
+        } else {
+            (*concatD).set_dynamic_input_x(i + 1, xOp->GetOutput(mNpuBackend->mSclipMap[inputIndex]));
+        }
     }
-
     mNpuBackend->setOutputOps(mOp, {concatD}, outputs);
-
     return NO_ERROR;
 }
 

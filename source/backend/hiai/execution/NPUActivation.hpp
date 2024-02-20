@@ -20,6 +20,7 @@ public:
     virtual ~NPUActivation() = default;
 private:
     hiai::op::Const mConst_w;
+    hiai::op::Const shapeConst;
     int mType;
 };
 

@@ -23,6 +23,7 @@ public:
 private:
     hiai::op::Const mConst_fliter;
     hiai::op::Const mConst_bias;
+    hiai::op::Const shapeConst;
 };
 
 } // namespace MNN

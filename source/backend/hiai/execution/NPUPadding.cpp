@@ -22,9 +22,9 @@ NPUPadding::NPUPadding(Backend *b, const Op *op, const std::vector<Tensor *> &in
     //MNN_PRINT("Padding input1->buffer().dim[0].extent=%d\n",input1->buffer().dim[0].extent);
     if (input1->buffer().dim[0].extent == 3) {
         mPadData = {0, 0, data[4], data[5], data[0], data[1], data[2], data[3]};
-    } else if (input1->buffer().dim[0].extent == 4) {
+    } else if ((input1->buffer().dim[0].extent == 4) || (input1->buffer().dim[0].extent == 8)) {
         mPadData = {data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]};
-    }  
+    }
     // om input weight const op
     mConst = hiai::op::Const(opName + "_w_const");
     {
@@ -41,12 +41,11 @@ ErrorCode NPUPadding::onResize(const std::vector<Tensor *> &inputs, const std::v
     
     auto opName = mOp->name()->str();
     auto xOp = mNpuBackend->getInputOps(mOp);
-
     shared_ptr<hiai::op::Pad> padding(new hiai::op::Pad(opName));
-
+    auto inputIndex = mOp->inputIndexes()->data()[0];
+    auto iops       = mNpuBackend->mGrapMap[inputIndex]; // x
+    xOp        = iops.back().first;
     (*padding).set_input_x(*xOp.get()).set_input_paddings(mConst);
-
-
     mNpuBackend->setOutputOps(mOp, {padding}, outputs);
     return NO_ERROR;
 }
