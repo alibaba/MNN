@@ -70,6 +70,7 @@ VulkanImage::~VulkanImage() {
 }
 void VulkanImage::barrierWrite(VkCommandBuffer buffer) const {
     VkImageSubresourceRange subrange;
+    ::memset(&subrange, 0, sizeof(VkImageSubresourceRange));
     subrange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subrange.layerCount = 1;
     subrange.levelCount = 1;
@@ -82,6 +83,7 @@ void VulkanImage::barrierRead(VkCommandBuffer buffer) const {
         return;
     }
     VkImageSubresourceRange subrange;
+    ::memset(&subrange, 0, sizeof(VkImageSubresourceRange));
     subrange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subrange.layerCount = 1;
     subrange.levelCount = 1;
