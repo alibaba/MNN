@@ -56,7 +56,7 @@ static bool matchConvInt8ToOther(EXPRP expr, int i) { // convint8->quant->cast->
     if (quan_expr->inputs().size() != 5) {
         return false;
     }
-    // check other
+    // check convInt8
     VARP conv_var = quan_expr->inputs().at(0);
     EXPRP conv_expr = conv_var->expr().first;
     
@@ -85,6 +85,16 @@ static VARP transformConvInt8ToOther(EXPRP expr, int i) { // convint8->quant->ca
     newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
     newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
     newConvInt8->symmetricQuan->outputDataType = MNN::DataType_DT_FLOAT;
+    // newConvInt8->bias = std::move(oldConvParams->bias);
+    // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+    
+    //Update newConvInt8 scale
+    float outputScale = quan_expr->inputs().at(2)->readMap<float>()[0];
+    int oc = static_cast<int32_t>(newConvInt8->symmetricQuan->scale.size());
+    float* ptr = newConvInt8->symmetricQuan->scale.data();
+    for (int i = 0; i < oc; ++i) {
+        ptr[i] = ptr[i] * outputScale;
+    }
     
     std::unique_ptr<OpT> conv_op(new OpT);
     conv_op->name = conv_expr->name();
@@ -156,7 +166,7 @@ static VARP transformOtherToOther (EXPRP expr, int i) { // ohter->quant->cast->d
 
     return other_var;
 }
-static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, int num_input) {
+static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, VARP SqueezeA, int num_input) {
     auto transposeAType = transposeA->expr().first;
     auto transposeAInfo = transposeA->getInfo();
     if (!transposeAInfo) {
@@ -172,10 +182,9 @@ static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, int num_input)
     auto inputL = _Unsqueeze(_Scalar<int>(num_input), {0});
     inputL.fix(VARP::CONSTANT);
     VARP inputE;
-    bool needSqueezeA = false;
-    if (newInput->getInfo() && newInput->getInfo()->dim.size() <= 1) {
+    float needSqueezeA = SqueezeA->readMap<float>()[0];
+    if (needSqueezeA != 0) {
         newInput = _Unsqueeze(newInput, {0});
-        needSqueezeA = true;
     }
     auto rank = _Rank(newInput);
     auto inputShape = _Shape(newInput, NCHW);
@@ -188,7 +197,7 @@ static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, int num_input)
     return newInput;
 }
 
-static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
+static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convInt8
     auto matchConvInt8ToConvInt8 = [](EXPRP expr) {
         // check convInt8
         if (nullptr == expr->get()) {
@@ -224,23 +233,36 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         // check convInt8
         VARP conv_var = quan_expr->inputs().at(0);
         EXPRP conv_expr = conv_var->expr().first;
-        if (!conv_expr->get() || (conv_expr->get()->type() != OpType_ConvInt8 && conv_expr->get()->type() != OpType_DepthwiseConvInt8)) {
+        if (!conv_expr->get()) {
             return false;
+        }
+        if (conv_expr->get()->type() != OpType_PReLU && conv_expr->get()->type() != OpType_ReLU && conv_expr->get()->type() != OpType_ReLU6 && conv_expr->get()->type() != OpType_ConvInt8 && conv_expr->get()->type() != OpType_DepthwiseConvInt8) {
+            return false;
+        }
+        if (conv_expr->get()->type() == OpType_PReLU || conv_expr->get()->type() == OpType_ReLU || conv_expr->get()->type() == OpType_ReLU6) {
+            VARP conv_var_0 = conv_expr->inputs().at(0);
+            EXPRP conv_expr_0 = conv_var_0->expr().first;
+            if (!conv_expr_0->get()) {
+                return false;
+            }
+            if (conv_expr_0->get()->type() != OpType_ConvInt8 && conv_expr_0->get()->type() != OpType_DepthwiseConvInt8) {
+                return false;
+            }
         }
         return true;
     };
     auto transformConvInt8ToConvInt8 = [](EXPRP expr) {
-        auto quant_var  = expr->inputs()[0];
-        auto quant_expr  = quant_var->expr().first;
-        auto cast_var = quant_expr->inputs().at(0);
+        auto dequant_var  = expr->inputs()[0];
+        auto dequant_expr  = dequant_var->expr().first;
+        auto cast_var = dequant_expr->inputs().at(0);
         auto cast_expr = cast_var->expr().first;
-        auto dequan_var = cast_expr->inputs().at(0);
-        auto dequan_expr = dequan_var->expr().first;
-        auto convInt8Input = dequan_expr->inputs().at(0);
-        if (expr->inputs().size() == 2) {
+        auto quan_var = cast_expr->inputs().at(0);
+        auto quan_expr = quan_var->expr().first;
+        auto convInt8Input = quan_expr->inputs().at(0);
+        if (expr->inputs().size() == 3) {
             auto matmulop = expr->get();
             auto count_input = matmulop->main_as_Convolution2D()->common()->inputCount();
-            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), count_input);
+            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), expr->inputs().at(2), count_input);
         }
         
         std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
@@ -250,6 +272,8 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         newConvInt8->common = std::move(oldConvParams->common);
         newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
         newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
+        // newConvInt8->bias = std::move(oldConvParams->bias);
+        // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
         
         std::unique_ptr<OpT> conv_op(new OpT);
         conv_op->name = expr->name();
@@ -267,7 +291,7 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
     };
     
     auto matchOtherToConvInt8 = [](EXPRP expr) { // otherOp->quant->cast->dequant->convint8
-        // check op type not convint8.
+        // check op type is convint8.
         if (nullptr == expr->get()) {
             return false;
         }
@@ -292,16 +316,20 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         // check quantize linear
         VARP quan_var = cast_expr->inputs().at(0);
         EXPRP quan_expr = quan_var->expr().first;
-        if (!quan_expr->get() || quan_expr->get()->type() != OpType_FloatToInt8) {
+        if (!quan_expr->get() || (quan_expr->get()->type() != OpType_FloatToInt8 && quan_expr->get()->type() != OpType_ConvertTensor)) {
             return false;
         }
-        if (quan_expr->inputs().size() != 5) {
+        if (quan_expr->get()->type() == OpType_FloatToInt8 && quan_expr->inputs().size() != 5) {
             return false;
         }
         // check other
         VARP other_var = quan_expr->inputs().at(0);
         EXPRP other_expr = other_var->expr().first;
-        if (!other_expr->get() || other_expr->get()->type() == OpType_ConvInt8 || other_expr->get()->type() == OpType_Cast || other_expr->get()->type() == OpType_Int8ToFloat || other_expr->get()->type() == OpType_FloatToInt8 || other_expr->get()->type() == OpType_Const || other_expr->get()->type() == OpType_DepthwiseConvInt8) {
+        if (!other_expr->get()) {
+            return true;
+        }
+        
+        if (other_expr->get()->type() == OpType_ConvInt8 || other_expr->get()->type() == OpType_Cast || other_expr->get()->type() == OpType_Int8ToFloat || other_expr->get()->type() == OpType_FloatToInt8 || other_expr->get()->type() == OpType_Const || other_expr->get()->type() == OpType_DepthwiseConvInt8) {
             return false;
         }
         return true;
@@ -314,10 +342,11 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         auto quan_var = cast_expr->inputs().at(0);
         auto quan_expr = quan_var->expr().first;
         auto convInt8Input = quan_expr->inputs().at(1);
-        if (expr->inputs().size() == 2) { // The convInt8 comes from matmul.
+        if (expr->inputs().size() == 3) { // The convInt8 comes from matmul.
             auto matmulop = expr->get();
             auto count_input = matmulop->main_as_Convolution2D()->common()->inputCount();
-            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), count_input);
+            auto matmulInput = expr->inputs().at(0);
+            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), expr->inputs().at(2), count_input);
         }
         
         std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
@@ -327,6 +356,8 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         newConvInt8->common = std::move(oldConvParams->common);
         newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
         newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
+        // newConvInt8->bias = std::move(oldConvParams->bias);
+        // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
         
         std::unique_ptr<OpT> conv_op(new OpT);
         conv_op->name = expr->name();
@@ -420,6 +451,9 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
                     return true;
                 }
             }
+            if (convert_expr->get() && convert_expr->get()->type() == OpType_ConvInt8) {
+                return true;
+            }
         }
         return true;
     };
@@ -432,6 +466,7 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
         auto X_expr = X_var->expr().first;
 
         bool convInt8End = X_expr->get()->type() == OpType_ConvInt8;
+        bool hasReshape = X_expr->get()->type() == OpType_Reshape;
         if (X_expr->get()->type() == OpType_Reshape) {
             auto convert_var = X_expr->inputs().at(0);
             auto convert_expr = convert_var->expr().first;
@@ -442,6 +477,10 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
                     convInt8End = true;
                     X_expr = std::move(convint8_expr);
                 }
+            }
+            if (convert_expr->get() && convert_expr->get()->type() == OpType_ConvInt8) {
+                convInt8End = true;
+                X_expr = std::move(convert_expr);
             }
         }
 
@@ -455,6 +494,16 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
             newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
             newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
             newConvInt8->symmetricQuan->outputDataType = DataType_DT_FLOAT; // If convInt8 is the last op, float value is the torch-fx model's output.
+            // newConvInt8->bias = std::move(oldConvParams->bias);
+            // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+            
+            //Update convInt8 scale.
+            float outputScale = quan_expr->inputs().at(2)->readMap<float>()[0];
+            int oc = static_cast<int32_t>(newConvInt8->symmetricQuan->scale.size());
+            float* ptr = newConvInt8->symmetricQuan->scale.data();
+            for (int i = 0; i < oc; ++i) {
+                ptr[i] = ptr[i] * outputScale;
+            }
             
             std::unique_ptr<OpT> conv_op(new OpT);
             conv_op->name = X_expr->name();
@@ -463,14 +512,23 @@ static auto gRegister = []() { // convInt8->quant->cast->dequant->convInt8
             conv_op->main.value = newConvInt8.release();
             
             auto conv_expr = Expr::create(conv_op.get(), {convInt8Input});
-            conv_expr->setName(X_expr->name());
-            Expr::replace(expr, conv_expr);
+            conv_expr->setName(expr->name());
+            
+            if (hasReshape) {
+                conv_expr->setName(X_expr->name());
+                std::unique_ptr<OpT> reshapeOp(X_var->expr().first->get()->UnPack());
+                auto new_reshape_expr = Expr::create(reshapeOp.get(), X_var->expr().first->inputs());
+                new_reshape_expr->setName(expr->name());
+                Expr::replace(expr, new_reshape_expr);
+            }
+            Expr::replace(X_expr, conv_expr);
             return true;
         }
 
         // directly return the op output.
         std::unique_ptr<OpT> oldOtherOp(X_expr->get()->UnPack());
         auto newop_expr = Expr::create(oldOtherOp.get(), X_expr->inputs());
+        newop_expr->setName(expr->name());
         Expr::replace(expr, newop_expr);
         return true;
     };

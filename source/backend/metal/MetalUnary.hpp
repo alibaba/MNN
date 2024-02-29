@@ -17,13 +17,12 @@ namespace MNN {
 
 class MetalUnary : public MetalExecution {
 public:
-    MetalUnary(Backend *backend, UnaryOpOperation optype);
+    MetalUnary(Backend *backend, id<MTLComputePipelineState> pipeline);
     virtual ~MetalUnary() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
-    UnaryOpOperation mOpType;
     id<MTLBuffer> mConstBuffer;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;

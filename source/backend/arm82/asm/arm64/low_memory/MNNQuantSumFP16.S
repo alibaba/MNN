@@ -24,7 +24,89 @@ stp d8,  d9,  [sp, #(16 * 3)]
 Start:
 lsl x9, x3, #2 // src_step = batch * sizeof(int32_t)
 mov x10, #0
+b TILE_8
+TILE_12:
+cmp x3, #12
+blt TILE_8
+add x6, x0, x10  // sum_ptr
+mov x7, x2  // thread
 
+// sum: v0
+ld1 {v0.4s, v1.4s, v2.4s}, [x6], x9
+subs x7, x7, #1
+beq Tile12End
+
+LoopSz_12:
+ld1 {v3.4s, v4.4s, v5.4s}, [x6], x9
+
+// sum += sum[i]
+add v0.4s, v0.4s, v3.4s
+add v1.4s, v1.4s, v4.4s
+add v2.4s, v2.4s, v5.4s
+
+subs x7, x7, #1
+bne LoopSz_12
+
+Tile12End:
+sub x3, x3, #12
+// load dequant_scale
+ld1 {v4.8h}, [x1], #16
+ld1 {v10.4h}, [x1], #8
+fcvtl v5.4s, v4.4h
+fcvtl2 v6.4s, v4.8h
+fcvtl v10.4s, v10.4h
+// sum_half = (half)((float)sum_int * dequant_scale)
+scvtf v0.4s, v0.4s
+scvtf v1.4s, v1.4s
+scvtf v2.4s, v2.4s
+fmul v7.4s, v0.4s, v5.4s
+fmul v8.4s, v1.4s, v6.4s
+fmul v10.4s, v2.4s, v10.4s
+fcvtn v9.4h, v7.4s
+fcvtn2 v9.8h, v8.4s
+fcvtn v10.4h, v10.4s
+st1 {v9.8h}, [x0], #16
+st1 {v10.4h}, [x0], #8
+add x10, x10, #24
+b TILE_12
+
+TILE_8:
+cmp x3, #8
+blt TILE_4
+add x6, x0, x10  // sum_ptr
+mov x7, x2  // thread
+
+// sum: v0
+ld1 {v0.4s, v1.4s}, [x6], x9
+subs x7, x7, #1
+beq Tile8End
+
+LoopSz_8:
+ld1 {v2.4s, v3.4s}, [x6], x9
+
+// sum += sum[i]
+add v0.4s, v0.4s, v2.4s
+add v1.4s, v1.4s, v3.4s
+
+subs x7, x7, #1
+bne LoopSz_8
+
+Tile8End:
+sub x3, x3, #8
+// load dequant_scale
+ld1 {v4.8h}, [x1], #16
+fcvtl v5.4s, v4.4h
+fcvtl2 v6.4s, v4.8h
+// sum_half = (half)((float)sum_int * dequant_scale)
+scvtf v0.4s, v0.4s
+scvtf v1.4s, v1.4s
+fmul v7.4s, v0.4s, v5.4s
+fmul v8.4s, v1.4s, v6.4s
+fcvtn v9.4h, v7.4s
+fcvtn2 v9.8h, v8.4s
+st1 {v9.8h}, [x0], #16
+add x10, x10, #16
+b TILE_8
 
 TILE_4:
 cmp x3, #4

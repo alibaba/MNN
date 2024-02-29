@@ -545,6 +545,48 @@ void Variable::setName(const std::string& name) {
         mFrom->setName(name);
     }
 }
+
+bool Variable::setDevicePtr(const void* devicePtr, int memoryType) {
+    if (nullptr != mFrom->get()) {
+        MNN_ERROR("Can't setDevicePtr to no-input op\n");
+        return false;
+    }
+    informDirty();
+    MNN_ASSERT(TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->quantAttr == nullptr || TensorUtils::getDescribe(mFrom->inside()->mOutputTensors[0])->type == DataType_DT_FLOAT);
+    mFrom->mInside->mContentDirty = false;
+    // Clear host address, Don't malloc hostPtr afterwards
+    Utils::releaseMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
+    return mFrom->inside()->mOutputTensors[0]->setDevicePtr(devicePtr, memoryType);
+}
+
+bool Variable::copyToDevicePtr(void* devicePtr, int memoryType) {
+    if (nullptr != mFrom->get()) {
+        MNN_ERROR("Can't copyToDevicePtr to no-input op\n");
+        return false;
+    }
+    
+    auto inside = mFrom->inside();
+    auto originTensor = inside->mOutputTensors[mFromIndex];
+    
+    auto bn = TensorUtils::getDescribe(originTensor)->getBackend();
+    if(bn == nullptr) {
+        MNN_ERROR("Error: Varp copyToDevicePtr can't find backend\n");
+        return false;
+    }
+    if (bn->type() != memoryType) {
+        MNN_ERROR("Error: VARP backend type ( %d ), is not same as assigned memory type ( %d )\n", bn->type(), memoryType);
+        return false;
+    }
+
+    MNN::Tensor tempTensor(originTensor->dimensions(), originTensor->getDimensionType());
+    tempTensor.buffer().device = (uint64_t)devicePtr;
+    
+    TensorUtils::getDescribe(originTensor)->getBackend()->onCopyBuffer(originTensor, &tempTensor);
+    // Sync the result
+    tempTensor.wait(Tensor::MAP_TENSOR_READ, true);
+    return true;
+}
+
 const std::string& Variable::name() const {
     return mFrom->outputName(mFromIndex);
 }

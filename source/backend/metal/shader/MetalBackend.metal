@@ -214,7 +214,6 @@ struct SamplerInfo {
     uint4 stride;//stride[3] + offset
     uint4 size;//size[3] + totalSize
     uint4 extent;//dstStride[3]+dstOffset
-    uint4 imageSize;
 };
 struct MemsetInfo {
     int4 value;

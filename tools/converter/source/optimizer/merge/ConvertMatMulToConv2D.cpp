@@ -72,7 +72,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             // conv -> reshape -> convert -> add
             if (input->expr().first->get()->type() == OpType_ConvertTensor) {
                 input = input->expr().first->inputs()[0];
-                if (input->expr().first->get()->type() == OpType_Reshape) {
+                if (input->expr().first->get() && input->expr().first->get()->type() == OpType_Reshape) {
                     input = input->expr().first->inputs()[0];
                 }
             }
@@ -118,6 +118,10 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
     // ConvertMatMulToConv2D
     {
         auto match = [this](EXPRP expr) -> bool {
+            auto config = Global<modelConfig>::Get();
+            if(!config->convertMatmulToConv) {
+                return false;
+            }
             if (!expr->get()) {
                 return false;
             }
@@ -135,7 +139,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 weight->expr().first->inside()->mCache = nullptr;
                 return false;
             }
-            auto config = Global<modelConfig>::Get();
             int limitNumber = 4;
             if (config->optimizePrefer == 1) {
                 // Smallest
@@ -195,6 +198,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             // Recompute weight info
             info = weight->getInfo();
+            const_cast<MNN::Express::Variable::Info*>(info)->syncSize();
             bool needSqueezeA = false;
             if (input->getInfo() != nullptr) {
                 if (input->getInfo()->dim.size() <= 1) {
@@ -371,10 +375,10 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                     return false;
                 }
                 // conv -> reshape -> convert -> add
-                if (matmul_expr->get()->type() == OpType_ConvertTensor) {
+                if (matmul_expr->get() && matmul_expr->get()->type() == OpType_ConvertTensor) {
                     matmul_var = matmul_expr->inputs()[0];
                     matmul_expr = matmul_var->expr().first;
-                    if (matmul_expr->get()->type() == OpType_Reshape) {
+                    if (matmul_expr->get() && matmul_expr->get()->type() == OpType_Reshape) {
                         matmul_var = matmul_expr->inputs()[0];
                         matmul_expr = matmul_var->expr().first;
                     }
@@ -467,12 +471,19 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             auto weight_ptr = weight->readMap<int8_t>();
             dense->symmetricQuan->weight.resize(weightInfo->size);
             memcpy(dense->symmetricQuan->weight.data(), weight_ptr, weightInfo->size * sizeof(int8_t));
-            dense->symmetricQuan->bias.resize(numberOutput, 0);
-            if (matmul_expr->inputs().size() == 9) {
-                bias_var = matmul_expr->inputs().at(8);
-                auto bias_ptr = bias_var->readMap<int32_t>();
-                memcpy(dense->symmetricQuan->bias.data(), bias_ptr, sizeof(int32_t) * numberOutput);
+            std::vector<int32_t> weightKenelSum(numberOutput);
+            int kernelSize = weightInfo->size / numberOutput;
+            for (int i = 0; i < numberOutput; i++) {
+                int temp = 0;
+                int offset = i * kernelSize;
+                for (int j = 0; j < kernelSize; j++) {
+                    temp += int(weight_ptr[offset + j]);
+                }
+                weightKenelSum[i] = temp;
             }
+            
+            
+            dense->symmetricQuan->bias.resize(numberOutput, 0);
             // compute conv scale=input_scale * weight_scale / output_scale
             std::vector<float> conv_scale(numberOutput);
             for (int k = 0; k < numberOutput; ++k) {
@@ -481,6 +492,15 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 } else {
                     conv_scale[k] = 0.f;
                 }
+            }
+            if (matmul_expr->inputs().size() == 9) {
+                bias_var = matmul_expr->inputs().at(8);
+                auto bias_ptr = bias_var->readMap<int32_t>();
+                auto biasInt32 = dense->symmetricQuan->bias.data();
+                for (int cnt = 0; cnt < numberOutput; ++cnt) {
+                    biasInt32[cnt] = bias_ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(input_zero) + static_cast<int32_t>(static_cast<float>(output_zero) / conv_scale[cnt]);
+                }
+//                memcpy(dense->symmetricQuan->bias.data(), bias_ptr, sizeof(int32_t) * numberOutput);
             }
             dense->symmetricQuan->scale = std::move(conv_scale);
 
@@ -515,11 +535,14 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (config->externalFile && weightInfo->size >= config->externalTreshold) {
                 RemoveAndStoreParam(dense_op, config->externalFile, config->externalOffset);
             }
-            float aa = 0;
+            float ta = 0, sa = 0;
             if (transposeA) {
-                aa = 1.0f;
+                ta = 1.0f;
             }
-            EXPRP dense_expr = Expr::create(dense_op.get(), {matmul_input, _Const(aa)}, 1);
+            if (needSqueezeA) {
+                sa = 1.0f;
+            }
+            EXPRP dense_expr = Expr::create(dense_op.get(), {matmul_input, _Const(ta), _Const(sa)}, 1);
             VARP output = Variable::create(dense_expr);
             output->setName(matmul_expr->outputName(0) + "__matmul_converted");
             output = _ConvertF(output, format);

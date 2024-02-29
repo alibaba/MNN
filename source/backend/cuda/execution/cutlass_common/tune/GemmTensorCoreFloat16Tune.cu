@@ -2,6 +2,7 @@
 #include "CutlassGemmTune.hpp"
 namespace MNN {
 namespace CUDA {
+//#define MNN_CUDA_TUNE_LOG
 
 void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
     MNN_ASSERT(params->batchSize == 0);
@@ -19,7 +20,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
         return;
     }
 
-    cudaEvent_t events[12];
+    cudaEvent_t events[14];
     cudaError_t result;
     for (auto & event : events) {
         result = cudaEventCreate(&event);
@@ -42,7 +43,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
     const int loop = 100;
     int event_index = 0;
     // us
-    float costTime_64x128x32, costTime_64x64x32, costTime_64x64x64, costTime_128x64x32, costTime_128x64x64, costTime_256x64x32;
+    float costTime_64x128x32, costTime_64x64x32, costTime_64x64x64, costTime_128x64x32, costTime_128x64x64, costTime_256x64x32, costTime_128x128x32;
 
     // Different epilogue type(linear/relu/relu6) regard as the same
     if(params->precisionType == 2) { // InOut:FP16_FP16
@@ -370,6 +371,60 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
             MNN_PRINT("GemmTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_256x64x32 : %f ms\n", costTime_256x64x32);
             #endif
         }
+
+        {
+            GemmTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32 gemmBatched_128x128x32;
+
+            typename GemmTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                {(ElementOutput_F16 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                {(ElementOutput_F16 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                {alpha, beta},          // <- tuple of alpha and beta
+                params->coefs[2]};      // splitK
+
+            size_t workspace_size = GemmTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32::get_workspace_size(arguments);
+            if(workspace_size != 0 && workspace_ptr == nullptr) {
+                std::shared_ptr<Tensor> workspaceTensor;
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+            }
+            // Check the problem size is supported or not 
+            cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+            cutlass_check(status); 
+
+            for(int i = 0; i < warmup; i++) {
+                cutlass::Status status = gemmBatched_128x128x32();
+                cutlass_check(status);
+            }
+            cudaDeviceSynchronize();
+
+            result = cudaEventRecord(events[event_index++]);
+            if (result != cudaSuccess) {
+                MNN_PRINT("Failed to record start event.\n");
+            }
+
+            for(int i = 0; i < loop; i++) {
+                cutlass::Status status = gemmBatched_128x128x32();
+                cutlass_check(status);
+            }
+
+            result = cudaEventRecord(events[event_index++]);
+            if (result != cudaSuccess) {
+                MNN_PRINT("Failed to record start event.\n");
+            }
+
+            cudaDeviceSynchronize();
+            cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+            #ifdef MNN_CUDA_TUNE_LOG
+            MNN_PRINT("GemmTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
+            #endif
+        }
     } else if(params->precisionType == 0) { // InOut:FP16_FP32
         {
             GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_64x64x32 gemmBatched_64x64x32;
@@ -693,6 +748,60 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
             MNN_PRINT("GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_256x64x32 : %f ms\n", costTime_256x64x32);
             #endif
         }
+
+        {
+            GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_128x128x32 gemmBatched_128x128x32;
+
+            typename GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                {(ElementOutput_F32 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                {(ElementOutput_F32 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                {alpha, beta},          // <- tuple of alpha and beta
+                params->coefs[2]};      // splitK
+
+            size_t workspace_size = GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_128x128x32::get_workspace_size(arguments);
+            if(workspace_size != 0 && workspace_ptr == nullptr) {
+                std::shared_ptr<Tensor> workspaceTensor;
+                workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+            }
+            // Check the problem size is supported or not 
+            cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+            cutlass_check(status);
+
+            // Initialize CUTLASS kernel with arguments and workspace pointer
+            status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+            cutlass_check(status); 
+
+            for(int i = 0; i < warmup; i++) {
+                cutlass::Status status = gemmBatched_128x128x32();
+                cutlass_check(status);
+            }
+            cudaDeviceSynchronize();
+
+            result = cudaEventRecord(events[event_index++]);
+            if (result != cudaSuccess) {
+                MNN_PRINT("Failed to record start event.\n");
+            }
+
+            for(int i = 0; i < loop; i++) {
+                cutlass::Status status = gemmBatched_128x128x32();
+                cutlass_check(status);
+            }
+
+            result = cudaEventRecord(events[event_index++]);
+            if (result != cudaSuccess) {
+                MNN_PRINT("Failed to record start event.\n");
+            }
+
+            cudaDeviceSynchronize();
+            cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+            #ifdef MNN_CUDA_TUNE_LOG
+            MNN_PRINT("GemmTensor_F16_F32_Linear_AlignTensor_Row_Column_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
+            #endif
+        }
     }
 
     std::vector<uint32_t> times;
@@ -709,6 +818,8 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
     times.push_back(time_128x64x64);
     uint32_t time_256x64x32 = (uint32_t)((1000 * costTime_256x64x32) / loop);
     times.push_back(time_256x64x32);
+    uint32_t time_128x128x32 = (uint32_t)((1000 * costTime_128x128x32) / loop);
+    times.push_back(time_128x128x32);
     std::sort(times.begin(), times.end());
 
     if(time_64x64x32 == times[0]) {
@@ -721,6 +832,8 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
         preferBlock = "_128x64x64_";
     } else if(time_256x64x32 == times[0]) {
         preferBlock = "_256x64x32_";
+    } else if(time_128x128x32 == times[0]) {
+        preferBlock = "_128x128x32_";
     } else if(time_64x128x32 == times[0]) {
         preferBlock = "_64x128x32_";
     } else {
@@ -729,16 +842,17 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
     params->prefeBlockSize = preferBlock;
 
     #ifdef MNN_CUDA_TUNE_LOG
-    static uint32_t total_64x128x32 = 0, total_64x64x32 = 0, total_64x64x64 = 0, total_128x64x32 = 0, total_128x64x64 = 0, total_256x64x32 = 0, total_min = 0; 
+    static uint32_t total_64x128x32 = 0, total_64x64x32 = 0, total_64x64x64 = 0, total_128x64x32 = 0, total_128x64x64 = 0, total_256x64x32 = 0, total_128x128x32 = 0, total_min = 0; 
     total_64x64x32 += time_64x64x32;
     total_64x64x64 += time_64x64x64;
     total_64x128x32 += time_64x128x32;
     total_128x64x32 += time_128x64x32;
     total_128x64x64 += time_128x64x64;
     total_256x64x32 += time_256x64x32;
+    total_128x128x32 += time_128x128x32;
     total_min += times[0];
 
-    MNN_PRINT("Gemm layer time:%d %d %d %d %d %d, mintime:%d\ntotal time: %d %d %d %d %d %d, mintime:%d\n", time_64x128x32, time_64x64x32, time_64x64x64, time_128x64x32, time_128x64x64, time_256x64x32, times[0], total_64x128x32, total_64x64x32, total_64x64x64, total_128x64x32, total_128x64x64, total_256x64x32, total_min);
+    MNN_PRINT("Gemm layer time:%d %d %d %d %d %d %d, mintime:%d\ntotal time: %d %d %d %d %d %d %d, mintime:%d\n", time_64x128x32, time_64x64x32, time_64x64x64, time_128x64x32, time_128x64x64, time_256x64x32, time_128x128x32, times[0], total_64x128x32, total_64x64x32, total_64x64x64, total_128x64x32, total_128x64x64, total_256x64x32, total_128x128x32, total_min);
     #endif
 
     for (auto & event : events) {

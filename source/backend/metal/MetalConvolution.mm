@@ -16,12 +16,23 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op) {
+MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op, nullptr) {
     loadWeight(op->main_as_Convolution2D());
 }
-
+MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
+    mWeight = weight;
+}
+bool MetalConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new MetalConvolution(bn, op, mWeight, mBias);
+    return true;
+}
 ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -95,7 +106,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         mPipeline = [context pipelineWithName:kernelName fp16:backend->useFp16InsteadFp32()];
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, mWeight, mBias, nil];
+                        mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId())->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
         
         std::string name = [kernelName UTF8String] + mParam;
         auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
@@ -127,7 +138,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, mWeight, mBias, nil];
+                        mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
 
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
             id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:mtbn->useFp16InsteadFp32()];
@@ -162,8 +173,8 @@ void MetalConvolution::onFloat(const Tensor *input, const Tensor *output, id<MTL
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
+    MetalBackend::setTensor(mWeight.get(), encoder, 3);
+    MetalBackend::setTensor(mBias.get(), encoder, 4);
 
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
@@ -184,7 +195,7 @@ public:
             auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
             if (MetalConvolutionWinograd::isValid(conv, inputs[0], outputs[0])) {
-                return new MetalConvolutionWinograd(backend, input, op);
+                return new MetalConvolutionWinograd(backend, op);
             }
             if (MetalConvolution1x1::isValid(conv, input)) {
                 return new MetalConvolution1x1(backend, op);

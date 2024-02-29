@@ -935,7 +935,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
             }
 #endif
 
-            // MNN_PRINT("before Resize: optype:%s, name:%s, input0:%p, output0:%p, mAllocInput:%d\n", EnumNameOpType(iter.op->type()), iter.info->name().c_str(), iter.inputs[0], iter.outputs[0], mAllocInput);
             // Alloc for Tensors
             auto curBackend = iter.execution->backend();
             if (mAllocInput) {

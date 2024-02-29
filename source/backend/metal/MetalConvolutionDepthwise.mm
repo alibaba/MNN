@@ -14,7 +14,7 @@
 
 namespace MNN {
 MetalConvolutionDepthwise::MetalConvolutionDepthwise(Backend *backend, const MNN::Op *op)
-    : MetalConvolutionCommon(backend, op) {
+    : MetalConvolutionCommon(backend, op, nullptr) {
     loadWeight(op->main_as_Convolution2D());
 }
 
@@ -70,7 +70,7 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
             
     NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                     (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                    mConstBuffer, mWeight, mBias, nil];
+                    mConstBuffer, (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
 
     std::string name = "conv_depthwise";
     MetalRuntime *rt = (MetalRuntime *)backend->runtime();
@@ -86,15 +86,14 @@ atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset: TensorUtils::getDescribe(output)->extra.offset
 atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
+    MetalBackend::setTensor(mWeight.get(), encoder, 3);
+    MetalBackend::setTensor(mBias.get(), encoder, 4);
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 template <typename FType, typename TType>
-static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, int kw, const FType *src) {
-    auto buffer = [context newDeviceBuffer:UP_DIV(group, 4) * 4 * kw * kh * sizeof(TType) access:CPUWriteOnly];
-    auto dst    = (TType *)buffer.contents;
+static void weightInBlock(int group, int kh, int kw, const FType *src, uint8_t* dstOrigin) {
+    auto dst    = (TType *)dstOrigin;
     for (int g = 0; g < group; g++) {
         auto z = g / 4, r = g % 4;
         auto z_dst = dst + z * kh * kw * 4 + r;
@@ -108,16 +107,26 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, 
             }
         }
     }
-    return buffer;
 }
 
-id<MTLBuffer> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    if (backend->useFp16InsteadFp32()) {
-        return weightInBlock<float, __fp16>(context, group, kh, kw, src);
+    auto length = UP_DIV(group, 4) * 4 * kw * kh;
+    std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({length}));
+    auto res = backend->onAcquireBuffer(t.get(), Backend::STATIC);
+    if (!res) {
+        MNN_ERROR("Alloca gpu memory error in MetalConvolutionDepthwise\n");
+        return nullptr;
     }
-    return weightInBlock<float, float>(context, group, kh, kw, src);
+    auto buffer = MetalBackend::getBuffer(t.get());
+    auto content = (uint8_t*)[buffer.first contents] + buffer.second;
+    if (backend->useFp16InsteadFp32()) {
+        weightInBlock<float, __fp16>(group, kh, kw, src, content);
+    } else {
+        weightInBlock<float, float>(group, kh, kw, src, content);
+    }
+    return t;
 }
 
 class MetalConvolutionDepthwiseCreator : public MetalBackend::Creator {

@@ -37,14 +37,18 @@ public:
     }
 
     void setGpuMode(const int cl_mode_num);
-    void setCommandQueue(id<MTLCommandQueue> queue);
+    void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
     id<MTLCommandQueue> getCommandQueue() const {
         return mQueue;
+    }
+    bool userSync() const {
+        return mUserSync;
     }
     
     std::pair<const void*, size_t> makeCache(TunedInfo* info);
     bool setCache(std::pair<const void*, size_t> cache);
-    
+    id<MTLComputePipelineState> findPipeline(const std::vector<std::string>& keys) const;
+    void insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const;
     MetalTuneLevel getTuneLevel() {
         return mTuneLevel;
     }
@@ -75,11 +79,13 @@ private:
 
 private:
     id<MTLCommandQueue> mQueue = nil;
+    bool mUserSync = false;
     std::vector<uint8_t> mBuffer;
     const void* mCacheOutside = nullptr;
     size_t mCacheOutsideSize = 0;
     TunedInfo* mTunedInfo;
     BackendConfig mDefaultConfig;
+    mutable std::map<std::vector<std::string>, id<MTLComputePipelineState>> mCachePipeine;
 };
 
 
@@ -130,6 +136,8 @@ public:
      * @param creator   registering creator.
      */
     static void addCreator(OpType type, Creator *creator);
+    static void setTensor(MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
+    static std::pair<id<MTLBuffer>, int> getBuffer(MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
 
     id<MTLBuffer> getHostBuffer(size_t size) const;
@@ -177,7 +185,6 @@ public:
     void addOpEncoder(std::function<void(void)> opEncoder);
     
     bool isCommandEncoderSet();
-    void setOpEncoder() const;
     
     EagerBufferAllocator *getBufferPool() const {
         return mBufferPool.get();

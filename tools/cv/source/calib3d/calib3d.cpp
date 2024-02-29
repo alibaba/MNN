@@ -40,43 +40,159 @@ inline static float orthogonalityError(const float a[9]) {
     return (sq_norm_a1 - 1) * (sq_norm_a1 - 1) + (sq_norm_a2 - 1) * (sq_norm_a2 - 1) + (sq_norm_a3 - 1) * (sq_norm_a3 - 1) +
            2 * (dot_a1a2*dot_a1a2 + dot_a1a3*dot_a1a3 + dot_a2a3*dot_a2a3);
 }
-std::unique_ptr<Tensor> nearestRotationMatrix(Tensor* e_) {
-    VARP e = Express::Variable::create(Express::Expr::create(e_, false));
-    e = _Transpose(_Reshape(e, {3, 3}), {1, 0});
-    auto res = _Svd(e);
-    auto u = res[1];
-    auto vt = res[2];
-    std::unique_ptr<Tensor> u_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> vt_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> v_(Math::Matrix::create(3, 3));
-    for (int i = 0; i < 9; i++) {
-        u_->host<float>()[i] = u->readMap<float>()[i];
-        vt_->host<float>()[i] = vt->readMap<float>()[i];
+
+static void orthogonal(float* at, float* vt, int i, int j, int row, int col, bool& pass) {
+    auto ai = at + i * row;
+    auto aj = at + j * row;
+    auto vi = vt + i * col;
+    auto vj = vt + j * col;
+    float norm = 0.f, normi = 0.f, normj = 0.f;
+    for (int i = 0; i < col; i++) {
+        norm += ai[i] * aj[i];
+        normi += ai[i] * ai[i];
+        normj += aj[i] * aj[i];
     }
-    Math::Matrix::transpose(v_.get(), vt_.get());
-    float detuv[9] = {1, 0, 0, 0, 1, 0, 0, 0, det3x3(u_->host<float>()) * det3x3(v_->host<float>())};
-    std::unique_ptr<Tensor> detuv_(Math::Matrix::createShape(3, 3, detuv));
-    std::unique_ptr<Tensor> udetuv_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> R_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> r_(Math::Matrix::create(3, 3));
-    Math::Matrix::multi(udetuv_.get(), u_.get(), detuv_.get());
-    Math::Matrix::multi(R_.get(), udetuv_.get(), vt_.get());
-    Math::Matrix::transpose(r_.get(), R_.get());
-    r_->buffer().dim[0].extent = 9;
-    r_->buffer().dim[0].stride = 1;
-    r_->buffer().dim[1].extent = 1;
-    r_->buffer().dim[1].stride = 1;
-    return r_;
+    constexpr float eps = std::numeric_limits<float>::epsilon() * 2;
+    if (std::abs(norm) < eps * std::sqrt(normi * normj)) {
+        return;
+    }
+    pass = false;
+    float tao = (normi - normj) / (2.0 * norm);
+    float tan = (tao < 0 ? -1 : 1) / (fabs(tao) + sqrt(1 + pow(tao, 2)));
+    float cos = 1 / sqrt(1 + pow(tan, 2));
+    float sin = cos * tan;
+    bool swap = normi < normj;
+    for (int i = 0; i < col; i++) {
+        float nai = ai[i];
+        float naj = aj[i];
+        float nvi = vi[i];
+        float nvj = vj[i];
+        if (swap) {
+            std::swap(nai, naj);
+            std::swap(nvi, nvj);
+        }
+        ai[i] = nai * cos + naj * sin;
+        aj[i] = naj * cos - nai * sin;
+        vi[i] = nvi * cos + nvj * sin;
+        vj[i] = nvj * cos - nvi * sin;
+    }
 }
-std::unique_ptr<Tensor> solveSQPSystem(const Tensor* r_, const Tensor* omega_) {
-    auto r = r_->host<float>();
+inline static void svdMatrix(float* w, float* u, float* vt, float* a, int M, int N) {
+    int size = M * N;
+    std::vector<float> AT_(size);
+    float* at = AT_.data();
+    // init at
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < M; j++) {
+            at[i * M + j] = a[j * N + i];
+        }
+    }
+    // init vt
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            vt[i * N + j] = (i == j);
+        }
+    }
+    constexpr int max_iteration = 30;
+    for (int iter = 0; iter < max_iteration; iter++) {
+        bool pass = true;
+        for (int i = 0; i < N; i++) {
+            for (int j = i + 1; j < N; j++) {
+                orthogonal(at, vt, i, j, M, N, pass);
+            }
+        }
+        if (pass) break;
+    }
+    for (int i = 0; i < N; i++) {
+        float norm = 0.f;
+        for (int j = 0; j < N; j++) {
+            auto tmp = at[i * N + j];
+            norm += tmp * tmp;
+        }
+        norm = sqrt(norm);
+        w[i] = norm;
+    }
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            u[i * N + j] = at[j * N + i] / w[j];
+        }
+    }
+}
+
+void Rodrigues(float* dst, float* src) {
+    float w_[9], u_[9], vt_[9];
+    svdMatrix(w_, u_, vt_, src, 3, 3);
+    float R[9];
+    Math::Matrix::multi(R, u_, vt_, 3, 3, 3);
+    float x = R[7] - R[5], y = R[2] - R[6], z = R[3] - R[1];
+    float s = sqrt((x * x + y * y + z * z) * 0.25);
+    float c = (R[0] + R[4] + R[8] - 1) * 0.5;
+    c = c > 1. ? 1. : c < -1. ? -1. : c;
+    float theta = acos(c);
+    if (s < 1e-5) {
+        if (c > 0) {
+            x = y = z = 0;
+        } else {
+            x = sqrt(fmax((R[0] + 1) * 0.5, 0));
+            y = sqrt(fmax((R[4] + 1) * 0.5, 0)) * (R[1] < 0 ? -1. : 1.);
+            z = sqrt(fmax((R[8] + 1) * 0.5, 0)) * (R[2] < 0 ? -1. : 1.);
+            if (fabs(x) < fabs(y) && fabs(x) < fabs(z) && (R[5] > 0) != (y * z > 0)) {
+                z = -z;
+            }
+            theta /= sqrt(x * x + y * y + z * z);
+            x *= theta;
+            y *= theta;
+            z *= theta;
+        }
+    } else {
+        float vth = 1 / (2 * s);
+        vth *= theta;
+        x *= vth;
+        y *= vth;
+        z *= vth;
+    }
+    dst[0] = x;
+    dst[1] = y;
+    dst[2] = z;
+}
+
+void nearestRotationMatrix(float* r, float* e) {
+    // VARP e = Express::Variable::create(Express::Expr::create(e_, false));
+    float w[9] = {0};
+    float u[9] = {0};
+    float vt[9] = {0};
+    float v[9] = {0};
+    float e_t[9] = {0};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0;j < 3; ++j) {
+            e_t[i * 3 + j] = e[j * 3 + i];
+        }
+    }
+    svdMatrix(w, u, vt, e_t, 3, 3);
+    for(int i = 0; i < 3; ++i) {
+        for(int j = 0; j < 3; ++j) {
+            v[i * 3 + j] = vt[j * 3 + i];
+        }
+    }
+    float detuv[9] = {1, 0, 0, 0, 1, 0, 0, 0, det3x3(u) * det3x3(v)};
+    float udetuv_[9] = {0};
+    float R_[9] = {0};
+    Math::Matrix::multi(udetuv_, u, detuv, 3, 3, 3);
+    Math::Matrix::multi(R_, udetuv_, vt, 3, 3, 3);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            r[i * 3 + j] = R_[j * 3 + i];
+        }
+    }
+}
+void solveSQPSystem(float* delta_, float* r, float* omega) {
     float sqnorm_r1 = r[0] * r[0] + r[1] * r[1] + r[2] * r[2],
            sqnorm_r2 = r[3] * r[3] + r[4] * r[4] + r[5] * r[5],
            sqnorm_r3 = r[6] * r[6] + r[7] * r[7] + r[8] * r[8];
     float dot_r1r2 = r[0] * r[3] + r[1] * r[4] + r[2] * r[5],
            dot_r1r3 = r[0] * r[6] + r[1] * r[7] + r[2] * r[8],
            dot_r2r3 = r[3] * r[6] + r[4] * r[7] + r[5] * r[8];
-    float h[54] = { 0 }, k[36] = { 0 }, n[27] = { 0 };
+    std::vector<float> h(54), k(36), n(27), h_t(54);
 #define H(r, c) h[r * 6 + c]
 #define K(r, c) k[r * 6 + c]
 #define N(r, c) n[r * 3 + c]
@@ -196,22 +312,26 @@ std::unique_ptr<Tensor> solveSQPSystem(const Tensor* r_, const Tensor* omega_) {
     K(5, 4) = r[6] * H(0, 4) + r[7] * H(1, 4) + r[8] * H(2, 4) + r[0] * H(6, 4) + r[1] * H(7, 4) + r[2] * H(8, 4);
     K(5, 5) = r[6] * H(0, 5) + r[7] * H(1, 5) + r[8] * H(2, 5) + r[0] * H(6, 5) + r[1] * H(7, 5) + r[2] * H(8, 5);
 
-    std::unique_ptr<Tensor> h_(Math::Matrix::createShape(6, 9, h));
-    std::unique_ptr<Tensor> k_(Math::Matrix::createShape(6, 6, k));
-    std::unique_ptr<Tensor> n_(Math::Matrix::createShape(3, 9, n));
-    std::unique_ptr<Tensor> pn_(Math::Matrix::create(9, 9));
-    auto pn  = pn_->host<float>();
+    std::vector<float> pn(81, 0);
 #define Pn(r, c) pn[r + 9 * c]
     for (int i = 0; i < 9; i++) {
         for (int j = 0; j < 9; j++) {
             Pn(i, j) = (i == j);
         }
     }
-    std::unique_ptr<Tensor> h_t_(Math::Matrix::create(9, 6));
-    std::unique_ptr<Tensor> h_h_t_(Math::Matrix::create(9, 9));
-    Math::Matrix::transpose(h_t_.get(), h_.get());
-    Math::Matrix::multi(h_h_t_.get(), h_.get(), h_t_.get());
-    Math::Matrix::sub(pn_.get(), pn_.get(), h_h_t_.get());
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0;j < 9; ++j) {
+            h_t[i * 9 + j] = h[j * 6 + i];
+        }
+    }
+    std::vector<float> HHT(81); // h:(9,6),h_t(6,9),HHT(9,9)
+    Math::Matrix::multi(HHT.data(), h.data(), h_t.data(), 9, 6, 9);
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            pn[j + 9 * i] = pn[j + 9 * i] - HHT[j + 9 * i];
+        }
+    }
+
     float norm_threshold = 0.1;
     int index1 = -1,
         index2 = -1,
@@ -220,9 +340,10 @@ std::unique_ptr<Tensor> solveSQPSystem(const Tensor* r_, const Tensor* omega_) {
            min_dot12 = std::numeric_limits<float>::max(),
            min_dot1323 = std::numeric_limits<float>::max();
     float col_norms[9] = { 0 };
+    
     for (int c = 0; c < 9; c++) {
         for (int r = 0; r < 9; r++) {
-            col_norms[c] += Pn(r, c) * Pn(r, c);
+            col_norms[c] += pn[9 * c + r] * pn[9 * c + r];
         }
         col_norms[c] = sqrt(col_norms[c]);
     }
@@ -310,63 +431,74 @@ std::unique_ptr<Tensor> solveSQPSystem(const Tensor* r_, const Tensor* omega_) {
     x[3] = (g[3] - K(3, 0) * x[0] - K(3, 1) * x[1]) / K(3, 3);
     x[4] = (g[4] - K(4, 1) * x[1] - K(4, 2) * x[2] - K(4, 3) * x[3]) / K(4, 4);
     x[5] = (g[5] - K(5, 0) * x[0] - K(5, 2) * x[2] - K(5, 3) * x[3] - K(5, 4) * x[4]) / K(5, 5);
-    std::unique_ptr<Tensor> x_(Math::Matrix::createShape(1, 6, x));
-    std::unique_ptr<Tensor> delta_(Math::Matrix::create(1, 9));
-    std::unique_ptr<Tensor> n_t_(Math::Matrix::create(9, 3));
-    std::unique_ptr<Tensor> NtOmega_(Math::Matrix::create(9, 3));
-    std::unique_ptr<Tensor> W_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> Winv_(Math::Matrix::create(3, 3));
-    std::unique_ptr<Tensor> WinvNtOmega_(Math::Matrix::create(9, 3));
-    std::unique_ptr<Tensor> delta_r_(Math::Matrix::create(1, 9));
-    std::unique_ptr<Tensor> y_(Math::Matrix::create(1, 3));
-    std::unique_ptr<Tensor> ny_(Math::Matrix::create(1, 9));
-    Math::Matrix::multi(delta_.get(), h_.get(), x_.get());
-    Math::Matrix::transpose(n_t_.get(), n_.get());
-    Math::Matrix::multi(NtOmega_.get(), n_t_.get(), omega_);
-    Math::Matrix::multi(W_.get(), NtOmega_.get(), n_.get());
+
+    std::vector<float> NtOmega_(27); // (3,9)
+    float W_[9]        = {0}; // (3,3)
+    float WInverse_[9] = {0}; // (3,3)
+    std::vector<float> WInverseOmega(27);
+    float delta_r_[9] = {0}; // (9,1)
+    float y_[3] = {0};       // (3,1)
+    float ny_[9] = {0};      // (9,1)
     Matrix winv;
-    winv.set9(W_->host<float>());
+
+    Math::Matrix::multi(delta_, h.data(), x, 9, 6, 1);
+    // n:(9,3), n_t:(3,9)
+    std::vector<float> n_t(27);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0;j < 9; ++j) {
+            n_t[i * 9 + j] = n[j * 3 + i];
+        }
+    }
+    Math::Matrix::multi(NtOmega_.data(), n_t.data(), omega, 3, 9, 9); // n_t * omega
+    Math::Matrix::multi(W_, NtOmega_.data(), n.data(), 3, 9, 3);
+
+    winv.set9(W_);
     winv.invert(&winv);
-    winv.get9(Winv_->host<float>());
-    Math::Matrix::mul(Winv_.get(), Winv_.get(), -1.f);
-    Math::Matrix::multi(WinvNtOmega_.get(), Winv_.get(), NtOmega_.get());
-    Math::Matrix::add(delta_r_.get(), delta_.get(), r_);
-    Math::Matrix::multi(y_.get(), WinvNtOmega_.get(), delta_r_.get());
-    Math::Matrix::multi(ny_.get(), n_.get(), y_.get());
-    Math::Matrix::add(delta_.get(), delta_.get(), ny_.get());
-    return delta_;
+    winv.get9(WInverse_);
+    
+    for (int i = 0; i < 9; ++i) {
+        WInverse_[i] = -1.0f * WInverse_[i];
+    }
+    Math::Matrix::multi(WInverseOmega.data(), WInverse_, NtOmega_.data(), 3, 3, 9);
+    Math::Matrix::add(delta_r_, delta_, r, 9);
+    Math::Matrix::multi(y_, WInverseOmega.data(), delta_r_, 3, 9, 1);
+    Math::Matrix::multi(ny_, n.data(), y_, 9, 3, 1);
+    Math::Matrix::add(delta_, delta_, ny_, 9);
 }
-std::unique_ptr<Tensor> runSQP(Tensor* r_, Tensor* omega_) {
+void runSQP(float* solution_r_hat_, float* r_, float* omega_) {
     float delta_squared_norm = std::numeric_limits<float>::max();
     int step = 0;
     while (delta_squared_norm > 1e-10 && step++ < 15) {
-        auto delta = solveSQPSystem(r_, omega_);
+        float delta[9] = {0};
+        solveSQPSystem(delta, r_, omega_);
         for (int i = 0; i < 9; i++) {
-            auto d = delta->host<float>()[i];
+            auto d = delta[i];
             delta_squared_norm += d * d;
-            r_->host<float>()[i] += d;
+            r_[i] += d;
         }
     }
-    std::unique_ptr<Tensor> solution_r_(Math::Matrix::create(1, 9));
-    ::memcpy(solution_r_->host<float>(), r_->host<float>(), 36);
-    std::unique_ptr<Tensor> solution_r_hat_;
-    float det_r = det9x1(r_->host<float>());
+    float solution_r_[9] = {0}; // (9,1)
+//    std::unique_ptr<Tensor> solution_r_(Math::Matrix::create(1, 9));
+    ::memcpy(solution_r_, r_, 36);
+    float det_r = det9x1(r_);
     if (det_r < 0) {
-        Math::Matrix::mul(r_, r_, -1.f);
+        for (int i = 0; i < 9; ++i) {
+            r_[i] = (-1.f) * r_[i];
+        }
         det_r = -det_r;
     }
     if (det_r > 1.001) {
-        solution_r_hat_ = nearestRotationMatrix(solution_r_.get());
+        nearestRotationMatrix(solution_r_hat_, solution_r_);
     } else {
-        solution_r_hat_ = std::move(solution_r_);
+        ::memcpy(solution_r_hat_, solution_r_, 36);
     }
-    return solution_r_hat_;
 }
-void handleSolution(Tensor* solution_r_hat_, Tensor* solution_t, Tensor* omega_,
+
+void handleSolution(float* solution_r_hat_, float* solution_t, float* omega_,
                     float mean_x, float mean_y, float mean_z, const float* optr, int n,
-                    VARP& rvec, VARP& tvec, float& min_sq_error) {
-    auto r = solution_r_hat_->host<float>();
-    auto t = solution_t->host<float>();
+                    float* rvec, float* tvec, float& min_sq_error) {
+    auto r = solution_r_hat_;
+    auto t = solution_t;
     bool cheirok = (r[6] * mean_x + r[7] * mean_y + r[8] * mean_z + t[2]) > 0;
     if (!cheirok) {
         int npos = 0, nneg = 0;
@@ -381,15 +513,16 @@ void handleSolution(Tensor* solution_r_hat_, Tensor* solution_t, Tensor* omega_,
     }
     if (cheirok) {
         float sq_error = 0.f;
-        std::unique_ptr<Tensor> omega_r_(Math::Matrix::create(1, 9));
-        Math::Matrix::multi(omega_r_.get(), omega_, solution_r_hat_);
+        float omega_r_[9] = {0}; // (9,1)
+        Math::Matrix::multi(omega_r_, omega_, solution_r_hat_, 9, 9, 1);
+
         for (int i = 0; i < 9; i++) {
-            sq_error += omega_r_->host<float>()[i] * solution_r_hat_->host<float>()[i];
+            sq_error += omega_r_[i] * solution_r_hat_[i];
         }
         if (min_sq_error - sq_error > 1e-6) {
             min_sq_error = sq_error;
-            memcpy(rvec->writeMap<float>(), r, 36);
-            memcpy(tvec->writeMap<float>(), t, 12);
+            memcpy(rvec, r, 36);
+            memcpy(tvec, t, 12);
         }
     }
 }
@@ -400,8 +533,10 @@ std::pair<VARP, VARP> solvePnP(VARP objectPoints, VARP imagePoints, VARP cameraM
     auto optr = objectPoints->readMap<float>();
     auto iptr = imagePoints->readMap<float>();
     // computeOmega start
-    float omega[9][9] = { 0 };
-    float qa_sum[3][9] = { 0 };
+    std::vector<float> omega(81);  // (9,9)
+    std::vector<float> qa_sum(27); // (3,9)
+#define omega(i,j) omega[i * 9 + j]
+#define qa_sum(i,j) qa_sum[i * 9 + j]
     float sq_norm_sum = 0, sum_img_x = 0, sum_img_y = 0,
           sum_obj_x = 0, sum_obj_y = 0, sum_obj_z = 0;
     for (int i = 0; i < n; i++) {
@@ -420,112 +555,128 @@ std::pair<VARP, VARP> solvePnP(VARP objectPoints, VARP imagePoints, VARP cameraM
         float Y2 = Y * Y;
         float YZ = Y * Z;
         float Z2 = Z * Z;
-        omega[0][0] += X2;
-        omega[0][1] += XY;
-        omega[0][2] += XZ;
-        omega[1][1] += Y2;
-        omega[1][2] += YZ;
-        omega[2][2] += Z2;
-        omega[0][6] += -x * X2; omega[0][7] += -x * XY; omega[0][8] += -x * XZ;
-        omega[1][7] += -x * Y2; omega[1][8] += -x * YZ;
-        omega[2][8] += -x * Z2;
-        omega[3][6] += -y * X2; omega[3][7] += -y * XY; omega[3][8] += -y * XZ;
-        omega[4][7] += -y * Y2; omega[4][8] += -y * YZ;
-        omega[5][8] += -y * Z2;
-        omega[6][6] += sq_norm * X2; omega[6][7] += sq_norm * XY; omega[6][8] += sq_norm * XZ;
-        omega[7][7] += sq_norm * Y2; omega[7][8] += sq_norm * YZ;
-        omega[8][8] += sq_norm * Z2;
-        qa_sum[0][0] += X; qa_sum[0][1] += Y; qa_sum[0][2] += Z;
-        qa_sum[1][3] += X; qa_sum[1][4] += Y; qa_sum[1][5] += Z;
-        qa_sum[0][6] += -x * X; qa_sum[0][7] += -x * Y; qa_sum[0][8] += -x * Z;
-        qa_sum[1][6] += -y * X; qa_sum[1][7] += -y * Y; qa_sum[1][8] += -y * Z;
-        qa_sum[2][0] += -x * X; qa_sum[2][1] += -x * Y; qa_sum[2][2] += -x * Z;
-        qa_sum[2][3] += -y * X; qa_sum[2][4] += -y * Y; qa_sum[2][5] += -y * Z;
-        qa_sum[2][6] += sq_norm * X; qa_sum[2][7] += sq_norm * Y; qa_sum[2][8] += sq_norm * Z;
+        omega(0,0) += X2;
+        omega(0,1) += XY;
+        omega(0,2) += XZ;
+        omega(1,1) += Y2;
+        omega(1,2) += YZ;
+        omega(2,2) += Z2;
+        omega(0,6) += -x * X2; omega(0,7) += -x * XY; omega(0,8) += -x * XZ;
+        omega(1,7) += -x * Y2; omega(1,8) += -x * YZ;
+        omega(2,8) += -x * Z2;
+        omega(3,6) += -y * X2; omega(3,7) += -y * XY; omega(3,8) += -y * XZ;
+        omega(4,7) += -y * Y2; omega(4,8) += -y * YZ;
+        omega(5,8) += -y * Z2;
+        omega(6,6) += sq_norm * X2; omega(6,7) += sq_norm * XY; omega(6,8) += sq_norm * XZ;
+        omega(7,7) += sq_norm * Y2; omega(7,8) += sq_norm * YZ;
+        omega(8,8) += sq_norm * Z2;
+        qa_sum(0,0) += X; qa_sum(0,1) += Y; qa_sum(0,2) += Z;
+        qa_sum(1,3) += X; qa_sum(1,4) += Y; qa_sum(1,5) += Z;
+        qa_sum(0,6) += -x * X; qa_sum(0,7) += -x * Y; qa_sum(0,8) += -x * Z;
+        qa_sum(1,6) += -y * X; qa_sum(1,7) += -y * Y; qa_sum(1,8) += -y * Z;
+        qa_sum(2,0) += -x * X; qa_sum(2,1) += -x * Y; qa_sum(2,2) += -x * Z;
+        qa_sum(2,3) += -y * X; qa_sum(2,4) += -y * Y; qa_sum(2,5) += -y * Z;
+        qa_sum(2,6) += sq_norm * X; qa_sum(2,7) += sq_norm * Y; qa_sum(2,8) += sq_norm * Z;
     }
-    omega[1][6] = omega[0][7]; omega[2][6] = omega[0][8]; omega[2][7] = omega[1][8];
-    omega[4][6] = omega[3][7]; omega[5][6] = omega[3][8]; omega[5][7] = omega[4][8];
-    omega[7][6] = omega[6][7]; omega[8][6] = omega[6][8]; omega[8][7] = omega[7][8];
-    omega[3][3] = omega[0][0]; omega[3][4] = omega[0][1]; omega[3][5] = omega[0][2];
-    omega[4][4] = omega[1][1]; omega[4][5] = omega[1][2];
-    omega[5][5] = omega[2][2];
+    omega(1,6) = omega(0,7); omega(2,6) = omega(0,8); omega(2,7) = omega(1,8);
+    omega(4,6) = omega(3,7); omega(5,6) = omega(3,8); omega(5,7) = omega(4,8);
+    omega(7,6) = omega(6,7); omega(8,6) = omega(6,8); omega(8,7) = omega(7,8);
+    omega(3,3) = omega(0,0); omega(3,4) = omega(0,1); omega(3,5) = omega(0,2);
+    omega(4,4) = omega(1,1); omega(4,5) = omega(1,2);
+    omega(5,5) = omega(2,2);
     for (int r = 0; r < 9; r++) {
         for (int c = 0; c < r; c++) {
-            omega[r][c] = omega[c][r];
+            omega(r,c) = omega(c,r);
         }
     }
-    float qinv[9], p[3][9];
+    float qinv[9]; // (3,3)
+    std::vector<float> p(27);   // (3,9)
     CV::Matrix q;
     q.setAll(n, 0, -sum_img_x, 0, n, -sum_img_y, -sum_img_x, -sum_img_y, sq_norm_sum);
     q.invert(&q);
     q.get9(qinv);
-    std::unique_ptr<Tensor> q_inv_(Math::Matrix::createShape(3, 3, static_cast<void*>(qinv)));
-    std::unique_ptr<Tensor> qa_sum_(Math::Matrix::createShape(9, 3, static_cast<void*>(qa_sum)));
-    std::unique_ptr<Tensor> omega_(Math::Matrix::createShape(9, 9, static_cast<void*>(omega)));
-    std::unique_ptr<Tensor> p_(Math::Matrix::createShape(9, 3, static_cast<void*>(p)));
-    std::unique_ptr<Tensor> qa_sum_t_(Math::Matrix::create(3, 9));
-    std::unique_ptr<Tensor> omega_add_(Math::Matrix::create(9, 9));
-    Math::Matrix::mul(q_inv_.get(), q_inv_.get(), -1.f);
-    Math::Matrix::multi(p_.get(), q_inv_.get(), qa_sum_.get());
-    Math::Matrix::transpose(qa_sum_t_.get(), qa_sum_.get());
-    Math::Matrix::multi(omega_add_.get(), qa_sum_t_.get(), p_.get());
-    Math::Matrix::add(omega_.get(), omega_.get(), omega_add_.get());
-    auto res = _Svd(Express::Variable::create(Express::Expr::create(omega_.get(), false)));
-    auto s_ = res[0];
-    auto vt_ = res[2];
-    auto u_ = _Transpose(vt_, {1, 0});
+
+    std::vector<float> qa_sum_t(27);   // (9,3)
+    std::vector<float> omega_add_(81); // (9,9)
+    
+    for (int i = 0; i < 9; ++i) {
+        qinv[i] = qinv[i] * (-1.f);
+    }
+    Math::Matrix::multi(p.data(), qinv, qa_sum.data(), 3, 3, 9);
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            qa_sum_t[i * 3 + j] = qa_sum[j * 9 + i];
+        }
+    }
+    Math::Matrix::multi(omega_add_.data(), qa_sum_t.data(), p.data(), 9, 3, 9);
+    Math::Matrix::add(omega.data(), omega.data(), omega_add_.data(), 81);
+    std::vector<float> s_(81), u(81), vt_(81);
+    svdMatrix(s_.data(), u.data(), vt_.data(), omega.data(), 9, 9);
+
     int num_null_vectors_ = -1;
-    while (s_->readMap<float>()[7 - num_null_vectors_] < 1e-7) num_null_vectors_++;
+    while (s_[7 - num_null_vectors_] < 1e-7) num_null_vectors_++;
     float mean_x = sum_obj_x / n, mean_y = sum_obj_y / n, mean_z = sum_obj_z / n;
     // computeOmega end
     // solveInternal start
     int num_eigen_points = num_null_vectors_ > 0 ? num_null_vectors_ : 1;
     float min_sq_error = std::numeric_limits<float>::max();
-    float e[9];
-    std::unique_ptr<Tensor> solution_r_hat_(Math::Matrix::create(1, 9));
-    std::unique_ptr<Tensor> solution_t_(Math::Matrix::create(1, 3));
-    std::unique_ptr<Tensor> e_(Math::Matrix::createShape(1, 9, e));
-    VARP rvec = _Input({3, 3}, NCHW), tvec = _Input({3, 1}, NCHW);
+    float e[9]; // (9,1)
+    float solution_r_hat_[9] = {0}; // (9,1)
+    float solution_t_[3] = {0};      // (3,1)
+    float rvec[9] = {0}, tvec[3] = {0};
     for (int i = 9 - num_eigen_points; i < 9; i++) {
         for (int j = 0; j < 9; j++) {
-            e[j] = vt_->readMap<float>()[i * 9 + j] * sqrt(3);
+            e[j] = vt_[i * 9 + j] * sqrt(3);
         }
         float orthogonality_sq_error = orthogonalityError(e);
         if (orthogonality_sq_error < 1e-8) {
-            Math::Matrix::mul(solution_r_hat_.get(), e_.get(), det9x1(e));
-            Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+            float det9x1e = det9x1(e);
+            Math::Matrix::multi(solution_r_hat_, e, &det9x1e, 9, 1, 1);
+            Math::Matrix::multi(solution_t_, p.data(), solution_r_hat_, 3, 9, 1);
+            handleSolution(solution_r_hat_, solution_t_, omega.data(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
         } else {
-            auto r0_ = nearestRotationMatrix(e_.get());
-            solution_r_hat_ = runSQP(r0_.get(), omega_.get());
-            Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
-            Math::Matrix::mul(e_.get(), e_.get(), -1.f);
-            auto r1_ = nearestRotationMatrix(e_.get());
-            solution_r_hat_ = runSQP(r1_.get(), omega_.get());
-            Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-            handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+            float r0[9] = {0};
+            nearestRotationMatrix(r0, e);
+            runSQP(solution_r_hat_, r0, omega.data());
+            Math::Matrix::multi(solution_t_, p.data(), solution_r_hat_, 3, 9, 1);
+            handleSolution(solution_r_hat_, solution_t_, omega.data(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+            for (int ix = 0; ix < 9; ++ix) {
+                e[ix] = (-1.0f) * e[ix];
+            }
+            float r1_[9] = {0};
+            nearestRotationMatrix(r1_, e);
+            runSQP(solution_r_hat_, r1_, omega.data());
+            Math::Matrix::multi(solution_t_, p.data(), solution_r_hat_, 3, 9, 1);
+            handleSolution(solution_r_hat_, solution_t_, omega.data(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
         }
     }
     int index, c = 1;
-    while ((index = 9 - num_eigen_points - c) > 0 && min_sq_error > 3 * s_->readMap<float>()[index]) {
+    while ((index = 9 - num_eigen_points - c) > 0 && min_sq_error > 3 * s_[index]) {
         for (int j = 0; j < 9; j++) {
-            e[j] = vt_->readMap<float>()[index * 9 + j];
+            e[j] = vt_[index * 9 + j];
         }
-        auto r0_ = nearestRotationMatrix(e_.get());
-        solution_r_hat_ = runSQP(r0_.get(), omega_.get());
-        Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-        handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
-        Math::Matrix::mul(e_.get(), e_.get(), -1.f);
-        auto r1_ = nearestRotationMatrix(e_.get());
-        solution_r_hat_ = runSQP(r1_.get(), omega_.get());
-        Math::Matrix::multi(solution_t_.get(), p_.get(), solution_r_hat_.get());
-        handleSolution(solution_r_hat_.get(), solution_t_.get(), omega_.get(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+        float r0_[9] = {0};
+        nearestRotationMatrix(r0_, e);
+        runSQP(solution_r_hat_, r0_, omega.data());
+        Math::Matrix::multi(solution_t_, p.data(), solution_r_hat_, 3, 9, 1);
+        handleSolution(solution_r_hat_, solution_t_, omega.data(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
+        for (int ix = 0; ix < 9; ++ix) {
+            e[ix] = (-1.0f) * e[ix];
+        }
+        float r1_[9] = {0};
+        nearestRotationMatrix(r1_, e);
+        runSQP(solution_r_hat_, r1_, omega.data());
+        Math::Matrix::multi(solution_t_, p.data(), solution_r_hat_, 3, 9, 1);
+        handleSolution(solution_r_hat_, solution_t_, omega.data(), mean_x, mean_y, mean_z, optr, n, rvec, tvec, min_sq_error);
         c++;
     }
     // solveInternal end
-    rvec = Rodrigues(rvec);
-    return std::make_pair(rvec, tvec);
+    float res[3];
+    Rodrigues(res, rvec);
+    VARP tvecvarp = _Input({3, 1}, NCHW);
+    VARP rvec_ = _Const(res, {3, 1}, NCHW);
+    memcpy(tvecvarp->writeMap<float>(), tvec, 12);
+    return std::make_pair(rvec_, tvecvarp);
 }
 
 VARP Rodrigues(VARP src) {

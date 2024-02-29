@@ -193,8 +193,8 @@ ErrorCode ConvolutionHybrid::allocDynamicQuantInfo(int thread, int batch, int ic
             return OUT_OF_MEMORY;
         }
         allocTensor(&mQuantInfo.quant_buffer, batch * ic8);
-       backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
-       backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mOutputTemp.get(), Backend::DYNAMIC);
     } else {
         allocTensor(&mQuantInfo.quant_buffer, batch * ic);
     }
@@ -213,7 +213,7 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
     auto outputPtr = output->host<float>();
     auto weightPtr = mResource->mWeight->host<float>();
     auto biasPtr = mResource->mBias->host<float>();
-    auto batch = output->batch();
+    auto batch = output->batch() * output->height() * output->width();
     int ic = input->channel();
     int oc = output->channel();
     int bytes    = core->bytes;
@@ -237,18 +237,16 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
     const uint8_t* dequantBias = dequantAlpha + mResource->hU * mResource->hP * bytes;;
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
     auto oC4      = UP_DIV(oc, tileC);
-    int tileCount = UP_DIV(oC4, threadNumber);
-#ifdef __aarch64__
-#define FLOAT_T float16_t
-#else
-#define FLOAT_T float
-#endif
-    // GEMM/GEMV
     int iC4        = UP_DIV(ic, unit);
+    if (iC4 < threadNumber || oC4 < threadNumber) {
+        threadNumber = std::min(oC4, iC4);
+    }
+    int tileCount = UP_DIV(oC4, threadNumber);
     int iTileCount = UP_DIV(iC4, threadNumber);
     if (unit == 4 && core->supportI8mm) { // Low Memory: use fp32 and smmla.
        ANeedToPack8 = true;
    }
+   int8_t order[32] = {0, 1, 2, 3, 12, 13, 14, 15, 16, 17, 18, 19, 28, 29, 30, 31, 8, 9, 10, 11, 4, 5, 6, 7, 24, 25, 26, 27, 20, 21, 22, 23};
     allocDynamicQuantInfo(threadNumber, batch, ic, oc, bytes);
     mDynamicQuant = [=]() {
         auto maxPtr = mQuantInfo.quant_info.host<uint8_t>();
@@ -310,7 +308,7 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
         const int8_t* input_ptr_tmp = mQuantInfo.quant_buffer.host<int8_t>();
         auto weight_ptr = mResource->mWeight->host<int8_t>() + static_cast<int>(ocIndex * ic * weightBytes);
         auto output_ptr = reinterpret_cast<float*>(outputs[0]->host<uint8_t>() + ocIndex * batch * bytes);
-        if (ANeedToPack8) {
+        if (ANeedToPack8 && batch > 1) {
             input_ptr = mInputTemp->host<int8_t>();
             output_ptr = reinterpret_cast<float*>(mOutputTemp->host<uint8_t>() + ocIndex * batch * bytes);
         }
@@ -321,16 +319,16 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
         const float* sums_ptr = reinterpret_cast<const float*>(max_ptr + threadNumber * batch * bytes);
         const float* scale_ptr = reinterpret_cast<const float*>(max_ptr + threadNumber * batch * (bytes + sizeof(int)));
         size_t dst_depth_quad = workCount;
-        size_t src_depth_quad = ic / unit_;
+        size_t src_depth_quad = UP_DIV(ic, unit_);
         size_t dst_step       = batch * unit_ * bytes;
         size_t realSize       = batch;
-        const float* param[5];
+        const float* param[6];
         param[0] = alpha_ptr;
         param[1] = zero_ptr;
         param[2] = bias_ptr;
         param[3] = sums_ptr;
         param[4] = scale_ptr;
-        // naivte implemet
+        param[5] = (float*)order;
         gemmKernel(output_ptr, input_ptr, weight_ptr, src_depth_quad, dst_step, dst_depth_quad, realSize, param);
     };
     return NO_ERROR;
@@ -338,7 +336,7 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
 
 ErrorCode ConvolutionHybrid::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mDynamicQuant();
-    if (ANeedToPack8) {
+    if (ANeedToPack8 && inputs[0]->batch() > 1) {
         auto core = static_cast<CPUBackend*>(backend())->functions();
         auto plane_in = inputs[0]->width() * inputs[0]->height() * inputs[0]->batch();
         auto plane_out = outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();

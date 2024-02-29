@@ -210,7 +210,7 @@ struct GpuCache {
     const float means[3]   = {103.94f, 116.78f, 123.68f};
     const float normals[3] = {0.017f, 0.017f, 0.017f};
     auto pretreat          = std::shared_ptr<MNN::CV::ImageProcess>(
-        MNN::CV::ImageProcess::create(MNN::CV::RGBA, MNN::CV::BGR, means, 3, normals, 3));
+    MNN::CV::ImageProcess::create(MNN::CV::RGBA, MNN::CV::BGR, means, 3, normals, 3));
     MNN::CV::Matrix matrix;
     matrix.postScale((w - 1) / 223.0, (h - 1) / 223.0);
     pretreat->setMatrix(matrix);
@@ -275,7 +275,7 @@ struct GpuCache {
     const float means[3]   = {103.94f, 116.78f, 123.68f};
     const float normals[3] = {0.017f, 0.017f, 0.017f};
     auto pretreat          = std::shared_ptr<MNN::CV::ImageProcess>(
-        MNN::CV::ImageProcess::create(MNN::CV::BGRA, MNN::CV::BGR, means, 3, normals, 3));
+    MNN::CV::ImageProcess::create(MNN::CV::BGRA, MNN::CV::BGR, means, 3, normals, 3));
     MNN::CV::Matrix matrix;
     matrix.postScale((w - 1) / 223.0, (h - 1) / 223.0);
     pretreat->setMatrix(matrix);

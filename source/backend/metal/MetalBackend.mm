@@ -217,10 +217,6 @@ void MetalBackend::flushEncoder() const {
     }
 }
 
-void MetalBackend::setOpEncoder() const {
-    mOpEncoderSet = true;
-}
-
 void MetalBackend::onExecuteBegin() const {
     mEncoderCount = 0;
 }
@@ -229,10 +225,11 @@ void MetalBackend::onExecuteEnd() const {
     commit_net();
 
     if(mFrameEncodeCache) {
+        // Prepare for next execute
         for(auto opEncoder : mOpEncoders) {
             opEncoder();
         }
-        setOpEncoder();
+        mOpEncoderSet = true;
     }
 }
 bool MetalBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
@@ -395,9 +392,10 @@ void MetalBackend::onResizeBegin() {
     mOpEncoderSet = false;
     mOpEncoders.clear();
     
-    // Finish last inference task if needed
+    // Abort last inference task if needed
     flushEncoder();
-    commit_net();
+    _commandBuffer_net = nil;
+    _commandBuffer = nil;
     wait();
 }
 
@@ -415,7 +413,7 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
     auto floats  = src->getType().code == halide_type_float;
 
     // For command queue from user, need user to make sure last frame's gpu work is ready
-    bool needWait = mRuntime->getCommandQueue() == nil;
+    bool needWait = !mRuntime->userSync();
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
         if (floats && mUseFloatAsFp16) {
@@ -454,8 +452,6 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
                 wait();
             }
             memcpy((uint8_t*)device.contents + TensorUtils::getDescribe(dst)->extra.offset, src->host<uint8_t>(), src->size());
-            commit();
-            //[ctx wait];
         }
     }
     // convert
@@ -623,12 +619,12 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
-    commit_net();
+    if(!mOpEncoderSet) {
+        commit_net();
+    }
     if (toCpu) {
         wait();
     }
-    mFrameEncodeCache = false;
-    mOpEncoderSet = false;
     return 0;
 }
 id<MTLCommandBuffer> MetalBackend::getCommandBufferForBufferCopy() const {
@@ -651,6 +647,14 @@ id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
     }
     return _commandBuffer_net;
 }
+
+void MetalBackend::setTensor(MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
+    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribe(tensor)->extra.offset atIndex:index];
+}
+std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(MNN::Tensor* tensor) {
+    return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribe(tensor)->extra.offset);
+}
+
 
 void MetalBackend::commit() const {
     if (nil != _commandBuffer &&  _commandBuffer.status < MTLCommandBufferStatusCommitted) {
@@ -680,6 +684,7 @@ void MetalBackend::wait() const {
     if (nil != _waiting) {
         auto buffer = _waiting;
         if (buffer.status >= MTLCommandBufferStatusCompleted) {
+            _waiting = nil;
             return;
         }
 
@@ -713,8 +718,19 @@ id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(co
     auto name = [[NSString alloc] initWithUTF8String:cname];
     return [ctx pipelineWithSourceOption:source name:name options:options];
 }
-void MetalRuntime::setCommandQueue(id<MTLCommandQueue> queue) {
+void MetalRuntime::setCommandQueue(id<MTLCommandQueue> queue, bool userSync) {
     mQueue = queue;
+    mUserSync = userSync;
+}
+id<MTLComputePipelineState> MetalRuntime::findPipeline(const std::vector<std::string>& keys) const {
+    auto iter = mCachePipeine.find(keys);
+    if (iter == mCachePipeine.end()) {
+        return nil;
+    }
+    return iter->second;
+}
+void MetalRuntime::insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const {
+    mCachePipeine.insert(std::make_pair(keys, pipeline));
 }
 
 void MetalRuntime::setGpuMode(const int mode_num) {
@@ -790,14 +806,12 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
     auto rt = new MetalRuntime(mContext);
     rt->setGpuMode(info.gpuMode);
     if (nil != sharedContext.queue) {
-        rt->setCommandQueue(sharedContext.queue);
+        rt->setCommandQueue(sharedContext.queue, true);
     }
-#ifdef MNN_METAL_TEST
-    else {
+    if ((info.numThread & MNN_GPU_RECORD_OP) && nil == sharedContext.queue) {
         id<MTLCommandQueue> queue = [sharedContext.device newCommandQueue];
-        rt->setCommandQueue(queue);
+        rt->setCommandQueue(queue, false);
     }
-#endif
     if (nullptr != info.user) {
         rt->mDefaultConfig = *info.user;
     }

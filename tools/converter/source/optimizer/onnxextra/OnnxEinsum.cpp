@@ -157,6 +157,31 @@ public:
             return output->expr().first;
         }
         
+        if(right.size() == 3) {
+            // bid, bjd -> bij
+            if(input0.size() == 3 && input1.size() == 3) {
+                if(input0[0] == input1[0] && input0[0] == right[0]) {
+                    if (input0[2] == input1[2]) {// bid, bjd
+                        auto output = _MatMul(var0, var1, false, true);
+                        output->setName(expr->name());
+                        return output->expr().first;
+                    } else if (input0[2] == input1[1]) {// bid, bdj
+                        auto output = _MatMul(var0, var1, false, false);
+                        output->setName(expr->name());
+                        return output->expr().first;
+                    } else if (input0[1] == input1[1]) {// bdi, bdj
+                        auto output = _MatMul(var0, var1, true, false);
+                        output->setName(expr->name());
+                        return output->expr().first;
+                    } else if (input0[1] == input1[2]) {// bdi, bjd
+                        auto output = _MatMul(var0, var1, true, true);
+                        output->setName(expr->name());
+                        return output->expr().first;
+                    }
+                }
+            }
+        }
+        
         std::map<char, int> input0Pos;
         for (int i=0; i<input0.size(); ++i) {
             input0Pos.insert(std::make_pair(input0[i], i));
@@ -189,6 +214,7 @@ public:
             }
             MNN_ASSERT(false);
         }
+        
         for (int i=0; i<input0.size(); ++i) {
             if (outputPos.find(input0[i]) == outputPos.end()) {
                 sumPos.emplace_back(input0[i]);

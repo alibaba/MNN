@@ -99,6 +99,9 @@ static PyObject* PyMNNVar_read(PyMNNVar *self, PyObject *args);
 #endif
 static PyObject* PyMNNVar_read_as_tuple(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_write(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_sync(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_set_device_ptr(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_copy_to_device_ptr(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_add(PyMNNVar *self, PyObject *args);
 static PyGetSetDef PyMNNVar_getsetters[] = {
     {"shape", (getter)PyMNNVar_getshape, NULL, "shape", NULL},
@@ -130,6 +133,11 @@ static PyMethodDef PyMNNVar_methods[] = {
 #endif
     {"read_as_tuple", (PyCFunction)PyMNNVar_read_as_tuple, METH_VARARGS, "read data(tuple)"},
     {"write", (PyCFunction)PyMNNVar_write, METH_VARARGS, "write data"},
+    {"sync", (PyCFunction)PyMNNVar_sync, METH_VARARGS, "sync var data"},
+    {"set_device_ptr", (PyCFunction)PyMNNVar_set_device_ptr, METH_VARARGS, "set_device_ptr data"},
+    {"copy_to_device_ptr", (PyCFunction)PyMNNVar_copy_to_device_ptr, METH_VARARGS, "copy_to_device_ptr data"},
+
+    
     {NULL}  /* Sentinel */
 };
 static PyObject* PyMNNVar_add(PyObject*, PyObject*);
@@ -689,7 +697,7 @@ static PyObject* PyMNNVar_getsize(PyMNNVar *self, void *closure) {
         if(nullptr == info) {
             PyMNN_ERROR("getsize: unable to get variable info");
         }
-        return toPyObj(info->size);
+        return toPyObj((int)info->size);
     }
     Py_RETURN_NONE;
 }
@@ -929,6 +937,30 @@ static PyObject* PyMNNVar_write(PyMNNVar *self, PyObject *args) {
     auto dtype = htype2dtype(info->type);
     int64_t total_length = info->size;
     toPtr(data, dtype, total_length, (*(self->var))->writeMap<void>());
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_sync(PyMNNVar *self, PyObject *args) {
+    ((MNN::Tensor*)(*(self->var))->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_set_device_ptr(PyMNNVar *self, PyObject *args) {
+    uint64_t devicePtr;
+    int memoryType;
+    if (!PyArg_ParseTuple(args, "Ki", &devicePtr, &memoryType)) {
+        Py_RETURN_NONE;
+    }
+
+    (*(self->var))->setDevicePtr((const void*)devicePtr, memoryType);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_copy_to_device_ptr(PyMNNVar *self, PyObject *args) {
+    uint64_t devicePtr;
+    int memoryType;
+    if (!PyArg_ParseTuple(args, "Ki", &devicePtr, &memoryType)) {
+        Py_RETURN_NONE;
+    }
+
+    (*(self->var))->copyToDevicePtr((void*)devicePtr, memoryType);
     Py_RETURN_NONE;
 }
 // Expr methods

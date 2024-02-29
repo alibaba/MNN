@@ -2,6 +2,7 @@
 #include "CutlassGemmTune.hpp"
 namespace MNN {
 namespace CUDA {
+//#define MNN_CUDA_TUNE_LOG
 
 void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
     MNN_ASSERT(params->epilogueType == 0);// Linear
@@ -19,7 +20,7 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
         return;
     }
 
-    cudaEvent_t events[12];
+    cudaEvent_t events[14];
     cudaError_t result;
     for (auto & event : events) {
         result = cudaEventCreate(&event);
@@ -42,7 +43,7 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
     const int loop = 100;
     int event_index = 0;
     // us
-    float costTime_64x64x32, costTime_64x64x64, costTime_64x128x32, costTime_128x64x32, costTime_128x64x64, costTime_256x64x32;
+    float costTime_64x64x32, costTime_64x64x64, costTime_64x128x32, costTime_128x64x32, costTime_128x64x64, costTime_256x64x32, costTime_128x128x32;
 
     if(params->batchSize > 0) { // BatchGemm
         if(params->layout == 0) { // RowColumn
@@ -396,6 +397,64 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
                     MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_256x64x32 : %f ms\n", costTime_256x64x32);
                     #endif
                 }
+
+                {
+                    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32 gemmBatched_128x128x32;
+
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                        (int64_t)params->batchOffset[0], // batch_stride_A
+                        {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[1], // batch_stride_B
+                        {(ElementOutput_F16 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)params->batchOffset[2], // batch_stride_bias
+                        {(ElementOutput_F16 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[3],  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        params->batchSize};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32::get_workspace_size(arguments);
+                    if(workspace_size != 0 && workspace_ptr == nullptr) {
+                        std::shared_ptr<Tensor> workspaceTensor;
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+                    cutlass_check(status); 
+
+                    for(int i = 0; i < warmup; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+                    cudaDeviceSynchronize();
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    for(int i = 0; i < loop; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    cudaDeviceSynchronize();
+                    cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+                    #ifdef MNN_CUDA_TUNE_LOG
+                    MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Column_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
+                    #endif
+                }
             } else {
                 // BatchGemm + RowColumn + AlignCuda
                 {
@@ -743,6 +802,64 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
                     cudaEventElapsedTime(&costTime_256x64x32, events[event_index-2], events[event_index-1]);
                     #ifdef MNN_CUDA_TUNE_LOG
                     MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm80_256x64x32 : %f ms\n", costTime_256x64x32);
+                    #endif
+                }
+
+                {
+                    GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm80_128x128x32 gemmBatched_128x128x32;
+
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                        (int64_t)params->batchOffset[0], // batch_stride_A
+                        {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[1], // batch_stride_B
+                        {(ElementOutput_F16 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)params->batchOffset[2], // batch_stride_bias
+                        {(ElementOutput_F16 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[3],  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        params->batchSize};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm80_128x128x32::get_workspace_size(arguments);
+                    if(workspace_size != 0 && workspace_ptr == nullptr) {
+                        std::shared_ptr<Tensor> workspaceTensor;
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+                    cutlass_check(status); 
+
+                    for(int i = 0; i < warmup; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+                    cudaDeviceSynchronize();
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    for(int i = 0; i < loop; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    cudaDeviceSynchronize();
+                    cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+                    #ifdef MNN_CUDA_TUNE_LOG
+                    MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Column_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
                     #endif
                 }
             }
@@ -1097,6 +1214,63 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
                     #endif
                 }
 
+                {
+                    GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm80_128x128x32 gemmBatched_128x128x32;
+
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                        (int64_t)params->batchOffset[0], // batch_stride_A
+                        {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[1], // batch_stride_B
+                        {(ElementOutput_F16 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)params->batchOffset[2], // batch_stride_bias
+                        {(ElementOutput_F16 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[3],  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        params->batchSize};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm80_128x128x32::get_workspace_size(arguments);
+                    if(workspace_size != 0 && workspace_ptr == nullptr) {
+                        std::shared_ptr<Tensor> workspaceTensor;
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+                    cutlass_check(status); 
+
+                    for(int i = 0; i < warmup; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+                    cudaDeviceSynchronize();
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    for(int i = 0; i < loop; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    cudaDeviceSynchronize();
+                    cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+                    #ifdef MNN_CUDA_TUNE_LOG
+                    MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignTensor_Row_Row_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
+                    #endif
+                }
             } else {
                 // BatchGemm + RowColumn + AlignCuda
                 {
@@ -1446,6 +1620,64 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
                     MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Row_Sm80_256x64x32 : %f ms\n", costTime_256x64x32);
                     #endif
                 }
+
+                {
+                    GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Row_Sm80_128x128x32 gemmBatched_128x128x32;
+
+                    typename GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Row_Sm80_128x128x32::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
+                        {(ElementInput_F16 *)params->ptrOffset[0].first, params->ptrOffset[0].second},  // Ptr + ldm
+                        (int64_t)params->batchOffset[0], // batch_stride_A
+                        {(ElementInput_F16 *)params->ptrOffset[1].first, params->ptrOffset[1].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[1], // batch_stride_B
+                        {(ElementOutput_F16 *)params->ptrOffset[2].first, params->ptrOffset[2].second},  //  Ptr + ldm  if ldm = 0, vector,
+                        (int64_t)params->batchOffset[2], // batch_stride_bias
+                        {(ElementOutput_F16 *)params->ptrOffset[3].first, params->ptrOffset[3].second},  //  Ptr + ldm
+                        (int64_t)params->batchOffset[3],  // batch_stride_C
+                        {alpha, beta},          // <- tuple of alpha and beta
+                        params->batchSize};                // batch_count
+
+                    size_t workspace_size = GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Row_Sm80_128x128x32::get_workspace_size(arguments);
+                    if(workspace_size != 0 && workspace_ptr == nullptr) {
+                        std::shared_ptr<Tensor> workspaceTensor;
+                        workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
+                        static_cast<CUDABackend *>(params->backend)->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+                        workspace_ptr = (void *)workspaceTensor.get()->buffer().device;
+                    }
+                    // Check the problem size is supported or not 
+                    cutlass::Status status = gemmBatched_128x128x32.can_implement(arguments);
+                    cutlass_check(status);
+
+                    // Initialize CUTLASS kernel with arguments and workspace pointer
+                    status = gemmBatched_128x128x32.initialize(arguments, (uint8_t *)workspace_ptr);
+                    cutlass_check(status); 
+
+                    for(int i = 0; i < warmup; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+                    cudaDeviceSynchronize();
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    for(int i = 0; i < loop; i++) {
+                        cutlass::Status status = gemmBatched_128x128x32();
+                        cutlass_check(status);
+                    }
+
+                    result = cudaEventRecord(events[event_index++]);
+                    if (result != cudaSuccess) {
+                        MNN_PRINT("Failed to record start event.\n");
+                    }
+
+                    cudaDeviceSynchronize();
+                    cudaEventElapsedTime(&costTime_128x128x32, events[event_index-2], events[event_index-1]);
+                    #ifdef MNN_CUDA_TUNE_LOG
+                    MNN_PRINT("GemmBatchedTensor_F16_F16_Linear_AlignCuda_Row_Row_Sm80_128x128x32 : %f ms\n", costTime_128x128x32);
+                    #endif
+                }
             }
         }
     } else { // Gemm
@@ -1466,6 +1698,8 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
     times.push_back(time_128x64x64);
     uint32_t time_256x64x32 = (uint32_t)((1000 * costTime_256x64x32) / loop);
     times.push_back(time_256x64x32);
+    uint32_t time_128x128x32 = (uint32_t)((1000 * costTime_128x128x32) / loop);
+    times.push_back(time_128x128x32);
     std::sort(times.begin(), times.end());
 
     if(time_64x64x32 == times[0]) {
@@ -1478,6 +1712,8 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
         preferBlock = "_128x64x64_";
     } else if(time_256x64x32 == times[0]) {
         preferBlock = "_256x64x32_";
+    } else if(time_128x128x32 == times[0]) {
+        preferBlock = "_128x128x32_";
     } else if(time_64x128x32 == times[0]) {
         preferBlock = "_64x128x32_";
     } else {
@@ -1486,16 +1722,17 @@ void getGemmBatchedTensorCoreFloat16Param(GemmParamInfo* params) {
     params->prefeBlockSize = preferBlock;
 
     #ifdef MNN_CUDA_TUNE_LOG
-    static uint32_t total_64x64x32 = 0, total_64x64x64 = 0, total_64x128x32 = 0, total_128x64x32 = 0, total_128x64x64 = 0, total_256x64x32 = 0, total_min = 0; 
+    static uint32_t total_64x64x32 = 0, total_64x64x64 = 0, total_64x128x32 = 0, total_128x64x32 = 0, total_128x64x64 = 0, total_256x64x32 = 0, total_128x128x32 = 0, total_min = 0; 
     total_64x64x32 += time_64x64x32;
     total_64x64x64 += time_64x64x64;
     total_64x128x32 += time_64x128x32;
     total_128x64x32 += time_128x64x32;
     total_128x64x64 += time_128x64x64;
     total_256x64x32 += time_256x64x32;
+    total_128x128x32 += time_128x128x32;
     total_min += times[0];
 
-    MNN_PRINT("GemmBatch layer time:%d %d %d %d %d %d, mintime:%d\ntotal time: %d %d %d %d %d %d, mintime:%d\n", time_64x64x32, time_64x64x64, time_64x128x32, time_128x64x32, time_128x64x64, time_256x64x32, times[0], total_64x64x32, total_64x64x64, total_64x128x32, total_128x64x32, total_128x64x64, total_256x64x32, total_min);
+    MNN_PRINT("GemmBatch layer time:%d %d %d %d %d %d %d, mintime:%d\ntotal time: %d %d %d %d %d %d %d, mintime:%d\n", time_64x64x32, time_64x64x64, time_64x128x32, time_128x64x32, time_128x64x64, time_256x64x32, time_128x128x32, times[0], total_64x64x32, total_64x64x64, total_64x128x32, total_128x64x32, total_128x64x64, total_256x64x32, total_128x128x32, total_min);
     #endif
 
     for (auto & event : events) {

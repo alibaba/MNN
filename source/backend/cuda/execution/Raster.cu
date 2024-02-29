@@ -125,6 +125,28 @@ __global__ void FLOAT##Name(const T *input, T *output,\
     output[dstOffset] = (float)(Func);\
   }\
 }\
+template<typename T>\
+__global__ void UNARY_SINGLE##Name(const T *input, T *output,\
+        int count\
+        ) { \
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {\
+    float x = (float)input[i];\
+    output[i] = (T)(Func);\
+  }\
+}\
+
+template<typename T>
+__global__ void UNARY_HALF2_SIGMOID(const T *input, T *output,
+        int count
+        ) { 
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
+    half2 x = input[i];
+    half2 one;
+    one.x = 1.0;
+    one.y = 1.0f;
+    output[i] = __h2div(one, __hadd2(one, h2exp(__hneg2(x))));
+  }
+}
 
 template<typename T>
 __global__ void blit_2_float(const T *input, T *output,
@@ -184,7 +206,7 @@ UNARY_FUNC(ACOS, (T)(acos((float)x)));
 UNARY_FUNC(ATAN, (T)(atan((float)x)));
 UNARY_FUNC(LOG1P, log(1+x));
 UNARY_FUNC(TANH, tanh(x));
-UNARY_FUNC(SIGMOID, 1./(1.+exp(-x)));
+UNARY_FUNC(SIGMOID, (x>87.?1.0f:(x<-87.?0.0f: 1./(1.+exp(-x)))));
 UNARY_FUNC(EXPM1, exp(x)-1);
 UNARY_FUNC(ATANH, atanh(x));
 UNARY_FUNC(ACOSH, acosh(x));
@@ -535,24 +557,37 @@ void UnaryBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const
     int count = size[0] * size[1] * size[2];
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+
     DivModFast sz(size[0]);
     DivModFast sy(size[1]);
     DivModFast sx(size[2]);
     // TODO: Support FP16
     #define COMPUTE(TYPE)\
     if (opType == MNN::UnaryOpOperation_##TYPE ) {\
-        if(bytes==2) {\
-            FLOAT##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output,\
-                count, \
-                sz, sy, sx,\
-                srcStride[0], srcStride[1], srcStride[2],\
-                dstStride[0], dstStride[1], dstStride[2]);\
+        if(size[0] == 1 && size[1] == 1 && srcStride[2] == 1 && dstStride[2] == 1 && opType == MNN::UnaryOpOperation_SIGMOID && bytes==2 && count % 2 == 0) {\
+             block_num = runtime->blocks_num(count/2);\
+             threads_num = runtime->threads_num();\
+             UNARY_HALF2_SIGMOID<<<block_num, threads_num>>>((const half2*)input, (half2*)output, count/2);\
+        } else if(size[0] == 1 && size[1] == 1 && srcStride[2] == 1 && dstStride[2] == 1) {\
+            if(bytes==2) {\
+                UNARY_SINGLE##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output, count);\
+            } else {\
+                UNARY_SINGLE##TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output, count);\
+            }\
         } else {\
-            TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output,\
-                count, \
-                sz, sy, sx,\
-                srcStride[0], srcStride[1], srcStride[2],\
-                dstStride[0], dstStride[1], dstStride[2]);\
+            if(bytes==2) {\
+                FLOAT##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output,\
+                    count, \
+                    sz, sy, sx,\
+                    srcStride[0], srcStride[1], srcStride[2],\
+                    dstStride[0], dstStride[1], dstStride[2]);\
+            } else {\
+                TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output,\
+                    count, \
+                    sz, sy, sx,\
+                    srcStride[0], srcStride[1], srcStride[2],\
+                    dstStride[0], dstStride[1], dstStride[2]);\
+            }\
         }\
         return;\
     }\

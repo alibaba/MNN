@@ -5,6 +5,7 @@ def generateShape(rootDir):
     shapeRenderDir = os.path.join(rootDir, "source", "shape", "render")
     shapeLists = []
     renderShape = []
+    transformerFuseShape = []
     def collectFile(f):
         if os.path.isdir(f):
             return
@@ -42,6 +43,13 @@ def generateShape(rootDir):
                     l = l.split(',')
                     func = '___' + l[0] + '__'+l[1]+"__"
                     renderShape.append(func)
+                elif l.find('REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE') >= 0:
+                    l = l.replace("REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(", "")
+                    l = l.split(')')[0]
+                    l = l.replace(' ', "")
+                    l = l.split(',')
+                    func = '___' + l[0] + '__'+l[1]+"__"
+                    transformerFuseShape.append(func)
     shapeRegFile = os.path.join(shapeDir, "ShapeRegister.cpp")
     print(shapeRegFile)
     for fi in os.listdir(shapeDir):
@@ -64,11 +72,19 @@ def generateShape(rootDir):
         for l in renderShape:
             f.write("extern void " + l + '();\n')
         f.write('#endif\n')
+        f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
+        for l in transformerFuseShape:
+            f.write("extern void " + l + '();\n')
+        f.write('#endif\n')
         f.write('void registerShapeOps() {\n')
         for l in shapeLists:
             f.write(l+'();\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_RENDER' + '\n')
         for l in renderShape:
+            f.write(l+'();\n')
+        f.write('#endif\n')
+        f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
+        for l in transformerFuseShape:
             f.write(l+'();\n')
         f.write('#endif\n')
         f.write("}\n}\n")

@@ -173,9 +173,9 @@ __kernel void gemm_conv_buf(GLOBAL_SIZE_DIM2
 #endif
 
     for (int k = 0; k < srcChannelC4; ++k) {
+        FLOAT4 in = vload4(k, input + input_offset);
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
-        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, + weight_offset + k * weight_oc_offset));
-        weights = mad(weights, dequantScale16, dequantOffset16);
+        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
         sum += in.x + in.y + in.z + in.w;
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
         uchar8 charWeightsInt4 = vload8(0, weight + weight_offset + k * weight_oc_offset);
@@ -202,7 +202,6 @@ __kernel void gemm_conv_buf(GLOBAL_SIZE_DIM2
 #else
         FLOAT16 weights = vload16(0, weight + weight_offset + k * weight_oc_offset);
 #endif
-        FLOAT4 in = vload4(k, input + input_offset);
         
         out = mad((FLOAT4)in.x, (FLOAT4)weights.s0123, out);
         out = mad((FLOAT4)in.y, (FLOAT4)weights.s4567, out);
@@ -271,7 +270,6 @@ __kernel void gemm_conv_b2_buf(GLOBAL_SIZE_DIM2
         FLOAT4 in1 = vload4(k, input + input_offset + srcChannelC4 * 4);
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
         FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
-        weights = mad(weights, dequantScale16, dequantOffset16);
         sum0 += in0.x + in0.y + in0.z + in0.w;
         sum1 += in1.x + in1.y + in1.z + in1.w;
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)

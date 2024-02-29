@@ -170,8 +170,8 @@ MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
         {onnx::TensorProto_DataType_FLOAT16, MNN::DataType_DT_HALF},
-        {onnx::TensorProto_DataType_BFLOAT16, MNN::DataType_DT_BFLOAT16},
-        {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
+	{onnx::TensorProto_DataType_BFLOAT16, MNN::DataType_DT_BFLOAT16},     
+   	{onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
         {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
         {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int64
         {onnx::TensorProto_DataType_DOUBLE, MNN::DataType_DT_FLOAT}, // For compability, use float instead of double
@@ -517,6 +517,13 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
         findConst(graph->output(i).name());
     }
     auto indexes = OnnxScope::topoSort(*graph);
+    // Firstly declare output names
+    for (auto i : indexes) {
+        const auto& onnxNode = graph->node(i);
+        for (int k = 0; k < onnxNode.output_size(); k++) {
+            scope->declareTensor(onnxNode.output(k));
+        }
+    }
     for (auto i : indexes) {
         const auto& onnxNode = graph->node(i);
         const auto& opType   = onnxNode.op_type();
@@ -540,7 +547,6 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
                 if (iter == outsideInputs.end()) {
                     idx = scope->declareTensor(inputName);
                     std::unique_ptr<MNN::OpT> inputOp(new MNN::OpT);
-                    //FUNC_PRINT_ALL(inputName.c_str(), s);
                     inputOp->name      = inputName;
                     inputOp->type      = MNN::OpType_Input;
                     inputOp->main.type = MNN::OpParameter_Input;

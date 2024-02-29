@@ -28,6 +28,7 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    int getLocalSize(int size, int maxGroupSize);
 
 private:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP

@@ -280,8 +280,17 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "saveExternalData",
      "save weight to extenal bin file.",
      cxxopts::value<bool>()
+     )
+    (
+     "convertMatmulToConv",
+     "if 1, converter matmul with constant input to convolution. default: 1, range: {0, 1}",
+     cxxopts::value<int>()
+     )
+    (
+     "transformerFuse",
+     "fuse attention op, like fmhaV2/fmhca/splitGelu/groupNorm. default: false",
+     cxxopts::value<bool>()
      );
-
 
     auto result = options.parse(argc, argv);
 
@@ -458,7 +467,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("detectSparseSpeedUp")) {
         modelPath.detectSparseSpeedUp = result["detectSparseSpeedUp"].as<int>();
     }
-
+    if (result.count("convertMatmulToConv")) {
+        modelPath.convertMatmulToConv = result["convertMatmulToConv"].as<int>();
+    }
+    
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }
@@ -470,6 +482,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("saveExternalData")) {
         modelPath.saveExternalData = true;
+    }
+    if (result.count("transformerFuse")) {
+        modelPath.transformerFuse = true;
     }
     return true;
 }

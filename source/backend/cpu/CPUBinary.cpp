@@ -88,7 +88,7 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     MNN_CONCURRENCY_END();
     
     if(mActivationType == 1 && output->getType().code == halide_type_float) {
-        mActivationExe->onExecute(outputs, outputs);;
+        mActivationExe->onExecute(outputs, outputs);
     }
     return NO_ERROR;
 }

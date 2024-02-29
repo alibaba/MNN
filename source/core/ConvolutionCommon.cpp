@@ -472,6 +472,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
     if (2 == quan->type()) {
         buffer = ReadSparseQuanData_c(originBuffer, &weightLength, alpha_ptr, alpha_size, result.get(), quan->shapeInt32());
     }
+    bool canLowMemory = result->weightMap.size() == 16 || result->weightMap.size() == 256;
     if (result->weightMap.size() > 0 && result->weightMap.size() <= 16) {
         // Compute Remap for int4
         result->canUseInt4 = true;
@@ -515,6 +516,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
 
     // weight int8 only
     if (4 == quan->type()) {
+        canLowMemory = true;
         weightLength = buffer_size;
         result->weight.reset(weightLength);
         ::memcpy(result->weight.get(), buffer_ptr, weightLength);
@@ -562,7 +564,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
             }
         }
     }
-    if (forceInt8) {
+    if (forceInt8 && canLowMemory) {
         return result;
     }
     if (!quan->has_scaleInt() || forceFloat) {

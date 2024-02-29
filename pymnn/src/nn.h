@@ -23,7 +23,8 @@ def_class_methods(_Module,
     load_parameters, "load parameters",
     clear_cache, "clear cache",
     _register_submodules, "register submodules",
-    _add_parameter, "add parameter"
+    _add_parameter, "add parameter",
+    clone, "clone module"
 )
 def_class_smart_end(_Module, Module)
 
@@ -247,6 +248,9 @@ static PyObject* PyMNN_Module__add_parameter(PyMNN_Module *self, PyObject *args)
         Py_RETURN_NONE;
     }
     return toPyObj((*(self->ptr))->addParameter(toVar(parameter)));
+}
+static PyObject* PyMNN_Module_clone(PyMNN_Module *self, PyObject *args) {
+    return toPyObj((*(self->ptr))->clone((*(self->ptr)).get()));
 }
 // NN methods
 static PyObject* PyMNNNN_load_module(PyObject *self, PyObject *args) {

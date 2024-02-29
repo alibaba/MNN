@@ -295,11 +295,22 @@ public:
         if ( weight->linkNumber() <= limitNumber && !convertToConvint8) {
             weightDataPtr = weight->readMap<float>();
         }
+        EXPRP reluExpr;
+        bool hasRelu = false;
         if (convertToConvint8) {
             // Get output quant info.
             auto outputExpr = expr->outputs().front().lock();
+            
+            if (outputExpr->get() && (outputExpr->get()->type() == OpType::OpType_ReLU || outputExpr->get()->type() == OpType_ReLU6)) {
+                reluExpr = std::move(outputExpr);
+                outputExpr = reluExpr->outputs().front().lock();
+                hasRelu = true;
+            }
             auto outputScaleVar = outputExpr->inputs()[1];
             float outputScale = outputScaleVar->readMap<float>()[0];
+            if (hasRelu) {
+                outputScale = 1.0f;
+            }
             int8_t outputZero = 0;
             if (outputExpr->inputs().size() > 2) {
                 outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0]);
@@ -311,27 +322,28 @@ public:
             auto weightInt8 = weightexpr->inputs()[0];
             auto pw= weightInt8->readMap<int8_t>();
             const size_t weightSize = co * ci * kh * kw;
-            std::vector<int8_t> weightData(weightSize);
-            for (int cnt = 0; cnt < weightSize; ++cnt) {
-                weightData[cnt] = pw[cnt];
+//            std::vector<int8_t> weightData(weightSize);
+            std::vector<int32_t> weightKenelSum(co);
+            const int kernelSize = static_cast<int32_t>(weightSize / co);
+//            for (int cnt = 0; cnt < weightSize; ++cnt) {
+//                weightData[cnt] = pw[cnt];
+//            }
+            for (int i = 0; i < co; i++) {
+                int temp = 0;
+                int offset = i * kernelSize;
+                for (int j = 0; j < kernelSize; j++) {
+                    temp += int(pw[offset + j]);
+                }
+                weightKenelSum[i] = temp;
             }
             std::vector<int32_t> biasInt32(common->outputCount, 0);
-            if (inputSize > 2) {
-                auto biasExpr = inputs[2]->expr().first;
-                auto biasInt32Var = biasExpr->inputs()[0];
-                auto ptr = biasInt32Var->readMap<int32_t>();
-                if (!ptr) {
-                    MNN_ERROR("Convolution bias should be constant\n");
-                    return nullptr;
-                }
-                for (int cnt = 0; cnt < common->outputCount; ++cnt) {
-                    biasInt32[cnt] = ptr[cnt];
-                }
-            }
             convParam->symmetricQuan.reset(new QuantizedFloatParamT);
-            convParam->symmetricQuan->bias = std::move(biasInt32);
-            convParam->symmetricQuan->weight = std::move(weightData);
+            convParam->symmetricQuan->weight.resize(weightSize);
+            ::memcpy(convParam->symmetricQuan->weight.data(), pw, weightSize * sizeof(int8_t));
             convParam->symmetricQuan->nbits = 8;
+            if (hasRelu) {
+                convParam->symmetricQuan->outputDataType = DataType_DT_FLOAT;
+            }
             
             // Get input quant info.
             auto inputExpr = inputs[0]->expr().first;
@@ -352,6 +364,19 @@ public:
                     scale[cnt] = 0.f;
                 }
             }
+            if (inputSize > 2) {
+                auto biasExpr = inputs[2]->expr().first;
+                auto biasInt32Var = biasExpr->inputs()[0];
+                auto ptr = biasInt32Var->readMap<int32_t>();
+                if (!ptr) {
+                    MNN_ERROR("Convolution bias should be constant\n");
+                    return nullptr;
+                }
+                for (int cnt = 0; cnt < co; ++cnt) {
+                    biasInt32[cnt] = ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(inputZero) + static_cast<int32_t>(static_cast<float>(outputZero) / scale[cnt]);
+                }
+            }
+            convParam->symmetricQuan->bias = std::move(biasInt32);
             convParam->symmetricQuan->scale = std::move(scale);
             convParam->symmetricQuan->clampMax = 127;
             convParam->symmetricQuan->clampMin = -128;
@@ -416,7 +441,7 @@ public:
                 newOp->type = OpType_DepthwiseConvInt8;
             }
         }
-
+        
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convParam.release();
         
@@ -459,9 +484,11 @@ public:
         }
         convolutionExpr->setName(expr->name());
         auto res = Variable::create(convolutionExpr);
+
         if (needSqueeze) {
             res = _Squeeze(res, {3});
         }
+        
         return res->expr().first;
     }
 };

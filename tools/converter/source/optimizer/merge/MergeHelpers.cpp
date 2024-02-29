@@ -31,6 +31,51 @@ bool IsBinaryOp(EXPRP expr) {
     return op && op->type() == OpType_BinaryOp;
 }
 
+bool IsCast(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Cast;
+}
+
+bool IsConcat(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Concat;
+}
+
+bool IsReshape(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Reshape;
+}
+
+bool IsUnsqueeze(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Unsqueeze;
+}
+
+bool IsTranspose(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && (op->type() == OpType_Transpose || op->type() == OpType_Permute);
+}
+
+bool IsScatterNd(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_ScatterNd;
+}
+
+bool IsMatMul(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_MatMul;
+}
+
+bool IsSoftmax(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Softmax;
+}
+
+bool IsSlice(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && (op->type() == OpType_Slice || op->type() == OpType_StridedSlice || op->type() == OpType_SliceTf);
+}
+
 bool IsUnaryOp(EXPRP expr) {
     const Op* op = expr->get();
     return op && op->type() == OpType_UnaryOp;
@@ -60,6 +105,10 @@ bool IsBinarySub(EXPRP expr) {
 
 bool IsBinaryMul(EXPRP expr) {
     IS_BINARY_OP_TYPE(BinaryOpOperation_MUL);
+}
+
+bool IsBinaryRealDiv(EXPRP expr) {
+    IS_BINARY_OP_TYPE(BinaryOpOperation_REALDIV);
 }
 
 bool IsBinarySquaredDifference(Express::EXPRP expr) {

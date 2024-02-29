@@ -9,36 +9,63 @@ layout(set=0, binding=1) readonly buffer sourceBuffer{
 }uInput;
 
 layout(set = 0, binding = 2) uniform constBuffer {
-    ivec4 size;//inside, axis, outside, inside * outside
+    ivec4 size;//inside, axis, outside, reduceAxis
 }uConst;
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+shared float local_buffer[256];
+shared int local_index[256];
 
 void main()
 {
-    int index = int(gl_GlobalInvocationID.x);
+    int index = int(gl_GlobalInvocationID.x) / uConst.size.w;
+    int lidIndex = int(gl_LocalInvocationID.x);
+    int lidx = lidIndex / uConst.size.w;
+    int lid = lidIndex % uConst.size.w;
+
     // y: index in outside, x: index in inside
     int x = index % uConst.size.x;
     int y = index / uConst.size.x;
-    if(index < uConst.size.w)
-    {
-        int W = uConst.size.x;
-        int H = uConst.size.y;
-        int C = uConst.size.z;
+    int W = uConst.size.x;
+    int H = uConst.size.y;
+    int C = uConst.size.z;
+
+    if(y < uConst.size.z && lid < uConst.size.y) {
         int offset = y * H * W + x;
-        float maxValue = uInput.data[offset];
-        int maxIndex = 0;
-        for(int i = 1; i < H; ++i)
-        {
+        float maxValue = uInput.data[offset + lid * W];
+        int maxIndex = lid;
+        for(int i = lid+uConst.size.w; i < uConst.size.y; i+=uConst.size.w) {
+            float value = uInput.data[offset + i * W];
 #ifndef ARGMIN
-            if (uInput.data[offset + i * W] > maxValue) {
-                maxValue = uInput.data[offset + i * W];
+            if (value > maxValue) {
+                maxValue = value;
                 maxIndex = i;
             }
 #else
-            if (uInput.data[offset + i * W] < maxValue) {
-                maxValue = uInput.data[offset + i * W];
+            if (value < maxValue) {
+                maxValue = value;
                 maxIndex = i;
+            }
+#endif
+        }
+        local_buffer[lid + lidx * uConst.size.w] = maxValue;
+        local_index[lid + lidx * uConst.size.w] = maxIndex;
+    }
+    barrier();
+    if(y < uConst.size.z && lid == 0) {
+        float maxValue = local_buffer[lidx * uConst.size.w];
+        int maxIndex = local_index[lidx * uConst.size.w];
+        for (int t=1; t<uConst.size.w && t < uConst.size.y; ++t) {
+            float next = local_buffer[t + lidx * uConst.size.w];
+#ifndef ARGMIN
+            if (next > maxValue) {
+                maxValue = next;
+                maxIndex = local_index[t + lidx * uConst.size.w];
+            }
+#else
+            if (next < maxValue) {
+                maxValue = next;
+                maxIndex = local_index[t + lidx * uConst.size.w];
             }
 #endif
         }

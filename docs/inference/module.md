@@ -45,9 +45,10 @@ rtmgr->setCache(".cachefile");
 // 从模型文件加载并创建新Module
 const std::string model_file = "/tmp/mymodule.mnn"; // model file with path
 
-// 输入名，可以为空，为空时 MNN 自动搜索模型中的输入，多输入情况下无法保证顺序，需要通过 getInfo 接口查看
+// 输入名：多个输入时按顺序填入，其顺序与后续 onForward 中的输入数组需要保持一致
 const std::vector<std::string> input_names{"input_1", "input_2", "input_3"};
-// 输出名，可以为空，为空时 MNN 自动搜索模型中的输出，多输出情况下无法保证顺序，需要通过 getInfo 接口查看
+
+// 输出名，多个输出按顺序填入，其顺序决定 onForward 的输出数组顺序
 const std::vector<std::string> output_names{"output_1"};
 
 Module::Config mdconfig; // default module config
@@ -55,6 +56,8 @@ std::unique_ptr<Module> module; // module
 // 若 rtMgr 为 nullptr ，Module 会使用Executor的后端配置
 module.reset(Module::load(input_names, output_names, model_filename.c_str(), rtMgr, &mdconfig));
 ```
+
+输入输出的名字可以为空，此时，MNN 会检索模型中的输入/输出填入，在多输入/输出情况下无法保证顺序，需要通过 getInfo 接口查看。
 
 ### Module::Config 
 创建`Module`时可传入`Module::Config`，具体结构如下：

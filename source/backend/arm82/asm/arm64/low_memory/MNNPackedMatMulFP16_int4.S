@@ -63,9 +63,9 @@ LoopH:
     sxtl2 v2.8h, v0.16b
     scvtf v0.8h, v1.8h
     scvtf v1.8h, v2.8h
-    mov v2.8h, v7.8h
+    mov v2.16b, v7.16b
     fmla v2.8h, v1.8h, v5.8h
-    mov v1.8h, v6.8h
+    mov v1.16b, v6.16b
     fmla v1.8h, v0.8h, v4.8h
 
     ld1 {v0.8h}, [x15], #16
@@ -101,9 +101,9 @@ LoopH:
     sxtl2 v1.8h, v3.16b
     scvtf v0.8h, v0.8h
     scvtf v1.8h, v1.8h
-    mov v2.8h, v7.8h
+    mov v2.16b, v7.16b
     fmla v2.8h, v1.8h, v5.8h
-    mov v1.8h, v6.8h
+    mov v1.16b, v6.16b
     fmla v1.8h, v0.8h, v4.8h
 
     ld1 {v0.8h}, [x15], #16
@@ -155,9 +155,9 @@ LoopH:
         sxtl2 v2.8h, v0.16b
         scvtf v0.8h, v1.8h
         scvtf v1.8h, v2.8h
-        mov v2.8h, v7.8h
+        mov v2.16b, v7.16b
         fmla v2.8h, v1.8h, v5.8h
-        mov v1.8h, v6.8h
+        mov v1.16b, v6.16b
         fmla v1.8h, v0.8h, v4.8h
 
         ld1 {v0.8h}, [x15], #16
@@ -193,9 +193,9 @@ LoopH:
         sxtl2 v1.8h, v3.16b
         scvtf v0.8h, v0.8h
         scvtf v1.8h, v1.8h
-        mov v2.8h, v7.8h
+        mov v2.16b, v7.16b
         fmla v2.8h, v1.8h, v5.8h
-        mov v1.8h, v6.8h
+        mov v1.16b, v6.16b
         fmla v1.8h, v0.8h, v4.8h
 
         ld1 {v0.8h}, [x15], #16
@@ -363,8 +363,8 @@ LoopHRemain:
     sxtl v1.8h, v7.8b
     scvtf v6.8h, v0.8h
     scvtf v7.8h, v1.8h
-    mov v3.8h, v21.8h
-    mov v4.8h, v21.8h
+    mov v3.16b, v21.16b
+    mov v4.16b, v21.16b
     fmla v3.8h, v6.8h, v20.8h
     fmla v4.8h, v7.8h, v20.8h
 
@@ -414,8 +414,8 @@ LoopHRemain:
         sxtl v1.8h, v7.8b
         scvtf v6.8h, v0.8h
         scvtf v7.8h, v1.8h
-        mov v3.8h, v21.8h
-        mov v4.8h, v21.8h
+        mov v3.16b, v21.16b
+        mov v4.16b, v21.16b
         fmla v3.8h, v6.8h, v20.8h
         fmla v4.8h, v7.8h, v20.8h
         ld1 {v0.4h, v1.4h, v2.4h}, [x15], #24

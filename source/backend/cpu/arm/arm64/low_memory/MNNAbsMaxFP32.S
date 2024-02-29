@@ -25,42 +25,10 @@
     fmax \d3\().4s, \d3\().4s, \z3\().4s
 .endm
 
-.macro TRANSPOSE_8x8 s0, s1, s2, s3, s4, s5, s6, s7, d0, d1, d2, d3, d4, d5, d6, d7, t0, t1, t2, t3, t4, t5, t6, t7
-    trn1 \t0\().4s, \s0\().4s, \s1\().4s
-    trn2 \t1\().4s, \s0\().4s, \s1\().4s
-    trn1 \t2\().4s, \s2\().4s, \s3\().4s
-    trn2 \t3\().4s, \s2\().4s, \s3\().4s
-    trn1 \t4\().4s, \s4\().4s, \s5\().4s
-    trn2 \t5\().4s, \s4\().4s, \s5\().4s
-    trn1 \t6\().4s, \s6\().4s, \s7\().4s
-    trn2 \t7\().4s, \s6\().4s, \s7\().4s
-
-    trn1 \d0\().2d, \t0\().2d, \t2\().2d
-    trn2 \d2\().2d, \t0\().2d, \t2\().2d
-    trn1 \d1\().2d, \t1\().2d, \t3\().2d
-    trn2 \d3\().2d, \t1\().2d, \t3\().2d
-    trn1 \d4\().2d, \t4\().2d, \t6\().2d
-    trn2 \d6\().2d, \t4\().2d, \t6\().2d
-    trn1 \d5\().2d, \t5\().2d, \t7\().2d
-    trn2 \d7\().2d, \t5\().2d, \t7\().2d
-.endm
-
-.macro ReduceSum d0, d1, z0, z1, z2, z3, z4, z5, z6, z7
-    fadd \d0\().4s, \z0\().4s, \z1\().4s
-    fadd \d0\().4s, \d0\().4s, \z2\().4s
-    fadd \d0\().4s, \d0\().4s, \z3\().4s
-    fadd \d1\().4s, \z4\().4s, \z5\().4s
-    fadd \d1\().4s, \d1\().4s, \z6\().4s
-    fadd \d1\().4s, \d1\().4s, \z7\().4s
-.endm
-
-.macro ReduceMax d0, d1, z0, z1, z2, z3, z4, z5, z6, z7
-    fmax \d0\().4s, \z0\().4s, \z1\().4s
-    fmax \d0\().4s, \d0\().4s, \z2\().4s
-    fmax \d0\().4s, \d0\().4s, \z3\().4s
-    fmax \d1\().4s, \z7\().4s, \z4\().4s
-    fmax \d1\().4s, \d1\().4s, \z5\().4s
-    fmax \d1\().4s, \d1\().4s, \z6\().4s
+.macro ReduceMax s0, s1, s2, s3, z0
+    fmaxp \s0\().4s, \s0\().4s, \s1\().4s // 0 0 1 1
+    fmaxp \s2\().4s, \s2\().4s, \s3\().4s // 2 2 3 3
+    fmaxp \z0\().4s, \s0\().4s, \s2\().4s // 0 1 2 3
 .endm
 //void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
 asm_function MNNAbsMaxFP32
@@ -81,7 +49,6 @@ mov x5, x2  // src_depth_quad
 mov x7, x0  // src
 sub x8, x6, #64 // src_step
 
-//    sum: v0-7
 // absmax: v8-15
 ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x7], #64
 ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x7], x8
@@ -111,12 +78,9 @@ bne LoopSz_8
 
 Tile8End:
 
-// [v0 - v7] --transpose--> [v16, v23], tmp:[v24-31]
-TRANSPOSE_8x8 v8,   v9, v10, v11, v12, v13, v14, v15, \
-              v16, v17, v18, v19, v20, v21, v22, v23, \
-              v24, v25, v26, v27, v28, v29, v30, v31
-ReduceMax v2, v3, v16, v17, v18, v19, v20, v21, v22, v23
-st1 {v2.4s, v3.4s}, [x1], #32
+ReduceMax v8, v9, v10, v11, v0
+ReduceMax v12, v13, v14, v15, v1
+st1 {v0.4s, v1.4s}, [x1], #32
 sub x3, x3, #8
 add x0, x0, #128 // src += 8 * 4 * 4
 b TILE_8

@@ -362,15 +362,91 @@ ErrorCode LoopBinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, 
          
     auto output = mTensors[cmd->indexes()->data()[0]];
     std::vector<int> Shape = tensorShapeFormat(output);
+    
+    bool broadcastInput0 = false;
+    bool broadcastInput1 = false;
+    int input0Shape[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    int input1Shape[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    int outputShape[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+
+    int offset0 = output->dimensions() - input0->dimensions();
+    int offset1 = output->dimensions() - input1->dimensions();
+    for (int i = 0; i < input0->dimensions(); ++i) {
+        input0Shape[i + offset0] = input0->length(i);
+    }
+    for (int i = 0; i < input1->dimensions(); ++i) {
+        input1Shape[i + offset1] = input1->length(i);
+    }
+    for(int i =0;i<output->dimensions();++i){
+        outputShape[i] = output->length(i);
+    }
+    if (TensorUtils::getDescribe(input0)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC)
+    {
+        int iN = input0Shape[0];
+        int iH = input0Shape[1];
+        int iW = input0Shape[2];
+        int iC = input0Shape[3];
+            
+        if(input0->dimensions() > 4)
+        {
+            for(int i = 4; i < input0->dimensions(); i++)
+            {
+                iC *= input0Shape[i];
+            }
+        }
+        input0Shape[0] = iN;
+        input0Shape[1] = iC;
+        input0Shape[2] = iH;
+        input0Shape[3] = iW;
+        input0Shape[4] = 1;
+    }
+    if (TensorUtils::getDescribe(input1)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC)
+    {
+        int iN = input1Shape[0];
+        int iH = input1Shape[1];
+        int iW = input1Shape[2];
+        int iC = input1Shape[3];
+            
+        if(input1->dimensions() > 4)
+        {
+            for(int i = 4; i < input1->dimensions(); i++)
+            {
+                iC *= input1Shape[i];
+            }
+        }
+        input1Shape[0] = iN;
+        input1Shape[1] = iC;
+        input1Shape[2] = iH;
+        input1Shape[3] = iW;
+        input1Shape[4] = 1;
+    }
+    if (TensorUtils::getDescribe(output)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC)
+    {
+        int iN = outputShape[0];
+        int iH = outputShape[1];
+        int iW = outputShape[2];
+        int iC = outputShape[3];
+            
+        if(input1->dimensions() > 4)
+        {
+            for(int i = 4; i < input1->dimensions(); i++)
+            {
+                iC *= outputShape[i];
+            }
+        }
+        input1Shape[0] = iN;
+        outputShape[1] = iC;
+        outputShape[2] = iH;
+        outputShape[3] = iW;
+        outputShape[4] = 1;
+    }
+    
     const int Channel = Shape.at(3);
     const int Width = Shape.at(2);
     const int Height = Shape.at(1);
     const int Batch = Shape.at(0);
     const int ChannelBlock = UP_DIV(Channel, 4);
     auto BuildOptions = mBuildOptions;
-    if(Input0Size[2] != Input1Size[2]){
-        BuildOptions.emplace("-DBROADCAST_CHANNEL");
-    }
     std::string KernelName = "broadcast_binary_buf";
     unit.kernel = runTime->buildKernel("loop_buf", KernelName, BuildOptions);
     uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
@@ -385,10 +461,14 @@ ErrorCode LoopBinaryBufExecution::onResize(const std::vector<Tensor *> &inputs, 
     ret |= unit.kernel.setArg(index++, openCLBuffer(output));
     ret |= unit.kernel.setArg(index++, openCLBuffer(input0));
     ret |= unit.kernel.setArg(index++, openCLBuffer(input1));
+    ret |= unit.kernel.setArg(index++, sizeof(input0Shape), input0Shape);
     ret |= unit.kernel.setArg(index++, sizeof(Input0Size), Input0Size);
+    ret |= unit.kernel.setArg(index++, sizeof(input1Shape), input1Shape);
     ret |= unit.kernel.setArg(index++, sizeof(Input1Size), Input1Size);
+    ret |= unit.kernel.setArg(index++, sizeof(outputShape), outputShape);
     ret |= unit.kernel.setArg(index++, Width);
     ret |= unit.kernel.setArg(index++, Height);
+    ret |= unit.kernel.setArg(index++, Channel);
     ret |= unit.kernel.setArg(index++, ChannelBlock);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBinaryBufExecution");
 
@@ -462,7 +542,7 @@ public:
                     case BinaryOpOperation_SquaredDifference:
                         return new LoopBinaryBufExecution(loop, "(in0-in1)*(in0-in1)", op, backend);
                     case BinaryOpOperation_ATAN2:
-                        return new LoopBinaryBufExecution(loop, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                        return new LoopBinaryBufExecution(loop, "(in1==(FLOAT4)0?(sign(in0)*(FLOAT4)(PI/2)):(atan(in0/in1)+(in1>(FLOAT4)0?(FLOAT4)0:sign(in0)*(FLOAT4)PI)))", op, backend);
                     case BinaryOpOperation_NOTEQUAL:
                         return new LoopBinaryBufExecution(loop, "convert_float4(-isnotequal(in0,in1))", op, backend);
                     case BinaryOpOperation_MOD:

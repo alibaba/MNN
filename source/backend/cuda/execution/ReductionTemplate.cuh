@@ -59,7 +59,7 @@ __global__ void SUM_REDUCE_AXIS(const T *input, T *output,
 
 
 template <typename T>
-__global__ void MEAN(const T *input, T *output,
+__global__ void MEAN_NAIVE(const T *input, T *output,
     const int outside,
     const int axis,
     const int inside
@@ -76,6 +76,36 @@ __global__ void MEAN(const T *input, T *output,
         }
         output[y * inside + x] = (T)(sumValue / (float)axis);
     }
+    return;
+}
+
+template <typename T>
+__global__ void MEAN_REDUCE_AXIS(const T *input, T *output,
+    const int outside,
+    const int axis,
+    const int inside,
+    const int per_block_size,
+    const int calc_multi_num
+) {
+    int idx_outside = blockIdx.x / inside;
+    int idx_inside = blockIdx.x -  idx_outside * inside;
+
+    const T* src = input + idx_outside * axis * inside + idx_inside;
+    int tid = threadIdx.x;
+
+    float local_src = 0.0;
+    __shared__ float sumValue;
+    for(int i=0; i<calc_multi_num; i++) {
+        if(tid + i * per_block_size < axis) {
+            local_src += (float)(src[(tid + i * per_block_size) * inside]);
+        }
+    }
+    float maxRes = blockReduceSum<float>(local_src);
+    if(tid == 0)
+        sumValue = maxRes;
+    __syncthreads();
+
+    output[idx_outside * inside + idx_inside] = (T)(sumValue / (float)axis);
     return;
 }
 

@@ -190,6 +190,62 @@ array([0., 1., 2., 3.], dtype=float32)
 ```python
 >>> expr.set_global_executor_config(2, 2, 1)
 ```
+
+---
+### `sync()`
+MNN VARP同步，调用后可以保证改VARP计算完毕
+
+返回：`None`
+
+返回类型：`None`
+
+示例：
+
+```python
+>>> mnn_var = expr.placeholder([2,2])
+>>> mnn_var.sync()
+```
+
+---
+### `set_device_ptr(device_ptr, memory_type)`
+设置MNN VARP GPU内存地址，同时指定给定内存地址对应的内存类型(CUDA/OPENCL/OPENGL等)，仅在MNN VARP有GPU内存时可用：
+
+参数：
+- `device_ptr:uint64_t` 整形内存指针地址
+- `memory_type:int` 例如： 2->CUDA 3->OpenCL等, 详见include/MNN/MNNForwardType.h文件中MNNForwardType结构体
+
+返回：`None`
+
+返回类型：`None`
+
+示例：
+
+```python
+>>> torch_tensor = torch.empty([1, 1000], dtype=torch.float16).cuda()
+>>> mnn_var = expr.placeholder([2,2])
+>>> mnn_var.set_device_ptr(torch_tensor.data_ptr() ,2)
+```
+
+---
+### `copy_to_device_ptr(device_ptr, memory_type)`
+拷贝MNN VARP GPU内存到指定内存地址, 同时指定给定内存地址对应的内存类型(CUDA/OPENCL/OPENGL等)：
+
+参数：
+- `device_ptr:uint64_t` 整形内存指针地址
+- `memory_type:int` 例如： 2->CUDA 3->OpenCL等, 详见include/MNN/MNNForwardType.h文件中MNNForwardType结构体
+
+返回：`None`
+
+返回类型：`None`
+
+示例：
+
+```python
+>>> torch_tensor = torch.empty([1, 1000], dtype=torch.float16).cuda()
+>>> mnn_var = expr.placeholder([2,2])
+>>> mnn_var.copy_to_device_ptr(torch_tensor.data_ptr() ,2)
+```
+
 ---
 ### `sign(x)`
 返回输入值的符号，正数返回1，负数返回-1

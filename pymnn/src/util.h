@@ -335,6 +335,9 @@ static inline PyObject* toPyObj(uint8_t val) {
 static inline PyObject* toPyObj(int val) {
     return PyLong_FromLong(val);
 }
+static inline PyObject* toPyObj(size_t val) {
+    return PyLong_FromLong(val);
+}
 static inline PyObject* toPyObj(float val) {
     return PyFloat_FromDouble(val);
 }

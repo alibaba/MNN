@@ -12,13 +12,6 @@
 .text
 .align 5
 
-.macro Add d0, d1, d2, d3, z0, z1, z2, z3
-    fadd \d0\().8h, \d0\().8h, \z0\().8h
-    fadd \d1\().8h, \d1\().8h, \z1\().8h
-    fadd \d2\().8h, \d2\().8h, \z2\().8h
-    fadd \d3\().8h, \d3\().8h, \z3\().8h
-.endm
-
 .macro Abs z0, z1, z2, z3
     fabs \z0\().8h, \z0\().8h
     fabs \z1\().8h, \z1\().8h
@@ -40,11 +33,21 @@
     faddp \s0\().8h, \s0\().8h, \zero\().8h // 0 1 2 3
 .endm
 
-.macro ReduceMax s0, s1, s2, s3, zero
+.macro ReduceMax_8 s0, s1, s2, s3, s4, s5, s6, s7
+    fmaxp \s0\().8h, \s0\().8h, \s1\().8h // 0 0 0 0 1 1 1 1
+    fmaxp \s2\().8h, \s2\().8h, \s3\().8h // 2 2 2 2 3 3 3 3
+    fmaxp \s4\().8h, \s4\().8h, \s5\().8h // 0 0 0 0 1 1 1 1
+    fmaxp \s6\().8h, \s6\().8h, \s7\().8h // 2 2 2 2 3 3 3 3
+    fmaxp \s0\().8h, \s0\().8h, \s2\().8h // 0 0 1 1 2 2 3 3
+    fmaxp \s4\().8h, \s4\().8h, \s6\().8h // 0 0 1 1 2 2 3 3
+    fmaxp \s0\().8h, \s0\().8h, \s4\().8h // 0 1 2 3 0 1 2 3
+.endm
+
+.macro ReduceMax_4 s0, s1, s2, s3
     fmaxp \s0\().8h, \s0\().8h, \s1\().8h // 0 0 0 0 1 1 1 1
     fmaxp \s2\().8h, \s2\().8h, \s3\().8h // 2 2 2 2 3 3 3 3
     fmaxp \s0\().8h, \s0\().8h, \s2\().8h // 0 0 1 1 2 2 3 3
-    fmaxp \s0\().8h, \s0\().8h, \zero\().8h // 0 1 2 3
+    fmaxp \s0\().8h, \s0\().8h, \s0\().8h // 0 0 1 1 2 2 3 3
 .endm
 
 //void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
@@ -92,13 +95,9 @@ subs x5, x5, #1
 bne LoopSz_12
 
 Tile12End:
-movi v28.8h, #0
-scvtf v28.8h, v28.8h
 
-ReduceMax v0, v1, v2, v3, v28
-ReduceMax v4, v5, v6, v7, v28
-ReduceMax v8, v9, v10, v11, v28
-mov v0.d[1], v4.d[0]
+ReduceMax_8 v0, v1, v2, v3, v4, v5, v6, v7
+ReduceMax_4 v8, v9, v10, v11
 st1 {v0.8h}, [x1], #16
 st1 {v8.d}[0], [x1], #8
 
@@ -145,15 +144,11 @@ subs x5, x5, #1
 bne LoopSz_10
 
 Tile10End:
-movi v24.8h, #0
-scvtf v24.8h, v24.8h
 fmaxp v0.8h, v0.8h, v1.8h
-fmaxp v0.8h, v0.8h, v24.8h
-fmaxp v0.8h, v0.8h, v24.8h
+fmaxp v0.8h, v0.8h, v0.8h
+fmaxp v0.8h, v0.8h, v0.8h
 st1 {v0.s}[0], [x1], #4
-ReduceMax v2, v3, v4, v5, v24
-ReduceMax v6, v7, v8, v9, v24
-mov v2.d[1], v6.d[0]
+ReduceMax_8 v2, v3, v4, v5, v6, v7, v8, v9
 st1 {v2.8h}, [x1], #16
 
 sub x3, x3, #10
@@ -191,12 +186,7 @@ subs x5, x5, #1
 bne LoopSz_8
 
 Tile8End:
-movi v24.8h, #0
-scvtf v24.8h, v24.8h
-ReduceMax v0, v1, v2, v3, v24
-ReduceMax v4, v5, v6, v7, v24
-
-mov v0.d[1], v4.d[0]
+ReduceMax_8 v0, v1, v2, v3, v4, v5, v6, v7
 st1 {v0.8h}, [x1], #16
 sub x3, x3, #8
 add x0, x0, #128 // src += 8 * 8 * 2
@@ -205,8 +195,6 @@ b TILE_8
 TILE_1:
 cmp x3, #1
 blt End
-movi v17.8h, #0
-scvtf v17.8h, v17.8h
 mov x5, x2  // src_depth_quad
 mov x7, x0  // src
 
@@ -228,10 +216,10 @@ bne LoopSz_1
 
 Tile1End:
 
-fmaxp v2.8h, v0.8h, v17.8h
-fmaxp v0.8h, v2.8h, v17.8h
-fmaxp v2.8h, v0.8h, v17.8h
-st1 {v2.h}[0], [x1], #2
+fmaxp v2.8h, v0.8h, v0.8h
+fmaxp v3.8h, v2.8h, v2.8h
+fmaxp v4.8h, v3.8h, v3.8h
+st1 {v4.h}[0], [x1], #2
 
 sub x3, x3, #1
 add x0, x0, #16 // src += 1 * 8 * 2

@@ -385,10 +385,10 @@ public:
             }
             builder.Finish(opBuilder.Finish());
             if (bias != nullptr) {
-                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1, bias}, outputs);
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1, bias}, {output});
                 res.command.emplace_back(std::move(cmd));
             } else {
-                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, outputs);
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, {output});
                 res.command.emplace_back(std::move(cmd));
             }
             return true;
@@ -463,7 +463,7 @@ public:
         if (nullptr != bias) {
             inputLoops.emplace_back(bias);
         }
-        auto cmd = GeometryComputerUtils::makeCommand(builder, inputLoops, outputs);
+        auto cmd = GeometryComputerUtils::makeCommand(builder, inputLoops, {output});
         res.command.emplace_back(std::move(cmd));
         return true;
     }

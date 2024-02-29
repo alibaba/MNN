@@ -1,8 +1,8 @@
 //
-//  MNNGelu.S
+//  MNNGeluFP16.S
 //  MNN
 //
-//  Created by MNN on 2023/2/27.
+//  Created by MNN on 2024/2/23.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
@@ -11,6 +11,12 @@
 #include "MNNAsmGlobal.h"
 .text
 .align 5
+
+.macro DupFp32ToFp16 z0, z1
+    dup v0.4s, \z0
+    fcvtn \z1\().4h, v0.4s
+    fcvtn2 \z1\().8h, v0.4s
+.endm
 
 asm_function MNNGeluFP16
 //void MNNGeluFP16(FLOAT16* dst, const FLOAT16* src, size_t size, float* parameters);
@@ -28,102 +34,76 @@ beq GeluEnd
 
 ldr w4, [x3, #0]       // w4, 0.044715f
 ldr w5, [x3, #4]       // w5, 0.79788458f
-ldr w6, [x3, #8]       // w6, 378.f
-ldr w7, [x3, #12]      // w7, 17325.f
-ldr w8, [x3, #16]      // w8, 135135.f
-ldr w9, [x3, #20]      // w9, 28.f
-ldr w10, [x3, #24]     // w10, 3150.f
-ldr w11, [x3, #28]     // w11, 62370.f
+ldr w6, [x3, #8]       // w6, 13513.5
+ldr w7, [x3, #12]      // w7, 1732.5
+ldr w8, [x3, #16]      // w8, 37.8
+ldr w9, [x3, #20]      // w9, 6237.f
+ldr w10, [x3, #24]     // w10, 315.f
+ldr w11, [x3, #28]     // w11, 2.8
+ldr w12, [x3, #32]     // w12, 1/half_scale
 
+DupFp32ToFp16 w4, v15
+DupFp32ToFp16 w5, v14
+DupFp32ToFp16 w6, v13
+DupFp32ToFp16 w7, v12
+DupFp32ToFp16 w8, v11
+DupFp32ToFp16 w9, v10
+DupFp32ToFp16 w10, v9
+DupFp32ToFp16 w11, v8
+DupFp32ToFp16 w12, v7
 
-dup v15.8h, w4        // v15: [0.044715f]x4
-dup v14.8h, w5        // v14: [0.79788458f]x4
-dup v13.8h, w6        // v13: [378.f]x4
-dup v12.8h, w7        // v12: [17325.f]x4
-dup v11.8h, w8        // v11: [135135.f]x4
-dup v10.8h, w9        // v10: [28.f]x4
-dup v9.8h, w10        // v9: [3150.f]x4
-dup v8.8h, w11        // v8: [62370.f]x4
-
-mov w4, #5
-mov w5, #-5
+.inst 0x4f00fe9f // fmov v31.8h, #5.0
+.inst 0x4f04fe9e // fmov v30.8h, #-5.0
+.inst 0x4f03fe1d // fmov v29.8h, #1.0
+.inst 0x4f07fe1c // fmov v28.8h, #-1.0
+.inst 0x4f03fc1b // fmov v27.8h, #0.5
 
 GeluZLoop:
 
-ld1 {v0.8h, v1.8h}, [x1], #32   // v0, v1: fp32x4
+ld1 {v0.8h}, [x1], #16   // v0, v1: fp16x8
 
-fmul v2.8h, v0.8h, v0.8h
-fmul v3.8h, v1.8h, v1.8h
-fmul v2.8h, v2.8h, v0.8h
-fmul v3.8h, v3.8h, v1.8h
-
+// value = (x + 0.044715 * x^3) * 0.79788458
+fmul v1.8h, v0.8h, v0.8h
+fmul v2.8h, v1.8h, v0.8h
 fmul v2.8h, v2.8h, v15.8h
 fadd v2.8h, v2.8h, v0.8h
-fmul v3.8h, v3.8h, v15.8h
-fadd v3.8h, v3.8h, v1.8h
-
 fmul v2.8h, v2.8h, v14.8h
-fmul v3.8h, v3.8h, v14.8h
 
-dup v6.8h, w5
-dup v7.8h, w4
-scvtf v6.8h, v6.8h
-scvtf v7.8h, v7.8h
-fmin v2.8h, v2.8h, v7.8h
-fmin v3.8h, v3.8h, v7.8h
-fmax v2.8h, v2.8h, v6.8h
-fmax v3.8h, v3.8h, v6.8h
+// clip: -5 ~ 5
+fmin v2.8h, v2.8h, v31.8h
+fmax v2.8h, v2.8h, v30.8h
 
-// tanh(value)
-fmul v4.8h, v2.8h, v2.8h     // q4: value*value
-fmul v5.8h, v3.8h, v3.8h     // q5: value*value
-// a
-fadd v6.8h, v4.8h, v13.8h
-fadd v7.8h, v5.8h, v13.8h
-fmul v6.8h, v6.8h, v4.8h
-fmul v7.8h, v7.8h, v5.8h
-fadd v6.8h, v6.8h, v12.8h
-fadd v7.8h, v7.8h, v12.8h
-fmul v6.8h, v6.8h, v4.8h
-fmul v7.8h, v7.8h, v5.8h
-fadd v6.8h, v6.8h, v11.8h
-fadd v7.8h, v7.8h, v11.8h
-fmul v6.8h, v6.8h, v2.8h
-fmul v7.8h, v7.8h, v3.8h
-//b
-fmul v2.8h, v4.8h, v10.8h
-fmul v3.8h, v5.8h, v10.8h
-fadd v2.8h, v2.8h, v9.8h
-fadd v3.8h, v3.8h, v9.8h
-fmul v2.8h, v2.8h, v4.8h
-fmul v3.8h, v3.8h, v5.8h
-fadd v2.8h, v2.8h, v8.8h
-fadd v3.8h, v3.8h, v8.8h
-fmul v2.8h, v2.8h, v4.8h
-fmul v3.8h, v3.8h, v5.8h
-fadd v2.8h, v2.8h, v11.8h
-fadd v3.8h, v3.8h, v11.8h
-//a/b
-fdiv v6.8h, v6.8h, v2.8h
-fdiv v7.8h, v7.8h, v3.8h
-// border case
-fmov v2.8h, #1.0
-fmov v3.8h, #-1.0
-fmov v4.8h, #0.5
-fmin v6.8h, v6.8h, v2.8h
-fmin v7.8h, v7.8h, v2.8h
-fmax v6.8h, v6.8h, v3.8h
-fmax v7.8h, v7.8h, v3.8h
-// tanh(value)
+// tanh(value) start
+// x2 = value * value
+fmul v3.8h, v2.8h, v2.8h
+// a = value * (135135 + x2 * (17325 + x2 * (378 + x2 * 1.0/half_scale)));
+fmul v4.8h, v3.8h, v7.8h
+fadd v4.8h, v4.8h, v11.8h
+fmul v4.8h, v4.8h, v3.8h
+fadd v4.8h, v4.8h, v12.8h
+fmul v4.8h, v4.8h, v3.8h
+fadd v4.8h, v4.8h, v13.8h
+fmul v4.8h, v4.8h, v2.8h
+// b = 135135 + x2 * (62370 + x2 * (3150 + x2 * 28));
+fmul v5.8h, v3.8h, v8.8h
+fadd v5.8h, v5.8h, v9.8h
+fmul v5.8h, v5.8h, v3.8h
+fadd v5.8h, v5.8h, v10.8h
+fmul v5.8h, v5.8h, v3.8h
+fadd v5.8h, v5.8h, v13.8h
+// a / b
+fdiv v6.8h, v4.8h, v5.8h
 
-fadd v6.8h, v6.8h, v2.8h
-fadd v7.8h, v7.8h, v2.8h
+// border case: -1 ~ 1
+fmin v6.8h, v6.8h, v29.8h
+fmax v6.8h, v6.8h, v28.8h
+// tanh(value) end
+
+fadd v6.8h, v6.8h, v29.8h
 fmul v6.8h, v6.8h, v0.8h
-fmul v7.8h, v7.8h, v1.8h
-fmul v6.8h, v6.8h, v4.8h
-fmul v7.8h, v7.8h, v4.8h
+fmul v6.8h, v6.8h, v27.8h
 
-st1 {v6.8h, v7.8h}, [x0], #32
+st1 {v6.8h}, [x0], #16
 
 subs x2, x2, #1
 bne GeluZLoop

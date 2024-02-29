@@ -472,6 +472,12 @@ int Tensor::wait(MapType mtype, bool finish) {
     return bn->onSync(mtype, finish, this);
 }
 
+bool Tensor::setDevicePtr(const void* devicePtr, int memoryType) {
+    mBuffer.device = (uint64_t)devicePtr;
+    // To use memoryType afterwards
+    return true;
+}
+
 void Tensor::destroy(Tensor* tensor) {
     if (nullptr != tensor) {
         delete tensor;

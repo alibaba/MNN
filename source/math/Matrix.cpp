@@ -113,6 +113,62 @@ void Matrix::multi(Tensor* C, const Tensor* A, const Tensor* B) {
     }
 }
 
+void Matrix::multi (float* C, float* A, float* B, int M, int K, int N, bool A_needTranspose, bool B_needTranspose) {
+    if (N == 0) {
+        // step1: dst->shape()=(M,M), src->shape()=(M,K), dst=src*src_T, dst is a symmetric matrix.
+        // step2: (E-dst)*2
+        int y = 0;
+        for (; y < M; ++y) { // C:row
+            int x = 0;
+            const auto aLineRow = B + y * K;
+            for (; x < y; ++x) { // C:column
+                // half bottom coordinate (y,x), half top (x,y)
+                int indexBottom = y * M + x;
+                int indexTop    = x * M + y;
+                const auto aLineColumn = B + x * K;
+                float sum    = 0.0f;
+                for (int i = 0; i < K; ++i) {
+                    sum += aLineRow[i] * aLineColumn[i];
+                }
+                C[indexBottom] = sum * sum;
+                C[indexTop]    = sum * sum;
+                A[indexBottom]  = -sum;
+                A[indexTop]     = -sum;
+            }
+            // diagonal
+            int index = y * M + x;
+            const auto aLineColumn = B + x * K;
+            float sum = 0.f;
+            for (int i = 0; i < K; ++i) {
+                sum += aLineRow[i] * aLineColumn[i];
+            }
+            C[index] = (1 - sum) * (1 - sum);
+            A[index]  = 1 - sum;
+        } // Finish compute src*src_T
+        return;
+    }
+    int y = 0;
+    for (; y < M; ++y) {
+        int x            = 0;
+        const auto aLine = A + y * K;
+        auto cLine       = C + y * N;
+        for (; x < N; ++x) {
+            auto bColumn = B + x;
+            float sum    = 0.0f;
+            for (int i = 0; i < K; ++i) {
+                sum += aLine[i] * bColumn[i * N];
+            }
+            cLine[x] = sum;
+        }
+    }
+}
+
+void Matrix::add (float* C, float* A, float* B, int size) {
+    for (int i = 0; i < size; ++i) {
+        C[i] = A[i] + B[i];
+    }
+}
+
 void Matrix::add(Tensor* C, const Tensor* A, const Tensor* B) {
     MNN_ASSERT(NULL != C);
     MNN_ASSERT(NULL != B);

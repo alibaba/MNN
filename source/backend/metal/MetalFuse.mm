@@ -100,6 +100,16 @@ static bool _isStandardFuse(const Op* op) {
     return false;
 }
 class MetalFuseV2 : public MetalExecution {
+private:
+    MTLSize mGroupSize;
+    MTLSize mThreadSize;
+    std::vector<int> mInputBinding;
+    std::vector<int> mOutputBinding;
+    std::vector<std::pair<int, std::pair<id<MTLBuffer>, size_t>>> mConstIndides;
+    id<MTLComputePipelineState> mPipeline;
+    MTLSize mGlobalSize;
+    bool mSupportTuning = false;
+
 public:
     MetalFuseV2(Backend *backend, const Op* op, int outputSize, int inputSize) : MetalExecution(backend) {
         mOutputBinding.resize(outputSize);
@@ -126,6 +136,17 @@ public:
                 mGroupSize.width = ptr[0];
                 mGroupSize.height = ptr[1];
                 mGroupSize.depth = ptr[2];
+                break;
+            }
+        }
+        for (int i=0; i<extra->attr()->size(); ++i) {
+            auto attr = extra->attr()->GetAs<Attribute>(i);
+            if (attr->key()->str() == "global_size") {
+                auto ptr = attr->tensor()->int32s()->data();
+                mGlobalSize.width = ptr[0];
+                mGlobalSize.height = ptr[1];
+                mGlobalSize.depth = ptr[2];
+                mSupportTuning = true;
                 break;
             }
         }
@@ -188,7 +209,7 @@ public:
         }
     }
     virtual ~MetalFuseV2() = default;
-    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override {
+    void encode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder, MTLSize localSize, MTLSize groupSize) {
         [encoder setComputePipelineState:mPipeline];
         for (int i=0; i<inputs.size(); ++i) {
             [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)inputs[i]->deviceId())->getBuffer() offset:TensorUtils::getDescribe(inputs[i])->extra.offset atIndex:mInputBinding[i]];
@@ -199,20 +220,81 @@ public:
         for (int i=0; i<mConstIndides.size(); ++i) {
             [encoder setBuffer:mConstIndides[i].second.first offset:0 atIndex:mConstIndides[i].first];
         }
-        [encoder dispatchThreadgroups:mGroupSize threadsPerThreadgroup:mThreadSize];
+        [encoder dispatchThreadgroups:groupSize threadsPerThreadgroup:localSize];
+    }
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override {
+        encode(inputs, outputs, encoder, mThreadSize, mGroupSize);
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        if (!mSupportTuning) {
+            return NO_ERROR;
+        }
         auto backend = static_cast<MetalBackend *>(this->backend());
+        auto rt = (MetalRuntime*)(backend->runtime());
+        auto context = (__bridge MNNMetalContext *)backend->context();
+
+        //get original trick time
+        std::pair<MTLSize, MTLSize> thread = std::make_pair(mGroupSize, mThreadSize);
+        int count = 10;
+        auto cmdqueue = backend->queue();
+        NSUInteger min_time = UINT_MAX;
+        {
+            id<MTLCommandBuffer> commamd_buffer = [context newCmdBuffer:thread.second queue:cmdqueue];
+            id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
+            
+            int loop = count;
+            while(loop--) {
+                encode(inputs, outputs, encoder, thread.second, thread.first);
+            }
+            [encoder endEncoding];
+            min_time = [context timeUsed: commamd_buffer];
+            //MNN_PRINT("orig prit: %d   us, %d %d %d\n", min_time, thread.second.width, thread.second.height, thread.second.depth);
+        }
         
+        bool isMuchTime = (min_time > 8000) ? true : false;
+        NSUInteger magic_l = 1;
+        NSUInteger magic_z = 4;
+        NSUInteger magic_y = 4;
+        NSUInteger magic_x = 4;
+        
+        NSUInteger gid_x = mGlobalSize.width;
+        NSUInteger gid_y = mGlobalSize.height;
+        NSUInteger gid_z = mGlobalSize.depth;
+        auto maxSize = [[context device] maxThreadsPerThreadgroup];
+        int limitSize = [mPipeline maxTotalThreadsPerThreadgroup];
+
+        for(NSUInteger z = 1; z <= gid_z * magic_l && z <= magic_z && z < maxSize.depth; z *= 4) {
+            for(NSUInteger y = 1; y <= gid_y * magic_l && y <= magic_y && y <= maxSize.height; y *= 4) {
+                for(NSUInteger x = 1; x < gid_x * magic_l && x <= magic_x && x<= maxSize.width; x *= 4) {
+                    if(x * y * z <= limitSize) {
+                        if(x==1 && y==1 && z==1) {
+                            continue;
+                        }
+                        MTLSize local = {x, y, z};
+                        MTLSize global = {UP_DIV(gid_x, x), UP_DIV(gid_y, y), UP_DIV(gid_z, z)};
+                        id<MTLCommandBuffer> commamd_buffer = [cmdqueue commandBuffer];
+                        id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
+
+                        int loop = count;
+                        while(loop--) {
+                            encode(inputs, outputs, encoder, local, global);
+                        }
+                        [encoder endEncoding];
+                        auto time = [context timeUsed :commamd_buffer];
+                        if(time < min_time) {
+                            min_time = time;
+                            thread.first = global;
+                            thread.second = local;
+                        }
+                    }
+                }
+            }
+        }
+        mThreadSize = thread.second;
+        mGroupSize = thread.first;
+
         return NO_ERROR;
     }
-private:
-    MTLSize mGroupSize;
-    MTLSize mThreadSize;
-    std::vector<int> mInputBinding;
-    std::vector<int> mOutputBinding;
-    std::vector<std::pair<int, std::pair<id<MTLBuffer>, size_t>>> mConstIndides;
-    id<MTLComputePipelineState> mPipeline;
 };
 
 class MetalFuseCreator : public MetalBackend::Creator {

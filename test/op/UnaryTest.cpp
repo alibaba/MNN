@@ -92,7 +92,7 @@ VARP _ExpInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_EXP, buffer);
 }
@@ -111,7 +111,7 @@ VARP _LogInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer[i + 127] = qx;
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_LOG, buffer);
 }
@@ -127,7 +127,7 @@ VARP _SinInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_SIN, buffer);
 }
@@ -143,7 +143,7 @@ VARP _CosInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_COS, buffer);
 }
@@ -159,7 +159,7 @@ VARP _TanInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_TAN, buffer);
 }
@@ -175,7 +175,7 @@ VARP _AsinInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ASIN, buffer);
 }
@@ -191,7 +191,7 @@ VARP _AcosInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ACOS, buffer);
 }
@@ -212,7 +212,7 @@ VARP _AcoshInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ACOSH, buffer);
 }
@@ -228,7 +228,7 @@ VARP _AsinhInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ASINH, buffer);
 }
@@ -248,7 +248,7 @@ VARP _AtanhInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ATANH, buffer);
 }
@@ -264,7 +264,7 @@ VARP _CoshInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_COSH, buffer);
 }
@@ -280,7 +280,7 @@ VARP _SinhInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_SINH, buffer);
 }
@@ -296,7 +296,7 @@ VARP _ErfInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ERF, buffer);
 }
@@ -312,7 +312,7 @@ VARP _ErfcInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ERFC, buffer);
 }
@@ -362,7 +362,7 @@ VARP _ErfinvInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ERFINV, buffer);
 }
@@ -378,7 +378,7 @@ VARP _AtanInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_ATAN, buffer);
 }
@@ -398,7 +398,7 @@ VARP _ReciprocalInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_RECIPROCAL, buffer);
 }
@@ -418,7 +418,7 @@ VARP _Log1pInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_LOG1P, buffer);
 }
@@ -449,7 +449,7 @@ VARP _GeluInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_GELU, buffer);
 }
@@ -481,7 +481,7 @@ VARP _SigmoidInt8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_SIGMOID, buffer);
 }
@@ -497,7 +497,7 @@ VARP _Expm1Int8(VARP x, float* scale, float* zero) {
             qx = -127;
         }
         buffer.push_back(qx);
-        
+
     }
     return _UnaryInt8(x, UnaryOpOperation_EXPM1, buffer);
 }
@@ -529,7 +529,7 @@ protected:
         } else {
             output = opFunc(input);
         }
-        
+
         if (quanScales) {
             output->writeScaleMap(quanScales[1], quanZeroPoints[1]);
         }
@@ -838,8 +838,8 @@ public:
     virtual ~GeluTest() = default;
     virtual bool run(int precision) {
         return test<float, float>(_Gelu, "GeluTest", 0.01,
-                    {-1.1126,  1.5541, -0.9805,  1.5448,  0.1681,  0.5264, -0.6206, -0.1101, 0.3287, -0.0688},
-                    {-0.1479,  1.4607, -0.1602,  1.4503,  0.0952,  0.3689, -0.1660, -0.0502, 0.2067, -0.0325},
+                    {-4.914062, -1.1126,  1.5541, -0.9805,  1.5448,  0.1681,  0.5264, -0.6206, -0.1101, 0.3287, -0.0688},
+                    {-0, -0.1479,  1.4607, -0.1602,  1.4503,  0.0952,  0.3689, -0.1660, -0.0502, 0.2067, -0.0325},
                     {10}, {10});
     }
 };

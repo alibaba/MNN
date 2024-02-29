@@ -2,8 +2,12 @@
 #import "backend/metal/MetalDefine.h"
    namespace MNN {
 #if MNN_METAL_ENABLED
+  extern void ___MetalArgMaxCreator__OpType_ArgMax__();
+  extern void ___MetalArgMaxCreator__OpType_ArgMin__();
   extern void ___MetalSoftmaxCreator__OpType_Softmax__();
   extern void ___MetalCastCreator__OpType_Cast__();
+  extern void ___MetalSelectCreator__OpType_Select__();
+  extern void ___MetalRangeCreator__OpType_Range__();
   extern void ___MetalReductionCreator__OpType_Reduction__();
   extern void ___MetalEltwiseCreator__OpType_Eltwise__();
   extern void ___MetalConvolutionCreator__OpType_Convolution__();
@@ -13,6 +17,7 @@
   extern void ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
   extern void ___MetalDeconvolutionCreator__OpType_Deconvolution__();
   extern void ___MetalDeconvolutionCreator__OpType_DeconvolutionDepthwise__();
+  extern void ___MetalLoopCreator__OpType_While__();
   extern void ___MetalReLUCreator__OpType_ReLU__();
   extern void ___MetalPoolingCreator__OpType_Pooling__();
   extern void ___MetalScaleCreator__OpType_Scale__();
@@ -27,8 +32,12 @@
   extern void ___MetalPReLUCreator__OpType_PReLU__();
   extern void ___MetalReLU6Creator__OpType_ReLU6__();
 void registerMetalOps() {
+   ___MetalArgMaxCreator__OpType_ArgMax__();
+   ___MetalArgMaxCreator__OpType_ArgMin__();
    ___MetalSoftmaxCreator__OpType_Softmax__();
    ___MetalCastCreator__OpType_Cast__();
+   ___MetalSelectCreator__OpType_Select__();
+   ___MetalRangeCreator__OpType_Range__();
    ___MetalReductionCreator__OpType_Reduction__();
    ___MetalEltwiseCreator__OpType_Eltwise__();
    ___MetalConvolutionCreator__OpType_Convolution__();
@@ -38,6 +47,7 @@ void registerMetalOps() {
    ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
    ___MetalDeconvolutionCreator__OpType_Deconvolution__();
    ___MetalDeconvolutionCreator__OpType_DeconvolutionDepthwise__();
+   ___MetalLoopCreator__OpType_While__();
    ___MetalReLUCreator__OpType_ReLU__();
    ___MetalPoolingCreator__OpType_Pooling__();
    ___MetalScaleCreator__OpType_Scale__();

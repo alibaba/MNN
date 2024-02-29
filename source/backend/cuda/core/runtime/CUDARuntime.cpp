@@ -165,6 +165,10 @@ void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     checkKernelErrors;
 }
 
+void CUDARuntime::device_sync() {
+    cuda_check(cudaDeviceSynchronize());
+}
+
 std::pair<const void*, size_t> CUDARuntime::makeCache() {
     std::unique_ptr<CudaCache::CacheT> cache(new CudaCache::CacheT);
 

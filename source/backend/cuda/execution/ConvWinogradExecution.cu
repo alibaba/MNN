@@ -441,22 +441,25 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     DivModFast whD(wUnit * hUnit);
     DivModFast wD(wUnit);
 
+    int total = mGemmInfo.elh[0] * ci_pack;
+    int block_num = runtime->blocks_num(total);
+    int block_size = runtime->threads_num();
     if(mFp32Infer) {
-        WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (float*)mBtdB_Buffer, UNIT,
+        WinoInputTrans<<<block_num, block_size>>>((const float*)input_addr, (float*)mBtdB_Buffer, UNIT,
                 (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
-                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
+                total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else if(mFp16Fp32MixInfer) {
-        WinoInputTrans<<<cores, threadNumbers>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
+        WinoInputTrans<<<block_num, block_size>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
                 (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
-                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
+                total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else {
-        WinoInputTrans<<<cores, threadNumbers>>>((const half*)input_addr, (half*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
-                mGemmInfo.elh[0] * ci_pack, lD, whD, wD,
+        WinoInputTrans<<<block_num, block_size>>>((const half*)input_addr, (half*)mBtdB_Buffer, UNIT,
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     }
@@ -492,18 +495,20 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
             }
         }
     }
-
+    int count = mGemmInfo.elh[0] * co_pack;
+    block_num = runtime->blocks_num(count);
+    block_size = runtime->threads_num();
     if (mFp16Fp32MixInfer || mFp32Infer) {
-        WinoTrans2Output<<<cores, threadNumbers>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
+        WinoTrans2Output<<<block_num, block_size>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
                 UNIT, mBlock2, output->channel(), co_pack, 
-                mGemmInfo.elh[0] * co_pack, hD, whD, wD,
+                count, hD, whD, wD,
                 output->width(), output->height(),
                 mActivationType);
         checkKernelErrors;
     } else {
-        WinoTrans2Output<<<cores, threadNumbers>>>((const half*)mMatmul_Buffer, (const float*)bias_addr, (half*)output_addr,
-                UNIT, mBlock2, output->channel(), co_pack,
-                mGemmInfo.elh[0] * co_pack, hD, whD, wD,
+        WinoTrans2Output<<<block_num, block_size>>>((const half*)mMatmul_Buffer, (const float*)bias_addr, (half*)output_addr,
+                UNIT, mBlock2, output->channel(), co_pack, 
+                count, hD, whD, wD,
                 output->width(), output->height(),
                 mActivationType);
         checkKernelErrors;

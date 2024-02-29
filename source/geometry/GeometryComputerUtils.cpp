@@ -191,6 +191,9 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             for (auto t : info.outputs) {
                 TensorUtils::adjustTensorForCompability(t);
             }
+            for (auto t: info.inputs) {
+                TensorUtils::adjustTensorForCompability(t);
+            }
         }
 
         if (info.type == Schedule::CONSTANT) {

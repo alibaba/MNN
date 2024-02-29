@@ -50,7 +50,7 @@ mov r5, #-5
 
 GeluZLoop:
 
-vld1.16 q0, [r1]!   // q0: 8* sizeof(int16_t)
+vld1.16 {q0}, [r1]!   // q0: 8* sizeof(int16_t)
 
 vshll.s16 q1, d1, #16     // shift left long of each int16_t as float32
 vshll.s16 q0, d0, #16

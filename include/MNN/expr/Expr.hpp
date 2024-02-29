@@ -108,11 +108,14 @@ public:
         Dimensionformat order = NHWC;
         INTS dim;
         halide_type_t type;
-        int size;
+        size_t size;
         void syncSize();
     };
     const std::string& name() const;
     void setName(const std::string& name);
+    bool setDevicePtr(const void* devicePtr, int memoryType);
+    bool copyToDevicePtr(void* devicePtr, int memoryType);
+
     std::pair<EXPRP, int> expr() const {
         return std::make_pair(mFrom, mFromIndex);
     }

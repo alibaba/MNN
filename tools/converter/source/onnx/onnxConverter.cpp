@@ -105,6 +105,15 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
     for (int i=0; i<onnxGraph.output_size(); ++i) {
         makeConst(onnxGraph.output(i).name());
     }
+    // Declare all outputs
+    for (int idx = 0; idx < nodeCount; ++idx) {
+        int i = idxMap.size() == nodeCount ? idxMap[idx] : idx;
+        const auto& onnxNode = onnxGraph.node(i);
+        for (int k = 0; k < onnxNode.output_size(); k++) {
+            scope->declareTensor(onnxNode.output(k));
+        }
+    }
+
     // onnx node ==> MNN node
     for (int idx = 0; idx < nodeCount; ++idx) {
         int i = idxMap.size() == nodeCount ? idxMap[idx] : idx;

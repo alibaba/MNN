@@ -27,6 +27,11 @@ bool CoreMLRaster::buildReshape(CoreML__Specification__NeuralNetworkLayer* layer
     for (int i = 0; i < outputShape.size(); i++) {
         layer->reshapestatic->targetshape[i] = outputShape[i];
     }
+     if (outputShape.size() == 0) {
+         layer->reshapestatic->n_targetshape = 1;
+         layer->reshapestatic->targetshape = mCoreMLBackend->create<int64_t>(layer->reshapestatic->n_targetshape);
+         layer->reshapestatic->targetshape[0] = 1;
+     }
     mCoreMLBackend->setLayerInputs(layer, {mCoreMLBackend->getTensorName(input)});
     return true;
 }
@@ -284,6 +289,7 @@ bool CoreMLRaster::rasterOptimization(const std::vector<Tensor *> &inputs, const
     // region_size > 1: concat
     {
         int dim = outputs[0]->dimensions();
+
         if (region.origin->dimensions() != dim) {
             return false;
         }

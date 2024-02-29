@@ -58,6 +58,10 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         mAttr->firstType = std::make_pair(type, numberThread);
         info.mode = Backend::Info::DIRECT;
         info.numThread = numberThread;
+        if (MNN_FORWARD_METAL == type) {
+            // Close metal's defer encoder
+            info.numThread |= MNN_GPU_RECORD_OP;
+        }
         info.user = (BackendConfig*)&config;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
         mRuntimes[mAttr->firstType] = bn;
@@ -256,6 +260,9 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
             break;
         case Interpreter::STRICT_CHECK_MODEL:
             mInside->checkNetBuffer = value > 0;
+            break;
+        case Interpreter::MEM_ALLOCATOR_TYPE:
+            mInside->modes.memoryAllocatorType = value;
             break;
         default:
             break;
@@ -538,7 +545,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
                 quant->scale = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->scale;
                 quant->zero = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->zero;
             }
-            
+
             TensorUtils::getDescribe(tensor.get())->index = (int)scheduleInfo.allTensors.size();
             scheduleInfo.allTensors.emplace_back(tensor);
         }

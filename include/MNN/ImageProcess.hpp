@@ -44,6 +44,7 @@ enum Wrap { CLAMP_TO_EDGE = 0, ZERO = 1, REPEAT = 2 };
  *  2: Sample line and do format convert
  *  3: Turn RGBA to float tensor, and do sub and normalize
  */
+
 class MNN_PUBLIC ImageProcess {
 public:
     struct Inside;
@@ -62,7 +63,6 @@ public:
         /** edge wrapper */
         Wrap wrap = CLAMP_TO_EDGE;
     };
-
 public:
     /**
      * @brief create image process with given config for given tensor.
@@ -86,10 +86,10 @@ public:
     static ImageProcess* create(const ImageFormat sourceFormat = RGBA, const ImageFormat destFormat = RGBA,
                                 const float* means = nullptr, const int meanCount = 0, const float* normals = nullptr,
                                 const int normalCount = 0, const Tensor* dstTensor = nullptr);
-
+    
     ~ImageProcess();
     static void destroy(ImageProcess* imageProcess);
-
+    
     /**
      * @brief get affine transform matrix.
      * @return affine transform matrix.
@@ -98,7 +98,7 @@ public:
         return mTransform;
     }
     void setMatrix(const Matrix& matrix);
-
+    
     /**
      * @brief convert source data to given tensor.
      * @param source    source data.
@@ -109,7 +109,7 @@ public:
      * @return result code.
      */
     ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, Tensor* dest);
-
+    
     /**
      * @brief convert source data to given tensor.
      * @param source    source data.
@@ -126,7 +126,7 @@ public:
      */
     ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh, int outputBpp = 0,
                       int outputStride = 0, halide_type_t type = halide_type_of<float>());
-
+    
     /**
      * @brief create tensor with given data.
      * @param w     image width.
@@ -140,7 +140,7 @@ public:
         return createImageTensor(halide_type_of<T>(), w, h, bpp, p);
     }
     static Tensor* createImageTensor(halide_type_t type, int w, int h, int bpp, void* p = nullptr);
-
+    
     /**
      * @brief set padding value when wrap=ZERO.
      * @param value     padding value.
@@ -149,14 +149,14 @@ public:
     void setPadding(uint8_t value) {
         mPaddingValue = value;
     }
-
+    
     /**
      * @brief set to draw mode.
      * @param void
      * @return void.
      */
     void setDraw();
-
+    
     /**
      * @brief draw color to regions of img.
      * @param img  the image to draw.
@@ -179,4 +179,4 @@ private:
 } // namespace CV
 } // namespace MNN
 
-#endif /* ImageProcess_hpp */
+#endif /* MNN_ImageProcess_hpp */

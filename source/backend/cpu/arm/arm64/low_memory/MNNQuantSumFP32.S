@@ -24,6 +24,40 @@ stp d8,  d9,  [sp, #(16 * 3)]
 Start:
 lsl x9, x3, #2 // src_step = batch * sizeof(int32_t)
 
+TILE_8:
+cmp x3, #8
+blt TILE_4
+// add x6, x0, x10  // sum_ptr
+mov x6, x0
+mov x7, x2  // thread
+
+// sum: v0
+ld1 {v0.4s, v1.4s}, [x6], x9
+subs x7, x7, #1
+beq Tile8End
+
+LoopSz_8:
+ld1 {v2.4s, v3.4s}, [x6], x9
+
+// sum += sum[i]
+add v0.4s, v0.4s, v2.4s
+add v1.4s, v1.4s, v3.4s
+
+subs x7, x7, #1
+bne LoopSz_8
+
+Tile8End:
+sub x3, x3, #8
+// load dequant_scale
+ld1 {v4.4s, v5.4s}, [x1], #32
+// sum_half = (float)sum_int * dequant_scale
+scvtf v0.4s, v0.4s
+scvtf v1.4s, v1.4s
+fmul v0.4s, v0.4s, v4.4s
+fmul v1.4s, v1.4s, v5.4s
+st1 {v0.4s, v1.4s}, [x0], #32
+b TILE_8
+
 TILE_4:
 cmp x3, #4
 blt TILE_1

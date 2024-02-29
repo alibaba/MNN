@@ -46,6 +46,7 @@ public:
                 break;
             }
         }
+        // If Has group_size, can't auto tuning
         for (int i=0; i<extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "group_size") {
@@ -53,6 +54,7 @@ public:
                 mGroupSize[0] = ptr[0];
                 mGroupSize[1] = ptr[1];
                 mGroupSize[2] = ptr[2];
+                mNeedAutoTuning = false;
                 break;
             }
         }

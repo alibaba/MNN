@@ -36,7 +36,8 @@ public:
             zeropoint = _Cast<float>(inputs[2]);
         }
         auto scaleReq = _Reciprocal(scale);
-        auto output = _Cast<int8_t>(_Round(_Relu6(_Round(input * scaleReq) + zeropoint, -128.0f, 127.0f)));
+        // auto output = _Cast<int8_t>(_Round(_Relu6(_Round(input * scaleReq) + zeropoint, -128.0f, 127.0f)));
+        auto output = _FloatToInt8(input, scaleReq, -128, 127, static_cast<int8_t>(zeropoint->readMap<float>()[0]));
         std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
         iden->type = OpType_FloatToInt8;
         std::vector<int32_t> inputDim = {};

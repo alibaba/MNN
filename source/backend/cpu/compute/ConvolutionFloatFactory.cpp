@@ -29,7 +29,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                               const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse) {
     auto cpuBackend = (CPUBackend*)backend;
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = cpuBackend->memoryMode() == BackendConfig::Memory_Low;
+    bool lowMemory = true;
 #else
     bool lowMemory = false;
 #endif
@@ -50,8 +50,8 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         && output->width() == input->width() && output->height() == input->height()
         && common->strideX() == 1 && common->strideY() == 1;
 
-    if (lowMemory) {
-        if (fastWay && nullptr != weightQuantInfo.get()) {
+    if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
+        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low && fastWay) {
             return new ConvolutionHybrid(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
@@ -83,7 +83,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low;
+    bool lowMemory = true;
 #else
     bool lowMemory = false;
 #endif

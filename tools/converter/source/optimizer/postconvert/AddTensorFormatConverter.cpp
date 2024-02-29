@@ -27,7 +27,9 @@ enum FormatSetType {
 static FormatSetType _getFormatType(const OpT* op, MNN_DATA_FORMAT originFormat) {
     switch (op->type) {
         // NC4HW4 Ops with multi-input
-        case MNN::OpType_Convolution:
+        case MNN::OpType_SeqLen2Spatial:
+	case MNN::OpType_GroupNorm:
+	case MNN::OpType_Convolution:
         case MNN::OpType_Convolution3D:
         case MNN::OpType_ConvolutionDepthwise:
         case MNN::OpType_Deconvolution:
@@ -148,7 +150,7 @@ static MNN_DATA_FORMAT _getRequireFormat(FormatSetType type, int inputIndex, MNN
     return MNN_DATA_FORMAT_UNKNOWN;
 }
 
-static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, const OpT* op, MNN_DATA_FORMAT originFormat, bool keepInput, bool lastChange) {
+static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, std::vector<int32_t>& constTensorIndexs, const OpT* op, MNN_DATA_FORMAT originFormat, bool keepInput, bool lastChange) {
     if (op->type == OpType_Input) {
         if (keepInput) {
             tensorFormat[op->outputIndexes[0]] = originFormat;
@@ -156,7 +158,29 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, con
         // Always return true, don't treat input op
         return true;
     }
-    if (op->type == OpType_Const || op->type == OpType_TrainableParam) {
+    if (op->type == OpType_Const) {
+        tensorFormat[op->outputIndexes[0]] = op->main.AsBlob()->dataFormat;
+        constTensorIndexs.emplace_back(op->outputIndexes[0]);
+        return true;
+    }
+    if (op->type == OpType_BinaryOp) {
+        // Change Binary const input format to nonconst input format
+        auto binaryFormat = originFormat;
+        for (auto index : op->inputIndexes) {
+            auto result = find(constTensorIndexs.begin(), constTensorIndexs.end(), index);
+            if (result == constTensorIndexs.end()) {
+                binaryFormat = tensorFormat[index];
+                break;
+            }
+        }
+        for (auto index : op->inputIndexes) {
+            auto result = find(constTensorIndexs.begin(), constTensorIndexs.end(), index);
+            if (result != constTensorIndexs.end()) {
+                tensorFormat[index] = binaryFormat;
+            }
+        }
+    }    
+    if (op->type == OpType_TrainableParam) {
         tensorFormat[op->outputIndexes[0]] = op->main.AsBlob()->dataFormat;
         return true;
     }
@@ -226,11 +250,11 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, con
             if (((!inputValid) && (!outputValid))) {
                 return false;
             }
+            int originNumber = 0;
+            int c4Number = 0;
             auto format = originFormat;
             if (inputValid) {
                 // Find best format
-                int originNumber = 0;
-                int c4Number = 0;
                 for (auto index : op->inputIndexes) {
                     if (tensorFormat[index] == originFormat) {
                         originNumber++;
@@ -238,13 +262,9 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, con
                         c4Number++;
                     }
                 }
-                if (c4Number > originNumber) {
-                    format = MNN_DATA_FORMAT_NC4HW4;
-                }
-            } else if (outputValid) {
+            }
+	    if (outputValid) {
                 // Find best format
-                int originNumber = 0;
-                int c4Number = 0;
                 for (auto index : op->outputIndexes) {
                     if (tensorFormat[index] == originFormat) {
                         originNumber++;
@@ -252,9 +272,9 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, con
                         c4Number++;
                     }
                 }
-                if (c4Number > originNumber) {
-                    format = MNN_DATA_FORMAT_NC4HW4;
-                }
+            }
+            if (c4Number > originNumber) {
+                format = MNN_DATA_FORMAT_NC4HW4;
             }
             for (auto index : op->outputIndexes) {
                 tensorFormat[index] = format;
@@ -325,6 +345,8 @@ public:
         std::fill(readyMask.begin(), readyMask.end(), false);
         bool hasChange = false;
         bool complete = false;
+        // Record Const Op Index
+        std::vector<int32_t> constTensorIndexs;
         do {
             complete = true;
             hasChange = false;
@@ -333,7 +355,7 @@ public:
                     continue;
                 }
                 auto op = net->oplists[i].get();
-                readyMask[i] = _computeTensorFormat(tensorFormats, op, originTensorType, config->keepInputFormat, false);
+                readyMask[i] = _computeTensorFormat(tensorFormats, constTensorIndexs, op, originTensorType, config->keepInputFormat, false);
                 if (readyMask[i]) {
                     hasChange = true;
                 } else {
@@ -349,7 +371,7 @@ public:
                     continue;
                 }
                 auto op = net->oplists[i].get();
-                readyMask[i] = _computeTensorFormat(tensorFormats, op, originTensorType, config->keepInputFormat, true);
+                readyMask[i] = _computeTensorFormat(tensorFormats, constTensorIndexs, op, originTensorType, config->keepInputFormat, true);
                 MNN_ASSERT(readyMask[i] == true);
             }
         }

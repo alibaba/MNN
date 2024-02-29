@@ -40,11 +40,16 @@ VARP adaptiveThreshold(VARP src, double maxValue, int adaptiveMethod, int thresh
 }
 
 VARP blendLinear(VARP src1, VARP src2, VARP weight1, VARP weight2) {
-    auto origin_type = src1->getInfo()->type;
-    src1 = _Cast<float>(src1);
-    src2 = _Cast<float>(src2);
-    weight1 = _Cast<float>(weight1);
-    weight2 = _Cast<float>(weight2);
+    auto inputInfo = src1->getInfo();
+    auto origin_type = inputInfo->type;
+    if (origin_type.code != halide_type_float) {
+        src1 = _Cast<float>(src1);
+        src2 = _Cast<float>(src2);
+        weight1 = _Cast<float>(weight1);
+        weight2 = _Cast<float>(weight2);
+        return _Cast((src1 * weight1 + src2 * weight2) / (weight1 + weight2 + _Scalar<float>(1e-5)), origin_type);
+    }
+    
     return _Cast((src1 * weight1 + src2 * weight2) / (weight1 + weight2 + _Scalar<float>(1e-5)), origin_type);
 }
 

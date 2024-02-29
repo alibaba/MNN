@@ -20,7 +20,6 @@ static EXPRP clipConvert(EXPRP expr) {
     // auto dataType = expr->outputInfo(0)->type.code;
     auto maxValue  = std::numeric_limits<T>().max();
     auto minValue  = std::numeric_limits<T>().min();
-
     if (nullptr != extraParam->attr()) {
         const int attrSize = extraParam->attr()->size();
         for (int i = 0; i < attrSize; ++i) {
@@ -63,6 +62,12 @@ static EXPRP clipConvert(EXPRP expr) {
         auto newExpr = res->expr().first;
         newExpr->setName(expr->name());
         return newExpr;
+    }
+    if(maxValue > std::numeric_limits<T>::max()) {
+        maxValue = std::numeric_limits<T>().max();
+    }
+    if(minValue < std::numeric_limits<T>::lowest()) {
+        minValue = std::numeric_limits<T>().lowest();
     }
     std::unique_ptr<OpT> newOp(new OpT);
     newOp->type                     = OpType_ReLU6;

@@ -69,6 +69,7 @@ public:
     virtual void onExecuteEnd() const override;
 
     virtual void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const override;
+    virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
 
     class Creator {
     public:
