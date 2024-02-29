@@ -23,6 +23,10 @@ struct ConvBufResource {
     std::shared_ptr<Tensor> dequantScale;
     std::shared_ptr<Tensor> dequantOffset;
     std::shared_ptr<Tensor> bias;
+    int mKernelWidth;
+    int mKernelHeight;
+    std::vector<int> mStrides{1, 1};
+    std::vector<int> mDilations{1, 1};
     std::set<std::string> buildOptions;
     bool conv1x1Opt = false;
     bool gemmOpt = false;
@@ -45,15 +49,11 @@ private:
     void tuneGemmLowMemory(Tensor * input, Tensor * output);
     std::shared_ptr<ConvBufResource> mResource;
     const Convolution2D *mConv2dParams;
-    std::vector<int> mStrides{1, 1};
     std::vector<int> mPaddings{0, 0};
-    std::vector<int> mDilations{1, 1};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
-    int mKernelWidth;
-    int mKernelHeight;
     int mOutputChannel;
     int mInputChannel;
     void *mFilterDataPtr = nullptr;

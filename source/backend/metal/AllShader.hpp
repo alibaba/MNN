@@ -21,7 +21,5 @@ extern const char* shader_MetalConvolutionGEMM_metal;
 extern const char* shader_MetalResize_metal;
 extern const char* shader_MetalPReLU_metal;
 extern const char* shader_MetalDefine_metal;
-extern const char* shader_MetalUnary_metal;
-extern const char* shader_MetalBinary_metal;
 extern const char* shader_MetalEltwise_metal;
 #endif

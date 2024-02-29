@@ -43,11 +43,13 @@ if(CUDA_FOUND)
 
     IF ((CUDA_VERSION VERSION_GREATER "10.2") OR (CUDA_VERSION VERSION_EQUAL "10.2"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_75,code=sm_75")
+        add_definitions(-DMNN_CUDA_ENABLE_SM75)
     ENDIF()
 
     IF ((CUDA_VERSION VERSION_GREATER "11.2") OR (CUDA_VERSION VERSION_EQUAL "11.2"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_80,code=sm_80")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_86,code=sm_86")
+        add_definitions(-DMNN_CUDA_ENABLE_SM80 -DMNN_CUDA_ENABLE_SM86)
     ENDIF()
 
     # Limit minimum cuda version for each archs
@@ -77,6 +79,8 @@ if(CUDA_FOUND)
 else()
     message(FATAL_ERROR "CUDA not found >= ${CUDA_MIN_VERSION} required)")
 endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions")
 
 option(MNN_CUDA_QUANT "Enable MNN CUDA Quant File" OFF)
 option(MNN_CUDA_BF16 "Enable MNN CUDA Bfloat16 File" OFF)
@@ -109,7 +113,6 @@ else()
     endif()
 
     if(MNN_CODEGEN_CUDA)
-        add_definitions(-DMNN_CODEGEN_CUDA)
         target_link_libraries(MNN_Cuda_Main ${CUDA_INCLUDE_DIRS}/../lib/libnvrtc.so ${CUDA_INCLUDE_DIRS}/../lib/stubs/libcuda.so)
     endif()
 

@@ -139,13 +139,15 @@ class AddInt8Test : public BinaryTestCommon {
     public: 
         virtual ~AddInt8Test() = default;
         virtual bool run(int precision) {
-        vector<float> inp2 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6}, inp1 = {2};
-        vector<float> rightResult = {3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6};
+        int size = 36;
+        std::vector<float> inp1(size, 2);
+        vector<float> inp2 = {1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6, 1.1, 2.2, 3.3, 4.6};
+        vector<float> rightResult = {3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6,3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6, 3.1, 4.2, 5.3, 6.6};
         printf("AddInt8 test zeropoint is zero\n");
-        bool res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {32}, {32}, {0.4, 0.4, 1.0},
+        bool res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {size}, {size}, {0.4, 0.036, 0.05176},
                                   {0., 0., 0.});
         printf("AddInt8 test zeropoint is not zero\n");
-        res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {32}, {32}, {0.4, 0.4, 1.0},
+        res = test<float, float>(MNN::Express::_Add, "AddInt8Test", 0.01, inp1, inp2, rightResult, {1}, {size}, {size}, {0.4, 0.036, 0.05176},
                                   {1., 2., 3.});
         return res;
         }
@@ -402,7 +404,7 @@ public:
         std::vector<int> z = {
             0, -2,  5,  0,  2,  3
         };
-        return test<int, int>(_Mod, "ModTestFloat", 0,
+        return test<int, int>(_Mod, "ModTestInt", 0,
                               x,y,z, {6}, {6}, {6});
     }
 };

@@ -28,6 +28,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     std::vector<uint32_t> poolLocalWS(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize);
+    int getLocalSize(int size, int maxGroupSize);
 
 private:
     const Pool *mPoolParams;

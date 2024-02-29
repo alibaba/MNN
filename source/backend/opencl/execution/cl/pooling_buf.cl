@@ -86,3 +86,77 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
     #endif
 }
+
+#ifdef LOCAL_SIZE
+__kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
+                                __private const int2 input_shape,
+                                __private const int2 output_shape,
+                                __private const int2 pad_shape,
+                                __private const int2 stride_shape,
+                                __private const int2 kernel_shape,
+                                __global FLOAT *output,
+                                __global FLOAT *rediceOutput,
+                                __private const int channel_block) {
+    const int local_id                = get_local_id(0);
+    const int output_channel_idx      = get_global_id(1);
+    const int output_batch_idx        = get_global_id(2);
+
+#ifdef POOL_AVG
+    FLOAT4 output_result = 0;
+#else
+    FLOAT4 output_result = (FLOAT4)(-FLT_MAX);
+#if RETURN_REDICE
+    int4 redice = (int4)0;
+    int4 local rediceId[LOCAL_SIZE];
+#endif
+#endif
+
+    FLOAT4 local sum[LOCAL_SIZE];
+    const int inp_offset = ((output_batch_idx*channel_block+output_channel_idx)*input_shape.x)*input_shape.y*4;
+    const int size = input_shape.x * input_shape.y;
+    for(int i = local_id; i < size; i+=LOCAL_SIZE){
+        int w = i % input_shape.y;;
+        int h = i / input_shape.y;
+        FLOAT4 in = vload4(0, input+inp_offset+(h*input_shape.y+w)*4);
+#ifdef POOL_AVG
+        output_result += in;
+#else
+        output_result = fmax(output_result, in);
+#if RETURN_REDICE
+        redice = in > output_result ? (int4)(i) : redice;
+#endif
+#endif
+    }
+    
+    sum[local_id] = output_result;
+#if RETURN_REDICE
+    rediceId[local_id] = redice;
+#endif
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (local_id < i)
+#ifdef POOL_AVG
+            sum[local_id] = sum[local_id] + sum[local_id + i];
+#else
+        {
+            sum[local_id] = fmax(sum[local_id], sum[local_id + i]);
+#if RETURN_REDICE
+            rediceId[local_id] = sum[local_id] > sum[local_id + i] ? rediceId[local_id] : rediceId[local_id + i];
+#endif
+        }
+#endif
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    output_result = sum[0];
+#ifdef POOL_AVG
+    output_result /= (input_shape.x * input_shape.y);
+#endif
+
+    const int out_offset = (output_batch_idx*channel_block + output_channel_idx)*4;
+    vstore4(output_result, 0, output+out_offset);
+#if RETURN_REDICE
+    redice = rediceId[0];
+    vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
+#endif
+}
+#endif

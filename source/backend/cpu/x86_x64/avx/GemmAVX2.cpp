@@ -183,41 +183,20 @@ void _AVX_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t s
                 oc4_and_5 = _mm256_add_epi32(oc4_and_5, _mm256_madd_epi16(S_int16, w2_16));
                 oc6_and_7 = _mm256_add_epi32(oc6_and_7, _mm256_madd_epi16(S_int16, w3_16));
             }
-            auto oc0 = _mm256_extractf128_si256(oc0_and_1, 0);
-            auto oc1 = _mm256_extractf128_si256(oc0_and_1, 1);
-            auto oc2 = _mm256_extractf128_si256(oc2_and_3, 0);
-            auto oc3 = _mm256_extractf128_si256(oc2_and_3, 1);
-            auto oc4 = _mm256_extractf128_si256(oc4_and_5, 0);
-            auto oc5 = _mm256_extractf128_si256(oc4_and_5, 1);
-            auto oc6 = _mm256_extractf128_si256(oc6_and_7, 0);
-            auto oc7 = _mm256_extractf128_si256(oc6_and_7, 1);
-            auto d0 = _mm_unpacklo_epi32(oc0, oc1);
-            auto d1 = _mm_unpackhi_epi32(oc0, oc1);
-            auto d2 = _mm_unpacklo_epi32(oc2, oc3);
-            auto d3 = _mm_unpackhi_epi32(oc2, oc3);
-            
-            auto e0 = _mm_unpacklo_epi64(d0, d2);
-            auto e1 = _mm_unpackhi_epi64(d0, d2);
-            auto e2 = _mm_unpacklo_epi64(d1, d3);
-            auto e3 = _mm_unpackhi_epi64(d1, d3);
-            
-            e0 = _mm_add_epi32(e0, e1);
-            e2 = _mm_add_epi32(e2, e3);
-            e0 = _mm_add_epi32(e0, e2);
-            auto r0 = _mm_unpacklo_epi32(oc4, oc5);
-            auto r1 = _mm_unpackhi_epi32(oc4, oc5);
-            auto r2 = _mm_unpacklo_epi32(oc6, oc7);
-            auto r3 = _mm_unpackhi_epi32(oc6, oc7);
-            
-            auto u0 = _mm_unpacklo_epi64(r0, r2);
-            auto u1 = _mm_unpackhi_epi64(r0, r2);
-            auto u2 = _mm_unpacklo_epi64(r1, r3);
-            auto u3 = _mm_unpackhi_epi64(r1, r3);
-            
-            u0 = _mm_add_epi32(u0, u1);
-            u2 = _mm_add_epi32(u2, u3);
-            u0 = _mm_add_epi32(u0, u2);
-            auto sum8 = _mm256_set_m128i(u0, e0);
+            auto oc_02021313_lo = _mm256_unpacklo_epi32(oc0_and_1, oc2_and_3);
+            auto oc_02021313_hi = _mm256_unpackhi_epi32(oc0_and_1, oc2_and_3);
+            auto oc_46465757_lo = _mm256_unpacklo_epi32(oc4_and_5, oc6_and_7);
+            auto oc_46465757_hi = _mm256_unpackhi_epi32(oc4_and_5, oc6_and_7);
+            auto oc_02021313 = _mm256_add_epi32(oc_02021313_lo, oc_02021313_hi);
+            auto oc_46465757 = _mm256_add_epi32(oc_46465757_lo, oc_46465757_hi);
+            auto oc_04261537_lo = _mm256_unpacklo_epi32(oc_02021313, oc_46465757);
+            auto oc_04261537_hi = _mm256_unpackhi_epi32(oc_02021313, oc_46465757);
+            auto oc_04261537 = _mm256_add_epi32(oc_04261537_lo, oc_04261537_hi);
+            auto oc_0426 = _mm256_extractf128_si256(oc_04261537, 0);
+            auto oc_1537 = _mm256_extractf128_si256(oc_04261537, 1);
+            auto oc_0123 = _mm_unpacklo_epi32(oc_0426, oc_1537);
+            auto oc_4567 = _mm_unpackhi_epi32(oc_0426, oc_1537);
+            auto sum8 = _mm256_set_m128i(oc_0123, oc_4567);
             __m256 f0 = _mm256_cvtepi32_ps(sum8);
             __m256 fs = _mm256_mul_ps(_mm256_mul_ps(f0, scaleValue), alphaValue);
             fs = _mm256_add_ps(biasValue, fs);

@@ -32,10 +32,20 @@ static void callMeanFunc(const T* input, T* output, ReduceParam* param, CUDARunt
     int axis    = param->axis;
     int count = outside * inside;
 
-    int block_num = runtime->blocks_num(count);
-    int threads_num = runtime->threads_num();
-    MEAN<<<block_num, threads_num>>>(input, output, outside, axis, inside);
-    checkKernelErrors;
+    if(axis % 256 == 0 || axis >= 768) {
+        int calc_multi_num = (axis + 255) / 256;
+        MEAN_REDUCE_AXIS<<<count, 256>>>(input, output, outside, axis, inside, 256, calc_multi_num);
+        checkKernelErrors;
+    } else if(axis >= 32) {
+        int calc_multi_num = (axis + 63) / 64;
+        MEAN_REDUCE_AXIS<<<count, 64>>>(input, output, outside, axis, inside, 64, calc_multi_num);
+        checkKernelErrors;
+    } else {
+        int block_num = runtime->blocks_num(count);
+        int threads_num = runtime->threads_num();
+        MEAN_NAIVE<<<block_num, threads_num>>>(input, output, outside, axis, inside);
+        checkKernelErrors;
+    }
 }
 
 template<typename T>

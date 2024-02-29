@@ -8,6 +8,7 @@
 
 #include "ConvSingleInputExecution.hpp"
 #include "ConvWinogradExecution.hpp"
+#include "ConvImplicitExecution.hpp"
 #include "ConvCutlassExecution.hpp"
 #include "MultiInputConvExecution.hpp"
 #ifdef ENABLE_CUDA_QUANT
@@ -38,6 +39,10 @@ public:
         }
 
         auto conv = op->main_as_Convolution2D()->common();
+        if(ConvImplicitExecution::isValid(op->main_as_Convolution2D(), inputs[0], outputs[0], backend)) { // inputs[0] is invalid now.
+            std::shared_ptr<ConvImplicitExecution::Resource> resource(new ConvImplicitExecution::Resource(backend, op));
+            return new ConvImplicitExecution(backend, op, resource);
+        }
         if(ConvWinogradExecution::isValid(op->main_as_Convolution2D())) { // inputs[0] is invalid now.
             //printf("%dx%ds%dd%d\n", conv->kernelX(), conv->kernelY(), conv->strideX(), conv->dilateX());
 

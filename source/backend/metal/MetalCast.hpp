@@ -10,7 +10,6 @@
 #define MetalCast_hpp
 
 #import "MetalExecution.hpp"
-#import "Type_generated.h"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -21,8 +20,10 @@ public:
     virtual ~MetalCast() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
+    static NSString* getScalarType(const halide_type_t& srcType, bool useFp16);
+    static NSString* getVecType(const halide_type_t& srcType, bool useFp16);
 
-private:
+protected:
     id<MTLBuffer> mConstBuffer;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;

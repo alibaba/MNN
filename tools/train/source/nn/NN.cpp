@@ -884,7 +884,7 @@ public:
             // fold bn to conv weights and bias
             VARP fusedWeights = mWeight;
             VARP fusedBias = mBias;
-            fusedBias = _Reshape(fusedBias, {fusedBias->getInfo()->size, 1, 1, 1});
+            fusedBias = _Reshape(fusedBias, {static_cast<int>(fusedBias->getInfo()->size), 1, 1, 1});
             if (mBatchNorm) {
                 auto bn = std::static_pointer_cast<BatchNormModule>(mBatchNorm);
                 auto bnMean = bn->runningMean();
@@ -898,8 +898,8 @@ public:
                 auto alpha = rStd * bnScale;
                 auto beta  = bnBias - bnMean * rStd * bnScale;
 
-                alpha = _Reshape(alpha, {alpha->getInfo()->size, 1, 1, 1});
-                beta = _Reshape(beta, {beta->getInfo()->size, 1, 1, 1});
+                alpha = _Reshape(alpha, {static_cast<int>(alpha->getInfo()->size), 1, 1, 1});
+                beta = _Reshape(beta, {static_cast<int>(beta->getInfo()->size), 1, 1, 1});
 
                 fusedWeights = alpha * fusedWeights;
                 fusedBias = alpha * fusedBias + beta;

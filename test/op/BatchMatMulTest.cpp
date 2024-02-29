@@ -350,6 +350,40 @@ public:
                 }
             }
         }
+        // Broadcast matmul Large batch with 1d left shape
+        {
+            std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+            op->type       = MNN::OpType_BatchMatMul;
+            op->main.type  = MNN::OpParameter_BatchMatMulParam;
+            op->main.value = new MNN::BatchMatMulParamT;
+            auto param     = op->main.AsBatchMatMulParam();
+            param->adjX    = false;
+            param->adjY    = false;
+
+            int batch = 10;
+            e = 2;
+            l = 2;
+            h = 1;
+            auto x0   = _Input({}, NHWC, halide_type_of<float>());
+            auto x1   = _Input({}, NHWC, halide_type_of<float>());
+            x0->resize({l});
+            x1->resize({batch, l, e});
+            auto x0Ptr = x0->writeMap<float>();
+            auto x1Ptr = x1->writeMap<float>();
+            fillFloat(x0Ptr, h, l, FP32Converter[precision], 0.03f);
+            for (int b = 0; b < batch; ++b) {
+                fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)((b * 10) % 5));
+            }
+            auto y    = Variable::create(Expr::create(op.get(), {x0, x1}));
+            auto yPtr = y->readMap<float>();
+            for (int b = 0; b < batch; ++b) {
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
+                if (!res) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 };

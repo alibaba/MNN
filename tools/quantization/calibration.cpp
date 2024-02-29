@@ -1193,10 +1193,20 @@ static unaryProc selectUnaryProc(int type) {
 void Calibration::ComputeUnaryBuffer(MNN::NetT* net) {
     for (auto iter = net->oplists.begin(); iter != net->oplists.end(); ++iter) {
         auto op = iter->get();
-        const auto opType = op->type;
+        auto opType = op->type;
         std::map<int, TensorDescribeT*> describes;
         for (auto& des : _originalModel->extraTensorDescribe) {
             describes.insert(std::make_pair(des->index, des.get()));
+        }
+        if (opType == MNN::OpType_Sigmoid || opType == MNN::OpType_TanH) {
+            op->type = OpType_UnaryOp;
+            op->main.value = new UnaryOpT;
+            op->main.type = OpParameter_UnaryOp;
+            op->main.AsUnaryOp()->opType = UnaryOpOperation_SIGMOID;
+            if (opType == MNN::OpType_TanH) {
+                op->main.AsUnaryOp()->opType = UnaryOpOperation_TANH;
+            }
+            opType = op->type;
         }
         if (opType == MNN::OpType_UnaryOp) {
             auto type = op->main.AsUnaryOp()->opType;

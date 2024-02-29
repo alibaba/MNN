@@ -30,7 +30,7 @@ private:
     int mNeedBroadcastIndex = -1;
     int mTotalSize;
     int mActivationType = 0;
-    std::shared_ptr<Execution> mActivationExe;
+    int mMinValue = -127;
     std::vector<ssize_t> mQuantScalesInt32; // input0 and input1
     std::vector<float> mQuantScalesFp32;  // input0, input1 and output
     std::vector<ssize_t> mInputZeros;

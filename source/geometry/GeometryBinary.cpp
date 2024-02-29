@@ -123,7 +123,7 @@ public:
         }
 #ifdef MNN_BINARY_LOOP_OPT
         if (input0Broadcast || input1Broadcast) {
-            if ((context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CUDA || context.forwardType() == MNN_FORWARD_CPU_EXTENSION) && inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float && op->main_as_BinaryOp()->activationType() == 0) {
+            if (inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float && op->main_as_BinaryOp()->activationType() == 0) {
                 if (!(input0Broadcast && input1Broadcast)) {
 //                if (false) {
                     // Use Loop instead of broadcast

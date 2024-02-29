@@ -103,7 +103,8 @@ public:
 
     void memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMemcpyKind_t kind, bool sync = false);
     void memset(void *dst, int value, size_t size_in_bytes);
-
+    void device_sync();
+    
     size_t threads_num() {
         return mThreadPerBlock;
     }

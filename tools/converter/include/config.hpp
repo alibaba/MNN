@@ -52,6 +52,8 @@ public:
     bool keepInputFormat = false;
     bool alignDenormalizedValue = true;
     bool detectSparseSpeedUp = true;
+    bool convertMatmulToConv = true;
+    bool transformerFuse = false;
     std::string customOpLibs = "";
     std::string authCode = "";
     std::string testDir = "";

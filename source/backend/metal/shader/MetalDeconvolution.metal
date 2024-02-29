@@ -38,7 +38,7 @@ kernel void deconv(const device ftype4 *in          [[buffer(0)]],
     
     int b = gid.z / cst.output_slice;
     int o = gid.z % cst.output_slice;
-    FLOAT4 result = cst.has_bias ? FLOAT4(biasTerms[o]) : 0;
+    FLOAT4 result = FLOAT4(biasTerms[o]);
 
     int oy = (int)gid.y + cst.pad_y;
     int ox = (int)gid.x + cst.pad_x;

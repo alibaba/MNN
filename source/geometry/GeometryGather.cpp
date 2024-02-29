@@ -331,15 +331,11 @@ public:
             paramSize = dimCount;
         }
         // recompute reshape
-        reshapeIndice->buffer().device = 0;
-        reshapeIndice->buffer().host = 0;
         auto des = TensorUtils::getDescribe(reshapeIndice.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
         // recompute broadcast
-        broadcastStride->buffer().device = 0;
-        broadcastStride->buffer().host = 0;
         des = TensorUtils::getDescribe(broadcastStride.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;

@@ -50,6 +50,78 @@ Start:
 lsl x6, x5, #2  // dst_step = batch * unit * sizeof(int8_t) = batch * 4 = batch << 2
 lsl x7, x6, #2  // src_step = dst_step * 4 (sizeof(float32_t)) = dst_step << 2
 
+TILE_8:
+cmp x5, #8
+blt TILE_4
+sub x8, x7, #64 // src_step - 64
+mov x9, x0   // src
+mov x10, x1  // dst
+//mov x11, x2  // scale
+mov x12, x4  // src_depth_quad
+
+// quant_scale: v8, 8(batch)*sizeof(float32_t)
+ld1 {v8.4s, v9.4s}, [x2], #32
+
+// int8 sum
+movi v10.4s, #0
+movi v11.4s, #0
+LoopSz_8:
+ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x9], #64
+ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x9], x8
+
+// float32_t x = x * quant_scale
+fmul v0.4s, v0.4s, v8.s[0]
+fmul v1.4s, v1.4s, v8.s[1]
+fmul v2.4s, v2.4s, v8.s[2]
+fmul v3.4s, v3.4s, v8.s[3]
+fmul v4.4s, v4.4s, v9.s[0]
+fmul v5.4s, v5.4s, v9.s[1]
+fmul v6.4s, v6.4s, v9.s[2]
+fmul v7.4s, v7.4s, v9.s[3]
+
+// int32_t x = round(x)
+Round v0, v1, v2, v3
+Round v4, v5, v6, v7
+
+// y = (int8_t)x
+sqxtn v12.4h, v0.4s
+sqxtn2 v12.8h, v1.4s
+sqxtn v13.4h, v2.4s
+sqxtn2 v13.8h, v3.4s
+sqxtn v14.4h, v4.4s
+sqxtn2 v14.8h, v5.4s
+sqxtn v15.4h, v6.4s
+sqxtn2 v15.8h, v7.4s
+
+sqxtn v16.8b, v12.8h
+sqxtn2 v16.16b, v13.8h
+sqxtn v17.8b, v14.8h
+sqxtn2 v17.16b, v15.8h
+
+st1 {v16.16b, v17.16b}, [x10], x6
+// sum
+//Transpose v0, v1, v2, v3, v14, v15, v16, v17
+//Add_4x4 v0, v1, v2, v3
+addp v18.4s, v0.4s, v1.4s
+addp v19.4s, v2.4s, v3.4s
+addp v20.4s, v4.4s, v5.4s
+addp v21.4s, v6.4s, v7.4s
+addp v22.4s, v18.4s, v19.4s
+addp v23.4s, v20.4s, v21.4s
+
+add v10.4s, v22.4s, v10.4s
+add v11.4s, v23.4s, v11.4s
+
+subs x12, x12, #1
+bne LoopSz_8
+
+Tile8End:
+sub x5, x5, #8    // batch -= 8
+add x0, x0, #128  // src += 8 * 4 * sizeof(float32_t)
+add x1, x1, #32   // dst += 8 * 4 * sizeof(int8_t)
+st1 {v10.4s, v11.4s}, [x3], #32
+b TILE_8
+
 TILE_4:
 cmp x5, #4
 blt TILE_1

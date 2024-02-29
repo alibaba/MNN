@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     int precision = (int)MNN::BackendConfig::Precision_High;
+    int memory = (int)MNN::BackendConfig::Memory_Normal;
     int thread = 1;
     const char* flag = "";
     if (argc > 2) {
@@ -38,10 +39,15 @@ int main(int argc, char* argv[]) {
         if (argc > 5) {
             flag = argv[5];
         }
+        if (argc > 6) {
+            memory = atoi(argv[6]);
+        }
         FUNC_PRINT(thread);
         FUNC_PRINT(precision);
+        FUNC_PRINT(memory);
         MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
+        config.memory = (MNN::BackendConfig::MemoryMode)memory;
         MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, thread);
     }
     if (argc > 1) {

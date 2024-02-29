@@ -23,8 +23,6 @@ mMaps.insert(std::make_pair("shader_MetalConvolutionGEMM_metal", shader_MetalCon
 mMaps.insert(std::make_pair("shader_MetalResize_metal", shader_MetalResize_metal));
 mMaps.insert(std::make_pair("shader_MetalPReLU_metal", shader_MetalPReLU_metal));
 mMaps.insert(std::make_pair("shader_MetalDefine_metal", shader_MetalDefine_metal));
-mMaps.insert(std::make_pair("shader_MetalUnary_metal", shader_MetalUnary_metal));
-mMaps.insert(std::make_pair("shader_MetalBinary_metal", shader_MetalBinary_metal));
 mMaps.insert(std::make_pair("shader_MetalEltwise_metal", shader_MetalEltwise_metal));
 }
 }

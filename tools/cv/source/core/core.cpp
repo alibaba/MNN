@@ -16,7 +16,9 @@
 namespace MNN {
 namespace CV {
 
+#ifndef FLT_EPSILON
 #define FLT_EPSILON 1.19209290E-07F
+#endif
 #define det2(m)   ((double)m(0,0)*m(1,1) - (double)m(0,1)*m(1,0))
 #define det3(m)   (m(0,0)*((double)m(1,1)*m(2,2) - (double)m(1,2)*m(2,1)) -  \
                    m(0,1)*((double)m(1,0)*m(2,2) - (double)m(1,2)*m(2,0)) +  \
@@ -28,11 +30,11 @@ int LUImpl(float* A, int astep, int m, float* b, int bstep, int n, float eps) {
     for (i = 0; i < m; i++) {
         k = i;
         for (j = i+1; j < m; j++) {
-            if (std::abs(A[j*astep + i]) > std::abs(A[k*astep + i])) {
+            if (fabs(A[j*astep + i]) > fabs(A[k*astep + i])) {
                 k = j;
             }
         }
-        if (std::abs(A[k*astep + i]) < eps) {
+        if (fabs(A[k*astep + i]) < eps) {
             return 0;
         }
         if (k != i) {

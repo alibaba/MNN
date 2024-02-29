@@ -59,6 +59,11 @@ ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std:
     mInputScales = {inputScale0, inputScale1};
     mOutputScales = {outputScale};
 
+    mMinValue = static_cast<int>(TensorUtils::getDescribe(outputs[0])->quantAttr->min);
+    if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
+        mMinValue = 0;
+    }
+
     return NO_ERROR;
 }
 
@@ -83,7 +88,7 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
         params.outputScale = mOutputScales.data();
         params.outputZeroPoint = mOutputZeros.data();
         params.inputZeroPoint = mInputZeros.data();
-        params.minValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->min;
+        params.minValue = (ssize_t)mMinValue;
         params.maxValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->max;
 
         int start = schedule.first * (int)tId;
@@ -101,13 +106,7 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
             }
             auto out = outputPtr + start * outBytes;
 #ifdef MNN_USE_NEON
-            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), &params, realSize / 4, mNeedBroadcastIndex);
-            // for (int i = 0; i < 48; ++i) {
-            //     if (i % 16 == 0) {
-            //         printf("\n");
-            //     }
-            //     printf("%d, ", (int)out[i]);
-            // }
+            mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), &params, realSize / 4, mNeedBroadcastIndex);         
 #else
             mProc(out, inp0, inp1, mQuantScalesInt32.data(), mQuantScalesFp32.data(), &params, realSize, mNeedBroadcastIndex);
 #endif

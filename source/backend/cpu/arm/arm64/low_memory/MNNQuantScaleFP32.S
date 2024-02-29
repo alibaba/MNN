@@ -26,6 +26,35 @@ movi v31.4s, #127
 scvtf v31.4s, v31.4s
 lsl x9, x4, #2 // src_step = batch * sizeof(float32_t)
 
+TILE_8:
+cmp x4, #8
+blt TILE_4
+mov x7, x0
+mov x8, x3
+
+ld1 {v1.4s, v2.4s}, [x7], x9
+subs x8, x8, #1
+beq Tile8End
+
+LoopSz_8:
+ld1 {v3.4s, v4.4s}, [x7], x9
+fmax v1.4s, v1.4s, v3.4s
+fmax v2.4s, v2.4s, v4.4s
+subs x8, x8, #1
+bne LoopSz_8
+
+Tile8End:
+sub x4, x4, #8
+add x0, x0, #32
+fdiv v5.4s, v31.4s, v1.4s
+fdiv v6.4s, v31.4s, v2.4s
+fdiv v7.4s, v1.4s, v31.4s
+fdiv v8.4s, v2.4s, v31.4s
+
+st1 {v5.4s, v6.4s}, [x1], #32
+st1 {v7.4s, v8.4s}, [x2], #32
+b TILE_8
+
 TILE_4:
 cmp x4, #4
 blt TILE_1

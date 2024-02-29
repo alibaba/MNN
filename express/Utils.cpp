@@ -116,10 +116,7 @@ bool Utils::allocMemoryForHostTensor(Tensor* dest) {
     if (TensorUtils::getDescribe(dest)->memoryType != Tensor::InsideDescribe::MEMORY_HOST) {
         return false;
     }
-    auto size = dest->size();
-    if (0 >= size) {
-        return false;
-    }
+    auto size = dest->usize();
     dest->buffer().host = (uint8_t*)MNNMemoryAllocAlign(size, MNN_MEMORY_ALIGN_DEFAULT);
     return dest->buffer().host != nullptr;
 }

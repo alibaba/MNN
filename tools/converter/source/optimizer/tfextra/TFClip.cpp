@@ -35,6 +35,12 @@ public:
             minValue = *minP;
             maxValue = *maxP;
         }
+        if(maxValue > std::numeric_limits<float>::max()) {
+            maxValue = std::numeric_limits<float>().max();
+        }
+        if(minValue < std::numeric_limits<float>::lowest()) {
+            minValue = std::numeric_limits<float>().lowest();
+        }
         std::vector<VARP> subInputs = {inputs[0]};
         std::unique_ptr<MNN::OpT> clipOp(new OpT);
         clipOp->type       = OpType_ReLU6;

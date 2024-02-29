@@ -149,15 +149,16 @@ struct _Sigmoid {
 };
 
 void FP16GELU(void* outRaw, const void* inpRaw, int realSize) {
-    int sizeQuad = realSize / 16;
+    int sizeQuad = realSize / 8;
     int start = 0;
     auto out = (FLOAT16*)outRaw;
     auto inp = (const FLOAT16*)inpRaw;
 
     if (sizeQuad > 0) {
-        float parameters[8] = {0.044715f, 0.79788458f, 378.f, 17325.f, 135135.f, 28.f, 3150.f, 62370.f};
+        constexpr float half_scale = 64.f;
+        float parameters[9] = {0.044715f, 0.79788458f, 135135.f/half_scale, 17325.f/half_scale, 378.f/half_scale, 62370.f/half_scale, 3150.f/half_scale, 28.f/half_scale, 1.f/half_scale};
         MNNGeluFP16(out, inp, sizeQuad, parameters);
-        start = sizeQuad * 16;
+        start = sizeQuad * 8;
     }
     auto tanhf_poly = [](float value) -> float {
         if (value > 5.0f) {

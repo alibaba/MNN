@@ -14,7 +14,10 @@ void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
     const auto opType = op->type;
     switch (opType) {
         case MNN::OpType_Convolution:
-        case MNN::OpType_ConvolutionDepthwise: {
+        case MNN::OpType_ConvolutionDepthwise:
+        case MNN::OpType_Deconvolution:
+        case MNN::OpType_DeconvolutionDepthwise:
+        {
             auto param           = op->main.AsConvolution2D();
             if (param->quanParameter != nullptr) {
                 break;

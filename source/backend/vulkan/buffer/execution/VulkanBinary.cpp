@@ -136,8 +136,11 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
     MNN_ASSERT(1 == outputs.size());
 
     auto vkBn = (VulkanBackend*)backend();
-    auto input0Scalar = inputs[0]->elementSize() == 1;
-    auto input1Scalar = inputs[1]->elementSize() == 1;
+    auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+    auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
+
+    auto input0Scalar = input0DataCount == 1;
+    auto input1Scalar = input1DataCount == 1;
     auto writeBinary = [&](const VULKAN_TENSOR& input0, const VULKAN_TENSOR& input1, const VULKAN_TENSOR& output, int index) {
         auto constBuffer = mConstBuffer[index];
         auto total = std::get<1>(output) / 4 / sizeof(float);

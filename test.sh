@@ -38,7 +38,7 @@ USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 
 # detect change
 SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | \
-                grep -Ev "aliyun-log-c-sdk|hiai|tensorrt|BackendRegister|FunctionDispatcher|ThreadPool")
+                grep -Ev "aliyun-log-c-sdk|hiai|tensorrt|Backend|FunctionDispatcher|ThreadPool")
 PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
 PY_CHANGE=$(git show --name-only | grep -E "^pymnn/pip_package/MNN/.*\.(py)$")
 OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
@@ -568,6 +568,18 @@ android_model_test() {
         failed
     fi
 }
+android_unit_test_low_memory() {
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory, precision=1 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory, precision=2 单元测试失败，测试终止！'
+        failed
+    fi
+}
 
 android_test() {
     pushd project/android
@@ -607,6 +619,25 @@ android_test() {
     ../updateTest.sh
     android_unit_test 64
     android_model_test 64
+    popd
+
+    # 5. build Android64 LowMemory
+    mkdir build_64_lowmemory
+    pushd build_64_lowmemory
+    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=false -DMNN_LOW_MEMORY=ON
+    android64_build_wrong=$[$? > 0]
+    mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
+    expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
+    printf "TEST_NAME_ANDROID_64: Android64编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_64: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $mnn64_size $expr64_size $android64_build_wrong $[1 - $android64_build_wrong]
+    if [ $android64_build_wrong -ne 0 ]; then
+        echo '### Android64编译失败，测试终止！'
+        failed
+    fi
+
+    # 6. test Android64 LowMemory
+    ../updateTest.sh
+    android_unit_test_low_memory aarch64
     popd
     popd
 }

@@ -14,7 +14,6 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "backend/cpu/CPUTensorConvert.hpp"
-#include "backend/cpu/CPUImageProcess.hpp"
 #include <MNN/MNNForwardType.h>
 #include "core/Backend.hpp"
 
@@ -23,6 +22,7 @@
 #include "core/Execution.hpp"
 #include "core/Backend.hpp"
 #include "MNN_generated.h"
+#include "ImageProcessUtils.hpp"
 
 #ifdef _MSC_VER
 #include "backend/cpu/x86_x64/cpu_id.h"
@@ -32,13 +32,12 @@
 namespace MNN {
 
 void registerBackend();
-
 namespace CV {
 struct ImageProcess::Inside {
     Config config;
-    std::unique_ptr<CPUImageProcess> execution;
+    // ImageProcessUtils* proc;
+    std::unique_ptr<ImageProcessUtils> proc;
 };
-
 void ImageProcess::destroy(ImageProcess* pro) {
     if (nullptr != pro) {
         delete pro;
@@ -48,17 +47,12 @@ void ImageProcess::destroy(ImageProcess* pro) {
 ImageProcess::~ImageProcess() {
     delete mInside;
 }
-
 ImageProcess::ImageProcess(const Config& config) {
     mInside         = new Inside;
     mInside->config = config;
-    for (int i = 0; i < 4; ++i) {
-        mInside->config.mean[i]   = config.mean[i];
-        mInside->config.normal[i] = config.normal[i];
-    }
     registerBackend();
     auto coreFunctions = MNNGetCoreFunctions();
-    mInside->execution.reset(new CPUImageProcess(config, coreFunctions));
+    mInside->proc.reset(new ImageProcessUtils(config, coreFunctions));
 }
 
 ImageProcess* ImageProcess::create(const Config& config, const Tensor* dstTensor) {
@@ -81,28 +75,26 @@ ImageProcess* ImageProcess::create(const ImageFormat sourceFormat, const ImageFo
     return new ImageProcess(config);
 }
 
-void ImageProcess::setMatrix(const Matrix& matrix) {
-    mTransform = matrix;
-    mTransform.invert(&mTransformInvert);
-    mInside->execution->setMatrix(matrix);
+void ImageProcess::setMatrix(const CV::Matrix& matrix) {
+    mInside->proc->setMatrix(matrix);
 }
 
-static int _getBpp(ImageFormat format) {
+static int _getBpp(CV::ImageFormat format) {
     switch (format) {
-        case RGB:
-        case BGR:
-        case YCrCb:
-        case YUV:
-        case HSV:
-        case XYZ:
+        case CV::RGB:
+        case CV::BGR:
+        case CV::YCrCb:
+        case CV::YUV:
+        case CV::HSV:
+        case CV::XYZ:
             return 3;
-        case RGBA:
-        case BGRA:
+        case CV::RGBA:
+        case CV::BGRA:
             return 4;
-        case GRAY:
+        case CV::GRAY:
             return 1;
-        case BGR555:
-        case BGR565:
+        case CV::BGR555:
+        case CV::BGR565:
             return 2;
         default:
             break;
@@ -114,7 +106,7 @@ Tensor* ImageProcess::createImageTensor(halide_type_t type, int width, int heigh
     return Tensor::create(std::vector<int>{1, height, width, bpp}, type, p);
 }
 
-static ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, ImageFormat format) {
+static CV::ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, CV::ImageFormat format) {
     if (outputBpp != 4) {
         return format;
     }
@@ -122,8 +114,8 @@ static ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, ImageF
     if (type.code == halide_type_float) {
         return format;
     }
-
-    static std::map<ImageFormat, ImageFormat> imageFormatTable = {{RGB, RGBA}, {BGR, BGRA}, {GRAY, RGBA}};
+    
+    static std::map<CV::ImageFormat, CV::ImageFormat> imageFormatTable = {{CV::RGB, CV::RGBA}, {CV::BGR, CV::BGRA}, {CV::GRAY, CV::RGBA}};
     if (imageFormatTable.find(format) != imageFormatTable.end()) {
         return imageFormatTable.find(format)->second;
     }
@@ -170,40 +162,38 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     if (dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bpp = 4;
     }
-    return convert(source, iw, ih, stride, dest->host<void>(), ow, oh, bpp, ow * bpp, dest->getType());
+    int ic = _getBpp(mInside->config.sourceFormat);
+    mInside->proc->setPadding(mPaddingValue);
+    mInside->proc->resizeFunc(ic, iw, ih, bpp, ow, oh, dest->getType(), stride);
+    return mInside->proc->execFunc(source, stride, dest->host<void>());
 }
 
 ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh,
                                 int outputBpp, int outputStride, halide_type_t type) {
-    auto ic = _getBpp(mInside->config.sourceFormat);
-    auto oc = outputBpp;
-    if (0 == oc) {
+    
+    int ic = _getBpp(mInside->config.sourceFormat);
+    int oc = outputBpp;
+    if (outputBpp == 0) {
         oc = _getBpp(mInside->config.destFormat);
     }
-    std::unique_ptr<Tensor> input(createImageTensor(halide_type_of<uint8_t>(), iw, ih, ic, (void*)source)),
-                            output(createImageTensor(type, ow, oh, oc, dest));
-    auto ins = { input.get() };
-    auto outs = { output.get() };
-    mInside->execution->setPadVal(this->mPaddingValue);
-    mInside->execution->setStride(stride);
-    mInside->execution->onResize(ins, outs);
-    mInside->execution->onExecute(ins, outs);
-    return NO_ERROR;
+    mInside->proc->setPadding(mPaddingValue);
+    mInside->proc->resizeFunc(ic, iw, ih, oc, ow, oh, type, stride);
+    return mInside->proc->execFunc(source, stride, dest);
 }
 
 void ImageProcess::setDraw() {
-    if (mInside && mInside->execution) {
-        mInside->execution->setDraw();
+    if (mInside && mInside->proc) {
+        mInside->proc->setDraw();
     }
 }
 
 void ImageProcess::draw(uint8_t* img, int w, int h, int c, const int* regions, int num, const uint8_t* color) {
-    std::unique_ptr<Tensor> imgTensor(createImageTensor(halide_type_of<uint8_t>(), w, h, c, (void*)img)),
-                            regionTensor(Tensor::create(std::vector<int>{num, 3}, halide_type_of<int>(), (void*)regions)),
-                            colorTensor(Tensor::create(std::vector<int>{c}, halide_type_of<uint8_t>(), (void*)color));
-    auto ins = { imgTensor.get(), regionTensor.get(), colorTensor.get() };
-    mInside->execution->onResize(ins, {});
-    mInside->execution->onExecute(ins, {});
+    std::vector<int32_t> tmpReg(3 * num);
+    ::memcpy(tmpReg.data(), (void*)regions, 4 * 3 * num);
+    double tmpBuf[4];
+    ::memcpy(tmpBuf, color, 4 * sizeof(double));
+    mInside->proc->resizeFunc(c, w, h, c, w, h);
+    mInside->proc->draw(img, w, h, c, tmpReg.data(), num, (uint8_t*)tmpBuf);
 }
 } // namespace CV
 } // namespace MNN

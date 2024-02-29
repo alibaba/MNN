@@ -39,12 +39,28 @@ bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor* 
     return (ow <= 16 && oh <= 16);
 }
 
-MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op)
-    : MetalConvolutionCommon(backend, op) {
+MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::Op *op)
+    : MetalConvolutionCommon(backend, op, nullptr) {
     auto conv = op->main_as_Convolution2D();
     mSrcUnit  = UNIT + conv->common()->kernelY() - 1;
     mDstUnit  = UNIT;
     loadWeight(conv);
+}
+MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::Op *op, std::shared_ptr<Tensor> weight, std::shared_ptr<Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
+    auto conv = op->main_as_Convolution2D();
+    mSrcUnit  = UNIT + conv->common()->kernelY() - 1;
+    mDstUnit  = UNIT;
+    mWeight = weight;
+}
+bool MetalConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new MetalConvolutionWinograd(bn, op, mWeight, mBias);
+    return true;
 }
 
 ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs,
@@ -140,47 +156,52 @@ void MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output
         auto bandwidth = [context load:@"matmul4x4" encoder:encoder fp16:backend->useFp16InsteadFp32()];
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:0];
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
+        MetalBackend::setTensor(mWeight.get(), encoder, 2);
         [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
     }
     { // transform
         auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder fp16:backend->useFp16InsteadFp32()];
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:0];
-        [encoder setBuffer:mBias offset:0 atIndex:1];
+        MetalBackend::setTensor(mBias.get(), encoder, 1);
         [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
         [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
     }
 }
-id<MTLBuffer> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
     std::shared_ptr<Tensor> srcWeight(Tensor::create<float>(std::vector<int>{oc, ic, kh, kh}, (void *)src, Tensor::CAFFE));
     Math::WinogradGenerater generater(mDstUnit, kh, 1.0f);
     std::shared_ptr<Tensor> dstWeight = generater.allocTransformWeight(srcWeight.get(), 4, 4);
+    if (nullptr == dstWeight->host<float>()) {
+        // Alloc cpu memory error
+        MNN_ERROR("Alloca cpu memory error in MetalConvolutionWinograd.mm\n");
+        return nullptr;
+    }
     generater.transformWeight(dstWeight.get(), srcWeight.get());
+    std::shared_ptr<Tensor> dstWeightGpu = generater.allocTransformWeight(srcWeight.get(), 4, 4, false);
+    auto res = backend->onAcquireBuffer(dstWeightGpu.get(), Backend::STATIC);
+    if (!res) {
+        MNN_ERROR("Alloca GPU memory error in MetalConvolutionWinograd.mm\n");
+        return nullptr;
+    }
 
-    int bytenumber = 4;
-    void* bytes = nullptr;
-    std::shared_ptr<Tensor> dstWeightHalf;
+    auto buffer = MetalBackend::getBuffer(dstWeightGpu.get());
+    uint8_t* bytes = (uint8_t*)[buffer.first contents] + buffer.second;
+    auto length = dstWeight->elementSize();
     if (backend->useFp16InsteadFp32()) {
-        dstWeightHalf.reset(Tensor::create<int16_t>(dstWeight->shape()));
         auto f32 = dstWeight->host<float>();
-        auto f16 = dstWeightHalf->host<__fp16>();
-        for (int i = 0; i < dstWeight->elementSize(); ++i) {
+        auto f16 = (__fp16*)bytes;
+        for (int i = 0; i < length; ++i) {
             f16[i] = f32[i];
         }
-        bytes = dstWeightHalf->host<void>();
-        bytenumber = 2;
     } else {
-        bytes = dstWeight->host<float>();
-        bytenumber = 4;
+        ::memcpy(bytes, dstWeight->host<float>(), length * sizeof(float));
     }
-    return [context newDeviceBuffer:4 * UP_DIV(ic, 4) * UP_DIV(oc, 4) * mSrcUnit * mSrcUnit * 4 * bytenumber
-                              bytes:bytes
-                             access:CPUWriteOnly];
+    return dstWeightGpu;
 }
 
 } // namespace MNN

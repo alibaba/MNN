@@ -26,13 +26,17 @@ def run():
         input = {}
         input['name'] = info['inputNames'][i]
         var = inputVars[i]
+        dtype = var.dtype
         input['shape'] = var.shape
         var = np.random.random(var.shape)
-        inputs.append(var)
+        if dtype == np.int32:
+            var = var * 10.0
+        var = var.astype(dtype)
         data = var.read().flatten()
         with open(os.path.join(outputDir, input['name'] + '.txt'), 'w') as f:
             for floatValue in data:
                 f.write('%f\n' %floatValue)
+        inputs.append(var)
         config['inputs'].append(input)
     
     import json

@@ -54,6 +54,16 @@ PoolExecution::PoolExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mPaddings[0] = mPoolParams->padY() * 2;
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("pooling", "global_pooling", {"-DLOCAL_SIZE=512"});
+    mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
+}
+
+int PoolExecution::getLocalSize(int size, int maxGroupSize){
+    int local_size = 1;
+    while(local_size * 2 <= maxGroupSize && local_size * 2 <= size){
+        local_size *= 2;
+    }
+    return local_size;
 }
 
 ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -65,12 +75,20 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     auto output = outputs[0];
     bool returnRedice = outputs.size() == 2;
     auto redice = returnRedice ? outputs[1] : outputs[0];
+    std::set<std::string> buildOptions;
+    std::string kernelName = "pooling";
+    auto runtime           = mOpenCLBackend->getOpenCLRuntime();
+    int local_size;
 
     if (mPoolParams->isGlobal()) {
         std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
         mKernels                    = {inputShape.at(1), inputShape.at(2)};
         mStrides                    = {inputShape.at(1), inputShape.at(2)};
         mPaddings                   = {0, 0};
+        kernelName                  = "global_pooling";
+        auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+        local_size = getLocalSize(inputShape.at(1) * inputShape.at(2), MaxLocalSize);
+        buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
     }
 
     if (mPadType == PoolPadType_SAME) {
@@ -95,10 +113,6 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
             countType = MNN::AvgPoolCountType_EXCLUDE_PADDING;
         }
     }
-    
-    std::set<std::string> buildOptions;
-    std::string kernelName = "pooling";
-    auto runtime           = mOpenCLBackend->getOpenCLRuntime();
 
     if (mPoolType == PoolType_AVEPOOL) {
         buildOptions.emplace("-DPOOL_AVG");
@@ -126,19 +140,31 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     const int inputWidth  = inputShape.at(2);
 
     int channelBlocks = (channels + 3) / 4;
-
-    mGlobalWorkSize = {
-        static_cast<uint32_t>(channelBlocks),
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(batch * outputHeight),
-    };
+    if (mPoolParams->isGlobal()) {
+        mGlobalWorkSize = {
+            static_cast<uint32_t>(local_size),
+            static_cast<uint32_t>(channelBlocks),
+            static_cast<uint32_t>(batch),
+        };
+        mLocalWorkSize = {
+            static_cast<uint32_t>(local_size),
+            static_cast<uint32_t>(1),
+            static_cast<uint32_t>(1),
+        };
+    }else{
+        mGlobalWorkSize = {
+            static_cast<uint32_t>(channelBlocks),
+            static_cast<uint32_t>(outputWidth),
+            static_cast<uint32_t>(batch * outputHeight),
+        };
+        mLocalWorkSize = poolLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
+    }
 
     int inputImageShape[2] = {inputHeight, inputWidth};
     int paddingShape[2]    = {mPaddings[0] / 2, mPaddings[1] / 2};
     int strideShape[2]     = {mStrides[0], mStrides[1]};
     int kernelShape[2]     = {mKernels[0], mKernels[1]};
 
-    mLocalWorkSize = poolLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
     uint32_t idx   = 0;
     cl_int ret = CL_SUCCESS;
     ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);

@@ -834,7 +834,8 @@ void doDraw(VARP& img, const std::vector<Region>& regions, const Scalar& color) 
     process->setDraw();
     int h, w, c; getVARPSize(img, &h, &w, &c);
     auto ptr = const_cast<uint8_t*>(img->readMap<uint8_t>());
-    process->draw(ptr, w, h, c, reinterpret_cast<const int*>(mergeRegs.data()), mergeRegs.size(), (uint8_t*)buf);
+    int num = (int)mergeRegs.size();
+    process->draw(ptr, w, h, c, reinterpret_cast<const int*>(mergeRegs.data()), num, (uint8_t*)buf);
 }
 
 void arrowedLine(VARP& img, Point pt1, Point pt2, const Scalar& color,

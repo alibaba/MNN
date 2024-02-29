@@ -173,4 +173,17 @@ public:
 
 #endif
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+#define REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(name, op)            \
+    void ___##name##__##op##__() {                        \
+        name* _temp = new name;                            \
+        SizeComputerSuite* ts = SizeComputerSuite::get(); \
+        ts->insert(_temp, op);                           \
+    }
+
+#else
+#define REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(name, op) void ___##name##__##op##__() {}
+
+#endif
+
 #endif

@@ -61,6 +61,19 @@ ErrorCode VulkanArgMax::onEncode(const std::vector<Tensor*>& inputs, const std::
     for (int i=axis+1; i<input->dimensions(); ++i) {
         inside *= input->length(i);
     }
+    auto total = outside * inside;
+    int outsideParallel = 1;
+    int reduceAxis = 1;
+    if (total >= 256) {
+        reduceAxis = 1;
+        outsideParallel = 256;
+    } else if (total < 16) {
+        reduceAxis = 256;
+        outsideParallel = 1;
+    } else {
+        reduceAxis = 16;
+        outsideParallel = 16;
+    }
     
     // gpu param
     {
@@ -68,7 +81,7 @@ ErrorCode VulkanArgMax::onEncode(const std::vector<Tensor*>& inputs, const std::
         Argmax->size[0] = inside;
         Argmax->size[1] = mid;
         Argmax->size[2] = outside;
-        Argmax->size[3] = outside * inside;
+        Argmax->size[3] = reduceAxis;
         mConstBuffer->unmap();
     }
     auto vkBn = static_cast<VulkanBackend*>(backend());
@@ -76,7 +89,7 @@ ErrorCode VulkanArgMax::onEncode(const std::vector<Tensor*>& inputs, const std::
     mDescriptorSet->writeBuffer(vkBn->getBuffer(input), 1);
     mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
     mArgmaxPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(outside * inside, 64), 1, 1);
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, outsideParallel), 1, 1);
     return NO_ERROR;
 }
 

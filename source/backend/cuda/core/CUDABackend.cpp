@@ -434,7 +434,7 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     MNN_PRINT("addr:%p %p\n", srcTensor->deviceId(), dstTensor->deviceId());
 #endif
 
-
+    // printf("MNN srcDevice:%d %llu, dstDevice:%d %llu, directCopy:%d\n", srcDevice, srcTensor->deviceId(), dstDevice, dstTensor->deviceId(), directCopy);
     if (directCopy) {
         auto gpuSize = realSize(srcTensor) * getBytes(srcTensor);
         if (srcDevice && dstDevice) {
@@ -549,6 +549,13 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     }
     NVTX_POP();
     return;
+}
+
+int CUDABackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    if (toCpu) {
+        mCUDARuntime->device_sync();
+    }
+    return 0;
 }
 
 DataType CUDABackend::getDataType(const Tensor* tensor) {

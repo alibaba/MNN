@@ -17,15 +17,19 @@ namespace MNN {
 class MetalConvolutionWinograd : public MetalConvolutionCommon {
 public:
     static bool isValid(const Convolution2D *conv, const Tensor *input, const Tensor* output);
-    MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op);
+    MetalConvolutionWinograd(Backend *backend, const MNN::Op *op);
     virtual ~MetalConvolutionWinograd() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 protected:
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
-    virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
+    virtual std::shared_ptr<MNN::Tensor> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
 
 private:
+    MetalConvolutionWinograd(Backend *backend, const MNN::Op *op, std::shared_ptr<Tensor> weight, std::shared_ptr<Tensor> bias);
+
+    
     id<MTLBuffer> mShapeBuffer = nil;
 
     int mSrcUnit;

@@ -14,9 +14,9 @@
 #include <string.h>
 #include <vector>
 
+#include <MNN/Rect.h>
 #include "core/Macro.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
-#include "MNN/ImageProcess.hpp"
 
 extern "C" {
 

@@ -19,17 +19,16 @@ public:
     MetalConvolution(Backend *backend, const MNN::Op *op);
     virtual ~MetalConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 protected:
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
+    MetalConvolution(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias);
     std::string mParam;
-    int mThreadgroupMemory = 0;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
-    MTLSize local;
-    std::pair<MTLSize, MetalBandwidth> _mThreads;
 
 };
 

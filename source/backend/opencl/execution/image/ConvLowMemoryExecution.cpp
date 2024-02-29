@@ -94,7 +94,7 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
 // set mKernelBuffer for the 1x1 kernels
 void ConvLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin, void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     cl_int res;
-    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 8)/*Cout pack set to max 8*/, ROUND_UP(mInputChannel, packCin), mKernelWidth, mKernelHeight}));
+    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mOutputChannel, 8)/*Cout pack set to max 8*/, ROUND_UP(mInputChannel, packCin), mResource->mKernelWidth, mResource->mKernelHeight}));
     size_t buffer_size = filterBuffer->usize() / sizeof(float);
     float *dequantAlpha = quanCommon->alpha.get();
     // shared part for all cases
@@ -110,77 +110,39 @@ void ConvLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin, vo
     if(kernelBufferPtr != nullptr && res == CL_SUCCESS){
         ::memset(kernelBufferPtr, 0, buffer_size);
 
-        if(mResource->gemmOpt){
-            for(int o = 0; o < mOutputChannel; o++){
-                float zero = 0;
-                if(quanCommon->asymmetric){
-                    zero = (-dequantAlpha[2 * o + 1])/dequantAlpha[2 * o];
-                }
-                int i = 0;
-                for(; i < mInputChannel; i++){
-                    int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
-                    int filterIdx = o*mInputChannel + i;
-                    if (mNumQuantBit == 8) {
-                        // int8 case
-                        ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
-                    } else if (mNumQuantBit == 4){
-                        // int4 case
-                        if (bufferIdx % 2 == 0) {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
-                        } else {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
-                        }
-                    } else {/* More types to be supported. */}
-                }
-                for(; i < ROUND_UP(mInputChannel, 4); i++){
-                    int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
-                    if (mNumQuantBit == 8) {
-                        // int8 case
-                        ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(zero);
-                    } else if (mNumQuantBit == 4){
-                        // int4 case
-                        if (bufferIdx % 2 == 0) {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((zero + 8) * 16);
-                        } else {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(zero + 8);
-                        }
-                    }
-                }
+        
+        for(int o = 0; o < mOutputChannel; o++){
+            float zero = 0;
+            if(quanCommon->asymmetric){
+                zero = (-dequantAlpha[2 * o + 1])/dequantAlpha[2 * o];
             }
-        }else{
-            for(int o = 0; o < mOutputChannel; o++){
-                float zero = 0;
-                if(quanCommon->asymmetric){
-                    zero = (-dequantAlpha[2 * o + 1])/dequantAlpha[2 * o];
-                }
-                int i = 0;
-                for(; i < mInputChannel; i++){
-                    int bufferIdx = (o/packCout) * ROUND_UP(mInputChannel, packCin)*packCout + (i/packCin)*packCin*packCout + (o%packCout) + (i%packCin)*packCout;//(Co/packCout, Ci/packCin, packCin, packCout)
-                    int filterIdx = o*mInputChannel + i;
-                    if (mNumQuantBit == 8) {
-                        // int8 case
-                        ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
-                    } else if (mNumQuantBit == 4){
-                        // int4 case
-                        if (bufferIdx % 2 == 0) {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
-                        } else {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
-                        }
-                    } else {/* More types to be supported. */}
-                }
-                for(; i < ROUND_UP(mInputChannel, 4); i++){
-                    int bufferIdx = (o/packCout) * ROUND_UP(mInputChannel, packCin)*packCout + (i/packCin)*packCin*packCout + (o%packCout)*packCin + (i%packCin);//(Co/packCout, Ci/packCin, packCout, packCin)
-                    if (mNumQuantBit == 8) {
-                        // int8 case
-                        ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(zero);
-                    } else if (mNumQuantBit == 4){
-                        // int4 case
-                        if (bufferIdx % 2 == 0) {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((zero + 8) * 16);
-                        } else {
-                            ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(zero + 8);
-                        }
+            int i = 0;
+            for(; i < mInputChannel; i++){
+                int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
+                int filterIdx = o*mInputChannel + i;
+                if (mNumQuantBit == 8) {
+                    // int8 case
+                    ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
+                } else if (mNumQuantBit == 4){
+                    // int4 case
+                    if (bufferIdx % 2 == 0) {
+                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
+                    } else {
+                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
+                    }
+                } else {/* More types to be supported. */}
+            }
+            for(; i < ROUND_UP(mInputChannel, 4); i++){
+                int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
+                if (mNumQuantBit == 8) {
+                    // int8 case
+                    ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(zero);
+                } else if (mNumQuantBit == 4){
+                    // int4 case
+                    if (bufferIdx % 2 == 0) {
+                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((zero + 8) * 16);
+                    } else {
+                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(zero + 8);
                     }
                 }
             }
@@ -194,8 +156,8 @@ void ConvLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin, vo
 // set mFilter for the general kernels
 void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     if (filterDataPtr != nullptr) {
-        std::vector<int> filterImageShape{ROUND_UP(mInputChannel, 4), (UP_DIV(mOutputChannel, 4) * mKernelWidth * mKernelHeight)};
-        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({mOutputChannel, ROUND_UP(mInputChannel, 4), mKernelWidth, mKernelHeight}));
+        std::vector<int> filterImageShape{ROUND_UP(mInputChannel, 4), (UP_DIV(mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight)};
+        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({mOutputChannel, ROUND_UP(mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
         // int buffer_size = filterBuffer->elementSize();
         size_t buffer_size = filterBuffer->usize() / sizeof(float);
         buffer_size *= sizeof(int8_t);
@@ -207,7 +169,7 @@ void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std:
         auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
         if(ptrCL != nullptr && res == CL_SUCCESS) {
             ::memset(ptrCL, 0, buffer_size);
-            const int copy_size = mKernelWidth * mKernelHeight * sizeof(int8_t);
+            const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(int8_t);
             for(int oc=0; oc<mOutputChannel; oc++) {
                 float zero = 0;
                 if(quanCommon->asymmetric){
@@ -215,10 +177,10 @@ void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std:
                 }
                 int ic = 0;
                 for(; ic<mInputChannel; ic++) {
-                    ::memcpy((int8_t *)ptrCL + (oc * ROUND_UP(mInputChannel, 4) + ic) * mKernelWidth * mKernelHeight, ((int8_t *)filterDataPtr) + (oc * mInputChannel + ic) * mKernelWidth * mKernelHeight, copy_size);
+                    ::memcpy((int8_t *)ptrCL + (oc * ROUND_UP(mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, ((int8_t *)filterDataPtr) + (oc * mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
                 }
                 for(; ic<ROUND_UP(mInputChannel, 4); ic++) {
-                    ((int8_t *)ptrCL)[(oc * ROUND_UP(mInputChannel, 4) + ic) * mKernelWidth * mKernelHeight] = (int8_t)(zero);
+                    ((int8_t *)ptrCL)[(oc * ROUND_UP(mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight] = (int8_t)(zero);
                 }
             }
         } else {
@@ -264,10 +226,10 @@ void ConvLowMemoryExecution::tune1x1CaseLowMemory(Tensor * input, Tensor * outpu
     const int inputWidth    = inputShape.at(2);
     const int inputChannels = inputShape.at(3);
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
-    std::string info = std::to_string(inputChannels) + "_" + std::to_string(mKernelHeight) + "_" + std::to_string(mKernelWidth) + "_" + std::to_string(mStrides[0]) + "_" + std::to_string(mStrides[1]) + "_" + std::to_string(mDilations[0]) + "_" + std::to_string(mDilations[1]);
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(mResource->mKernelHeight) + "_" + std::to_string(mResource->mKernelWidth) + "_" + std::to_string(mResource->mStrides[0]) + "_" + std::to_string(mResource->mStrides[1]) + "_" + std::to_string(mResource->mDilations[0]) + "_" + std::to_string(mResource->mDilations[1]);
     int inputImageShape[2]  = {inputHeight, inputWidth};
     int outputImageShape[2] = {height, width};
-    int stideShape[2]       = {mStrides[0], mStrides[1]};
+    int stideShape[2]       = {mResource->mStrides[0], mResource->mStrides[1]};
     const int total_kernel = 2;
     std::string kernelName[total_kernel] = {"conv_2d_1x1", "conv_2d_1x1_c8h1w4"};
     int itemC[total_kernel] = {4, 8};
@@ -350,13 +312,13 @@ void ConvLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * o
     const int inputWidth    = inputShape.at(2);
     const int inputChannels = inputShape.at(3);
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
-    std::string info = std::to_string(inputChannels) + "_" + std::to_string(mKernelHeight) + "_" + std::to_string(mKernelWidth) + "_" + std::to_string(mStrides[0]) + "_" + std::to_string(mStrides[1]) + "_" + std::to_string(mDilations[0]) + "_" + std::to_string(mDilations[1]);
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(mResource->mKernelHeight) + "_" + std::to_string(mResource->mKernelWidth) + "_" + std::to_string(mResource->mStrides[0]) + "_" + std::to_string(mResource->mStrides[1]) + "_" + std::to_string(mResource->mDilations[0]) + "_" + std::to_string(mResource->mDilations[1]);
     int inputImageShape[2]  = {inputHeight, inputWidth};
     int outputImageShape[2] = {height, width};
-    int kernelShape[2]      = {mKernelHeight, mKernelWidth};
-    int strideShape[2]      = {mStrides[0], mStrides[1]};
+    int kernelShape[2]      = {mResource->mKernelHeight, mResource->mKernelWidth};
+    int strideShape[2]      = {mResource->mStrides[0], mResource->mStrides[1]};
     int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
-    int dilationShape[2]    = {mDilations[0], mDilations[1]};
+    int dilationShape[2]    = {mResource->mDilations[0], mResource->mDilations[1]};
     const int total_kernel = 3;
     std::string kernelName[total_kernel] = {"conv_2d_c4h1w4", "conv_2d_c4h4w1", "conv_2d_c8h4w1" };
     int itemC[total_kernel] = {4, 4, 8};
@@ -487,16 +449,16 @@ ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inpu
     const auto *conv2dCommonParams = conv2dParams->common();
     mConv2dParams                  = conv2dParams;
     mResource->conv2dCommonParams  = conv2dCommonParams;
-    mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
-    mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
+    mResource->mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
+    mResource->mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
     auto padding = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], conv2dCommonParams);
     mPaddings[0] = padding.second;//padY
     mPaddings[1] = padding.first;//padX
 
-    mKernelWidth   = conv2dCommonParams->kernelX();
-    mKernelHeight  = conv2dCommonParams->kernelY();
+    mResource->mKernelWidth   = conv2dCommonParams->kernelX();
+    mResource->mKernelHeight  = conv2dCommonParams->kernelY();
     mOutputChannel = conv2dCommonParams->outputCount();
-    mInputChannel = inputs[0]->channel();
+    mInputChannel = conv2dCommonParams->inputCount();
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     // set mDequantScale, mDequantOffset, mFilterDataPtr
     // prepare mDequantScale mDequantOffset mFilterDataPtr
@@ -505,20 +467,16 @@ ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inpu
     //std::vector<int> inputShape  = tensorShapeFormat(inputs[0]);
     //const int inputChannels = inputShape.at(3);
     //const int batch = inputShape.at(0);
-    mResource->gemmOpt = (mKernelHeight == mKernelWidth && mKernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0 && mStrides[0] == 1 && mStrides[1] == 1 && inputs[0]->width() == 1 && inputs[0]->height() == 1);
-    mResource->conv1x1Opt = (mKernelHeight == mKernelWidth && mKernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0 && mStrides[0] == 1 && mStrides[1] == 1 && inputs[0]->width() >= 4);
-        //printf("mConv1x1Opt = %d  mKernelHeight = %d  mKernelWidth = %d  mPaddings[0] = %d mPaddings[1] = %d mStrides[0] = %d mStrides[1] = %d inputs[0]->width() = %d inputs[0]->height() = %d mOutputChannel = %d inputChannels = %d batch = %d\n", mConv1x1Opt, mKernelHeight, mKernelWidth,
-               //mPaddings[0], mPaddings[1], mStrides[0], mStrides[1], inputs[0]->width(), inputs[0]->height(), mOutputChannel, inputChannels, batch);
-        if (mResource->conv1x1Opt) {
-            // set mKernelBuffer for 1x1 case
-            // At first, set packCout equal to 4
-            set1x1WeightLowMemory(4, 4, mFilterDataPtr, quanCommon);
-        } else if(mResource->gemmOpt){
-            set1x1WeightLowMemory(4, 4, mFilterDataPtr, quanCommon);
-        }else {
-            // set mFilter for not 1x1 case
-            setGeneralWeightLowMemory(mFilterDataPtr, quanCommon);
-        }
+    //printf("mConv1x1Opt = %d  mKernelHeight = %d  mKernelWidth = %d  mPaddings[0] = %d mPaddings[1] = %d mStrides[0] = %d mStrides[1] = %d inputs[0]->width() = %d inputs[0]->height() = %d mOutputChannel = %d inputChannels = %d batch = %d\n", mConv1x1Opt, mKernelHeight, mKernelWidth,
+            //mPaddings[0], mPaddings[1], mStrides[0], mStrides[1], inputs[0]->width(), inputs[0]->height(), mOutputChannel, inputChannels, batch);
+    if (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 ) {
+        // set mKernelBuffer for 1x1 case
+        // At first, set packCout equal to 4
+        set1x1WeightLowMemory(4, 4, mFilterDataPtr, quanCommon);
+    }else {
+        // set mFilter for not 1x1 case
+        setGeneralWeightLowMemory(mFilterDataPtr, quanCommon);
+    }
     // Create Kernel
     mResource->buildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu()) {
@@ -541,6 +499,10 @@ ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inpu
 ConvLowMemoryExecution::ConvLowMemoryExecution(std::shared_ptr<ConvResource> resource, const Op* op, Backend *backend)
     : ConvCommonExecution(backend) {
     mResource = resource;
+    const auto *conv2dParams       = op->main_as_Convolution2D();
+    const auto *conv2dCommonParams = conv2dParams->common();
+    mConv2dParams                  = conv2dParams;
+    mResource->conv2dCommonParams  = conv2dCommonParams;
 }
 
 ConvLowMemoryExecution::~ConvLowMemoryExecution() {
@@ -564,11 +526,11 @@ ErrorCode ConvLowMemoryExecution::onResize(const std::vector<Tensor *> &inputs, 
 #endif
     auto input  = inputs[0];
     auto output = outputs[0];
-    // auto padding = ConvolutionCommon::convolutionPad(input, output, mResource->conv2dCommonParams);
-    // mPaddings[0] = padding.second;//padY
-    // mPaddings[1] = padding.first;//padX
-    mPaddings[0] = 0;
-    mPaddings[1] = 0;
+    auto padding = ConvolutionCommon::convolutionPad(input, output, mResource->conv2dCommonParams);
+    mPaddings[0] = padding.second;//padY
+    mPaddings[1] = padding.first;//padX
+    mResource->gemmOpt = (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 && inputs[0]->width() == 1 && inputs[0]->height() == 1);
+    mResource->conv1x1Opt = (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 && inputs[0]->width() >= 4);
     if (mResource->conv1x1Opt) {
         tune1x1CaseLowMemory(input, output);
     } else if(mResource->gemmOpt){

@@ -20,7 +20,6 @@ struct SamplerInfo {
     unsigned int stride[4];//stride[3] + offset
     unsigned int size[4];//size[3] + totalSize
     unsigned int extent[4];//dstStride[3]+dstOffset
-    unsigned int imageSize[4];
 };
 
 static void writeSamplerInfo(SamplerInfo& info, const Tensor::InsideDescribe::Region& sampler) {
@@ -59,6 +58,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         mZeroPipeline = [context pipelineWithName:@"fill_intx4" fp16:mtbn->useFp16InsteadFp32()];
     }
     mTempInput.clear();
+    mTempInputCopy.clear();
     mTempOutput = nullptr;
     mOutputPtr = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(output->deviceId()))->getBuffer();
 #ifndef MNN_METAL_FORBID_RASTER_C4

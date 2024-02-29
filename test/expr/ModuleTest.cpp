@@ -145,8 +145,22 @@ public:
         MNN::ScheduleConfig sconfig;
         std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
         std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs), Executor::RuntimeManager::destroy);
+        rtMgr->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 1); // eager
+        float defer_mem0, defer_mem1;
+        rtMgr->getInfo(MNN::Interpreter::MEMORY, &defer_mem0);
         interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
         auto z0 = interp0->onForward({x});
+        rtMgr->getInfo(MNN::Interpreter::MEMORY, &defer_mem1);
+        float eager_increase = defer_mem1 - defer_mem0;
+        MNN_PRINT("EagerAllocator Increase: %f\n", eager_increase);
+        rtMgr->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0); // defer
+        rtMgr->getInfo(MNN::Interpreter::MEMORY, &defer_mem0);
+        interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+        auto z1 = interp1->onForward({x});
+        rtMgr->getInfo(MNN::Interpreter::MEMORY, &defer_mem1);
+        float defer_increase = defer_mem1 - defer_mem0;
+        MNN_PRINT("DeferAllocator Increase: %f\n", defer_increase);
+        MNNTEST_ASSERT(defer_increase <= eager_increase);
         // Release runtime and module, then trigger var's release
         interp0.reset();
         rtMgr.reset();
@@ -356,7 +370,7 @@ public:
             cloneModules[i].reset(Module::clone(moduleBasic.get()));
         }
         /* Clone Module End */
-        
+
         /* Execute Module with Multi-Thread Begin*/
         std::vector<bool> result(cloneNumber);
         {
@@ -523,7 +537,7 @@ public:
             config.numThread = 1;
             net->setSessionMode(Interpreter::Session_Debug);
             auto session = net->createSession(config);
-            
+
             int directValue = -1;
             int copyValue = -1;
             MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
@@ -963,7 +977,7 @@ public:
             MNN::Express::Module::Config modConfig;
             modConfig.rearrange = true;
             std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, bufferOutput, sizeOutput, &modConfig), MNN::Express::Module::destroy);
-            
+
             ScheduleConfig config;
             BackendConfig bnConfig;
             bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;

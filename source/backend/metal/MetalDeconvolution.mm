@@ -28,14 +28,13 @@ static int leastCommonMultiple(int m, int n) {
 }
 
 template <typename FType, typename TType>
-static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, int group, int oc, int ic, int kh, int kw,
-                                     const FType *src) {
+static void weightForDeconv(int group, int oc, int ic, int kh, int kw,
+                                     const FType *src, uint8_t* dstOrigin) {
     auto goc    = oc / group;
     auto gic    = ic / group;
     auto goc_4  = UP_DIV(goc, 4);
     auto gic_4  = UP_DIV(gic, 4);
-    auto buffer = [context newDeviceBuffer:group * goc_4 * gic_4 * kw * kh * 16 * sizeof(TType) access:CPUWriteOnly];
-    auto dst    = (TType *)buffer.contents;
+    auto dst    = (TType *)dstOrigin;
 
     for (int g = 0; g < group; g++) {
         for (int i = 0; i < gic; i++) {
@@ -56,19 +55,15 @@ static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, int group, int oc
             }
         }
     }
-    return buffer;
 }
 
 template <typename FType, typename TType>
-static id<MTLBuffer> weightForDepthwise(MNNMetalContext *context, int group, int kh, int kw, const FType *src) {
-    auto buffer = [context newDeviceBuffer:UP_DIV(group, 4) * 4 * kw * kh * sizeof(TType) access:CPUWriteOnly];
-    auto dst    = (TType *)buffer.contents;
+static void weightForDepthwise(int group, int kh, int kw, const FType *src, uint8_t* dstOrigin) {
+    auto dst    = (TType *)dstOrigin;
     for (int g = 0; g < group; g++) {
         auto z = g / 4, r = g % 4;
         auto z_dst = dst + z * kh * kw * 4 + r;
-#pragma clang loop vectorize(enable)
         for (int h = 0; h < kh; h++) {
-#pragma clang loop vectorize(enable) unroll(enable)
             for (int w = 0; w < kw; w++) {
                 // to   [g/4][h][w][4]
                 // from [g][h][w]
@@ -78,52 +73,54 @@ static id<MTLBuffer> weightForDepthwise(MNNMetalContext *context, int group, int
             }
         }
     }
-    return buffer;
 }
 
 template <typename TType>
-id<MTLBuffer> weightForDeconv(MNNMetalContext *context, bool depthwise, const Convolution2D *deconv,
+void weightForDeconv(std::shared_ptr<MNN::Tensor> t, bool depthwise, const Convolution2D *deconv,
                                      ConvolutionCommon::Int8Common *qnt) {
-    auto size   = qnt ? qnt->weightFloat.size() : deconv->weight()->size();
     auto common = deconv->common();
     auto kw     = common->kernelX();
     auto kh     = common->kernelY();
     auto group  = common->group();
     auto oc     = common->outputCount();
+    auto size   = qnt ? qnt->weightFloat.size() : deconv->weight()->size();
+    auto buffer = MetalBackend::getBuffer(t.get());
     auto ic     = size / kw / kh / (oc / group);
+    auto dst = (uint8_t*)[buffer.first contents] + buffer.second;
     if (depthwise) {
-        return weightForDepthwise<float, TType>(context, group, kh, kw,
-                                                      qnt ? qnt->weightFloat.get() : deconv->weight()->data());
+        weightForDepthwise<float, TType>(group, kh, kw,
+                                                      qnt ? qnt->weightFloat.get() : deconv->weight()->data(), dst);
     } else {
-        return weightForDeconv<float, TType>(context, group, oc, ic, kh, kw,
-                                                   qnt ? qnt->weightFloat.get() : deconv->weight()->data());
+        weightForDeconv<float, TType>(group, oc, ic, kh, kw,
+                                                   qnt ? qnt->weightFloat.get() : deconv->weight()->data(), dst);
     }
 }
 
-static id<MTLBuffer> biasForDeconv(MNNMetalContext *context, const Convolution2D *deconv, bool fp16) {
+static std::shared_ptr<MNN::Tensor> biasForDeconv(Backend *backend, const Convolution2D *deconv, bool fp16) {
     auto bias = deconv->bias();
-    if (!bias || bias->size() == 0)
-        return [context newDeviceBuffer:0 access:CPUTransparent];
-
     auto oc     = deconv->common()->outputCount();
     int bytes = 4;
     if (fp16) {
         bytes = 2;
     }
-    auto buffer = [context newDeviceBuffer:UP_DIV(oc, 4) * 4 * bytes access:CPUWriteOnly];
+    auto length = UP_DIV(oc, 4) * 4;
+    std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({length}));
+    auto res = backend->onAcquireBuffer(t.get(), Backend::STATIC);
+    if (!res) {
+        return nullptr;
+    }
+    auto buffer = MetalBackend::getBuffer(t.get());
+    auto dstO = (uint8_t*)[buffer.first contents] + buffer.second;
     auto src    = bias->data();
     if (fp16) {
-        auto dst    = (__fp16 *)buffer.contents;
+        auto dst    = (__fp16 *)dstO;
         for (int i = 0; i < oc; i++) {
             dst[i] = src[i];
         }
     } else {
-        auto dst    = (float *)buffer.contents;
-        for (int i = 0; i < oc; i++) {
-            dst[i] = src[i];
-        }
+        ::memcpy(dstO, src, oc * sizeof(float));
     }
-    return buffer;
+    return t;
 }
 
 MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : MetalExecution(backend) {
@@ -150,12 +147,36 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Me
     if (deconv->quanParameter()) {
         qnt = ConvolutionCommon::load(deconv, backend, true);
     }
-    if (mtbn->useFp16InsteadFp32()) {
-        mWeight = weightForDeconv<__fp16>(context, mDepthwise, deconv, qnt.get());
-    } else {
-        mWeight = weightForDeconv<float>(context, mDepthwise, deconv, qnt.get());
+    auto kw     = common->kernelX();
+    auto kh     = common->kernelY();
+    auto group  = common->group();
+    auto oc     = common->outputCount();
+    auto size   = qnt ? qnt->weightFloat.size() : deconv->weight()->size();
+    auto ic     = size / kw / kh / (oc / group);
+    auto goc    = oc / group;
+    auto gic    = ic / group;
+    auto goc_4  = UP_DIV(goc, 4);
+    auto gic_4  = UP_DIV(gic, 4);
+    int weightSize = group * goc_4 * gic_4 * kw * kh * 16;
+    if (mDepthwise) {
+        weightSize = UP_DIV(group, 4) * 4 * kw * kh;
     }
-    mBias   = biasForDeconv(context, deconv, mtbn->useFp16InsteadFp32());
+    mWeight.reset(MNN::Tensor::createDevice<float>({weightSize}));
+    bool res = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    if (!res) {
+        mValid = false;
+        return;
+    }
+    if (mtbn->useFp16InsteadFp32()) {
+        weightForDeconv<__fp16>(mWeight, mDepthwise, deconv, qnt.get());
+    } else {
+        weightForDeconv<float>(mWeight, mDepthwise, deconv, qnt.get());
+    }
+    mBias = biasForDeconv(backend, deconv, mtbn->useFp16InsteadFp32());
+    if (nullptr == mBias) {
+        mValid = false;
+        return;
+    }
     if (mDepthwise) {
         mPipeline = [context pipelineWithName:@"deconv_depthwise" fp16:mtbn->useFp16InsteadFp32()];
     } else {
@@ -201,7 +222,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         deltaKx,
         deltaKy * mDilateY / mStrideY,
         deltaKx * mDilateX / mStrideX,
-        mBias.length > 0,
+        1,
         ob,
         mActivationType
     };
@@ -217,8 +238,8 @@ void MetalDeconvolution::onEncode(const std::vector<Tensor *> &inputs, const std
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
+    MetalBackend::setTensor(mWeight.get(), encoder, 3);
+    MetalBackend::setTensor(mBias.get(), encoder, 4);
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 

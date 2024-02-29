@@ -18,8 +18,8 @@ def generateGemmTuneFile(headfile):
 	epilogue_type  = ["LinearCombination", "LinearCombinationRelu", "LinearCombinationRelu6"]
 	layout_a_name = "_Row"
 	layout_b_name = "_Column"
-	thread_block_shapes = ["cutlass::gemm::GemmShape<64, 64, 64>", "cutlass::gemm::GemmShape<128, 64, 64>", "cutlass::gemm::GemmShape<64, 64, 32>", "cutlass::gemm::GemmShape<128, 64, 32>", "cutlass::gemm::GemmShape<64, 128, 32>", "cutlass::gemm::GemmShape<256, 64, 32>"]
-	warp_shapes         = ["cutlass::gemm::GemmShape<32, 32, 64>", "cutlass::gemm::GemmShape<64, 32, 64>",  "cutlass::gemm::GemmShape<32, 32, 32>", "cutlass::gemm::GemmShape<64, 32, 32>",  "cutlass::gemm::GemmShape<32, 64, 32>",  "cutlass::gemm::GemmShape<64, 64, 32>"]
+	thread_block_shapes = ["cutlass::gemm::GemmShape<64, 64, 64>", "cutlass::gemm::GemmShape<128, 64, 64>", "cutlass::gemm::GemmShape<64, 64, 32>", "cutlass::gemm::GemmShape<128, 64, 32>", "cutlass::gemm::GemmShape<64, 128, 32>", "cutlass::gemm::GemmShape<256, 64, 32>", "cutlass::gemm::GemmShape<128, 128, 32>"]
+	warp_shapes         = ["cutlass::gemm::GemmShape<32, 32, 64>", "cutlass::gemm::GemmShape<64, 32, 64>",  "cutlass::gemm::GemmShape<32, 32, 32>", "cutlass::gemm::GemmShape<64, 32, 32>",  "cutlass::gemm::GemmShape<32, 64, 32>",  "cutlass::gemm::GemmShape<64, 64, 32>" ,  "cutlass::gemm::GemmShape<64, 64, 32>"]
 	NumStages = "3"
 
 	for epilogue in epilogue_type:
@@ -67,7 +67,7 @@ def generateGemmTuneFile(headfile):
 								if thread_block_shape == "cutlass::gemm::GemmShape<64, 64, 64>":
 									warp_shape = "cutlass::gemm::GemmShape<32, 32, 64>"
 									block_size = "_64x64x64"
-									NumStages = "4"
+									NumStages = "3"
 								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 64, 32>":
 									warp_shape = "cutlass::gemm::GemmShape<64, 32, 32>"
 									block_size = "_128x64x32"
@@ -80,6 +80,10 @@ def generateGemmTuneFile(headfile):
 									warp_shape = "cutlass::gemm::GemmShape<64, 64, 32>"
 									block_size = "_256x64x32"
 									NumStages = "3"
+								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 128, 32>":
+									warp_shape = "cutlass::gemm::GemmShape<64, 64, 32>"
+									block_size = "_128x128x32"
+									NumStages = "3"
 								elif thread_block_shape == "cutlass::gemm::GemmShape<64, 64, 32>":
 									warp_shape = "cutlass::gemm::GemmShape<32, 32, 32>"
 									block_size = "_64x64x32"
@@ -87,7 +91,7 @@ def generateGemmTuneFile(headfile):
 								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 64, 64>":
 									warp_shape = "cutlass::gemm::GemmShape<64, 32, 64>"
 									block_size = "_128x64x64"
-									NumStages = "3"
+									NumStages = "2"
 
 								hpp += "using " + gemm_name + inp_precision_name + out_precision_name + epilogue_name + out_align_name + layout_a_name + layout_b_name + sm_name + block_size + " = cutlass::gemm::device::Gemm<\n    "
 								hpp += element_input_precision + ",\n    LayoutInputA,\n    "
@@ -118,8 +122,8 @@ def generateGemmBatchedTuneFile(headfile):
 
 	hpp += "using BatchedSwizzleThreadBlock = cutlass::gemm::threadblock::GemmBatchedIdentityThreadblockSwizzle;\n\n"
 
-	thread_block_shapes = ["cutlass::gemm::GemmShape<64, 64, 64>", "cutlass::gemm::GemmShape<128, 64, 64>", "cutlass::gemm::GemmShape<64, 64, 32>", "cutlass::gemm::GemmShape<128, 64, 32>", "cutlass::gemm::GemmShape<64, 128, 32>", "cutlass::gemm::GemmShape<256, 64, 32>"]
-	warp_shapes         = ["cutlass::gemm::GemmShape<32, 32, 64>", "cutlass::gemm::GemmShape<64, 32, 64>",  "cutlass::gemm::GemmShape<32, 32, 32>", "cutlass::gemm::GemmShape<64, 32, 32>",  "cutlass::gemm::GemmShape<32, 64, 32>",  "cutlass::gemm::GemmShape<64, 64, 32>"]
+	thread_block_shapes = ["cutlass::gemm::GemmShape<64, 64, 64>", "cutlass::gemm::GemmShape<128, 64, 64>", "cutlass::gemm::GemmShape<64, 64, 32>", "cutlass::gemm::GemmShape<128, 64, 32>", "cutlass::gemm::GemmShape<64, 128, 32>", "cutlass::gemm::GemmShape<256, 64, 32>", "cutlass::gemm::GemmShape<128, 128, 32>"]
+	warp_shapes         = ["cutlass::gemm::GemmShape<32, 32, 64>", "cutlass::gemm::GemmShape<64, 32, 64>",  "cutlass::gemm::GemmShape<32, 32, 32>", "cutlass::gemm::GemmShape<64, 32, 32>",  "cutlass::gemm::GemmShape<32, 64, 32>",  "cutlass::gemm::GemmShape<64, 64, 32>",  "cutlass::gemm::GemmShape<64, 64, 32>"]
 	NumStages = "3"
 
 	data_precision = ["cutlass::half_t", "float"]
@@ -164,7 +168,7 @@ def generateGemmBatchedTuneFile(headfile):
 								if thread_block_shape == "cutlass::gemm::GemmShape<64, 64, 64>":
 									warp_shape = "cutlass::gemm::GemmShape<32, 32, 64>"
 									block_size = "_64x64x64"
-									NumStages = "4"
+									NumStages = "3"
 								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 64, 32>":
 									warp_shape = "cutlass::gemm::GemmShape<64, 32, 32>"
 									block_size = "_128x64x32"
@@ -177,6 +181,10 @@ def generateGemmBatchedTuneFile(headfile):
 									warp_shape = "cutlass::gemm::GemmShape<64, 64, 32>"
 									block_size = "_256x64x32"
 									NumStages = "3"
+								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 128, 32>":
+									warp_shape = "cutlass::gemm::GemmShape<64, 64, 32>"
+									block_size = "_128x128x32"
+									NumStages = "3"
 								elif thread_block_shape == "cutlass::gemm::GemmShape<64, 64, 32>":
 									warp_shape = "cutlass::gemm::GemmShape<32, 32, 32>"
 									block_size = "_64x64x32"
@@ -184,7 +192,7 @@ def generateGemmBatchedTuneFile(headfile):
 								elif thread_block_shape == "cutlass::gemm::GemmShape<128, 64, 64>":
 									warp_shape = "cutlass::gemm::GemmShape<64, 32, 64>"
 									block_size = "_128x64x64"
-									NumStages = "3"
+									NumStages = "2"
 
 								hpp += "using " + gemm_name + inp_precision_name + out_precision_name + "Linear" + out_align_name + layout_a_name + layout_b_name + sm_name + block_size + " = cutlass::gemm::device::GemmBatched<\n    "
 								hpp += element_input_precision + ",\n    " + layout_a + ",\n    "

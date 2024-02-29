@@ -18,28 +18,21 @@ namespace MNN {
 
 class MetalConvolutionCommon : public MetalExecution {
 public:
-    MetalConvolutionCommon(Backend *backend, const MNN::Op *op);
+    MetalConvolutionCommon(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> bias);
     virtual ~MetalConvolutionCommon() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 protected:
     void loadWeight(const MNN::Convolution2D *conv);
 
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder)     = 0;
-    virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
+    virtual std::shared_ptr<MNN::Tensor> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
 
 private:
-    id<MTLBuffer> weightForConv(const Convolution2D *, ConvolutionCommon::Int8Common *, bool);
 
 protected:
-    bool mDepthwise     = false;
-    int mGroups         = 0;
     int mKernelX        = 0;
     int mKernelY        = 0;
-    PadMode mPadMode    = PadMode_CAFFE;
-    int mPadX           = 0;
-    int mPadY           = 0;
     int mStrideX        = 0;
     int mStrideY        = 0;
     int mDilateX        = 0;
@@ -47,8 +40,8 @@ protected:
     int mActivationType = 0;
     const MNN::Op *mOp  = nullptr;
 
-    id<MTLBuffer> mWeight      = nil;
-    id<MTLBuffer> mBias        = nil;
+    std::shared_ptr<MNN::Tensor> mWeight;
+    std::shared_ptr<MNN::Tensor> mBias;
     id<MTLBuffer> mConstBuffer = nil;
 };
 

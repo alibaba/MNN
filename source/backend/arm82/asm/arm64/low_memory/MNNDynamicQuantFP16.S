@@ -104,10 +104,10 @@ st1 {v4.16b, v5.16b}, [x10], x14
 subs x12, x12, #1
 bne LoopSz_12
 
-addp v22.4s, v23.4s, v24.4s
-addp v23.4s, v25.4s, v26.4s
-addp v24.4s, v27.4s, v28.4s
-st1 {v22.4s, v23.4s, v24.4s}, [x3], #48
+addp v12.4s, v23.4s, v24.4s
+addp v13.4s, v25.4s, v26.4s
+addp v14.4s, v27.4s, v28.4s
+st1 {v12.4s, v13.4s, v14.4s}, [x3], #48
 
 Tile12End:
 sub x5, x5, #12   // batch -= 12
@@ -180,11 +180,11 @@ st1 {v4.16b}, [x10], x14
 subs x12, x12, #1
 bne LoopSz_10
 
-addp v23.4s, v24.4s, v25.4s
-addp v24.4s, v26.4s, v27.4s
-addp v25.4s, v28.4s, v28.4s
-st1 {v23.4s, v24.4s}, [x3], #32
-st1 {v25.d}[0], [x3], #8
+addp v13.4s, v24.4s, v25.4s
+addp v14.4s, v26.4s, v27.4s
+addp v15.4s, v28.4s, v28.4s
+st1 {v13.4s, v14.4s}, [x3], #32
+st1 {v15.d}[0], [x3], #8
 
 Tile10End:
 sub x5, x5, #10   // batch -= 10
@@ -246,9 +246,9 @@ st1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x10], x6
 subs x12, x12, #1
 bne LoopSz_8
 
-addp v24.4s, v25.4s, v26.4s
-addp v25.4s, v27.4s, v28.4s
-st1 {v24.4s, v25.4s}, [x3], #32
+addp v14.4s, v25.4s, v26.4s
+addp v15.4s, v27.4s, v28.4s
+st1 {v14.4s, v15.4s}, [x3], #32
 
 Tile8End:
 sub x5, x5, #8    // batch -= 8

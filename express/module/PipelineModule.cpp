@@ -335,7 +335,7 @@ static std::vector<int> _collectNeededOps(const MNN::Net* net, const std::set<in
     // 0: use, 1: no use
     std::vector<int> opMask(net->oplists()->size());
     ::memset(opMask.data(), 0, opMask.size() * sizeof(int));
-    
+
     // Set Initial Status
     for (auto v : outputIndexes) {
         tensorMask[v] = 1;
@@ -638,6 +638,9 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
             modRuntime.rt.first.begin()->second->setExternalFile(rtMgr->getInside()->mExternalFile);
             modRuntime.rt.second->setExternalFile(rtMgr->getInside()->mExternalFile);
         }
+        // set allocator type
+        modRuntime.rt.first.begin()->second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
+        modRuntime.rt.second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
     }
     auto& rt = modRuntime.rt;
     auto firstRt = rt.first[modRuntime.compute.type];

@@ -161,8 +161,107 @@ public:
                     }
                 }
             }
+            {
+                const float inpudata[]                  = {-1.0, -2.0, 3.0, 4.0};
+                const int indices_data[]                = {0, 0, 1, 1};
+                auto params                             = _Const(inpudata, {2, 2}, NHWC, halide_type_of<float>());
+                auto indices                            = _Const(indices_data, {2, 2}, NHWC, halide_type_of<int>());
+                auto x1 = _GatherND(params, indices);
+                x1->setName("input1");
+                auto shape = x1->getInfo()->dim;
+                auto x0 = _Input(shape, NHWC, halide_type_of<float>());
+                float x0data[] = {1.0f, 2.0f};
+                ::memcpy(x0->writeMap<float>(), x0data, 2 * sizeof(float));
+                x0->setName("input0");
+                auto res = _Add(x0, x1);
+                res->setName("GatherNd_output_0");
+                
+                flatbuffers::FlatBufferBuilder builderOutput(1024);
+                {
+                    std::unique_ptr<MNN::NetT> net(new NetT);
+                    Variable::save({res}, net.get());
+                    y = nullptr;
+                    auto len = MNN::Net::Pack(builderOutput, net.get());
+                    builderOutput.Finish(len);
+                }
+                int sizeOutput    = builderOutput.GetSize();
+                auto bufferOutput = builderOutput.GetBufferPointer();
+                const char* cacheFileName = ".tempcache";
+                MNN::ScheduleConfig config;
+                config.numThread = 1;
+                
+                BackendConfig bnConfig;
+                bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+                config.backendConfig = &bnConfig;
+                std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+                rtmgr->setCache(cacheFileName);
+                MNN::Express::Module::Config mConfig;
+                /*
+                 ScheduleConfig config;
+                 BackendConfig bnConfig;
+                 bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+                 config.numThread = 1;
+                 config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+                 config.backendConfig = &bnConfig;
+                 */
+                
+                std::shared_ptr<MNN::Express::Module> module_2(Module::load(std::vector<std::string>{"input0"}, std::vector<std::string>{"GatherNd_output_0"}, bufferOutput, sizeOutput, rtmgr, &mConfig));
+                
+                auto y2 = module_2->onForward({x0})[0];
+                
+                const float inpudata1[]                  = {-5.0, -6.0, 7.0, 8.0};
+                x0->resize({2, 2});
+                auto parameterPtr = params->writeMap<float>();
+                ::memcpy(parameterPtr, inpudata1, 4*sizeof(float));
+                
+                y2 = module_2->onForward({x0})[0];
+            }
         }
         return true;
     }
 };
+
+class GatherNdReComputeTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        
+        const float inpudata[]                  = {-1.0, -2.0, 3.0, 4.0};
+        const int indices_data[]                = {0, 0, 1, 1};
+        auto params                             = _Const(inpudata, {2, 2}, NHWC, halide_type_of<float>());
+        auto indices                            = _Const(indices_data, {2, 2}, NHWC, halide_type_of<int>());
+        auto x1 = _GatherND(params, indices);
+        x1->setName("input1");
+        auto shape = x1->getInfo()->dim;
+        auto x0 = _Input(shape, NHWC, halide_type_of<float>());
+        x0->setName("input0");
+        auto res = _Add(x0, x1);
+        res->setName("GatherNd_output_0");
+        
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            std::unique_ptr<MNN::NetT> net(new NetT);
+            Variable::save({res}, net.get());
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        
+        std::shared_ptr<MNN::Express::Module> module(Module::load(std::vector<std::string>{"input0"}, std::vector<std::string>{"GatherNd_output_0"}, bufferOutput, sizeOutput));
+        
+        // first run, call GatherNd compute function when resize.
+        float data0[] = {1.0f, 2.0f};
+        ::memcpy(x0->writeMap<float>(), data0, 2 * sizeof(float));
+        auto y = module->onForward({x0});
+
+        // resize input and test GatherNd recompute function when risize.
+        const float data1[]                  = {-5.0, -6.0, 7.0, 8.0};
+        x0->resize({2, 2});
+        ::memcpy(x0->writeMap<float>(), data1, 4 * sizeof(float));
+        y = module->onForward({x0});
+        return true;
+    }
+    
+};
 MNNTestSuiteRegister(GatherExprTest, "expr/Gather");
+MNNTestSuiteRegister(GatherNdReComputeTest, "expr/GatherNdRecomputeTest");

@@ -42,6 +42,7 @@ MetalLayerNorm::MetalLayerNorm(Backend *backend, const LayerNorm *layernorm)
             [context newDeviceBuffer:gamma_size * sizeof(float) access:CPUWriteOnly];
         memcpy(mBetaBuffer.contents, (const void *)beta_data, gamma_size * sizeof(float));
     }
+    mShapeBuffer = [context newDeviceBuffer:3 * sizeof(int) + sizeof(float) access:CPUWriteOnly];
 }
 
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -76,7 +77,6 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
         mInside *= input->length(i);
     }
     
-    mShapeBuffer = [context newDeviceBuffer:3 * sizeof(int) + sizeof(float) access:CPUWriteOnly];
     ((int *)mShapeBuffer.contents)[0]   = mInside;
     ((int *)mShapeBuffer.contents)[1]   = mOutside;
     ((float *)mShapeBuffer.contents)[2] = mEps;
@@ -99,8 +99,14 @@ void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
     [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mGammaBuffer offset:0 atIndex:3];
-    [encoder setBuffer:mBetaBuffer offset:0 atIndex:4];
+    if (!has_gamma_beta_) {
+        // Set fake buffer to avoid validate
+        MetalBackend::setTensor(input, encoder, 3);
+        MetalBackend::setTensor(input, encoder, 4);
+    } else {
+        [encoder setBuffer:mGammaBuffer offset:0 atIndex:3];
+        [encoder setBuffer:mBetaBuffer offset:0 atIndex:4];
+    }
 
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     MNN_PRINT_ENCODER(context, encoder);

@@ -37,8 +37,8 @@ private:
 
     const MNN::Op *mOp = nullptr;
 
-    id<MTLBuffer> mWeight      = nil;
-    id<MTLBuffer> mBias        = nil;
+    std::shared_ptr<MNN::Tensor> mWeight;
+    std::shared_ptr<MNN::Tensor> mBias;
     id<MTLBuffer> mConstBuffer = nil;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;

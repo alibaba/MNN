@@ -67,6 +67,193 @@ ldr x12, [x7, #32]
 Start:
 lsl x13, x3, #4 // x13 = src_depth_quad * UNIT * UNIT_SRC / 1(int8) = src_depth_quad * 16  = src_depth_quad << 4
 
+TILE_12:
+    cmp x6, #12
+    blt TILE_8
+    sub x14, x4, #128       // dst_step
+    lsr x15, x4, #2   // src_step = dst_step / 4
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
+    // dequant info
+    mov x19, x8 // alpha
+    mov x20, x9 // zero
+    mov x21, x10 // bias
+LoopDz_TILE_12:
+    // dequant info for batch
+    mov x22, x11 // sums
+    mov x23, x12 // scales
+    mov x24, x1  // src
+    mov x25, x7 // weight
+    mov x26, x3  // src_depth_quad
+    // init
+    movi v16.4s, #0
+    movi v17.4s, #0
+    movi v18.4s, #0
+    movi v19.4s, #0
+    movi v20.4s, #0
+    movi v21.4s, #0
+    movi v22.4s, #0
+    movi v23.4s, #0
+    movi v24.4s, #0
+    movi v25.4s, #0
+    movi v26.4s, #0
+    movi v27.4s, #0
+
+LoopSz_TILE_12:
+    // src    : 4(batch) x [1 x 4] : v4
+    // weight : 4(oc) x [1 x 4] : v0
+    // dst    : 4 x 4 x [1] : v16-v19
+    ld1 {v0.16b}, [x25], #16    // weight
+    ld1 {v4.16b, v5.16b, v6.16b}, [x24], x15   // src
+
+    .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0] // batch0
+    .inst 0x4fa4e011 // sdot v17.4s, v0.16b, v4.4b[1] // batch1
+    .inst 0x4f84e812 // sdot v18.4s, v0.16b, v4.4b[2] // batch2
+    .inst 0x4fa4e813 // sdot v19.4s, v0.16b, v4.4b[3] // batch3
+    .inst 0x4f85e014 // sdot v20.4s, v0.16b, v5.4b[0] // batch4
+    .inst 0x4fa5e015 // sdot v21.4s, v0.16b, v5.4b[1] // batch5
+    .inst 0x4f85e816 // sdot v22.4s, v0.16b, v5.4b[2] // batch6
+    .inst 0x4fa5e817 // sdot v23.4s, v0.16b, v5.4b[3] // batch7
+    .inst 0x4f86e018 // sdot v24.4s, v0.16b, v6.4b[0] // batch8
+    .inst 0x4fa6e019 // sdot v25.4s, v0.16b, v6.4b[1] // batch9
+    .inst 0x4f86e81a // sdot v26.4s, v0.16b, v6.4b[2] // batch10
+    .inst 0x4fa6e81b // sdot v27.4s, v0.16b, v6.4b[3] // batch11
+    subs x26, x26, #1
+    bne LoopSz_TILE_12
+
+LoopSzEnd_TILE_12:
+    add x7, x7, x13
+    sub x27, x27, #1
+    Int32ToFloat v16, v17, v18, v19
+    Int32ToFloat v20, v21, v22, v23
+    Int32ToFloat v24, v25, v26, v27
+    // using float scale dequant for precison
+    ld1 {v5.4s, v6.4s, v7.4s}, [x23]  // scales, 12 batch,so 12 scale
+
+    MulScale v16, v17, v18, v19, v5
+    MulScale v20, v21, v22, v23, v6
+    MulScale v24, v25, v26, v27, v7
+
+Tile12Dequant:
+    ld1 {v0.4s}, [x19], #16  // alpha
+    ld1 {v1.4s}, [x20], #16  // zero
+    ld1 {v2.4s}, [x21], #16  // bias
+    ld1 {v3.4s, v4.4s, v5.4s}, [x22]  // sums
+    // alpha * sum + (zero * sums) + bias
+    Dequant v16, v0, v1, v2, v3, 0
+    Dequant v17, v0, v1, v2, v3, 1
+    Dequant v18, v0, v1, v2, v3, 2
+    Dequant v19, v0, v1, v2, v3, 3
+    Dequant v20, v0, v1, v2, v4, 0
+    Dequant v21, v0, v1, v2, v4, 1
+    Dequant v22, v0, v1, v2, v4, 2
+    Dequant v23, v0, v1, v2, v4, 3
+    Dequant v24, v0, v1, v2, v5, 0
+    Dequant v25, v0, v1, v2, v5, 1
+    Dequant v26, v0, v1, v2, v5, 2
+    Dequant v27, v0, v1, v2, v5, 3
+    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x28], #64
+    st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x28], #64
+    st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x28], x14
+    cmp x27, #1
+    bge LoopDz_TILE_12
+Tile12End:
+    sub x6, x6, #12      // bach -= 12
+    add x0, x0, #192     // dst += 12 * 4 * sizeof(float32_t)
+    add x1, x1, #48     // src += 12 * 4 * sizeof(int8_t)
+    add x11, x11, #48    // sum += 12 * sizeof(float32_t)
+    add x12, x12, #48    // scale += 12 * sizeof(float32_t)
+    b TILE_12
+
+TILE_8:
+    cmp x6, #8
+    blt TILE_4
+    sub x14, x4, #64       // dst_step
+    lsr x15, x4, #2   // src_step = dst_step / 4
+    mov x27, x5 // dst_depth_quad
+    mov x28, x0 // dst
+    mov x7, x2 // weight
+    // dequant info
+    mov x19, x8 // alpha
+    mov x20, x9 // zero
+    mov x21, x10 // bias
+LoopDz_TILE_8:
+    // dequant info for batch
+    mov x22, x11 // sums
+    mov x23, x12 // scales
+    mov x24, x1  // src
+    mov x25, x7 // weight
+    mov x26, x3  // src_depth_quad
+    // init
+    movi v16.4s, #0
+    movi v17.4s, #0
+    movi v18.4s, #0
+    movi v19.4s, #0
+    movi v20.4s, #0
+    movi v21.4s, #0
+    movi v22.4s, #0
+    movi v23.4s, #0
+    
+    // mask
+    movi v14.16b, #15
+    // offset
+    movi v15.16b, #8
+LoopSz_TILE_8:
+    // src    : 4(batch) x [1 x 4] : v4
+    // weight : 4(oc) x [1 x 4] : v0
+    // dst    : 4 x 4 x [1] : v16-v19
+    ld1 {v0.16b}, [x25], #16    // weight
+    ld1 {v4.16b, v5.16b}, [x24], x15   // src
+
+    .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0] // batch0
+    .inst 0x4fa4e011 // sdot v17.4s, v0.16b, v4.4b[1] // batch1
+    .inst 0x4f84e812 // sdot v18.4s, v0.16b, v4.4b[2] // batch2
+    .inst 0x4fa4e813 // sdot v19.4s, v0.16b, v4.4b[3] // batch3
+    .inst 0x4f85e014 // sdot v20.4s, v0.16b, v5.4b[0] // batch4
+    .inst 0x4fa5e015 // sdot v21.4s, v0.16b, v5.4b[1] // batch5
+    .inst 0x4f85e816 // sdot v22.4s, v0.16b, v5.4b[2] // batch6
+    .inst 0x4fa5e817 // sdot v23.4s, v0.16b, v5.4b[3] // batch7
+    subs x26, x26, #1
+    bne LoopSz_TILE_8
+
+LoopSzEnd_TILE_8:
+    add x7, x7, x13
+    sub x27, x27, #1
+    Int32ToFloat v16, v17, v18, v19
+    Int32ToFloat v20, v21, v22, v23
+    // using float scale dequant for precison
+    ld1 {v5.4s, v6.4s}, [x23]  // scales, 8 batch,so 8 scale
+
+    MulScale v16, v17, v18, v19, v5
+    MulScale v20, v21, v22, v23, v6
+
+Tile8Dequant:
+    ld1 {v0.4s}, [x19], #16  // alpha
+    ld1 {v1.4s}, [x20], #16  // zero
+    ld1 {v2.4s}, [x21], #16  // bias
+    ld1 {v3.4s, v4.4s}, [x22]  // sums
+    // alpha * sum + (zero * sums) + bias
+    Dequant v16, v0, v1, v2, v3, 0
+    Dequant v17, v0, v1, v2, v3, 1
+    Dequant v18, v0, v1, v2, v3, 2
+    Dequant v19, v0, v1, v2, v3, 3
+    Dequant v20, v0, v1, v2, v4, 0
+    Dequant v21, v0, v1, v2, v4, 1
+    Dequant v22, v0, v1, v2, v4, 2
+    Dequant v23, v0, v1, v2, v4, 3
+    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x28], #64
+    st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x28], x14
+    cmp x27, #1
+    bge LoopDz_TILE_8
+Tile8End:
+    sub x6, x6, #8      // bach -= 4
+    add x0, x0, #128     // dst += 8 * 4 * sizeof(float32_t)
+    add x1, x1, #32     // src += 8 * 4 * sizeof(int8_t)
+    add x11, x11, #32    // sum += 8 * sizeof(float32_t)
+    add x12, x12, #32    // scale += 8 * sizeof(float32_t)
+    b TILE_8
+
 TILE_4:
     cmp x6, #4
     blt TILE_1

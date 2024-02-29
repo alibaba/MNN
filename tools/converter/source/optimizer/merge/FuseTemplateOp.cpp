@@ -382,6 +382,12 @@ static auto gRegister = []() {
         };
 
         auto transform = [templatesExprs, input](EXPRP expr) {
+            auto config = Global<modelConfig>::Get();
+            auto unaryType = UnaryOpOperation_GELU_STANDARD;
+            if (config->optimizeLevel == 2) {
+                unaryType = UnaryOpOperation_GELU;
+            }
+            config->optimizeLevel;
             for (auto templateExpr : templatesExprs) {
                 std::map<EXPRP, VARP> inputConst;
                 if (isTheSameRec(templateExpr, expr, inputConst)) {
@@ -395,7 +401,7 @@ static auto gRegister = []() {
                     newUnary->type = OpType_UnaryOp;
                     newUnary->main.type = OpParameter_UnaryOp;
                     newUnary->main.value = new UnaryOpT;
-                    newUnary->main.AsUnaryOp()->opType = UnaryOpOperation_GELU;
+                    newUnary->main.AsUnaryOp()->opType = unaryType;
                     auto newVar = MNN::Express::Variable::create(MNN::Express::Expr::create(newUnary.get(), {inputVar}));
                     newVar->setName(expr->outputName(0));
                     Expr::replace(expr, newVar->expr().first);

@@ -9,17 +9,18 @@
 #ifndef MetalBinary_hpp
 #define MetalBinary_hpp
 
-#import "MetalExecution.hpp"
+#import "MetalCast.hpp"
 #include <string>
 #if MNN_METAL_ENABLED
 namespace MNN {
 
 class MetalBinary : public MetalExecution {
 public:
-    MetalBinary(Backend *backend, std::string type, const MNN::Op *op);
+    MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, int activationType);
     virtual ~MetalBinary() = default;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    static NSString* convert(int originOp, bool inputFloat);
 
 private:
     id<MTLBuffer> mConstBuffer;

@@ -573,13 +573,13 @@ bool OpCommonUtils::loadConvData(Backend* backend, const Op* op, std::unique_ptr
     auto biasBytes = conv2d->external()->Get(2);
     weightSize = static_cast<int>(weightBytes / sizeof(float));
     biasSize = static_cast<int>(biasBytes / sizeof(float));
-    weight.reset(Tensor::createDevice<float>({weightSize}));
-    bias.reset(Tensor::createDevice<float>({biasSize}));
-    bool res = backend->onAcquire(weight.get(), Backend::STATIC);
+    weight.reset(Tensor::createDevice<uint8_t>({(int)weightBytes}));
+    bias.reset(Tensor::createDevice<uint8_t>({(int)biasBytes}));
+    bool res = backend->onAcquireBuffer(weight.get(), Backend::STATIC);
     if (!res) {
         return res;
     }
-    res = backend->onAcquire(bias.get(), Backend::STATIC);
+    res = backend->onAcquireBuffer(bias.get(), Backend::STATIC);
     if (!res) {
         return res;
     }
