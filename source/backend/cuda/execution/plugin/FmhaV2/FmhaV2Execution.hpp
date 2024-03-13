@@ -28,6 +28,7 @@ public:
     int32_t runFMHFAKernel(void const* devQKV, void* cuSeqlens, void* devOutput, size_t total, int32_t sm,
         FusedMultiHeadFlashAttentionKernel const* kernels, int32_t b = 2, int32_t h = 8, int32_t d = 64, int32_t s = 4096,
         cudaStream_t stream = 0);
+    static bool isValid(const MNN::Op* op, Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
 private:
     void* mSeqLenDevPtr;

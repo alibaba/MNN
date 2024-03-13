@@ -7,11 +7,22 @@
 //
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #include "FmhaV2Execution.hpp"
+#include "../FmhaCommon/FmhaCommonExecution.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace CUDA {
 
+bool FmhaV2Execution::isValid(const MNN::Op* op, Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto fmha_v2_param = op->main_as_FmhaV2Param();
+    int head_num = fmha_v2_param->heads();
+    int head_size = outputs[0]->length(2)/head_num;
+    if(head_size != 16 && head_size != 32 && head_size != 40 && head_size != 64 && head_size != 80 && head_size != 128) {
+        return false;
+    }
+    // If need acc with fp32, do not use
+    return true;
+}
 FmhaV2Execution::FmhaV2Execution(const MNN::Op* op, Backend* backend) : Execution(backend) {
     auto fmha_v2_param = op->main_as_FmhaV2Param();
     mNumHeads = fmha_v2_param->heads();    
@@ -100,7 +111,10 @@ public:
             MNN_PRINT("CUDA FmhaV2 only support fp16 now!\n");
             return nullptr;
         }
-        return new FmhaV2Execution(op, backend);
+        if(FmhaV2Execution::isValid(op, backend, inputs, outputs)) {
+            return new FmhaV2Execution(op, backend);
+        }
+        return new FmhaCommonExecution(op, backend);
     }
 };
 

@@ -25,7 +25,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
     for (auto & event : events) {
         result = cudaEventCreate(&event);
         if (result != cudaSuccess) {
-            MNN_PRINT("Failed to create CUDA event\n");
+            MNN_PRINT("Failed to create CUDA event, %s.\n", cudaGetErrorString(result));
         }
     }
   
@@ -83,7 +83,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -93,7 +93,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -137,7 +137,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -147,7 +147,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -191,7 +191,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -201,7 +201,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -244,7 +244,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -254,7 +254,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -298,7 +298,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -308,7 +308,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -352,7 +352,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -362,7 +362,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -406,7 +406,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -416,7 +416,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -460,7 +460,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -470,7 +470,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -514,7 +514,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -524,7 +524,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -568,7 +568,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -578,7 +578,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -621,7 +621,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -631,7 +631,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -675,7 +675,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -685,7 +685,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -729,7 +729,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -739,7 +739,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();
@@ -783,7 +783,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             for(int i = 0; i < loop; i++) {
@@ -793,7 +793,7 @@ void getGemmTensorCoreFloat16Param(GemmParamInfo* params) {
 
             result = cudaEventRecord(events[event_index++]);
             if (result != cudaSuccess) {
-                MNN_PRINT("Failed to record start event.\n");
+                MNN_PRINT("Failed to record start event, %s.\n", cudaGetErrorString(result));
             }
 
             cudaDeviceSynchronize();

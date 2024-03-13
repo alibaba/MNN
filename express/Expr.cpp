@@ -573,13 +573,9 @@ bool Variable::copyToDevicePtr(void* devicePtr, int memoryType) {
         MNN_ERROR("Error: Varp copyToDevicePtr can't find backend\n");
         return false;
     }
-    if (bn->type() != memoryType) {
-        MNN_ERROR("Error: VARP backend type ( %d ), is not same as assigned memory type ( %d )\n", bn->type(), memoryType);
-        return false;
-    }
 
     MNN::Tensor tempTensor(originTensor->dimensions(), originTensor->getDimensionType());
-    tempTensor.buffer().device = (uint64_t)devicePtr;
+    tempTensor.setDevicePtr(devicePtr, memoryType);
     
     TensorUtils::getDescribe(originTensor)->getBackend()->onCopyBuffer(originTensor, &tempTensor);
     // Sync the result

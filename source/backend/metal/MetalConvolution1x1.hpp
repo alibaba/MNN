@@ -24,7 +24,7 @@ public:
 protected:
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
 private:
-    MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias);
+    MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, std::shared_ptr<MNN::Tensor> dequantBias, int dequantBits);
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
 };

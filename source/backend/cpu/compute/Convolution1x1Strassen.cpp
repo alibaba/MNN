@@ -124,7 +124,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto weightTensor = mResource->mWeight.get();
     uint8_t* dequantAlpha = nullptr;
     uint8_t* dequantBias = nullptr;
-    int dequantBits = 32;
+    int dequantBits = bytes * 8; // fp16:16, fp32:32
 #ifdef MNN_LOW_MEMORY
     if (mResource && mResource->mDequantize.bits <= 8) {
         dequantAlpha = mResource->mDequantize.mScaleBias->host<uint8_t>();
@@ -132,6 +132,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
         dequantBits = mResource->mDequantize.bits;
     }
 #endif
+    mWeightBytes = static_cast<float>(dequantBits) / 8.0f;
     if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
         // Divide in plane, in this case the divide equal numberThread
         int divideStep = UP_DIV(matrixSizeE, numberThread);
@@ -188,7 +189,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             }
             auto ocStartWeight = (ocStart * core->pack) / hPack;
             auto ocWeightSize = std::min(UP_DIV((ocSize * core->pack), hPack), mResource->mWeight->length(0) - ocStartWeight);
-            unit.offset[1] = hPack * icAlign * ocStartWeight * bytes;
+            unit.offset[1] = hPack * icAlign * ocStartWeight * mWeightBytes;
             unit.offset[2] = core->pack * ocStart * bytes;
             unit.offset[0] = 0;
             unit.offset[3] = core->pack * matrixSizeE * ocStart * bytes;
@@ -198,7 +199,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * bytes;
+            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
             uint8_t* cPtr = nullptr;
             auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();

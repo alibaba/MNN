@@ -59,6 +59,7 @@
   - `checkFile.out` 测试两个文件是否一致
   - `winogradExample.out` winograd示例
   - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
+  - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时许打开 MNN_OPENCL 与 MNN_OPENGL
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

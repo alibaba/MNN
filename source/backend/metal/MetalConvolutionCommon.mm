@@ -73,8 +73,7 @@ void MetalConvolutionCommon::onEncode(const std::vector<Tensor *> &inputs, const
 }
 
 template <typename FType, typename TType>
-void weightInBlock(int group, int oc, int ic, int kh, int kw,
-                                   const FType *src, uint8_t* dstOrigion) {
+void weightInBlock(int group, int oc, int ic, int kh, int kw, const FType *src, uint8_t* dstOrigion) {
     auto goc    = oc / group;
     auto gic    = ic / group;
     auto goc_4  = UP_DIV(goc, 4);
@@ -102,10 +101,47 @@ void weightInBlock(int group, int oc, int ic, int kh, int kw,
     }
 }
 
-void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
+static std::vector<std::shared_ptr<MNN::Tensor>> getDequantScale(float* scale, int size, MetalBackend *backend, bool asymmetric) {
+    int outputCount = 0;
+    if (asymmetric) {
+        outputCount = size / 2;
+    } else {
+        outputCount = size;
+    }
+    std::vector<std::shared_ptr<MNN::Tensor>> scaleBias(2);
+    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({outputCount * 4}));
+    std::shared_ptr<MNN::Tensor> dequantBias(MNN::Tensor::createDevice<uint8_t>({outputCount * 4}));
+    bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC) && backend->onAcquireBuffer(dequantBias.get(), Backend::STATIC);
+    if (!res) {
+        MNN_ERROR("Buffer allocated error!\n");
+        return scaleBias;
+    }
+    auto buffer0 = MetalBackend::getBuffer(dequantScale.get());
+    auto dst_scale = (uint8_t*)[buffer0.first contents] + buffer0.second;
+    auto buffer1 = MetalBackend::getBuffer(dequantBias.get());
+    auto dst_bias = (uint8_t*)[buffer1.first contents] + buffer1.second;
+    for (int o = 0; o < outputCount; ++o) {
+        float min = 0.0f;
+        float alpha = 0.0f;
+        if (asymmetric) {
+            min = scale[2*o];
+            alpha = scale[2*o+1];
+        } else {
+            alpha = scale[o];
+        }
+        ((float*)dst_scale)[o] = alpha;
+        ((float*)dst_bias)[o] = min;
+     }
+    scaleBias[0] = dequantScale;
+    scaleBias[1] = dequantBias;
+    return scaleBias;
+}
+void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv, bool loadWeightInt8) {
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
-    if (conv->quanParameter()) {
-        qnt          = ConvolutionCommon::load(conv, backend(), true);
+    if (loadWeightInt8) {
+        qnt          = ConvolutionCommon::load(conv, backend(), false, true);
+    } else if (conv->quanParameter()) {
+        qnt = ConvolutionCommon::load(conv, backend(), true);
     }
     // param
     auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();
@@ -117,15 +153,22 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
     auto ic     = size / kw / kh / (oc / group);
 
     // convert
-    if (qnt && qnt->weightFloat.size() > 0) {
-        mWeight = weightForFloat(group, oc, ic, kh, kw, qnt->weightFloat.get());
+    if (loadWeightInt8) {
+        auto backend = static_cast<MetalBackend *>(this->backend());
+        mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4);
+        auto dequantParams = getDequantScale(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric);
+        mDequantScale = dequantParams[0];
+        mDequantZero = dequantParams[1];
+        mDequantBits = qnt->canUseInt4 ? 4:8;
+    } else if (qnt && qnt->weightFloat.size() > 0) {
+        mWeight = weightTransform(group, oc, ic, kh, kw, qnt->weightFloat.get(), false, false);
     } else {
-        mWeight = weightForFloat(group, oc, ic, kh, kw, conv->weight()->data());
+        mWeight = weightTransform(group, oc, ic, kh, kw, conv->weight()->data(), false, false);
     }
 }
 
 
-std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto goc    = oc / group;
@@ -134,6 +177,9 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightForFloat(int group, i
     auto gic_4  = UP_DIV(gic, 4);
     auto weight_len = group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16;
     std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({weight_len}));
+    if (int8Weight || int4Weight) {
+        t.reset(MNN::Tensor::createDevice<int8_t>({weight_len}));
+    }
     bool res = backend->onAcquireBuffer(t.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
@@ -141,10 +187,31 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightForFloat(int group, i
     auto buffer = MetalBackend::getBuffer(t.get());
     auto dst = (uint8_t*)[buffer.first contents] + buffer.second;
 
-    if (backend->useFp16InsteadFp32()) {
+    if (int8Weight || int4Weight) {
+        weightInBlock<int8_t, int8_t>(group, oc, ic, kh, kw, (int8_t*)src, dst);
+    } else if (backend->useFp16InsteadFp32()) {
         weightInBlock<float, __fp16>(group, oc, ic, kh, kw, src, dst);
     } else {
         weightInBlock<float, float>(group, oc, ic, kh, kw, src, dst);
+    }
+    if (int4Weight) {
+        weight_len = UP_DIV(weight_len, 2);
+        std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({weight_len}));
+        auto res = backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
+        if (!res) {
+            MNN_ERROR("Memory alloc error!\n");
+            return nullptr;
+        }
+        auto srcPtr = (int8_t*)dst;
+        auto buf = MetalBackend::getBuffer(weightLow.get());
+        auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
+        for (int i=0; i < weight_len; ++i) {
+            int s0 = srcPtr[2 * i + 0];
+            int s1 = srcPtr[2 * i + 1];
+            int d = (s0 + 8) * 16 + (s1 + 8);
+            dstPtr[i] = d;
+        }
+        return weightLow;
     }
     return t;
 }

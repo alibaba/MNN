@@ -36,7 +36,7 @@ namespace OpenCL {
 struct TuneInfo;
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0);
+    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0, void *contextPtr = nullptr, void *glshared = nullptr);
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
@@ -50,8 +50,8 @@ public:
                            const MNN::Op* op, OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
-    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
-    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
+    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
+    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
 private:
@@ -165,8 +165,9 @@ private:
     void copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
+    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
-    void _allocHostBuffer(int length) const;
+    void _allocHostBuffer(int length, const Tensor* srcTensor) const;
 
     const CLRuntime* mCLRuntime;
 
@@ -178,6 +179,8 @@ private:
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
+    mutable cl::Buffer *mDeviceBuffer = nullptr;
+    mutable std::shared_ptr<cl::Image> mDeviceTexture;
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mIsCreateError{false};

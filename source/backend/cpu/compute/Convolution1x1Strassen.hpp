@@ -34,6 +34,7 @@ private:
     };
 
     std::vector<Unit> mUnits;
+    float mWeightBytes = 4;
 };
 } // namespace MNN
 

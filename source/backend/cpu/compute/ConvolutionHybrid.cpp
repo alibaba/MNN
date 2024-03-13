@@ -136,13 +136,6 @@ ConvolutionHybrid::ConvolutionHybrid(const Convolution2DCommon *common, Backend 
    }
     auto hU = UP_DIV(outputCount, hPack);
     auto lU = UP_DIV(inputCount, lPack);
-
-    mResource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU, hPack, lPack}));
-    mValid = b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
-    if (!mValid) {
-        MNN_ERROR("Not Enough Memory\n");
-        return;
-    }
     ConvolutionHybrid::initQuantizeResource(quantInfo, mResource, hU, hPack, lU, lPack, outputCount, (int)originWeightSize / (int)biasSize, common->kernelX() * common->kernelY(), core->bytes);
 }
 

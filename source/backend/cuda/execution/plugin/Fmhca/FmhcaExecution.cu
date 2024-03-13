@@ -8,10 +8,25 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "FmhcaExecution.hpp"
+#include "../FmhaCommon/FmhaCommonExecution.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace CUDA {
+bool FmhcaExecution::isValid(const MNN::Op* op, Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto fmhca_param = op->main_as_FmhcaParam();
+    int head_num = fmhca_param->heads();
+    int head_size = outputs[0]->length(2)/head_num;
+    int seq_kv = inputs[1]->length(2)/head_num;
+    if(head_size != 64 && head_size != 128 && head_size != 256) {
+        return false;
+    }
+    if(seq_kv > 128) {
+        return false;
+    }
+    // If need acc with fp32, do not use
+    return true;
+}
 
 FmhcaExecution::FmhcaExecution(const MNN::Op* op, Backend* backend) : Execution(backend) {
     auto fmhca_param = op->main_as_FmhcaParam();
@@ -26,9 +41,6 @@ ErrorCode FmhcaExecution::onResize(const std::vector<Tensor*>& inputs, const std
     auto input0 = inputs[0];    
     auto input1 = inputs[1];
     auto output = outputs[0];
-    //MNN_ASSERT(input0->dimensions() == 4);
-    //MNN_ASSERT(input1->dimensions() == 5);
-    //MNN_ASSERT(output->dimensions() == 4);
 
     mBatchSize = output->length(0);
     mSeqLenQ = output->length(1);
@@ -120,7 +132,10 @@ public:
             MNN_PRINT("CUDA Fmhca only support fp16 now!\n");
             return nullptr;
         }
-        return new FmhcaExecution(op, backend);
+        if(FmhcaExecution::isValid(op, backend, inputs, outputs)) {
+            return new FmhcaExecution(op, backend);
+        }
+        return new FmhaCommonExecution(op, backend);
     }
 };
 

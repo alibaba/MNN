@@ -29,7 +29,7 @@ bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const c
     return (pos != std::string::npos);
 }
 
-OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId) {
+OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
 #endif
@@ -152,24 +152,44 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             const std::string extensions = platforms[0].getInfo<CL_PLATFORM_EXTENSIONS>();
             bool isPriorityHint = (extensions.find("cl_khr_priority_hints") != std::string::npos);
 
-            if(mGpuType == ADRENO && !isPriorityHint){
-                std::vector<cl_context_properties> context_properties;
-                context_properties.reserve(5);
-                context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
-                context_properties.push_back(CL_PERF_HINT_HIGH_QCOM);
-                context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
-                context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
-                context_properties.push_back(0);
-                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
-                mIsDeviceSupportedLowPower = true;
+            if(nullptr != contextPtr){
+                if(nullptr != glShared && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_khr_gl_sharing")){
+                    std::vector<cl_context_properties> context_properties;
+                    context_properties.reserve(7);
+                    context_properties.push_back(CL_GL_CONTEXT_KHR);
+                    context_properties.push_back((cl_context_properties)contextPtr);
+                    context_properties.push_back(CL_EGL_DISPLAY_KHR);
+                    context_properties.push_back((cl_context_properties)glShared);
+                    context_properties.push_back(CL_CONTEXT_PLATFORM);
+                    context_properties.push_back((cl_context_properties)platforms[platformId]());
+                    context_properties.push_back(0);
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+                }
+                else{
+                    mContext = std::shared_ptr<cl::Context>((cl::Context*)contextPtr, [](void* ptr) {
+                        // Do nothing
+                    });
+                }
             }else{
-                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
-            }
-
-            MNN_CHECK_CL_SUCCESS(res, "context");
-            if (res != CL_SUCCESS) {
-                mIsCreateError = true;
-                return;
+                if(mGpuType == ADRENO && !isPriorityHint){
+                    std::vector<cl_context_properties> context_properties;
+                    context_properties.reserve(5);
+                    context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
+                    context_properties.push_back(CL_PERF_HINT_HIGH_QCOM);
+                    context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
+                    context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
+                    context_properties.push_back(0);
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+                    mIsDeviceSupportedLowPower = true;
+                }else{
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
+                }
+                
+                MNN_CHECK_CL_SUCCESS(res, "context");
+                if (res != CL_SUCCESS) {
+                    mIsCreateError = true;
+                    return;
+                }
             }
             
             mIsDeviceSupportedLowPower = (mIsDeviceSupportedLowPower || isPriorityHint);

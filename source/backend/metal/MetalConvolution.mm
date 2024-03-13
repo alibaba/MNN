@@ -107,9 +107,11 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                         mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId())->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
-        
+        const Tensor* weight = mWeight.get();
+        const Tensor* bias = mBias.get();
+        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
         std::string name = [kernelName UTF8String] + mParam;
-        auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
+        auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets:buffer_offset queue:backend->queue()];
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     } else {
         const int total_kernel = 5;
@@ -139,6 +141,9 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                         mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+        const Tensor* weight = mWeight.get();
+        const Tensor* bias = mBias.get();
+        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
 
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
             id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:mtbn->useFp16InsteadFp32()];
@@ -147,7 +152,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
             NSUInteger gid_z = UP_DIV(oc_4, itemC[knl_idx]) * ob;
 
             std::string name = [shaderName[knl_idx] UTF8String] + mParam;
-            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets: buffer_offset queue:backend->queue()];
             
             if(min_cost.first > std::get<2>(ret)) {
                 min_cost.first = std::get<2>(ret);
