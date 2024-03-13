@@ -468,3 +468,16 @@ Matrix:
 ### 示例
 ```bash
 $ ./fuseTest user.spirv user.json
+
+## GpuInterTest.out
+### 功能
+GPU 内存输入测试用例
+### 参数
+类似`ModuleBasic.out` 
+`./GpuInterTest.out model dir [testmode forwardType numberThread precision_memory]`
+- `model:str` 模型文件路径
+- `dir:str` 输入输出信息文件夹，可使用 testMNNFromTf.py / testMNNFromOnnx.py / testMNNFromTflite.py 等脚本生成，参考模型转换的正确性校验部分。
+- `testmode:int` 默认为 0 ，测试输入GPU内存的类型，0 (OpenCL Buffer) 、 1（OpenGL Texture）
+- `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
+- `numberThread:int` GPU的线程数，可选，默认为`1`
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)

@@ -23,10 +23,10 @@ public:
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 protected:
-    void loadWeight(const MNN::Convolution2D *conv);
+    void loadWeight(const MNN::Convolution2D *conv, bool loadWeightInt8 = false);
 
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder)     = 0;
-    virtual std::shared_ptr<MNN::Tensor> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
+    virtual std::shared_ptr<MNN::Tensor> weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight = false, bool int4Weight = false);
 
 private:
 
@@ -42,6 +42,9 @@ protected:
 
     std::shared_ptr<MNN::Tensor> mWeight;
     std::shared_ptr<MNN::Tensor> mBias;
+    std::shared_ptr<MNN::Tensor> mDequantScale;
+    std::shared_ptr<MNN::Tensor> mDequantZero;
+    int mDequantBits;
     id<MTLBuffer> mConstBuffer = nil;
 };
 

@@ -857,7 +857,8 @@ static void _AVX_MNNPackedMatMul_Main_int4(TYPE* C, const TYPE* A, const TYPE* f
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -927,7 +928,8 @@ static void _AVX_MNNPackedMatMul_int4_20(TYPE* C, const TYPE* A, const uint8_t* 
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -994,7 +996,8 @@ static void _AVX_MNNPackedMatMul_int4_16(TYPE* C, const TYPE* A, const uint8_t* 
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -1050,7 +1053,8 @@ static void _AVX_MNNPackedMatMul_int4_5(TYPE* C, const TYPE* A, const uint8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5;
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -1169,7 +1173,8 @@ static void _AVX_MNNPackedMatMul_int4_4(TYPE* C, const TYPE* A, const uint8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -1279,7 +1284,8 @@ static void _AVX_MNNPackedMatMul_int4_3(TYPE* C, const TYPE* A, const uint8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -1379,7 +1385,8 @@ static void _AVX_MNNPackedMatMul_int4_2(TYPE* C, const TYPE* A, const uint8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5;
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -1463,7 +1470,8 @@ static void _AVX_MNNPackednMatMulRemainCommon_int4(TYPE* C, const TYPE* A, const
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     auto es           = eSize;
@@ -1675,7 +1683,8 @@ static void _AVX_MNNPackedMatMul_Main_int8(TYPE* C, const TYPE* A, const TYPE* f
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    int weightBytes = sizeof(int8_t);
+    auto bExtraStride = parameter[5] / weightBytes;
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -1745,7 +1754,8 @@ static void _AVX_MNNPackedMatMul_int8_20(TYPE* C, const TYPE* A, const int8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    int weightBytes = sizeof(int8_t);
+    auto bExtraStride = parameter[5] / weightBytes;
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -1812,7 +1822,7 @@ static void _AVX_MNNPackedMatMul_int8_16(TYPE* C, const TYPE* A, const int8_t* B
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
@@ -1868,7 +1878,7 @@ static void _AVX_MNNPackedMatMul_int8_5(TYPE* C, const TYPE* A, const int8_t* B,
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -1987,7 +1997,7 @@ static void _AVX_MNNPackedMatMul_int8_4(TYPE* C, const TYPE* A, const int8_t* B,
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -2097,7 +2107,7 @@ static void _AVX_MNNPackedMatMul_int8_3(TYPE* C, const TYPE* A, const int8_t* B,
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -2197,7 +2207,7 @@ static void _AVX_MNNPackedMatMul_int8_2(TYPE* C, const TYPE* A, const int8_t* B,
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     int lC4 = l / 4;
@@ -2281,7 +2291,7 @@ static void _AVX_MNNPackednMatMulRemainCommon_int8(TYPE* C, const TYPE* A, const
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
+    auto bExtraStride = parameter[5] / sizeof(int8_t);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
     auto es           = eSize;

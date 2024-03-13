@@ -29,8 +29,8 @@ void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source,
 }
 bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
     int weightLength = hU * lU * hP * lP;
-    resource->mWeight.reset(Tensor::createDevice<uint8_t>(
-        {weightLength}));
+    resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU * lP, hP}));
+//    resource->mWeight.reset(Tensor::createDevice<uint8_t>({weightLength}));
     auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
     if (!res) {
         return false;
@@ -625,7 +625,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             info[1] = mIm2ColParameters.iw * mIm2ColParameters.ih * batch;
             info[2] = eP;
             info[3] = mIm2ColParameters.strideX;
-            size_t parameters[6];
+            size_t parameters[PARAMETERSIZE];
             parameters[0]          = eP * bytes;
             parameters[1]          = L;
             parameters[2]          = outputChannel;

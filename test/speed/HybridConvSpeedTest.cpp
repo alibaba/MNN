@@ -92,13 +92,14 @@ protected:
         int ic = channel[0], oc = channel[1];
         int iw = inputShape[0], ih = inputShape[1];
         std::vector<float> bias(oc), biastest(oc), biasdup(oc);
-        std::vector<int8_t> quantWeight(oc * ic);
-        std::vector<float> weightFp32(oc * ic);
+        int area = kernel[0] * kernel[1];
+        std::vector<int8_t> quantWeight(oc * ic * area);
+        std::vector<float> weightFp32(oc * ic * area);
         std::vector<float> wScale(oc);
 
         float threshold = (float)(1 << (nbit - 1)) - 1.0f;
         float clampMin = -threshold;
-        VARP x = _Input({batch, ic, 1, 1}, NC4HW4, halide_type_of<float>());
+        VARP x = _Input({batch, ic, ih, iw}, NC4HW4, halide_type_of<float>());
         auto xInfo = x->getInfo();
         auto xPtr = x->writeMap<float>();
         int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
@@ -108,25 +109,28 @@ protected:
         for (int i = 0; i < oc; ++i) {
             bias[i] = i % 10 + 0.005;
             for (int j = 0; j < ic; ++j) {
-                weightFp32[i * ic + j] = (i * ic + j) % res * fac + tail;
+                for (int k = 0; k < area; k++) {
+                    weightFp32[(i * ic + j) * area + k] = ((i * ic + j) * area + k) % res * fac + tail;
+                }
             }
         }
         ::memcpy(biastest.data(), bias.data(), oc * sizeof(float));
         ::memcpy(biasdup.data(), bias.data(), oc * sizeof(float));
+        int kernel_size = ic * area;
         for (int k = 0; k < oc; ++k) {
-            int beginIndex = k * ic;
-            auto absMax = findAbsMax(weightFp32.data() + beginIndex, ic);
+            int beginIndex = k * kernel_size;
+            auto absMax = findAbsMax(weightFp32.data() + beginIndex, kernel_size);
             wScale[k] = absMax / threshold;
             
-            for (int i = 0; i < ic; ++i) {
+            for (int i = 0; i < kernel_size; ++i) {
                 float* ptr = weightFp32.data() + beginIndex;
                 int8_t quantVal = static_cast<int8_t>(ptr[i] / wScale[k]);
-                quantWeight[k * ic + i] = quantVal;
+                quantWeight[k * kernel_size + i] = quantVal;
             }
         }
         auto y     = _HybridConv(std::move(quantWeight), std::move(bias), std::move(wScale), x,
                            channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit);
-        auto yfp32 = _Conv(std::move(weightFp32), std::move(biasdup), x, {ic, oc}, {1, 1});
+        auto yfp32 = _Conv(std::move(weightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
 
         if (nbit != 8) {
             std::unique_ptr<MNN::OpT> op(y->expr().first->get()->UnPack());
@@ -143,7 +147,7 @@ protected:
 #endif
         auto yPtr  = y->readMap<FLOAT_T>();
         auto tgPtr = yfp32->readMap<FLOAT_T>();
-        auto elesize = oc * batch;
+        auto elesize = batch * oc * oh * ow;
         if (nbit == 8) {
             for (int i = 0; i < elesize; ++i) {
                 float targetValue = tgPtr[i], computeResult = yPtr[i];
@@ -234,5 +238,38 @@ public:
         return true;
     }
 };
+
+class DenseConvInt8Test : public HybridConvSpeedTestCommon {
+public:
+    virtual bool run(int precision) {
+        INTS channel0 = {256, 256}; // {ci, co}
+        INTS channel1 = {1496, 256};
+        INTS strides = {1, 1}, dilate = {1, 3}, pad = {0, 3}, inputShape = {1, 2640}; // {w, h}
+        int batch[2] = {1, 13};
+        std::vector<int> kernels = {1, 3};
+        std::vector<int> weightBits = {8};
+        bool lowmemory = true;
+        int n = 0;
+        for (auto& bits : weightBits) {
+            for (int n = 0; n < 2; ++n) {
+                auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channel0, pad, strides, dilate, batch[n], bits, precision);
+                if (!res) {
+                    MNN_ERROR("Error: low memory hybridConv when n=%d, ci=%d, c0=%d\n", batch[n], channel0[0], channel0[1]);
+                    return false;
+                }
+            }
+            for (int n = 0; n < 2; ++n) {
+                auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channel1, pad, strides, dilate, batch[n], bits, precision);
+                if (!res) {
+                    MNN_ERROR("Error: low memory hybridConv when n=%d, ci=%d, c0=%d\n", batch[n], channel1[0], channel1[1]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");

@@ -24,6 +24,7 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     };
     func();
     backend->addOpEncoder(func);
+
     return NO_ERROR;
 }
 

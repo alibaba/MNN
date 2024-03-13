@@ -218,7 +218,7 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     return cmdBuffer;
 }
 
-- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MetalRuntime *) rt shaderName:(std::string) kernelName queue:(id<MTLCommandQueue>) cmdqueue {
+- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MetalRuntime *) rt shaderName:(std::string) kernelName offsets:(int *) offset_arr queue:(id<MTLCommandQueue>) cmdqueue {
     NSUInteger gid_x = threads.width;
     NSUInteger gid_y = threads.height;
     NSUInteger gid_z = threads.depth;
@@ -257,7 +257,7 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
             while(loop--) {
                 [encoder setComputePipelineState:pipeline];
                 for(NSUInteger idx = 0; idx < buffers.count; idx++) {
-                    [encoder setBuffer:[buffers objectAtIndex:idx] offset:0 atIndex:idx];
+                    [encoder setBuffer:[buffers objectAtIndex:idx] offset:offset_arr[idx] atIndex:idx];
                 }
                 MNN_ASSERT(thread.second.width >= 1);
                 MNN_ASSERT(thread.second.height >= 1);
@@ -312,7 +312,7 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
                         while(loop--) {
                             [encoder setComputePipelineState:pipeline];
                             for(NSUInteger idx = 0; idx < buffers.count; idx++) {
-                                [encoder setBuffer:[buffers objectAtIndex:idx] offset:0 atIndex:idx];
+                                [encoder setBuffer:[buffers objectAtIndex:idx] offset:offset_arr[idx] atIndex:idx];
                             }
                                                 
                             [encoder dispatchThreadgroups:global threadsPerThreadgroup:local];

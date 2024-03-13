@@ -955,75 +955,46 @@ LoopE1:
     mov x15, x1
     ld1 {v4.4s}, [x14], #16 // alpha
     ld1 {v14.4s}, [x16], #16 // bias
-    subs x12, x9, #4
-    ld1 {v3.4s}, [x13]
+    subs x12, x9, #2
+    ld1 {v3.4s}, [x13], #16
     uzp1 v0.4s, v3.4s, v3.4s
     sxtl v11.8h, v0.8b
-    sxtl2 v12.8h, v0.16b
     sxtl v8.4s, v11.4h
     sxtl2 v9.4s, v11.8h
-    sxtl v10.4s, v12.4h
-    sxtl2 v11.4s, v12.8h
     scvtf v12.4s, v8.4s
     scvtf v13.4s, v9.4s
     mov v8.16b, v14.16b
     mov v9.16b, v14.16b
     fmla v8.4s, v12.4s, v4.4s
     fmla v9.4s, v13.4s, v4.4s
-    scvtf v12.4s, v10.4s
-    scvtf v13.4s, v11.4s
-    mov v10.16b, v14.16b
-    mov v11.16b, v14.16b
-    fmla v10.4s, v12.4s, v4.4s
-    fmla v11.4s, v13.4s, v4.4s
-
     ld1 {v0.s}[0], [x15], x11
     ld1 {v0.s}[1], [x15], x11
-    ld1 {v0.s}[2], [x15], x11
-    ld1 {v0.s}[3], [x15], x11
     fmul v16.4s, v8.4s, v0.s[0]
     fmla v16.4s, v9.4s, v0.s[1]
-    fmla v16.4s, v10.4s, v0.s[2]
-    fmla v16.4s, v11.4s, v0.s[3]
-    add x13, x13, #32
 
     beq E1LoopLREnd
 
     E1LoopLR:
-        // weight: load 16 x int4 to 16 x float
-        ld1 {v3.4s}, [x13]
+        // weight: load 8 x int8 to 8 x float
+        ld1 {v3.4s}, [x13], #16
         uzp1 v0.4s, v3.4s, v3.4s
         sxtl v11.8h, v0.8b
-        sxtl2 v12.8h, v0.16b
         sxtl v8.4s, v11.4h
         sxtl2 v9.4s, v11.8h
-        sxtl v10.4s, v12.4h
-        sxtl2 v11.4s, v12.8h
         scvtf v12.4s, v8.4s
         scvtf v13.4s, v9.4s
         mov v8.16b, v15.16b
         mov v9.16b, v15.16b
         fmla v8.4s, v12.4s, v4.4s
         fmla v9.4s, v13.4s, v4.4s
-        scvtf v12.4s, v10.4s
-        scvtf v13.4s, v11.4s
-        mov v10.16b, v15.16b
-        mov v11.16b, v15.16b
-        fmla v10.4s, v12.4s, v4.4s
-        fmla v11.4s, v13.4s, v4.4s
 
         // input: load 4 x float
         ld1 {v0.s}[0], [x15], x11
         ld1 {v0.s}[1], [x15], x11
-        ld1 {v0.s}[2], [x15], x11
-        ld1 {v0.s}[3], [x15], x11
         // compute
         fmla v16.4s, v8.4s, v0.s[0]
         fmla v16.4s, v9.4s, v0.s[1]
-        fmla v16.4s, v10.4s, v0.s[2]
-        fmla v16.4s, v11.4s, v0.s[3]
-        add x13, x13, #32
-        subs x12, x12, #4
+        subs x12, x12, #2
         bne E1LoopLR
     E1LoopLREnd:
 

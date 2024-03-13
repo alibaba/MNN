@@ -45,7 +45,7 @@ enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;

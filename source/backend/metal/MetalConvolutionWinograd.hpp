@@ -24,7 +24,7 @@ public:
 
 protected:
     virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
-    virtual std::shared_ptr<MNN::Tensor> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
+    virtual std::shared_ptr<MNN::Tensor> weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight=false, bool int4Weight=false) override;
 
 private:
     MetalConvolutionWinograd(Backend *backend, const MNN::Op *op, std::shared_ptr<Tensor> weight, std::shared_ptr<Tensor> bias);

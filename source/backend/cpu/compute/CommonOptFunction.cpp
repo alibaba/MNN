@@ -566,7 +566,8 @@ static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* f
     auto l = parameter[1];
     auto cStride = parameter[3] / sizeof(float);
     auto hRemain = parameter[4];
-    auto bExtraStride = parameter[5] / sizeof(float);
+    float weightBytes = 0.5; // sizeof(int4_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride = bExtraStride + l * 4;
     auto hC4 = UP_DIV(h, 4);
     for (int y=0; y<hC4; ++y) {
@@ -611,10 +612,10 @@ static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* f
                     auto w23    = i4wZ[1];
                     int iw01    = w01;
                     int iw23    = w23;
-                    int iw0     = iw01 / 16 - 7;
-                    int iw1     = iw01 % 16 - 7;
-                    int iw2     = iw23 / 16 - 7;
-                    int iw3     = iw23 % 16 - 7;
+                    int iw0     = iw01 / 16 - 8;
+                    int iw1     = iw01 % 16 - 8;
+                    int iw2     = iw23 / 16 - 8;
+                    int iw3     = iw23 % 16 - 8;
                     wZ[0]       = iw0 * alpha[0] + qbias[0];
                     wZ[1]       = iw1 * alpha[1] + qbias[1];
                     wZ[2]       = iw2 * alpha[2] + qbias[2];
@@ -639,7 +640,8 @@ static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* f
     auto l = parameter[1];
     auto cStride = parameter[3] / sizeof(float);
     auto hRemain = parameter[4];
-    auto bExtraStride = parameter[5] / sizeof(float);
+    float weightBytes = 1; // sizeof(int8_t)
+    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
     auto bStride = bExtraStride + l * 4;
     auto hC4 = UP_DIV(h, 4);
     for (int y=0; y<hC4; ++y) {

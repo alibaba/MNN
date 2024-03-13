@@ -71,10 +71,13 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                     (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                     mConstBuffer, (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+    const Tensor* weight = mWeight.get();
+    const Tensor* bias = mBias.get();
+    int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
 
     std::string name = "conv_depthwise";
     MetalRuntime *rt = (MetalRuntime *)backend->runtime();
-    auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name queue:backend->queue()];
+    auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets:buffer_offset queue:backend->queue()];
     mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     return NO_ERROR;
 }
@@ -109,7 +112,7 @@ static void weightInBlock(int group, int kh, int kw, const FType *src, uint8_t* 
     }
 }
 
-std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto length = UP_DIV(group, 4) * 4 * kw * kh;

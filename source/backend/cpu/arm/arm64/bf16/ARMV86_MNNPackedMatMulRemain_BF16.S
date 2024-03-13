@@ -26,14 +26,14 @@
     shrn \d3\().4h, \d3\().4s, #16
 .endm
 
-.macro FMAX s, d0, d1, d2, d3
+.macro FOURFMAX s, d0, d1, d2, d3
     fmax \d0\().4s, \d0\().4s, \s\().4s
     fmax \d1\().4s, \d1\().4s, \s\().4s
     fmax \d2\().4s, \d2\().4s, \s\().4s
     fmax \d3\().4s, \d3\().4s, \s\().4s
 .endm
 
-.macro FMIN s, d0, d1, d2, d3
+.macro FOURFMIN s, d0, d1, d2, d3
     fmin \d0\().4s, \d0\().4s, \s\().4s
     fmin \d1\().4s, \d1\().4s, \s\().4s
     fmin \d2\().4s, \d2\().4s, \s\().4s
@@ -155,14 +155,14 @@ LoopE8: // e, TILE_BLOCK size is 8
             uzp2 v30.2d, v30.2d, v31.2d
             cbz x5, StoreLH8
         PostTreatLH8:
-            FMAX v9, v15, v16, v17, v18
-            FMAX v9, v19, v20, v21, v22
-            FMAX v9, v23, v24, v25, v26
-            FMAX v9, v27, v28, v29, v30
-            FMIN v10, v15, v16, v17, v18
-            FMIN v10, v19, v20, v21, v22
-            FMIN v10, v23, v24, v25, v26
-            FMIN v10, v27, v28, v29, v30
+            FOURFMAX v9, v15, v16, v17, v18
+            FOURFMAX v9, v19, v20, v21, v22
+            FOURFMAX v9, v23, v24, v25, v26
+            FOURFMAX v9, v27, v28, v29, v30
+            FOURFMIN v10, v15, v16, v17, v18
+            FOURFMIN v10, v19, v20, v21, v22
+            FOURFMIN v10, v23, v24, v25, v26
+            FOURFMIN v10, v27, v28, v29, v30
         StoreLH8:
             Float32ToBf16 v15, v16, v17, v18
             Float32ToBf16 v19, v20, v21, v22
@@ -222,10 +222,10 @@ LoopE8: // e, TILE_BLOCK size is 8
             uzp2 v22.2d, v22.2d, v23.2d
             cbz x5, StoreLH8x4
         PostTreatLH8x4:
-            FMAX v9, v15, v16, v17, v18
-            FMAX v9, v19, v20, v21, v22
-            FMIN v10, v15, v16, v17, v18
-            FMIN v10, v19, v20, v21, v22
+            FOURFMAX v9, v15, v16, v17, v18
+            FOURFMAX v9, v19, v20, v21, v22
+            FOURFMIN v10, v15, v16, v17, v18
+            FOURFMIN v10, v19, v20, v21, v22
         StoreLH8x4:
             Float32ToBf16 v15, v16, v17, v18
             Float32ToBf16 v19, v20, v21, v22
@@ -298,10 +298,10 @@ E4LH8:
             uzp2 v22.2d, v22.2d, v23.2d
             cbz x5, StoreLH4x8
         PostTreatLH4x8:
-            FMAX v9, v15, v16, v17, v18
-            FMAX v9, v19, v20, v21, v22
-            FMIN v10, v15, v16, v17, v18
-            FMIN v10, v19, v20, v21, v22
+            FOURFMAX v9, v15, v16, v17, v18
+            FOURFMAX v9, v19, v20, v21, v22
+            FOURFMIN v10, v15, v16, v17, v18
+            FOURFMIN v10, v19, v20, v21, v22
         StoreLH4x8:
             Float32ToBf16 v15, v16, v17, v18
             Float32ToBf16 v19, v20, v21, v22          
@@ -345,8 +345,8 @@ E4LH8:
             uzp2 v18.2d, v18.2d, v19.2d
             cbz x5, StoreLH4x4
         PostTreatLH4x4:
-            FMAX v9, v15, v16, v17, v18
-            FMIN v10, v19, v20, v21, v22
+            FOURFMAX v9, v15, v16, v17, v18
+            FOURFMIN v10, v19, v20, v21, v22
         StoreLH4x4:
             Float32ToBf16 v15, v16, v17, v18
             st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0] // 16 * sizeof(int16_t)
@@ -402,8 +402,8 @@ E2LH8:
             uzp2 v18.2d, v18.2d, v19.2d
             cbz x5, StoreLH2x8
         PostTreatLH2x8:
-            FMAX v9, v15, v16, v17, v18
-            FMIN v10, v15, v16, v17, v18
+            FOURFMAX v9, v15, v16, v17, v18
+            FOURFMIN v10, v15, v16, v17, v18
         StoreLH2x8:
             Float32ToBf16 v15, v16, v17, v18
             st1 {v15.4h, v16.4h}, [x0], x7 // 8 * sizeof(int16_t)

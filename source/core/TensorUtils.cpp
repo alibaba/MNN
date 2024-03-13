@@ -461,6 +461,7 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     des->setBackend(srcDes->getBackend());
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
+    dst->buffer().flags = src->buffer().flags;
     des->extra.offset = srcDes->extra.offset;
     return needMalloc;
 }

@@ -6,6 +6,7 @@ adb push ./libMNN.so /data/local/tmp/$DIR/libMNN.so
 adb push ./libMNN_CL.so /data/local/tmp/$DIR/libMNN_CL.so
 adb push ./libMNN_Vulkan.so /data/local/tmp/$DIR/libMNN_Vulkan.so
 adb push ./libMNN_GL.so /data/local/tmp/$DIR/libMNN_GL.so
+adb push source/backend/hiai/libMNN_NPU.so /data/local/tmp/$DIR/libMNN_NPU.so
 adb push ./libMNN_Express.so /data/local/tmp/$DIR/libMNN_Express.so
 adb push ./MNNV2Basic.out /data/local/tmp/$DIR/MNNV2Basic.out
 adb push ./ModuleBasic.out /data/local/tmp/$DIR/ModuleBasic.out

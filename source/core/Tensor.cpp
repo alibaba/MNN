@@ -473,6 +473,7 @@ int Tensor::wait(MapType mtype, bool finish) {
 }
 
 bool Tensor::setDevicePtr(const void* devicePtr, int memoryType) {
+    mBuffer.flags = memoryType;
     mBuffer.device = (uint64_t)devicePtr;
     // To use memoryType afterwards
     return true;

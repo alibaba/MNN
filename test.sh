@@ -579,6 +579,16 @@ android_unit_test_low_memory() {
         echo '### Android 64位Low Memory, precision=2 单元测试失败，测试终止！'
         failed
     fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位 权值量化调用1x1Strassen, precision=1 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位 权值量化调用1x1Strassen, precision=2 单元测试失败，测试终止！'
+        failed
+    fi
 }
 
 android_test() {
