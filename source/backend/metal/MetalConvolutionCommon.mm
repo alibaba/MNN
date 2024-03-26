@@ -153,7 +153,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv, bool loa
     auto ic     = size / kw / kh / (oc / group);
 
     // convert
-    if (loadWeightInt8) {
+    if (loadWeightInt8 && qnt->weight.get() != nullptr) {
         auto backend = static_cast<MetalBackend *>(this->backend());
         mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4);
         auto dequantParams = getDequantScale(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric);
