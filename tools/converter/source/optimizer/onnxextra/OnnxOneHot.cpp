@@ -33,7 +33,7 @@ public:
             MNN_ERROR("Don't support onehot for inputs != 3\n");
             return nullptr;
         }
-        auto onOff = _Unstack(inputs[2], 0);
+        auto onOff = _Split(inputs[2], std::vector<int>{2}, 0);
         auto res = _OneHot(inputs[0], inputs[1], onOff[1], onOff[0], axis);
         res->setName(expr->name());
         return res->expr().first;

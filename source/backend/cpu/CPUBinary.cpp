@@ -105,24 +105,14 @@ MNNBinaryExecute CPUBinary::selectForFloat(int type) {
             return execute<float, float, BinaryFloorDiv<float, float, float>>;
         case BinaryOpOperation_FLOORMOD:
             return execute<float, float, BinaryFloorMod<float, float, float>>;
+        case BinaryOpOperation_NOTEQUAL:
+            return execute<float, int32_t, BinaryNotEqual<float, float, int32_t>>;
         case BinaryOpOperation_POW:
             return execute<float, float, BinaryPow<float, float, float>>;
         case BinaryOpOperation_ATAN2:
             return execute<float, float, BinaryAtan2<float, float, float>>;
         case BinaryOpOperation_MOD:
             return execute<float, float, BinaryMod<float, float, float>>;
-        case BinaryOpOperation_GREATER:
-            return execute<float, int32_t, BinaryGreater<float, float, int32_t>>;
-        case BinaryOpOperation_LESS:
-            return execute<float, int32_t, BinaryLess<float, float, int32_t>>;
-        case BinaryOpOperation_LESS_EQUAL:
-            return execute<float, int32_t, BinaryLessEqual<float, float, int32_t>>;
-        case BinaryOpOperation_GREATER_EQUAL:
-            return execute<float, int32_t, BinaryGreaterEqual<float, float, int32_t>>;
-        case BinaryOpOperation_EQUAL:
-            return execute<float, int32_t, BinaryEqual<float, float, int32_t>>;
-        case BinaryOpOperation_NOTEQUAL:
-            return execute<float, int32_t, BinaryNotEqual<float, float, int32_t>>;
         default:
             MNN_ASSERT(false);
             break;
@@ -138,41 +128,13 @@ MNNBinaryExecute CPUBinary::selectForInt(int type) {
     switch (type) {
         case BinaryOpOperation_MUL:
             return execute<int32_t, int32_t, BinaryMul<int32_t, int32_t, int32_t>>;
-        case BinaryOpOperation_ADD:
-            return execute<int32_t, int32_t, BinaryAdd<int32_t, int32_t, int32_t>>;
-        case BinaryOpOperation_SUB:
-            return execute<int32_t, int32_t, BinarySub<int32_t, int32_t, int32_t>>;
         case BinaryOpOperation_REALDIV:
             return execute<int32_t, int32_t, BinaryRealDiv<int32_t, int32_t, int32_t>>;
-        case BinaryOpOperation_MINIMUM:
-            return execute<int32_t, int32_t, BinaryMin<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_MAXIMUM:
-            return execute<int32_t, int32_t, BinaryMax<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_GREATER:
-            return execute<int32_t, int32_t, BinaryGreater<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_LESS:
-            return execute<int32_t, int32_t, BinaryLess<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_LESS_EQUAL:
-            return execute<int32_t, int32_t, BinaryLessEqual<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_GREATER_EQUAL:
-            return execute<int32_t, int32_t, BinaryGreaterEqual<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_EQUAL:
-            return execute<int32_t, int32_t, BinaryEqual<int32_t, int32_t, int32_t>>;
-            break;
         case BinaryOpOperation_FLOORDIV:
             return execute<int32_t, int32_t, BinaryFloorDiv<int32_t, int32_t, int32_t>>;
             break;
         case BinaryOpOperation_FLOORMOD:
             return execute<int32_t, int32_t, BinaryFloorMod<int32_t, int32_t, int32_t>>;
-            break;
-        case BinaryOpOperation_SquaredDifference:
-            return execute<int32_t, int32_t, BinarySquaredDifference<int32_t, int32_t, int32_t>>;
             break;
         case BinaryOpOperation_LOGICALOR:
             return execute<int32_t, int32_t, BinaryLogicalOr<int32_t, int32_t, int32_t>>;

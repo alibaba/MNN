@@ -213,7 +213,6 @@ static inline __m128 _load_int4x4(const uint8_t* src, __m128 alpha, __m128 bias)
     int iw2     = iw23 / 16;
     int iw3     = iw23 % 16;
     auto ws     = _mm_set_ps(iw3, iw2, iw1, iw0);
-    ws          = _mm_sub_ps(ws, _mm_set1_ps(8));
     ws          = _mm_add_ps(_mm_mul_ps(ws, alpha), bias);
     return ws;
 }

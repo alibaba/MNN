@@ -139,18 +139,15 @@ bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
     if (nullptr == mem) {
         return false;
     }
-    if (mem == TensorUtils::getDescribe(tensor)->mem.get()) {
+    if (mem == TensorUtils::getDescribeOrigin(tensor)->mem.get()) {
         return true;
     }
-    TensorUtils::getDescribe(tensor)->mem.reset(mem);
+    TensorUtils::getDescribeOrigin(tensor)->mem = mem;
     return true;
 }
 bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
-    TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
+    TensorUtils::getDescribeOrigin(tensor)->mem = nullptr;
     return true;
-}
-const std::string Backend::externalFile() {
-    return this->getRuntime()->getExternalFile();
 }
 
 bool Runtime::hasAsyncWork() const {

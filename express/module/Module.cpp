@@ -25,8 +25,20 @@
 
 namespace MNN {
 namespace Express {
+static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(const Module::Config* config) {
+    ScheduleConfig sche_config;
+    if(nullptr != config && config->backend != nullptr) {
+        sche_config.type = config->backend->type;
+        sche_config.backendConfig = config->backend->config;
+    } else {
+        auto exe = ExecutorScope::Current();
+        sche_config.type = exe->getAttr()->firstType.first;
+        sche_config.mode = exe->getAttr()->firstType.second;
+    }
+    return Executor::RuntimeManager::createRuntimeManager(sche_config);
+}
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config, bool enforceAuth);
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config);
 
 class EmptyModule : public Module {
 public:
@@ -144,29 +156,11 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return load(inputs, outputs, buffer, length, nullptr, config);
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config) {
-    AutoStorage<uint8_t> buffer;
-    {
-        FileLoader loader(fileName);
-        if (!loader.valid()) {
-            MNN_ERROR("Error for open %s\n", fileName);
-            return nullptr;
-        }
-        loader.read();
-        if (!loader.valid()) {
-            return nullptr;
-        }
-        loader.merge(buffer);
-        if (buffer.get() == nullptr) {
-            return nullptr;
-        }
-    }
-    return load(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
-}
 class NetModule : public Module {
 public:
     NetModule(std::shared_ptr<Module> m, std::shared_ptr<Module::Info> info, const MNN::Net* net, size_t size, float costTime) {
-        mModule = m;
+        mChildren = {m};
+        auto mModule = mChildren[0];
         mInfo = info;
         setType("Net");
 #ifdef MNN_INTERNAL_ENABLED
@@ -204,13 +198,14 @@ public:
 #endif // MNN_INTERNAL_ENABLED
     }
     virtual ~ NetModule(){
-        mModule.reset();
+        mChildren.clear();
         mInfo.reset();
         auto exe = ExecutorScope::Current();
         exe->gc(Executor::FULL);
     }
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
+        auto mModule = mChildren[0];
 
 #ifdef MNN_INTERNAL_ENABLED
         auto glo = ExecutorScope::Current();
@@ -246,6 +241,7 @@ public:
         return outputs;
     }
     virtual Module* clone(CloneContext* ctx) const override {
+        auto mModule = mChildren[0];
         std::shared_ptr<Module> submodule(mModule->clone(ctx));
 
         NetModule* module(new NetModule(submodule, mInfo, nullptr, 0, 0.0f));
@@ -259,7 +255,6 @@ public:
     }
 
 private:
-    std::shared_ptr<Module> mModule;
     std::shared_ptr<Module::Info> mInfo;
 #ifdef MNN_INTERNAL_ENABLED
     std::map<std::string, std::string> mLogInfo;
@@ -312,13 +307,45 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
     }
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
-    return loadInternal(inputs, outputs, buffer, length, _rtMgr, config, true);
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+    AutoStorage<uint8_t> buffer;
+    {
+        FileLoader loader(fileName, true);
+        if (!loader.valid()) {
+            MNN_ERROR("Error for open %s\n", fileName);
+            return nullptr;
+        }
+        loader.read();
+        if (!loader.valid()) {
+            return nullptr;
+        }
+        loader.merge(buffer);
+        if (buffer.get() == nullptr) {
+            return nullptr;
+        }
+    }
+    auto rtMgr = _rtMgr;
+    if (nullptr == rtMgr.get()) {
+        rtMgr.reset(_createDefaultRuntimeManager(config));
+    }
+    if (rtMgr->getInside()->mExternalFile.empty()) {
+        // Set Default externalFile
+        rtMgr->setExternalFile(std::string(fileName) + ".weight");
+    }
+    return loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config, bool enforceAuth) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+    auto rtmgr = _rtMgr;
+    if (nullptr == rtmgr) {
+        rtmgr.reset(_createDefaultRuntimeManager(config));
+    }
+    return loadInternal(inputs, outputs, buffer, length, rtmgr, config);
+}
+
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
     // Check if runtime is valid
-    if (nullptr != _rtMgr && _rtMgr->getInside()->mRuntime.first.empty()) {
+    if (nullptr == _rtMgr || _rtMgr->getInside()->mRuntime.first.empty()) {
         MNN_ERROR("Invalid runtime\n");
         return nullptr;
     }
@@ -348,12 +375,6 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     Module::Config defaultConfig;
     if (nullptr == config) {
         config = &defaultConfig;
-    }
-    if(nullptr == rtMgr && config->backend != nullptr) {
-        ScheduleConfig sche_config;
-        sche_config.type = config->backend->type;
-        sche_config.backendConfig = config->backend->config;
-        rtMgr.reset(Executor::RuntimeManager::createRuntimeManager(sche_config));
     }
     info->inputNames = inputs;
     info->outputNames = outputs;
@@ -457,6 +478,13 @@ Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
 Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
     return new PipelineModule(inputs, outputs);
 }
+int Module::traceOrOptimize(Interpreter::SessionMode stage) {
+    for (auto& m : mChildren) {
+        m->traceOrOptimize(stage);
+    }
+    return this->onOptimize(stage);
+}
+
 
 } // namespace Express
 } // namespace MNN

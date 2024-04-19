@@ -58,10 +58,6 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         mAttr->firstType = std::make_pair(type, numberThread);
         info.mode = Backend::Info::DIRECT;
         info.numThread = numberThread;
-        if (MNN_FORWARD_METAL == type) {
-            // Close metal's defer encoder
-            info.numThread |= MNN_GPU_RECORD_OP;
-        }
         info.user = (BackendConfig*)&config;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
         mRuntimes[mAttr->firstType] = bn;
@@ -264,6 +260,8 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
         case Interpreter::MEM_ALLOCATOR_TYPE:
             mInside->modes.memoryAllocatorType = value;
             break;
+        case Interpreter::WINOGRAD_MEMORY_LEVEL:
+            mInside->modes.winogradMemoryUsed = value;
         default:
             break;
     }
@@ -303,6 +301,7 @@ Executor::RuntimeManager::RuntimeManager() {
     mInside->modes.outputMode = Interpreter::Session_Output_User;
 }
 Executor::RuntimeManager::~RuntimeManager() {
+    updateCache();
     delete mInside;
 }
 Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
@@ -367,7 +366,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
         MNN_ERROR("Empty cacheFile\n");
         return;
     }
-    std::unique_ptr<FileLoader> loader(new FileLoader(mInside->mCache->cacheFile.c_str()));
+    std::unique_ptr<FileLoader> loader(new FileLoader(mInside->mCache->cacheFile.c_str(), true));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
         return;
@@ -394,9 +393,9 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
         // Reset cache
         loadCache(mInside->mInfo, nullptr, 0);
         MNN_PRINT("Cache invalid, will be reset\n");
+    } else {
+        mInside->mCache->lastCacheSize = mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset;
     }
-
-    mInside->mCache->lastCacheSize = mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset;
 }
 
 void Executor::RuntimeManager::setExternalFile(std::string fileName) {
@@ -404,6 +403,9 @@ void Executor::RuntimeManager::setExternalFile(std::string fileName) {
 }
 
 void Executor::RuntimeManager::updateCache() {
+    if (nullptr == mInside->mCache) {
+        return;
+    }
     std::lock_guard<std::mutex> _l(mLock);
 
     // Backend_Auto and no Async work, then don't need updateCache
@@ -489,7 +491,10 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     if (dfsStack.empty()) {
         return;
     }
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
     Schedule::ScheduleInfo scheduleInfo;
+    scheduleInfo.externalWeightPath = current->getAttr()->externalFile;
     scheduleInfo.pipelineInfo.resize(1);
     auto& pipeline = scheduleInfo.pipelineInfo[0].second;
     std::vector<std::shared_ptr<BufferStorage>> opBuffers;
@@ -577,8 +582,6 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         }
         pipeline.emplace_back(std::move(opInfo));
     }
-    auto current = ExecutorScope::Current();
-    auto rt = current->getRuntime();
     Session::ModeGroup group;
     group.inputMode = Interpreter::Session_Input_User;
     group.outputMode = Interpreter::Session_Output_User;
@@ -593,9 +596,9 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     cahce->mCacheBuffers = std::move(opBuffers);
     // Don't report error when use expr dynamic compute, which will be called in model convert
     scheduleInfo.pipelineInfo[0].first.reportError = false;
-    scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     if (forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
+        scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     } else {
         scheduleInfo.pipelineInfo[0].first.info.type = current->getAttr()->firstType.first;
         scheduleInfo.pipelineInfo[0].first.info.numThread = current->getAttr()->firstType.second;

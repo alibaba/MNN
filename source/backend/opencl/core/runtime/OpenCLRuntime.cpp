@@ -220,11 +220,17 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 mIsCreateError = true;
                 return;
             }
-            
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+            mCommandQueueTuning = mCommandQueuePtr;
+#else
+            mCommandQueueTuning = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_PROFILING_ENABLE, &res);
+#endif
+            mCurrentCommandQueue = mCommandQueuePtr.get();
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, &mGPUGlobalMemeryCacheSize);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
-            cl_device_fp_config fpConfig;
+            mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_MEM_ALLOC_SIZE, &mMaxMemAllocSize);
+	    cl_device_fp_config fpConfig;
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
             
@@ -238,7 +244,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     mMemType = IMAGE;
                 }
             }
-
+            
             auto permitFloat16 = false;
             if (precision == BackendConfig::Precision_Low || (mMemType == BUFFER && precision == BackendConfig::Precision_Normal)) {//buffer mode not support Normal Precision yet
                 permitFloat16 = true;
@@ -254,7 +260,9 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
             {
-                if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")){
+                if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) 
+                   && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")
+                   && (cl_mode & MNN_GPU_RECORD_OP || cl_mode & MNN_GPU_RECORD_BATCH)){
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
                     if(MaxRecordableQueueSize > 0){
@@ -280,6 +288,36 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
         mIsCreateError = true;
         MNN_ASSERT(platforms.size() > 0);
     }
+    {
+        // Init info
+        size_t max_height, max_width;
+        res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_IMAGE2D_MAX_HEIGHT, &max_height);
+        MNN_CHECK_CL_SUCCESS(res, "image2Dsize");
+        res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_IMAGE2D_MAX_WIDTH, &max_width);
+        MNN_CHECK_CL_SUCCESS(res, "image2Dsize");
+        mMaxImageSize = {max_height, max_width};
+    }
+    do {
+        int dims = 3;
+        res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, &dims);
+        MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
+
+        if(dims < 3) {
+            std::vector<uint32_t> workItem(3, 8);
+            mMaxWorkIterms = workItem;
+            break;
+        }
+        cl::vector<cl::size_type> _workItems(dims, 1);
+        res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_SIZES, &_workItems);
+        MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
+        
+        std::vector<uint32_t> workItems(dims, 1);
+        for (int i = 0; i < dims; ++i) {
+            workItems[i] = _workItems[i];
+        }
+        mMaxWorkIterms = workItems;
+    } while(false);
+
 }
 
 void OpenCLRuntime::setGpuMode(const int cl_mode_num) {
@@ -352,23 +390,13 @@ void OpenCLRuntime::setGpuMode(const int cl_mode_num) {
 }
 
 void OpenCLRuntime::setCommandQueueProfileEnable() {
-    mCommandQueuePtr->finish();
-    mCommandQueuePtr.reset();
-    cl_command_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
-
-    cl_int res;
-    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &res);
-    MNN_CHECK_CL_SUCCESS(res, "commandQueue");
+    mCurrentCommandQueue->finish();
+    mCurrentCommandQueue = mCommandQueueTuning.get();
 }
 
 void OpenCLRuntime::setCommandQueueProfileDisable() {
-    mCommandQueuePtr->finish();
-    mCommandQueuePtr.reset();
-    cl_command_queue_properties properties = 0;
-
-    cl_int res;
-    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &res);
-    MNN_CHECK_CL_SUCCESS(res, "commandQueue");
+    mCurrentCommandQueue->finish();
+    mCurrentCommandQueue = mCommandQueuePtr.get();
 }
 
 unsigned int OpenCLRuntime::getQueueNum() {
@@ -391,6 +419,7 @@ OpenCLRuntime::~OpenCLRuntime() {
     clearEvent();
     mBuildProgramMap.clear();
     mCommandQueuePtr.reset();
+    mCommandQueueTuning.reset();
     mRecordableQueuePtr.reset();
     mContext.reset();
     mFirstGPUDevicePtr.reset();
@@ -400,12 +429,7 @@ OpenCLRuntime::~OpenCLRuntime() {
 }
 
 std::vector<size_t> OpenCLRuntime::getMaxImage2DSize() {
-    size_t max_height, max_width;
-    cl_int res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_IMAGE2D_MAX_HEIGHT, &max_height);
-    MNN_CHECK_CL_SUCCESS(res, "image2Dsize");
-    res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_IMAGE2D_MAX_WIDTH, &max_width);
-    MNN_CHECK_CL_SUCCESS(res, "image2Dsize");
-    return {max_height, max_width};
+    return mMaxImageSize;
 }
 
 bool OpenCLRuntime::isSupportedFP16() const {
@@ -443,7 +467,7 @@ cl::Context &OpenCLRuntime::context() {
 }
 
 cl::CommandQueue &OpenCLRuntime::commandQueue() {
-    return *mCommandQueuePtr;
+    return *mCurrentCommandQueue;
 }
 
 cl::CommandQueue &OpenCLRuntime::recordableQueue(){
@@ -502,13 +526,126 @@ bool OpenCLRuntime::buildProgram(const std::string &buildOptionsStr, cl::Program
     return true;
 }
 
-cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std::string &kernelName,
-                                      const std::set<std::string> &buildOptions) {
+
+std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernel(const std::string &programName, const std::string &kernelName,
+                                      const std::set<std::string> &buildOptions, const Tensor *input, const Tensor *output) {
+    auto kwp = buildKernelWithCache(programName, kernelName, buildOptions, input, output, true);
+    return kwp;
+}
+
+std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::string &programName, const std::string &kernelName,
+                                      const std::set<std::string> &buildOptions, const Tensor *input, const Tensor *output, bool useCache) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
         buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DCONVERT_FLOAT8=convert_half8 -DCONVERT_FLOAT16=convert_half16 -DMNN_SUPPORT_FP16";
     } else {
         buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT3=float3 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4 -DCONVERT_FLOAT8=convert_float8 -DCONVERT_FLOAT16=convert_float16";
+    }
+    
+    if(nullptr != input){
+        if(input->getType().code == halide_type_int) {
+            buildOptionsStr += " -DINPUT_TYPE_I=int";
+            buildOptionsStr += " -DINPUT_TYPE_I4=int4";
+            if(input->getType().bits == 8){
+                buildOptionsStr += " -DINPUT_TYPE=char";
+                buildOptionsStr += " -DINPUT_TYPE4=char4";
+                buildOptionsStr += " -DRI_DATA=read_imagei";
+            } else if(input->getType().bits == 32){
+                buildOptionsStr += " -DINPUT_TYPE=int";
+                buildOptionsStr += " -DINPUT_TYPE4=int4";
+                buildOptionsStr += " -DRI_DATA=read_imagei";
+            } else {
+                MNN_PRINT("opencl input datatype not support, bit:%d\n", input->getType().bits);
+                MNN_ASSERT(false);
+            }
+        } else if(input->getType().code == halide_type_uint){
+            buildOptionsStr += " -DINPUT_TYPE_I=uint";
+            buildOptionsStr += " -DINPUT_TYPE_I4=uint4";
+            if(input->getType().bits == 8){
+                buildOptionsStr += " -DINPUT_TYPE=uchar";
+                buildOptionsStr += " -DINPUT_TYPE4=uchar4";
+                buildOptionsStr += " -DRI_DATA=read_imageui";
+            } else if(input->getType().bits == 32){
+                buildOptionsStr += " -DINPUT_TYPE=uint";
+                buildOptionsStr += " -DINPUT_TYPE4=uint4";
+                buildOptionsStr += " -DRI_DATA=read_imageui";
+            } else {
+                MNN_PRINT("opencl input datatype not support, bit:%d\n", input->getType().bits);
+                MNN_ASSERT(false);
+            }
+        } else {
+            if(mIsSupportedFP16){
+                buildOptionsStr += " -DINPUT_TYPE_I=half";
+                buildOptionsStr += " -DINPUT_TYPE_I4=half4";
+                buildOptionsStr += " -DINPUT_TYPE=half";
+                buildOptionsStr += " -DINPUT_TYPE4=half4";
+                buildOptionsStr += " -DRI_DATA=read_imageh";
+            }else{
+                buildOptionsStr += " -DINPUT_TYPE_I=float";
+                buildOptionsStr += " -DINPUT_TYPE_I4=float4";
+                buildOptionsStr += " -DINPUT_TYPE=float";
+                buildOptionsStr += " -DINPUT_TYPE4=float4";
+                buildOptionsStr += " -DRI_DATA=read_imagef";
+            }
+        }
+    }
+    
+    if(nullptr != output){
+        if(output->getType().code == halide_type_int) {
+            buildOptionsStr += " -DOUTPUT_TYPE_I=int";
+            buildOptionsStr += " -DOUTPUT_TYPE_I4=int4";
+            buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_int4";
+            if(output->getType().bits == 8){
+                buildOptionsStr += " -DOUTPUT_TYPE=char";
+                buildOptionsStr += " -DOUTPUT_TYPE4=char4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_char4";
+                buildOptionsStr += " -DWI_DATA=write_imagei";
+            } else if(output->getType().bits == 32){
+                buildOptionsStr += " -DOUTPUT_TYPE=int";
+                buildOptionsStr += " -DOUTPUT_TYPE4=int4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_int4";
+                buildOptionsStr += " -DWI_DATA=write_imagei";
+            } else {
+                MNN_PRINT("opencl input datatype not support, bit:%d\n", output->getType().bits);
+                MNN_ASSERT(false);
+            }
+        } else if(output->getType().code == halide_type_uint){
+            buildOptionsStr += " -DOUTPUT_TYPE_I=uint";
+            buildOptionsStr += " -DOUTPUT_TYPE_I4=uint4";
+            buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_uint4";
+            if(output->getType().bits == 8){
+                buildOptionsStr += " -DOUTPUT_TYPE=uchar";
+                buildOptionsStr += " -DOUTPUT_TYPE4=uchar4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_uchar4";
+                buildOptionsStr += " -DWI_DATA=write_imageui";
+            } else if(output->getType().bits == 32){
+                buildOptionsStr += " -DOUTPUT_TYPE=uint";
+                buildOptionsStr += " -DOUTPUT_TYPE4=uint4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_uint4";
+                buildOptionsStr += " -DWI_DATA=write_imageui";
+            } else {
+                MNN_PRINT("opencl input datatype not support, bit:%d\n", output->getType().bits);
+                MNN_ASSERT(false);
+            }
+        } else {
+            if(mIsSupportedFP16){
+                buildOptionsStr += " -DOUTPUT_TYPE_I=half";
+                buildOptionsStr += " -DOUTPUT_TYPE_I4=half4";
+                buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_half4";
+                buildOptionsStr += " -DOUTPUT_TYPE=half";
+                buildOptionsStr += " -DOUTPUT_TYPE4=half4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_half4";
+                buildOptionsStr += " -DWI_DATA=write_imageh";
+            }else{
+                buildOptionsStr += " -DOUTPUT_TYPE_I=float";
+                buildOptionsStr += " -DOUTPUT_TYPE_I4=float4";
+                buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_float4";
+                buildOptionsStr += " -DOUTPUT_TYPE=float";
+                buildOptionsStr += " -DOUTPUT_TYPE4=float4";
+                buildOptionsStr += " -DCONVERT_OUTPUT4=convert_float4";
+                buildOptionsStr += " -DWI_DATA=write_imagef";
+            }
+        }
     }
     
     if(isSetWorkGroupAttribute) {
@@ -525,23 +662,43 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
     auto buildProgramInter = mBuildProgramMap.find(key);
     cl::Program program;
     if (buildProgramInter != mBuildProgramMap.end()) {
-        program = buildProgramInter->second;
+        program = buildProgramInter->second.program;
     } else {
         this->loadProgram(programName, &program);
         auto status = this->buildProgram(buildOptionsStr, &program);
         if (!status) {
             FUNC_PRINT_ALL(programName.c_str(), s);
         }
-        mBuildProgramMap.emplace(key, program);
+        ProgramWithKernel pwk;
+        pwk.program = program;
+        mBuildProgramMap.emplace(key, pwk);
+        buildProgramInter = mBuildProgramMap.find(key);
     }
-
-    cl_int res;
-    cl::Kernel kernel = cl::Kernel(program, kernelName.c_str(), &res);
-    MNN_CHECK_CL_SUCCESS(res, "getKernel");
-    return kernel;
+    auto kiter = buildProgramInter->second.kernels.find(kernelName);
+    std::shared_ptr<cl::Kernel> kernel;
+    bool firstCreate = false;
+    if (kiter == buildProgramInter->second.kernels.end()) {
+        KernelPool pool;
+        buildProgramInter->second.kernels.insert(std::make_pair(kernelName, pool));
+        kiter = buildProgramInter->second.kernels.find(kernelName);
+        firstCreate = true;
+    }
+    if (kiter->second.recycle.empty()) {
+        cl_int res;
+        kernel.reset(new cl::Kernel(program, kernelName.c_str(), &res));
+        MNN_CHECK_CL_SUCCESS(res, "getKernel");
+        if (firstCreate) {
+            kernel->getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WORK_GROUP_SIZE, &kiter->second.maxWorkGroupSize);
+        }
+    } else {
+        kernel = kiter->second.recycle.front();
+        kiter->second.recycle.pop();
+    }
+    std::shared_ptr<KernelWrap> kw(new KernelWrap(kernel, &kiter->second));
+    return kw;
 }
 
-cl::Kernel OpenCLRuntime::buildKernelFromSource(const std::string& source, const std::string &kernelName,
+std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelFromSource(const std::string& source, const std::string &kernelName,
                                                 const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
@@ -570,43 +727,31 @@ cl::Kernel OpenCLRuntime::buildKernelFromSource(const std::string& source, const
     // mBuildProgramMap.emplace(key, program);
 
     cl_int res;
-    cl::Kernel kernel = cl::Kernel(program, kernelName.c_str(), &res);
+    std::shared_ptr<cl::Kernel> kernel;
+    kernel.reset(new cl::Kernel(program, kernelName.c_str(), &res));
     MNN_CHECK_CL_SUCCESS(res, "getKernel");
-    return kernel;
+    std::shared_ptr<KernelWrap> kw(new KernelWrap(kernel, nullptr));
+    return kw;
 }
 
 
-uint64_t OpenCLRuntime::getMaxWorkGroupSize(const cl::Kernel &kernel) {
+uint64_t OpenCLRuntime::getMaxWorkGroupSize(std::shared_ptr<KernelWrap> kernel) {
+    if (nullptr != kernel->mRecycle) {
+        return kernel->mRecycle->maxWorkGroupSize;
+    }
     uint64_t maxWorkGroupSize = 0;
-    kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WORK_GROUP_SIZE, &maxWorkGroupSize);
+    kernel->get().getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WORK_GROUP_SIZE, &maxWorkGroupSize);
     return maxWorkGroupSize;
 }
 
-uint64_t OpenCLRuntime::GetKernelWaveSize(const cl::Kernel &kernel) {
+uint64_t OpenCLRuntime::GetKernelWaveSize(std::shared_ptr<KernelWrap> kernel) {
     uint64_t kernelWaveSize = 0;
-    kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WAVE_SIZE_QCOM, &kernelWaveSize);
+    kernel->get().getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WAVE_SIZE_QCOM, &kernelWaveSize);
     return kernelWaveSize;
 }
 
 std::vector<uint32_t> OpenCLRuntime::getMaxWorkItemSizes() {
-    int dims = 3;
-    cl_int res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, &dims);
-    MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
-
-    if(dims < 3) {
-        std::vector<uint32_t> workItem(3, 8);
-        return workItem;
-    }
-    
-    cl::vector<cl::size_type> _workItems(dims, 1);
-    res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_SIZES, &_workItems);
-    MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
-    
-    std::vector<uint32_t> workItems(dims, 1);
-    for (int i = 0; i < dims; ++i) {
-        workItems[i] = _workItems[i];
-    }
-    return workItems;
+    return mMaxWorkIterms;
 }
 
 double OpenCLRuntime::getCostTime(const cl::Event *event){
@@ -644,7 +789,7 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
     // Get All program's binary
     for (auto& iter : mBuildProgramMap) {
         std::unique_ptr<ShaderT> pro(new ShaderT);
-        auto program = iter.second;
+        auto program = iter.second.program;
         auto devicesNumber = program.getInfo<CL_PROGRAM_NUM_DEVICES>();
         auto devices = program.getInfo<CL_PROGRAM_DEVICES>();
         auto binSizes = program.getInfo<CL_PROGRAM_BINARY_SIZES>();
@@ -725,7 +870,9 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                 MNN_ERROR("Can't build %s - %s load program\n", program.c_str(), buildinfo.c_str());
                 return false;
             }
-            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pro));
+            ProgramWithKernel pwk;
+            pwk.program = pro;
+            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pwk));
         }
     }
 
@@ -759,6 +906,7 @@ void OpenCLRuntime::printEventTime(){
     if(mEvents.empty()){
         return;
     }
+    int raster_num = 0, raster_time = 0;
     for(int i = 0; i < mEvents.size(); ++i){
         auto event = &mEvents[i].second;
         cl_int res = event->wait();

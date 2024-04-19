@@ -15,7 +15,6 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
-#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
@@ -261,21 +260,11 @@ public:
         int originWeightSize   = 0;
         int originBiasSize   = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter()) {
             quanCommon = ConvolutionCommon::load(conv2d, backend, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();
-        }
-        if (USE_EXTERNAL_DATA(conv2d)) {
-            bool res = OpCommonUtils::loadConvData(backend, op, externalWeightTensor, externalBiasTensor, originWeightSize, originBiasSize);
-            if (!res) {
-                MNN_ERROR("%s load external weight or bias failed.", op->name()->c_str());
-                return nullptr;
-            }
-            originWeight = externalWeightTensor->host<float>();
-            originBias = externalBiasTensor->host<float>();
         }
         if (nullptr == originWeight) {
             originWeight     = conv2d->weight()->data();

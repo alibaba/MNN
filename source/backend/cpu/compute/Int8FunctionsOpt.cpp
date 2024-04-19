@@ -142,7 +142,7 @@ static void _MNNPackC4Int8ForMatMul_ASparse(int8_t* destOrigin, int8_t const** s
     }
 }
 
-void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params) {
+void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
 #ifdef MNN_USE_SSE
     uint8_t* srcPtr = (uint8_t*)src;
     uint8_t* dstPtr = (uint8_t*)dst;
@@ -159,11 +159,14 @@ void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float
     float sum = 0.f;
     int max_ = static_cast<int>(params->maxValue);
     int min_ = static_cast<int>(params->minValue);
-    for (int j = 0; j < size; ++j) {
-        float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-        sum += fx;
+    float mean = 0;
+    if(false == RMSNorm){
+        for (int j = 0; j < size; ++j) {
+            float fx = (srcPtr[j] - inpZero - offset) * inpScale;
+            sum += fx;
+        }
+        mean = sum / size;
     }
-    float mean = sum / size;
     float square_sum = 0.f;
     for (int j = 0; j < size; ++j) {
         float fx = (srcPtr[j] - inpZero - offset) * inpScale;
@@ -1453,9 +1456,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
                     const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
                     for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
-//                        if (j == 2) printf("%d, %d\n", (int32_t)src_z[i], (int32_t)weight_j[i]);
                         dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-//                        if (j == 0) printf("%d\n", dstTemp[j]);
                     }
                 }
             }

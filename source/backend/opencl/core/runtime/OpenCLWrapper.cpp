@@ -115,6 +115,10 @@ bool OpenCLSymbols::isQcomError() {
     return mQcomError;
 }
 
+bool OpenCLSymbols::isGlError() {
+    return mGlError;
+}
+    
 bool OpenCLSymbols::isCL1_2Error() {
     return mCL_12Error;
 }
@@ -148,6 +152,11 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #define MNN_LOAD_CL_12_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mCL_12Error = true; \
+    }
+    
+#define MNN_LOAD_GL_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
+    if(func_name == nullptr){ \
+        mGlError = true; \
     }
     
 #else
@@ -204,6 +213,14 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
         mCL_12Error = true; \
     }
     
+#define MNN_LOAD_GL_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
+        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
+    } \
+    if(func_name == nullptr){ \
+        mGlError = true; \
+    }
+    
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -253,10 +270,10 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clEnqueueCopyImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueReadImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueWriteImage);
-    MNN_LOAD_FUNCTION_PTR(clCreateFromGLBuffer);
-    MNN_LOAD_FUNCTION_PTR(clCreateFromGLTexture);
-    MNN_LOAD_FUNCTION_PTR(clEnqueueAcquireGLObjects);
-    MNN_LOAD_FUNCTION_PTR(clEnqueueReleaseGLObjects);
+    MNN_LOAD_GL_PTR(clCreateFromGLBuffer);
+    MNN_LOAD_GL_PTR(clCreateFromGLTexture);
+    MNN_LOAD_GL_PTR(clEnqueueAcquireGLObjects);
+    MNN_LOAD_GL_PTR(clEnqueueReleaseGLObjects);
     MNN_LOAD_CL_12_PTR(clCreateImage);
     MNN_LOAD_CL_12_PTR(clRetainDevice);
     MNN_LOAD_CL_12_PTR(clReleaseDevice);

@@ -287,6 +287,17 @@ std::pair<void*, size_t> EagerBufferAllocator::getFromFreeList(FREELIST* list, s
     MNN_ASSERT(pointer.second % align == 0);
     return pointer;
 }
+static void _CPUMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* t) {
+    t->buffer().host = ptr + offset;
+}
+
+DeferBufferAllocator::DeferBufferAllocator(std::shared_ptr<Allocator> parent, size_t align, MemChunkApplyToTensor func) : mAllocator(parent), mAlign(align) {
+    if (nullptr == func) {
+        mApplyFunction = _CPUMemChunkApplyToTensor;
+    } else {
+        mApplyFunction = func;
+    }
+}
 
 //------------------------------- DeferBufferAllocator -----------------------------------//
 MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
@@ -420,11 +431,10 @@ ErrorCode DeferBufferAllocator::compute() {
     if (mPtr.ptr() == nullptr) {
         return OUT_OF_MEMORY;
     }
-    // mPtr.reset(static_cast<uint8_t*>(malloc(mTotalSize)));
     for (auto& chunk : mChunks) {
         chunk->base = mPtr.ptr();
         for (auto t : chunk->tensors) {
-            t->buffer().host = mPtr.ptr() + chunk->offset;
+            mApplyFunction((uint8_t*)mPtr.base(), chunk->offset + mPtr.offset(), t);
         }
     }
     return NO_ERROR;

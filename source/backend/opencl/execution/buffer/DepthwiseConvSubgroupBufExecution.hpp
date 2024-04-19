@@ -16,31 +16,23 @@
 namespace MNN {
 namespace OpenCL {
 
-class DepthwiseConvSubgroupBufExecution : public ConvBufCommonExecution {
+class DepthwiseConvSubgroupBufExecution : public ConvBufCommonExecution, public CommonExecution {
 public:
     DepthwiseConvSubgroupBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    DepthwiseConvSubgroupBufExecution(std::shared_ptr<ConvBufResource> resource, const MNN::Op* op, Backend* backend);
     virtual ~DepthwiseConvSubgroupBufExecution();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
     void transformWeight(const Tensor *weightDest, const Tensor *source);
-    const Convolution2DCommon *mConv2dCommonParams;
-    const Convolution2D *mCon2dParams;
-    std::vector<int> mStrides{1, 1};
     std::vector<int> mPaddings{0, 0};
-    std::vector<int> mDilations{1, 1};
-    std::shared_ptr<Tensor> mFilter;
     std::shared_ptr<Tensor> mSource;
-    cl::Kernel mTranseKernel;
-    cl::Kernel mKernel;
-    uint32_t mMaxWorkGroupSize;
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     std::vector<uint32_t> mTranseGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mTranseLocalWorkSize{1, 1, 1, 1};
     bool mNeedTranse = false;
-    std::set<std::string> mBuildOptions;
 };
 
 } // namespace OpenCL

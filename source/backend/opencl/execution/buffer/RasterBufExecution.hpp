@@ -10,12 +10,7 @@
 
 #ifndef RaterBufExecution_hpp
 #define RaterBufExecution_hpp
-#include <array>
-#include <memory>
-#include <vector>
 #include "backend/opencl/execution/image/CommonExecution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -25,7 +20,7 @@ public:
     RasterBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~RasterBufExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     bool CanCombine(const std::vector<Tensor *> &outputs);

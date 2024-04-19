@@ -119,6 +119,14 @@ bool IsUnarySquare(EXPRP expr) {
     IS_UNARY_OP_TYPE(UnaryOpOperation_SQUARE);
 }
 
+bool IsBinaryPow(EXPRP expr) {
+    IS_BINARY_OP_TYPE(BinaryOpOperation_POW);
+}
+
+bool IsUnarySqrt(EXPRP expr) {
+    IS_UNARY_OP_TYPE(UnaryOpOperation_SQRT);
+}
+
 bool IsUnaryRsqrt(EXPRP expr) {
     IS_UNARY_OP_TYPE(UnaryOpOperation_RSQRT);
 }

@@ -559,18 +559,25 @@ class AbsTest : public UnaryTestCommon {
 public:
     virtual ~AbsTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(MNN::Express::_Abs, "AbsTest", 0.01,
+        auto res = test<float, float>(MNN::Express::_Abs, "AbsTest", 0.01,
                     {-1.0, -2.0, 3.0, 4.0, -1.0, -2.0, 3.0, 4.0}, {1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0},
                     {8}, {8});
+        return res && test<int32_t, int32_t>(MNN::Express::_Abs, "AbsTest", 0,
+                                         {-1, -2, 3, 4, -1, -2, 3, 4}, {1, 2, 3, 4, 1, 2, 3, 4},
+                                         {8}, {8});
     }
 };
 class NegativeTest : public UnaryTestCommon {
 public:
     virtual ~NegativeTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Negative, "NegativeTest", 0.01,
+        auto res = test<float, float>(_Negative, "NegativeTest", 0.01,
                     {-1.0, -2.0, 3.0, 4.0, -1.0, -2.0, 3.0, 4.0}, {1.0, 2.0, -3.0, -4.0, 1.0, 2.0, -3.0, -4.0},
                     {8}, {8});
+        return res && test<int32_t, int32_t>(MNN::Express::_Negative, "NegativeTest", 0,
+                                         {-1, -2, 3, 4, -1, -2, 3, 4}, {1, 2, -3, -4, 1, 2, -3, -4},
+                                         {8}, {8});
+
     }
 };
 class FloorTest : public UnaryTestCommon {
@@ -595,9 +602,12 @@ class SquareTest : public UnaryTestCommon {
 public:
     virtual ~SquareTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Square, "SquareTest", 0.01,
+        auto res = test<float, float>(_Square, "SquareTest", 0.01,
                     {-1.0, -2.0, 3.0, 4.0, -1.0, -2.0, 3.0, 4.0}, {1.0, 4.0, 9.0, 16.0, 1.0, 4.0, 9.0, 16.0},
                     {8}, {8});
+        return res && test<int32_t, int32_t>(_Square, "SquareTest", 0,
+                                         {-1, -2, 3, 4, -1, -2, 3, 4}, {1, 4, 9, 16, 1, 4, 9, 16},
+                                         {8}, {8});
     }
 };
 class SqrtTest : public UnaryTestCommon {
@@ -774,9 +784,12 @@ class SignTest : public UnaryTestCommon {
 public:
     virtual ~SignTest() = default;
     virtual bool run(int precision) {
-        return test<float, float>(_Sign, "SignTest", 0.01,
+        auto res = test<float, float>(_Sign, "SignTest", 0.01,
                     {-1.2, 0., 0.4, 1.6}, {-1., 0., 1., 1.},
                     {4}, {4});
+        return res && test<int32_t, int32_t>(_Sign, "SignTest", 0,
+                                         {-1, 0, 2, 1}, {-1, 0, 1, 1},
+                                         {4}, {4});
     }
 };
 class CoshTest : public UnaryTestCommon {
@@ -838,6 +851,30 @@ public:
     virtual ~GeluTest() = default;
     virtual bool run(int precision) {
         return test<float, float>(_Gelu, "GeluTest", 0.01,
+                    {-4.914062, -1.1126,  1.5541, -0.9805,  1.5448,  0.1681,  0.5264, -0.6206, -0.1101, 0.3287, -0.0688},
+                    {-0, -0.1479,  1.4607, -0.1602,  1.4503,  0.0952,  0.3689, -0.1660, -0.0502, 0.2067, -0.0325},
+                    {10}, {10});
+    }
+};
+static VARP _GeluStand(VARP x) {
+    flatbuffers::FlatBufferBuilder builder(MNN_DEFAULT_FLATBUFFER_SIZE);
+    UnaryOpBuilder parameter(builder);
+    parameter.add_opType(UnaryOpOperation_GELU_STANDARD);
+    auto paOffset = parameter.Finish();
+    OpBuilder opB(builder);
+    opB.add_main(paOffset.Union());
+    opB.add_type(OpType_UnaryOp);
+    opB.add_main_type(OpParameter_UnaryOp);
+    builder.Finish(opB.Finish());
+    std::shared_ptr<BufferStorage> extra(new BufferStorage);
+    extra->storage = builder.ReleaseRaw(extra->allocated_size, extra->offset);
+    return Variable::create(Expr::create(extra, {x}, 1));
+}
+class GeluStandTest : public UnaryTestCommon {
+public:
+    virtual ~GeluStandTest() = default;
+    virtual bool run(int precision) {
+        return test<float, float>(_GeluStand, "GeluStandardTest", 0.01,
                     {-4.914062, -1.1126,  1.5541, -0.9805,  1.5448,  0.1681,  0.5264, -0.6206, -0.1101, 0.3287, -0.0688},
                     {-0, -0.1479,  1.4607, -0.1602,  1.4503,  0.0952,  0.3689, -0.1660, -0.0502, 0.2067, -0.0325},
                     {10}, {10});
@@ -1171,6 +1208,7 @@ MNNTestSuiteRegister(ErfinvTest, "op/unary/erfinv");
 MNNTestSuiteRegister(Expm1Test, "op/unary/expm1");
 MNNTestSuiteRegister(SinhTest, "op/unary/sinh");
 MNNTestSuiteRegister(GeluTest, "op/unary/gelu");
+MNNTestSuiteRegister(GeluStandTest, "op/unary/gelustandard");
 MNNTestSuiteRegister(AbsTestInt8, "op/unary/absInt8");
 MNNTestSuiteRegister(SignTestInt8, "op/unary/signInt8");
 MNNTestSuiteRegister(NegativeTestInt8, "op/unary/negativeInt8");

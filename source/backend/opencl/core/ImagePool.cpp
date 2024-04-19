@@ -15,7 +15,7 @@ cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool separate) {
         auto findIter = mFreeList.end();
         for (auto iterP = mFreeList.begin(); iterP != mFreeList.end(); iterP++) {
             auto& iter = *iterP;
-            if (iter->w >= w && iter->h >= h) {
+            if (iter->w >= w && iter->h >= h && iter->type == type) {
                 int waste = iter->w * iter->h - w * h;
                 if (minWaste == 0 || waste < minWaste) {
                     findIter = iterP;
@@ -33,6 +33,7 @@ cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool separate) {
     cl_int ret = CL_SUCCESS;
     node->w = w;
     node->h = h;
+    node->type = type;
     node->image.reset(
         new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, type), w, h, 0, nullptr, &ret));
     if (nullptr == node->image.get() || ret != CL_SUCCESS) {

@@ -13,7 +13,9 @@ namespace MNN {
 namespace OpenCL {
 
 Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
     auto interp3DParam = op->main_as_Interp();
@@ -27,19 +29,19 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
     std::set<std::string> buildOptions;
     std::string kernelName = "interp3D";
     if (op->main_as_Interp()->resizeType() == 1) {
-        mKernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
     } else {
         MNN_ERROR("Resize types other than nearest are not supported in Interp3D opencl! Using nearest instead\n");
-        mKernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
     }
 
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 }
 
-ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode Interp3DExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
-    mOpenCLBackend->startRecord(mRecording);
+    auto &unit = mUnits[0];
 
     std::vector<int> inputImageShape  = tensorShapeFormat(input); // {C/4 * H * W, N * D} for 5-D Tensor
     std::vector<int> outputImageShape = tensorShapeFormat(output);
@@ -66,60 +68,31 @@ ErrorCode Interp3DExecution::onResize(const std::vector<Tensor *> &inputs, const
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGWS[0]);
-    ret |= mKernel.setArg(idx++, mGWS[1]);
-    ret |= mKernel.setArg(idx++, mGWS[2]);
-    ret |= mKernel.setArg(idx++, openCLImage(input));
-    ret |= mKernel.setArg(idx++, openCLImage(output));
-    ret |= mKernel.setArg(idx++, mCordTransform[4]);
-    ret |= mKernel.setArg(idx++, mCordTransform[2]);
-    ret |= mKernel.setArg(idx++, mCordTransform[0]);
-    ret |= mKernel.setArg(idx++, mCordTransform[5]);
-    ret |= mKernel.setArg(idx++, mCordTransform[3]);
-    ret |= mKernel.setArg(idx++, mCordTransform[1]);
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputDepth));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputDepth));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGWS[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[4]);
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[2]);
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[0]);
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[5]);
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[3]);
+    ret |= unit.kernel->get().setArg(idx++, mCordTransform[1]);
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputDepth));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputDepth));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputHeight));
     MNN_CHECK_CL_SUCCESS(ret, "setArg Intep3DExecution");
 
     std::string name = "interp3D";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
-    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
-    mOpenCLBackend->endRecord(mRecording);
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
+    unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
+    unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};
     return NO_ERROR;
 
-}
-
-ErrorCode Interp3DExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start Interp3DExecution onExecute... \n");
-#endif
-
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGWS, mLWS,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Interp3D", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End Interp3DExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end Interp3DExecution onExecute... \n");
-#endif
-
-    return NO_ERROR;
 }
 
 using Interp3DCreator = TypedCreator<Interp3DExecution>;

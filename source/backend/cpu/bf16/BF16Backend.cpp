@@ -41,7 +41,7 @@ Execution* BF16Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
             return nullptr;
         }
     }
-    bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
+    bool originCreate = OpCommonUtils::opCompabilityForLowp(op, 2);
     if (originCreate) {
         return CPUBackend::onCreate(inputs, outputs, op);
     }

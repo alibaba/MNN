@@ -18,19 +18,19 @@
 namespace MNN {
 namespace OpenCL {
 
-bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
                                                     OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
 
-bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor *output, const std::string Name,
                                                     OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
 
 enum TransType {InpTrans = 0, OutTrans = 1, NoTrans = 2};
 
-bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
+bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output,
                                        OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false, bool svmFlag = false, bool srcswap = false, bool dstswap = false);
 
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
-bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, const std::string Name,
+bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
                                              OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false,
                                              bool svmFlag = false, bool srcswap = false, bool dstswap = false);
 #endif
@@ -44,9 +44,7 @@ public:
 
 private:
     OpenCLRuntime *mOpenCLRuntime;
-    cl::Kernel mImageToBufferKernel;
-    std::string mImageToBufferKernelName;
-    cl::Kernel mBufferToImageKernel;
+    std::shared_ptr<KernelWrap> mBufferToImageKernel;
     std::string mBufferToImageKernelName;
 };
 

@@ -129,8 +129,7 @@ public:
     virtual const Runtime* getRuntime() {
         return nullptr;
     }
-    const std::string externalFile();
-public:
+    
     /**
      * @brief allocate buffer of tensor for given storage type.
      * @param tensor        buffer provider.
@@ -147,7 +146,7 @@ public:
      */
     MNN_PUBLIC bool onReleaseBuffer(const Tensor* tensor, StorageType storageType);
 
-    class MemObj {
+    class MemObj : public RefCount {
     public:
         MemObj() {}
         virtual ~ MemObj() {}
@@ -161,6 +160,9 @@ public:
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
     
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) {
+        return false;
+    }
     /**
      * @brief get buffer from tensor directly
      * @param tensor        buffer provider.
@@ -230,13 +232,13 @@ public:
         Allocator_Defer = 0,
         Allocator_Eager = 1,
     };
-
-    void setExternalFile(std::string file) {
-        mExternalFile = file;
+    
+    void setWinogradMemoryLevel(int level) {
+        mWinogradMemoryLevel = level;
     }
-
-    std::string getExternalFile() const {
-        return mExternalFile;
+    
+    int getWinogradMemoryLevel() const {
+        return mWinogradMemoryLevel;
     }
 
     void setAllocatorType(int type) {
@@ -317,8 +319,8 @@ public:
     MNN_PUBLIC void waitAsyncWork();
 private:
     std::future<int> mFuture;
-    std::string mExternalFile;
     AllocatorType mAllocatorType = Allocator_Eager;
+    int mWinogradMemoryLevel = 3;
 };
 
 /** abstract Runtime register */

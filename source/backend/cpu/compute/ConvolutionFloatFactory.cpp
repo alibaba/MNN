@@ -26,13 +26,8 @@
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
-                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse) {
+                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
     auto cpuBackend = (CPUBackend*)backend;
-#ifdef MNN_LOW_MEMORY
-    bool lowMemory = true;
-#else
-    bool lowMemory = false;
-#endif
     auto common = conv2d->common();
 #ifdef MNN_USE_ONEDNN
     return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -83,7 +78,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = true;
+    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High;
 #else
     bool lowMemory = false;
 #endif
@@ -126,14 +121,6 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         // Back to float
         originWeight     = quanCommon->weightFloat.get();
         originWeightSize = quanCommon->weightFloat.size();
-    } else if (USE_EXTERNAL_DATA(conv2d)) {
-        bool res = OpCommonUtils::loadConvData(backend, op, externalWeightTensor, externalBiasTensor, originWeightSize, originBiasSize);
-        if (!res) {
-            MNN_ERROR("%s load external weight or bias failed.", op->name()->c_str());
-            return nullptr;
-        }
-        originWeight = externalWeightTensor->host<float>();
-        originBias = externalBiasTensor->host<float>();
     } else if (nullptr == conv2d->weight() || nullptr == conv2d->bias()) {
         MNN_ERROR("%s has no weight or bias. The model may be benchmark model, please revert the weight/bias firstly\n", op->name()->c_str());
         return nullptr;
@@ -155,7 +142,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     MNN_ASSERT(group > 0);
     if (1 == group) {
         return _createUnit(inputs[0], outputs[0], backend, conv2d, originWeight, originWeightSize,
-                           originBias, originBiasSize, quanCommon, supportSparse);
+                           originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
     }
     // TODO: Use Geometry to split
     // Split
@@ -169,7 +156,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     for (int i = 0; i < group; ++i) {
         auto newConvolution =
             _createUnit(emptyInput.get(), emptyOutput.get(), backend, conv2d, originWeight + groupWeightSize * i,
-                        groupWeightSize, conv2d->bias()->data() + groupOutputCount * i, groupOutputCount, quanCommon, supportSparse);
+                        groupWeightSize, conv2d->bias()->data() + groupOutputCount * i, groupOutputCount, quanCommon, supportSparse, lowMemory);
         subConvolution.push_back(std::shared_ptr<Execution>(newConvolution));
     }
     return new ConvolutionGroup(backend, subConvolution);

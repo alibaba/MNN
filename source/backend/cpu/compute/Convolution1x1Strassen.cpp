@@ -155,9 +155,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = oc;
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribe(weightTensor)->mem->chunk();;
+            auto bPtr = TensorUtils::getDescribeOrigin(weightTensor)->mem->chunk();;
             uint8_t* cPtr = nullptr;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk();
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk();
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
@@ -199,9 +199,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
+            auto bPtr = TensorUtils::getDescribeOrigin(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
             uint8_t* cPtr = nullptr;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {

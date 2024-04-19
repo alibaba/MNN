@@ -263,7 +263,7 @@ bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& 
         newOutputs[0] = output;
         res.extras.emplace_back(newOutput);
     }
-    SharedPtr<Command> cmd(new Command);
+    std::shared_ptr<Command> cmd(new Command);
     cmd->op      = op;
     cmd->inputs  = std::move(newInputs);
     cmd->outputs = std::move(newOutputs);

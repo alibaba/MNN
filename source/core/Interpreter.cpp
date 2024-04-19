@@ -19,7 +19,6 @@
 #include "core/RuntimeFactory.hpp"
 #include "core/Session.hpp"
 #include <MNN/AutoTime.hpp>
-#include "backend/cpu/CPUBackend.hpp"
 
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/logging/Log.hpp"
@@ -64,7 +63,7 @@ static Content* loadModelFile(const char* file) {
         MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
     }
-    std::unique_ptr<FileLoader> loader(new FileLoader(file));
+    std::unique_ptr<FileLoader> loader(new FileLoader(file, true));
     if (!loader->valid()) {
         MNN_PRINT("Create interpreter failed, open %s error\n", file);
         return nullptr;
@@ -92,6 +91,8 @@ Interpreter* Interpreter::createFromFile(const char* file) {
     if (nullptr == net) {
         return nullptr;
     }
+    // Set Default externalFile
+    net->externalFile = std::string(file) + ".weight";
 
     return createFromBufferInternal(net, true);
 }
@@ -150,6 +151,8 @@ void Interpreter::setSessionHint(HintMode mode, int hint) {
         case MEM_ALLOCATOR_TYPE:
             mNet->modes.memoryAllocatorType = hint;
             break;
+        case WINOGRAD_MEMORY_LEVEL:
+            mNet->modes.winogradMemoryUsed = hint;
         default:
             break;
     }
@@ -170,6 +173,14 @@ void Interpreter::setSessionMode(SessionMode mode) {
         mNet->modes.memoryUsageMode = mode;
     } else if(mode == Session_Codegen_Disable || mode == Session_Codegen_Enable) {
         mNet->modes.codegenMode = mode;
+    } else if (mode == Session_Resize_Check) {
+        for (auto& iter : mNet->sessions) {
+            iter->openResizeCheck();
+        }
+    } else if (mode == Session_Resize_Fix) {
+        for (auto& iter : mNet->sessions) {
+            iter->fixResizeCache();
+        }
     }
 }
 
@@ -179,7 +190,7 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
         return;
     }
     mNet->cacheFile   = std::string(cacheFile);
-    std::unique_ptr<FileLoader> loader(new FileLoader(cacheFile));
+    std::unique_ptr<FileLoader> loader(new FileLoader(cacheFile, true));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
         return;
@@ -250,8 +261,8 @@ Interpreter::~Interpreter() {
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
-    runtime.second->setExternalFile(mNet->externalFile);
     runtime.second->setAllocatorType(mNet->modes.memoryAllocatorType);
+    runtime.second->setWinogradMemoryLevel(mNet->modes.winogradMemoryUsed);
     if (runtime.first.empty()) {
         MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;
@@ -274,6 +285,7 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
 #endif
     int cacheMode = 0; // No cache
     Schedule::ScheduleInfo info;
+    info.externalWeightPath = mNet->externalFile;
     auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
         return nullptr;

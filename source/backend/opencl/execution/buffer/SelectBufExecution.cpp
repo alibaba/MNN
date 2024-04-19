@@ -15,21 +15,23 @@
 namespace MNN {
 namespace OpenCL {
 
-SelectBufExecution::SelectBufExecution(Backend* backend) : Execution(backend) {
+SelectBufExecution::SelectBufExecution(Backend* backend, const MNN::Op* Op) : CommonExecution(backend, Op) {
     // Do nothing
 }
-ErrorCode SelectBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode SelectBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto inSize1 = inputs[1]->elementSize();
     auto inSize2 = inputs[2]->elementSize();
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-    openCLBackend->startRecord(mRecording);
+    std::set<std::string> buildOptions = mBuildOptions;
     if(inSize1 == 1)
-        mBuildOptions.emplace("-DINSIZE1_EUQAL_1");
+        buildOptions.emplace("-DINSIZE1_EUQAL_1");
     if(inSize2 == 1)
-        mBuildOptions.emplace("-DINSIZE2_EUQAL_1");
-    mKernel = runtime->buildKernel("select_buf", "select_buf", mBuildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+        buildOptions.emplace("-DINSIZE2_EUQAL_1");
+    unit.kernel = runtime->buildKernel("select_buf", "select_buf", buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);
 
@@ -47,49 +49,19 @@ ErrorCode SelectBufExecution::onResize(const std::vector<Tensor*>& inputs, const
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, openCLBuffer(inputs[0]));
-    ret |= mKernel.setArg(idx++, openCLBuffer(inputs[1]));
-    ret |= mKernel.setArg(idx++, openCLBuffer(inputs[2]));
-    ret |= mKernel.setArg(idx++, openCLBuffer(outputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
     MNN_CHECK_CL_SUCCESS(ret, "setArg SelectBufExecution");
 
     std::string kernelName = "select_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
-    openCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalSize);
-    openCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode SelectBufExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start SelectBufExecution onExecute...");
-#endif
-    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
-    
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Select", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End SelectBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end SelectBufExecution onExecute...");
-#endif
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
 }
 
@@ -103,7 +75,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new SelectBufExecution(backend);
+        return new SelectBufExecution(backend, op);
     }
 };
 

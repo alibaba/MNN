@@ -33,6 +33,28 @@ public:
         // Size can't be compute separately
         NOT_SEPERATE
     };
+    class OpResizeCache {
+    public:
+        bool match(const std::vector<Tensor*>& inputs);
+        void insert(const std::vector<Tensor*>& inputs);
+        void close(bool pass = false);
+        void open();
+        bool needComputeShape = true;
+        bool needExecuteConst = false;
+        void addContentIndex(int index);
+    private:
+        struct ShapeInfo {
+            int order;
+            std::vector<int> dim;
+            halide_type_t type;
+            std::vector<uint8_t> buffer;
+        };
+        std::vector<ShapeInfo> mInputInfos;
+        bool mComputed = false;
+        bool mCanCache = false;
+        bool mPass = false;
+        std::vector<int> mNeedCompareContent;
+    };
     /** pipeline info */
     struct OpCacheInfo {
         /** op */
@@ -51,6 +73,7 @@ public:
         CommandBuffer executeBuffer;
         
         std::map<const Op*, std::shared_ptr<Execution>> executionCache;
+        OpResizeCache computeCache;
     };
 
     // Backend, Tensor, shape-dirty, content-dirty
@@ -84,6 +107,8 @@ public:
         std::shared_ptr<Backend> constReplaceBackend;
         /** size need input's content*/
         bool needInputContentForShape = false;
+        /** external weight*/
+        std::string externalWeightPath;
     };
 
     /**

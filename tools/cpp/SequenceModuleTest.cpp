@@ -15,6 +15,8 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include "ExprDebug.hpp"
+//#define OPEN_TRACE
 using namespace MNN::Express;
 using namespace MNN;
 
@@ -71,14 +73,40 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     }
     return true;
 }
+
+#define LOAD_DATA(TYPE)\
+    if (inputInfo.find(inputName) != inputInfo.end()) {\
+        auto value = inputInfo[inputName];\
+        for (int i=0; i<info->size; ++i) {\
+            ptr[i] = value;\
+        }\
+    } else {\
+        std::ostringstream fileNameOs;\
+        fileNameOs << directName << "/" << inputName << ".txt";\
+        auto fileName = fileNameOs.str();\
+        std::ifstream inputOs(fileName.c_str());\
+        if (inputOs.fail()) {\
+            MNN_ERROR("TESTERROR Can't open %s\n", fileName.c_str());\
+            continue;\
+        }\
+        for (int i=0; i<info->size; ++i) {\
+            double tempV; inputOs >> tempV;\
+            ptr[i] = tempV;\
+        }\
+    }
+
 int main(int argc, char *argv[]) {
     if (argc < 5) {
         MNN_ERROR("Usage: ./SequenceModuleTest.out ${test.mnn} [forwardType] [shapeMutable] ${testTime} ${Dir} ${Dir1} ......\n");
         return 0;
     }
+#ifdef OPEN_TRACE
+    _initTensorStatic();
+#endif
+
     std::string modelName = argv[1];
     auto type = (MNNForwardType)atoi(argv[2]);
-    auto shapeMutable = atoi(argv[3]);
+    int numberThread = atoi(argv[3]);
     int testTime = atoi(argv[4]);
     int offset = 5;
     MNN_PRINT("Test %s, type = %d\n", modelName.c_str(), type);
@@ -86,20 +114,24 @@ int main(int argc, char *argv[]) {
     MNN::ScheduleConfig config;
     config.type      = type;
     /*modeNum means gpuMode for GPU usage, Or means numThread for CPU usage.*/
-    config.numThread = 1;
     // If type not fount, let it failed
     config.backupType = type;
+    config.numThread = numberThread;
     BackendConfig backendConfig;
+#ifdef OPEN_TRACE
+    backendConfig.precision = MNN::BackendConfig::Precision_High;
+#endif
     config.backendConfig     = &backendConfig;
     
     MNN::Express::Module::Config mConfig;
-    mConfig.shapeMutable = shapeMutable;
+    mConfig.shapeMutable = true;
     mConfig.rearrange = true;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+#ifdef OPEN_TRACE
+    rtmgr->setMode(MNN::Interpreter::Session_Debug);
+#endif
     std::shared_ptr<Module> net;
-
     for (int index = offset; index < argc; ++index) {
-        MNN_PRINT("Test for %s\n", argv[index]);
         std::string directName = argv[index];
         rapidjson::Document document;
         std::map<std::string, float> inputInfo;
@@ -152,71 +184,16 @@ int main(int argc, char *argv[]) {
                 MNN_PRINT("Error: can't load module\n");
                 return 0;
             }
+            break;
         }
-        auto mInfo = net->getInfo();
+    }
+    net->traceOrOptimize(MNN::Interpreter::Session_Resize_Check);
 
-#define LOAD_DATA(TYPE)\
-    if (inputInfo.find(inputName) != inputInfo.end()) {\
-        auto value = inputInfo[inputName];\
-        for (int i=0; i<info->size; ++i) {\
-            ptr[i] = value;\
-        }\
-    } else {\
-        std::ostringstream fileNameOs;\
-        fileNameOs << directName << "/" << inputName << ".txt";\
-        auto fileName = fileNameOs.str();\
-        std::ifstream inputOs(fileName.c_str());\
-        if (inputOs.fail()) {\
-            MNN_ERROR("TESTERROR Can't open %s\n", fileName.c_str());\
-            continue;\
-        }\
-        for (int i=0; i<info->size; ++i) {\
-            double tempV; inputOs >> tempV;\
-            ptr[i] = tempV;\
-        }\
-    }
-        std::vector<VARP> inputs(mInfo->inputs.size());
-        for (int i=0; i<inputs.size(); ++i) {
-            inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
-        }
-        // Load inputs
-        for (int i=0; i<inputs.size(); ++i) {
-            auto inputName = inputNames[i];
-            // Resize
-            auto shapeIter = inputShape.find(inputName);
-            if (shapeIter != inputShape.end()) {
-                auto s = shapeIter->second;
-                inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
-            }
-            auto info = inputs[i]->getInfo();
-            if (info->type == halide_type_of<float>()){
-                auto ptr = inputs[i]->writeMap<float>();
-                LOAD_DATA(float)
-            } else {
-                auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
-                auto ptr = floatVar->writeMap<float>();
-                LOAD_DATA(float)
-                auto temp = _Cast(floatVar, info->type);
-                inputs[i]->input(temp);
-            }
-            inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
-        }
-        bool modelError = false;
-        // Module Branch
-        auto outputs = net->onForward(inputs);
-        for (int i=0; i<outputNames.size(); ++i) {
-            auto output = outputs[i];
-            bool success = compareOutput(output, directName, outputNames[i], mInfo->defaultFormat, i);
-            if (!success) {
-                modelError = true;
-                MNN_ERROR("Error for output %s\n", outputNames[i].c_str());
-            }
-        }
-    }
-    if (testTime > 0) {
-        // Prepare All Input
-        std::vector<std::vector<MNN::Express::VARP>> allInputs;
+    // First Test
+    auto testCorrect = [&]() {
+        std::vector<bool> correctInputs(argc-offset);
         for (int index = offset; index < argc; ++index) {
+            MNN_PRINT("Test for %s\n", argv[index]);
             std::string directName = argv[index];
             rapidjson::Document document;
             std::map<std::string, float> inputInfo;
@@ -264,6 +241,105 @@ int main(int argc, char *argv[]) {
                 }
             }
             auto mInfo = net->getInfo();
+
+            std::vector<VARP> inputs(mInfo->inputs.size());
+            for (int i=0; i<inputs.size(); ++i) {
+                inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
+            }
+            // Load inputs
+            for (int i=0; i<inputs.size(); ++i) {
+                auto inputName = inputNames[i];
+                // Resize
+                auto shapeIter = inputShape.find(inputName);
+                if (shapeIter != inputShape.end()) {
+                    auto s = shapeIter->second;
+                    inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+                }
+                auto info = inputs[i]->getInfo();
+                if (info->type == halide_type_of<float>()){
+                    auto ptr = inputs[i]->writeMap<float>();
+                    LOAD_DATA(float)
+                } else {
+                    auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
+                    auto ptr = floatVar->writeMap<float>();
+                    LOAD_DATA(float)
+                    auto temp = _Cast(floatVar, info->type);
+                    inputs[i]->input(temp);
+                }
+                inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
+            }
+            bool modelError = false;
+            // Module Branch
+            auto outputs = net->onForward(inputs);
+            for (int i=0; i<outputNames.size(); ++i) {
+                auto output = outputs[i];
+                bool success = compareOutput(output, directName, outputNames[i], mInfo->defaultFormat, i);
+                if (!success) {
+                    modelError = true;
+                    MNN_ERROR("Error for output %s\n", outputNames[i].c_str());
+                }
+            }
+            correctInputs[index-offset] = !modelError;
+        }
+        return correctInputs;
+    };
+    auto correctInfo = testCorrect();
+    MNN_PRINT("Resize optimize for net\n");
+    net->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+    auto optCorrectInfo = testCorrect();
+    for (int i=0; i<correctInfo.size(); ++i) {
+        MNN_PRINT("Correct Json %d: before opt: %d, after opt: %d\n", i, (int)correctInfo[i], (int)optCorrectInfo[i]);
+    }
+    if (testTime > 0) {
+        MNN_PRINT("Test Speed for %d times\n", testTime);
+        // Prepare All Input
+        std::vector<std::vector<MNN::Express::VARP>> allInputs;
+        for (int index = offset; index < argc; ++index) {
+            std::string directName = argv[index];
+            rapidjson::Document document;
+            std::map<std::string, float> inputInfo;
+            std::map<std::string, std::vector<int>> inputShape;
+            std::vector<std::string> inputNames;
+            std::vector<std::string> outputNames;
+            std::ostringstream jsonNameOs;
+            jsonNameOs << argv[index] << "/input.json";
+            std::ifstream fileNames(jsonNameOs.str().c_str());
+            std::ostringstream output;
+            output << fileNames.rdbuf();
+            auto outputStr = output.str();
+            document.Parse(outputStr.c_str());
+            if (document.HasParseError()) {
+                MNN_ERROR("Invalid json\n");
+                continue;
+            }
+            if (document.HasMember("inputs")) {
+                auto inputsInfo = document["inputs"].GetArray();
+                for (auto iter = inputsInfo.begin(); iter !=inputsInfo.end(); iter++) {
+                    auto obj = iter->GetObject();
+                    std::string name = obj["name"].GetString();
+                    inputNames.emplace_back(name);
+                    if (obj.HasMember("value")) {
+                        float value = obj["value"].GetFloat();
+                        inputInfo.insert(std::make_pair(name, value));
+                    }
+                    if (obj.HasMember("shape")) {
+                        auto dims = obj["shape"].GetArray();
+                        std::vector<int> shapes;
+                        for (auto iter = dims.begin(); iter != dims.end(); iter++) {
+                            shapes.emplace_back(iter->GetInt());
+                        }
+                        inputShape.insert(std::make_pair(name, shapes));
+                    }
+                }
+            }
+            if (document.HasMember("outputs")) {
+                auto array = document["outputs"].GetArray();
+                for (auto iter = array.begin(); iter !=array.end(); iter++) {
+                    std::string name = iter->GetString();
+                    outputNames.emplace_back(name);
+                }
+            }
+            auto mInfo = net->getInfo();
             
             std::vector<VARP> inputs(mInfo->inputs.size());
             for (int i=0; i<inputs.size(); ++i) {
@@ -299,6 +375,9 @@ int main(int argc, char *argv[]) {
             Timer _l;
             for (auto& v : allInputs) {
                 auto output = net->onForward(v);
+                for (auto o : output) {
+                    ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+                }
             }
             times[t] = _l.durationInUs() / 1000.0f;
         }

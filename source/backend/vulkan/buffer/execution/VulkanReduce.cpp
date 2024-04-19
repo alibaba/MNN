@@ -79,8 +79,11 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-static std::string _getShaderName(const Op* op) {
+static std::string _getShaderName(const Op* op, bool isInt) {
     std::string prefix = "glsl_reduce_";
+    if (isInt) {
+        prefix = "glsl_reduce_int_";
+    }
     std::string posfix = "_comp";
     std::string mid = "";
     switch (op->main_as_ReductionParam()->operation()) {
@@ -112,7 +115,8 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input0 = inputs[0];
-        auto shader = _getShaderName(op);
+        bool isint = input0->getType().code == halide_type_int;
+        auto shader = _getShaderName(op, isint);
         if (shader.empty()) {
             return nullptr;
         }

@@ -290,16 +290,15 @@ __kernel void gemm_conv(GLOBAL_SIZE_DIM2
 #else
                         __global const FLOAT *weight,
 #endif
-                        __global const FLOAT *bias,
+                        __read_only image2d_t bias,
                         __write_only image2d_t output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
                         __private const int batch) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); //cout/4, b
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
-    int pos_x = pos.x << 2;
 
-    FLOAT4 bias0 = vload4(0, bias + pos_x);
+    FLOAT4 bias0 = RI_F(bias, SAMPLER, (int2)(pos.x, 0));
     FLOAT sum = 0;
     FLOAT4 out = 0;
 
@@ -383,7 +382,7 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
 #else
                         __global const FLOAT *weight,
 #endif
-                        __global const FLOAT *bias,
+                        __read_only image2d_t bias,
                         __write_only image2d_t output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
@@ -393,7 +392,7 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
     int pos_x = pos.x << 2;
     int pos_y = pos.y << 1;
 
-    FLOAT4 bias0 = vload4(0, bias + pos_x);
+    FLOAT4 bias0 = RI_F(bias, SAMPLER, (int2)(pos.x, 0));
     FLOAT sum0 = 0, sum1 = 0;
     FLOAT4 out0 = (FLOAT4)0, out1 = (FLOAT4)0;
     

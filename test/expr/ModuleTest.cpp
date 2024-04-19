@@ -37,7 +37,7 @@ static VARP convBlocTemp(VARP x, INTS channels, int stride) {
     x         = _Conv(0.05f, -2.0f, x, {inputChannel, outputChannel}, {1, 1}, SAME, {1, 1}, {1, 1}, 1);
     return x;
 }
-static VARP _mobileNetV1Expr(VARP x = nullptr) {
+static VARP _mobileNetV1Expr(VARP x = nullptr, bool softmax = true) {
     int inputSize = 224, poolSize; // MobileNet_224, MobileNet_192, MobileNet_160, MobileNet_128
     {
         inputSize = 224;
@@ -54,7 +54,7 @@ static VARP _mobileNetV1Expr(VARP x = nullptr) {
         x = _Input({1, 3, inputSize, inputSize}, NC4HW4);
         x->setName("Input");
     }
-    x      = _Conv(0.0f, 0.0f, x, {3, channels[0]}, {3, 3}, SAME, {2, 2}, {1, 1}, 1);
+    x      = _Conv(0.01f, 0.0f, x, {3, channels[0]}, {3, 3}, SAME, {2, 2}, {1, 1}, 1);
     x      = convBlock(x, {channels[0], channels[1]}, 1);
     x      = convBlock(x, {channels[1], channels[2]}, 2);
     x      = convBlock(x, {channels[2], channels[2]}, 1);
@@ -69,8 +69,10 @@ static VARP _mobileNetV1Expr(VARP x = nullptr) {
     x      = convBlock(x, {channels[4], channels[5]}, 2);
     x      = convBlock(x, {channels[5], channels[5]}, 1);
     x      = _AvePool(x, {poolSize, poolSize}, {1, 1}, VALID);
-    x      = _Conv(0.0f, 0.0f, x, {channels[5], 1001}, {1, 1}, VALID, {1, 1}, {1, 1}, 1); // reshape FC with Conv1x1
-    x      = _Softmax(x, -1);
+    x      = _Conv(0.01f, 0.0f, x, {channels[5], 1001}, {1, 1}, VALID, {1, 1}, {1, 1}, 1); // reshape FC with Conv1x1
+    if (softmax) {
+        x      = _Softmax(x, -1);
+    }
     x      = _Convert(x, NCHW);
     x->setName("Prob");
     return x;
@@ -1042,3 +1044,149 @@ public:
     };
 };
 MNNTestSuiteRegister(MutlThreadConstReplaceTest, "expr/MutlThreadConstReplaceTest");
+
+class ResizeOptimizationTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        std::vector<int8_t> buffer;
+        {
+            // Make Buffer
+            auto x0 = _Input({1, 3, 32, 32}, NCHW, halide_type_of<float>());
+            x0->setName("x0");
+            {
+                auto x1s = _Shape(x0);
+                auto ss = _Unstack(x1s);
+                auto w = ss[2];
+                auto h = ss[3];
+                int batchNumber = 1;
+                int channelNumber = 3;
+                auto batch = _Const(&batchNumber, {}, NCHW, halide_type_of<int32_t>());
+                auto channel = _Const(&channelNumber, {}, NCHW, halide_type_of<int32_t>());
+                x0 = _Reshape(x0, _Stack({batch * channel, w * h}));
+                x0 = _Reshape(x0, x1s);
+            }
+            auto y0 = _mobileNetV1Expr(_Convert(x0, NC4HW4), false);
+            y0->setName("y0");
+            auto x1 = _Input({1, 3, 64, 64}, NCHW, halide_type_of<float>());
+            x1->setName("x1");
+            auto y1 = _mobileNetV1Expr(_Convert(x1, NC4HW4), false);
+            y1->setName("y1");
+            auto z = y0 + y1;
+            z->setName("z");
+            buffer = Variable::save({z});
+        }
+        std::vector<std::pair<std::vector<int>, std::vector<int>>> inputShapes {
+            {{1, 3, 32, 32}, {1, 3, 24, 24}},
+            {{1, 3, 16, 16}, {1, 3, 24, 24}},
+            {{1, 3, 48, 48}, {1, 3, 24, 24}},
+        };
+        {
+            // Test For Interpreter API
+            std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)buffer.data(), buffer.size()), Interpreter::destroy);
+            ScheduleConfig config;
+            config.numThread = 1;
+            net->setSessionMode(Interpreter::Session_Debug);
+            auto session = net->createSession(config);
+            auto getResult = [session, net, &inputShapes] {
+                std::vector<float> resultSummer(inputShapes.size());
+                auto x0 = net->getSessionInput(session, "x0");
+                auto x1 = net->getSessionInput(session, "x1");
+                auto z = net->getSessionOutput(session, "z");
+                auto fillInput = [](MNN::Tensor* t, float v) {
+                    std::shared_ptr<MNN::Tensor> tensor(new MNN::Tensor(t, t->getDimensionType()));
+                    auto size = tensor->elementSize();
+                    auto ptr = tensor->host<float>();
+                    float cv = v;
+                    for (int i=0; i<size; ++i) {
+                        ptr[i] = cv;
+                        cv = cv * -1.0f;
+                    }
+                    t->copyFromHostTensor(tensor.get());
+                };
+                for (int u=0; u<inputShapes.size(); ++u) {
+                    net->resizeTensor(x0, inputShapes[u].first);
+                    net->resizeTensor(x1, inputShapes[u].second);
+                    net->resizeSession(session);
+                    float u0 = (float)x0->elementSize();
+                    float u1 = (float)x1->elementSize();
+                    fillInput(x0, 0.0001f * (float)u);
+                    fillInput(x1, 0.0001f * (float)u);
+                    net->runSession(session);
+                    std::shared_ptr<MNN::Tensor> tensor(new MNN::Tensor(z, z->getDimensionType()));
+                    z->copyToHostTensor(tensor.get());
+                    auto size = tensor->elementSize();
+                    auto resPtr = tensor->host<float>();
+                    float summer = 0.0f;
+                    float decrate = 1.0f / u0 / u1;
+                    for (int i=0; i<size; ++i) {
+                        summer += (resPtr[i] * resPtr[i]) * decrate;
+                    }
+                    resultSummer[u] = summer;
+                    FUNC_PRINT_ALL(summer, f);
+                }
+                return resultSummer;
+            };
+            auto originRes = getResult();
+            net->setSessionMode(Interpreter::Session_Resize_Check);
+            auto checkRes = getResult();
+            net->setSessionMode(Interpreter::Session_Resize_Fix);
+            auto fixRes = getResult();
+            for (int u=0; u<inputShapes.size(); ++u) {
+                auto v1error = fabsf(originRes[u]-checkRes[u]);
+                auto v2error = fabsf(originRes[u]-fixRes[u]);
+                if (v1error > 0.05f || v2error > 0.05f) {
+                    FUNC_PRINT(u);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ResizeOptimizationTest, "expr/ResizeOptimizationTest");
+
+class WinogradMemoryTest : public MNNTestCase {
+public:
+    float memoryUsed(int level) {
+        auto y = _mobileNetV1Expr();
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        // Force use CPU Runtime
+        BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        Module::Config config;
+        config.shapeMutable = false;
+        std::shared_ptr<Module> interp0;
+        
+        MNN::ScheduleConfig sconfig;
+        sconfig.numThread = 1;
+        std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+        auto rtInfo = Express::ExecutorScope::Current()->getRuntime();
+        auto rt = rtInfo.first.begin()->second;
+        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+        rtMgr->setMode(Interpreter::Session_Memory_Collect);
+        rtMgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, level);
+        config.rearrange = false; // When set WINOGRAD_MEMORY_LEVEL=0 to test memory, must set rearrange=false.
+        interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+        float memoryInMB = 0.0f;
+        rtMgr->getInfo(Interpreter::MEMORY, &memoryInMB);
+        return memoryInMB;
+    }
+    virtual bool run(int precision) {
+        float mem0 = memoryUsed(0);
+        float mem3 = memoryUsed(3);
+        printf("level=0,3: %fMb, %fMb\n", mem0,mem3);
+        if (mem3 < mem0) {
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(WinogradMemoryTest, "expr/WinogradMemoryTest");

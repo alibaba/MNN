@@ -16,7 +16,7 @@ namespace MNN {
 struct Op;
 class Execution;
 class OperatorInfo;
-struct Command : public RefCount {
+struct Command {
     const Op* op;
     std::vector<Tensor*> workInputs;
     std::vector<Tensor*> workOutputs;
@@ -28,9 +28,10 @@ struct Command : public RefCount {
     #ifdef MNN_BUILD_CODEGEN
     bool canVectorize = false;
     #endif
+    int group = 0;
 };
 struct CommandBuffer {
-    std::vector<SharedPtr<Command>> command;
+    std::vector<std::shared_ptr<Command>> command;
     std::vector<std::shared_ptr<Tensor>> extras;
     bool hasWrap = false;
 };

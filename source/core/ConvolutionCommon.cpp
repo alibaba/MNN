@@ -31,9 +31,10 @@ static int ReadBlobDim(unsigned char *&myfile, unsigned int* shape, int shapeBuf
         ::memcpy(shape, myfile, sizeof(unsigned int) * copyLength);
         myfile += copyLength * sizeof(unsigned int);
     } else {
-        auto myfileint16 = (uint16_t*)myfile;
+        std::vector<uint16_t> tmpShapeInt16(copyLength);
+        ::memcpy(tmpShapeInt16.data(), myfile, copyLength * sizeof(int16_t));
         for (int i=0; i<copyLength; ++i) {
-            shape[i] = myfileint16[i];
+            shape[i] = tmpShapeInt16[i];
         }
         myfile += copyLength * sizeof(unsigned short);
     }
@@ -238,6 +239,9 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
             break;
         }
         StreamSizeRead(idxBuf, 1, idxBufSize, s);
+        if (idxBitsCnt == 4) {
+            dataCnt = UP_DIV(dataCnt, 2) * 2;
+        }
         blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
         if (nullptr == blob) {
             break;
@@ -257,7 +261,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
             if (idxBitsCnt == 8) {
                 for (int i = 0; i < idxBufSize; i++) {
                     int val = idxBuf[i];
-                    blob[i] = val - 64;
+                    blob[i] = val - 128;
                 }
             }
         } else {
@@ -420,28 +424,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
     size_t buffer_size = 0, alpha_size = 0;
     const int8_t* buffer_ptr = nullptr;
     const float* alpha_ptr = nullptr;
-    std::unique_ptr<int8_t[]> external_buffer;
-    std::unique_ptr<float[]> external_alpha;
-    if (USE_EXTERNAL_DATA(conv) && quan->buffer() == nullptr) {
-        // external data
-        buffer_size = conv->external()->Get(1);
-        alpha_size = conv->external()->Get(2) / sizeof(float);
-        external_buffer.reset(new int8_t[buffer_size]);
-        external_alpha.reset(new float[alpha_size]);
-        buffer_ptr = external_buffer.get();
-        alpha_ptr = external_alpha.get();
-        auto char_buffer_ptr = reinterpret_cast<char*>(external_buffer.get());
-        auto char_alpha_ptr = reinterpret_cast<char*>(external_alpha.get());
-        OpCommonUtils::loadExternalDatas(backend, {char_buffer_ptr, char_alpha_ptr}, conv->external()->data());
-    } else {
-        if (quan->buffer()) {
-            buffer_size = quan->buffer()->size();
-            buffer_ptr = quan->buffer()->data();
-        }
-        if (quan->alpha()) {
-            alpha_size = quan->alpha()->size();
-            alpha_ptr = quan->alpha()->data();
-        }
+    if (quan->buffer()) {
+        buffer_size = quan->buffer()->size();
+        buffer_ptr = quan->buffer()->data();
+    }
+    if (quan->alpha()) {
+        alpha_size = quan->alpha()->size();
+        alpha_ptr = quan->alpha()->data();
     }
     if (quan->index() != nullptr) {
         if (forceFloat) {
@@ -472,30 +461,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
     if (2 == quan->type()) {
         buffer = ReadSparseQuanData_c(originBuffer, &weightLength, alpha_ptr, alpha_size, result.get(), quan->shapeInt32());
     }
-    if (result->weightMap.size() > 0 && result->weightMap.size() <= 16) {
-        // Compute Remap for int4
+    if (result->weightMap.size() > 0) {
         result->canUseInt4 = true;
-        result->weightReverseMap.resize(256);
-        ::memset(result->weightReverseMap.data(), 0, 256 * sizeof(int8_t));
-        for (int i=0; i<result->weightMap.size(); ++i) {
-            int value = result->weightMap[i];
-            value = value + 128;
-            result->weightReverseMap[value] = i;
+        for (auto value : result->weightMap) {
+            if (value < -8 || value > 7) {
+                result->canUseInt4 = false;
+            }
         }
-#ifdef MNN_TEST_REMAPQUANT
-        // Test reverse
-        std::vector<int8_t> originBuffer(weightLength);
-        for (int i=0; i<weightLength; ++i) {
-            originBuffer[i] = buffer[i];
-            buffer[i] = result->weightReverseMap[(int)buffer[i] + 128];
-        }
-        for (int i=0; i<weightLength; ++i) {
-            buffer[i] = result->weightMap[buffer[i]];
-        }
-        for (int i=0; i<weightLength; ++i) {
-            MNN_ASSERT(buffer[i] == originBuffer[i]);
-        }
-#endif
     }
     // read fp16 data
     if (3 == quan->type()) {

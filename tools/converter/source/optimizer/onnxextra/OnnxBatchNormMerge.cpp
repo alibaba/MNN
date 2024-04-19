@@ -153,12 +153,14 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
             }
         }
         bool needScale = true;
+        bool scaleConst = false;
         do {
             auto biasPtr = inputs[2]->readMap<float>();
             auto scalePtr = inputs[1]->readMap<float>();
             if (nullptr == biasPtr || nullptr == scalePtr) {
                 break;
             }
+            scaleConst = true;
             auto oneVar = _Scalar<float>(1.0f);
             auto scaleOff = inputs[1] - oneVar;
             auto scaleSum = _ReduceSum(scaleOff * scaleOff);
@@ -183,19 +185,26 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
             auto param = layerNormOp->main.AsLayerNorm();
             param->axis = {2}; // Layernorm only need axis's size as 1
             param->epsilon = epsilon;
-//                param->beta.resize(inputs[2]->getInfo()->size);
-//                ::memcpy(param->beta.data(), biasPtr, param->beta.size() * sizeof(float));
-//                param->gamma.resize(inputs[1]->getInfo()->size);
-//                ::memcpy(param->gamma.data(), scalePtr, param->beta.size() * sizeof(float));
             param->group = 1;
         }
         auto res = Variable::create(Expr::create(layerNormOp.get(), {inputDim3}));
         res = _ReshapeF(res, originShape, MNN_DATA_FORMAT_NCHW);
         if (needScale) {
-            auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Unsqueeze(_Size(_Shape(input, true)) - _Scalar<int>(2), {0}), _Scalar<int>(1))}, 0);
-            auto scale      = _OnnxReshape(inputs[1], compatShape);
-            auto bias       = _OnnxReshape(inputs[2], compatShape);
-            res = res * scale + bias;
+            if (scaleConst) {
+                auto biasPtr = inputs[2]->readMap<float>();
+                auto scalePtr = inputs[1]->readMap<float>();
+                int channels = inputs[1]->getInfo()->size;
+                std::vector<float> scales(channels);
+                std::vector<float> bias(channels);
+                ::memcpy(bias.data(), biasPtr, channels * sizeof(float));
+                ::memcpy(scales.data(), scalePtr, channels * sizeof(float));
+                res = _Scale(res, channels, std::move(scales), std::move(bias));
+            } else {
+                auto compatShape = _Concat({_Shape(inputs[1], true), _Fill(_Unsqueeze(_Size(_Shape(input, true)) - _Scalar<int>(2), {0}), _Scalar<int>(1))}, 0);
+                auto scale      = _OnnxReshape(inputs[1], compatShape);
+                auto bias       = _OnnxReshape(inputs[2], compatShape);
+                res = res * scale + bias;
+            }
         }
         res->setName(expr->name());
         return res->expr().first;

@@ -9,28 +9,40 @@
 #ifndef CommonExecution_hpp
 #define CommonExecution_hpp
 #include "core/Execution.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class CommonExecution : public Execution, public CommonExtension {
+struct Unit {
+    std::shared_ptr<KernelWrap> kernel;
+    cl::NDRange globalWorkSize;
+    cl::NDRange localWorkSize;
+};
+
+class CommonExecution : public Execution {
 public:
     CommonExecution(Backend *backend, const MNN::Op *Op);
-    virtual ~CommonExecution() = default;
-
+    virtual ~CommonExecution(){
+        if(mRecording != NULL){
+#ifdef MNN_USE_LIB_WRAPPER
+            clReleaseRecordingQCOM(mRecording);
+#endif
+        }
+    }
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+        return NO_ERROR;
+    }
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    struct Unit {
-        cl::Kernel kernel;
-        cl::NDRange globalWorkSize;
-        cl::NDRange localWorkSize;
-    };
     std::vector<Unit> mUnits;
     const MNN::Op *mOp;
     OpType mOpType;
+    cl_recording_qcom mRecording{NULL};
 };
 } // namespace OpenCL
 } // namespace MNN

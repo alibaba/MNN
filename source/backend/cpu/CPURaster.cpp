@@ -42,7 +42,6 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     mTempOutput = nullptr;
     auto midFormat = MNN_DATA_FORMAT_NCHW;
     mTempInputCopy.clear();
-    mOutputPtr = output->host<void>();
     mFast = false;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     mSingleConvert.type = 0;
@@ -91,7 +90,6 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (!res) {
             return OUT_OF_MEMORY;
         }
-        mOutputPtr = mTempOutput->host<void>();
     }
     // input is NC4HW4 add Convert
     std::vector<Tensor*> forRelease;
@@ -320,7 +318,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             auto& slice = iter.second;
             //Offset use byte
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
-            auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
+            auto dstPtr = output->host<uint8_t>() + slice.dst.offset * bytes;
             if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
                 for (int z=0; z<slice.size[0]; ++z) {
                     auto srcZ = srcPtr + z * slice.src.stride[0] * byteC4;
@@ -559,6 +557,7 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
 
 
 ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
+    void* mOutputPtr = nullptr;
     if (nullptr != mTempOutput) {
         mOutputPtr = mTempOutput->host<void>();
     } else {
@@ -574,7 +573,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mSingleConvert.type > 0) {
-        auto realInput = TensorUtils::getDescribe(output)->regions[0].origin;
+        auto realInput = ____inputs[0];
         int srcBatch = mSingleConvert.batch, srcChannel = mSingleConvert.channel, srcArea = mSingleConvert.area;
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
         auto destFormat = TensorUtils::getDescribe(output)->dimensionFormat;

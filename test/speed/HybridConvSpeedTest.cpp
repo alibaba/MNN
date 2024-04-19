@@ -11,77 +11,9 @@
 #include "MNNTestSuite.h"
 #include <MNN/AutoTime.hpp>
 #include <MNN/Interpreter.hpp>
-#include "MNN_generated.h"
-#include "TestUtils.h"
+#include "CommonOpCreator.hpp"
 using namespace MNN::Express;
 using namespace MNN;
-
-static PadMode _convertPadMode(PaddingMode mode) {
-    switch (mode) {
-        case CAFFE:
-            return PadMode_CAFFE;
-        case VALID:
-            return PadMode_VALID;
-        case SAME:
-            return PadMode_SAME;
-        default:
-            break;
-    }
-    return PadMode_CAFFE;
-}
-static VARP _HybridConv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<float>&& alpha, VARP x, INTS channel, INTS kernelSize,
-           PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, bool relu6, int nbits) {
-    std::unique_ptr<OpT> convOp(new OpT);
-    convOp->type = OpType_Convolution;
-    convOp->main.type  = OpParameter_Convolution2D;
-    convOp->main.value = new Convolution2DT;
-    auto conv2D        = convOp->main.AsConvolution2D();
-    conv2D->common.reset(new Convolution2DCommonT);
-    conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
-    conv2D->common->padMode     = _convertPadMode(pad);
-    if (pads.size() == 2) {
-        conv2D->common->padX        = pads[0];
-        conv2D->common->padY        = pads[1];
-    } else {
-        conv2D->common->pads = std::move(pads);
-    }
-    conv2D->common->strideX     = stride[0];
-    conv2D->common->strideY     = stride[1];
-    conv2D->common->group       = group;
-    conv2D->common->outputCount = channel[1];
-    conv2D->common->inputCount  = channel[0];
-    conv2D->common->dilateX     = dilate[0];
-    conv2D->common->dilateY     = dilate[1];
-    conv2D->common->kernelX     = kernelSize[0];
-    conv2D->common->kernelY     = kernelSize[1];
-    conv2D->common->relu6 = relu6;
-    conv2D->common->relu = relu;
-    conv2D->quanParameter.reset(new IDSTQuanT);
-    if (nbits == 8) {
-        conv2D->quanParameter->type = 4;
-    } else {
-        conv2D->quanParameter->type = 1;
-    }
-    conv2D->quanParameter->buffer = std::move(weight);
-    conv2D->quanParameter->alpha = std::move(alpha);
-    conv2D->quanParameter->quantScale = 1.0f;
-    conv2D->weight.clear();
-    MNN_ASSERT(bias.size() == channel[1]);
-    conv2D->bias = std::move(bias);
-    return (Variable::create(Expr::create(convOp.get(), {x})));
-}
-
-static float findAbsMax(const float *weights, const int count) {
-    float absMax = fabs(weights[0]);
-    for (int i = 1; i < count; i++) {
-        float value = fabs(weights[i]);
-        if (value > absMax) {
-            absMax = value;
-        }
-    }
-
-    return absMax;
-}
 
 class HybridConvSpeedTestCommon : public MNNTestCase {
 protected:
@@ -93,7 +25,6 @@ protected:
         int iw = inputShape[0], ih = inputShape[1];
         std::vector<float> bias(oc), biastest(oc), biasdup(oc);
         int area = kernel[0] * kernel[1];
-        std::vector<int8_t> quantWeight(oc * ic * area);
         std::vector<float> weightFp32(oc * ic * area);
         std::vector<float> wScale(oc);
 
@@ -121,15 +52,9 @@ protected:
             int beginIndex = k * kernel_size;
             auto absMax = findAbsMax(weightFp32.data() + beginIndex, kernel_size);
             wScale[k] = absMax / threshold;
-            
-            for (int i = 0; i < kernel_size; ++i) {
-                float* ptr = weightFp32.data() + beginIndex;
-                int8_t quantVal = static_cast<int8_t>(ptr[i] / wScale[k]);
-                quantWeight[k * kernel_size + i] = quantVal;
-            }
         }
-        auto y     = _HybridConv(std::move(quantWeight), std::move(bias), std::move(wScale), x,
-                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit);
+        auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x,
+                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, false);
         auto yfp32 = _Conv(std::move(weightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
 
         if (nbit != 8) {

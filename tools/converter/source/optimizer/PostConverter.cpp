@@ -18,6 +18,8 @@
 #include "GenerateSubGraph.hpp"
 #include "TemplateMerge.hpp"
 #include "core/Backend.hpp"
+#include "RuntimeAttr.hpp"
+
 #include <MNN/expr/ExecutorScope.hpp>
 //#define MNN_POST_CONVERTER_DEBUG
 
@@ -211,10 +213,11 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 
 std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet,
                                            const std::unordered_map<std::string, VARP>& inputs) {
-    ExecutorScope::Current()->lazyEval = true;
-    ExecutorScope::Current()->setLazyComputeMode(Executor::LAZY_FULL);
-    auto rtInfo = ExecutorScope::Current()->getRuntime();
-    rtInfo.second->setExternalFile(".__convert_external_data.bin");
+    auto current = ExecutorScope::Current();
+    current->lazyEval = true;
+    current->setLazyComputeMode(Executor::LAZY_FULL);
+    current->getAttr()->externalFile = ".__convert_external_data.bin";
+
     auto* ctx = Global<OptimizeContext>::Get();
     MNN_ASSERT(ctx != nullptr);
 

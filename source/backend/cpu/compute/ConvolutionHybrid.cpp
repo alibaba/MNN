@@ -86,7 +86,6 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
         MNN_ASSERT(weightLength % 2 == 0);
         weightLength = UP_DIV(weightLength, 2);
         resource->mDequantize.bits = 4;
-        resource->mDequantize.mLowBitWeightMap = int8Info->weightMap;
         std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<uint8_t>(
             {weightLength}));
         auto res = resource->backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);

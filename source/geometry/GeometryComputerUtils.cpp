@@ -11,7 +11,7 @@
 #include "core/RuntimeFactory.hpp"
 #include "shape/SizeComputer.hpp"
 #include "core/AutoStorage.h"
-
+#include "core/FileLoader.hpp"
 #ifdef MNN_BUILD_CODEGEN
 #include "OpFuse.hpp"
 #endif
@@ -86,10 +86,14 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
         auto dims = SizeComputer::needInputContent(info.op, info.inputs.size());
         for (auto index : dims) {
             if (index < info.inputs.size()) {
-                TensorUtils::getDescribe(info.inputs[index])->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
-                if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::CONSTANT) {
+                auto des = TensorUtils::getDescribe(info.inputs[index]);
+                des->stageMask |= MNN::Tensor::InsideDescribe::StageInfo::GEOMETRY_STAGE;
+                if (des->usage != Tensor::InsideDescribe::CONSTANT) {
                     breakIndex = infoIndex;
                     TensorUtils::getDescribe(info.inputs[index])->usage = Tensor::InsideDescribe::CONSTANT;
+                }
+                if (des->isMutable) {
+                    info.computeCache.addContentIndex(index);
                 }
             }
         }
@@ -136,6 +140,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
 }
 
 ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
+    FileLoader* external,
     std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
     std::shared_ptr<Backend> backupBackend,
@@ -150,29 +155,35 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         auto& cmdBufferVir = info.executeBuffer;
         auto& tempBuffer = info.cacheBuffer;
         // TODO: Optimize
-        cmdBufferVir.command.clear();
-        cmdBufferVir.extras.clear();
         for (auto t : info.outputs) {
             if (!TensorUtils::getDescribe(t)->isMutable) {
                 continue;
             }
-            auto usage = TensorUtils::getDescribe(t)->usage;
-            auto type = TensorUtils::getDescribe(t)->memoryType;
+            auto des = TensorUtils::getDescribe(t);
+            auto usage = des->usage;
+            auto type = des->memoryType;
             MNN_ASSERT(type != Tensor::InsideDescribe::MEMORY_OUTSIDE);
             MNN_ASSERT(type != Tensor::InsideDescribe::MEMORY_HOST);
             if (TensorUtils::getDescribeOrigin(t)->mContent->count() > 1) {
                 TensorUtils::getDescribeOrigin(t)->mContent = new Tensor::InsideDescribe::NativeInsideDescribe;
                 t->buffer().dim = TensorUtils::getDescribe(t)->dims;
+                TensorUtils::getDescribeOrigin(t)->setBackend(nullptr);
+                TensorUtils::getDescribeOrigin(t)->mem = nullptr;
                 TensorUtils::getDescribe(t)->usage = usage;
-            } else {
+                info.computeCache.close();
+            } else if (des->group == 0) {
                 if (info.type != Schedule::CONSTANT && usage != Tensor::InsideDescribe::TRAINABLE) {
-                    TensorUtils::getDescribeOrigin(t)->mContent->setBackend(nullptr);
+                    TensorUtils::getDescribeOrigin(t)->setBackend(nullptr);
                     // TODO: If output is static and length larger than new size, don't clear mem
-                    TensorUtils::getDescribeOrigin(t)->mContent->mem.reset(nullptr);
+                    TensorUtils::getDescribeOrigin(t)->mem = nullptr;
                 }
             }
         }
-        if (!skipShapeCompute) {
+        for (auto t : info.outputs) {
+            TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_SHAPE_STAGE);
+        }
+        bool needCompute = !info.computeCache.match(info.inputs);
+        if ((!skipShapeCompute) && needCompute) {
             auto res = SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
             if (!res) {
                 if (info.op->name() != nullptr) {
@@ -194,12 +205,26 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             for (auto t: info.inputs) {
                 TensorUtils::adjustTensorForCompability(t);
             }
-        }
-
-        if (info.type == Schedule::CONSTANT) {
-            if (_hasZeroShapeOutput(info)) {
-                continue;
+            info.computeCache.insert(info.inputs);
+            for (auto t : info.outputs) {
+                TensorUtils::getDescribe(t)->rasterCommand.reset();
+                TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::COMPUTE_SHAPE_STAGE;
+                // The content may be computed by geometry computer, which will not make execution
+                TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE);
             }
+        }
+        info.computeCache.needComputeShape = needCompute;
+        if (info.type != Schedule::CONSTANT) {
+            continue;
+        }
+        if (_hasZeroShapeOutput(info)) {
+            continue;
+        }
+        // Skip geometry compute if no-needCompute
+        if (needCompute) {
+            cmdBufferVir.command.clear();
+            cmdBufferVir.extras.clear();
+            
             ctx.clear();
             auto geo = GeometryComputer::search(info.op->type(), Runtime::Compiler_Loop);
             {
@@ -217,11 +242,16 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             GeometryComputerUtils::makeRaster(tempBuffer, cmdBufferVir, ctx);
             for (auto t : info.outputs) {
                 ctx.getRasterCacheCreateRecursive(t, cmdBufferVir);
+                if (Tensor::InsideDescribe::MEMORY_VIRTUAL == TensorUtils::getDescribe(t)->memoryType) {
+                    TensorUtils::getDescribe(t)->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+                }
             }
             for (auto& cp : cmdBufferVir.command) {
                 auto& c = *cp;
+                std::shared_ptr<BufferStorage> tmpStorge;
                 if (nullptr == c.execution) {
-                    c.execution.reset(backupBackend->onCreate(c.inputs, c.outputs, c.op));
+                    auto exe = OpCommonUtils::createExecutionWithExternal(backupBackend.get(), c.inputs, c.outputs, c.op, external, tmpStorge);
+                    c.execution.reset(exe);
                 }
                 auto exe = c.execution;
                 if (nullptr == exe.get()) {
@@ -229,7 +259,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     return NO_EXECUTION;
                 }
                 for (auto t : c.outputs) {
-                    auto des = TensorUtils::getDescribe(t);
+                    auto des = TensorUtils::getDescribeOrigin(t);
                     TensorUtils::setLinearLayout(t);
                     auto res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
                     if (!res) {
@@ -246,20 +276,59 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
-                code = exe->onExecute(c.inputs, c.outputs);
+            }
+        }
+        for (auto& cp : cmdBufferVir.command) {
+            auto& c = *cp;
+            bool dirty = needCompute || c.op->type() == OpType_RandomNormal || c.op->type() == OpType_RandomUniform;
+            if (!dirty) {
+                for (auto t : c.inputs) {
+                    auto des = TensorUtils::getDescribe(t);
+                    if (!des->isMutable) {
+                        continue;
+                    }
+                    if (des->group < 0) {
+                        // From User Input, group = -1
+                        dirty = true;
+                        break;
+                    }
+                    if ((des->stageMask &                Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE) == 0) {
+                        dirty = true;
+                        break;
+                    }
+                }
+            }
+            info.computeCache.needExecuteConst = dirty;
+            if (dirty) {
+                auto code = cp->execution->onExecute(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
-
+                for (auto t : c.outputs) {
+                    TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE);
+                }
             }
-            // Clear const command
-            ctx.pushCache(cmdBufferVir);
-            cmdBufferVir.command.clear();
-            cmdBufferVir.extras.clear();
         }
-
-
     }
+    for (int i=0; i<infos.size(); ++i) {
+        auto& info = infos[i];
+        if (info.type != Schedule::CONSTANT) {
+            continue;
+        }
+        auto& cmdBufferVir = info.executeBuffer;
+        for (auto& cp : cmdBufferVir.command) {
+            auto& c = *cp;
+            bool dirty = false;
+            for (auto t : c.inputs) {
+                auto des = TensorUtils::getDescribe(t);
+                if ((!des->isMutable) || des->group) {
+                    continue;
+                }
+                des->stageMask |= Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE;
+            }
+        }
+    }
+
     /** Size Compute and compute Const End */
 
     /** Geometry Transform */
@@ -271,6 +340,11 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         if (info.type == Schedule::CONSTANT) {
             continue;
         }
+        if ((!info.computeCache.needComputeShape) && (!tempBuffer.hasWrap)) {
+            continue;
+        }
+        cmdBufferReal.command.clear();
+        cmdBufferReal.extras.clear();
         if (_hasZeroShapeOutput(info)) {
             continue;
         }
@@ -290,11 +364,15 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             tempBuffer.hasWrap = false;
             GeometryComputerUtils::makeRaster(tempBuffer, cmdBufferReal, geoContext);
-            for (auto t : info.outputs) {
+            for (int v=0; v<info.outputs.size(); ++v) {
+                auto t = info.outputs[v];
                 auto des = TensorUtils::getDescribe(t);
                 if (des->usage == Tensor::InsideDescribe::OUTPUT || des->usage == Tensor::InsideDescribe::TRAINABLE) {
                     // For output and trainable value, must directly compute the tensor
                     geoContext.getRasterCacheCreateRecursive(t, cmdBufferReal);
+                    if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                        des->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+                    }
                 }
             }
         }
@@ -352,16 +430,12 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
             if (!OpCommonUtils::opNeedContent(op, i)) {
                 continue;
             }
-            auto des = TensorUtils::getDescribe(cmd.inputs[i]);
-            //MNN_ASSERT(des->tensorArrayAttr == nullptr);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                ctx.getRasterCacheCreateRecursive(cmd.inputs[i], dstBuffer);
-            }
+            ctx.getRasterCacheCreateRecursive(cmd.inputs[i], dstBuffer);
         }
         dstBuffer.command.emplace_back(srcBuffer.command[index]);
     }
 }
-SharedPtr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output) {
+std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     BinaryOpBuilder builder_(builder);
     builder_.add_opType(type);
@@ -371,7 +445,7 @@ SharedPtr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, T
     opB.add_main(mainOffset);
     opB.add_main_type(OpParameter_BinaryOp);
     builder.Finish(opB.Finish());
-    SharedPtr<Command> cmdP = new Command;
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.buffer.reset(new BufferStorage);
     cmd.buffer->storage = builder.ReleaseRaw(cmd.buffer->allocated_size, cmd.buffer->offset);
@@ -381,7 +455,7 @@ SharedPtr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, T
     return cmdP;
 }
 
-SharedPtr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output) {
+std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     auto vec = builder.CreateVector(std::vector<int>{1});
     ReductionParamBuilder builder_(builder);
@@ -394,7 +468,7 @@ SharedPtr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor*
     opB.add_main(mainOffset);
     opB.add_main_type(OpParameter_ReductionParam);
     builder.Finish(opB.Finish());
-    SharedPtr<Command> cmdP = new Command;
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.buffer.reset(new BufferStorage);
     cmd.buffer->storage = builder.ReleaseRaw(cmd.buffer->allocated_size, cmd.buffer->offset);
@@ -403,7 +477,7 @@ SharedPtr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor*
     cmd.op      = flatbuffers::GetRoot<Op>(cmd.buffer->buffer());
     return cmdP;
 }
-SharedPtr<Command> GeometryComputerUtils::makeUnary(UnaryOpOperation type, Tensor* input0, Tensor* output) {
+std::shared_ptr<Command> GeometryComputerUtils::makeUnary(UnaryOpOperation type, Tensor* input0, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     UnaryOpBuilder builder_(builder);
     builder_.add_opType(type);
@@ -413,7 +487,7 @@ SharedPtr<Command> GeometryComputerUtils::makeUnary(UnaryOpOperation type, Tenso
     opB.add_main(mainOffset);
     opB.add_main_type(OpParameter_UnaryOp);
     builder.Finish(opB.Finish());
-    SharedPtr<Command> cmdP = new Command;
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.buffer.reset(new BufferStorage);
     cmd.buffer->storage = builder.ReleaseRaw(cmd.buffer->allocated_size, cmd.buffer->offset);
@@ -422,9 +496,9 @@ SharedPtr<Command> GeometryComputerUtils::makeUnary(UnaryOpOperation type, Tenso
     cmd.op      = flatbuffers::GetRoot<Op>(cmd.buffer->buffer());
     return cmdP;
 }
-SharedPtr<Command> GeometryComputerUtils::makeCommand(flatbuffers::FlatBufferBuilder& builder, const std::vector<Tensor*>& inputs,
+std::shared_ptr<Command> GeometryComputerUtils::makeCommand(flatbuffers::FlatBufferBuilder& builder, const std::vector<Tensor*>& inputs,
                                            const std::vector<Tensor*>& outputs) {
-    SharedPtr<Command> cmdP = new Command;
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.buffer.reset(new BufferStorage);
     cmd.buffer->storage = builder.ReleaseRaw(cmd.buffer->allocated_size, cmd.buffer->offset);
@@ -434,9 +508,9 @@ SharedPtr<Command> GeometryComputerUtils::makeCommand(flatbuffers::FlatBufferBui
     return cmdP;
 }
 
-SharedPtr<Command> GeometryComputerUtils::makeMatMul(Tensor* input0, Tensor* input1, Tensor* output, Tensor* Bias, bool transposeA,
+std::shared_ptr<Command> GeometryComputerUtils::makeMatMul(Tensor* input0, Tensor* input1, Tensor* output, Tensor* Bias, bool transposeA,
                                           bool transposeB) {
-    SharedPtr<Command> cmdP = new Command;
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     MatMulBuilder builder_(builder);

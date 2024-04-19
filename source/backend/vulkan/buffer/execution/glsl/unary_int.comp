@@ -1,0 +1,41 @@
+#version 440
+#define FLOAT4 ivec4
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT4 data[];
+} uInput;
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
+    vec4 slope;
+} uConstant;
+
+//for dynamic change threads counts from outside
+// from vkCreateComputePipelines->VkComputePipelineCreateInfo->VkPipelineShaderStageCreateInfo->VkSpecializationInfo->VkSpecializationMapEntry
+// layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.x) {
+        FLOAT4 value = uInput.data[posTmp.x];
+#ifdef NEG
+        value = -value;
+#endif
+#ifdef SIGN
+        value = sign(value);
+#endif
+#ifdef ABS
+        value = abs(value);
+#endif
+#ifdef SQUARE
+        value = value * value;
+#endif
+        uOutput.data[posTmp.x] = value;
+    }
+}

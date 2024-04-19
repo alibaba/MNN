@@ -51,10 +51,11 @@
 asm_function ARMV86_MNNPackedMatMul_BF16
 //void ARMV86_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 // x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias
-stp d14, d15, [sp, #-64]!
+stp d14, d15, [sp, #-80]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
+stp x19, x21, [sp, #64]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
@@ -71,8 +72,8 @@ lsr x9, x9, #2
 
 cbz x4, Start
 ld1 {v5.4s}, [x4]
-mov w17, v5.s[2] // min value
-mov w18, v5.s[3] // max value
+mov w19, v5.s[2] // min value
+mov w20, v5.s[3] // max value
 
 Start:
     cmp x10, #2
@@ -169,8 +170,8 @@ LoopH:
         uzp2 v30.2d, v30.2d, v31.2d
         cbz x4, StoreLH8
     PostTreatLH8:
-        dup v5.4s, w17
-        dup v6.4s, w18
+        dup v5.4s, w19
+        dup v6.4s, w20
         FOURFMAX v5, v7, v8, v9, v10
         FOURFMAX v5, v11, v12, v13, v14
         FOURFMAX v5, v15, v16, v17, v18
@@ -259,8 +260,8 @@ LoopHR:
         uzp2 v18.2d, v18.2d, v19.2d
         cbz x4, StoreLH4
     PostTreatLH4:
-        dup v5.4s, w17
-        dup v6.4s, w18
+        dup v5.4s, w19
+        dup v6.4s, w20
         FOURFMAX v5, v7, v8, v9, v10
         FOURFMAX v5, v11, v12, v13, v14
         FOURFMAX v5, v15, v16, v17, v18
@@ -275,10 +276,11 @@ LoopHR:
         st1 {v11.4h, v12.4h, v13.4h, v14.4h}, [x0], #32 // 16 * sizeof(int16_t)
         st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], #32 // 16 * sizeof(int16_t)
 End:
+ldp x19, x21, [sp, #64]
 ldp d8,  d9,  [sp, #48]
 ldp d10, d11, [sp, #32]
 ldp d12, d13, [sp, #16]
-ldp d14, d15, [sp], #64
+ldp d14, d15, [sp], #80
 ret
 
 #endif

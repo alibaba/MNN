@@ -170,6 +170,44 @@ static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_
     ::memcpy(dst, tempDst, areaRemain * 2 * sizeof(int16_t));
 }
 
+static void MNNGridSampleComputeCord3DFp16(FLOAT* dst, const FLOAT* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
+    float16x8_t zero = vdupq_n_f16(0);
+    float16x8_t one = vdupq_n_f16(1);
+    float16x8_t half = vdupq_n_f16(0.5f);
+    float16x8_t a = alignCorners ? one : zero;
+    float16x8_t b = alignCorners ? zero : one;
+    float16x8_t inW_sub_a = vsubq_f16(vdupq_n_f16(inW), a);
+    float16x8_t inH_sub_a = vsubq_f16(vdupq_n_f16(inH), a);
+    float16x8_t inD_sub_a = vsubq_f16(vdupq_n_f16(inD), a);
+    size_t area = outH * outW * outD;
+    size_t areaC8 = area / 8;
+    size_t areaRemain = area - areaC8 * 8;
+
+    for (int i = 0; i < areaC8; ++i) {
+        auto cordH = vld3q_f16(src);
+        // float16x8_t x = cordH.val[0];
+        // float16x8_t y = cordH.val[1];
+        cordH.val[0] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[0]), inW_sub_a), b));
+        cordH.val[1] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[1]), inH_sub_a), b));
+        cordH.val[2] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[2]), inD_sub_a), b));
+        vst3q_f16(dst, cordH);
+        src += 24;
+        dst += 24;
+    }
+    if (areaRemain == 0) {
+        return;
+    }
+
+    // areaRemain
+    FLOAT16 tempDst[24];
+    ::memcpy(tempDst, src, areaRemain * 3 * sizeof(int16_t));
+    auto cordH = vld3q_f16(tempDst);
+    cordH.val[0] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[0]), inW_sub_a), b));
+    cordH.val[1] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[1]), inH_sub_a), b));
+    cordH.val[2] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[2]), inD_sub_a), b));
+    vst3q_f16(tempDst, cordH);
+    ::memcpy(dst, tempDst, areaRemain * 3 * sizeof(int16_t));
+}
 static void MNNRoiPoolingMaxFP16(FLOAT16* dst, const FLOAT16* src, int hLen, int wLen, int iw) {
     Vec max = Vec(-65504.0f);
     for (int h = 0; h < hLen; h++, src += iw * 8) {
@@ -625,6 +663,7 @@ static CoreFunctions* gInstance = nullptr;
 
 bool Arm82Functions::init() {
     using Vec = MNN::Math::Vec<FLOAT16, 8>;
+    auto origin = MNNGetCoreFunctions();
 #define FUNC_PTR_ASSIGN(dst, src) dst = (decltype(dst))(src)
     gInstance = new CoreFunctions;
 
@@ -652,6 +691,8 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterp, MNNGridSampleInterp);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterpGrad, MNNGridSampleInterpGrad);
+    FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord3D, MNNGridSampleComputeCord3DFp16);
+    FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterp3D, MNNGridSampleInterp3D);
     FUNC_PTR_ASSIGN(gInstance->MNNRoiPoolingMax, MNNRoiPoolingMaxFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNRoiAlignMax, MNNRoiAlignMaxFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNRoiAlignAvg, MNNRoiAlignAvgFP16);
@@ -670,11 +711,9 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNQuantScale, MNNQuantScaleFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNDynamicQuant, MNNDynamicQuantFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNQuantSum, MNNQuantSumFP16);
-    cpuinfo_arm_isa gCPUInfo;
-    cpuinfo_arm_init(&gCPUInfo);
-    gInstance->supportFp16arith = gCPUInfo.fp16arith;
-    gInstance->supportSDot = gCPUInfo.dot;
-    gInstance->supportI8mm = gCPUInfo.i8mm;
+    gInstance->supportFp16arith = origin->supportFp16arith;
+    gInstance->supportSDot = origin->supportSDot;
+    gInstance->supportI8mm = origin->supportI8mm;
     #if defined(__aarch64__)
     if (gInstance->supportSDot) {
         gInstance->MNNGemmHybridInt8 = MNNGemmHybridInt8FP16_sdot;

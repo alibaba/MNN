@@ -21,7 +21,7 @@ void callFloat2Half(const void* input, void* output, const int count, CUDARuntim
 #ifdef ENABLE_CUDA_BF16
 void callFloat2BFloat16(const void* input, void* output, const int count, CUDARuntime* runtime);
 #endif
-void callWeightFill(const void* input, void* output, const int ic, const int l, const int h, const int lp, const int hp, const int precision, CUDARuntime* runtime);
+void callWeightFill(const void* input, void* output, const int ic, const int l, const int h, const int lp, const int hp, const int precision, CUDARuntime* runtime, int quant_int_bit = 0);
 void callIm2ColPack(const void* input, void* output, const ConvolutionCommon::Im2ColParameter* info, const int e, const int l, const int ep, const int lp, const int precision, CUDARuntime* runtime);
 
 ErrorCode callCutlassGemmCudaCoreFloat16(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs);

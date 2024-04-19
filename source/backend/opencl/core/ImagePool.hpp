@@ -29,6 +29,7 @@ public:
     struct Node {
         int w;
         int h;
+        cl_channel_type type;
         std::shared_ptr<cl::Image> image;
     };
 

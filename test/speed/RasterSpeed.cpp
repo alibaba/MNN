@@ -81,7 +81,7 @@ public:
                 des->regions.push_back(region);
             } else {
                 backend->onAcquireBuffer(tensor, Backend::STATIC);
-                TensorUtils::getDescribe(tensor)->setBackend(backend.get());
+                TensorUtils::getDescribeOrigin(tensor)->setBackend(backend.get());
             }
         }
         auto middle = tensors[1].get();

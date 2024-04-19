@@ -377,6 +377,10 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         if (nullptr == expr->get()) {
             return false;
         }
+        if (expr->get()->type() == OpType_Const || expr->get()->type() == OpType_TrainableParam) {
+            return false;
+        }
+
         int inputs_size = static_cast<int32_t>(expr->inputs().size());
         for (int i = 0; i < inputs_size; ++i) {
             if (!matchConvInt8ToOther(expr, i) && !matchOtherToOther(expr, i)) {
@@ -409,6 +413,9 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
     // endding op->X
     auto matchXToEnd= [](EXPRP expr) { // otherOp->quant->cast->dequant->convint8
         if (nullptr == expr->get()) {
+            return false;
+        }
+        if (expr->get()->type() == OpType_Const || expr->get()->type() == OpType_TrainableParam) {
             return false;
         }
         // check op type is Int8ToFloat.

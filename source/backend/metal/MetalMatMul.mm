@@ -24,6 +24,11 @@ MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : MetalExecutio
     auto mkbn = static_cast<MetalBackend *>(backend);
     mConstBuffer = mkbn->getConstBuffer(sizeof(matP));
 }
+MetalMatMul::~MetalMatMul() {
+    auto mkbn = static_cast<MetalBackend *>(backend());
+    mkbn->returnConstBuffer(mConstBuffer);
+}
+
 ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor* C       = outputs[0];
     auto w0         = inputs[0]->length(1);

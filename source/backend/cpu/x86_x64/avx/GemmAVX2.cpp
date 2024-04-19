@@ -204,6 +204,66 @@ void _AVX_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t s
         }
     }
 }
+
+void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    // source: (ic/8, N, 8)
+    auto srcStep = pack * realSize;
+    auto constant = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF));
+    float temp[8];
+    for (int i = 0; i < realSize; ++i) {
+        __m256 res = _mm256_setzero_ps();
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto src0 = source + c * srcStep + i * pack;
+            __m256 vecA = _mm256_loadu_ps(src0);
+            __m256 absVecA = _mm256_and_ps(vecA, constant);
+            __m256 mask = _mm256_cmp_ps(absVecA, res, 1);
+            res = _mm256_blendv_ps(absVecA, res, mask);
+        }
+        _mm256_storeu_ps(temp, res);
+        float absmaxVal = temp[0];
+        for (int k = 1; k < pack; ++k) {
+            if (absmaxVal < temp[k]) {
+                absmaxVal = temp[k];
+            }
+        }
+        absmax[i] = absmaxVal;
+    }
+}
+
+void _AVX_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack) {
+    // AVX: pack=8
+    __m256 zero = _mm256_setzero_ps();
+    __m256 plus = _mm256_set1_ps(0.5f);
+    __m256 minus = _mm256_set1_ps(-0.5f);
+    auto offset = _mm256_set1_epi32(128);
+    uint8_t* dstPtr = reinterpret_cast<uint8_t*>(dst);
+    float temp[8];
+    for (int i = 0; i < realSize; ++i) {
+        __m256 scaleVal = _mm256_set1_ps(scale[i]);
+        __m256 acc = _mm256_setzero_ps();
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto srcZ = src + c * pack * realSize + i * pack;
+            auto dstZ = dstPtr + c * pack * realSize + i * pack;
+            __m256 f0 = _mm256_loadu_ps(srcZ);
+            __m256 m0 = _mm256_mul_ps(f0, scaleVal);
+            __m256 mask = _mm256_cmp_ps(m0, zero, 1);
+            __m256 d0 = _mm256_blendv_ps(plus, minus, mask);
+            d0 = _mm256_add_ps(d0, m0);
+            __m256 round0 = _mm256_round_ps(d0, 3);
+            auto d0_epi32 = _mm256_cvtps_epi32(round0); // int32x8
+            auto d0_epi16 = _mm256_packs_epi32(d0_epi32, _mm256_castps_si256(_mm256_permute2f128_ps(_mm256_castsi256_ps(d0_epi32), _mm256_castsi256_ps(d0_epi32), 1)));
+            // d0_epi32 = _mm256_packs_epi32(d0_epi32, d0_epi32); // int16x8
+            d0_epi32 = _mm256_packs_epi16(d0_epi16, d0_epi16); // int8x8
+            auto D0 = _mm_castsi128_ps(_mm256_extracti128_si256(d0_epi32, 0));
+            _mm_storeu_ps(temp, D0);
+            ::memcpy(dstZ, temp, pack * sizeof(int8_t));
+            acc = _mm256_add_ps(acc, round0);
+        }
+        _mm256_storeu_ps(temp, acc);
+        int sumVal = static_cast<int32_t>(temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7]);
+        ((int32_t*)sum)[i] = sumVal;
+    }
+}
 #endif
 
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
@@ -409,3 +469,4 @@ void _AVX_MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const
         C[y] = sumSingle;
     }
 }
+

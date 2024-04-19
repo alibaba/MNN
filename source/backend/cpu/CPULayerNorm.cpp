@@ -12,58 +12,56 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Execution.hpp"
 #include "core/Concurrency.h"
-#include "core/OpCommonUtils.hpp"
+#include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
 
-bool CPULayerNorm::allocGammaBeta(int size) {
-    mIniGammaBeta = true;
-    mGamma.reset(Tensor::createDevice<float>({size}));
-    auto status = backend()->onAcquireBuffer(mGamma.get(), Backend::STATIC);
-    if (!status) {
-        MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
-        return false;
-    }
-    mBeta.reset(Tensor::createDevice<float>({size}));
-    status = backend()->onAcquireBuffer(mBeta.get(), Backend::STATIC);
-    if (!status) {
-        MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
-        return false;
-    }
-    return true;
+CPULayerNorm::CPULayerNorm(std::shared_ptr<Resource> res, Backend* backend) : Execution(backend) {
+    mResource = res;
 }
 
-CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend) : Execution(backend) {
+std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op* op, Backend* backend) {
     const auto* layer_norm_param = op->main_as_LayerNorm();
-    mAxis = layer_norm_param->axis()->size();
-    mGroup = layer_norm_param->group();
-    mEpsilon = layer_norm_param->epsilon();
-
-    if (USE_EXTERNAL_DATA(layer_norm_param)) {
-        int32_t size = static_cast<int32_t>(layer_norm_param->external()->Get(1));
-        allocGammaBeta(size);
-        OpCommonUtils::loadExternalDatas(backend, {mGamma->host<char>(), mBeta->host<char>()}, layer_norm_param->external()->data());
-        return;
+    std::shared_ptr<CPULayerNorm::Resource> res(new Resource);
+    res->mAxis = 0;
+    if (nullptr != layer_norm_param->axis()) {
+        res->mAxis = layer_norm_param->axis()->size();
     }
-
+    res->mGroup = layer_norm_param->group();
+    res->mEpsilon = layer_norm_param->epsilon();
+    res->mRMSNorm = layer_norm_param->useRMSNorm();
     if (layer_norm_param->gamma() && layer_norm_param->beta()) {
         int size = layer_norm_param->gamma()->size();
+        res->mIniGammaBeta = true;
+        res->mGamma.reset(Tensor::createDevice<float>({size}));
+        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC);
+        if (!status) {
+            MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
+            return nullptr;
+        }
+        res->mBeta.reset(Tensor::createDevice<float>({size}));
+        status = backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
+        if (!status) {
+            MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
+            return nullptr;
+        }
+
         if (layer_norm_param->beta()->size() != size) {
             MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
         }
-        allocGammaBeta(size);
         const float* gamma_data = layer_norm_param->gamma()->data();
-        memcpy(mGamma->host<float>(), gamma_data, size * sizeof(float));
+        memcpy(res->mGamma->host<float>(), gamma_data, size * sizeof(float));
         const float* beta_data = layer_norm_param->beta()->data();
-        memcpy(mBeta->host<float>(), beta_data, size * sizeof(float));
+        memcpy(res->mBeta->host<float>(), beta_data, size * sizeof(float));
     }
+    return res;
 }
 
 ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
                                   const std::vector<Tensor*> &outputs) {
-    const float* gamma = mIniGammaBeta ? mGamma->host<float>() : nullptr;
-    const float* beta = mIniGammaBeta ? mBeta->host<float>() : nullptr;
+    const float* gamma = mResource->mIniGammaBeta ? mResource->mGamma->host<float>() : nullptr;
+    const float* beta = mResource->mIniGammaBeta ? mResource->mBeta->host<float>() : nullptr;
     
     if (mInpZero.data()) {
         const int8_t* input = inputs[0]->host<int8_t>();
@@ -79,7 +77,7 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
             params.outputZeroPoint = mOutZero.data();
             const int8_t* inner_input = input + tId * mInnerSize;
             int8_t* inner_output = output + tId * mInnerSize;
-            core->MNNNormInt8(inner_output, inner_input, gamma, beta, mEpsilon, mInnerSize, &params);
+            core->MNNNormInt8(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, &params, mResource->mRMSNorm);
         }
         MNN_CONCURRENCY_END();
         return NO_ERROR;
@@ -90,7 +88,7 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
     MNN_CONCURRENCY_BEGIN(tId, mOutterSize) {
         const float* inner_input = input + tId * mInnerSize;
         float* inner_output = output + tId * mInnerSize;
-        MNNNorm(inner_output, inner_input, gamma, beta, mEpsilon, mInnerSize);
+        MNNNorm(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
     }
     MNN_CONCURRENCY_END();
     return NO_ERROR;
@@ -101,18 +99,18 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
     mOutterSize = 1;
     mInnerSize = 1;
     int rank = inputs.at(0)->dimensions();
-    if (mGroup > 1) {
-        mOutterSize = inputs.at(0)->length(0) * mGroup;
+    if (mResource->mGroup > 1) {
+        mOutterSize = inputs.at(0)->length(0) * mResource->mGroup;
         for (int i = 1; i < rank; i++) {
             mInnerSize *= inputs.at(0)->length(i);
         }
-        mInnerSize /= mGroup;
+        mInnerSize /= mResource->mGroup;
         return NO_ERROR;
     }
-    for (int i = 0; i < rank - mAxis; ++i) {
+    for (int i = 0; i < rank - mResource->mAxis; ++i) {
         mOutterSize *= inputs.at(0)->length(i);
     }
-    for (int i = rank - mAxis; i < rank; ++i) {
+    for (int i = rank - mResource->mAxis; i < rank; ++i) {
         mInnerSize *= inputs.at(0)->length(i);
     }
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
@@ -134,18 +132,24 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
 }
 
 CPULayerNorm::~CPULayerNorm() {
-    if (mGamma.get()) {
-        backend()->onReleaseBuffer(mGamma.get(), Backend::STATIC);
+    // Do nothing
+}
+bool CPULayerNorm::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (nullptr == dst) {
+        return true;
     }
-    if (mBeta.get()) {
-        backend()->onReleaseBuffer(mBeta.get(), Backend::STATIC);
-    }
+    *dst = new CPULayerNorm(mResource, bn);
+    return true;
 }
 
 class CPULayerNormCreator : public CPUBackend::Creator {
 public:
     Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* backend) const override {
-        return new CPULayerNorm(op, backend);
+        auto res = CPULayerNorm::makeResource(op, backend);
+        if (nullptr == res.get()) {
+            return nullptr;
+        }
+        return new CPULayerNorm(res, backend);
     }
 };
 

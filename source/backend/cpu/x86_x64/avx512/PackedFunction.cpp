@@ -37,6 +37,41 @@ void _AVX512_MNNAddC4WithStride(const float* source, float* dest, size_t srcStri
     }
 }
 
+void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+    int pack = 16;
+    int sizeDiv16 = UP_DIV(size, pack);
+    __m512 minVal = _mm512_loadu_ps(source);
+    __m512 maxVal = minVal;
+    float maxArr[16], minArr[16];
+    for (int i = 1; i < sizeDiv16; ++i) {
+        auto src0 = source + pack * i;
+        __m512 vecA = _mm512_loadu_ps(src0);
+        auto maskMax = _mm512_cmp_ps_mask(vecA, maxVal, 14);
+        auto maskMin = _mm512_cmp_ps_mask(vecA, minVal, 1);
+        maxVal = _mm512_mask_blend_ps(maskMax, maxVal, vecA);
+        minVal = _mm512_mask_blend_ps(maskMin, minVal, vecA);
+    }
+    _mm512_storeu_ps(maxArr, maxVal);
+    _mm512_storeu_ps(minArr, minVal);
+    float max_ = maxArr[0], min_ = minArr[0];
+    for (int k = 1; k < pack; ++k) {
+        if (max_ < maxArr[k]) {
+            max_ = maxArr[k];
+        }
+        if (min_ > minArr[k]) {
+            min_ = minArr[k];
+        }
+    }
+    min[0] = min_;
+    max[0] = max_;
+    // float range = max_ - min_;
+    // MNN_ASSERT(range != 0);
+    // *quantScale = 255.0f / range;
+    // *dequantScale = range / 255.0f;
+    // *zeroPoint = std::min(255.f, std::max(roundf(-(min_ * 255.f) / range), 0.f)) - 128.f;
+
+}
+
 void _AVX512_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     auto zero = _mm_set1_ps(0.0f);
     auto zero2 = _mm512_set1_ps(0.0f);
@@ -701,6 +736,7 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNScaleAndAddBias = _AVX512_MNNScaleAndAddBias;
     coreFunction->MNNMatrixAdd          = _AVX512_MNNMatrixAdd;
     coreFunction->MNNMatrixSub          = _AVX512_MNNMatrixSub;
+    coreFunction->MNNCountMaxMinValue = _AVX512_MNNComputeScaleZeroScalar;
 
     coreFunction->MNNConvRunForUnitDepthWise = _AVX512_MNNConvRunForUnitDepthWise;
     coreFunction->MNNConvRunForLineDepthwise = _AVX512_MNNConvRunForLineDepthwise;

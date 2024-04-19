@@ -35,6 +35,7 @@ public:
         Interpreter::SessionMode codegenMode = Interpreter::Session_Codegen_Disable;
         int memoryAllocatorType = 0;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
+        int winogradMemoryUsed = 3;
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
             RuntimeInfo&& runtime);
@@ -59,6 +60,8 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
+    void openResizeCheck();
+    ErrorCode fixResizeCache();
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.

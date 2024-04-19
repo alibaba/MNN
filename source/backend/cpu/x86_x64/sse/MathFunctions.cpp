@@ -214,25 +214,28 @@ void _SSE_MNNHardSwish(float* dst, const float* src, size_t size) {
     }
 }
 
-void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) {
+void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {
     float tmpfloat4[4];
     int count  = static_cast<int32_t>(size / 4);
     int remain = count * 4;
-    // step 1: get sum
-    float sum = 0.f;
-    if (count > 0) {
-        auto sumVal = _mm_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            sumVal = _mm_add_ps(sumVal, _mm_loadu_ps(src + i * 4));
+    float mean = 0;
+    if(!RMSNorm){
+        // step 1: get sum
+        float sum = 0.f;
+        if (count > 0) {
+            auto sumVal = _mm_set1_ps(0.f);
+            for (int i = 0; i < count; i++) {
+                sumVal = _mm_add_ps(sumVal, _mm_loadu_ps(src + i * 4));
+            }
+            _mm_storeu_ps(tmpfloat4, sumVal);
+            sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
         }
-        _mm_storeu_ps(tmpfloat4, sumVal);
-        sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
-    }
-    for (int i = remain; i < size; i++) {
-        sum += src[i];
+        for (int i = remain; i < size; i++) {
+            sum += src[i];
+        }
+        mean = sum / size;
     }
     // step 2: get square_sum
-    float mean = sum / size;
     float square_sum = 0.f;
     auto meanVal = _mm_set1_ps(mean);
     if (count > 0) {
@@ -274,7 +277,7 @@ void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float 
         }
     }
 }
-void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params) {
+void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
     float tmpfloat4[4];
     int count  = static_cast<int32_t>(size / 4);
     int remain = count * 4;
@@ -287,20 +290,23 @@ void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const 
     float* dstf = outf.data();
     // step 0: Int8 -> Float
     _SSE_MNNInt8ScaleToFloat(inpf.data(), src, inpScale.data(), size / 4, params->inputZeroPoint[0]);
-    // step 1: get sum
-    if (count > 0) {
-        auto sumVal = _mm_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            sumVal = _mm_add_ps(sumVal, _mm_loadu_ps(srcf + i * 4));
+    float mean = 0;
+    if(!RMSNorm){
+        // step 1: get sum
+        if (count > 0) {
+            auto sumVal = _mm_set1_ps(0.f);
+            for (int i = 0; i < count; i++) {
+                sumVal = _mm_add_ps(sumVal, _mm_loadu_ps(srcf + i * 4));
+            }
+            _mm_storeu_ps(tmpfloat4, sumVal);
+            sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
         }
-        _mm_storeu_ps(tmpfloat4, sumVal);
-        sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
-    }
-    for (int i = remain; i < size; i++) {
-        sum += srcf[i];
+        for (int i = remain; i < size; i++) {
+            sum += srcf[i];
+        }
+        mean = sum / size;
     }
     // step 2: get square_sum
-    float mean = sum / size;
     float square_sum = 0.f;
     auto meanVal = _mm_set1_ps(mean);
     if (count > 0) {

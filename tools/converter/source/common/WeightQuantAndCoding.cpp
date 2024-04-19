@@ -98,7 +98,7 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         case MNN::OpType_ConvolutionDepthwise:
         case MNN::OpType_Deconvolution:
         case MNN::OpType_DeconvolutionDepthwise: {
-            weightData = param->weight;
+            weightData = std::move(param->weight);
 
             if (asymmetricQuantFlag) {
                 scales.resize(kernelNum*2);
@@ -155,8 +155,10 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         param->symmetricQuan->weight.clear();
         param->quanParameter->alpha = {1.0f}; // fake scales
     } else {
-        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), int(clampMin), bits);
+        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), int(clampMin), bits, config.detectSparseSpeedUp);
         param->weight.clear();
+        std::vector<float> empty;
+        param->weight.swap(empty);
     }
 };
 

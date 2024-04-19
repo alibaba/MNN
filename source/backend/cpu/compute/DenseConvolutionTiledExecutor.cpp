@@ -45,6 +45,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
 
     auto dstWInt8 = resource->mWeight->host<int8_t>();
     auto srcWInt8 = int8Info->weight.get();
+    ::memset(dstWInt8, 0, resource->mWeight->usize());
     for (int y=0; y<outputCount; ++y) {
         int yo = y / hP;
         int yi = y % hP;
@@ -64,56 +65,61 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     if (!res) {
         return false;
     }
-    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
-    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + hU * hP * bytes);
-    ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
-    int h = int8Info->alpha.size();
-    if (bytes == 2) {
-        auto core = static_cast<CPUBackend*>(resource->backend)->functions();
-        if (int8Info->asymmetric) {
-            std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
-            core->MNNFp32ToLowp(int8Info->alpha.get(), tmp.get(), h);
-            for (int i=0; i< h/2; ++i) {
-                reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[2 * i + 1];
-                reinterpret_cast<int16_t*>(biasPtr)[i] = tmp[2 * i];
-            }
-        } else {
-            core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(alphaPtr), h);
-        }
-    } else {
-        if (int8Info->asymmetric) {
-            h = h / 2;
-            for (int i=0; i<h; ++i) {
-                alphaPtr[i] = int8Info->alpha.get()[2 * i + 1];
-                biasPtr[i] = int8Info->alpha.get()[2 * i];
-            }
-        } else {
-            for (int i=0; i<h; ++i) {
-                alphaPtr[i] = int8Info->alpha.get()[i];
-                biasPtr[i] = 0.f;
-            }
-        }
-    }
+    int originOffset = 0;
     if (int8Info->canUseInt4) {
         MNN_ASSERT(weightLength % 2 == 0);
         weightLength = UP_DIV(weightLength, 2);
         resource->mDequantize.bits = 4;
-        resource->mDequantize.mLowBitWeightMap = int8Info->weightMap;
-        std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<uint8_t>(
+        std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<int8_t>(
             {weightLength}));
         auto res = resource->backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
         if (!res) {
             return false;
         }
         auto srcPtr = resource->mWeight->host<int8_t>();
-        auto dstPtr = weightLow->host<uint8_t>();
+        auto dstPtr = weightLow->host<unsigned char>();
         for (int i=0; i<weightLength; ++i) {
-            int s0 = srcPtr[2 * i + 0];
-            int s1 = srcPtr[2 * i + 1];
-            int d = (s0 + 8) * 16 + (s1 + 8);
+            int s0 = srcPtr[2 * i + 0] + 8;
+            int s1 = srcPtr[2 * i + 1] + 8;
+            int d = s0 * 16 + s1;
             dstPtr[i] = d;
         }
+        originOffset = -8;
         resource->mWeight = weightLow;
+    }
+    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
+    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + hU * hP * bytes);
+    ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
+    int h = int8Info->alpha.size();
+    if (bytes == 2) {
+        auto core = static_cast<CPUBackend*>(resource->backend)->functions();
+        std::vector<float> tmpAlpha(hU*hP*2, 0.0f);
+        if (int8Info->asymmetric) {
+            int hh = h / 2;
+            for (int i=0; i<hh; ++i) {
+                tmpAlpha[i] = int8Info->alpha.get()[2 * i + 1];
+                tmpAlpha[i+hU*hP] = int8Info->alpha.get()[2 * i] + (float)originOffset * int8Info->alpha.get()[2 * i + 1];
+            }
+        } else {
+            for (int i=0; i<h; ++i) {
+                tmpAlpha[i] = int8Info->alpha.get()[i];
+                tmpAlpha[i+hU*hP] = (float)originOffset * int8Info->alpha.get()[i];
+            }
+        }
+        core->MNNFp32ToLowp(tmpAlpha.data(), reinterpret_cast<int16_t*>(alphaPtr), hU*hP*2);
+    } else {
+        if (int8Info->asymmetric) {
+            int hh = h / 2;
+            for (int i=0; i<hh; ++i) {
+                alphaPtr[i] = int8Info->alpha.get()[2 * i + 1];
+                biasPtr[i] = int8Info->alpha.get()[2 * i] + (float)originOffset * alphaPtr[i];
+            }
+        } else {
+            for (int i=0; i<h; ++i) {
+                alphaPtr[i] = int8Info->alpha.get()[i];
+                biasPtr[i] = 0.f + (float)originOffset * alphaPtr[i];
+            }
+        }
     }
     return true;
 }

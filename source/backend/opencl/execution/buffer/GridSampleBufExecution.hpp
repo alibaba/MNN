@@ -11,20 +11,16 @@
 #ifndef GridSampleBufExecution_hpp
 #define GridSampleBufExecution_hpp
 
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
-class GridSampleBufExecution : public Execution, public CommonExtension {
+class GridSampleBufExecution : public CommonExecution {
 public:
     GridSampleBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~GridSampleBufExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     SampleMode mMode;
@@ -34,7 +30,6 @@ private:
     std::vector<uint32_t> mGlobalWorkSize{ 0,0,0,0 };
     std::vector<uint32_t> mLocalWorkSize{ 0,0,0,0 };
 
-    cl::Kernel mKernel;
     std::string	mKernelName;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;

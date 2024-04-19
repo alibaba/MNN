@@ -45,15 +45,3 @@ void AlignDenormalizedValue(std::unique_ptr<MNN::OpT>& op) {
     }
 
 };
-
-void AlignDenormalizedValue(std::unique_ptr<MNN::NetT>& netT) {
-    for (auto& op : netT->oplists) {
-        AlignDenormalizedValue(op);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            AlignDenormalizedValue(op);
-        }
-    }
-}
-

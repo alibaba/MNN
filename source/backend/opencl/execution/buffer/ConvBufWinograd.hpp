@@ -11,44 +11,42 @@
 #ifndef __CONVBUF_WINOGRAD__
 #define __CONVBUF_WINOGRAD__
 
-#include "core/Execution.hpp"
-
-#include <array>
-#include <memory>
-#include <vector>
 #include "backend/opencl/execution/buffer/ConvBufExecution.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
-class ConvBufWinograd : public Execution, public CommonExtension {
+
+struct ConvBufWinoResource {
+    const Convolution2DCommon* mCommon;
+    bool mUseSubgroup{false};
+    std::shared_ptr<Tensor> mWeight;
+    std::shared_ptr<Tensor> mBias;
+};
+
+class ConvBufWinograd : public CommonExecution {
 public:
-    ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend);
+    ConvBufWinograd(const MNN::Op* op, Backend* backend);
+    ConvBufWinograd(std::shared_ptr<ConvBufWinoResource> resource, const MNN::Op* op, Backend* backend);
     virtual ~ConvBufWinograd();
 
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel = false, int limit = 8192);
     std::vector<uint32_t> getLocalWS(std::string kernelName, int index, std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel);
-
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
 private:
     OpenCLBackend* mOpenCLBackend;
-    const Convolution2DCommon* mCommon;
+    std::shared_ptr<ConvBufWinoResource> mResource;
     int mKernelX;
     int mKernelY;
     int mStrideX;
     int mStrideY;
-    bool mUseSubgroup{false};
-    std::shared_ptr<Tensor> mWeight;
-    std::shared_ptr<Tensor> mBias;
 
     std::shared_ptr<Tensor> mSource;
     std::shared_ptr<Tensor> mDest;
-
-    std::vector<cl::Kernel> mSourceTransform;
-    std::vector<cl::Kernel> mDestTransform;
-    std::vector<cl::Kernel> mMatMul;
 
     std::vector<uint32_t> mMaxWGS_S;
     std::vector<uint32_t> mMaxWGS_D;

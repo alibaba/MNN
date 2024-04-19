@@ -1,15 +1,14 @@
 #version 440 core
-#ifdef FP16
-#extension GL_AMD_gpu_shader_half_float: enable
-#define FLOAT4 f16vec4
-#define MAT4 f16mat4
-#extension GL_AMD_gpu_shader_half_float: enable
-#else
-#define FLOAT4 vec4
-#define MAT4 mat4
+#define OUTPUT_TYPE vec4
+
+#if defined(LESS) || defined(LESSEQUAL) || defined(GREATER) || defined(GREATEREQUAL) || defined(EQUAL) || defined(NOTEQUAL)
+#undef OUTPUT_TYPE
+#define OUTPUT_TYPE ivec4
 #endif
+
+#define FLOAT4 vec4
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    FLOAT4 data[];
+    OUTPUT_TYPE data[];
 } uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
@@ -55,6 +54,9 @@ void main()
 #ifdef DIV
         value = x0 / x1;
 #endif
+#ifdef ATAN2
+        value = atan(x0, x1);
+#endif
 #ifdef POW
         value = pow(x0, x1);
 #endif
@@ -88,9 +90,15 @@ void main()
 #ifdef VMOD
         value = mod(x0, x1);
 #endif
+#ifdef FLOORMOD
+        value = x0 - x1 * floor(x0/x1);
+#endif
+#ifdef FLOORDIV
+        value = floor(x0/x1);
+#endif
         if(uConstant.activationType == 1) {
             value = max(value, vec4(0));
         }
-        uOutput.data[posTmp.x] = value;
+        uOutput.data[posTmp.x] = OUTPUT_TYPE(value);
     }
 }

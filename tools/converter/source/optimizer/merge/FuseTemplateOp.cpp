@@ -387,7 +387,6 @@ static auto gRegister = []() {
             if (config->optimizeLevel == 2) {
                 unaryType = UnaryOpOperation_GELU;
             }
-            config->optimizeLevel;
             for (auto templateExpr : templatesExprs) {
                 std::map<EXPRP, VARP> inputConst;
                 if (isTheSameRec(templateExpr, expr, inputConst)) {

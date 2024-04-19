@@ -78,6 +78,8 @@ public:
 
     // Return sizeDivide, scheduleNumber aligned memory
     std::pair<int, int> multiThreadDivide(int size) const;
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
+
 public:
     virtual MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
@@ -117,7 +119,7 @@ public:
     }
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
-        return mDynamicAllocator.get();
+        return mCurrentDynamicAllocator;
     }
 
     BackendConfig::MemoryMode memoryMode() const {
@@ -147,11 +149,14 @@ protected:
 private:
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
+    std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     CPUResizeCache* mCache;
+    std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
+    BufferAllocator* mCurrentDynamicAllocator = nullptr;
 };
 /** execution cast wrapper. insert tensor cast dynamic. */
 class CastWrapExecution : public Execution {

@@ -1756,18 +1756,6 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
     auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
     auto scalePtr = scale->readMap<float>();
-    if (nullptr == scalePtr || nullptr == xInfo || nullptr == scaleInfo) {
-        MNN_ERROR("Error for _Int8ToFloat because var not ready\n");
-        return nullptr;
-    }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_int) {
-        MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
-        return nullptr;
-    }
-    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
-        MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
-        return nullptr;
-    }
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Int8ToFloat;
     op->main.type = OpParameter_QuantizedFloatParam;
@@ -1781,18 +1769,6 @@ VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint) {
     auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
     auto scalePtr = scale->readMap<float>();
-    if (nullptr == scalePtr || nullptr == xInfo || nullptr == scaleInfo) {
-        MNN_ERROR("Error for _Int8ToFloat because var not ready\n");
-        return nullptr;
-    }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_int) {
-        MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
-        return nullptr;
-    }
-    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
-        MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
-        return nullptr;
-    }
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Int8ToFloat;
     op->main.type = OpParameter_QuantizedFloatParam;

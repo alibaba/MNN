@@ -27,6 +27,7 @@ public:
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
@@ -46,7 +47,7 @@ public:
         return (* mRuntime->mMemoryPool);
     }
     BufferAllocator* getDynamicMemoryPool() const {
-        return mDynamicBufferPool.get();
+        return mCurrentDynamicBufferPool;
     }
     virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) override;
     
@@ -99,7 +100,8 @@ private:
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBufferForCopy;
-    std::shared_ptr<BufferAllocator> mDynamicBufferPool;
+    BufferAllocator* mCurrentDynamicBufferPool = nullptr;
+    std::vector<std::shared_ptr<BufferAllocator>> mDynamicBufferPool;
 
     mutable std::vector<VkCommandBuffer> mCmdBuffers;
     mutable std::shared_ptr<VulkanFence> mFence;

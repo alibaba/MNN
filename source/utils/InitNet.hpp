@@ -12,8 +12,11 @@
 #include "core/Schedule.hpp"
 
 namespace MNN {
+class FileLoader;
 MNN_PUBLIC bool needComputeOp(const Op* op);
-MNN_PUBLIC bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code);
+MNN_PUBLIC bool computeShapeForBlob(const Blob* parameter, Tensor* output);
+
+MNN_PUBLIC bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code, FileLoader* external);
 // init Tensors by net
 MNN_PUBLIC bool initTensors(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net);
 // init Pipeline Infos by oplist and tensors

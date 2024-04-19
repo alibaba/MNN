@@ -14,13 +14,14 @@ namespace MNN {
 namespace OpenCL {
 
 MatMulBufExecution::MatMulBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend,
-                                 bool transposeA, bool transposeB) : Execution(backend)
+                                 bool transposeA, bool transposeB) : CommonExecution(backend, op)
                                  , mTransposeA(transposeA), mTransposeB(transposeB){
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
 }
-ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
 
     Tensor *input0 = inputs[0];
     Tensor *input1 = inputs[1];
@@ -30,20 +31,18 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     std::vector<int> input1Shape = tensorShapeFormat(input1);
     std::vector<int> outputShape = tensorShapeFormat(output);
     
-    if (mKernel.get() == nullptr) {
-        std::set<std::string> buildOptions;
-        if(mTransposeA) {
-            mKernelName = mTransposeB ? "matmul_transA_transB_buf":"matmul_transA_buf";
-        } else {
-            mKernelName = mTransposeB ? "matmul_transB_buf":"matmul_buf";
-        }
-
-        if(inputs.size() > 2) {
-            buildOptions.emplace("-DBIAS");
-        }
-        mKernel           = runtime->buildKernel("matmul_buf", mKernelName, buildOptions);
-        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    std::set<std::string> buildOptions;
+    if(mTransposeA) {
+        mKernelName = mTransposeB ? "matmul_transA_transB_buf":"matmul_transA_buf";
+    } else {
+        mKernelName = mTransposeB ? "matmul_transB_buf":"matmul_buf";
     }
+
+    if(inputs.size() > 2) {
+        buildOptions.emplace("-DBIAS");
+    }
+    unit.kernel       = runtime->buildKernel("matmul_buf", mKernelName, buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     //处理二维矩阵相乘，N C相当于H W
     //二维矩阵相乘
@@ -58,23 +57,23 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(heightblocks)};
         int idx            = 0;
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        ret |= mKernel.setArg(idx++, openCLBuffer(input0));
-        ret |= mKernel.setArg(idx++, openCLBuffer(input1));
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input0));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input1));
         if(inputs.size() > 2) {
-            ret |= mKernel.setArg(idx++, openCLBuffer(inputs[2]));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
         }
-        ret |= mKernel.setArg(idx++, openCLBuffer(output));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(height));
-        ret |= mKernel.setArg(idx++, static_cast<int>(heightblocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(width));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannel));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(height));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(heightblocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(widthblocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
 
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
     }
     else {
         const int height        = input0Shape.at(0);//input0 H
@@ -85,54 +84,24 @@ ErrorCode MatMulBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
         
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(height)};
         int idx            = 0;
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        ret |= mKernel.setArg(idx++, openCLBuffer(input0));
-        ret |= mKernel.setArg(idx++, openCLBuffer(input1));
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input0));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input1));
         if(inputs.size() > 2) {
-            ret |= mKernel.setArg(idx++, openCLBuffer(inputs[2]));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
         }
-        ret |= mKernel.setArg(idx++, openCLBuffer(output));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(widthblocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(width));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannel));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(widthblocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution");
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
     }
-    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode MatMulBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start MatMulBufExecution onExecute... \n");
-#endif
-
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-        cl::Event event;
-        runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, &event);
-    
-        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"MatmulBuf", event});
-    #else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End MatMulBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
-    #endif
-    
-#ifdef LOG_VERBOSE
-    MNN_PRINT("End MatMulBufExecution onExecute... \n");
-#endif
+    mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     return NO_ERROR;
 }
 

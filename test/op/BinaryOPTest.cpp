@@ -464,7 +464,13 @@ public:
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {0, 0, 1, 1, 0, 0, 0, 0},
-                    {4, 2}, {2}, {4, 2});
+                    {4, 2}, {2}, {4, 2}) &&
+        test<int, int>(MNN::Express::_Equal, "EqualIntTest", 0,
+                    {1, 2, 3, 4, 5, 6, 7, 8},
+                    {3, 4},
+                    {0, 0, 1, 1, 0, 0, 0, 0},
+                       {4, 2}, {2}, {4, 2});
+        ;
     }
 };
 class LessEqualTest : public BinaryTestCommon {
@@ -475,7 +481,14 @@ public:
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {1, 1, 1, 1, 0, 0, 0, 0},
-                    {4, 2}, {2}, {4, 2});
+                    {4, 2}, {2}, {4, 2})
+        &&
+        test<int, int>(_LessEqual, "LessEqualIntTest", 0,
+                    {1, 2, 3, 4, 5, 6, 7, 8},
+                    {3, 4},
+                    {1, 1, 1, 1, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2})
+        ;
     }
 };
 class FloorModTest : public BinaryTestCommon {
@@ -539,7 +552,14 @@ public:
                     {true, false, true, false, false, true, true, false},
                     {true, false},
                     {false, false, false, false, true, true, false, false},
-                    {4, 2}, {2}, {4, 2});
+                    {4, 2}, {2}, {4, 2})
+        &&
+        test<float, int>(_NotEqual, "NotEqualTest", 0,
+                    {1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0},
+                    {1.0, 0.0},
+                    {false, false, false, false, true, true, false, false},
+                    {4, 2}, {2}, {4, 2})
+        ;
     }
 };
 class BitwiseAndTest : public BinaryTestCommon {

@@ -10,10 +10,10 @@
 #define CPUDeconvolution_hpp
 
 #include "CPUConvolution.hpp"
+#include "compute/CommonOptFunction.h"
 #include "compute/StrassenMatmulComputor.hpp"
 #include "compute/GemmInt8Executor.hpp"
 #include "core/TensorUtils.hpp"
-
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {
 public:
@@ -44,7 +44,8 @@ public:
             const auto weightDataPtr = weight->host<int8_t>();
             auto conv2d = convOp->main_as_Convolution2D();
             auto common = conv2d->common();
-            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d);
+            auto pack = static_cast<CPUBackend*>(b)->functions()->pack;
+            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d, pack);
             CPUConvolution::MutableResourceInt8 mutableResource(mResource, b);
             auto core = static_cast<CPUBackend*>(b)->int8Functions();
             auto gemmKernel = core->Int8GemmKernel;

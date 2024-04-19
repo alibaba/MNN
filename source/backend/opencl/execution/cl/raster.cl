@@ -22,14 +22,14 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 
 __kernel void buffer_set_zero(
                     GLOBAL_SIZE_2_DIMS
-                    __global FLOAT *output
+                    __global OUTPUT_TYPE *output
                     ) {
     const int x = get_global_id(0);
     const int y = get_global_id(1);
     
     DEAL_NON_UNIFORM_DIM2(x, y);
     
-    output[y*global_size_dim0 + x] = (FLOAT)(0.0f);
+    output[y*global_size_dim0 + x] = (OUTPUT_TYPE)(0);
 }
 
 __kernel void image_set_zero(
@@ -41,42 +41,21 @@ __kernel void image_set_zero(
     
     DEAL_NON_UNIFORM_DIM2(x, y);
 
-    WI_F(output, (int2)(x, y), (FLOAT4)(0.0f));
+    WI_DATA(output, (int2)(x, y), (OUTPUT_TYPE_I4)(0));
 }
 
-__kernel void raster_buffer(
+__kernel void raster_buffer_direct(
                     GLOBAL_SIZE_3_DIMS
-                    __global FLOAT *input,
-                    __private const int inputOffset,
-                    __private const int inputStride0,
-                    __private const int inputStride1,
-                    __private const int inputStride2,
-                    __global FLOAT *output,
-                    __private const int outputOffset,
-                    __private const int outputStride0,
-                    __private const int outputStride1,
-                    __private const int outputStride2
-                    ) {
-    const int x = get_global_id(0);
-    const int y = get_global_id(1);
-    const int z = get_global_id(2);
-    
-    DEAL_NON_UNIFORM_DIM3(x, y, z);
-    
-    int inputIndex = inputOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
-    int outputIndex = outputOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
-    output[outputIndex] = input[inputIndex];
-}
-
-__kernel void raster_buffer_combine(
-                    GLOBAL_SIZE_3_DIMS
-                    __global FLOAT *input,
+                    __read_only image2d_t input,
                     __private const int inputOffset,
                     __private const int combineSrcOffset,
                     __private const int inputStride0,
                     __private const int inputStride1,
                     __private const int inputStride2,
-                    __global FLOAT *output,
+                    __private const int src_width,
+                    __private const int src_height,
+                    __private const int src_channel,
+                    __global OUTPUT_TYPE *output,
                     __private const int outputOffset,
                     __private const int combineDstOffset,
                     __private const int outputStride0,
@@ -94,9 +73,22 @@ __kernel void raster_buffer_combine(
     
     int inputIndex = inputOffset + id * combineSrcOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
     int outputIndex = outputOffset + id * combineDstOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
-    output[outputIndex] = input[inputIndex];
+#ifdef INPUT_DATA_FORMAT_NHWC
+    int in_c = inputIndex % src_channel; inputIndex /= src_channel;
+    int in_w = inputIndex % src_width; inputIndex /= src_width;
+    int in_h = inputIndex % src_height;
+    int in_b = inputIndex / src_height;
+#else
+    int in_w = inputIndex % src_width; inputIndex /= src_width;
+    int in_h = inputIndex % src_height; inputIndex /= src_height;
+    int in_c = inputIndex % src_channel;
+    int in_b = inputIndex / src_channel;
+#endif
+    int2 coord = (int2)((in_c / 4) * src_width + in_w, in_b * src_height + in_h);
+    INPUT_TYPE_I4 value = RI_DATA(input, SAMPLER, coord);
+    INPUT_TYPE_I* value_ptr = (INPUT_TYPE_I*)&value;
+    output[outputIndex] = (OUTPUT_TYPE)value_ptr[in_c % 4];
 }
-
 
 __kernel void raster_image(
                     GLOBAL_SIZE_3_DIMS
@@ -146,6 +138,6 @@ __kernel void raster_image(
     int out_idx0 = out_idx_c4*outputWidth + out_idx_w;
     int out_idx1 = out_idx_n*outputHeight + out_idx_h;
 
-    FLOAT4 out = RI_F(input, SAMPLER, (int2)(inp_idx0, inp_idx1));
-    WI_F(output, (int2)(out_idx0, out_idx1), out);
+    INPUT_TYPE_I4 out = RI_DATA(input, SAMPLER, (int2)(inp_idx0, inp_idx1));
+    WI_DATA(output, (int2)(out_idx0, out_idx1), CONVERT_OUTPUT_I4(out));
 }

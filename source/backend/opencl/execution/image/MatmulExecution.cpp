@@ -12,39 +12,41 @@ namespace MNN {
 namespace OpenCL {
 
 MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend,
-                                 bool transposeA, bool transposeB) : Execution(backend)
+                                 bool transposeA, bool transposeB) : CommonExecution(backend, op)
                                  , mTransposeA(transposeA), mTransposeB(transposeB){
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     mAreadySetArg  = false;
 }
-ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MatMulExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
-
+    
     Tensor *input0 = inputs[0];
     Tensor *input1 = inputs[1];
     Tensor *output = outputs[0];
-
+    
     std::vector<int> input0Shape = tensorShapeFormat(input0);
     std::vector<int> input1Shape = tensorShapeFormat(input1);
     std::vector<int> outputShape = tensorShapeFormat(output);
     
-    if (mKernel.get() == nullptr) {
-
-        std::string kernelName;
-        std::set<std::string> buildOptions;
-        if(mTransposeA) {
-            kernelName = mTransposeB ? "matmul_transA_transB":"matmul_transA";
-        } else {
-            kernelName = mTransposeB ? "matmul_transB":"matmul";
-        }
-
-        if(inputs.size() > 2) {
-            buildOptions.emplace("-DBIAS");
-        }
-        mKernel           = runtime->buildKernel("matmul", kernelName, buildOptions);
-        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    std::vector<uint32_t> mGlobalWorkSize{1, 1};
+    std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
+    
+    
+    std::string kernelName;
+    std::set<std::string> buildOptions;
+    if(mTransposeA) {
+        kernelName = mTransposeB ? "matmul_transA_transB":"matmul_transA";
+    } else {
+        kernelName = mTransposeB ? "matmul_transB":"matmul";
     }
+    
+    if(inputs.size() > 2) {
+        buildOptions.emplace("-DBIAS");
+    }
+    unit.kernel           = runtime->buildKernel("matmul", kernelName, buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     //处理二维矩阵相乘，N C相当于H W
     //二维矩阵相乘
@@ -59,17 +61,17 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mGlobalWorkSize = {static_cast<uint32_t>(widthblocks), static_cast<uint32_t>(heightblocks)};
         cl_int ret = CL_SUCCESS;
         int idx            = 0;
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        ret |= mKernel.setArg(idx++, openCLImage(input0));
-        ret |= mKernel.setArg(idx++, openCLImage(input1));
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(input0));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(input1));
         if(inputs.size() > 2) {
-            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[2]));
         }
-        ret |= mKernel.setArg(idx++, openCLImage(output));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
-        ret |= mKernel.setArg(idx++, static_cast<int>(height));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannel));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(height));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
 
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
@@ -85,53 +87,24 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
         int idx            = 0;
         cl_int ret = CL_SUCCESS;
 
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        ret |= mKernel.setArg(idx++, openCLImage(input0));
-        ret |= mKernel.setArg(idx++, openCLImage(input1));
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(input0));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(input1));
         if(inputs.size() > 2) {
-            ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[2]));
         }
-        ret |= mKernel.setArg(idx++, openCLImage(output));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannel));
-        ret |= mKernel.setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannel));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulExecution transposeA");
 
         mLocalWorkSize = {mMaxWorkGroupSize / 64, 64, 0};
     }
 
-    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start MatMulExecution onExecute... \n");
-#endif
-
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-        cl::Event event;
-        runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Matmul", event});
-    #else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End MatMulExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime, nullptr);
-    #endif
-    
-#ifdef LOG_VERBOSE
-    MNN_PRINT("End MatMulExecution onExecute... \n");
-#endif
+    mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     return NO_ERROR;
 }
 

@@ -2,7 +2,7 @@
 //  MNNPackedMatMulFP16_int4.S
 //  MNN
 //
-//  Created by MNN on 2023/05/29.
+//  Created by MNN on 2023/06/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef __aarch64__
@@ -13,7 +13,7 @@
 .align 5
 // 8 * 24 MatMul
 asm_function MNNPackedMatMulFP16_int4
-//void MNNPackedMatMulFP16(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, const size_t* parameter, const FLOAT16* postParameters, const FLOAT16* bias, const FLOAT16* k, const FLOAT16* b);
+//void MNNPackedMatMulFP16_int4(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, const size_t* parameter, const FLOAT16* postParameters, const FLOAT16* bias, const FLOAT16* k, const FLOAT16* b);
 // x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias, x6: quant_alpha, x7: quant_bias
 stp d14, d15, [sp, #-80]!
 stp d12, d13, [sp, #16]
@@ -40,32 +40,26 @@ blt LH4
 
 LH8:
 sub x14, x13, #128
-mov x19, x6
-mov x20, x7
 LoopH:
     mov x15, x1
-    ld1 {v4.8h, v5.8h}, [x19], #32 // alpha
-    ld1 {v6.8h, v7.8h}, [x20], #32 // bias
-    subs x12, x9, #2
-    // ld1 {v3.8h, v4.8h}, [x2], #32
-    ld1 {v0.8h}, [x2], #16
-    ushr v1.16b, v0.16b, #4
-    mov w17, #0x0f
-    dup v3.16b, w17
-    and v2.16b, v0.16b, v3.16b
-    mov w17, #8
-    dup v0.16b, w17
-    sub v1.16b, v1.16b, v0.16b
-    sub v2.16b, v2.16b, v0.16b
-    zip1 v0.16b, v1.16b, v2.16b
-    zip2 v3.16b, v1.16b, v2.16b
-    sxtl v1.8h, v0.8b
-    sxtl2 v2.8h, v0.16b
-    scvtf v0.8h, v1.8h
-    scvtf v1.8h, v2.8h
-    mov v2.16b, v7.16b
+    ld1 {v4.8h, v5.8h}, [x6], #32 // alpha
+    ld1 {v6.8h, v7.8h}, [x7], #32 // bias
+    subs x12, x9, #1
+
+    ld1 {v0.8b}, [x2], #8
+    ushr v1.8b, v0.8b, #4
+    movi v3.8b, #0x0f
+    and v2.8b, v0.8b, v3.8b
+    zip1 v3.8b, v1.8b, v2.8b
+    zip2 v2.8b, v1.8b, v2.8b
+
+    sxtl v0.8h, v3.8b
+    sxtl v1.8h, v2.8b
+    scvtf v0.8h, v0.8h
+    scvtf v1.8h, v1.8h
+    mov v2.8h, v7.8h
     fmla v2.8h, v1.8h, v5.8h
-    mov v1.16b, v6.16b
+    mov v1.8h, v6.8h
     fmla v1.8h, v0.8h, v4.8h
 
     ld1 {v0.8h}, [x15], #16
@@ -87,115 +81,34 @@ LoopH:
     fmul v26.8h, v2.8h, v0.h[6]
     fmul v27.8h, v2.8h, v0.h[7]
 
-    ld1 {v1.4h}, [x15], #8
-    fmul v16.8h, v1.8h, v1.h[0]
-    fmul v17.8h, v1.8h, v1.h[1]
-    fmul v18.8h, v1.8h, v1.h[2]
-    fmul v19.8h, v1.8h, v1.h[3]
-    fmul v28.8h, v2.8h, v1.h[0]
-    fmul v29.8h, v2.8h, v1.h[1]
-    fmul v30.8h, v2.8h, v1.h[2]
-    fmul v31.8h, v2.8h, v1.h[3]
-
-    sxtl v0.8h, v3.8b
-    sxtl2 v1.8h, v3.16b
-    scvtf v0.8h, v0.8h
-    scvtf v1.8h, v1.8h
-    mov v2.16b, v7.16b
-    fmla v2.8h, v1.8h, v5.8h
-    mov v1.16b, v6.16b
-    fmla v1.8h, v0.8h, v4.8h
-
-    ld1 {v0.8h}, [x15], #16
-    fmla v8.8h, v1.8h, v0.h[0]
-    fmla v9.8h, v1.8h, v0.h[1]
-    fmla v10.8h, v1.8h, v0.h[2]
-    fmla v11.8h, v1.8h, v0.h[3]
-    fmla v12.8h, v1.8h, v0.h[4]
-    fmla v13.8h, v1.8h, v0.h[5]
-    fmla v14.8h, v1.8h, v0.h[6]
-    fmla v15.8h, v1.8h, v0.h[7]
-
-    fmla v20.8h, v2.8h, v0.h[0]
-    fmla v21.8h, v2.8h, v0.h[1]
-    fmla v22.8h, v2.8h, v0.h[2]
-    fmla v23.8h, v2.8h, v0.h[3]
-    fmla v24.8h, v2.8h, v0.h[4]
-    fmla v25.8h, v2.8h, v0.h[5]
-    fmla v26.8h, v2.8h, v0.h[6]
-    fmla v27.8h, v2.8h, v0.h[7]
-
     ld1 {v0.4h}, [x15], #8
-    fmla v16.8h, v1.8h, v0.h[0]
-    fmla v17.8h, v1.8h, v0.h[1]
-    fmla v18.8h, v1.8h, v0.h[2]
-    fmla v19.8h, v1.8h, v0.h[3]
-    fmla v28.8h, v2.8h, v0.h[0]
-    fmla v29.8h, v2.8h, v0.h[1]
-    fmla v30.8h, v2.8h, v0.h[2]
-    fmla v31.8h, v2.8h, v0.h[3]
+    fmul v16.8h, v1.8h, v0.h[0]
+    fmul v17.8h, v1.8h, v0.h[1]
+    fmul v18.8h, v1.8h, v0.h[2]
+    fmul v19.8h, v1.8h, v0.h[3]
+    fmul v28.8h, v2.8h, v0.h[0]
+    fmul v29.8h, v2.8h, v0.h[1]
+    fmul v30.8h, v2.8h, v0.h[2]
+    fmul v31.8h, v2.8h, v0.h[3]
 
     beq LoopLEnd
 
-    LoopL2:
-        // ld1 {v3.8h, v4.8h}, [x2], #32
-        subs x12, x12, #2
-        ld1 {v0.8h}, [x2], #16
-        ushr v1.16b, v0.16b, #4
-        mov w17, #0x0f
-        dup v3.16b, w17
-        and v2.16b, v0.16b, v3.16b
-        mov w17, #8
-        dup v0.16b, w17
-        sub v1.16b, v1.16b, v0.16b
-        sub v2.16b, v2.16b, v0.16b
-        zip1 v0.16b, v1.16b, v2.16b
-        zip2 v3.16b, v1.16b, v2.16b
-        sxtl v1.8h, v0.8b
-        sxtl2 v2.8h, v0.16b
-        scvtf v0.8h, v1.8h
-        scvtf v1.8h, v2.8h
-        mov v2.16b, v7.16b
-        fmla v2.8h, v1.8h, v5.8h
-        mov v1.16b, v6.16b
-        fmla v1.8h, v0.8h, v4.8h
-
-        ld1 {v0.8h}, [x15], #16
-        fmla v8.8h, v1.8h, v0.h[0]
-        fmla v9.8h, v1.8h, v0.h[1]
-        fmla v10.8h, v1.8h, v0.h[2]
-        fmla v11.8h, v1.8h, v0.h[3]
-        fmla v12.8h, v1.8h, v0.h[4]
-        fmla v13.8h, v1.8h, v0.h[5]
-        fmla v14.8h, v1.8h, v0.h[6]
-        fmla v15.8h, v1.8h, v0.h[7]
-
-        fmla v20.8h, v2.8h, v0.h[0]
-        fmla v21.8h, v2.8h, v0.h[1]
-        fmla v22.8h, v2.8h, v0.h[2]
-        fmla v23.8h, v2.8h, v0.h[3]
-        fmla v24.8h, v2.8h, v0.h[4]
-        fmla v25.8h, v2.8h, v0.h[5]
-        fmla v26.8h, v2.8h, v0.h[6]
-        fmla v27.8h, v2.8h, v0.h[7]
-
-        ld1 {v0.4h}, [x15], #8
-        fmla v16.8h, v1.8h, v0.h[0]
-        fmla v17.8h, v1.8h, v0.h[1]
-        fmla v18.8h, v1.8h, v0.h[2]
-        fmla v19.8h, v1.8h, v0.h[3]
-        fmla v28.8h, v2.8h, v0.h[0]
-        fmla v29.8h, v2.8h, v0.h[1]
-        fmla v30.8h, v2.8h, v0.h[2]
-        fmla v31.8h, v2.8h, v0.h[3]
+    LoopL1:
+        subs x12, x12, #1
+        ld1 {v0.8b}, [x2], #8
+        ushr v1.8b, v0.8b, #4
+        movi v3.8b, #0x0f
+        and v2.8b, v0.8b, v3.8b
+        zip1 v3.8b, v1.8b, v2.8b
+        zip2 v2.8b, v1.8b, v2.8b
 
         sxtl v0.8h, v3.8b
-        sxtl2 v1.8h, v3.16b
+        sxtl v1.8h, v2.8b
         scvtf v0.8h, v0.8h
         scvtf v1.8h, v1.8h
-        mov v2.16b, v7.16b
+        mov v2.8h, v7.8h
         fmla v2.8h, v1.8h, v5.8h
-        mov v1.16b, v6.16b
+        mov v1.8h, v6.8h
         fmla v1.8h, v0.8h, v4.8h
 
         ld1 {v0.8h}, [x15], #16
@@ -226,7 +139,8 @@ LoopH:
         fmla v29.8h, v2.8h, v0.h[1]
         fmla v30.8h, v2.8h, v0.h[2]
         fmla v31.8h, v2.8h, v0.h[3]
-        bne LoopL2
+
+        bne LoopL1
     
     LoopLEnd:
 
@@ -338,35 +252,22 @@ LoopH:
 
 LH4:
 cbz x10, End
-mov x19, x6
-mov x20, x7
 LoopHRemain:
     mov x15, x1
-    subs x12, x9, #2
-    ld1 {v20.8h}, [x19], #16 // alpha
-    ld1 {v21.8h}, [x20], #16 // bias
-    mov w17, #0x0f
-    dup v22.16b, w17
-    mov w17, #8
-    dup v23.16b, w17
-    // ld1 {v3.8h}, [x2]
-    ld1 {v3.8h}, [x2], #16
-    // 01234567xxxxxxx89... => 0123456789...
-    uzp1 v0.4s, v3.4s, v3.4s
+    subs x12, x9, #1
+    ld1 {v20.8h}, [x6], #16 // alpha
+    ld1 {v21.8h}, [x7], #16 // bias
+
+    ld1 {v0.8b}, [x2], #8
     ushr v1.8b, v0.8b, #4
-    and v2.8b, v0.8b, v22.8b
-    sub v1.8b, v1.8b, v23.8b
-    sub v2.8b, v2.8b, v23.8b
-    zip1 v6.8b, v1.8b, v2.8b
-    zip2 v7.8b, v1.8b, v2.8b
-    sxtl v0.8h, v6.8b
-    sxtl v1.8h, v7.8b
-    scvtf v6.8h, v0.8h
-    scvtf v7.8h, v1.8h
-    mov v3.16b, v21.16b
-    mov v4.16b, v21.16b
+    movi v3.8b, #0x0f
+    and v2.8b, v0.8b, v3.8b
+    zip1 v3.8b, v1.8b, v2.8b
+
+    sxtl v3.8h, v3.8b
+    scvtf v6.8h, v3.8h
+    mov v3.8h, v21.8h
     fmla v3.8h, v6.8h, v20.8h
-    fmla v4.8h, v7.8h, v20.8h
 
     ld1 {v0.4h, v1.4h, v2.4h}, [x15], #24
     fmul v8.8h, v3.8h, v0.h[0]
@@ -382,42 +283,22 @@ LoopHRemain:
     fmul v18.8h, v3.8h, v2.h[2]
     fmul v19.8h, v3.8h, v2.h[3]
 
-    ld1 {v0.4h, v1.4h, v2.4h}, [x15], #24
-    fmla v8.8h, v4.8h, v0.h[0]
-    fmla v9.8h, v4.8h, v0.h[1]
-    fmla v10.8h, v4.8h, v0.h[2]
-    fmla v11.8h, v4.8h, v0.h[3]
-    fmla v12.8h, v4.8h, v1.h[0]
-    fmla v13.8h, v4.8h, v1.h[1]
-    fmla v14.8h, v4.8h, v1.h[2]
-    fmla v15.8h, v4.8h, v1.h[3]
-    fmla v16.8h, v4.8h, v2.h[0]
-    fmla v17.8h, v4.8h, v2.h[1]
-    fmla v18.8h, v4.8h, v2.h[2]
-    fmla v19.8h, v4.8h, v2.h[3]
-
     beq LoopLREnd
 
     LoopLR:
-        subs x12, x12, #2
-        // ld1 {v3.8h}, [x2]
-        ld1 {v3.8h}, [x2], #16
-        // 01234567xxxxxxx89... => 0123456789...
-        uzp1 v0.4s, v3.4s, v3.4s
+        subs x12, x12, #1
+        ld1 {v0.8b}, [x2], #8
         ushr v1.8b, v0.8b, #4
-        and v2.8b, v0.8b, v22.8b
-        sub v1.8b, v1.8b, v23.8b
-        sub v2.8b, v2.8b, v23.8b
-        zip1 v6.8b, v1.8b, v2.8b
-        zip2 v7.8b, v1.8b, v2.8b
-        sxtl v0.8h, v6.8b
-        sxtl v1.8h, v7.8b
-        scvtf v6.8h, v0.8h
-        scvtf v7.8h, v1.8h
-        mov v3.16b, v21.16b
-        mov v4.16b, v21.16b
+        movi v3.8b, #0x0f
+        and v2.8b, v0.8b, v3.8b
+        zip1 v3.8b, v1.8b, v2.8b
+
+        sxtl v3.8h, v3.8b
+
+        scvtf v6.8h, v3.8h
+        mov v3.8h, v21.8h
         fmla v3.8h, v6.8h, v20.8h
-        fmla v4.8h, v7.8h, v20.8h
+
         ld1 {v0.4h, v1.4h, v2.4h}, [x15], #24
         fmla v8.8h, v3.8h, v0.h[0]
         fmla v9.8h, v3.8h, v0.h[1]
@@ -431,20 +312,6 @@ LoopHRemain:
         fmla v17.8h, v3.8h, v2.h[1]
         fmla v18.8h, v3.8h, v2.h[2]
         fmla v19.8h, v3.8h, v2.h[3]
-
-        ld1 {v0.4h, v1.4h, v2.4h}, [x15], #24
-        fmla v8.8h, v4.8h, v0.h[0]
-        fmla v9.8h, v4.8h, v0.h[1]
-        fmla v10.8h, v4.8h, v0.h[2]
-        fmla v11.8h, v4.8h, v0.h[3]
-        fmla v12.8h, v4.8h, v1.h[0]
-        fmla v13.8h, v4.8h, v1.h[1]
-        fmla v14.8h, v4.8h, v1.h[2]
-        fmla v15.8h, v4.8h, v1.h[3]
-        fmla v16.8h, v4.8h, v2.h[0]
-        fmla v17.8h, v4.8h, v2.h[1]
-        fmla v18.8h, v4.8h, v2.h[2]
-        fmla v19.8h, v4.8h, v2.h[3]
 
         bne LoopLR
     LoopLREnd:

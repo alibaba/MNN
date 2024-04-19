@@ -228,7 +228,7 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
     char *buf = new char[buf_len];
     {
         char *arr = new char[area * channel];
-        char *tmp = arr;
+        unsigned char *tmp = (unsigned char*)arr;
         if (asymmetricQuantFlag) {
             for (int i = 0; i < channel; i++)
             {
@@ -287,7 +287,7 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
     delete[] buf;
 }
 
-static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, bool& shapeUseInt32, const int bits)
+static bool WriteSparseQuanBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, bool& shapeUseInt32, const int bits)
 {
     std::set<int> setWeight;
     GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag, bits);
@@ -305,6 +305,9 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     int weightSize = area * channel;
     unsigned char iNeedBits;
     nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits, alphaData, area, channel, asymmetricQuantFlag);
+    if (nnz <= 0) {
+        return false;
+    }
     //weight buf
     size_t data_buf_len = size_t(ceil(0.125 * iDataNeedBits * nnz));
     char* data_buf = new char[data_buf_len];
@@ -413,14 +416,18 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     }
     delete[] buf;
     delete[] data_buf;
+    return true;
 }
 
 static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
-                                         bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin, const int bits = 8) {
+                                         bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin, const int bits = 8, bool detectSparse = true) {
     std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
     bool shapeUseInt32 = false;
     WriteCQBlobs(outputStringStreamCQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
-    WriteSparseQuanBlobs(outputStringStreamSQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
+    bool sparseValid = false;
+    if (detectSparse) {
+        sparseValid = WriteSparseQuanBlobs(outputStringStreamSQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
+    }
     std::unique_ptr<IDSTQuanT> idst(new IDSTQuanT);
     auto cqStr = outputStringStreamCQ.str();
     auto sqStr = outputStringStreamSQ.str();
@@ -431,7 +438,7 @@ static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<
         idst->aMax = kernelNum;
         idst->buffer.resize(int8Size);
         ::memcpy(idst->buffer.data(), quantWeightPtr, int8Size);
-    } else if (cqStr.size() <= sqStr.size()) {
+    } else if (cqStr.size() <= sqStr.size() || (!sparseValid)) {
         idst->type = 1;
         idst->buffer.resize(cqStr.size());
         ::memcpy(idst->buffer.data(), cqStr.data(), cqStr.size());

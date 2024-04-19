@@ -82,7 +82,7 @@ int main(int argc, const char* argv[]) {
             // Create Tensor
             std::shared_ptr<MNN::Tensor> tensor(Tensor::createDevice(shape, type, Tensor::CAFFE));
             bn->onAcquireBuffer(tensor.get(), Backend::STATIC);
-            TensorUtils::getDescribe(tensor.get())->setBackend(bn.get());
+            TensorUtils::getDescribeOrigin(tensor.get())->setBackend(bn.get());
             bool isFloat = std::string((*iter)["type"].GetString()) == "float";
             if (iter->HasMember("filename")) {
                 auto ptr = tensor->map(MNN::Tensor::MAP_TENSOR_WRITE, MNN::Tensor::CAFFE);
@@ -139,7 +139,7 @@ int main(int argc, const char* argv[]) {
             // Create Tensor
             std::shared_ptr<MNN::Tensor> tensor(Tensor::createDevice(shape, type, Tensor::CAFFE));
             bn->onAcquireBuffer(tensor.get(), Backend::STATIC);
-            TensorUtils::getDescribe(tensor.get())->setBackend(bn.get());
+            TensorUtils::getDescribeOrigin(tensor.get())->setBackend(bn.get());
             outputs.emplace_back(tensor);
             pos++;
         }

@@ -8,22 +8,34 @@
 
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #include "backend/opencl/execution/buffer/ArgMaxBufExecution.hpp"
-#include "core/Macro.h"
-#include "core/TensorUtils.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-ArgMaxBufExecution::ArgMaxBufExecution(const std::string &compute, Backend* backend, const int axis) : Execution(backend) {
+ArgMaxBufExecution::ArgMaxBufExecution(const std::string &compute, const MNN::Op* op, Backend* backend, const int axis) : CommonExecution(backend, op) {
     mBuildOptions.emplace(compute);
     mAxis = axis;
     // Do nothing
+    mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
+    std::set<std::string> buildOptions = mBuildOptions;
+    buildOptions.emplace("-DARGMAX_LOCAL_SIZE=512");
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("argmax_buf", "argmax_channel_buf", buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
-ErrorCode ArgMaxBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    auto runtime       = openCLBackend->getOpenCLRuntime();
-    openCLBackend->startRecord(mRecording);
+
+int ArgMaxBufExecution::getLocalSize(int size, int maxGroupSize){
+    int local_size = 1;
+    while(local_size * 2 <= maxGroupSize && local_size * 2 <= size){
+        local_size *= 2;
+    }
+    return local_size;
+}
+
+ErrorCode ArgMaxBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
+    auto runtime       = mOpenCLBackend->getOpenCLRuntime();
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
     auto input = inputs[0];
     auto output = outputs[0];
     if(mAxis < 0){
@@ -52,81 +64,61 @@ ErrorCode ArgMaxBufExecution::onResize(const std::vector<Tensor*>& inputs, const
     int outputWidth  = outputShape.at(2);
     int outputChannels = outputShape.at(3);
     int outputChannelBlocks = (outputChannels + 3) / 4;
-    mGlobalWorkSize = {
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(outputHeight),
-        static_cast<uint32_t>(outputBatch * outputChannelBlocks)
-    };
     
+    int localSize = getLocalSize(dim, MaxLocalSize);
+    if(localSize < 4){
+        localSize = 1;
+    }
+    std::set<std::string> buildOptions = mBuildOptions;
+    buildOptions.emplace("-DARGMAX_LOCAL_SIZE=" + std::to_string(localSize));
+    std::string kernelName;
     if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
-        mKernel = runtime->buildKernel("argmax_buf", "argmax_width_buf", mBuildOptions);
+        kernelName = "argmax_width_buf";
+        unit.kernel = runtime->buildKernel("argmax_buf", kernelName, buildOptions);
+        mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outputHeight), static_cast<uint32_t>(outputBatch * outputChannelBlocks)};
     }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
-        mKernel = runtime->buildKernel("argmax_buf", "argmax_height_buf", mBuildOptions);
+        kernelName = "argmax_height_buf";
+        unit.kernel = runtime->buildKernel("argmax_buf", kernelName, buildOptions);
+        mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outputWidth), static_cast<uint32_t>(outputBatch * outputChannelBlocks)};
     }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
         if(output->buffer().dimensions == 1){
-            mKernel = runtime->buildKernel("argmax_buf", "argmax_channel_dim1_buf", mBuildOptions);
-        }else{
-            mKernel = runtime->buildKernel("argmax_buf", "argmax_channel_buf", mBuildOptions);
+            buildOptions.emplace("-DARGMAX_CHANNEL_DIM1");
         }
-        mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
+        kernelName = "argmax_channel_buf";
+        unit.kernel = runtime->buildKernel("argmax_buf", kernelName, buildOptions);
+        mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outputWidth * outputHeight), static_cast<uint32_t>(outputBatch * outputChannels)};
     }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
-        mKernel = runtime->buildKernel("argmax_buf", "argmax_batch_buf", mBuildOptions);
+        kernelName = "argmax_batch_buf";
+        unit.kernel = runtime->buildKernel("argmax_buf", kernelName, buildOptions);
+        mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outputWidth * outputHeight), static_cast<uint32_t>(outputChannelBlocks)};
     }
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+    mLocalSize = {(uint32_t)(localSize), 1, 1};
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    ret |= mKernel.setArg(idx++, openCLBuffer(input));
-    ret |= mKernel.setArg(idx++, openCLBuffer(output));
-    ret |= mKernel.setArg(idx++, inputWidth);
-    ret |= mKernel.setArg(idx++, inputHeight);
-    ret |= mKernel.setArg(idx++, inputChannels);
-    ret |= mKernel.setArg(idx++, batch);
-    ret |= mKernel.setArg(idx++, inputChannelBlocks);
-    ret |= mKernel.setArg(idx++, outputWidth);
-    ret |= mKernel.setArg(idx++, outputHeight);
-    ret |= mKernel.setArg(idx++, outputChannels);
-    ret |= mKernel.setArg(idx++, outputChannelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    ret |= unit.kernel->get().setArg(idx++, inputWidth);
+    ret |= unit.kernel->get().setArg(idx++, inputHeight);
+    ret |= unit.kernel->get().setArg(idx++, inputChannels);
+    ret |= unit.kernel->get().setArg(idx++, batch);
+    ret |= unit.kernel->get().setArg(idx++, inputChannelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, outputWidth);
+    ret |= unit.kernel->get().setArg(idx++, outputHeight);
+    ret |= unit.kernel->get().setArg(idx++, outputChannels);
+    ret |= unit.kernel->get().setArg(idx++, outputChannelBlocks);
     MNN_CHECK_CL_SUCCESS(ret, "setArg ArgMaxBufExecution");
 
-    std::string kernelName = "gargmax_buf";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
-    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
-    openCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode ArgMaxBufExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start ArgMaxBufExecution onExecute...");
-#endif
-    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
-    
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ArgMax", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End ArgMaxBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
+    if(localSize == 1){
+        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
     }
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ArgMaxBufExecution onExecute...");
-#endif
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
     return NO_ERROR;
 }
 
@@ -146,9 +138,9 @@ public:
         }
         int axis = op->main_as_ArgMax()->axis();
         if (op->type() == OpType_ArgMax) {
-            return new ArgMaxBufExecution("-DARGMAX", backend, axis);
+            return new ArgMaxBufExecution("-DARGMAX", op, backend, axis);
         }else{
-            return new ArgMaxBufExecution("", backend, axis);
+            return new ArgMaxBufExecution("", op, backend, axis);
         }
     }
 };

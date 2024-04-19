@@ -17,7 +17,7 @@ class GeometryShape : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        if (nullptr == TensorUtils::getDescribe(outputs[0])->mem.get()) {
+        if (nullptr == TensorUtils::getDescribeOrigin(outputs[0])->mem.get()) {
             auto originSize = outputs[0]->length(0);
             outputs[0]->setLength(0, MNN_MAX_TENSOR_DIM);
             if(!context.allocTensor(outputs[0])) {
@@ -46,7 +46,7 @@ class GeometryRank : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        if (nullptr == TensorUtils::getDescribe(outputs[0])->mem.get()) {
+        if (nullptr == TensorUtils::getDescribeOrigin(outputs[0])->mem.get()) {
             if(!context.allocTensor(outputs[0])) {
                 return false;
             }
@@ -207,7 +207,7 @@ class GeometrySize : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        if (nullptr == TensorUtils::getDescribe(outputs[0])->mem.get()) {
+        if (nullptr == TensorUtils::getDescribeOrigin(outputs[0])->mem.get()) {
             if(!context.allocTensor(outputs[0])) {
                 return false;
             }

@@ -41,7 +41,6 @@ public:
         inline BackendConfig::PrecisionMode precisionType() const {
             return mPrecision;
         }
-        void pushCache(const CommandBuffer& buffer);
         std::shared_ptr<BufferStorage> mRasterOp;
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
@@ -51,7 +50,6 @@ public:
         std::shared_ptr<Backend> mBackend;
         MNNForwardType mForwardType;
         BackendConfig::PrecisionMode mPrecision;
-        std::vector<SharedPtr<Command>> mRasterCmdCache;
     };
     static void init();
     MNN_PUBLIC static const GeometryComputer* search(int opType, Runtime::CompilerType compType);

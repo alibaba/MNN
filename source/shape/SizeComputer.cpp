@@ -11,6 +11,7 @@
 #include <mutex>
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "utils/InitNet.hpp"
 // #define MNN_DEBUG_TENSOR_SIZE
 namespace MNN {
 void registerShapeOps();
@@ -121,6 +122,10 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
     auto computeFactory = SizeComputerSuite::get();
     // When op is nullptr, it means a copy op
     if (nullptr != op) {
+        if (op->main_type() == OpParameter_Blob) {
+            computeShapeForBlob(op->main_as_Blob(), outputs[0]);
+            return true;
+        }
         // For Loop Op
         if (op->type() == OpType_While && op->main_type() == OpParameter_LoopParam) {
             auto loop = op->main_as_LoopParam();

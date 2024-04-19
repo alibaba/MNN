@@ -33,7 +33,7 @@ struct FunctionGroup {
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size, float* parameters) = _SSE_MNNGelu;
-    void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) = _SSE_MNNNorm;
+    void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) = _SSE_MNNNorm;
 };
 
 static FunctionGroup gFunc;
@@ -57,9 +57,13 @@ void MNNFunctionInit() {
         coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
         coreFunction->MNNGemmHybridInt4 = _SSE_MNNGemmHybridInt4;
         coreFunction->MNNGemmHybridInt8 = _SSE_MNNGemmHybridInt8;
+        coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
+        coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuantFP32;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
+        // Dynamic Quant
+        coreFunction->MNNCountMaxMinValue = _SSE_MNNComputeScaleZeroScalar;
     }
     if (cpuFlags & libyuv::kCpuHasAVX2) {
         MNN::AVX2Functions::init(cpuFlags);
@@ -193,6 +197,6 @@ void MNNSoftmax(float* dest, const float* source, size_t size) {
     gFunc.MNNSoftmax(dest, source, size);
 }
 
-void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size) {
-    gFunc.MNNNorm(dest, source, gamma, beta, epsilon, size);
+void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {
+    gFunc.MNNNorm(dest, source, gamma, beta, epsilon, size, RMSNorm);
 }

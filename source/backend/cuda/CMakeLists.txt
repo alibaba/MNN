@@ -58,7 +58,7 @@ if(CUDA_FOUND)
     # Limit minimum cuda version for each archs
 
     IF (${arch_count} EQUAL 1)
-        IF ((CUDA_ARCH_FLAGS_readable_code VERSION_GREATER "80") OR (CUDA_ARCH_FLAGS_readable_code VERSION_EQUAL "80"))
+        IF (MNN_SUPPORT_TRANSFORMER_FUSE OR (CUDA_ARCH_FLAGS_readable_code VERSION_GREATER "80") OR (CUDA_ARCH_FLAGS_readable_code VERSION_EQUAL "80"))
             IF (CUDA_VERSION VERSION_LESS "11.2")
                 message(FATAL_ERROR "Please update cuda version to 11.2 or higher!")
             ENDIF()
@@ -101,6 +101,10 @@ IF (MNN_CUDA_TUNE_PARAM)
     add_definitions(-DENABLE_CUDA_TUNE_PARAM)
 ENDIF()
 
+IF (MNN_LOW_MEMORY)
+    add_definitions(-DMNN_LOW_MEMORY)
+ENDIF()
+
 file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)
 if(NOT MNN_SUPPORT_TRANSFORMER_FUSE)
     file(GLOB_RECURSE MNN_CUDA_TRANSFORMER_FUSE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/plugin/*)
@@ -110,6 +114,11 @@ endif()
 if(NOT MNN_SUPPORT_RENDER)
     file(GLOB_RECURSE MNN_CUDA_RENDER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/render/*)
     list(REMOVE_ITEM MNN_CUDA_SRC ${MNN_CUDA_RENDER_SRC})
+endif()
+
+if(NOT MNN_LOW_MEMORY)
+    file(GLOB_RECURSE MNN_CUDA_LOW_MEM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/weight_only_quant/*)
+    list(REMOVE_ITEM MNN_CUDA_SRC ${MNN_CUDA_LOW_MEM_SRC})
 endif()
 message(STATUS "message ${CUDA_NVCC_FLAGS} !!!!!!!!!!! ${CUDA_INCLUDE_DIRS}")
 

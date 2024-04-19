@@ -95,6 +95,7 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(ATANH, atanh);
         op_case(HARDSWISH, hardswish);
         op_case(GELU, gelu);
+        op_case(GELU_STANDARD, gelu);
         default:
             FUNC_PRINT_ALL(EnumNameUnaryOpOperation(type), s);
             return nil;

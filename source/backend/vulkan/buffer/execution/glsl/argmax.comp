@@ -1,7 +1,7 @@
 #version 440 core
 layout(std430) buffer;
 layout(set=0, binding=0) buffer destbuffer{
-    float data[];
+    int data[];
 }uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{

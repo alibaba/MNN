@@ -106,10 +106,10 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         mPipeline = [context pipelineWithName:kernelName fp16:backend->useFp16InsteadFp32()];
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId())->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+                        mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId())->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
         const Tensor* weight = mWeight.get();
         const Tensor* bias = mBias.get();
-        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
+        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, 0, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset};
         std::string name = [kernelName UTF8String] + mParam;
         auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets:buffer_offset queue:backend->queue()];
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
@@ -140,10 +140,16 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+                        mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
         const Tensor* weight = mWeight.get();
         const Tensor* bias = mBias.get();
-        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
+        int buffer_offset[] = {
+            TensorUtils::getDescribe(input)->extra.offset,
+            TensorUtils::getDescribe(output)->extra.offset,
+            0,
+            TensorUtils::getDescribe(weight)->extra.offset,
+            TensorUtils::getDescribe(bias)->extra.offset
+        };
 
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
             id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:mtbn->useFp16InsteadFp32()];
@@ -196,8 +202,11 @@ public:
         if (inputs.size() > 1) {
             return nullptr;
         }
+        auto conv  = op->main_as_Convolution2D();
+        if (conv->common()->group() > 1) {
+            return nullptr;
+        }
         if (op->type() == OpType_Convolution) {
-            auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
             if (MetalConvolutionWinograd::isValid(conv, inputs[0], outputs[0])) {
                 return new MetalConvolutionWinograd(backend, op);

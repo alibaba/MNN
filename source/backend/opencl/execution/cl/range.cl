@@ -35,8 +35,8 @@ __kernel void range(GLOBAL_SIZE_3_DIMS
     int index = (((batch_idx * channel) + channel4) * height + height_idx) * width + width_idx;
     int size = height * width;
     int4 index4 = (int4)(index, index + size, index + size * 2, index + size * 3);
-    FLOAT start = RI_F(input0, SAMPLER, (int2)(0, 0)).x;
-    FLOAT step = RI_F(input2, SAMPLER, (int2)(0, 0)).x;
-    FLOAT4 value = (FLOAT4)start + CONVERT_FLOAT4(index4) * (FLOAT4)step;
-    WI_F(output, (int2)(cw, bh), value);
+    INPUT_TYPE_I start = RI_DATA(input0, SAMPLER, (int2)(0, 0)).x;
+    INPUT_TYPE_I step = RI_DATA(input2, SAMPLER, (int2)(0, 0)).x;
+    OUTPUT_TYPE_I4 value = (OUTPUT_TYPE_I4)start + CONVERT_OUTPUT_I4(index4) * (OUTPUT_TYPE_I4)step;
+    WI_DATA(output, (int2)(cw, bh), value);
 }

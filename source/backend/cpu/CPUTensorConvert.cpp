@@ -281,8 +281,6 @@ static int _getBytes(const CoreFunctions* core, const Tensor* output) {
 ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output, const CoreFunctions* core, int tId, int numberThread) {
     auto ib     = input->buffer();
     auto ob     = output->buffer();
-    MNN_ASSERT(TensorUtils::getDescribe(input)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
-    MNN_ASSERT(TensorUtils::getDescribe(output)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
     if (nullptr == core) {

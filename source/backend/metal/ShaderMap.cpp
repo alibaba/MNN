@@ -7,7 +7,6 @@ mMaps.insert(std::make_pair("shader_MetalReLU_metal", shader_MetalReLU_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolutionDepthwise_metal", shader_MetalConvolutionDepthwise_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolutionActivation_metal", shader_MetalConvolutionActivation_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolution_metal", shader_MetalConvolution_metal));
-mMaps.insert(std::make_pair("shader_MetalGridSample_metal", shader_MetalGridSample_metal));
 mMaps.insert(std::make_pair("shader_MetalReduction_metal", shader_MetalReduction_metal));
 mMaps.insert(std::make_pair("shader_MetalBackend_metal", shader_MetalBackend_metal));
 mMaps.insert(std::make_pair("shader_MetalSoftmax_metal", shader_MetalSoftmax_metal));

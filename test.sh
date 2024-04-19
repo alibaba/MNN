@@ -240,9 +240,11 @@ linux_build() {
         -DMNN_OPENCL=ON \
         -DMNN_BUILD_QUANTOOLS=ON \
         -DMNN_BUILD_DEMO=ON \
+        -DMNN_BUILD_TRAIN=ON \
         -DMNN_BUILD_CONVERTER=ON \
         -DMNN_BUILD_TORCH=ON \
         -DMNN_BUILD_OPENCV=ON \
+        -DMNN_LOW_MEMORY=ON \
         -DMNN_IMGCODECS=ON \
         -DMNN_ENABLE_COVERAGE=$COVERAGE
     make -j16
@@ -435,7 +437,7 @@ llm_test() {
         failed
     fi
     # 2. run llm model test
-    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
+    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 0 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
     if [ $? -gt 0 ]; then
         echo '### LLM模型测试失败，测试终止！'
         failed
@@ -481,7 +483,7 @@ coverage_report() {
 #                                                                                           #
 #############################################################################################
 android_unit_test() {
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out all 0 0.002 1 $1"
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out all 0 0 1 $1"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试失败，测试终止！'
         failed
@@ -494,6 +496,16 @@ android_unit_test() {
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution 0 2 4 fp16multi$1"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试卷积FP16多线程失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/col2im 0 2 4 fp16col2im$1"
+    if [ $? -ne 0 ]; then
+        echo '### Android单元测试FP16-col2im多线程失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/R 0 2 4 fp16roipooling$1"
+    if [ $? -ne 0 ]; then
+        echo '### Android单元测试FP16-roipooling多线程失败，测试终止！'
         failed
     fi
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1"
@@ -614,7 +626,7 @@ android_test() {
     # 3. build Android64
     mkdir build_64
     pushd build_64
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true
+    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_LOW_MEMORY=true
     android64_build_wrong=$[$? > 0]
     mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -628,27 +640,10 @@ android_test() {
     # 4. test Android64
     ../updateTest.sh
     android_unit_test 64
+    android_unit_test_low_memory 64
     android_model_test 64
     popd
 
-    # 5. build Android64 LowMemory
-    mkdir build_64_lowmemory
-    pushd build_64_lowmemory
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=false -DMNN_LOW_MEMORY=ON
-    android64_build_wrong=$[$? > 0]
-    mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
-    expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
-    printf "TEST_NAME_ANDROID_64: Android64编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_64: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $mnn64_size $expr64_size $android64_build_wrong $[1 - $android64_build_wrong]
-    if [ $android64_build_wrong -ne 0 ]; then
-        echo '### Android64编译失败，测试终止！'
-        failed
-    fi
-
-    # 6. test Android64 LowMemory
-    ../updateTest.sh
-    android_unit_test_low_memory aarch64
-    popd
     popd
 }
 

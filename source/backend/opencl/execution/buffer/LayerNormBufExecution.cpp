@@ -8,19 +8,21 @@
 
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #include "backend/opencl/execution/buffer/LayerNormBufExecution.hpp"
-#include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
 LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
     const auto* layer_norm_param = op->main_as_LayerNorm();
-    axis_size = layer_norm_param->axis()->size();
+    if (nullptr != layer_norm_param->axis()) {
+        axis_size = layer_norm_param->axis()->size();
+    }
     epsilon_ = layer_norm_param->epsilon();
     group_ = layer_norm_param->group();
+    RMSNorm = layer_norm_param->useRMSNorm();
     auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
     auto kernel = runtime->buildKernel("layernorm_buf", "layernorm_w_buf", {"-DLOCAL_SIZE=512"});
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernel));
@@ -86,12 +88,13 @@ int LayerNormBufExecution::getLocalSize(int size, int maxGroupSize){
     return local_size;
 }
 
-ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
     auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
-    mOpenCLBackend->startRecord(mRecording);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -113,6 +116,9 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
 
     
     std::set<std::string> buildOptions;
+    if(RMSNorm){
+        buildOptions.emplace("-DRMSNORM");
+    }
     if(has_gamma_beta_){
         buildOptions.emplace("-DGAMMA_BETA");
     }
@@ -121,7 +127,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
         kernelName = "layernorm_w_buf";
         local_size = getLocalSize(inputWidth, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-        mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(inputHeight * UP_DIV(inputChannels, 4)),
@@ -130,7 +136,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
         kernelName = "layernorm_hw_buf";
         local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-        mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(UP_DIV(inputChannels, 4)),
@@ -139,7 +145,7 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
         kernelName = "layernorm_chw_buf";
         local_size = getLocalSize(inputWidth * inputHeight, MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-        mKernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
         
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(1),
@@ -149,55 +155,26 @@ ErrorCode LayerNormBufExecution::onResize(const std::vector<Tensor *> &inputs, c
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGWS[0]);
-    ret |= mKernel.setArg(idx++, mGWS[1]);
-    ret |= mKernel.setArg(idx++, mGWS[2]);
-    ret |= mKernel.setArg(idx++, openCLBuffer(input));
-    ret |= mKernel.setArg(idx++, openCLBuffer(output));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-    ret |= mKernel.setArg(idx++, static_cast<int32_t>(inputChannels));
+    ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGWS[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputWidth));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputHeight));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputChannels));
     if(has_gamma_beta_){
-        ret |= mKernel.setArg(idx++, *mGammaBuffer.get());
-        ret |= mKernel.setArg(idx++, *mBetaBuffer.get());
+        ret |= unit.kernel->get().setArg(idx++, *mGammaBuffer.get());
+        ret |= unit.kernel->get().setArg(idx++, *mBetaBuffer.get());
     }
-    ret |= mKernel.setArg(idx++, epsilon_);
+    ret |= unit.kernel->get().setArg(idx++, epsilon_);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormBufExecution");
-    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
-    mOpenCLBackend->endRecord(mRecording);
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
+    unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
+    unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};
 
     return NO_ERROR;
 
-}
-
-ErrorCode LayerNormBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start LayerNormBufExecution onExecute... \n");
-#endif
-
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGWS, mLWS,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"LayerNormBuf", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End LayerNormBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end LayerNormBufExecution onExecute... \n");
-#endif
-
-    return NO_ERROR;
 }
 
 class LayerNormBufCreator : public OpenCLBackend::Creator {
@@ -212,7 +189,6 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         const auto* layer_norm_param = op->main_as_LayerNorm();
-        int axis_size = layer_norm_param->axis()->size();
         int group = layer_norm_param->group();
         if(group > 1){
 			return nullptr;

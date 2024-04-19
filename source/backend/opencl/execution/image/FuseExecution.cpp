@@ -14,33 +14,27 @@ namespace MNN {
 namespace OpenCL {
 
 FuseExecution::FuseExecution(const std::vector<Tensor *> &inputs, Backend *backend, const Op* op)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
+    mUnits.resize(1);
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    buildFuseKernel(op);
-}
-
-bool FuseExecution::buildFuseKernel(const Op* op) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    if (mKernel.get() == nullptr) {
-        std::set<std::string> buildOptions;
-        std::string kernelName;
-        auto extra = op->main_as_Extra();
-        auto source = reinterpret_cast<const char*>(extra->info()->data());
-        auto name = extra->type()->c_str();
-        mKernelName = extra->type()->str();
-        mKernel = runtime->buildKernelFromSource(source, name, buildOptions);
-        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
-    }
-    return true;
+    std::set<std::string> buildOptions;
+    std::string kernelName;
+    auto extra = op->main_as_Extra();
+    auto source = reinterpret_cast<const char*>(extra->info()->data());
+    auto name = extra->type()->c_str();
+    mKernelName = extra->type()->str();
+    mUnits[0].kernel = runtime->buildKernelFromSource(source, name, buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mUnits[0].kernel));
 }
 
-ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mOpenCLBackend->startRecord(mRecording);
+ErrorCode FuseExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    auto &unit  = mUnits[0];
 
     const int outputBatch    = outputShape.at(0);
     const int outputHeight   = outputShape.at(1);
@@ -58,48 +52,20 @@ ErrorCode FuseExecution::onResize(const std::vector<Tensor *> &inputs, const std
     uint32_t idx    = 0;
     cl_int ret = CL_SUCCESS;
     for (auto input : inputs) {
-        ret |= mKernel.setArg(idx++, openCLImage(input));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
     }
     for (auto output : outputs) {
-        ret |= mKernel.setArg(idx++, openCLImage(output));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
     }
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
     MNN_CHECK_CL_SUCCESS(ret, "setArg FuseExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
-    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode FuseExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start FuseExecution onExecute !\n");
-#endif
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Fuse", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("end SoftmaxExecution onExecute !\n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end SoftmaxExecution onExecute !\n");
-#endif
-
+    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
     return NO_ERROR;
 }
 

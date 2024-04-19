@@ -85,9 +85,9 @@ bool VARP::fix(VARP::InputType type) const {
     VARP newVARP = Express::Variable::create(Express::Expr::create(tensor, true));
     newVARP->expr().first->mType = type;
     auto& pipelineInfo = inside->mCache->getSession()->getPipelineInfo(0);
-    if (TensorUtils::getDescribe(tensor)->getBackend() == pipelineInfo.first.cache.first.get()) {
+    if (TensorUtils::getDescribeOrigin(tensor)->getBackend() == pipelineInfo.first.cache.first.get()) {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
-    } else if (TensorUtils::getDescribe(tensor)->getBackend() == pipelineInfo.first.cache.second.get()) {
+    } else if (TensorUtils::getDescribeOrigin(tensor)->getBackend() == pipelineInfo.first.cache.second.get()) {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
     }
     Variable::replace(VARP(mContent), newVARP);
@@ -224,6 +224,16 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
         return create(std::move(info), nullptr, VARP::INPUT);
     }
     if (OpType_Const == op->type || OpType_TrainableParam == op->type) {
+        if (!op->externalPath.empty()) {
+            flatbuffers::FlatBufferBuilder builder;
+            auto offset = Op::Pack(builder, op);
+            builder.Finish(offset);
+            std::shared_ptr<BufferStorage> extra(new BufferStorage);
+            extra->storage = builder.ReleaseRaw(extra->allocated_size, extra->offset);
+            auto resExpr = Expr::create(extra, std::move(inputs), outputSize);
+            resExpr->setName(op->name);
+            return resExpr;
+        }
         Variable::Info info;
         info.dim = op->main.AsBlob()->dims;
         info.order = Utils::revertFormat(op->main.AsBlob()->dataFormat);
@@ -568,7 +578,7 @@ bool Variable::copyToDevicePtr(void* devicePtr, int memoryType) {
     auto inside = mFrom->inside();
     auto originTensor = inside->mOutputTensors[mFromIndex];
     
-    auto bn = TensorUtils::getDescribe(originTensor)->getBackend();
+    auto bn = TensorUtils::getDescribeOrigin(originTensor)->getBackend();
     if(bn == nullptr) {
         MNN_ERROR("Error: Varp copyToDevicePtr can't find backend\n");
         return false;
@@ -577,7 +587,7 @@ bool Variable::copyToDevicePtr(void* devicePtr, int memoryType) {
     MNN::Tensor tempTensor(originTensor->dimensions(), originTensor->getDimensionType());
     tempTensor.setDevicePtr(devicePtr, memoryType);
     
-    TensorUtils::getDescribe(originTensor)->getBackend()->onCopyBuffer(originTensor, &tempTensor);
+    TensorUtils::getDescribeOrigin(originTensor)->getBackend()->onCopyBuffer(originTensor, &tempTensor);
     // Sync the result
     tempTensor.wait(Tensor::MAP_TENSOR_READ, true);
     return true;
@@ -738,12 +748,11 @@ bool Variable::resize(INTS dims) {
     info.syncSize();
     Utils::copyInfoToTensor(mFrom->inside()->mOutputTensors[0], mFrom->inside()->mOutputInfos.data());
     Utils::releaseMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
-    if (0 >= info.size) {
-        return false;
-    }
-    bool res = Utils::allocMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
-    if (!res) {
-        return false;
+    if (0 < info.size) {
+        bool res = Utils::allocMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
+        if (!res) {
+            return false;
+        }
     }
 
     mFrom->mValid = true;
@@ -946,7 +955,7 @@ bool Expr::setInfoDirty() {
 std::vector<VARP> Variable::load(const char* fileName) {
     AutoStorage<uint8_t> buffer;
     {
-        FileLoader loader(fileName);
+        FileLoader loader(fileName, true);
         if (!loader.valid()) {
             MNN_ERROR("Error for open %s\n", fileName);
             return {};

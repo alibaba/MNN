@@ -46,7 +46,7 @@ public:
 private:
     CUDARuntime* mRuntime;
 };
-CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, int deviceId) {
+CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, BackendConfig::MemoryMode memory, int deviceId) {
     // TODO: Search CUDA Device info and use best one
     mCUDARuntime.reset(new CUDARuntime(deviceId));
 #ifdef LOG_VERBOSE
@@ -61,6 +61,7 @@ CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, B
         mBufferPool.reset(new EagerBufferAllocator(allocator));
     }
     mDefaultPrecision = precision;
+    mDefaultMemory = memory;
 }
 CUDARuntimeWrapper::~CUDARuntimeWrapper() {
     // Do nothing
@@ -82,22 +83,24 @@ Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config) const {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cudaruntime:%p, create CUDABackend\n", this);
 #endif
-    auto mode = mDefaultPrecision;
+    auto precision_mode = mDefaultPrecision;
+    auto memory_mode = mDefaultMemory;
     if (nullptr != config) {
-        mode = config->precision;
+        precision_mode = config->precision;
+        memory_mode = config->memory;
     }
     int precision = 0; 
-    if(mode == BackendConfig::Precision_Low) {
+    if(precision_mode == BackendConfig::Precision_Low) {
         precision = 2;
-    } else if(mode == BackendConfig::Precision_Normal) {
+    } else if(precision_mode == BackendConfig::Precision_Normal) {
         precision = 0;
-    } else if(mode == BackendConfig::Precision_Low_BF16) {
+    } else if(precision_mode == BackendConfig::Precision_Low_BF16) {
         precision = 3;
     } else {
         precision = 1;
     }
 
-    return new CUDABackend(mBufferPool, mCUDARuntime, precision);
+    return new CUDABackend(mBufferPool, mCUDARuntime, precision, memory_mode);
 }
 
 void CUDARuntimeWrapper::onGabageCollect(int level) {
@@ -106,7 +109,8 @@ void CUDARuntimeWrapper::onGabageCollect(int level) {
 
 
 CUDABackend::CUDABackend(std::shared_ptr<BufferAllocator> st,
-                         std::shared_ptr<CUDARuntime> rt, int precision)
+                         std::shared_ptr<CUDARuntime> rt,
+                        int precision, BackendConfig::MemoryMode memory)
     : Backend(MNN_FORWARD_CUDA) {
 #ifdef LOG_VERBOSE
         MNN_PRINT("cuda backend create\n");
@@ -116,6 +120,7 @@ CUDABackend::CUDABackend(std::shared_ptr<BufferAllocator> st,
     mCUDARuntime      = rt;
     mUseFp16AsFp32 = (precision == 2);
     mPrecision = precision;
+    mMemory = memory;
 }
 
 CUDABackend::~CUDABackend() {
@@ -145,6 +150,9 @@ int CUDABackend::getPrecision() const {
     return mPrecision;
 }
 
+BackendConfig::MemoryMode CUDABackend::getMemoryMode() const {
+    return mMemory;
+}
 class CUDAMemObj : public Backend::MemObj {
 public:
     CUDAMemObj(BufferAllocator* allocator, MemChunk points) {

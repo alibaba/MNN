@@ -28,12 +28,8 @@ __kernel void unary(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only
     const int width = global_size_dim1;
 
     const int pos  = mad24(channel_block_idx, width, w);
-#ifdef OPENCL_INPUT_INT
-    FLOAT4 in  = CONVERT_FLOAT4(convert_int4(RI_F(input, SAMPLER, (int2)(pos, hb))));
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-    FLOAT4 in  = RI_F(input, SAMPLER, (int2)(pos, hb));
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
-    WI_F(output, (int2)(pos, hb), out);
+    float4 in  = convert_float4(RI_DATA(input, SAMPLER, (int2)(pos, hb)));
+    OUTPUT_TYPE_I4 out = CONVERT_OUTPUT_I4(OPERATOR);
+    
+    WI_DATA(output, (int2)(pos, hb), out);
 }

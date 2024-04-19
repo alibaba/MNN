@@ -10,7 +10,7 @@
 #define CONFIG_HPP
 #include <string>
 #include <MNN/MNNDefine.h>
-
+#include <fstream>
 class MNN_PUBLIC modelConfig {
 public:
     modelConfig()
@@ -19,7 +19,6 @@ public:
           modelFile(),
           bizCode("MNN"),
           model(modelConfig::MAX_SOURCE),
-          benchmarkModel(false),
           saveHalfFloat(false){
     }
     enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, TORCH, JSON, MAX_SOURCE };
@@ -36,11 +35,10 @@ public:
     std::string inputConfigFile;
     // model source
     MODEL_SOURCE model;
-    bool benchmarkModel;
     bool saveHalfFloat;
     bool forTraining = false;
     int weightQuantBits = 0;// If weightQuantBits > 0, it means the bit
-    bool weightQuantAsymmetric = false;
+    bool weightQuantAsymmetric = true;
     // The path of the model compression file that stores the int8 calibration table
     // or sparse parameters.
     std::string compressionParamsFile = "";
@@ -49,7 +47,7 @@ public:
     float targetVersion = (float)MNN_VERSION_MAJOR + (float)MNN_VERSION_MINOR * 0.1f;
     int defaultBatchSize = 0;
     int optimizeLevel = 1;
-    bool keepInputFormat = false;
+    bool keepInputFormat = true;
     bool alignDenormalizedValue = true;
     bool detectSparseSpeedUp = true;
     bool convertMatmulToConv = true;

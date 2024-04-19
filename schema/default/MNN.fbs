@@ -167,6 +167,7 @@ enum OpType : int {
     GatherElements = 152,
     Svd = 153,
     Histogram = 154,
+    DynamicQuant = 155,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -417,6 +418,7 @@ table Op {
     outputIndexes: [int];
     type: OpType;
     defaultDimentionFormat : MNN_DATA_FORMAT = NHWC;
+    externalPath:string;
 }
 
 table View {

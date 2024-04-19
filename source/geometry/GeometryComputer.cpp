@@ -30,13 +30,7 @@ GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNFor
     mForwardType = type;
     mPrecision = precision;
 }
-void GeometryComputer::Context::pushCache(const CommandBuffer& buffer) {
-    for (auto cmd : buffer.command) {
-        if (cmd->op->type() == OpType_Raster) {
-            mRasterCmdCache.emplace_back(cmd);
-        }
-    }
-}
+
 void GeometryComputer::Context::clear() {
     mTempConstTensors.clear();
 }
@@ -56,7 +50,7 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
     if (!res) {
         return nullptr;
     }
-    TensorUtils::getDescribe(tensor.get())->setBackend(mBackend.get());
+    TensorUtils::getDescribeOrigin(tensor.get())->setBackend(mBackend.get());
     auto iter = mConstTensors.find(key);
     if (iter != mConstTensors.end()) {
         iter->second.emplace_back(tensor);
@@ -72,7 +66,7 @@ bool GeometryComputer::Context::allocTensor(Tensor* tensor) {
         return false;
     }
     TensorUtils::getDescribe(tensor)->usage = Tensor::InsideDescribe::CONSTANT;
-    TensorUtils::getDescribe(tensor)->setBackend(mBackend.get());
+    TensorUtils::getDescribeOrigin(tensor)->setBackend(mBackend.get());
     return true;
 }
 
@@ -86,20 +80,22 @@ inline bool _hasZeroDim(const Tensor* t) {
     return false;
 }
 
+static bool _virtualMemory(Tensor::InsideDescribe::NativeInsideDescribe* des) {
+    return des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL &&  nullptr == des->rasterCommand.lock().get();
+}
 
 void GeometryComputer::Context::getRasterCacheCreateRecursive(Tensor* src, CommandBuffer& cmd) {
     auto srcDes = TensorUtils::getDescribe(src);
-    if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+    if (!_virtualMemory(srcDes)) {
         return;
     }
-
     if (_hasZeroDim(src)) {
         return;
     }
     for (auto& input : srcDes->regions) {
         MNN_ASSERT(input.origin != src);
         auto inputDes = TensorUtils::getDescribe(input.origin);
-        while (inputDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        while (_virtualMemory(inputDes)) {
             if (1 != inputDes->regions.size()) {
                 break;
             }
@@ -115,26 +111,19 @@ void GeometryComputer::Context::getRasterCacheCreateRecursive(Tensor* src, Comma
 }
 void GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuffer& cmdBuffer) {
     auto srcDes = TensorUtils::getDescribe(src);
-    if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+    if (!_virtualMemory(srcDes)) {
         return;
     }
-    srcDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
-    if (mRasterCmdCache.empty()) {
-        SharedPtr<Command> cmdP(new Command);
-        auto& cmd = *cmdP;
-        cmd.op = flatbuffers::GetRoot<Op>(mRasterOp->buffer());
-        cmd.buffer = mRasterOp;
-        cmd.outputs = {src};
-        TensorUtils::setRasterInputs(cmdP.get());
-        cmdBuffer.command.emplace_back(std::move(cmdP));
-        return;
-    }
-    auto iter = mRasterCmdCache.begin() + ((int)mRasterCmdCache.size() - 1);
-    auto cmdP = *iter;
-    mRasterCmdCache.erase(iter);
-    cmdP->outputs[0] = src;
+    std::shared_ptr<Command> cmdP(new Command);
+    auto& cmd = *cmdP;
+    cmd.op = flatbuffers::GetRoot<Op>(mRasterOp->buffer());
+    cmd.buffer = mRasterOp;
+    cmd.outputs = {src};
     TensorUtils::setRasterInputs(cmdP.get());
+    srcDes->rasterCommand = std::weak_ptr<Command>(cmdP);
     cmdBuffer.command.emplace_back(std::move(cmdP));
+//    srcDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+    return;
 }
 
 bool DefaultGeometryComputer::onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -150,7 +139,7 @@ bool DefaultGeometryComputer::onCompute(const Op* op, const std::vector<Tensor*>
                                         CommandBuffer& res) const {
     auto inputs = originInputs;
     // Last Command
-    SharedPtr<Command> cmdP(new Command);
+    std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;
     cmd.op      = op;
     cmd.inputs  = std::move(inputs);

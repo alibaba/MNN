@@ -18,7 +18,7 @@ void CPUResizeCache::reset() {
 }
 void CPUResizeCache::release() {
     for (auto iter : mFormatCache) {
-        TensorUtils::getDescribe(iter.second.get())->mem.reset(nullptr);
+        TensorUtils::getDescribeOrigin(iter.second.get())->mem = nullptr;
     }
 }
 };

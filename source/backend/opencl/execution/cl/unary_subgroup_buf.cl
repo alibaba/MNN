@@ -18,8 +18,8 @@ inline float4 gelu(float4 in){
 }
 
 __kernel void unary_buf_c4_c4(GLOBAL_SIZE_3_DIMS
-                        __global const FLOAT *input,
-                        __global FLOAT *output,
+                        __global const INPUT_TYPE *input,
+                        __global OUTPUT_TYPE *output,
                         __private const int width,
                         __private const int height,
                         __private const int channel,
@@ -36,19 +36,14 @@ __kernel void unary_buf_c4_c4(GLOBAL_SIZE_3_DIMS
     const int channel4 = (channel + 3) / 4;
 
     const int offset = (((batch_idx*channel4+channel_block_idx)*height+height_idx)*width+w) * 4;
-#ifdef OPENCL_INPUT_INT
-    FLOAT4 in  = CONVERT_FLOAT4(convert_int4(vload4(0, input+offset)));
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-    FLOAT4 in  = vload4(0, input+offset);
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
-    vstore4(out, 0, output+offset);
+    float4 in  = convert_float4(vload4(0, input+offset));
+    float4 out = OPERATOR;
+    vstore4(CONVERT_OUTPUT4(out), 0, output+offset);
 }
 
 __kernel void unary_buf_c4_c16(GLOBAL_SIZE_3_DIMS
-                        __global const FLOAT *input,
-                        __global FLOAT *output,
+                        __global const INPUT_TYPE *input,
+                        __global OUTPUT_TYPE *output,
                         __private const int width,
                         __private const int height,
                         __private const int channel,
@@ -69,30 +64,25 @@ __kernel void unary_buf_c4_c16(GLOBAL_SIZE_3_DIMS
 
     const int offset = (((batch_idx*channel4+channel_block_idx)*height+height_idx)*width+w) * 4;
     const int dst_offset = (((batch_idx*channel16+channe_out_idx)*height+height_idx)*dst_width+w+output_pad_left) * 16 + (channel_block_idx % 4) * 4;
-#ifdef OPENCL_INPUT_INT
-    FLOAT4 in  = CONVERT_FLOAT4(convert_int4(vload4(0, input+offset)));
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-    FLOAT4 in  = vload4(0, input+offset);
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
-    vstore4(out, 0, output+dst_offset);
+    float4 in  = convert_float4(vload4(0, input+offset));
+    float4 out = OPERATOR;
+    vstore4(CONVERT_OUTPUT4(out), 0, output+dst_offset);
     if(w == 0){
         int pad_offset = (((batch_idx*channel16+channe_out_idx)*height+height_idx)*dst_width) * 16 + (channel_block_idx % 4) * 4;
         for(int i = 0; i < output_pad_left; ++i){
-            vstore4((FLOAT4)0, 0, output + pad_offset + i * 16);
+            vstore4((OUTPUT_TYPE4)0, 0, output + pad_offset + i * 16);
         }
         pad_offset += (width + output_pad_left) * 16;
         for(int i = 0; i < output_pad_right; ++i){
-            vstore4((FLOAT4)0, 0, output + pad_offset + i * 16);
+            vstore4((OUTPUT_TYPE4)0, 0, output + pad_offset + i * 16);
         }
     }
 }
 
 __attribute__((intel_reqd_sub_group_size(16)))
 __kernel void unary_buf_c16_c16(GLOBAL_SIZE_3_DIMS
-                        __global const FLOAT *input,
-                        __global FLOAT *output,
+                        __global const INPUT_TYPE *input,
+                        __global OUTPUT_TYPE *output,
                         __private const int width,
                         __private const int height,
                         __private const int channel,
@@ -112,49 +102,33 @@ __kernel void unary_buf_c16_c16(GLOBAL_SIZE_3_DIMS
 
     const int src_offset = (((batch_idx*channel16+channel_idx)*height+height_idx)*src_width+w+input_pad_left) * 16;
     const int dst_offset = (((batch_idx*channel16+channel_idx)*height+height_idx)*dst_width+w+output_pad_left) * 16;
-#ifdef OPENCL_INPUT_INT
-#ifdef MNN_SUPPORT_FP16
-    FLOAT4 in = CONVERT_FLOAT4(convert_int4(as_half4(intel_sub_group_block_read_us4((__global ushort*)(input + src_offset)))));
-#else
-    FLOAT4 in = CONVERT_FLOAT4(convert_int4(as_float4(intel_sub_group_block_read4((__global uint*)(input + src_offset)))));
-#endif
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-#ifdef MNN_SUPPORT_FP16
-    FLOAT4 in = as_half4(intel_sub_group_block_read_us4((__global ushort*)(input + src_offset)));
-#else
-    FLOAT4 in = as_float4(intel_sub_group_block_read4((__global uint*)(input + src_offset)));
-#endif
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
+    
+    float4 in = convert_float4(AS_INPUT_DATA4(INTEL_SUB_GROUP_READ4((__global INTEL_DATA*)(input + src_offset))));
+    float4 out = OPERATOR;
 
     if (w + 4 > width) {
         for (int i = 0; i < width % 4; i++) {
-            output[dst_offset + i * 16 + sglid] = out[i];
+            output[dst_offset + i * 16 + sglid] = (OUTPUT_TYPE)out[i];
         }
     } else{
-#ifdef MNN_SUPPORT_FP16
-        intel_sub_group_block_write_us4((__global ushort*)(output + dst_offset), as_ushort4(out));
-#else
-        intel_sub_group_block_write4((__global uint*)(output + dst_offset), as_uint4(out));
-#endif
+        INTEL_SUB_GROUP_WRITE4((__global INTEL_DATA*)(output + dst_offset), AS_OUTPUT_DATA4(CONVERT_OUTPUT4(out)));
     }
     if(w == 0){
         int pad_offset = (((batch_idx*channel+channel_idx)*height+height_idx)*dst_width) * 16 + sglid;
         for(int i = 0; i < output_pad_left; ++i){
-            output[pad_offset + i * 16] = 0;
+            output[pad_offset + i * 16] = (OUTPUT_TYPE)0;
         }
         pad_offset += (width + output_pad_left) * 16;
         for(int i = 0; i < output_pad_right; ++i){
-            output[pad_offset + i * 16] = 0;
+            output[pad_offset + i * 16] = (OUTPUT_TYPE)0;
         }
     }
 }
 
 __attribute__((intel_reqd_sub_group_size(16)))
 __kernel void unary_buf_c16_c4(GLOBAL_SIZE_3_DIMS
-                        __global const FLOAT *input,
-                        __global FLOAT *output,
+                        __global const INPUT_TYPE *input,
+                        __global OUTPUT_TYPE *output,
                         __private const int width,
                         __private const int height,
                         __private const int channel,
@@ -175,27 +149,15 @@ __kernel void unary_buf_c16_c4(GLOBAL_SIZE_3_DIMS
     const int src_offset = (((batch_idx*channel16+channel_idx)*height+height_idx)*src_width+w+input_pad_left) * 16;
     const int dst_offset = (((batch_idx*channel4+(channel_idx<<2))*height+height_idx)*width+w) * 4;
     const int height_width = height * width * 4;
-#ifdef OPENCL_INPUT_INT
-#ifdef MNN_SUPPORT_FP16
-    FLOAT4 in = CONVERT_FLOAT4(convert_int4(as_half4(intel_sub_group_block_read_us4((__global ushort*)(input + src_offset)))));
-#else
-    FLOAT4 in = CONVERT_FLOAT4(convert_int4(as_float4(intel_sub_group_block_read4((__global uint*)(input + src_offset)))));
-#endif
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-#ifdef MNN_SUPPORT_FP16
-    FLOAT4 in = as_half4(intel_sub_group_block_read_us4((__global ushort*)(input + src_offset)));
-#else
-    FLOAT4 in = as_float4(intel_sub_group_block_read4((__global uint*)(input + src_offset)));
-#endif
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
+    
+    float4 in = convert_float4(AS_INPUT_DATA4(INTEL_SUB_GROUP_READ4((__global INTEL_DATA*)(input + src_offset))));
+    float4 out = OPERATOR;
 
     const int lid_x = sglid % 4;
     const int lid_y = sglid / 4;
     int block_size = w + 4 > width ? (width % 4) : 4;
     for (int i = 0; i < block_size; i++) {
-        output[dst_offset + i * 4 + lid_y * height_width + lid_x] = out[i];
+        output[dst_offset + i * 4 + lid_y * height_width + lid_x] = (OUTPUT_TYPE)out[i];
     }
 }
 

@@ -20,7 +20,7 @@ class LoopGatherBufExecution : public CommonExecution {
 public:
     LoopGatherBufExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
     virtual ~LoopGatherBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     const LoopParam *mLoop;
@@ -38,7 +38,7 @@ class LoopBatchMatMulBufExecution : public CommonExecution {
 public:
     LoopBatchMatMulBufExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
     virtual ~LoopBatchMatMulBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     const LoopParam *mLoop;
@@ -59,7 +59,7 @@ class LoopBinaryBufExecution : public CommonExecution {
 public:
     LoopBinaryBufExecution(const LoopParam *loop, const std::string &compute, const MNN::Op *op, Backend *bn);
     virtual ~LoopBinaryBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     const LoopParam *mLoop;
