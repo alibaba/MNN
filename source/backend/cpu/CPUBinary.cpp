@@ -105,6 +105,8 @@ MNNBinaryExecute CPUBinary::selectForFloat(int type) {
             return execute<float, float, BinaryFloorDiv<float, float, float>>;
         case BinaryOpOperation_FLOORMOD:
             return execute<float, float, BinaryFloorMod<float, float, float>>;
+        case BinaryOpOperation_NOTEQUAL:
+            return execute<float, int32_t, BinaryNotEqual<float, float, int32_t>>;
         case BinaryOpOperation_POW:
             return execute<float, float, BinaryPow<float, float, float>>;
         case BinaryOpOperation_ATAN2:
