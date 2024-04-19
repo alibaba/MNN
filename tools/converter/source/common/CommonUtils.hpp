@@ -14,17 +14,17 @@
 #include "config.hpp"
 #include "MNN_compression.pb.h"
 #include <map>
+#include "../source/core/FileLoader.hpp"
 
 void converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);
-void removeParams(std::unique_ptr<MNN::NetT>& netT);
 void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64_t& offset);
-bool saveExternalData(std::unique_ptr<MNN::NetT>& netT, const std::string& extraFileName);
-bool loadExternalData(std::unique_ptr<MNN::NetT>& netT, const char* extraFileName);
-void castParamsToHalf(std::unique_ptr<MNN::NetT>& netT);
-void AlignDenormalizedValue(std::unique_ptr<MNN::NetT>& netT);
-void addSparseInfo(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
+void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl);
+void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op);
+void AlignDenormalizedValue(std::unique_ptr<MNN::OpT>& op);
+void AddSparseInfo(std::unique_ptr<MNN::OpT>& op, MNN::Compression::Pipeline proto);
 void fullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
-void weightQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config);
+void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& config);
+
 void addUUID(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 void channelPruneConvert(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto);
 

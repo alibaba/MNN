@@ -47,7 +47,7 @@ public:
             input2 = newTensor.get();
             res.extras.emplace_back(newTensor);
         }
-        SharedPtr<Command> cmdP(new Command);
+        std::shared_ptr<Command> cmdP(new Command);
         auto& cmd = *cmdP;
         cmd.op      = op;
         cmd.inputs  = {input0, input1, input2};

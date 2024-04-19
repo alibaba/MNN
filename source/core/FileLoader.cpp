@@ -11,25 +11,33 @@
 #include "Windows.h"
 #endif
 namespace MNN {
-FileLoader::FileLoader(const char* file) {
+static FILE* _OpenFile(const char* file) {
 #if defined(_MSC_VER)
     wchar_t wFilename[1024];
     if (0 == MultiByteToWideChar(CP_ACP, 0, file, -1, wFilename, sizeof(wFilename))) {
-        mFile = nullptr;
-        return;
+        return nullptr;
     }
 #if _MSC_VER >= 1400
+    FILE* mFile = nullptr;
     if (0 != _wfopen_s(&mFile, wFilename, L"rb")) {
-        mFile = nullptr;
+        return nullptr;
+    }
+    return mFile;
+#else
+    return _wfopen(wFilename, L"rb");
+#endif
+#else
+    return fopen(file, "rb");
+#endif
+}
+FileLoader::FileLoader(const char* file, bool init) {
+    if (nullptr == file) {
         return;
     }
-#else
-    mFile = _wfopen(wFilename, L"rb");
-#endif
-#else
-    mFile = fopen(file, "rb");
-#endif
     mFilePath = file;
+    if (init) {
+        _init();
+    }
 }
 
 FileLoader::~FileLoader() {
@@ -42,6 +50,10 @@ FileLoader::~FileLoader() {
 }
 
 bool FileLoader::read() {
+    _init();
+    if (nullptr == mFile) {
+        return false;
+    }
     auto block = MNNMemoryAllocAlign(gCacheSize, MNN_MEMORY_ALIGN_DEFAULT);
     if (nullptr == block) {
         MNN_PRINT("Memory Alloc Failed\n");
@@ -114,11 +126,31 @@ bool FileLoader::merge(AutoStorage<uint8_t>& buffer) {
     return true;
 }
 
+void FileLoader::_init() {
+    if (mInited) {
+        return;
+    }
+    mInited = true;
+    if (!mFilePath.empty()) {
+        mFile = _OpenFile(mFilePath.c_str());
+    }
+    if (nullptr == mFile) {
+        MNN_ERROR("Can't open file:%s\n", mFilePath.c_str());
+    }
+}
 int FileLoader::offset(int64_t offset) {
+    _init();
+    if (nullptr == mFile) {
+        return 0;
+    }
     return fseek(mFile, offset, SEEK_SET);
 }
 
 bool FileLoader::read(char* buffer, int64_t size) {
+    _init();
+    if (nullptr == mFile) {
+        return false;
+    }
     return fread(buffer, 1, size, mFile) == size;
 }
 

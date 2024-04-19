@@ -33,7 +33,7 @@ IF(MNN_BUILD_CONVERTER)
     include(${CMAKE_CURRENT_LIST_DIR}/source/torch/CMakeLists.txt)
   endif()
 
-  file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp)
+  file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp ${CMAKE_CURRENT_LIST_DIR}/source/common/*.h ${CMAKE_CURRENT_LIST_DIR}/source/common/*.hpp)
   add_executable(MNNConvert
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
   )

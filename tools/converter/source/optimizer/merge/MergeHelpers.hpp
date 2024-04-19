@@ -33,10 +33,11 @@ bool IsBinaryAdd(Express::EXPRP expr);
 bool IsBinarySub(Express::EXPRP expr);
 bool IsBinaryMul(Express::EXPRP expr);
 bool IsBinaryRealDiv(Express::EXPRP expr);
-
+bool IsBinaryPow(Express::EXPRP expr);
 bool IsBinarySquaredDifference(Express::EXPRP expr);
 
 bool IsUnarySquare(Express::EXPRP expr);
+bool IsUnarySqrt(Express::EXPRP expr);
 bool IsUnaryRsqrt(Express::EXPRP expr);
 bool IsUnaryNeg(Express::EXPRP expr);
 

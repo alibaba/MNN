@@ -448,6 +448,26 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
     *dst = sum;
 }
 
+void MNNCountMaxMinValue(float* source, float* minVal, float* maxVal, size_t size) {
+    int pack = 4;
+    float max_ = source[0], min_ = source[0];
+    for (int i = 1; i < size; ++i) {
+        if (max_ < source[i]) {
+            max_ = source[i];
+        }
+        if (min_ > source[i]) {
+            min_ = source[i];
+        }
+    }
+    *minVal = min_;
+    *maxVal = max_;
+    // float range = max_ - min_;
+    // MNN_ASSERT(range != 0);
+    // *quantScale = 255.0f / range;
+    // *dequantScale = range / 255.0f;
+    // *zeroPoint = std::min(255.f, std::max(roundf(-(min_ * 255.f) / range), 0.f)) - 128.0f;
+}
+
 #ifndef MNN_USE_NEON
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 16;
@@ -612,10 +632,10 @@ static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* f
                     auto w23    = i4wZ[1];
                     int iw01    = w01;
                     int iw23    = w23;
-                    int iw0     = iw01 / 16 - 8;
-                    int iw1     = iw01 % 16 - 8;
-                    int iw2     = iw23 / 16 - 8;
-                    int iw3     = iw23 % 16 - 8;
+                    int iw0     = iw01 / 16;
+                    int iw1     = iw01 % 16;
+                    int iw2     = iw23 / 16;
+                    int iw3     = iw23 % 16;
                     wZ[0]       = iw0 * alpha[0] + qbias[0];
                     wZ[1]       = iw1 * alpha[1] + qbias[1];
                     wZ[2]       = iw2 * alpha[2] + qbias[2];
@@ -2126,12 +2146,15 @@ void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t
 }
 
 #ifndef MNN_USE_SSE
-void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) {
-    float sum = 0.f;
-    for (int j = 0; j < size; ++j) {
-        sum += src[j];
+void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {
+    float mean = 0;
+    if(false == RMSNorm){
+        float sum = 0.f;
+        for (int j = 0; j < size; ++j) {
+            sum += src[j];
+        }
+        mean = sum / size;
     }
-    float mean = sum / size;
     float square_sum = 0.f;
     for (int j = 0; j < size; ++j) {
         square_sum += (src[j] - mean) * (src[j] - mean);
@@ -2150,23 +2173,6 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
     }
 }
 #endif
-
-int MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int height, int width, bool padMode) {
-    if (padMode == true) { //padMode == BorderMode_ZEROS
-        if (h < 0 || h >= height || w < 0 || w >= width || d < 0 || d >= depth) {
-            return -1;
-        }
-    } else {
-        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
-        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
-        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
-        d = d < 0 ? 0 : (d > (depth - 1) ? (depth - 1) : d);
-        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
-        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
-    }
-    return ((d * height + h) * width + w) * 4;
-}
-
 
 void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
     Vec4 max = Vec4(-FLT_MAX);
@@ -2227,71 +2233,6 @@ void MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<
             }
             res = res * invSamplingCnt;
             Vec4::save(dst + w * UNIT, res);
-        }
-    }
-}
-
-void MNNGridSampleInterp3D(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
-    for (auto ow = 0; ow < outW; ++ow) {
-        auto w = cordPtr[3 * ow + 0];
-        auto h = cordPtr[3 * ow + 1];
-        auto d = cordPtr[3 * ow + 2];
-        Vec4 interp;
-
-        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nd = ::floor(d + 0.5f);
-            int nh = ::floor(h + 0.5f);
-            int nw = ::floor(w + 0.5f);
-            size_t ns = MNNGridSampleComputeOffset3D(nd, nh, nw, inD, inH, inW, padMode);
-            for (int k = 0; k < channelCUnit; ++k) {
-                interp = ns == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + ns);
-                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
-            }
-        } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_d = ::floor(d);
-            int w0_h = ::floor(h);
-            int w0_w = ::floor(w);
-            int w1_d = ::ceil(d);
-            int w1_h = ::ceil(h);
-            int w1_w = ::ceil(w);
-            auto oneV = Vec4(1.0f);
-
-            auto f0 = Vec4((float)w1_w - w);
-            auto f1 = oneV - f0;
-            auto h0 = Vec4((float)w1_h - h);
-            auto h1 = oneV - h0;
-            auto d0 = Vec4((float)w1_d - d);
-            auto d1 = oneV - d0;
-
-            size_t s000 = MNNGridSampleComputeOffset3D(w0_d, w0_h, w0_w, inD, inH, inW, padMode);
-            size_t s001 = MNNGridSampleComputeOffset3D(w0_d, w0_h, w1_w, inD, inH, inW, padMode);
-            size_t s010 = MNNGridSampleComputeOffset3D(w0_d, w1_h, w0_w, inD, inH, inW, padMode);
-            size_t s011 = MNNGridSampleComputeOffset3D(w0_d, w1_h, w1_w, inD, inH, inW, padMode);
-            size_t s100 = MNNGridSampleComputeOffset3D(w1_d, w0_h, w0_w, inD, inH, inW, padMode);
-            size_t s101 = MNNGridSampleComputeOffset3D(w1_d, w0_h, w1_w, inD, inH, inW, padMode);
-            size_t s110 = MNNGridSampleComputeOffset3D(w1_d, w1_h, w0_w, inD, inH, inW, padMode);
-            size_t s111 = MNNGridSampleComputeOffset3D(w1_d, w1_h, w1_w, inD, inH, inW, padMode);
-
-            for (int k = 0; k < channelCUnit; ++k) {
-                Vec4 i000 = s000 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s000);
-                Vec4 i001 = s001 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s001);
-                Vec4 i010 = s010 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s010);
-                Vec4 i011 = s011 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s011);
-                Vec4 i100 = s100 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s100);
-                Vec4 i101 = s101 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s101);
-                Vec4 i110 = s110 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s110);
-                Vec4 i111 = s111 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s111);
-
-                Vec4 i00 = i000 * f0 + i001 * f1;
-                Vec4 i01 = i010 * f0 + i011 * f1;
-                Vec4 i0 = i00 * h0 + i01 * h1;
-                Vec4 i10 = i100 * f0 + i101 * f1;
-                Vec4 i11 = i110 * f0 + i111 * f1;
-                Vec4 i1 = i10 * h0 + i11 * h1;
-                interp = i0 * d0 + i1 * d1;
-
-                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
-            }
         }
     }
 }
@@ -3329,7 +3270,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNQuantScale = MNNQuantScaleFP32;
     gCoreFunction->MNNQuantSum = MNNQuantSumFP32;
 #endif
-
+    gCoreFunction->MNNCountMaxMinValue = MNNCountMaxMinValue;
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
 

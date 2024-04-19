@@ -1,0 +1,85 @@
+#version 440 core
+#define FLOAT4 ivec4
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    ivec4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    ivec4 data[];
+} uInput0;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    ivec4 data[];
+} uInput1;
+
+layout(set=0, binding=3) uniform constBuffer{
+    ivec4 stride00;//WHC, LIMIT
+    int activationType;
+} uConstant;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec3 inSize = uConstant.stride00.xyz;
+    if(posTmp.x < uConstant.stride00.w)
+    {
+        ivec4 x0 = uInput0.data[uConstant.stride00.x * posTmp.x];
+        if (uConstant.stride00.x == 0) {
+            x0 = ivec4(x0.r);
+        }
+        ivec4 x1 = uInput1.data[uConstant.stride00.y * posTmp.x];
+        if (uConstant.stride00.y == 0) {
+            x1 = ivec4(x1.r);
+        }
+        ivec4 value = x0;
+#ifdef ADD
+        value = x0 + x1;
+#endif
+#ifdef SUB
+        value = x0 - x1;
+#endif
+#ifdef MUL
+        value = x0 * x1;
+#endif
+#ifdef DIV
+        value = x0 / x1;
+#endif
+#ifdef VMAX
+        value = max(x0, x1);
+#endif
+#ifdef VMIN
+        value = min(x0, x1);
+#endif
+#ifdef SQUDIFF
+        value = (x0 - x1) * (x0 - x1);
+#endif
+#ifdef LESS
+        value = FLOAT4(lessThan(x0, x1));
+#endif
+#ifdef LESSEQUAL
+        value = FLOAT4(lessThanEqual(x0, x1));
+#endif
+#ifdef GREATER
+        value = FLOAT4(greaterThan(x0, x1));
+#endif
+#ifdef GREATEREQUAL
+        value = FLOAT4(greaterThanEqual(x0, x1));
+#endif
+#ifdef EQUAL
+        value = FLOAT4(equal(x0, x1));
+#endif
+#ifdef NOTEQUAL
+        value = FLOAT4(notEqual(x0, x1));
+#endif
+#ifdef VMOD
+        value = x0 % x1;
+#endif
+        if(uConstant.activationType == 1) {
+            value = max(value, FLOAT4(0));
+        }
+        uOutput.data[posTmp.x] = value;
+    }
+}

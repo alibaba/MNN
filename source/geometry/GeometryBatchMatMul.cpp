@@ -225,7 +225,7 @@ public:
 
         if (output->dimensions() == 2) {
             // Use normal MatMul
-            SharedPtr<Command> cmd = new Command;
+            std::shared_ptr<Command> cmd(new Command);
             cmd->op      = op;
             if (bias == nullptr) {
                 cmd->inputs  = {input0, input1};

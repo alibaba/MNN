@@ -16,6 +16,7 @@
 #include "Utils.hpp"
 #include "core/Backend.hpp"
 #include "core/WrapExecution.hpp"
+#include "core/FileLoader.hpp"
 #include "utils/InitNet.hpp"
 #include "RuntimeAttr.hpp"
 #include "geometry/GeometryComputer.hpp"
@@ -509,6 +510,7 @@ struct ModuleRuntimeConfig {
     Backend::Info compute;
     const BackendConfig* userConfig = nullptr;
     Session::ModeGroup modes;
+    std::string externalFile;
 };
 
 static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, const Module::Config& config, const ModuleRuntimeConfig& runtimeConfig) {
@@ -527,6 +529,7 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
         // MNN_ASSERT(false);
     }
     Schedule::ScheduleInfo scheduleInfo;
+    scheduleInfo.externalWeightPath = runtimeConfig.externalFile;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
     scheduleInfo.allTensors = sharedConst->allTensors;
@@ -602,6 +605,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
 }
 
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
+    MNN_ASSERT(nullptr != rtMgr);
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto buffer = bufferStorage->buffer();
     auto length = bufferStorage->size();
@@ -611,43 +615,40 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     sharedConst.reset(new Schedule::ScheduleInfo);
     auto curExe = ExecutorScope::Current();
     bool permitCodeGen = false;
-    if (rtMgr && !rtMgr->getInside()->mExternalFile.empty()) {
-        curExe->getRuntime().second->setExternalFile(rtMgr->getInside()->mExternalFile);
-        permitCodeGen = rtMgr->getInside()->modes.codegenMode == Interpreter::Session_Codegen_Enable;
+    std::shared_ptr<ModuleRuntimeConfig> modRuntimeCfgPtr(new ModuleRuntimeConfig);
+    if (!rtMgr->getInside()->mExternalFile.empty()) {
+        modRuntimeCfgPtr->externalFile = rtMgr->getInside()->mExternalFile;
     }
+    permitCodeGen = rtMgr->getInside()->modes.codegenMode == Interpreter::Session_Codegen_Enable;
     std::shared_ptr<Backend> defaultBackend = curExe->getAttr()->constantBackend;
     std::vector<std::shared_ptr<Tensor>> allTensors;
     sharedConst->allTensors.resize(net->tensorName()->size());
     sharedConst->defaultBackend = defaultBackend;
-    std::shared_ptr<ModuleRuntimeConfig> modRuntimeCfgPtr(new ModuleRuntimeConfig);
     ModuleRuntimeConfig& modRuntime = *modRuntimeCfgPtr;
     modRuntime.needGeometry = needGeometry;
-    if (nullptr == rtMgr) {
-        modRuntime.rt = Executor::getRuntime();
-        auto glo = ExecutorScope::Current();
-        modRuntime.compute.type = glo->getAttr()->firstType.first;
-        modRuntime.compute.numThread = glo->getAttr()->firstType.second;
-    } else {
+    {
         modRuntime.modes = rtMgr->getInside()->modes;
         modRuntime.rt = rtMgr->getInside()->mRuntime;
+        modRuntime.externalFile = rtMgr->getInside()->mExternalFile;
         modRuntime.userConfig = &rtMgr->getInside()->mConfig;
         modRuntime.compute.type      = modRuntime.rt.first.begin()->first;
         modRuntime.compute.numThread = 1;
-        // set external file info
-        if (!rtMgr->getInside()->mExternalFile.empty()) {
-            modRuntime.rt.first.begin()->second->setExternalFile(rtMgr->getInside()->mExternalFile);
-            modRuntime.rt.second->setExternalFile(rtMgr->getInside()->mExternalFile);
-        }
         // set allocator type
         modRuntime.rt.first.begin()->second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
         modRuntime.rt.second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
+        // set winograd memory type
+        modRuntime.rt.first.begin()->second->setWinogradMemoryLevel(rtMgr->getInside()->modes.winogradMemoryUsed);
+        modRuntime.rt.second->setWinogradMemoryLevel(rtMgr->getInside()->modes.winogradMemoryUsed);
     }
     auto& rt = modRuntime.rt;
     auto firstRt = rt.first[modRuntime.compute.type];
     sharedConst->constReplaceBackend.reset(firstRt->onCreate(modRuntime.userConfig));
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;
-    initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), code);
+    {
+        FileLoader fileLoader(modRuntimeCfgPtr->externalFile.c_str());
+        initConstTensors(sharedConst->allTensors, net, defaultBackend.get(), code, &fileLoader);
+    }
     if (NO_ERROR != code) {
         MNN_ERROR("Alloc memory for const tensor error\n");
         return nullptr;
@@ -776,17 +777,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
                 std::shared_ptr<Tensor> wrapTensor = WrapExecution::makeCopyTensor(t.get(), curBackend);
                 auto outDes = TensorUtils::getDescribe(wrapTensor.get());
                 outDes->usage = des->usage;
-                auto tempRes = curBackend->onAcquireBuffer(wrapTensor.get(), Backend::STATIC);
+                auto tempRes = WrapExecution::allocAndCopy(curBackend, t.get(), wrapTensor.get());
                 if (!tempRes) {
                     continue;
                 }
-                outDes->setBackend(curBackend);
-                curBackend->onCopyBuffer(t.get(), wrapTensor.get());
                 outDes->stageMask |= Tensor::InsideDescribe::CONVERTED_STAGE;
-                TensorUtils::getDescribeOrigin(t.get())->mContent = TensorUtils::getDescribeOrigin(wrapTensor.get())->mContent;
-                t->buffer().host = wrapTensor->buffer().host;
-                t->buffer().device = wrapTensor->buffer().device;
-                t->buffer().dim = TensorUtils::getDescribe(wrapTensor.get())->dims;
+                WrapExecution::copyReplaceTensor(wrapTensor.get(), t.get());
             }
         }
     }

@@ -79,7 +79,39 @@ public:
     virtual bool load(const std::string& filename) override;
     virtual std::vector<int> encode(const std::string& str) override;
     virtual std::string decode(int id) override;
+protected:
+    std::unordered_map<std::string, int> encoder_;
+    std::vector<std::string> decoder_;
+};
+
+class BertTokenizer : public Tiktoken {
+public:
+    BertTokenizer() = default;
+    virtual std::vector<int> encode(const std::string& str) override;
 private:
+    std::vector<int> word_piece(const std::string& token);
+};
+
+class HuggingfaceTokenizer : public Tokenizer {
+struct hash_pair_wstring {
+    size_t operator()(const std::pair<std::wstring, std::wstring>& p) const {
+        auto hash1 = std::hash<std::wstring>{}(p.first);
+        auto hash2 = std::hash<std::wstring>{}(p.second);
+        // If hash1 == hash2, their XOR is zero.
+        return (hash1 != hash2) ? hash1 ^ hash2 : hash1;
+    }
+};
+using BPERanks = std::unordered_map<std::pair<std::wstring, std::wstring>, int, hash_pair_wstring>;
+public:
+    HuggingfaceTokenizer() = default;
+    virtual bool load(const std::string& filename) override;
+    virtual std::vector<int> encode(const std::string& str) override;
+    virtual std::string decode(int id) override;
+private:
+    void bpe(const std::wstring& token, const BPERanks& bpe_ranks, std::vector<std::wstring>* result);
+    BPERanks bpe_ranks_;
+    std::unordered_map<uint8_t, wchar_t> b2u_;
+    std::unordered_map<wchar_t, uint8_t> u2b_;
     std::unordered_map<std::string, int> encoder_;
     std::vector<std::string> decoder_;
 };

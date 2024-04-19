@@ -246,6 +246,7 @@ enum OpType {
   OpType_GatherElements = 152,
   OpType_Svd = 153,
   OpType_Histogram = 154,
+  OpType_DynamicQuant = 155,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -280,7 +281,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[180] {
+inline const OpType (&EnumValuesOpType())[181] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -432,6 +433,7 @@ inline const OpType (&EnumValuesOpType())[180] {
     OpType_GatherElements,
     OpType_Svd,
     OpType_Histogram,
+    OpType_DynamicQuant,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -623,7 +625,7 @@ inline const char * const *EnumNamesOpType() {
     "GatherElements",
     "Svd",
     "Histogram",
-    "",
+    "DynamicQuant",
     "",
     "",
     "",
@@ -3469,6 +3471,7 @@ struct OpT : public flatbuffers::NativeTable {
   std::vector<int32_t> outputIndexes;
   OpType type;
   MNN_DATA_FORMAT defaultDimentionFormat;
+  std::string externalPath;
   OpT()
       : type(OpType_AbsVal),
         defaultDimentionFormat(MNN_DATA_FORMAT_NHWC) {
@@ -3793,6 +3796,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   MNN_DATA_FORMAT defaultDimentionFormat() const {
     return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(16, 1));
   }
+  const flatbuffers::String *externalPath() const {
+    return GetPointer<const flatbuffers::String *>(18);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3806,6 +3812,8 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(outputIndexes()) &&
            VerifyField<int32_t>(verifier, 14) &&
            VerifyField<int8_t>(verifier, 16) &&
+           VerifyOffset(verifier, 18) &&
+           verifier.VerifyString(externalPath()) &&
            verifier.EndTable();
   }
   OpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4225,6 +4233,9 @@ struct OpBuilder {
   void add_defaultDimentionFormat(MNN_DATA_FORMAT defaultDimentionFormat) {
     fbb_.AddElement<int8_t>(16, static_cast<int8_t>(defaultDimentionFormat), 1);
   }
+  void add_externalPath(flatbuffers::Offset<flatbuffers::String> externalPath) {
+    fbb_.AddOffset(18, externalPath);
+  }
   explicit OpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4245,8 +4256,10 @@ inline flatbuffers::Offset<Op> CreateOp(
     flatbuffers::Offset<flatbuffers::String> name = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> outputIndexes = 0,
     OpType type = OpType_AbsVal,
-    MNN_DATA_FORMAT defaultDimentionFormat = MNN_DATA_FORMAT_NHWC) {
+    MNN_DATA_FORMAT defaultDimentionFormat = MNN_DATA_FORMAT_NHWC,
+    flatbuffers::Offset<flatbuffers::String> externalPath = 0) {
   OpBuilder builder_(_fbb);
+  builder_.add_externalPath(externalPath);
   builder_.add_type(type);
   builder_.add_outputIndexes(outputIndexes);
   builder_.add_name(name);
@@ -5225,6 +5238,7 @@ inline void Op::UnPackTo(OpT *_o, const flatbuffers::resolver_function_t *_resol
   { auto _e = outputIndexes(); if (_e) { _o->outputIndexes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputIndexes[_i] = _e->Get(_i); } } };
   { auto _e = type(); _o->type = _e; };
   { auto _e = defaultDimentionFormat(); _o->defaultDimentionFormat = _e; };
+  { auto _e = externalPath(); if (_e) _o->externalPath = _e->str(); };
 }
 
 inline flatbuffers::Offset<Op> Op::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5242,6 +5256,7 @@ inline flatbuffers::Offset<Op> CreateOp(flatbuffers::FlatBufferBuilder &_fbb, co
   auto _outputIndexes = _o->outputIndexes.size() ? _fbb.CreateVector(_o->outputIndexes) : 0;
   auto _type = _o->type;
   auto _defaultDimentionFormat = _o->defaultDimentionFormat;
+  auto _externalPath = _o->externalPath.empty() ? 0 : _fbb.CreateString(_o->externalPath);
   return MNN::CreateOp(
       _fbb,
       _inputIndexes,
@@ -5250,7 +5265,8 @@ inline flatbuffers::Offset<Op> CreateOp(flatbuffers::FlatBufferBuilder &_fbb, co
       _name,
       _outputIndexes,
       _type,
-      _defaultDimentionFormat);
+      _defaultDimentionFormat,
+      _externalPath);
 }
 
 inline ViewT *View::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -7759,12 +7775,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 300, 301, 302, 303, 304, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 300, 301, 302, 303, 304, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7916,6 +7933,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GatherElements",
     "Svd",
     "Histogram",
+    "DynamicQuant",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7948,7 +7966,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 180, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 181, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -8498,7 +8516,8 @@ inline const flatbuffers::TypeTable *OpTypeTable() {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_INT, 0, 1 },
-    { flatbuffers::ET_CHAR, 0, 2 }
+    { flatbuffers::ET_CHAR, 0, 2 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpParameterTypeTable,
@@ -8512,10 +8531,11 @@ inline const flatbuffers::TypeTable *OpTypeTable() {
     "name",
     "outputIndexes",
     "type",
-    "defaultDimentionFormat"
+    "defaultDimentionFormat",
+    "externalPath"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -12,9 +12,6 @@
 #include "ConvBufExecution.hpp"
 #include "ConvSubgroupBufExecution.hpp"
 #include "core/ConvolutionCommon.hpp"
-#include "core/Backend.hpp"
-#include "RasterBufExecution.hpp"
-#include "math/WingoradGenerater.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -77,33 +74,34 @@ static std::pair<int, int> GetTuningParams(const std::vector<Tensor *> &inputs, 
 
 ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                  const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvSubgroupBuf init !\n");
 #endif
+    mResource.reset(new ConvSubgroupBufResource);
     mOpenCLBackend                 = static_cast<OpenCLBackend *>(backend);
     const auto *conv2dParams       = op->main_as_Convolution2D();
     const auto *conv2dCommonParams = conv2dParams->common();
-    mConv2dParams                  = conv2dParams;
-    mConv2dCommonParams            = conv2dCommonParams;
-    mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
-    mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
+    mResource->mConv2dParams                  = conv2dParams;
+    mResource->mConv2dCommonParams            = conv2dCommonParams;
+    mResource->mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
+    mResource->mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
 
 
-    auto padding = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mConv2dCommonParams);
+    auto padding = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mResource->mConv2dCommonParams);
     mPaddings[0] = padding.second; // padY
     mPaddings[1] = padding.first;  // padX
 
-    mKernelWidth           = conv2dCommonParams->kernelX();
-    mKernelHeight          = conv2dCommonParams->kernelY();
-    mOutputChannel         = conv2dCommonParams->outputCount();
-    mInputChannel          = inputs[0]->channel();
+    mResource->mKernelWidth           = conv2dCommonParams->kernelX();
+    mResource->mKernelHeight          = conv2dCommonParams->kernelY();
+    mResource->mOutputChannel         = conv2dCommonParams->outputCount();
+    mResource->mInputChannel          = inputs[0]->channel();
 
     {
         // create tensor for intel filter
-        mFilter.reset(Tensor::createDevice<float>(std::vector<int>{
-            UP_DIV(mOutputChannel, 16), UP_DIV(mInputChannel, 16), mKernelWidth * mKernelHeight, 16, 16}));
-        auto res = mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);
+        mResource->mFilter.reset(Tensor::createDevice<float>(std::vector<int>{
+            UP_DIV(mResource->mOutputChannel, 16), UP_DIV(mResource->mInputChannel, 16), mResource->mKernelWidth * mResource->mKernelHeight, 16, 16}));
+        auto res = mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
         cl_int ret_code;
         if (!res) {
             mValid = false;
@@ -115,10 +113,10 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2dParams, &FilterDataPtr, &weightSize);
         if (FilterDataPtr != nullptr) {
             std::shared_ptr<Tensor> sourceWeight(
-                Tensor::create<float>(std::vector<int>{mOutputChannel, mInputChannel, mKernelWidth, mKernelHeight},
+                Tensor::create<float>(std::vector<int>{mResource->mOutputChannel, mResource->mInputChannel, mResource->mKernelWidth, mResource->mKernelHeight},
                                       (void *)FilterDataPtr, Tensor::CAFFE));
             std::shared_ptr<Tensor> destWeight(Tensor::create<float>(std::vector<int>{
-                UP_DIV(mOutputChannel, 16), UP_DIV(mInputChannel, 16), mKernelWidth * mKernelHeight, 16, 16}));
+                UP_DIV(mResource->mOutputChannel, 16), UP_DIV(mResource->mInputChannel, 16), mResource->mKernelWidth * mResource->mKernelHeight, 16, 16}));
 
             transformWeight(destWeight.get(), sourceWeight.get());
             auto weightDestSize = destWeight->size();
@@ -130,7 +128,7 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
                 buffer_size *= sizeof(float);
             }
 
-            cl::Buffer &weightBuffer = *(cl::Buffer *)mFilter->buffer().device;
+            cl::Buffer &weightBuffer = *(cl::Buffer *)mResource->mFilter->buffer().device;
 
             auto runTime = mOpenCLBackend->getOpenCLRuntime();
             auto queue   = runTime->commandQueue();
@@ -161,9 +159,9 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
             buffer_size *= sizeof(float);
         }
 
-        mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 16)}));
-        backend->onAcquireBuffer(mBias.get(), Backend::STATIC);
-        cl::Buffer &biasBuffer = openCLBuffer(mBias.get());
+        mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 16)}));
+        backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+        cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
 
         cl_int res;
         auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
@@ -186,10 +184,10 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
 
-    if (mConv2dCommonParams->relu()) {
-        mBuildOptions.emplace("-DRELU");
-    } else if (mConv2dCommonParams->relu6()) {
-        mBuildOptions.emplace("-DRELU6");
+    if (mResource->mConv2dCommonParams->relu()) {
+        mResource->mBuildOptions.emplace("-DRELU");
+    } else if (mResource->mConv2dCommonParams->relu6()) {
+        mResource->mBuildOptions.emplace("-DRELU6");
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvSubgroupBuf init !\n");
@@ -226,20 +224,38 @@ void ConvSubgroupBuf::transformWeight(const Tensor *weightDest, const Tensor *so
 }
 
 ConvSubgroupBuf::~ConvSubgroupBuf() {
-    mOpenCLBackend->onReleaseBuffer(mFilter.get(), Backend::STATIC);
-    mOpenCLBackend->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    // Do nothing
 }
 
-ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ConvSubgroupBuf::ConvSubgroupBuf(std::shared_ptr<ConvSubgroupBufResource> resource, const MNN::Op* op, Backend *backend) : CommonExecution(backend, op) {
+    mResource = resource;
+    mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
+    const auto *conv2dParams       = op->main_as_Convolution2D();
+    const auto *conv2dCommonParams = conv2dParams->common();
+    mResource->mConv2dParams       = conv2dParams;
+    mResource->mConv2dCommonParams  = conv2dCommonParams;
+}
+
+bool ConvSubgroupBuf::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new ConvSubgroupBuf(mResource, op, bn);
+    return true;
+}
+
+ErrorCode ConvSubgroupBuf::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvSubgroupBuf onResize !\n");
 #endif
+    mUnits.clear();
     auto input                   = inputs[0];
     auto output                  = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
-    auto runTime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
     int in_c_pack                = TensorUtils::getTensorChannelPack(input);
     int out_c_pack               = TensorUtils::getTensorChannelPack(output);
     const int height             = outputShape.at(1);
@@ -250,7 +266,7 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
     const int inputWidth    = inputShape.at(2);
     const int inputChannels = inputShape.at(3);
     
-    int input_width_pad = mStrides[1] * (8 - 1) + (mKernelWidth - 1) * mDilations[1] + 1 + width * mStrides[1] + mPaddings[1];
+    int input_width_pad = mResource->mStrides[1] * (8 - 1) + (mResource->mKernelWidth - 1) * mResource->mDilations[1] + 1 + width * mResource->mStrides[1] + mPaddings[1];
     int input_height_pad = inputHeight + 2 * mPaddings[0];
     uint32_t MaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->MaxWorkGroupSize());
     uint32_t MaxThreadsPerDevice = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->MaxThreadsPerDevice());
@@ -260,10 +276,10 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
     auto outputpad                     = TensorUtils::getDescribe(output)->mPads;
     int inputImageShape[2]             = {inputHeight, inputWidth};
     int outputImageShape[2]            = {height, width};
-    int kernelShape[2]                 = {mKernelHeight, mKernelWidth};
-    int strideShape[2]                 = {mStrides[0], mStrides[1]};
+    int kernelShape[2]                 = {mResource->mKernelHeight, mResource->mKernelWidth};
+    int strideShape[2]                 = {mResource->mStrides[0], mResource->mStrides[1]};
     int paddingShape[2]                = {mPaddings[0], mPaddings[1]};
-    int dilationShape[2]               = {mDilations[0], mDilations[1]};
+    int dilationShape[2]               = {mResource->mDilations[0], mResource->mDilations[1]};
     auto tune_param = GetTuningParams(inputs, outputs, MaxWorkGroupSize, isSupportedFP16, MaxThreadsPerDevice);
     uint32_t blockWidth = tune_param.first;
     uint32_t sub_group_size = 16;
@@ -280,64 +296,69 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
     mLocalWorkSize  = {1, static_cast<uint32_t>(sub_group_size * slm_div_factor), 1};
 
     if (in_c_pack == 4) {
+         Unit unit;
          mNeedTranse = true;
          if (inputChannels < 16) {
              mSource.reset(Tensor::createDevice<float>(std::vector<int>{inputShape.at(0), input->channel(), inputHeight, inputWidth}, Tensor::CAFFE_C4));
              mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
              mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
-             mTranseKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c1", {});
+             unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c1", {});
              
-             uint32_t mMaxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mTranseKernel));
+             uint32_t mMaxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
              
              mTranseGlobalWorkSize = {static_cast<uint32_t>(inputWidth * inputHeight),
                                       static_cast<uint32_t>(UP_DIV(inputShape.at(3), 4)),
                                       static_cast<uint32_t>(inputShape.at(0))};
              uint32_t idx          = 0;
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[0]);
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[1]);
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[2]);
-             mTranseKernel.setArg(idx++, openCLBuffer(input));
-             mTranseKernel.setArg(idx++, openCLBuffer(mSource.get()));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputWidth));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputHeight));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputChannels));
-             mTranseKernel.setArg(idx++, UP_DIV(inputShape.at(3), 4));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.left));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[0]);
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[1]);
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[2]);
+             unit.kernel->get().setArg(idx++, openCLBuffer(input));
+             unit.kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputWidth));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputHeight));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputChannels));
+             unit.kernel->get().setArg(idx++, UP_DIV(inputShape.at(3), 4));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
              
-             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c1", mTranseKernel).first;
-             mOpenCLBackend->recordKernel3d(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
+             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c1", unit.kernel).first;
+             mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          } else {
              mSource.reset(Tensor::createDevice<float>(std::vector<int>{inputShape.at(0), UP_DIV(input->channel(), 16),inputHeight * inputWidth, 16}, Tensor::CAFFE_C4));
              mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
              mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
-             mTranseKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c16", {});
+             unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c16", {});
              
-             uint32_t mMaxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mTranseKernel));
+             uint32_t mMaxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
              
              mTranseGlobalWorkSize = {static_cast<uint32_t>(inputWidth * inputHeight),
                                       static_cast<uint32_t>(UP_DIV(inputShape.at(3), 4)),
                                       static_cast<uint32_t>(inputShape.at(0))};
              uint32_t idx          = 0;
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[0]);
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[1]);
-             mTranseKernel.setArg(idx++, mTranseGlobalWorkSize[2]);
-             mTranseKernel.setArg(idx++, openCLBuffer(input));
-             mTranseKernel.setArg(idx++, openCLBuffer(mSource.get()));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputWidth));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputHeight));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputChannels));
-             mTranseKernel.setArg(idx++, UP_DIV(inputShape.at(3), 4));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.left));
-             mTranseKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[0]);
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[1]);
+             unit.kernel->get().setArg(idx++, mTranseGlobalWorkSize[2]);
+             unit.kernel->get().setArg(idx++, openCLBuffer(input));
+             unit.kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputWidth));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputHeight));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputChannels));
+             unit.kernel->get().setArg(idx++, UP_DIV(inputShape.at(3), 4));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
+             unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
              
-             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c16", mTranseKernel).first;
-             mOpenCLBackend->recordKernel3d(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
+             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c16", unit.kernel).first;
+             mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          }
-    } 
+        unit.globalWorkSize = {mTranseGlobalWorkSize[0], mTranseGlobalWorkSize[1], mTranseGlobalWorkSize[2]};
+        unit.localWorkSize = {mTranseLocalWorkSize[0], mTranseLocalWorkSize[1], mTranseLocalWorkSize[2]};
+        mUnits.emplace_back(unit);
+    }
     
+    Unit unit;
     if (inputChannels < 16 && in_c_pack == 4) {
-         std::set<std::string> buildOptions = mBuildOptions;
+         std::set<std::string> buildOptions = mResource->mBuildOptions;
          buildOptions.emplace("-DINPUT_LINE_SIZE=" + std::to_string(input_line_size));
          buildOptions.emplace("-DINPUT_BLOCK_SIZE=" + std::to_string(input_block_size));
          buildOptions.emplace("-DINPUT_CHANNEL=" + std::to_string(inputChannels));
@@ -348,9 +369,9 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
          buildOptions.emplace("-DSTRIDE_HEIGHT=" + std::to_string(strideShape[0]));
          buildOptions.emplace("-DSTRIDE_WIDTH=" + std::to_string(strideShape[1]));
          std::string kernelname = "conv_2d_buf_subgroup_c1_c" + std::to_string(out_c_pack) + "_b" + std::to_string(blockWidth);
-         mKernel  = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_c1_subgroup_buf", kernelname, buildOptions);
+         unit.kernel  = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_c1_subgroup_buf", kernelname, buildOptions);
     } else {
-         std::set<std::string> buildOptions = mBuildOptions;
+         std::set<std::string> buildOptions = mResource->mBuildOptions;
          buildOptions.emplace("-DINPUT_LINE_SIZE=" + std::to_string(input_line_size));
          buildOptions.emplace("-DSLM_DIV_FACTOR=" + std::to_string(slm_div_factor));
          buildOptions.emplace("-DWORK_GROUP_SIZE=" + std::to_string(work_group_size));
@@ -363,77 +384,40 @@ ErrorCode ConvSubgroupBuf::onResize(const std::vector<Tensor *> &inputs, const s
          buildOptions.emplace("-DSTRIDE_HEIGHT=" + std::to_string(strideShape[0]));
          buildOptions.emplace("-DSTRIDE_WIDTH=" + std::to_string(strideShape[1]));
          std::string kernelname = "conv_2d_buf_subgroup_c16_c" + std::to_string(out_c_pack) + "_b" + std::to_string(blockWidth);
-         mKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_c16_subgroup_buf", kernelname, buildOptions);
+         unit.kernel  = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_c16_subgroup_buf", kernelname, buildOptions);
     }
     uint32_t idx    = 0;
     if (mNeedTranse) {
-         mKernel.setArg(idx++, openCLBuffer(mSource.get()));
+        unit.kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
     } else {
-         mKernel.setArg(idx++, openCLBuffer(input));
+        unit.kernel->get().setArg(idx++, openCLBuffer(input));
     }
-    mKernel.setArg(idx++, openCLBuffer(output));
-    mKernel.setArg(idx++, openCLBuffer(mFilter.get()));
-    mKernel.setArg(idx++, openCLBuffer(mBias.get()));
-    mKernel.setArg(idx++, static_cast<uint32_t>(mPaddings[1]));
-    mKernel.setArg(idx++, static_cast<uint32_t>(mPaddings[0]));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inputWidth));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inputHeight));
-    mKernel.setArg(idx++, static_cast<uint32_t>(width));
-    mKernel.setArg(idx++, static_cast<uint32_t>(height));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outChannel));
-    mKernel.setArg(idx++, static_cast<uint32_t>(x_blocks));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inputpad.left));
-    mKernel.setArg(idx++, static_cast<uint32_t>(inputpad.right));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outputpad.left));
-    mKernel.setArg(idx++, static_cast<uint32_t>(outputpad.right));
+    unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mFilter.get()));
+    unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(mPaddings[1]));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(mPaddings[0]));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputWidth));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputHeight));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(width));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(height));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outChannel));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(x_blocks));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputpad.left));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputpad.right));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvSubgroupBuf onResize !\n");
 #endif
     
-    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
+    mOpenCLBackend->recordKernel3d(unit.kernel , mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+    mUnits.emplace_back(unit);
     return NO_ERROR;
 }
 
-ErrorCode ConvSubgroupBuf::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start ConvSubgroupBuf onExecute !\n");
-#endif
-    
-#ifndef ENABLE_OPENCL_TIME_PROFILER
-if(mOpenCLBackend->isUseRecordQueue()){
-    if(mOpenCLBackend->isDevideOpRecord())
-        mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ConvSubgroupBuf onExecute !\n");
-#endif
-    return NO_ERROR;
-}
-#endif
-    if (mNeedTranse) {
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-         
-         cl::Event event;
-         run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvSubgroup", event});
-#else
-         run3DKernelDefault(mTranseKernel, mTranseGlobalWorkSize, mTranseLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-#endif
-    }
-
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-         cl::Event event;
-         run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvSubgroupBuf2D", event});
-#else
-         run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-#endif
-    
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ConvSubgroupBuf onExecute !\n");
-#endif
-    return NO_ERROR;
-}
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */

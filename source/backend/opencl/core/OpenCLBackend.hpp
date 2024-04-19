@@ -65,30 +65,6 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
-    cl::Kernel mImageToNCHWBufferFloat;
-    cl::Kernel mImageToNC4HW4BufferFloat;
-    cl::Kernel mImageToNHWCBufferFloat;
-    cl::Kernel mNC4HW4BufferToImageFloat;
-    cl::Kernel mNCHWBufferToImageFloat;
-    cl::Kernel mNHWCBufferToImageFloat;
-    cl::Kernel mNHWCBufferToImageInt8;
-
-    cl::Kernel mNC4HW4BufferToNCHWBufferOut;
-    cl::Kernel mNC4HW4BufferToNHWCBufferOut;
-    cl::Kernel mNC4HW4BufferToNC4HW4BufferOut;
-    cl::Kernel mNC4HW4BufferToNC4HW4BufferInp;
-    cl::Kernel mNCHWBufferToNC4HW4BufferInp;
-    cl::Kernel mNHWCBufferToNC4HW4BufferInp;
-    cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
-
-#ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    cl::Kernel mNCHWBufferToNC16HW16BufferInp;
-    cl::Kernel mNHWCBufferToNC16HW16BufferInp;
-    cl::Kernel mNC4HW4BufferToNC16HW16BufferInp;
-    cl::Kernel mNC16HW16BufferToNHWCBufferOut;
-    cl::Kernel mNC16HW16BufferToNCHWBufferOut;
-    cl::Kernel mNC16HW16BufferToNC4HW4BufferOut;
-#endif
 };
 
 
@@ -123,8 +99,9 @@ public:
     static bool addCreator(std::pair<OpType, GpuMemObject> t, Creator *c);
 
     BufferPool *getBufferPool() const {
-        return mBufferPool.get();
+        return mBufferPool;
     }
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
 
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
@@ -151,8 +128,8 @@ public:
     void addRecord(cl_recording_qcom &record){
         mRecordings.emplace_back(record);
     }
-    void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
-    void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
+    void recordKernel2d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
+    void recordKernel3d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
     void startRecord(cl_recording_qcom &recording);
     void endRecord(cl_recording_qcom &recording, bool flag = false);
 
@@ -171,8 +148,14 @@ private:
 
     const CLRuntime* mCLRuntime;
 
-    std::shared_ptr<ImagePool> mImagePool;
-    std::shared_ptr<BufferPool> mBufferPool;
+    std::shared_ptr<ImagePool> mImagePoolSecond;
+    std::shared_ptr<BufferPool> mBufferPoolSecond;
+
+    ImagePool* mImagePool;
+    BufferPool* mBufferPool;
+
+    std::shared_ptr<ImagePool> mImagePoolFirst;
+    std::shared_ptr<BufferPool> mBufferPoolFirst;
     std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mStaticBufferPool;
     

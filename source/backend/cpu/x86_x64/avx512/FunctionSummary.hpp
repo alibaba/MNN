@@ -50,7 +50,6 @@ void _AVX512_MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B,
                                     const float* postParameters, const float* bias, unsigned int* NNZMap,
                                     int* dataOffsetMap);
 
-
 void _AVX512_ReorderInit(void* functions);
 void _AVX512_ExtraInit(void* functions);
 void _AVX512_WinogradInit(void* functions);

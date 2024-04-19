@@ -20,14 +20,13 @@ public:
     ReluBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~ReluBufExecution();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     ErrorCode SubgrouponResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     std::shared_ptr<Tensor> mPreluParam;
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
 };

@@ -134,7 +134,7 @@ def configure_extension_build():
         # structured exception handling (SEH)
         # /DNOMINMAX removes builtin min/max functions
         # /wdXXXX disables warning no. XXXX
-        # Some macro (related with __VA_ARGS__) defined in pymnn/src/util.h can not be process correctly 
+        # Some macro (related with __VA_ARGS__) defined in pymnn/src/util.h can not be process correctly
         # becase of MSVC bug, enable /experimental:preprocessor fix it (And Windows SDK >= 10.0.18362.1)
         extra_compile_args = ['/MT', '/Zi',
                               '/EHa', '/DNOMINMAX',
@@ -355,9 +355,9 @@ def configure_extension_build():
     def make_relative_rpath(path):
         """ make rpath """
         if IS_DARWIN:
-            # dylibs instal at .../lib/ for
-            # .../lib/python*/site-packages/_mnncengine.cpython-*-darwin.so
-            return ['-Wl,-rpath,@loader_path/../../../' + path]
+            # conda: dylibs install at site-packages/MNN_*/lib/
+            # not conda: dylibs instal at .../lib/ for .../lib/python*/site-packages/_mnncengine.cpython-*-darwin.so
+            return [f'-Wl,-rpath,@loader_path/../../../{path},-rpath,@loader_path/{path}']
         elif IS_WINDOWS:
             return []
         else:

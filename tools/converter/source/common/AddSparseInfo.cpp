@@ -102,14 +102,3 @@ void AddSparseInfo(std::unique_ptr<MNN::OpT>& op, Compression::Pipeline proto) {
             break;
     }
 };
-
-void addSparseInfo(std::unique_ptr<MNN::NetT>& netT, MNN::Compression::Pipeline proto) {
-    for (auto& op : netT->oplists) {
-        AddSparseInfo(op, proto);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            AddSparseInfo(op, proto);
-        }
-    }
-}

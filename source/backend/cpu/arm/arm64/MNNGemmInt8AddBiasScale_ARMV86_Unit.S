@@ -227,7 +227,7 @@ TILE_16:
     sub x10, x22, #64
     cmp x7, #16
     blt TILE_8
-    mov x16, x5 // dst_depth_quad
+    mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
     mov x25, x2 // weight
     mov x19, x8 // scale
@@ -271,7 +271,7 @@ LoopSz_TILE_16:
     bne LoopSz_TILE_16
 LoopSzEnd_TILE_16:
     add x25, x25, x15 // weight += dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-    sub x16, x16, #1  // dz--
+    sub x24, x24, #1  // dz--
     // transpose
     uzp1 v15.2d, v16.2d, v17.2d
     uzp2 v16.2d, v16.2d, v17.2d
@@ -331,7 +331,7 @@ Tile16Quan:
     smin v19.16b, v11.16b, v19.16b
     st1 {v16.16b, v17.16b, v18.16b, v19.16b}, [x26], x4  // dst += dz * dst_step;
 Tile16LoopCheck:
-    cmp x16, #1
+    cmp x24, #1
     bge LoopDz_TILE_16
 Tile16End:
     sub x7, x7, #16
@@ -341,7 +341,7 @@ Tile16End:
 TILE_8:
     cmp x7, #8
     blt TILE_4
-    mov x16, x5 // dst_depth_quad
+    mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
     mov x25, x2 // weight
     mov x19, x8 // scale
@@ -374,7 +374,7 @@ LoopSz_TILE_8:
     bne LoopSz_TILE_8
 LoopSzEnd_TILE_8:
     add x25, x25, x15
-    sub x16, x16, #1
+    sub x24, x24, #1
     uzp1 v23.2d, v24.2d, v25.2d
     uzp2 v24.2d, v24.2d, v25.2d
     uzp1 v25.2d, v26.2d, v27.2d
@@ -410,7 +410,7 @@ Tile8Quan:
     smin v19.16b, v11.16b, v19.16b
     st1 {v18.16b, v19.16b}, [x26], x4  // dst += dz * dst_step
 Tile8LoopCheck:
-    cmp x16, #1
+    cmp x24, #1
     bge LoopDz_TILE_8
 Tile8End:
     sub x7, x7, #8
@@ -420,7 +420,7 @@ Tile8End:
 TILE_4:
     cmp x7, #4
     blt TILE_2
-    mov x16, x5 // dst_depth_quad
+    mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
     mov x25, x2 // weight
     mov x19, x8 // scale
@@ -449,7 +449,7 @@ LoopSz_TILE_4:
     bne LoopSz_TILE_4
 LoopSzEnd_TILE_4:
     add x25, x25, x15
-    sub x16, x16, #1
+    sub x24, x24, #1
     uzp1 v27.2d, v28.2d, v29.2d
     uzp2 v28.2d, v28.2d, v29.2d
     uzp1 v29.2d, v30.2d, v31.2d
@@ -472,7 +472,7 @@ Tile4Quan:
     smin v19.16b, v11.16b, v19.16b
     st1 {v19.16b}, [x26], x4  // dst += dz * dst_step
 Tile4LoopCheck:
-    cmp x16, #1
+    cmp x24, #1
     bge LoopDz_TILE_4
 Tile4End:
     sub x7, x7, #4
@@ -482,7 +482,7 @@ Tile4End:
 TILE_2:
     cmp x7, #2
     blt TILE_1
-    mov x16, x5 // dst_depth_quad
+    mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
     mov x25, x2 // weight
     mov x19, x8 // scale
@@ -507,7 +507,7 @@ LoopSz_TILE_2:
     bne LoopSz_TILE_2
 LoopSzEnd_TILE_2:
     add x25, x25, x15
-    sub x16, x16, #1
+    sub x24, x24, #1
     uzp1 v29.2d, v30.2d, v31.2d
     uzp2 v30.2d, v30.2d, v31.2d
     scvtf v29.4s, v29.4s
@@ -532,7 +532,7 @@ Tile2Quan:
     st1 {v19.8b}, [x26], x4  // dst += dz * dst_step
 
 Tile2LoopCheck:
-    cmp x16, #1
+    cmp x24, #1
     bge LoopDz_TILE_2
 Tile2End:
     sub x7, x7, #2
@@ -542,7 +542,7 @@ Tile2End:
 TILE_1:
     cmp x7, #1
     blt End
-    mov x16, x5 // dst_depth_quad
+    mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
     mov x25, x2 // weight
     mov x19, x8 // scale
@@ -567,7 +567,7 @@ LoopSz_TILE_1:
     bne LoopSz_TILE_1
 LoopSzEnd_TILE_1:
     add x25, x25, x15
-    sub x16, x16, #1
+    sub x24, x24, #1
     uzp1 v29.2d, v30.2d, v31.2d
     uzp2 v30.2d, v30.2d, v31.2d
     scvtf v29.4s, v29.4s
@@ -592,7 +592,7 @@ Tile1Quan:
     st1 {v19.s}[0], [x26], x4  // dst += dz * dst_step
 
 Tile1LoopEnd:
-    cmp x16, #1
+    cmp x24, #1
     bge LoopDz_TILE_1
 
 End:

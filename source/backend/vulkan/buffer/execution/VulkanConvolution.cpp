@@ -261,6 +261,148 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
     return NO_ERROR;
 }
 
+class VulkanConvolutionSlideWindowsInt8 : public VulkanConvolutionCommon {
+public:
+    struct Resource {
+        const VulkanPipeline* mPipeline;
+        std::shared_ptr<VulkanBuffer> mBias;
+        std::shared_ptr<VulkanBuffer> mKernel;
+        std::shared_ptr<VulkanBuffer> mWeightScale;
+        std::pair<int, int> mChannels;
+    };
+private:
+    std::shared_ptr<Resource> mResource;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mConvSet;
+public:
+    static std::shared_ptr<Resource> makeResource( std::shared_ptr<ConvolutionCommon::Int8Common> quanParam, const float* biasPtr, const Convolution2DCommon* convOption, VulkanBackend* vkBn, int srcCount, int outputCount) {
+        std::shared_ptr<Resource> resP(new Resource);
+        auto& res = *resP;
+        int kxky = quanParam->weight.size() / srcCount / outputCount;
+        // Reorder
+        auto& pool = vkBn->getMemoryPool();
+        int icC4 = UP_DIV(srcCount, 4);
+        int ocC4 = UP_DIV(outputCount, 4);
+        int unit = 4;
+        int packSize = unit * unit;
+        std::vector<int8_t> weightReorder(icC4 * ocC4 * kxky * packSize);
+        ::memset(weightReorder.data(), 0, weightReorder.size());
+        int divSize = 1;
+        for (int oz=0; oz<outputCount; ++oz) {
+            int oy = oz / unit;
+            int ox = oz % unit;
+            auto dstOz = weightReorder.data() + oy * icC4 * kxky * packSize + ox;
+            auto srcOz = quanParam->weight.get() + oz * srcCount * kxky;
+            for (int sz=0; sz<srcCount; ++sz) {
+                int sy = sz / unit;
+                int sx = sz % unit;
+                auto dstSz = dstOz + sy * packSize + sx * unit;
+                auto srcSz = srcOz + sz * kxky;
+                for (int k=0; k<kxky; ++k) {
+                    dstSz[k * packSize * icC4] = srcSz[k];
+                }
+            }
+        }
+        if (quanParam->canUseInt4) {
+            divSize = 2;
+        }
+        res.mKernel.reset(new VulkanBuffer(pool, false, icC4 * ocC4 * kxky * (packSize / divSize), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
+        res.mBias.reset(new VulkanBuffer(pool, false, ocC4 * 4 * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
+        res.mWeightScale.reset(new VulkanBuffer(pool, false, ocC4 * 4 * 2 * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
+        float originOffset = 0.0f;
+        float unpackRate = 127.0f;
+        if (quanParam->canUseInt4) {
+            originOffset = -8.0f;
+            unpackRate = 1.0f;
+            size_t weightLength = icC4 * ocC4 * kxky * packSize / 2;
+            std::vector<uint8_t> weightNew(weightLength);
+            for (int i=0; i<weightLength; ++i) {
+                int s0 = weightReorder[2 * i + 0] + 8;
+                int s1 = weightReorder[2 * i + 1] + 8;
+                int d = s0 * 16 + s1;
+                weightNew[i] = d;
+            }
+            vkBn->copyToGPUBuffer(weightNew.data(), res.mKernel->buffer(), weightNew.size(), 0);
+        } else {
+            vkBn->copyToGPUBuffer(weightReorder.data(), res.mKernel->buffer(), weightReorder.size(), 0);
+        }
+        vkBn->copyToGPUBuffer(biasPtr, res.mBias->buffer(), outputCount * sizeof(float), 0);
+        auto alphaPtr = quanParam->alpha.get();
+        auto asym = quanParam->asymmetric;
+        std::vector<float> wscaleData(ocC4 * 4 * 2, 0.0f);
+        if (asym) {
+            for (int i=0; i<outputCount; ++i) {
+                wscaleData[i] = alphaPtr[2*i+1] * unpackRate;
+                wscaleData[i + ocC4 * 4] = originOffset * wscaleData[i] + alphaPtr[2*i];
+            }
+        } else {
+            for (int i=0; i<outputCount; ++i) {
+                wscaleData[i] = alphaPtr[i] * unpackRate;
+                wscaleData[i + ocC4 * 4] = originOffset * wscaleData[i];
+            }
+        }
+        vkBn->copyToGPUBuffer(wscaleData.data(), res.mWeightScale->buffer(), ocC4 * 4 * 2 * sizeof(float), 0);
+        
+        // Build Pipeline
+        // Create Pipeline
+        std::vector<VkDescriptorType> convTypes{
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        };
+        auto macro = getPostTreatMacro(convOption);
+        if (quanParam->canUseInt4) {
+            res.mPipeline = vkBn->getPipeline("glsl_convolutionint4_" + macro + "comp", convTypes);
+        } else {
+            res.mPipeline = vkBn->getPipeline("glsl_convolutionint8_" + macro + "comp", convTypes);
+        }
+        return resP;
+    }
+
+    VulkanConvolutionSlideWindowsInt8(VulkanBackend* backend, const Convolution2DCommon* convOption, std::shared_ptr<Resource> resource) : VulkanConvolutionCommon(convOption, backend) {
+        mResource = resource;
+        mConvSet.reset(mResource->mPipeline->createSet());
+    }
+    ~VulkanConvolutionSlideWindowsInt8() {
+        // Do nothing
+    }
+    virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override {
+        if (nullptr == dst) {
+            return true;
+        }
+        auto res = new VulkanConvolutionSlideWindowsInt8((VulkanBackend*)bn, op->main_as_Convolution2D()->common(), mResource);
+        *dst = res;
+        return true;
+    }
+    virtual ErrorCode onEncodeConvolution(const Convolution2DCommon* common, const std::vector<Tensor*>& inputs,
+                                          const std::vector<Tensor*>& outputs,
+                                          const VulkanCommandPool::Buffer* cmdBuffer,
+                                          const VulkanBuffer* constConvBuffer) override {
+        auto src         = inputs[0];
+        auto dst         = outputs[0];
+        const int icDiv4 = UP_DIV(src->channel(), 4);
+        const int ocDiv4 = UP_DIV(dst->channel(), 4);
+        auto vkBn = (VulkanBackend*)backend();
+        auto extra = static_cast<VulkanBackend*>(backend());
+        /*Write Command Buffer*/
+        auto outputBuffer = extra->getTensorBuffer(outputs[0]);
+        auto inputBuffer = extra->getTensorBuffer(inputs[0]);
+        mConvSet->writeBuffer(outputBuffer.first->buffer(), 0, extra->getTensorSize(outputs[0]), outputBuffer.second);
+        mConvSet->writeBuffer(inputBuffer.first->buffer(), 1, extra->getTensorSize(inputs[0]), inputBuffer.second);
+        mConvSet->writeBuffer(mResource->mKernel->buffer(), 2, mResource->mKernel->size());
+        mConvSet->writeBuffer(mResource->mBias->buffer(), 3, mResource->mBias->size());
+        mConvSet->writeBuffer(mResource->mWeightScale->buffer(), 4, mResource->mWeightScale->size());
+        mConvSet->writeBuffer(constConvBuffer->buffer(), 5, constConvBuffer->size());
+        int totalSize = ocDiv4 * outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
+        mResource->mPipeline->bind(cmdBuffer->get(), mConvSet->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 64), 1, 1);
+        return NO_ERROR;
+    }
+};
+
+
 class VulkanConvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
@@ -276,6 +418,7 @@ public:
         const float* biasPtr = nullptr;
         int weightSize = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
+        bool useInt8Conv = false;
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
             if (1 == quan->type() || 2 == quan->type()) {
@@ -284,10 +427,19 @@ public:
                     return nullptr;
                 }
             }
-            quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, true);
-            srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
-            source   = quanWeight->weightFloat.get();
-            weightSize = quanWeight->weightFloat.size();
+            if (quan->buffer() && OpType_Convolution == op->type()) {
+                quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, false, true);
+            } else {
+                quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, true);
+            }
+            if (quanWeight->weight.get() != nullptr) {
+                useInt8Conv = true;
+                srcCount = inputs[0]->channel();
+            } else {
+                srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
+                source   = quanWeight->weightFloat.get();
+                weightSize = quanWeight->weightFloat.size();
+            }
         } else {
             if (nullptr != convReal->weight()) {
                 srcCount = convReal->weight()->size() / (outputCount * fh * fw);
@@ -304,6 +456,10 @@ public:
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();
             if (1 == group) {
+                if (useInt8Conv) {
+                    auto res = VulkanConvolutionSlideWindowsInt8::makeResource(quanWeight, biasPtr, convCommonParam, extra, srcCount, outputCount);
+                    return new VulkanConvolutionSlideWindowsInt8(extra, common, res);
+                }
                 return VulkanConvolutionImpl::create(extra, common, inputs, outputs[0], source,
                                                      biasPtr, srcCount, outputCount);
 

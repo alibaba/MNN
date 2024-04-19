@@ -13,6 +13,25 @@
 #include "TestUtils.h"
 #include "MNN_generated.h"
 using namespace MNN::Express;
+class ZeroShapeResizeTest : public MNNTestCase {
+public:
+    virtual ~ZeroShapeResizeTest() = default;
+    virtual bool run(int precision) {
+        auto input = _Input({1, 1, 4, 1}, NHWC);
+        input->setName("input");
+        input->writeMap<float>();
+        auto output    = _Reshape(input, {-1});
+        auto outputPtr = output->readMap<float>();
+        input->resize({1, 0, 4, 1});
+        input->writeMap<float>();
+        auto info = output->getInfo();
+        outputPtr = output->readMap<float>();
+        if (info->size != 0) {
+            return false;
+        }
+        return true;
+    }
+};
 class ZeroShapeTest : public MNNTestCase {
 public:
     virtual ~ZeroShapeTest() = default;
@@ -112,6 +131,7 @@ public:
         return true;
     }
 };
+MNNTestSuiteRegister(ZeroShapeResizeTest, "expr/zeroshaperesize");
 MNNTestSuiteRegister(ZeroShapeTest, "expr/zeroshape");
 MNNTestSuiteRegister(ZeroShapeTest2, "expr/zeroshape2");
 MNNTestSuiteRegister(ZeroShapeTest3, "expr/zeroshape3");

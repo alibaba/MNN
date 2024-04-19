@@ -248,6 +248,9 @@ int main(int argc, char *argv[]) {
     if (runMask & 32) {
         mConfig.rearrange = true;
     }
+    if (runMask & 512) {
+        rtmgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    }
     std::shared_ptr<Module> net;
     {
         AUTOTIME;

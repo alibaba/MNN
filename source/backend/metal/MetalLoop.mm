@@ -485,7 +485,7 @@ public:
         mLoop = loop;
         auto mtbn = static_cast<MetalBackend *>(bn);
         auto context = (__bridge MNNMetalContext *)mtbn->context();
-        mParam = [context newDeviceBuffer:sizeof(BinaryBroadCastInfo) access:CPUWriteOnly];
+        mParam = mtbn->getConstBuffer(sizeof(BinaryBroadCastInfo));
         mTensors = std::move(tensors);
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         auto dstTensor = mTensors[cmd->indexes()->data()[0]];
@@ -516,7 +516,10 @@ public:
         }
         mPipeline = pipeline;
     }
-    virtual ~MetalBinaryBroadCast() = default;
+    virtual ~MetalBinaryBroadCast() {
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        mtbn->returnConstBuffer(mParam);
+    }
     virtual ErrorCode onResize(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs) override {
         _setTensorStack(mTensors, inputs, outputs, mLoop);
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);

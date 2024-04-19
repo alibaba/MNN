@@ -18,8 +18,8 @@ inline float4 gelu(float4 in){
 }
 
 __kernel void unary_buf(GLOBAL_SIZE_3_DIMS
-                        __global const FLOAT *input,
-                        __global FLOAT *output,
+                        __global const INPUT_TYPE *input,
+                        __global OUTPUT_TYPE *output,
                         __private const int height) {
     const int channel_block_idx = get_global_id(0);
     const int w                 = get_global_id(1);
@@ -31,13 +31,8 @@ __kernel void unary_buf(GLOBAL_SIZE_3_DIMS
     const int height_idx = hb % height;
 
     const int offset = (((batch_idx*global_size_dim0+channel_block_idx)*height+height_idx)*global_size_dim1+w) * 4;
-#ifdef OPENCL_INPUT_INT
-    FLOAT4 in  = CONVERT_FLOAT4(convert_int4(vload4(0, input+offset)));
-    FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-    FLOAT4 in  = vload4(0, input+offset);
-    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
-    vstore4(out, 0, output+offset);
+    float4 in  = convert_float4(vload4(0, input+offset));
+    float4 out = OPERATOR;
+    vstore4(CONVERT_OUTPUT4(out), 0, output+offset);
 }
 

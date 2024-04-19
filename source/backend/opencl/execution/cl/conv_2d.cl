@@ -177,111 +177,6 @@ void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __rea
 
 }
 
-__kernel void conv_2d_1x1_local(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_only image2d_t weights,
-                          __read_only image2d_t bias,
-                          __write_only image2d_t output,
-                          __private const int in_c_block, __private const int out_h,
-                          __private const int out_w) {
-
-    const int row = get_local_id(0); 
-    const int col = get_local_id(1); 
-
-    const int out_c_idx = get_global_id(0); //c/4
-    const int out_w_idx = get_global_id(1); //w
-    const int out_b_h_idx  = get_global_id(2); //b h
-
-    DEAL_NON_UNIFORM_DIM3(out_c_idx, out_w_idx, out_b_h_idx);
-
-    const int out_w4_idx = mul24(out_w_idx, 4);
-
-    FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_c_idx, 0));
-    FLOAT4 out1 = out0;
-    FLOAT4 out2 = out0;
-    FLOAT4 out3 = out0;
-
-    FLOAT4 weights0;
-    FLOAT4 weights1;
-    FLOAT4 weights2;
-    FLOAT4 weights3;
-    
-    __local FLOAT4 in_sm0[UNIT*UNIT];
-    __local FLOAT4 in_sm1[UNIT*UNIT];
-    __local FLOAT4 in_sm2[UNIT*UNIT];
-    __local FLOAT4 in_sm3[UNIT*UNIT];
-
-    int tiles = (in_c_block + UNIT -1)/ UNIT;
-
-    const int col_x_unit = mul24(col, UNIT);
-    const int in_index = col_x_unit + row;
-
-    for (int t = 0; t < tiles; ++t) {
-        
-        int in_c = mad24(t, UNIT, row);
-        int in_c_w_idx = mad24(in_c, out_w, out_w4_idx);
-
-        in_sm0[in_index] = RI_F(input, SAMPLER, (int2)(in_c_w_idx, out_b_h_idx));
-        in_sm1[in_index] = RI_F(input, SAMPLER, (int2)(in_c_w_idx+1, out_b_h_idx));
-        in_sm2[in_index] = RI_F(input, SAMPLER, (int2)(in_c_w_idx+2, out_b_h_idx));
-        in_sm3[in_index] = RI_F(input, SAMPLER, (int2)(in_c_w_idx+3, out_b_h_idx));
-
-        barrier(CLK_GLOBAL_MEM_FENCE);
-
-        int kernel_index = mul24(t, UNIT*4);
-
-        for(int k = 0; k < UNIT; k++){
-
-            __private int kernel_cx4 = mad24(k, 4, kernel_index);
-            __private int local_idx = col_x_unit + k;
-
-            weights0 = RI_F(weights, SAMPLER, (int2)(kernel_cx4++, out_c_idx));
-            weights1 = RI_F(weights, SAMPLER, (int2)(kernel_cx4++, out_c_idx));
-            weights2 = RI_F(weights, SAMPLER, (int2)(kernel_cx4++, out_c_idx));
-            weights3 = RI_F(weights, SAMPLER, (int2)(kernel_cx4++, out_c_idx));
-
-            CALCULATE_OUTPUT_OPT(0);
-            CALCULATE_OUTPUT_OPT(1);
-            CALCULATE_OUTPUT_OPT(2);
-            CALCULATE_OUTPUT_OPT(3);
-        }
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-
-#ifdef RELU
-    out0 = fmax(out0, (FLOAT4)0);
-    out1 = fmax(out1, (FLOAT4)0);
-    out2 = fmax(out2, (FLOAT4)0);
-    out3 = fmax(out3, (FLOAT4)0);
-#endif
-
-#ifdef RELU6
-    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
-    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
-    out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
-    out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
-#endif
-
-    const int out_x_base = out_c_idx*out_w;
-
-    const int remain = out_w - out_w4_idx;
-    int output_idx   = out_x_base + out_w4_idx;
-    if (remain >= 4) {
-        WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
-        WI_F(output, (int2)(output_idx + 1, out_b_h_idx), out1);
-        WI_F(output, (int2)(output_idx + 2, out_b_h_idx), out2);
-        WI_F(output, (int2)(output_idx + 3, out_b_h_idx), out3);
-    } else if (remain == 3) {
-        WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
-        WI_F(output, (int2)(output_idx + 1, out_b_h_idx), out1);
-        WI_F(output, (int2)(output_idx + 2, out_b_h_idx), out2);
-    } else if (remain == 2) {
-        WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
-        WI_F(output, (int2)(output_idx + 1, out_b_h_idx), out1);
-    } else if (remain == 1) {
-        WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
-    }
-
-}
-
 __kernel
 #if SET_ATTRIBUTE
 __attribute__((work_group_size_hint(16, 16, 1)))
@@ -291,19 +186,16 @@ void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                           __global const char *kernel_ptr,
                           __global const FLOAT *dequantScale,
                           __global const FLOAT *dequantOffset,
-                          __global const FLOAT *bias_ptr,
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
                           __global const uchar *kernel_ptr,
                           __global const FLOAT *dequantScale,
                           __global const FLOAT *dequantOffset,
-                          __global const FLOAT *bias_ptr,
 #elif (defined USE_BUFFER)
                           __global const FLOAT *weights,
-                          __read_only image2d_t bias,
 #else
                           __read_only image2d_t weights,
-                          __read_only image2d_t bias,
 #endif
+                          __read_only image2d_t bias,
                           __write_only image2d_t output,
                           __private const int2 input_shape,
                           __private const int in_channel_block, __private const int2 output_shape,
@@ -326,11 +218,7 @@ void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     int weight_oc_offset = out_channel_blocks * 16;
 #endif
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    FLOAT4 out0 = vload4(output_channel_block_idx, bias_ptr);
-#else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(output_channel_block_idx, 0));
-#endif
     FLOAT4 out1 = out0;
     FLOAT4 out2 = out0;
     FLOAT4 out3 = out0;
@@ -473,19 +361,16 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                           __global const char *kernel_ptr,
                           __global const FLOAT *dequantScale,
                           __global const FLOAT *dequantOffset,
-                          __global const FLOAT *bias_ptr,
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
                           __global const uchar *kernel_ptr,
                           __global const FLOAT *dequantScale,
                           __global const FLOAT *dequantOffset,
-                          __global const FLOAT *bias_ptr,
 #elif (defined USE_BUFFER)
                           __global const FLOAT *weights,
-                          __read_only image2d_t bias,
 #else
                           __read_only image2d_t weights,
-                          __read_only image2d_t bias,
 #endif
+                          __read_only image2d_t bias,
                           __write_only image2d_t output,
                           __private const int2 input_shape,
                           __private const int in_channel_block, __private const int2 output_shape,
@@ -508,17 +393,12 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     int weight_ic_offset = output_channel_block_idx * 32;
     int weight_oc_offset = out_channel_blocks * 16;
 #endif
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    FLOAT4 out0 = vload4(output_channel_idx, bias_ptr);
-    FLOAT4 out4 = vload4(output_channel_idx + 1, bias_ptr);
-#else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(output_channel_idx, 0));
-    FLOAT4 out4 = RI_F(bias, SAMPLER, (int2)(output_channel_idx + 1, 0));
-#endif
     FLOAT4 out1 = out0;
     FLOAT4 out2 = out0;
     FLOAT4 out3 = out0;
     
+    FLOAT4 out4 = RI_F(bias, SAMPLER, (int2)(output_channel_idx + 1, 0));
     FLOAT4 out5 = out4;
     FLOAT4 out6 = out4;
     FLOAT4 out7 = out4;
@@ -749,11 +629,7 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __read_only image2d_t weights,
 #endif
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-                      __global const FLOAT *bias_ptr,
-#else
                       __read_only image2d_t bias,
-#endif
 #endif
                       __write_only image2d_t output,
                       __private const int2 input_shape,
@@ -775,11 +651,7 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     const int out_height_block_idx   = output_channel_width_idx % out_width_blocks;
 
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    FLOAT4 out0 = vload4(out_channel_block_idx, bias_ptr);
-#else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
-#endif
 #else
     FLOAT4 out0 = (FLOAT4)0;
 #endif
@@ -1077,11 +949,7 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __read_only image2d_t weights,
 #endif
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-                      __global const FLOAT *bias_ptr,
-#else
                       __read_only image2d_t bias,
-#endif
 #endif
                       __write_only image2d_t output,
                       __private const int2 input_shape,
@@ -1105,13 +973,8 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     const int out_batch_block_idx   = output_batch_height_idx / out_height_blocks;
 
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    FLOAT4 out0 = vload4(out_channel_block_idx, bias_ptr);
-    FLOAT4 out4 = vload4(out_channel_block_idx + 1, bias_ptr);
-#else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
     FLOAT4 out4 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx + 1, 0));
-#endif
 #else
     FLOAT4 out0 = (FLOAT4)0;
     FLOAT4 out4 = (FLOAT4)0;
@@ -1361,11 +1224,7 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __read_only image2d_t weights,
 #endif
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-                      __global const FLOAT *bias_ptr,
-#else
                       __read_only image2d_t bias,
-#endif
 #endif
                       __write_only image2d_t output,
                       __private const int2 input_shape,
@@ -1389,11 +1248,7 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     const int out_batch_block_idx   = output_batch_height_idx / out_height_blocks;
 
 #ifdef BIAS
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    FLOAT4 out0 = vload4(out_channel_block_idx, bias_ptr);
-#else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
-#endif
 #else
     FLOAT4 out0 = (FLOAT4)0;
 #endif

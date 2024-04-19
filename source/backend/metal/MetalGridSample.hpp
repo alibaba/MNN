@@ -18,7 +18,7 @@ namespace MNN {
 
 class MetalGridSample : public MetalExecution {
 public:
-    MetalGridSample(Backend *backend, const GridSample* gridSample);
+    MetalGridSample(Backend *backend, const GridSample* gridSample, id<MTLComputePipelineState> pipeline);
     virtual ~MetalGridSample() = default;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

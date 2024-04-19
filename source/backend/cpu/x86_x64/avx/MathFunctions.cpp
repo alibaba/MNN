@@ -204,27 +204,30 @@ void _AVX_MNNSoftmax(float* dest, const float* source, size_t size) {
     }
 }
 
-void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) {
+void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {
     float tmpfloat8[8];
     int count  = static_cast<int32_t>(size / 8);
     int remain = count * 8;
     // step 1: get sum
-    float sum = 0.f;
-    if (count > 0) {
-        auto sumVal = _mm256_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            sumVal = _mm256_add_ps(sumVal, _mm256_loadu_ps(src + i * 8));
+    float mean = 0;
+    if(!RMSNorm){
+        float sum = 0.f;
+        if (count > 0) {
+            auto sumVal = _mm256_set1_ps(0.f);
+            for (int i = 0; i < count; i++) {
+                sumVal = _mm256_add_ps(sumVal, _mm256_loadu_ps(src + i * 8));
+            }
+            _mm256_storeu_ps(tmpfloat8, sumVal);
+            for (int i = 0; i < 8; i++) {
+                sum += tmpfloat8[i];
+            }
         }
-        _mm256_storeu_ps(tmpfloat8, sumVal);
-        for (int i = 0; i < 8; i++) {
-            sum += tmpfloat8[i];
+        for (int i = remain; i < size; i++) {
+            sum += src[i];
         }
-    }
-    for (int i = remain; i < size; i++) {
-        sum += src[i];
+        mean = sum / size;
     }
     // step 2: get square_sum
-    float mean = sum / size;
     float square_sum = 0.f;
     auto meanVal = _mm256_set1_ps(mean);
     if (count > 0) {
@@ -269,7 +272,7 @@ void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float 
     }
 }
 
-void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params) {
+void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
     float tmpfloat8[8];
     int count  = static_cast<int32_t>(size / 8);
     int remain = count * 8;
@@ -281,23 +284,26 @@ void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const 
     float* dstf = outf.data();
     // step 0: Int8 -> Float
     _AVX_MNNInt8ScaleToFloat(inpf.data(), src, inpScale.data(), size / 4, params->inputZeroPoint[0]);
+    float mean = 0;
     // step 1: get sum
-    float sum = 0.f;
-    if (count > 0) {
-        auto sumVal = _mm256_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            sumVal = _mm256_add_ps(sumVal, _mm256_loadu_ps(srcf + i * 8));
+    if(!RMSNorm){
+        float sum = 0.f;
+        if (count > 0) {
+            auto sumVal = _mm256_set1_ps(0.f);
+            for (int i = 0; i < count; i++) {
+                sumVal = _mm256_add_ps(sumVal, _mm256_loadu_ps(srcf + i * 8));
+            }
+            _mm256_storeu_ps(tmpfloat8, sumVal);
+            for (int i = 0; i < 8; i++) {
+                sum += tmpfloat8[i];
+            }
         }
-        _mm256_storeu_ps(tmpfloat8, sumVal);
-        for (int i = 0; i < 8; i++) {
-            sum += tmpfloat8[i];
+        for (int i = remain; i < size; i++) {
+            sum += srcf[i];
         }
-    }
-    for (int i = remain; i < size; i++) {
-        sum += srcf[i];
+        mean = sum / size;
     }
     // step 2: get square_sum
-    float mean = sum / size;
     float square_sum = 0.f;
     auto meanVal = _mm256_set1_ps(mean);
     if (count > 0) {

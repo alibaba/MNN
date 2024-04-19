@@ -136,8 +136,8 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             }, 1));
         } else {
             mStrassenUseBiasDirectly = true;
-            if (TensorUtils::getDescribe(bias)->mem.get()) {
-                bdestAlloc = TensorUtils::getDescribe(bias)->mem->chunk();
+            if (TensorUtils::getDescribeOrigin(bias)->mem.get()) {
+                bdestAlloc = TensorUtils::getDescribeOrigin(bias)->mem->chunk();
             }
         }
         postParameters = {

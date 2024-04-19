@@ -9,7 +9,7 @@
 #ifndef MultiInputDWConvExecution_hpp
 #define MultiInputDWConvExecution_hpp
 
-#include "backend/opencl/execution/image/CommonExecution.hpp"
+#include "CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -19,7 +19,7 @@ public:
     MultiInputDWConvExecution(const MNN::Op *op, Backend *backend);
     virtual ~MultiInputDWConvExecution();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     PadMode mPadMode;

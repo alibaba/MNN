@@ -21,7 +21,6 @@ public:
         const IDSTQuan* quan;
         bool asymmetric;
         std::vector<int8_t> weightMap;
-        std::vector<uint8_t> weightReverseMap;
         bool canUseInt4 = false;
         Backend* backend = nullptr;
     };

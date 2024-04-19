@@ -21,7 +21,7 @@ __kernel void select_img(GLOBAL_SIZE_2_DIMS
     const int idy = get_global_id(1);
 
     DEAL_NON_UNIFORM_DIM2(idx, idy);
-    int4 select_vec = convert_int4(RI_F(input, SAMPLER, (int2)(idx, idy)));
+    int4 select_vec = read_imagei(input, SAMPLER, (int2)(idx, idy));
 #ifdef INSIZE1_EUQAL_1
     FLOAT4 in0 = RI_F(input0, SAMPLER, (int2)(0, 0));
     in0 = (FLOAT4)(in0.x);

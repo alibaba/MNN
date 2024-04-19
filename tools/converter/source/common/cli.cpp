@@ -420,11 +420,6 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.inputConfigFile         = inputConfigFile;
     }
 
-    // benchmarkModel
-    if (result.count("benchmarkModel")) {
-        modelPath.benchmarkModel = true;
-        modelPath.bizCode        = "benchmark";
-    }
     // half float
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
@@ -436,7 +431,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.defaultBatchSize = result["batch"].as<int>();
     }
     if (result.count("keepInputFormat")) {
-        modelPath.keepInputFormat = true;
+        modelPath.keepInputFormat = result["keepInputFormat"].as<bool>();
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
@@ -730,6 +725,9 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
+    std::shared_ptr<MNN::Express::Module> net2;
+    net2.reset(MNN::Express::Module::clone(net.get()));
+    net = net2;
     auto mInfo = net->getInfo();
     std::vector<MNN::Express::VARP> inputs(mInfo->inputs.size());
 #define LOAD_DATA(TYPE)\

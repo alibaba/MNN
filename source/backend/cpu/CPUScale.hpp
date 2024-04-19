@@ -18,8 +18,10 @@ public:
     CPUScale(const Op *op, Backend *bn);
     virtual ~CPUScale();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
+    CPUScale(Backend* bn);
     std::shared_ptr<Tensor> mScaleBias;
 };
 

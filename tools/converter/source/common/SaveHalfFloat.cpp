@@ -66,14 +66,3 @@ void CastParamsToHalf(std::unique_ptr<MNN::OpT>& op) {
             break;
     }
 };
-
-void castParamsToHalf(std::unique_ptr<MNN::NetT>& netT) {
-    for (auto& op : netT->oplists) {
-        CastParamsToHalf(op);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            CastParamsToHalf(op);
-        }
-    }
-}

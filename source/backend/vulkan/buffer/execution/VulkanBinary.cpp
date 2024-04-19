@@ -45,6 +45,9 @@ std::string VulkanBinary::getMidName(const Op *op) {
             case BinaryOpOperation_ADD:
                 mid = "ADD";
                 break;
+            case BinaryOpOperation_ATAN2:
+                mid = "ATAN2";
+                break;
             case BinaryOpOperation_SUB:
                 mid = "SUB";
                 break;
@@ -86,8 +89,13 @@ std::string VulkanBinary::getMidName(const Op *op) {
                 mid = "NOTEQUAL";
                 break;
             case BinaryOpOperation_MOD:
-            case BinaryOpOperation_FLOORMOD:
                 mid = "VMOD";
+                break;
+            case BinaryOpOperation_FLOORDIV:
+                mid = "FLOORDIV";
+                break;
+            case BinaryOpOperation_FLOORMOD:
+                mid = "FLOORMOD";
                 break;
             default:
                 FUNC_PRINT(op->main_as_BinaryOp()->opType());
@@ -96,8 +104,11 @@ std::string VulkanBinary::getMidName(const Op *op) {
     }
     return mid;
 }
-static std::string _getShaderName(const Op* op, bool image) {
+static std::string _getShaderName(const Op* op, bool isInt) {
     std::string prefix = "glsl_binary_";
+    if (isInt) {
+        prefix = "glsl_binary_int_";
+    }
     std::string posfix = "_comp";
     auto mid = VulkanBinary::getMidName(op);
     if (mid.empty()) {
@@ -184,7 +195,7 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input0 = inputs[0];
-        auto shader = _getShaderName(op, false);
+        auto shader = _getShaderName(op, input0->getType().code == halide_type_int);
         if (shader.empty()) {
             return nullptr;
         }

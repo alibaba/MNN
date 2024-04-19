@@ -10,6 +10,24 @@
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
+/**
+ Status 0 : input = 1 and multi = 1
+ Status 1 ：multi > 1
+ Status 2 ：input > 1
+
+ Input = 1 , multi = 1 : No change
+ Input = 1 , multi > 1 :
+ - Status 0 / 1 : multi * prevmulti，set status 1
+ - Status 2 : Export Input，set status 1
+ Input > 1 , multi = 1 ：
+ - Status 0 / 2 ：input * previnput，set status  2
+ - Status 1 ：Export multi，set status 2
+ Input > 1 , multi > 1 ：
+ - Status 0 ：Export multi and input，Set status 0
+ - Status 1 ：multi * prevmulti，Export multi and input, set status  0
+ - Status 2 ：Export prevInput，Export mult, Export input，set status  0
+ */
+
 class GeometryTile : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -18,81 +36,161 @@ public:
         auto multiples = inputs[1];
         auto output    = outputs[0];
         auto input     = inputs[0];
+        auto outputDes = TensorUtils::getDescribe(output);
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->regions.clear();
+
+        int validLength = 0;
+        int status = 0;
+        int inputStrides[MNN_MAX_TENSOR_DIM];
+        int outputStrides[MNN_MAX_TENSOR_DIM];
+        {
+            int shapes[MNN_MAX_TENSOR_DIM];
+            for (int i = 0; i < input->dimensions(); ++i) {
+                shapes[i] = input->length(i);
+            }
+            OpCommonUtils::computeStride(inputStrides, shapes, input->dimensions());
+            for (int i = 0; i < output->dimensions(); ++i) {
+                shapes[i] = output->length(i);
+            }
+            OpCommonUtils::computeStride(outputStrides, shapes, input->dimensions());
+        }
+        
+        int size[MNN_MAX_TENSOR_DIM];
+        int srcStride[MNN_MAX_TENSOR_DIM];
+        int dstStride[MNN_MAX_TENSOR_DIM];
+        int prevInput = 1;
+        int prevMulti = 1;
+        int prevIndex = 0;
+        auto mulPtr   = multiples->host<int32_t>();
+        for (int i = 0; i < input->dimensions(); ++i) {
+            auto il = input->length(i);
+            auto ml = mulPtr[i];
+            if (il == 0 || ml == 0) {
+                // Zero shape
+                return true;
+            }
+            if (il == 1 && ml == 1) {
+                continue;
+            }
+            if (il == 1 && ml > 1) {
+                switch (status) {
+                    case 0:
+                        prevMulti = 1;
+                    case 1:
+                        prevMulti = prevMulti * ml;
+                        prevIndex = i;
+                        break;
+                    case 2:
+                        size[validLength] = prevInput;
+                        srcStride[validLength] = inputStrides[prevIndex];
+                        dstStride[validLength] = outputStrides[prevIndex];
+                        validLength++;
+                        prevIndex = i;
+                        prevMulti = ml;
+                        break;
+                    default:
+                        break;
+                }
+                status = 1;
+                continue;
+            }
+            if (il > 1 && ml == 1) {
+                switch (status) {
+                    case 0:
+                        prevInput = 1;
+                    case 2:
+                        prevInput = prevInput * il;
+                        prevIndex = i;
+                        break;
+                    case 1:
+                        size[validLength] = prevMulti;
+                        srcStride[validLength] = 0;
+                        dstStride[validLength] = input->length(prevIndex) * outputStrides[prevIndex];
+                        validLength++;
+                        prevIndex = i;
+                        prevInput = il;
+                        break;
+                    default:
+                        break;
+                }
+                status = 2;
+                continue;
+            }
+            // il > 1 and ml > 1
+            if (1 == status) {
+                ml = ml * prevMulti;
+            } else if (2 == status) {
+                size[validLength] = prevInput;
+                srcStride[validLength] = inputStrides[prevIndex];
+                dstStride[validLength] = outputStrides[prevIndex];
+                validLength++;
+            }
+            size[validLength] = ml;
+            srcStride[validLength] = 0;
+            dstStride[validLength] = il * outputStrides[i];
+            validLength++;
+            size[validLength] = il;
+            srcStride[validLength] = inputStrides[i];
+            dstStride[validLength] = outputStrides[i];
+            validLength++;
+            status = 0;
+        }
+        // Check remain input length / multi
+        switch (status) {
+            case 1:
+                size[validLength] = prevMulti;
+                srcStride[validLength] = 0;
+                dstStride[validLength] = input->length(prevIndex) * outputStrides[prevIndex];
+                validLength++;
+                break;
+            case 2:
+                size[validLength] = prevInput;
+                srcStride[validLength] = inputStrides[prevIndex];
+                dstStride[validLength] = outputStrides[prevIndex];
+                validLength++;
+                break;
+            default:
+                break;
+        }
+        
+        // Pad to 3 if not larger than 3
+        for (int i=validLength; i<3; ++i) {
+            size[i] = 1;
+            srcStride[i] = 0;
+            dstStride[i] = 0;
+        }
+        validLength = ALIMAX(validLength, 3);
 
         // Compute Remain size and stride because region can only support up to 3
         int remainSize = 1;
-        std::vector<int> remainDims;
-        for (int i = 0; i < input->dimensions() - 3; ++i) {
-            remainSize *= input->length(i);
-            remainDims.emplace_back(input->length(i));
+        int remainDims[MNN_MAX_TENSOR_DIM];
+        int remainDimSize = validLength - 3;
+        for (int i = 0; i < validLength - 3; ++i) {
+            remainSize *= size[i];
+            remainDims[i] = size[i];
         }
-        std::vector<int32_t> mod(remainDims.size());
-        OpCommonUtils::computeStride(mod.data(), remainDims.data(), remainDims.size());
-
-        // Compute Multiply Stride
-        auto mulPtr   = multiples->host<int32_t>();
-        int copyTimes = 1;
-        for (int i = 0; i < input->dimensions(); ++i) {
-            copyTimes *= mulPtr[i];
-        }
-        auto modMultiSize = input->dimensions();
-        int32_t modMulti[MNN_MAX_TENSOR_DIM];
-        for (int i = 0; i < modMultiSize; ++i) {
-            int value = 1;
-            for (int j = i + 1; j < input->dimensions(); ++j) {
-                value *= mulPtr[j];
-            }
-            modMulti[i] = value;
-        }
-
-        // Compute input and output stride
-        // input stride use for remainSize split
-        // output stride use for remainSize split and tile split
-        std::vector<int> inputStrides(input->dimensions());
-        std::vector<int> outputStrides(input->dimensions());
-        {
-            int strides    = 1;
-            int outStrides = 1;
-            for (int i = input->dimensions() - 1; i >= 0; --i) {
-                inputStrides[i] = strides;
-                strides *= input->length(i);
-                outputStrides[i] = outStrides;
-                outStrides *= output->length(i);
-            }
-        }
-        // Compute regions, first iter copyTimes, second iter remainSize
-        auto outputDes = TensorUtils::getDescribe(output);
-        outputDes->regions.resize(copyTimes * remainSize);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        int mod[MNN_MAX_TENSOR_DIM];
+        OpCommonUtils::computeStride(mod, remainDims, remainDimSize);
+        outputDes->regions.reserve(remainSize);
         int coordinates[MNN_MAX_TENSOR_DIM];
-        for (int u = 0; u < copyTimes; ++u) {
-            int dstOffset = 0;
-            OpCommonUtils::unravelIndexHelper(coordinates, modMulti, modMultiSize, u);
-            for (int i = 0; i < modMultiSize; ++i) {
-                dstOffset += coordinates[i] * input->length(i) * outputStrides[i];
+        for (int u = 0; u < remainSize; ++u) {
+            OpCommonUtils::unravelIndexHelper(coordinates, mod, remainDimSize, u);
+            Tensor::InsideDescribe::Region region;
+            region.origin     = input;
+            region.src.offset = 0;
+            region.dst.offset = 0;
+            for (int v=0; v<remainDimSize; ++v) {
+                region.src.offset += srcStride[v] * coordinates[v];
+                region.dst.offset += dstStride[v] * coordinates[v];
             }
-            for (int v = 0; v < remainSize; ++v) {
-                auto& region      = outputDes->regions[u * remainSize + v];
-                region.src.offset = 0;
-                region.origin     = input;
-                auto value        = v;
-                region.dst.offset = dstOffset;
-                for (int i = 0; i < 3; ++i) {
-                    auto match = input->dimensions() - i - 1;
-                    if (match < 0) {
-                        continue;
-                    }
-                    region.size[3 - i - 1]       = input->length(match);
-                    region.src.stride[3 - i - 1] = inputStrides[match];
-                    region.dst.stride[3 - i - 1] = outputStrides[match];
-                }
-                for (int i = 0; i < remainDims.size(); ++i) {
-                    auto coordinate = value / mod[i];
-                    region.src.offset += coordinate * inputStrides[i];
-                    region.dst.offset += coordinate * outputStrides[i];
-                    value = value % mod[i];
-                }
+            for (int v=0; v<3; ++v) {
+                auto ov = v + remainDimSize;
+                region.src.stride[v] = srcStride[ov];
+                region.dst.stride[v] = dstStride[ov];
+                region.size[v] = size[ov];
             }
+            outputDes->regions.emplace_back(std::move(region));
         }
         return true;
     }

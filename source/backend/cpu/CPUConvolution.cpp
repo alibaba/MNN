@@ -235,9 +235,9 @@ public:
 #ifdef MNN_USE_ONEDNN
         return OneDNNConvInt8::create(backend, convOp, inputs, outputs);
 #endif
-        auto res = CPUConvolution::makeResourceInt8(backend, convOp);
+        auto core = static_cast<CPUBackend*>(backend)->functions();
+        auto res = CPUConvolution::makeResourceInt8(backend, convOp, core->pack);
 #ifdef MNN_USE_SPARSE_COMPUTE
-        auto core = static_cast<CPUBackend*>(backend)->int8Functions();
         if (static_cast<CPUBackend*>(backend)->functions()->pack == 4 && convOp->sparseParameter() && SparseConvInt8TiledExecutor::shouldUseSparse(convOp)) {
             return new SparseConvInt8TiledExecutor(backend, convOp, res);
         }

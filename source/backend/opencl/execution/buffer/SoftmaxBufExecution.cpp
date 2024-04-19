@@ -9,14 +9,12 @@
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/SoftmaxBufExecution.hpp"
-#include "core/Macro.h"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, int axis, Backend *backend)
-    : Execution(backend) {
+SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, int axis, const MNN::Op* Op, Backend *backend)
+    : CommonExecution(backend, Op) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_channel", {"-DSOFTMAX_LOCAL_SIZE=512"});
@@ -25,20 +23,18 @@ SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, in
 
 bool SoftmaxBufExecution::buildSoftmaxKernel(int localSize) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    if (mKernel.get() == nullptr) {
-        std::set<std::string> buildOptions;
-        buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
-        std::string kernelName;
-        if (mAxis == 1) {
-            mKernel           = runtime->buildKernel("softmax_buf", "softmax_channel", buildOptions);
-        } else if (mAxis == 2) {
-            mKernel           = runtime->buildKernel("softmax_buf", "softmax_height", buildOptions);
-        } else {
-            MNN_ASSERT(mAxis == 3);
-            mKernel           = runtime->buildKernel("softmax_buf", "softmax_width", buildOptions);
-        }
-        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    std::set<std::string> buildOptions;
+    buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
+    std::string kernelName;
+    if (mAxis == 1) {
+        mUnits[0].kernel  = runtime->buildKernel("softmax_buf", "softmax_channel", buildOptions);
+    } else if (mAxis == 2) {
+        mUnits[0].kernel  = runtime->buildKernel("softmax_buf", "softmax_height", buildOptions);
+    } else {
+        MNN_ASSERT(mAxis == 3);
+        mUnits[0].kernel  = runtime->buildKernel("softmax_buf", "softmax_width", buildOptions);
     }
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mUnits[0].kernel));
     return true;
 }
 
@@ -50,13 +46,14 @@ int SoftmaxBufExecution::getLocalSize(int size, int maxGroupSize){
     return local_size;
 }
 
-ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     
     const auto dims = input->buffer().dimensions;
     auto runtime       = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
     auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
     int inside  = 1;
     int outside = 1;
@@ -84,79 +81,44 @@ ErrorCode SoftmaxBufExecution::onResize(const std::vector<Tensor *> &inputs, con
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
+    int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
     int localSize = getLocalSize(channel, MaxLocalSize);
     if(localSize < 4){
         localSize = 1;
     }
     if(inputBatch == outside && channel == inputChannels && inside == inputWidth * inputHeight){
         mAxis = 1;
+        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)outputWidth, (uint32_t)outputHeight * outputBatch};
         localSize = getLocalSize(channelBlocks, MaxLocalSize);
     }else if(inputBatch * inputChannels == outside && channel == inputHeight && inside == inputWidth){
         mAxis = 2;
+        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch};
     }else if(inputBatch * inputChannels * inputHeight == outside && channel == inputWidth && inside == 1){
         mAxis = 3;
+        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight};
     }
     buildSoftmaxKernel(localSize);
     
     cl_int ret = CL_SUCCESS;
-    int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
-    if (mAxis == 1) {
-        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)outputWidth, (uint32_t)outputHeight * outputBatch};
-
-    } else if (mAxis == 2){
-        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch};
-    } else {
-        MNN_ASSERT(mAxis == 3);
-        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight};
-    }
     mLocalWorkSize = {(uint32_t)(localSize), 1, 1};
     
     uint32_t idx    = 0;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
 
-    ret |= mKernel.setArg(idx++, openCLImage(input));
-    ret |= mKernel.setArg(idx++, openCLImage(output));
-    ret |= mKernel.setArg(idx++, remainChannels);
-    ret |= mKernel.setArg(idx++, shape);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+    ret |= unit.kernel->get().setArg(idx++, remainChannels);
+    ret |= unit.kernel->get().setArg(idx++, shape);
     MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution");
     if(localSize == 1){
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", mKernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel).first;
     }
     
-    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode SoftmaxBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start SoftmaxBufExecution onExecute !\n");
-#endif
-    
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Softmax", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End SelectBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end SoftmaxBufExecution onExecute !\n");
-#endif
-
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
     return NO_ERROR;
 }
 
@@ -181,7 +143,7 @@ public:
             axis = index[axis];
             //1 : channel //2 : height
             if (1 == axis || 2 == axis || 3 == axis) {
-                return new SoftmaxBufExecution(inputs, axis, backend);
+                return new SoftmaxBufExecution(inputs, axis, op, backend);
             }
             return nullptr;
         } else {
@@ -191,7 +153,7 @@ public:
             }
 
             if (1 == axis || 2 == axis || 3 == axis) {
-                return new SoftmaxBufExecution(inputs, axis, backend);
+                return new SoftmaxBufExecution(inputs, axis, op, backend);
             }
             return nullptr;
         }

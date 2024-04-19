@@ -313,6 +313,7 @@ table LayerNorm {
     beta: [float];
     group: int = 1;
     external:[int64]; // [offset, gamma_bytes_size, beta_bytes_size]
+    useRMSNorm: bool = false;
 }
 table GroupNorm {
     axis: int;

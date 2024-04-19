@@ -101,7 +101,7 @@ public:
         //MNN_PRINT("On compute geometry: %d - %d - %d\n", inputL0, inputL1, outputSize);
         if (1 == inputL0 || 1 == inputL1) {
             // Can directly compute
-            SharedPtr<Command> cmdP(new Command);
+            std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
             cmd.inputs  = {input0, input1};
@@ -227,7 +227,7 @@ public:
             input1 = newTensor.get();
             res.extras.emplace_back(newTensor);
         }
-        SharedPtr<Command> cmdP(new Command);
+        std::shared_ptr<Command> cmdP(new Command);
         auto& cmd = *cmdP;
         cmd.op      = op;
         cmd.inputs  = {input0, input1};

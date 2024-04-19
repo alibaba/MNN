@@ -9,6 +9,7 @@
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include <algorithm>
 #include <string>
+#include <math.h>
 #include <vector>
 #include "core/Macro.h"
 
@@ -43,9 +44,9 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel) {
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
     MNN_ASSERT(gws.size() == 3);
-    
+    auto mKernel = mKernelW->get();
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 3);
     auto& tunedLws = runtime->tunedLwsMap();
@@ -273,8 +274,9 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                        OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel) {
+                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
     MNN_ASSERT(gws.size() == 2);
+    auto mKernel = mKernelW->get();
     
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 2);
@@ -471,26 +473,23 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     return std::make_pair(lws_prefer, min_cost);
 }
 
-void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime, cl::Event* eventPtr) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start run3DKernelDefault !\n");
 #endif
+    auto kernel = kernelw->get();
 
     MNN_ASSERT(lws.size() >= 3);
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 3; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
 
     cl_int res = CL_SUCCESS;
     if(lws[0]==0 || lws[1]==0 || lws[2]==0){
         res        = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1], gws[2]),
             cl::NullRange, nullptr, eventPtr);
     }else{
         res        = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1], gws[2]),
             cl::NDRange(lws[0], lws[1], lws[2]), nullptr, eventPtr);
     }
     MNN_CHECK_CL_SUCCESS(res, "run3d");
@@ -512,25 +511,20 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
 #endif
 }
 
-void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                  OpenCLRuntime *runtime,  cl::Event* eventPtr) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start runKernel2D !\n");
 #endif
-
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 2; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
-
+    auto kernel = kernelw->get();
     cl_int res = CL_SUCCESS;
     if(lws[0]==0 || lws[1]==0){
         res = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, eventPtr);
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1]), cl::NullRange, nullptr, eventPtr);
 
     }else{
         res = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws[0], lws[1]), nullptr, eventPtr);
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1]), cl::NDRange(lws[0], lws[1]), nullptr, eventPtr);
     }
     MNN_CHECK_CL_SUCCESS(res, "run2d");
 
@@ -557,7 +551,8 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
     if(runtime->isWeightCpuTransHalf() == false) {
         buildOptions.emplace("-DBUFFER_INP_FP32");
     }
-    auto kernel = runtime->buildKernel("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
+    auto kernelW = runtime->buildKernelWithCache("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
+    auto kernel = kernelW->get();
     auto status = kernel.setArg(0, buffer);
     MNN_ASSERT(status == CL_SUCCESS);
     status = kernel.setArg(1, image);
@@ -578,25 +573,20 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
     }
     auto gwsAndLws = iter->second;
     int size = gws.size();
-    int minPoint = INT_MAX;
+    uint32_t minPoint = UINT_MAX;
     int index = -1;
     for(int i = 0; i < gwsAndLws.size(); ++i){
         int point = 0;
         for(int j = 0; j < size; ++j){
-            point += std::abs((int)gws[j] - (int)gwsAndLws[i].first[j]);
+            point += ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]) * ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]);
         }
+        point = sqrt(point);
         if(point < minPoint){
             index = i;
             minPoint = point;
         }
     }
     if(index != -1){
-//        for(int i = 0; i < size; ++i){
-//            float scale = (std::abs((float)gws[i] - (float)gwsAndLws[index].second[i])) / (float)gws[i];
-//            if(scale >= minScale){
-//                return localSize;
-//            }
-//        }
         res = gwsAndLws[index].second;
     }
     return true;

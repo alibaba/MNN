@@ -26,6 +26,66 @@
 using namespace MNN;
 using namespace std;
 
+static void _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, MNN::Compression::Pipeline proto, const modelConfig& config, std::ofstream& weightPath, int64_t& offset, bool needExternalWeight) {
+    loadExternalParam(op, fl);
+    if (config.alignDenormalizedValue) {
+        AlignDenormalizedValue(op);
+    }
+    if (config.saveHalfFloat) {
+        CastParamsToHalf(op);
+    }
+    if (config.detectSparseSpeedUp) {
+        AddSparseInfo(op, proto);
+    }
+    WeightQuantAndCoding(op, config);
+    if (needExternalWeight) {
+        RemoveAndStoreParam(op, &weightPath, offset);
+    }
+}
+static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
+    switch (op->main.type) {
+        case MNN::OpParameter_Convolution2D:
+        {
+            auto conv2D = op->main.AsConvolution2D();
+            if (conv2D->external.empty()) {
+                return 0.0f;
+            }
+            return ((float)conv2D->external[1] + (float)conv2D->external[2]) / 1024.0f / 1024.0f;
+        }
+        case MNN::OpParameter_Blob:
+        {
+            auto blob = op->main.AsBlob();
+            if (blob->external.empty()) {
+                return 0.0f;
+            }
+            return blob->external[1] / 1024.0f / 1024.0f;
+        }
+            
+        default:
+            break;
+    }
+    return 0.0f;
+}
+static bool _largeModel(const MNN::NetT* netT) {
+    float summer = 0.0f;
+    for (auto& op : netT->oplists) {
+        summer+= _computeOpExternalSizeInMB(op.get());
+        if (summer > 2000.0f) {
+            MNN_PRINT("Model larger than 2GB\n");
+            return true;
+        }
+    }
+    for (auto& subgraph : netT->subgraphs) {
+        for (auto& op : subgraph->nodes) {
+            summer+= _computeOpExternalSizeInMB(op.get());
+            if (summer > 2000.0f) {
+                MNN_PRINT("Model larger than 2GB\n");
+                return true;
+            }
+        }
+    }
+    return false;
+}
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, const modelConfig& config) {
     std::string compressFileName = config.compressionParamsFile;
     Compression::Pipeline proto;
@@ -52,33 +112,42 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         netT->extraInfo->name = config.authCode;
     }
 
-    if (1) {
-        // load external data for some change
-        loadExternalData(netT, ".__convert_external_data.bin");
-    }
-
-    if (config.benchmarkModel) {
-        removeParams(netT);
-    }
     if (config.compressionParamsFile != "") {
         channelPruneConvert(netT, proto);
-    }
-    if (config.saveHalfFloat) {
-        castParamsToHalf(netT);
-    }
-    if (config.alignDenormalizedValue) {
-        AlignDenormalizedValue(netT);
-    }
-    if (config.detectSparseSpeedUp) {
-        addSparseInfo(netT, proto);
     }
     if (config.compressionParamsFile != "") {
         fullQuantAndCoding(netT, proto);
     }
-
-    weightQuantAndCoding(netT, config);
-
-
+    // Check If need external weight
+    bool needExternalWeight = config.saveExternalData;
+    if (!needExternalWeight) {
+        needExternalWeight = _largeModel(netT.get());
+    }
+    std::ofstream externalWeightOs;
+    if (needExternalWeight) {
+        auto weightName = MNNModelFile + ".weight";
+        MNN_PRINT("Save Weight to %s\n", weightName.c_str());
+        externalWeightOs.open(weightName.c_str());
+        if (externalWeightOs.fail()) {
+            MNN_PRINT("Write %s failed\n", weightName.c_str());
+        }
+    }
+    {
+        int64_t offset = 0;
+        FileLoader fl(".__convert_external_data.bin");
+        for (auto& op : netT->oplists) {
+            _postTreatOp(op, &fl, proto, config, externalWeightOs, offset, needExternalWeight);
+        }
+        for (auto& subgraph : netT->subgraphs) {
+            for (auto& op : subgraph->nodes) {
+                _postTreatOp(op, &fl, proto, config, externalWeightOs, offset, needExternalWeight);
+            }
+        }
+    }
+    {
+        std::ofstream erase(".__convert_external_data.bin");
+        erase << "0";
+    }
     std::set<std::string> notSupportOps;
     auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {
         if (op->type == MNN::OpType_Extra) {
@@ -140,12 +209,6 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
 
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
-    if (config.saveExternalData) {
-        bool res = saveExternalData(netT, MNNModelFile + ".weight");
-        if (!res) {
-            LOG(FATAL) << "Write Weight to External Data Failed.";
-        }
-    }
     auto len = MNN::Net::Pack(builderOutput, netT.get());
     builderOutput.Finish(len);
     int sizeOutput    = builderOutput.GetSize();

@@ -191,10 +191,11 @@ private:
     std::shared_ptr<Allocator> mAllocator;
     size_t mAlign;
 };
+typedef void(*MemChunkApplyToTensor)(uint8_t* ptr, size_t offset, Tensor* tensor);
 
 class MNN_PUBLIC DeferBufferAllocator : public BufferAllocator {
 public:
-    DeferBufferAllocator(std::shared_ptr<Allocator> parent, size_t align = MNN_MEMORY_ALIGN_DEFAULT) : mAllocator(parent), mAlign(align) {}
+    DeferBufferAllocator(std::shared_ptr<Allocator> parent, size_t align = MNN_MEMORY_ALIGN_DEFAULT, MemChunkApplyToTensor func = nullptr);
     ~DeferBufferAllocator() {
         reset();
     }
@@ -229,6 +230,7 @@ private:
     void insertFree(MemNode* chunk);
     void eraseFree(MemNode* chunk);
     void visiChildren(MemNode* chunk);
+    MemChunkApplyToTensor mApplyFunction;
 };
 } // namespace MNN
 #endif

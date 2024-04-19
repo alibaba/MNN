@@ -38,22 +38,22 @@ cbz x4, Start
 
 
 Start:
+mov x19, x6
+mov x20, x7
 
 cmp x10, #2
 blt LH4
 
 LH8:
 // sub x14, x13, #160
-mov x19, x6
-mov x20, x7
 LoopH:
 
     mov x15, x1
     ld1 {v4.4s, v5.4s}, [x19], #32 // alpha
     ld1 {v6.4s, v7.4s}, [x20], #32 // bias
-    subs x12, x9, #2
-    // ld1 {v3.4s, v4.4s}, [x2], #32
-    ld1 {v3.16b}, [x2], #16
+    subs x12, x9, #1
+
+    ld1 {v3.8b}, [x2], #8
     sxtl v0.8h, v3.8b
     sxtl v1.4s, v0.4h
     sxtl2 v2.4s, v0.8h
@@ -94,50 +94,13 @@ LoopH:
     fmul v30.4s, v2.4s, v0.s[2]
     fmul v31.4s, v2.4s, v0.s[3]
 
-    sxtl2 v0.8h, v3.16b
-    sxtl v1.4s, v0.4h
-    sxtl2 v2.4s, v0.8h
-    scvtf v0.4s, v1.4s
-    scvtf v1.4s, v2.4s
-    mov v2.16b, v7.16b
-    fmla v2.4s, v1.4s, v5.4s
-    mov v1.16b, v6.16b
-    fmla v1.4s, v0.4s, v4.4s
-
-    ld1 {v0.4s}, [x15], #16
-    fmla v8.4s, v1.4s, v0.s[0]
-    fmla v9.4s, v1.4s, v0.s[1]
-    fmla v10.4s, v1.4s, v0.s[2]
-    fmla v11.4s, v1.4s, v0.s[3]
-    fmla v20.4s, v2.4s, v0.s[0]
-    fmla v21.4s, v2.4s, v0.s[1]
-    fmla v22.4s, v2.4s, v0.s[2]
-    fmla v23.4s, v2.4s, v0.s[3]
-
-    ld1 {v0.4s}, [x15], #16
-    fmla v12.4s, v1.4s, v0.s[0]
-    fmla v13.4s, v1.4s, v0.s[1]
-    fmla v14.4s, v1.4s, v0.s[2]
-    fmla v15.4s, v1.4s, v0.s[3]
-    fmla v24.4s, v2.4s, v0.s[0]
-    fmla v25.4s, v2.4s, v0.s[1]
-    fmla v26.4s, v2.4s, v0.s[2]
-    fmla v27.4s, v2.4s, v0.s[3]
-
-    ld1 {v0.4s}, [x15], #16
-    fmla v16.4s, v1.4s, v0.s[0]
-    fmla v17.4s, v1.4s, v0.s[1]
-    fmla v18.4s, v1.4s, v0.s[2]
-    fmla v19.4s, v1.4s, v0.s[3]
-    fmla v28.4s, v2.4s, v0.s[0]
-    fmla v29.4s, v2.4s, v0.s[1]
-    fmla v30.4s, v2.4s, v0.s[2]
-    fmla v31.4s, v2.4s, v0.s[3]
-
     beq LoopLEnd
 
+    cmp x12, #2
+    blt LH8L1
+
     LoopL2:
-        subs x12, x12, #2
+        sub x12, x12, #2
         // ld1 {v3.4s, v4.4s}, [x2], #32
         ld1 {v3.16b}, [x2], #16
         sxtl v0.8h, v3.8b
@@ -219,7 +182,54 @@ LoopH:
         fmla v29.4s, v2.4s, v0.s[1]
         fmla v30.4s, v2.4s, v0.s[2]
         fmla v31.4s, v2.4s, v0.s[3]
-        bne LoopL2
+
+        cmp x12, #2
+        bge LoopL2
+
+    LH8L1:
+    cmp x12, #0
+    beq LoopLEnd
+
+        ld1 {v3.8b}, [x2], #8
+        sxtl v0.8h, v3.8b
+        sxtl v1.4s, v0.4h
+        sxtl2 v2.4s, v0.8h
+        scvtf v0.4s, v1.4s
+        scvtf v1.4s, v2.4s
+        mov v2.16b, v7.16b
+        fmla v2.4s, v1.4s, v5.4s
+        mov v1.16b, v6.16b
+        fmla v1.4s, v0.4s, v4.4s
+
+        ld1 {v0.4s}, [x15], #16
+        fmla v8.4s, v1.4s, v0.s[0]
+        fmla v9.4s, v1.4s, v0.s[1]
+        fmla v10.4s, v1.4s, v0.s[2]
+        fmla v11.4s, v1.4s, v0.s[3]
+        fmla v20.4s, v2.4s, v0.s[0]
+        fmla v21.4s, v2.4s, v0.s[1]
+        fmla v22.4s, v2.4s, v0.s[2]
+        fmla v23.4s, v2.4s, v0.s[3]
+
+        ld1 {v0.4s}, [x15], #16
+        fmla v12.4s, v1.4s, v0.s[0]
+        fmla v13.4s, v1.4s, v0.s[1]
+        fmla v14.4s, v1.4s, v0.s[2]
+        fmla v15.4s, v1.4s, v0.s[3]
+        fmla v24.4s, v2.4s, v0.s[0]
+        fmla v25.4s, v2.4s, v0.s[1]
+        fmla v26.4s, v2.4s, v0.s[2]
+        fmla v27.4s, v2.4s, v0.s[3]
+
+        ld1 {v0.4s}, [x15], #16
+        fmla v16.4s, v1.4s, v0.s[0]
+        fmla v17.4s, v1.4s, v0.s[1]
+        fmla v18.4s, v1.4s, v0.s[2]
+        fmla v19.4s, v1.4s, v0.s[3]
+        fmla v28.4s, v2.4s, v0.s[0]
+        fmla v29.4s, v2.4s, v0.s[1]
+        fmla v30.4s, v2.4s, v0.s[2]
+        fmla v31.4s, v2.4s, v0.s[3]
 
     LoopLEnd:
 
@@ -346,21 +356,17 @@ LH4:
 cbz x10, End
 LoopHRemain:
     mov x15, x1
-    subs x12, x9, #4
+    subs x12, x9, #1
+
     ld1 {v20.4s}, [x19], #16 // alpha
     ld1 {v21.4s}, [x20], #16 // bias
     // ld1 {v3.4s}, [x2]
-    ld1 {v0.4s}, [x2], #16
-    uzp1 v7.4s, v0.4s, v0.4s
-    sxtl v0.8h, v7.8b
+    ld1 {v0.8b}, [x2], #8
+    sxtl v0.8h, v0.8b
     sxtl v1.4s, v0.4h
-    sxtl2 v2.4s, v0.8h
     scvtf v1.4s, v1.4s
-    scvtf v2.4s, v2.4s
     mov v3.16b, v21.16b
-    mov v4.16b, v21.16b
     fmla v3.4s, v1.4s, v20.4s
-    fmla v4.4s, v2.4s, v20.4s
 
     ld1 {v0.4s}, [x15], #16
     fmul v8.4s, v3.4s, v0.s[0]
@@ -378,74 +384,19 @@ LoopHRemain:
     fmul v18.4s, v3.4s, v2.s[2]
     fmul v19.4s, v3.4s, v2.s[3]
 
-    ld1 {v0.4s}, [x15], #16
-    fmla v8.4s, v4.4s, v0.s[0]
-    fmla v9.4s, v4.4s, v0.s[1]
-    ld1 {v1.4s}, [x15], #16
-    fmla v10.4s, v4.4s, v0.s[2]
-    fmla v11.4s, v4.4s, v0.s[3]
-    fmla v12.4s, v4.4s, v1.s[0]
-    ld1 {v2.4s}, [x15], #16
-    fmla v13.4s, v4.4s, v1.s[1]
-    fmla v14.4s, v4.4s, v1.s[2]
-    fmla v15.4s, v4.4s, v1.s[3]
-    fmla v16.4s, v4.4s, v2.s[0]
-    fmla v17.4s, v4.4s, v2.s[1]
-    fmla v18.4s, v4.4s, v2.s[2]
-    fmla v19.4s, v4.4s, v2.s[3]
-
-    sxtl2 v0.8h, v7.16b
-    sxtl v1.4s, v0.4h
-    sxtl2 v2.4s, v0.8h
-    scvtf v1.4s, v1.4s
-    scvtf v2.4s, v2.4s
-    mov v3.16b, v21.16b
-    mov v4.16b, v21.16b
-    fmla v3.4s, v1.4s, v20.4s
-    fmla v4.4s, v2.4s, v20.4s
-
-    ld1 {v0.4s}, [x15], #16
-    fmla v8.4s, v3.4s, v0.s[0]
-    fmla v9.4s, v3.4s, v0.s[1]
-    ld1 {v1.4s}, [x15], #16
-    fmla v10.4s, v3.4s, v0.s[2]
-    fmla v11.4s, v3.4s, v0.s[3]
-    fmla v12.4s, v3.4s, v1.s[0]
-    ld1 {v2.4s}, [x15], #16
-    fmla v13.4s, v3.4s, v1.s[1]
-    fmla v14.4s, v3.4s, v1.s[2]
-    fmla v15.4s, v3.4s, v1.s[3]
-    fmla v16.4s, v3.4s, v2.s[0]
-    fmla v17.4s, v3.4s, v2.s[1]
-    fmla v18.4s, v3.4s, v2.s[2]
-    fmla v19.4s, v3.4s, v2.s[3]
-
-    ld1 {v0.4s}, [x15], #16
-    fmla v8.4s, v4.4s, v0.s[0]
-    fmla v9.4s, v4.4s, v0.s[1]
-    ld1 {v1.4s}, [x15], #16
-    fmla v10.4s, v4.4s, v0.s[2]
-    fmla v11.4s, v4.4s, v0.s[3]
-    fmla v12.4s, v4.4s, v1.s[0]
-    ld1 {v2.4s}, [x15], #16
-    fmla v13.4s, v4.4s, v1.s[1]
-    fmla v14.4s, v4.4s, v1.s[2]
-    fmla v15.4s, v4.4s, v1.s[3]
-    fmla v16.4s, v4.4s, v2.s[0]
-    fmla v17.4s, v4.4s, v2.s[1]
-    fmla v18.4s, v4.4s, v2.s[2]
-    fmla v19.4s, v4.4s, v2.s[3]
-
     beq LoopLREnd
 
+    cmp x12, #2
+    blt LH4L1
+
     LoopLR:
-        subs x12, x12, #4
+        sub x12, x12, #2
         // ld1 {v3.4s}, [x2]
         ld1 {v3.4s}, [x2], #16
-        uzp1 v7.4s, v3.4s, v3.4s
-        sxtl v0.8h, v7.8b
+        sxtl v0.8h, v3.8b
+        sxtl2 v2.8h, v3.16b
         sxtl v1.4s, v0.4h
-        sxtl2 v2.4s, v0.8h
+        sxtl v2.4s, v2.4h
         scvtf v1.4s, v1.4s
         scvtf v2.4s, v2.4s
         mov v3.16b, v21.16b
@@ -480,16 +431,18 @@ LoopHRemain:
         fmla v18.4s, v4.4s, v2.s[2]
         fmla v19.4s, v4.4s, v2.s[3]
 
-        sxtl2 v0.8h, v7.16b
-        sxtl v1.4s, v0.4h
-        sxtl2 v2.4s, v0.8h
-        scvtf v1.4s, v1.4s
-        scvtf v2.4s, v2.4s
-        mov v3.16b, v21.16b
-        mov v4.16b, v21.16b
-        fmla v3.4s, v1.4s, v20.4s
-        fmla v4.4s, v2.4s, v20.4s
+        cmp x12, #2
+        bge LoopLR
+    LH4L1:
+    cmp x12, #0
+    beq LoopLREnd
 
+        ld1 {v3.8b}, [x2], #8
+        sxtl v0.8h, v3.8b
+        sxtl v1.4s, v0.4h
+        scvtf v1.4s, v1.4s
+        mov v3.16b, v21.16b
+        fmla v3.4s, v1.4s, v20.4s
         ld1 {v0.4s, v1.4s, v2.4s}, [x15], #48
         fmla v8.4s, v3.4s, v0.s[0]
         fmla v9.4s, v3.4s, v0.s[1]
@@ -504,20 +457,7 @@ LoopHRemain:
         fmla v18.4s, v3.4s, v2.s[2]
         fmla v19.4s, v3.4s, v2.s[3]
 
-        ld1 {v0.4s, v1.4s, v2.4s}, [x15], #48
-        fmla v8.4s, v4.4s, v0.s[0]
-        fmla v9.4s, v4.4s, v0.s[1]
-        fmla v10.4s, v4.4s, v0.s[2]
-        fmla v11.4s, v4.4s, v0.s[3]
-        fmla v12.4s, v4.4s, v1.s[0]
-        fmla v13.4s, v4.4s, v1.s[1]
-        fmla v14.4s, v4.4s, v1.s[2]
-        fmla v15.4s, v4.4s, v1.s[3]
-        fmla v16.4s, v4.4s, v2.s[0]
-        fmla v17.4s, v4.4s, v2.s[1]
-        fmla v18.4s, v4.4s, v2.s[2]
-        fmla v19.4s, v4.4s, v2.s[3]
-        bne LoopLR
+
     LoopLREnd:
 
     cbz x4, StoreLH4

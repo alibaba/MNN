@@ -106,24 +106,24 @@ inline cl::Image &openCLImage(const Tensor *tensor) {
 void getImageShape(const std::vector<int> &shape, /* NHWC */
                    const OpenCLBufferFormat type, std::vector<size_t> *imageShape);
 
-std::vector<uint32_t> turnLocalSize(cl::Kernel *kernel, std::vector<uint32_t> &gws, OpenCLRuntime *runtime);
+std::vector<uint32_t> turnLocalSize(std::shared_ptr<KernelWrap> *kernel, std::vector<uint32_t> &gws, OpenCLRuntime *runtime);
 
-void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
 
-void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                  OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
 
-void runTurnKernelLWS2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime);
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel);
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
 
 bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t> &res);
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel);
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
 

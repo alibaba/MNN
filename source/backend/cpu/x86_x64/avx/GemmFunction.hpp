@@ -832,7 +832,6 @@ static inline __m128 _load_int4x4(const uint8_t* src, __m128 alpha, __m128 bias)
     int iw2     = iw23 / 16;
     int iw3     = iw23 % 16;
     auto ws     = _mm_set_ps(iw3, iw2, iw1, iw0);
-    ws          = _mm_sub_ps(ws, _mm_set1_ps(8));
     ws          = _mm_add_ps(_mm_mul_ps(ws, alpha), bias);
     return ws;
 }
@@ -843,8 +842,8 @@ static inline __m256 _load_int4x8(const uint8_t* src, __m256 alpha, __m256 bias)
         int x = src[i];
         int a = x / 16;
         int b = x % 16;
-        w[i * 2] = a - 8;
-        w[i * 2 + 1] = b - 8;
+        w[i * 2] = a;
+        w[i * 2 + 1] = b;
     }
     auto w8 = LOAD8(w);
     return _mm256_add_ps(_mm256_mul_ps(w8, alpha), bias);
@@ -2174,7 +2173,7 @@ static void _AVX_MNNPackedMatMul_int8_3(TYPE* C, const TYPE* A, const int8_t* B,
 
     }
     for (int y = hR; y < hC4; ++y) {
-        auto weight = B + y * bStride / 2;
+        auto weight = B + y * bStride;
         auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto alpha  = _mm_loadu_ps(k + y * 4);
         auto bias   = _mm_loadu_ps(b + y * 4);

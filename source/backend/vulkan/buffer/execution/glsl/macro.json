@@ -9,8 +9,16 @@
         "PROD",
         "SUM"
     ],
+    "reduce_int.comp":[
+        "VMAX",
+        "VMIN",
+        "MEAN",
+        "PROD",
+        "SUM"
+    ],
     "binary.comp":[
         "ADD",
+        "ATAN2",
         "SUB",
         "MUL",
         "DIV",
@@ -24,10 +32,13 @@
         "GREATEREQUAL",
         "EQUAL",
         "NOTEQUAL",
-        "VMOD"
+        "VMOD",
+        "FLOORDIV",
+        "FLOORMOD"
     ],
     "binary_blit.comp":[
         "ADD",
+        "ATAN2",
         "SUB",
         "MUL",
         "DIV",
@@ -41,8 +52,42 @@
         "GREATEREQUAL",
         "EQUAL",
         "NOTEQUAL",
+        "VMOD",
+        "FLOORDIV",
+        "FLOORMOD"
+    ],
+    "binary_int.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "VMAX",
+        "SQUDIFF",
+        "VMIN",
+        "LESS",
+        "LESSEQUAL",
+        "GREATER",
+        "GREATEREQUAL",
+        "EQUAL",
+        "NOTEQUAL",
         "VMOD"
     ],
+    "binary_blit_int.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "VMAX",
+        "SQUDIFF",
+        "VMIN",
+        "LESS",
+        "LESSEQUAL",
+        "GREATER",
+        "GREATEREQUAL",
+        "EQUAL",
+        "NOTEQUAL",
+        "VMOD"
+    ],    
     "unary.comp":[
         "SIGMOID",
         "TANH",
@@ -76,6 +121,12 @@
         "HARDSWISH",
         "GELU"
     ],
+    "unary_int.comp":[
+        "ABS",
+        "NEG",
+        "SQUARE",
+        "SIGN"
+    ],
     "unPackImage4x4.comp":[
         "TRANSPOSE"
     ],
@@ -103,6 +154,14 @@
         "RELU6"
     ],
     "convolution.comp":[
+        "RELU",
+        "RELU6"
+    ],
+    "convolutionint8.comp":[
+        "RELU",
+        "RELU6"
+    ],
+    "convolutionint4.comp":[
         "RELU",
         "RELU6"
     ],
@@ -136,5 +195,11 @@
     ],
     "resizeNearest.comp":[
         "NEAREST_ROUND"
+    ],
+    "range.comp":[
+        "USE_INT"
+    ],
+    "cast_float_int.comp":[
+        "REVERT"
     ]
 }

@@ -44,7 +44,15 @@ int main(int argc, char* argv[]) {
         }
         FUNC_PRINT(thread);
         FUNC_PRINT(precision);
+        if (precision > MNN::BackendConfig::Precision_Low_BF16) {
+            MNN_ERROR("Invalid precision mode, use 0 instead\n");
+            precision = 0;
+        }
         FUNC_PRINT(memory);
+        if (memory > MNN::BackendConfig::Memory_Low) {
+            MNN_ERROR("Invalid memory mode, use 0 instead\n");
+            memory = 0;
+        }
         MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         config.memory = (MNN::BackendConfig::MemoryMode)memory;

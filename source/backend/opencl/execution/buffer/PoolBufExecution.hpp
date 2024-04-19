@@ -11,23 +11,16 @@
 #ifndef PoolBufExecution_hpp
 #define PoolBufExecution_hpp
 
-#include <array>
-#include <memory>
-#include <vector>
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class PoolBufExecution : public Execution, public CommonExtension {
+class PoolBufExecution : public CommonExecution {
 public:
     PoolBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~PoolBufExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     int getLocalSize(int size, int maxGroupSize);
 
 private:
@@ -43,7 +36,6 @@ private:
     std::vector<int> mKernels{1, 1};
     std::vector<int> mPaddings{0, 0};
     std::vector<int> mDilations{1, 1};
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
 };

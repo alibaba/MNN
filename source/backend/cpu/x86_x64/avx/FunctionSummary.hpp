@@ -50,6 +50,8 @@ void _AVX_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t s
                             size_t dst_depth_quad, size_t realSize, const float** param);
 void _AVX_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
                             size_t dst_depth_quad, size_t realSize, const float** param);
+void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void _AVX_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack);
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
@@ -60,6 +62,7 @@ void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
 void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder);
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
+void _AVX_MNNComputeScaleZeroScalar(float* source, float* minVal, float* maxVal, size_t size);
 
 void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP);
 void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
@@ -78,8 +81,8 @@ void _AVX_ExtraInit(void* functions);
 void _AVX_WinogradInit(void* functions);
 
 void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters);
-void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
-void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
+void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm);
+void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm);
 
 void _AVX_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);
 void _AVX_MNNPackedSparseMatMulEpx1EFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);

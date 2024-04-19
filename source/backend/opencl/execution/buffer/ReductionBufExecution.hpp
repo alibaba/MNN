@@ -11,12 +11,6 @@
 #ifndef ReductionBufExecution_hpp
 #define ReductionBufExecution_hpp
 
-#include "core/Execution.hpp"
-#include <MNN_generated.h>
-#include <vector>
-#include <string.h>
-#include <unordered_set>
-#include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/execution/image/CommonExecution.hpp"
 
 namespace MNN {
@@ -24,15 +18,12 @@ namespace OpenCL {
 
 class ReductionBufExecution : public CommonExecution {
 public:
-    ReductionBufExecution(const MNN::Op* op, Backend* backend);
+    ReductionBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op* op, Backend* backend);
     virtual ~ReductionBufExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     int getLocalSize(int size, int maxGroupSize);
-    cl::Kernel mReduct1DKernel;
-    std::string mKernelName;
     OpenCLBackend *mOpenCLBackend;
     MNN::DataType mdataType;
     int mReductType;

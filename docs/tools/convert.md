@@ -15,7 +15,7 @@ Usage:
 
       --batch arg               如果模型时输入的batch是动态的，可以指定转换后的batch数
 
-      --keepInputFormat         是否保持原始模型的输入格式，默认为：否；
+      --keepInputFormat         是否保持原始模型的输入格式，默认为：是；
 
       --optimizeLevel arg       图优化级别，默认为1：
                                     - 0： 不执行图优化，仅针对原始模型是MNN的情况；
@@ -34,8 +34,6 @@ Usage:
       --fp16                    将conv/matmul/LSTM的float32参数保存为float16，
       													模型将减小一半，精度基本无损
       
-      --benchmarkModel          不保存模型中conv/matmul/BN等层的参数，仅用于benchmark测试
-      
       --bizCode arg             MNN模型Flag, ex: MNN
       
       --debug                   使用debug模型显示更多转换信息
@@ -46,6 +44,8 @@ Usage:
       													仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，
                                 运行速度和float32模型一致。8bit时精度基本无损，模型大小减小4倍
                                 default: 0，即不进行权值量化
+
+      --weightQuantAsymmetric   与weightQuantBits结合使用，决定是否用非对称量化，默认为`true`
       
       --compressionParamsFile arg
                                 使用MNN模型压缩工具箱生成的模型压缩信息文件
@@ -79,12 +79,12 @@ Usage:
                                 可选值：{0, 1}， 默认为1, 会检测权重是否使用稀疏化加速
 
       --saveExternalData        将权重，常量等数据存储在额外文件中，默认为`false`
+
 ```
-**说明1: 选项benchmarkModel将模型中例如卷积的weight，BN的mean、var等参数移除，减小转换后模型文件大小，在运行时随机初始化参数，以方便测试模型的性能。**
 
-**说明2: 选项weightQuantBits，使用方式为 --weightQuantBits numBits，numBits可选2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，运行速度和float32模型一致。经内部测试8bit时精度基本无损，模型大小减小4倍。default: 0，即不进行权值量化。**
+**说明1: 选项weightQuantBits，使用方式为 --weightQuantBits numBits，numBits可选2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，运行速度和float32模型一致。经内部测试8bit时精度基本无损，模型大小减小4倍。default: 0，即不进行权值量化。**
 
-**说明3：如果使用Android JNI的Java接口开发，因为接口中不提供`copyFromHost`功能，所以需要在转换模型时使用`keepInputFormat`**
+**说明2：如果使用Interpreter-Session C++接口开发，因为NC4HW4便于与ImageProcess结合，可以考虑在转换模型时使用自动内存布局：`--keepInputFormat=0`**
 
 ## 其他模型转换到MNN
 ### TensorFlow to MNN

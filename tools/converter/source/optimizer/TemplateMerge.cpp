@@ -10,6 +10,7 @@
 #include <MNN_generated.h>
 #include <set>
 #include <unordered_set>
+#include <MNN/expr/ExecutorScope.hpp>
 namespace MNN {
 namespace Express {
 
@@ -161,6 +162,7 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                 }
             }
         }
+        MNN::Express::ExecutorScope::Current()->gc();
     } while (hasChange);
     return true;
 }

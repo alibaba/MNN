@@ -14,7 +14,7 @@
 using namespace MNN;
 using namespace MNN::Express;
 
-VARP _LayerNorm(VARP x, std::vector<int32_t> axis, float epsilon, std::vector<float> gamma, std::vector<float> beta) {
+VARP _LayerNorm(VARP x, std::vector<int32_t> axis, float epsilon, std::vector<float> gamma, std::vector<float> beta, int group = 1) {
     std::unique_ptr<OpT> op(new OpT);
     op->main.type                         = OpParameter_LayerNorm;
     op->type                              = OpType_LayerNorm;
@@ -27,6 +27,7 @@ VARP _LayerNorm(VARP x, std::vector<int32_t> axis, float epsilon, std::vector<fl
     }
     op->main.AsLayerNorm()->epsilon       = epsilon;
     op->main.AsLayerNorm()->axis          = axis;
+    op->main.AsLayerNorm()->group         = group;
     return (Variable::create(Expr::create(std::move(op), {x})));
 }
 
@@ -441,6 +442,36 @@ public:
                 return false;
             }
         }
+        {
+            std::vector<int> dims = {1, 2, 1, 4};
+            auto input = _Input(dims, NCHW);
+            // set input data
+            const float inpudata[] = {-1.0, -2.0, 3.0, 4.0, -5.0, -6.0, 7.0, 8.0};
+            auto inputPtr          = input->writeMap<float>();
+            memcpy(inputPtr, inpudata, 8 * sizeof(float));
+            std::vector<int32_t> axis = {};
+            float eps = 1.00f;
+            int group = 2;
+            auto output = _LayerNorm(input, axis, eps, {}, {}, group);
+            std::vector<float> expectedOutput(8);
+            
+            int axis_size = (int)axis.size();
+            int rank = (int)dims.size();
+            int outter_size = group * dims[0];
+            int inner_size = 1;
+            for (int i = 1; i < rank; ++i) {
+                inner_size *= dims[i];
+            }
+            inner_size /= group;
+            _refLayerNorm(expectedOutput.data(), inpudata, nullptr,nullptr,  eps, inner_size, outter_size);
+            auto gotOutput                        = output->readMap<float>();
+            float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 1000;
+            if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), 8, 1e-5 * errorScale)) {
+                MNN_ERROR("Float LayerNormTest without gamma beta axis = %d test failed!\n", axis_size);
+                return false;
+            }
+        }
+
         return true;
     }
 };

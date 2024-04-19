@@ -11,7 +11,6 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "core/Concurrency.h"
-#include "core/OpCommonUtils.hpp"
 #include "compute/CommonOptFunction.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 
@@ -20,13 +19,7 @@ namespace MNN {
 CPUScaleInt8::CPUScaleInt8(const Op* op, Backend* bn) : MNN::Execution(bn) {
     auto scale      = op->main_as_Scale();
     auto core = static_cast<CPUBackend*>(bn)->functions();
-    bool external = USE_EXTERNAL_DATA(scale);
-    int outputCount = 0;
-    if (external) {
-        outputCount = static_cast<int>(scale->external()->Get(1) / sizeof(float));
-    } else {
-        outputCount = scale->scaleData()->size();
-    }
+    int outputCount = scale->scaleData()->size();
     mScaleBias.reset(Tensor::createDevice<uint8_t>({2, UP_DIV(outputCount, core->pack) * core->pack * core->bytes}));
     auto res = bn->onAcquireBuffer(mScaleBias.get(), Backend::STATIC);
     if (!res) {
@@ -36,54 +29,21 @@ CPUScaleInt8::CPUScaleInt8(const Op* op, Backend* bn) : MNN::Execution(bn) {
         return;
     }
     ::memset(mScaleBias->host<float>(), 0, mScaleBias->size());
-    if (external) {
-        bool hasBias = scale->external()->size() > 2;
-        if (hasBias) {
-            if (core->bytes < 4) {
-                std::unique_ptr<Tensor> tmpTensor(Tensor::createDevice<float>({outputCount * 2}));
-                auto status = backend()->onAcquireBuffer(tmpTensor.get(), Backend::STATIC);
-                if (!status) {
-                    MNN_ERROR("Out of memory when tmpTensor is acquired in CPUScale.\n");
-                    return;
-                }
-                char* scalePtr = tmpTensor->host<char>();
-                char* biasPtr = scalePtr + outputCount * sizeof(float);
-                OpCommonUtils::loadExternalDatas(bn, {scalePtr, biasPtr}, scale->external()->data());
-                core->MNNFp32ToLowp(tmpTensor->host<float>(), mScaleBias->host<int16_t>(), outputCount * 2);
-            } else {
-                OpCommonUtils::loadExternalDatas(bn, {mScaleBias->host<char>(), mScaleBias->host<char>() + mScaleBias->length(1)}, scale->external()->data());
-            }
-        } else {
-            if (core->bytes < 4) {
-                std::unique_ptr<Tensor> tmpTensor(Tensor::createDevice<float>({outputCount}));
-                auto status = backend()->onAcquireBuffer(tmpTensor.get(), Backend::STATIC);
-                if (!status) {
-                    MNN_ERROR("Out of memory when tmpTensor is acquired in CPUScale.\n");
-                    return;
-                }
-                OpCommonUtils::loadExternalDatas(bn, {tmpTensor->host<char>()}, scale->external()->data());
-                core->MNNFp32ToLowp(tmpTensor->host<float>(), mScaleBias->host<int16_t>(), outputCount);
-            } else {
-                OpCommonUtils::loadExternalDatas(bn, {mScaleBias->host<char>()}, scale->external()->data());
-            }
-        }
+    std::vector<float> scaleDataQuant(outputCount);
+    for (int i = 0; i < outputCount; ++i) {
+        scaleDataQuant[i] = 1.0 / scale->scaleData()->data()[i];
+    }
+    if (core->bytes < 4) {
+        core->MNNFp32ToLowp(scale->scaleData()->data(), mScaleBias->host<int16_t>(), outputCount);
     } else {
-        std::vector<float> scaleDataQuant(outputCount);
-        for (int i = 0; i < outputCount; ++i) {
-            scaleDataQuant[i] = 1.0 / scale->scaleData()->data()[i];
-        }
+        ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
+    }
+    if (nullptr != scale->biasData() && nullptr != scale->biasData()->data()) {
+        auto biasPtr = mScaleBias->host<uint8_t>() + mScaleBias->length(1);
         if (core->bytes < 4) {
-            core->MNNFp32ToLowp(scale->scaleData()->data(), mScaleBias->host<int16_t>(), outputCount);
+            core->MNNFp32ToLowp(scale->biasData()->data(), reinterpret_cast<int16_t*>(biasPtr), outputCount);
         } else {
-            ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
-        }
-        if (nullptr != scale->biasData() && nullptr != scale->biasData()->data()) {
-            auto biasPtr = mScaleBias->host<uint8_t>() + mScaleBias->length(1);
-            if (core->bytes < 4) {
-                core->MNNFp32ToLowp(scale->biasData()->data(), reinterpret_cast<int16_t*>(biasPtr), outputCount);
-            } else {
-                ::memcpy(biasPtr, scale->biasData()->data(), outputCount * sizeof(float));
-            }
+            ::memcpy(biasPtr, scale->biasData()->data(), outputCount * sizeof(float));
         }
     }
 }

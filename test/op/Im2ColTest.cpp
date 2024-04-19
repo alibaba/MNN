@@ -49,7 +49,11 @@ public:
             8.500000, 8.700000, 9.300000, 9.500000
         };
         auto gotOutput = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 96, 0)) {
+        float thredhold = 0.0001f;
+        if (precision >= 2) {
+            thredhold = 0.05f;
+        }
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 96, thredhold)) {
             MNN_ERROR("Im2ColTest test failed!\n");
             return false;
         }
@@ -97,7 +101,11 @@ public:
             9.000000, 9.400000, 9.100000, 9.500000
         };
         auto gotOutput = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 96, 0)) {
+        float thredhold = 0.0001f;
+        if (precision >= 2) {
+            thredhold = 0.05f;
+        }
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 96, thredhold)) {
             MNN_ERROR("Col2ImTest test failed!\n");
             return false;
         }

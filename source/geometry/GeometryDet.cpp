@@ -27,7 +27,7 @@ public:
         outDes->regions = {TensorUtils::makeFullSlice(midOutput.get())};
         outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         
-        SharedPtr<Command> cmd(new Command);
+        std::shared_ptr<Command> cmd(new Command);
         cmd->op = op;
         cmd->inputs.assign({midInput.get()});
         cmd->outputs.assign({midOutput.get()});

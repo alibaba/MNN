@@ -46,11 +46,15 @@ bool AVX2Functions::init(int cpuFlags) {
     coreFunction->MNNPackedMatMulRemain_int8 = _AVX_MNNPackedMatMulRemain_int8;
     coreFunction->MNNGemmHybridInt4 = _AVX_MNNGemmHybridInt4;
     coreFunction->MNNGemmHybridInt8 = _AVX_MNNGemmHybridInt8;
+    coreFunction->MNNAbsMax = _AVX_MNNAbsMaxFP32;
+    coreFunction->MNNDynamicQuant = _AVX_MNNDynamicQuantFP32;
 #endif
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;
     coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
     coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1;
+    // Dynamic Quant
+    coreFunction->MNNCountMaxMinValue = _AVX_MNNComputeScaleZeroScalar;
 
     // For Packed Functions
     coreFunction->pack = 8;

@@ -201,53 +201,32 @@ void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* sr
     }
 }
 void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
-    auto zero = _mm256_set1_epi32(0);
-    auto minValue = _mm256_set1_ps(minV);
-    auto maxValue = _mm256_set1_ps(maxV);
-    auto zeroPointValue = _mm256_set1_ps(zeroPoint);
-    auto offset = _mm256_set1_epi32(128);
-    auto plus = _mm256_set1_ps(0.5f);
-    auto minus = _mm256_set1_ps(-0.5f);
-    auto scaleValue0 = _mm256_loadu_ps(scalep);
-    auto scaleValue1 = _mm256_loadu_ps(scalep + 8);
+    auto zero = _mm512_setzero_ps();
+    auto minValue = _mm512_set1_ps(minV);
+    auto maxValue = _mm512_set1_ps(maxV);
+    auto zeroPointValue = _mm512_set1_ps(zeroPoint);
+    auto offset = _mm512_set1_ps(128.f);
+    auto plus = _mm512_set1_ps(0.5f);
+    auto minus = _mm512_set1_ps(-0.5f);
+    auto scaleValue0 = _mm512_loadu_ps(scalep);
 
     for (int i = 0; i < sizeQuad; ++i) {
-        auto f0 = _mm256_loadu_ps(src + PACK_UNIT * i);
-        auto f1 = _mm256_loadu_ps(src + PACK_UNIT * i + 8);
-        f0 = _mm256_mul_ps(f0, scaleValue0);
-        f1 = _mm256_mul_ps(f1, scaleValue1);
-        f0 = _mm256_add_ps(f0, zeroPointValue);
-        f1 = _mm256_add_ps(f1, zeroPointValue);
-        f0 = _mm256_min_ps(f0, maxValue);
-        f1 = _mm256_min_ps(f1, maxValue);
-        f0 = _mm256_max_ps(f0, minValue);
-        f1 = _mm256_max_ps(f1, minValue);
-        auto m0 = _mm256_cmp_ps(f0, _mm256_castsi256_ps(zero), 1);
-        auto m1 = _mm256_cmp_ps(f1, _mm256_castsi256_ps(zero), 1);
-        m0 = _mm256_blendv_ps(plus, minus, m0);
-        m1 = _mm256_blendv_ps(plus, minus, m1);
-        f0 = _mm256_add_ps(f0, m0);
-        f1 = _mm256_add_ps(f1, m1);
-        // 3: _MM_FROUND_TO_ZERO
-        auto d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-        auto d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-        d0 = _mm256_add_epi32(d0, offset);
-        d1 = _mm256_add_epi32(d1, offset);
-        d0 = _mm256_packs_epi32(d0, _mm256_setzero_si256());
-        d1 = _mm256_packs_epi32(d1, _mm256_setzero_si256());
-        d0 = _mm256_permute4x64_epi64(d0, 0xD8);
-        d1 = _mm256_permute4x64_epi64(d1, 0xD8);
-#if defined(_MSC_VER)
-        __m256i x = static_cast<__m256i>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-        __m256i y = static_cast<__m256i>(_mm256_packus_epi16(d1, _mm256_setzero_si256()));
-        *((int64_t*)dst + 2 * i + 0) = x.m256i_i64[0];
-        *((int64_t*)dst + 2 * i + 1) = y.m256i_i64[0];
-#else
-        __v4di x = static_cast<__v4di>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-        __v4di y = static_cast<__v4di>(_mm256_packus_epi16(d1, _mm256_setzero_si256()));
-        *((int64_t*)dst + 2 * i + 0) = x[0];
-        *((int64_t*)dst + 2 * i + 1) = y[0];
-#endif
+        auto f0 = _mm512_loadu_ps(src + PACK_UNIT * i);
+        f0 = _mm512_mul_ps(f0, scaleValue0);
+        f0 = _mm512_add_ps(f0, zeroPointValue);
+        f0 = _mm512_min_ps(f0, maxValue);
+        f0 = _mm512_max_ps(f0, minValue);
+        auto m0 = _mm512_cmp_ps_mask(f0, zero, 1);
+        auto r0 = _mm512_mask_blend_ps(m0, plus, minus);
+        f0 = _mm512_add_ps(f0, r0);
+        __m512 round0 = _mm512_roundscale_ps(f0, 3);
+        round0 = _mm512_add_ps(round0, offset);
+        auto i0_int32 = _mm512_cvtps_epi32(round0);
+        auto i0_int16 = _mm512_cvtsepi32_epi16(i0_int32);
+        auto h0_int16 = _mm256_extracti128_si256(i0_int16, 0);
+        auto h1_int16 = _mm256_extracti128_si256(i0_int16, 1);
+        h0_int16 = _mm_packus_epi16(h0_int16, h1_int16);
+        _mm_storeu_si128((__m128i*)(dst + i * PACK_UNIT), h0_int16);
     }
 }
 

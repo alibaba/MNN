@@ -7,7 +7,7 @@
 //
 
 #include "OpCommonUtils.hpp"
-#include "FileLoader.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
 #include <random>
@@ -31,13 +31,19 @@ Tensor::DimensionType OpCommonUtils::convertDimType(MNN_DATA_FORMAT dimensionFor
     return dimType;
 }
 
-void OpCommonUtils::loadBlobData(Backend* backend, const Op* op, char* ptr, int size) {
+void OpCommonUtils::loadBlobData(FileLoader* loader, const Op* op, char* ptr, int size) {
     if (OpParameter_Blob != op->main_type()) {
         return;
     }
     auto b       = op->main_as_Blob();
     if (USE_EXTERNAL_DATA(b)) {
-        loadExternalDatas(backend, { ptr }, b->external()->data());
+        if (op->externalPath() != nullptr) {
+            loader = new FileLoader(op->externalPath()->c_str());
+        }
+        loadExternalDatas(loader, { ptr }, b->external()->data());
+        if (op->externalPath() != nullptr) {
+            delete loader;
+        }
         return;
     }
     void* result = nullptr;
@@ -516,14 +522,41 @@ bool OpCommonUtils::opNeedContent(const MNN::Op* op, int index) {
     }
     return true;
 }
-bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
+bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
     switch (op->type()) {
+        case OpType_While:
+        {
+            if (bytes == 4) {
+                return true;
+            }
+            if (op->main_type() != OpParameter_LoopParam) {
+                return false;
+            }
+            // Check fuse
+            auto loop = op->main_as_LoopParam();
+            if (nullptr != loop->initCommand()) {
+                for (int i=0; i<loop->initCommand()->size(); ++i) {
+                    auto cmd = loop->initCommand()->GetAs<RegionCommand>(i);
+                    if (cmd->fuse() >= 0) {
+                        return false;
+                    }
+                }
+            }
+            if (nullptr != loop->commands()) {
+                for (int i=0; i<loop->commands()->size(); ++i) {
+                    auto cmd = loop->commands()->GetAs<RegionCommand>(i);
+                    if (cmd->fuse() >= 0) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
         case OpType_Scale:
         case OpType_Convolution:
         case OpType_ConvolutionDepthwise:
         case OpType_Deconvolution:
         case OpType_DeconvolutionDepthwise:
-        case OpType_While:
         case OpType_MatMul:
         case OpType_BatchMatMul:
         case OpType_BinaryOp:
@@ -533,10 +566,12 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
         case OpType_Raster:
         case OpType_ReLU:
         case OpType_ReLU6:
+        case OpType_Select:
         case OpType_PReLU:
         case OpType_GridSample:
         case OpType_ROIPooling:
         case OpType_ROIAlign:
+        case OpType_DynamicQuant:
             return true;
         default:
             break;
@@ -551,40 +586,133 @@ void OpCommonUtils::rasterInputReset(const std::vector<Tensor *> &inputs, Tensor
         outputDes->regions[i].origin = inputs[i];
     }
 }
-
-void OpCommonUtils::loadExternalData(Backend* backend, char* addr, int64_t offset, int64_t size) {
-    FileLoader fileloader(backend->externalFile().c_str());
-    fileloader.offset(offset);
-    fileloader.read(addr, size);
-}
-
-void OpCommonUtils::loadExternalDatas(Backend* backend, std::vector<char*> addrs,  const int64_t* external) {
-    FileLoader fileloader(backend->externalFile().c_str());
-    fileloader.offset(external[0]);
-    for (int i = 0; i < addrs.size(); i++) {
-        fileloader.read(addrs[i], external[i+1]);
+static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flatbuffers::FlatBufferBuilder& builder) {
+    if (nullptr == external) {
+        MNN_ERROR("Can't rebuild external op because external is nullptr\n");
+        return false;
     }
-}
+    builder.Clear();
+    bool externalTmp = false;
+    if (nullptr != origin->externalPath()) {
+        external = new FileLoader(origin->externalPath()->c_str());
+        externalTmp = true;
+    }
+    std::shared_ptr<MNN::OpT> op(origin->UnPack());
+    switch (op->main.type) {
+        case OpParameter_Scale:
+        {
+            auto scale = op->main.AsScale();
+            int outputCount = static_cast<int>(scale->external[1] / sizeof(float));
+            scale->scaleData.resize(outputCount);
+            external->offset(scale->external[0]);
+            external->read((char*)scale->scaleData.data(), scale->external[1]);
+            if (scale->external.size() > 2) {
+                scale->biasData.resize(outputCount);
+                external->read((char*)scale->biasData.data(), scale->external[2]);
+            }
+            break;
+        }
+        case OpParameter_LayerNorm:
+        {
+            auto layer_norm_param = op->main.AsLayerNorm();
+            int32_t size = static_cast<int32_t>(layer_norm_param->external[1]);
+            layer_norm_param->gamma.resize(size);
+            layer_norm_param->beta.resize(size);
+            external->offset(layer_norm_param->external[0]);
+            external->read((char*)layer_norm_param->gamma.data(), layer_norm_param->external[1]);
+            external->read((char*)layer_norm_param->beta.data(), layer_norm_param->external[2]);
+            break;
+        }
 
-bool OpCommonUtils::loadConvData(Backend* backend, const Op* op, std::unique_ptr<Tensor>& weight, std::unique_ptr<Tensor>& bias, int& weightSize, int& biasSize) {
-    auto conv2d = op->main_as_Convolution2D();
-    auto offset = conv2d->external()->Get(0);
-    auto weightBytes = conv2d->external()->Get(1);
-    auto biasBytes = conv2d->external()->Get(2);
-    weightSize = static_cast<int>(weightBytes / sizeof(float));
-    biasSize = static_cast<int>(biasBytes / sizeof(float));
-    weight.reset(Tensor::createDevice<uint8_t>({(int)weightBytes}));
-    bias.reset(Tensor::createDevice<uint8_t>({(int)biasBytes}));
-    bool res = backend->onAcquireBuffer(weight.get(), Backend::STATIC);
-    if (!res) {
-        return res;
+        case OpParameter_Convolution2D:
+        {
+            auto param = op->main.AsConvolution2D();
+            if (param->quanParameter) {
+                external->offset(param->external[0]);
+                if (0 != param->external[1]) {
+                    param->quanParameter->buffer.resize(param->external[1]);
+                    external->read((char*)param->quanParameter->buffer.data(), param->external[1]);
+                }
+                param->quanParameter->alpha.resize(param->external[2] / sizeof(float));
+                external->read((char*)param->quanParameter->alpha.data(), param->external[2]);
+                if (param->bias.empty() && param->external.size() > 3) {
+                    param->bias.resize(param->external[3]/sizeof(float));
+                    external->read((char*)param->bias.data(), param->external[3]);
+                }
+                if (param->quanParameter->index.empty() && param->external.size() > 4) {
+                    param->quanParameter->index.resize(param->external[4]/sizeof(uint32_t));
+                    external->read((char*)param->quanParameter->index.data(), param->external[4]);
+                }
+            } else {
+                external->offset(param->external[0]);
+                param->weight.resize(param->external[1] / sizeof(float));
+                external->read((char*)param->weight.data(), param->external[1]);
+                param->bias.resize(param->external[2] / sizeof(float));
+                external->read((char*)param->bias.data(), param->external[2]);
+            }
+            break;
+        }
+        default:
+            break;
     }
-    res = backend->onAcquireBuffer(bias.get(), Backend::STATIC);
-    if (!res) {
-        return res;
+    if (externalTmp) {
+        delete external;
     }
-    loadExternalDatas(backend, {weight->host<char>(), bias->host<char>()}, conv2d->external()->data());
+    builder.Finish(Op::Pack(builder, op.get()));
     return true;
+}
+Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                              const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore) {
+    bool hasExternal = false;
+    switch (op->main_type()) {
+        case OpParameter_Convolution2D:
+            hasExternal = USE_EXTERNAL_DATA(op->main_as_Convolution2D());
+            break;
+        case OpParameter_Scale:
+            hasExternal = USE_EXTERNAL_DATA(op->main_as_Scale());
+            break;
+        case OpParameter_LayerNorm:
+            hasExternal = USE_EXTERNAL_DATA(op->main_as_LayerNorm());
+            break;
+        default:
+            break;
+    }
+    if (!hasExternal) {
+        return backend->onCreate(inputs, outputs, op);
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    bool res = _RebuildExternalOp(externalFile, op, builder);
+    if (!res) {
+        MNN_ERROR("Rebuild External Op failed\n");
+        return nullptr;
+    }
+    auto newOp = flatbuffers::GetRoot<MNN::Op>(builder.GetBufferPointer());
+    auto execution  = backend->onCreate(inputs, outputs, newOp);
+    if (nullptr == execution) {
+        return execution;
+    }
+    if (op->main_type() == OpParameter_Convolution2D) {
+        Execution* copyExe = nullptr;
+        execution->onClone(backend, op, &copyExe);
+        if (nullptr != copyExe) {
+            delete execution;
+            return copyExe;
+        } else {
+#ifdef DEBUG
+            MNN_ERROR("Clone error for convolution/deconvolution, will Increase memory\n");
+#endif
+            tmpstore.reset(new BufferStorage);
+            tmpstore->storage = builder.ReleaseRaw(tmpstore->allocated_size, tmpstore->offset);
+        }
+    }
+    return execution;
+}
+
+void OpCommonUtils::loadExternalDatas(FileLoader* fileloader, std::vector<char*> addrs,  const int64_t* external) {
+    fileloader->offset(external[0]);
+    for (int i = 0; i < addrs.size(); i++) {
+        fileloader->read(addrs[i], external[i+1]);
+    }
 }
 
 static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& area) {
@@ -629,6 +757,12 @@ bool OpCommonUtils::isTranspose(const Tensor::InsideDescribe::Region& region, in
         }
     }
     return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
+}
+bool OpCommonUtils::supportDynamicInputMemory(MNNForwardType type) {
+    if (type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_VULKAN) {
+        return false;
+    }
+    return true;
 }
 
 void OpCommonUtils::turnRegion2Convert(const Tensor::InsideDescribe::Region& region, const Tensor* dest, OpCommonUtils::TensorConvertParameter& info) {

@@ -115,16 +115,21 @@ public:
     void registerModel(const std::vector<std::shared_ptr<Module>>& children);
 
     static void destroy(Module* m);
+
+    int traceOrOptimize(Interpreter::SessionMode stage);
 protected:
+    virtual int onOptimize(Interpreter::SessionMode stage) {
+        return 0;
+    }
     virtual void onClearCache() {
     }
 
     Module* cloneBaseTo(CloneContext* ctx, Module* module) const;
 
-private:
-    void _collectParameters(std::vector<Express::VARP>& result) const;
     std::vector<std::shared_ptr<Module>> mChildren;
     std::vector<Express::VARP> mParameters;
+private:
+    void _collectParameters(std::vector<Express::VARP>& result) const;
     bool mIsTraining = true;
     std::string mName;
     std::string mType;

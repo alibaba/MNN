@@ -15,10 +15,12 @@ namespace MNN {
 namespace OpenCL {
 
 ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleExecution init !\n");
 #endif
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto openclBackend        = (OpenCLBackend *)backend;
     mOpenCLBackend            = static_cast<OpenCLBackend *>(backend);
     const auto *scaleParams   = op->main_as_Scale();
@@ -100,8 +102,8 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     }
     std::string kernelName = "scale";
     auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-    mKernel                = runtime->buildKernel("scale", kernelName, buildOptions);
-    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    unit.kernel          = runtime->buildKernel("scale", kernelName, buildOptions);
+    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleExecution init !\n");
@@ -115,12 +117,12 @@ ScaleExecution::~ScaleExecution() {
     mOpenCLBackend->onReleaseBuffer(mScale.get(), Backend::STATIC);
 }
 
-ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode ScaleExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleExecution onResize !\n");
 #endif
     
-    mOpenCLBackend->startRecord(mRecording);
+    auto &unit = mUnits[0];
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
 
     const int batch    = inputShape.at(0);
@@ -136,56 +138,31 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
     
     uint32_t idx                     = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, gws[0]);
-    ret |= mKernel.setArg(idx++, gws[1]);
-    ret |= mKernel.setArg(idx++, gws[2]);
+    ret |= unit.kernel->get().setArg(idx++, gws[0]);
+    ret |= unit.kernel->get().setArg(idx++, gws[1]);
+    ret |= unit.kernel->get().setArg(idx++, gws[2]);
 
-    ret |= mKernel.setArg(idx++, openCLImage(inputs[0]));
-    ret |= mKernel.setArg(idx++, openCLImage(mScale.get()));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(mScale.get()));
     if (mHasBias) {
-        ret |= mKernel.setArg(idx++, openCLImage(mBias.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLImage(mBias.get()));
     }
-    ret |= mKernel.setArg(idx++, openCLImage(outputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(outputs[0]));
     MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleExecution");
 
     std::string name = "scale";
-    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
+    std::vector<uint32_t> mGWS{1, 1, 1, 1};
+    std::vector<uint32_t> mLWS{1, 1, 1, 1};
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
     for (size_t i = 0; i < gws.size(); ++i) {
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }
     
-    mOpenCLBackend->recordKernel3d(mKernel, mGWS, mLWS);
-    mOpenCLBackend->endRecord(mRecording);
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
+    unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
+    unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleExecution onResize !\n");
-#endif
-    return NO_ERROR;
-}
-
-ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start ScaleExecution onExecute !\n");
-#endif
- 
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"scale", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End ScaleExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ScaleExecution onExecute !\n");
 #endif
     return NO_ERROR;
 }

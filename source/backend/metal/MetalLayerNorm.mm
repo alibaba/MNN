@@ -18,11 +18,11 @@ MetalLayerNorm::MetalLayerNorm(Backend *backend, const LayerNorm *layernorm)
         mEps(layernorm->epsilon()) {
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
-    int axis_size = layernorm->axis()->size();
-    mAxis.resize(axis_size);
-    for (int i = 0; i < axis_size; ++i) {
-        mAxis[i] = layernorm->axis()->Get(i);
+    int axis_size = 0;
+    if (nullptr != layernorm->axis()) {
+        axis_size = layernorm->axis()->size();
     }
+    mAxisSize = axis_size;
 
     if (layernorm->gamma() && layernorm->beta()) {
         has_gamma_beta_ = true;
@@ -43,6 +43,7 @@ MetalLayerNorm::MetalLayerNorm(Backend *backend, const LayerNorm *layernorm)
         memcpy(mBetaBuffer.contents, (const void *)beta_data, gamma_size * sizeof(float));
     }
     mShapeBuffer = [context newDeviceBuffer:3 * sizeof(int) + sizeof(float) access:CPUWriteOnly];
+    RMSNorm = layernorm->useRMSNorm();
 }
 
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -60,21 +61,13 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             mInside *= input->length(i);
         }
         mInside /= mGroup;
-        return NO_ERROR;
-    }
-    std::vector<int> axis(mAxis.size());
-    for (int i = 0; i < mAxis.size(); ++i) {
-        if (mAxis[i] < 0) {
-            mAxis[i] += rank;
+    } else {
+        for (int i = 0; i < rank - mAxisSize; ++i) {
+            mOutside *= input->length(i);
         }
-    }
-    std::sort(mAxis.begin(), mAxis.end());
-
-    for (int i = 0; i < rank - (int)axis.size(); ++i) {
-        mOutside *= input->length(i);
-    }
-    for (int i = rank - (int)axis.size(); i < rank; ++i) {
-        mInside *= input->length(i);
+        for (int i = rank - mAxisSize; i < rank; ++i) {
+            mInside *= input->length(i);
+        }
     }
     
     ((int *)mShapeBuffer.contents)[0]   = mInside;
@@ -84,7 +77,11 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
 
     
     bool parallel = (mInside > 32) && ((mInside & 3) == 0);
-    mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
+    if(RMSNorm){
+        mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4_rms" : @"layernorm_x1_rms" fp16:backend->useFp16InsteadFp32()];
+    }else{
+        mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
+    }
     
     auto inside = parallel ? mInside/4 : mInside;
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
@@ -96,8 +93,8 @@ void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
     [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
     if (!has_gamma_beta_) {
         // Set fake buffer to avoid validate

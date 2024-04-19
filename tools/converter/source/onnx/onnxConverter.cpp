@@ -48,8 +48,12 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
 
     const auto& onnxGraph = onnxModel.graph();
     const int nodeCount   = onnxGraph.node_size();
+    if (0 == nodeCount) {
+        MNN_ERROR("[ERROR] Invalid ONNX Model:%s\n", inputModel.c_str());
+        return 1;
+    }
 
-    std::unique_ptr<OnnxScope> scope(new OnnxScope(&onnxGraph, netT.get()));
+    std::unique_ptr<OnnxScope> scope(new OnnxScope(&onnxGraph, netT.get(), modelDir));
     scope->mOpsetVersion = opsetVersion;
     // find the inputs which do not have initializer
     const auto& initializers         = scope->mInitializers;
@@ -96,7 +100,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             MNN::OpT* constOp   = new MNN::OpT;
             constOp->type       = MNN::OpType_Const;
             constOp->main.type  = MNN::OpParameter_Blob;
-            constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second, modelDir);
+            constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second, modelDir, constOp);
             constOp->name    = it->first;
             constOp->outputIndexes.push_back(scope->declareTensor(it->first));
             netT->oplists.emplace_back(constOp);

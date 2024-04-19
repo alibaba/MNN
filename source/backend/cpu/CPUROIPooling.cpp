@@ -16,24 +16,8 @@
 namespace MNN {
 
 CPUROIPooling::CPUROIPooling(Backend *backend, int pooledWidth, int pooledHeight, float spatialScale, bool outputGrad)
-    : Execution(backend), mPooledWidth(pooledWidth), mPooledHeight(pooledHeight), mSpatialScale(spatialScale), mOutputGrad(outputGrad) {
+    : CPUROIAlign(backend, pooledWidth, pooledHeight, 0, spatialScale, false, PoolType_MAX, outputGrad) {
     // nothing to do
-}
-
-ErrorCode CPUROIPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    // roi transform space
-    auto &roi = inputs[1]->buffer();
-
-    mROI.buffer().dimensions = roi.dimensions;
-    memcpy(mROI.buffer().dim, roi.dim, sizeof(halide_dimension_t) * roi.dimensions);
-    TensorUtils::getDescribe(&mROI)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-    TensorUtils::setLinearLayout(&mROI);
-    backend()->onAcquireBuffer(&mROI, Backend::DYNAMIC);
-    
-    // release temp buffer space
-    backend()->onReleaseBuffer(&mROI, Backend::DYNAMIC);
-
-    return NO_ERROR;
 }
 
 static inline int max(int a, int b) { return a > b ? a : b; }
@@ -48,8 +32,10 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
 
     // dataType of ROI must be float32.
     Tensor *roiTensor = &mROI;
+    auto roiPtrSrc = roiTensor->host<float>();
     if (core->bytes != 4) {
-        core->MNNLowpToFp32(mROI.host<int16_t>(), mROI.host<float>(), mROI.elementSize());
+        core->MNNLowpToFp32(mROI.host<int16_t>(), mROITemp->host<float>(), mROI.elementSize());
+        roiPtrSrc = mROITemp->host<float>();
     }
 
     if (mOutputGrad == false) {
@@ -60,7 +46,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
         auto numROI = inputs[1]->batch();
         for (int n = 0; n < numROI; ++n) {
             auto batchOutput = output->host<uint8_t>() + os * n * core->bytes;
-            auto roiPtr      = roiTensor->host<float>() + roiTensor->buffer().dim[0].stride * n;
+            auto roiPtr      = roiPtrSrc + roiTensor->buffer().dim[0].stride * n;
             int roi          = roiPtr[0];
             int x1           = round(roiPtr[1] * mSpatialScale);
             int y1           = round(roiPtr[2] * mSpatialScale);
@@ -115,9 +101,10 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
         auto ow = bwDiff->width(), oh = bwDiff->height(), os = ow * oh * core->pack;
         auto slice  = UP_DIV(input->channel(), core->pack);
         auto numROI = inputs[1]->batch();
+        ::memset(output->host<uint8_t>(), 0, static_cast<CPUBackend*>(backend())->getTensorSize(output, true));
         for (int n = 0; n < numROI; ++n) {
             auto batchBwDiff = inputs[2]->host<uint8_t>() + os * n * core->bytes;
-            auto roiPtr      = roiTensor->host<float>() + roiTensor->buffer().dim[0].stride * n;
+            auto roiPtr      = roiPtrSrc + roiTensor->buffer().dim[0].stride * n;
             int roi          = roiPtr[0];
             int x1           = round(roiPtr[1] * mSpatialScale);
             int y1           = round(roiPtr[2] * mSpatialScale);
@@ -201,6 +188,9 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         if (core->MNNRoiPoolingMax == nullptr) {
             MNN_ERROR("Don't have function for CPUROIPooling\n");
+            return nullptr;
+        }
+        if (core->bytes < 4 && roi->outputGrad()) {
             return nullptr;
         }
         return new CPUROIPooling(backend, roi->pooledWidth(), roi->pooledHeight(), roi->spatialScale(), roi->outputGrad());

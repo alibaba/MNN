@@ -9,34 +9,25 @@
 #ifndef LayerNormExecution_hpp
 #define LayerNormExecution_hpp
 
-#include <array>
-#include <memory>
-#include <vector>
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class LayerNormExecution : public Execution, public CommonExtension {
+class LayerNormExecution : public CommonExecution {
 public:
     LayerNormExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~LayerNormExecution() = default;
 
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 
 private:
     int getLocalSize(int size, int maxGroupSize);
-    cl::Kernel mKernel;
-    std::vector<uint32_t> mLWS{0, 0, 0, 0};
-    std::vector<uint32_t> mGWS{0, 0, 0, 0};
     OpenCLBackend *mOpenCLBackend;
     int axis_size = 0;
     int group_ = 1;
+    bool RMSNorm = false;
     float epsilon_ = 0.001;
 
     std::shared_ptr<cl::Buffer> mGammaBuffer;

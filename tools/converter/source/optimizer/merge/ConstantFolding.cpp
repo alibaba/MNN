@@ -10,6 +10,7 @@
 #include "MNN/expr/ExprCreator.hpp"
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
+#include "Utils.hpp"
 
 namespace MNN {
 namespace Express {
@@ -56,6 +57,7 @@ ConstantFolding::ConstantFolding() {
             const_var->setName(expr->name());
             EXPRP constant = const_var->expr().first;
             constant->setName(expr->name());
+            expr->inside()->mCache = nullptr;
             Expr::replace(expr, constant);
         } else {
             // TODO(): Support multiple outputs.

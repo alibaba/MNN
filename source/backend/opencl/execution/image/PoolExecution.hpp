@@ -9,38 +9,28 @@
 #ifndef PoolExecution_hpp
 #define PoolExecution_hpp
 
-#include <array>
-#include <memory>
-#include <vector>
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "CommonExecution.hpp"
 namespace MNN {
 namespace OpenCL {
 
-class PoolExecution : public Execution, public CommonExtension {
+class PoolExecution : public CommonExecution {
 public:
     PoolExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~PoolExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     std::vector<uint32_t> poolLocalWS(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize);
     int getLocalSize(int size, int maxGroupSize);
 
 private:
     const Pool *mPoolParams;
-    std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
-    std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     PoolType mPoolType;
     PoolPadType mPadType;
     std::vector<int> mStrides{1, 1};
     std::vector<int> mKernels{1, 1};
     std::vector<int> mPaddings{0, 0};
     std::vector<int> mDilations{1, 1};
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
 };

@@ -246,7 +246,7 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
         count = 50;
     }
     NSUInteger min_time = UINT_MAX;
-    if(rt->getTuneLevel() != Never)
+    if(rt->getTuneLevel() != Never && buffers.count > 0)
     {
         //get original trick time
         {

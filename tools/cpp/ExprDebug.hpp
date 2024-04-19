@@ -170,19 +170,60 @@ static void _initTimeTrace() {
     };
     MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
-static std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
+
+template<typename T>
+std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
     auto size = tensor->elementSize();
-    auto ptr =  tensor->host<float>();
-    float maxValue = ptr[0];
-    float sumValue = ptr[0];
-    float minValue = ptr[0];
+    auto ptr =  (T*)tensor->buffer().host;
+    float maxValue = (float)ptr[0];
+    float avgValue = (float)ptr[0];
+    float minValue = (float)ptr[0];
+    float sumDiv = 1.0f / (float)size;
     for (int i=1; i<size; ++i) {
-        maxValue = fmaxf(maxValue, ptr[i]);
-        minValue = fminf(minValue, ptr[i]);
-        sumValue += ptr[i];
+        maxValue = fmaxf(maxValue, (float)ptr[i]);
+        minValue = fminf(minValue, (float)ptr[i]);
+        avgValue += (float)ptr[i] * sumDiv;
     }
-    auto avgValue = sumValue / (float)size;
     return std::make_tuple(maxValue, minValue, avgValue);
+}
+
+std::pair<bool, std::tuple<float, float, float>> _countForTensorValid(MNN::Tensor* ntensor) {
+    bool valid = false;
+    std::tuple<float, float, float> res;
+    if (ntensor->elementSize() <= 0) {
+        return std::make_pair(valid, res);
+    }
+    bool validforType = false;
+    if (ntensor->getType().code == halide_type_float || ntensor->getType().code == halide_type_int || ntensor->getType().code == halide_type_uint) {
+        validforType = true;
+    }
+    if (!validforType) {
+        return std::make_pair(valid, res);
+    }
+    valid = true;
+    auto outDimType = ntensor->getDimensionType();
+    std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
+    bool copyRes = ntensor->copyToHostTensor(expectTensor.get());
+    if (copyRes) {
+        ntensor = expectTensor.get();
+    }
+    std::tuple<float, float, float> data;
+    if (ntensor->getType().code == halide_type_float) {
+        data = _countTensor<float>(ntensor);
+    } else if (ntensor->getType().code == halide_type_int) {
+        if (ntensor->getType().bits == 32) {
+            data = _countTensor<int32_t>(ntensor);
+        } else if (ntensor->getType().bits == 8) {
+            data = _countTensor<int8_t>(ntensor);
+        }
+    } else if (ntensor->getType().code == halide_type_uint) {
+        if (ntensor->getType().bits == 32) {
+            data = _countTensor<uint32_t>(ntensor);
+        } else if (ntensor->getType().bits == 8) {
+            data = _countTensor<uint8_t>(ntensor);
+        }
+    }
+    return std::make_pair(valid, data);
 }
 static void _initTensorStatic() {
     MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
@@ -192,16 +233,11 @@ static void _initTensorStatic() {
         }
         for (int i = 0; i < ntensors.size(); ++i) {
             auto ntensor    = ntensors[i];
-            if (ntensor->getType().code != halide_type_float || ntensor->elementSize() <= 0) {
+            auto res = _countForTensorValid(ntensor);
+            if (!res.first) {
                 continue;
             }
-            auto outDimType = ntensor->getDimensionType();
-            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
-            bool res = ntensor->copyToHostTensor(expectTensor.get());
-            if (res) {
-                ntensor = expectTensor.get();
-            }
-            auto data = _countTensor(ntensor);
+            auto data = res.second;
             MNN_PRINT("%s [Input] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));
@@ -220,16 +256,11 @@ static void _initTensorStatic() {
         }
         for (int i = 0; i < ntensors.size(); ++i) {
             auto ntensor    = ntensors[i];
-            if (ntensor->getType().code != halide_type_float || ntensor->elementSize() <= 0) {
+            auto res = _countForTensorValid(ntensor);
+            if (!res.first) {
                 continue;
             }
-            auto outDimType = ntensor->getDimensionType();
-            std::shared_ptr<MNN::Tensor> expectTensor(new MNN::Tensor(ntensor, outDimType));
-            bool res = ntensor->copyToHostTensor(expectTensor.get());
-            if (res) {
-                ntensor = expectTensor.get();
-            }
-            auto data = _countTensor(ntensor);
+            auto data = res.second;
             MNN_PRINT("%s [Output] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));

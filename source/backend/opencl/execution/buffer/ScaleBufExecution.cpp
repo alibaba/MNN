@@ -9,17 +9,17 @@
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/ScaleBufExecution.hpp"
-#include "core/Macro.h"
-#include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
 ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleBufExecution init !\n");
 #endif
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto openclBackend        = (OpenCLBackend *)backend;
     mOpenCLBackend            = static_cast<OpenCLBackend *>(backend);
     const auto *scaleParams   = op->main_as_Scale();
@@ -27,7 +27,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     const float *scaleDataPtr = scaleParams->scaleData()->data();
         
     int buffer_size = ALIGN_UP4(scaleSize);
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+    if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
         buffer_size *= sizeof(half_float::half);
     } else {
         buffer_size *= sizeof(float);
@@ -41,7 +41,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     auto scalePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         scaleBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(nullptr != scalePtrCL && error == CL_SUCCESS){
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
             for (int i = 0; i < scaleSize; i++) {
                 ((half_float::half *)scalePtrCL)[i] = (half_float::half)(scaleDataPtr[i]);
             }
@@ -64,7 +64,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         const float *biasDataPtr = scaleParams->biasData()->data();
         
         int buffer_size = ALIGN_UP4(biasSize);
-        if(openclBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        if (openclBackend->getOpenCLRuntime()->isSupportedFP16()) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -77,7 +77,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
             biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(nullptr != biasPtrCL && error == CL_SUCCESS){
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
                 for (int i = 0; i < biasSize; i++) {
                     ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
                 }
@@ -98,8 +98,8 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     }
 
     auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-    mKernel                = runtime->buildKernel("scale_buf", "scale_buf", buildOptions);
-    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    unit.kernel            = runtime->buildKernel("scale_buf", "scale_buf", buildOptions);
+    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleBufExecution init !\n");
@@ -107,20 +107,16 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
 }
 
 ScaleBufExecution::~ScaleBufExecution() {
-    if (nullptr != mBias) {
-        mOpenCLBackend->onReleaseBuffer(mBias.get(), Backend::STATIC);
-    }
-    mOpenCLBackend->onReleaseBuffer(mScale.get(), Backend::STATIC);
+    // Do nothing
 }
 
-ErrorCode ScaleBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleBufExecution onResize !\n");
 #endif
-
+    auto &unit = mUnits[0];
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
 
     const int batch    = inputShape.at(0);
     const int height   = inputShape.at(1);
@@ -135,52 +131,23 @@ ErrorCode ScaleBufExecution::onResize(const std::vector<Tensor *> &inputs, const
     int shape[4] = {batch, height, width, channelBlocks};
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, openCLBuffer(inputs[0]));
-    ret |= mKernel.setArg(idx++, openCLBuffer(mScale.get()));
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mScale.get()));
     if (mHasBias) {
-        ret |= mKernel.setArg(idx++, openCLBuffer(mBias.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mBias.get()));
     }
-    ret |= mKernel.setArg(idx++, openCLBuffer(outputs[0]));
-    ret |= mKernel.setArg(idx++, shape);
+    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, shape);
     MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleBufExecution");
 
     std::string name = "scale_buf";
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
     
-    mOpenCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode ScaleBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start ScaleBufExecution onExecute !\n");
-#endif
- 
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
-                mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Scale", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End ScaleBufExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
-                mOpenCLBackend->getOpenCLRuntime());
-#endif
-        
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ScaleBufExecution onExecute !\n");
-#endif
+    mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     return NO_ERROR;
 }
 

@@ -80,8 +80,8 @@ __global__ void Im2Col_FilterC(
 
 #define DATA_MEMSET_ZERO(precision) \
     if(precision == 1) { float4 zeros; zeros.x = 0.0f; zeros.y = 0.0f; zeros.z = 0.0f; zeros.w = 0.0f; *((float4*)((float*)AP + dst_offset)) = zeros; }\
-    else if(precision == 2 || precision == 0) { half2 zeros; zeros.x = (half)0.0f; zeros.y = (half)0.0f; *((half2*)((half*)AP + dst_offset)) = zeros;  *((half2*)((half*)AP + dst_offset + 2)) = zeros;}\
-    else if(precision == 3) { __nv_bfloat162 zeros; zeros.x = (__nv_bfloat16)0.0f; zeros.y = (__nv_bfloat16)0.0f; *((__nv_bfloat162*)((__nv_bfloat16*)AP + dst_offset)) = zeros;  *((__nv_bfloat162*)((__nv_bfloat16*)AP + dst_offset + 2)) = zeros;}
+    else if(precision == 2 || precision == 0) { half2 zeros; zeros.x = (half)0.0f; zeros.y = (half)0.0f; *((half2*)((half*)AP + dst_offset)) = zeros;  *((half2*)((half*)AP + dst_offset + 2)) = zeros;}
+
 
 template<typename T0, typename T>
 __global__ void Im2Col_FilterC_Vec4(
@@ -137,6 +137,11 @@ __global__ void Im2Col_FilterC_Vec4(
             }
         }
         DATA_MEMSET_ZERO(precision);
+        if(precision == 3) {
+            #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
+            __nv_bfloat162 zeros; zeros.x = (__nv_bfloat16)0.0f; zeros.y = (__nv_bfloat16)0.0f; *((__nv_bfloat162*)((__nv_bfloat16*)AP + dst_offset)) = zeros;  *((__nv_bfloat162*)((__nv_bfloat16*)AP + dst_offset + 2)) = zeros;
+            #endif
+        }
     }
 }
 
@@ -210,12 +215,18 @@ void callFloat2BFloat16(const void* input, void* output, const int count, CUDARu
 }
 #endif
 
-void callWeightFill(const void* input, void* output, const int ic, const int l, const int h, const int lp, const int hp, const int precision, CUDARuntime* runtime) {
+void callWeightFill(const void* input, void* output, const int ic, const int l, const int h, const int lp, const int hp, const int precision, CUDARuntime* runtime, int quant_int_bit) {
     DivModFast lpD(lp);
     DivModFast icD(ic);
 
     int block_num = runtime->blocks_num(lp*hp);
     int block_size = runtime->threads_num();
+
+    if (quant_int_bit == 8) {
+        WeightPackFill<<<block_num, block_size>>>((const char*)input, (char*)output, l/ic, lp*hp, l, h, lpD, icD);
+        checkKernelErrors;
+        return;
+    }
 
     if(precision == 1) {
         WeightPackFill<<<block_num, block_size>>>((const float*)input, (float*)output, l/ic, lp*hp, l, h, lpD, icD);

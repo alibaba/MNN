@@ -16,12 +16,15 @@
 #include "core/MNNMemoryUtils.h"
 #include "RuntimeAttr.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/FileLoader.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 namespace Express {
 
 static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLINT
     Schedule::ScheduleInfo& scheduleInfo, Backend* backend, Backend* backupBackend) {
+    FileLoader loader(scheduleInfo.externalWeightPath.c_str());
     auto&& pipelineInfo = scheduleInfo.pipelineInfo[0].second;
     std::vector<std::shared_ptr<BufferStorage>> splitOps(pipelineInfo.size());
     for (int i = 0; i < pipelineInfo.size(); ++i) {
@@ -68,9 +71,10 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                         }
                     }
                 }
-                exe.reset(backend->onCreate(info.inputs, info.outputs, op));
+                std::shared_ptr<BufferStorage> tmpstorage;
+                exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
                 if (exe.get() == nullptr) {
-                    exe.reset(backupBackend->onCreate(info.inputs, info.outputs, op));
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
                 }
                 if (nullptr == exe) {
                     break;
@@ -313,7 +317,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
                 std::get<3>(cacheIter->second) = true;
                 mPrevInputTensor[i] = inputTensor;
                 if (std::get<1>(*cacheTensor) != nullptr) {
-                    if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribe(std::get<0>(*cacheTensor))->getBackend())) {
+                    if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribeOrigin(std::get<0>(*cacheTensor))->getBackend())) {
                         // No need copy now, reset it
                         cacheIter->second = std::make_tuple(nullptr, nullptr, true, true);
                     }
@@ -342,7 +346,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
                 needMalloc = mInputTensors[i]->buffer().host != srcPtr;
                 mInputTensors[i]->buffer().host = srcPtr;
                 mInputTensors[i]->buffer().device = 0;
-                des->setBackend(pipelineInfo.first.cache.second.get());
+                TensorUtils::getDescribeOrigin(mInputTensors[i])->setBackend(pipelineInfo.first.cache.second.get());
                 if (nullptr == srcDes->quantAttr.get()) {
                     // For device need copy, cache device tensor
                     auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
@@ -427,7 +431,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     for (int i = 0; i < mOutputTensors.size(); ++i) {
         auto tensor = Tensor::clone(mOutputTensors[i]);
         outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
-        auto backend = TensorUtils::getDescribe(tensor)->getBackend();
+        auto backend = TensorUtils::getDescribeOrigin(tensor)->getBackend();
         if (backend == pipelineInfo.first.cache.first.get()) {
             outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
         } else if (backend == pipelineInfo.first.cache.second.get()) {
@@ -459,6 +463,19 @@ Module* StaticModule::clone(CloneContext* ctx) const {
     module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst));
     module->resetInputOutputs();
     return this->cloneBaseTo(ctx, module);
+}
+int StaticModule::onOptimize(Interpreter::SessionMode stage) {
+    switch (stage) {
+        case MNN::Interpreter::Session_Resize_Check:
+            mSession->openResizeCheck();
+            break;
+        case MNN::Interpreter::Session_Resize_Fix:
+            mSession->fixResizeCache();
+            break;
+        default:
+            break;
+    }
+    return 0;
 }
 
 } // namespace Express

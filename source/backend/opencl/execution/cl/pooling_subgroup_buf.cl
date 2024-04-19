@@ -36,7 +36,11 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #ifdef POOL_AVG
     FLOAT4 result = (FLOAT4)(0);
     const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+#ifdef COUNT_INCLUDE_PADDING
+    int total_count = (min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + KERNEL_X, input_shape.y + pad_shape.y) - iw_start);
+#else
     int total_count = 0;
+#endif
     for(int kh=0; kh<KERNEL_Y; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -49,7 +53,9 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
             }
             FLOAT4 inp_data = vload4(0, input+inp_offset+(kh*input_shape.y+kw)*4);
             result += inp_data;
+#ifndef COUNT_INCLUDE_PADDING
             total_count++;
+#endif
         }
     }
     result = result / (FLOAT4)(1.0*total_count);
@@ -114,7 +120,11 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #ifdef POOL_AVG
     FLOAT4 result = (FLOAT4)(0);
     const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+ #ifdef COUNT_INCLUDE_PADDING
+    int total_count = (min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + KERNEL_X, input_shape.y + pad_shape.y) - iw_start);
+#else
     int total_count = 0;
+#endif
     for(int kh=0; kh<KERNEL_Y; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -127,7 +137,9 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
             }
             FLOAT4 inp_data = vload4(0, input+inp_offset+(kh*input_shape.y+kw)*4);
             result += inp_data;
+#ifndef COUNT_INCLUDE_PADDING
             total_count++;
+#endif
         }
     }
     result = result / (FLOAT4)(1.0*total_count);
@@ -167,7 +179,7 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
         for(int i = 0; i < output_pad_left; ++i){
             vstore4((FLOAT4)0, 0, output + pad_offset + i * 16);
         }
-        pad_offset += (output_shape.x + output_pad_left) * 16;
+        pad_offset += (output_shape.y + output_pad_left) * 16;
         for(int i = 0; i < output_pad_right; ++i){
             vstore4((FLOAT4)0, 0, output + pad_offset + i * 16);
         }
@@ -204,11 +216,16 @@ __kernel void pooling_c16_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
 #ifdef POOL_AVG
     FLOAT8 result = (FLOAT8)(0);
     FLOAT8 w_start = (FLOAT8)(iw_start, iw_start + STRIDE_X, iw_start + STRIDE_X * 2, iw_start + STRIDE_X * 3, iw_start + STRIDE_X * 4, iw_start + STRIDE_X * 5, iw_start + STRIDE_X * 6, iw_start + STRIDE_X * 7);
+#ifdef COUNT_INCLUDE_PADDING
+    FLOAT8 w_size      = fmin(w_start + KERNEL_X, input_shape.y + pad_shape.y) - w_start;
+    FLOAT8 total_count = (FLOAT8)(min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * w_size;
+#else
     w_start = fmax(w_start, (FLOAT8)0);
     FLOAT8 w_end = fmin(w_start + KERNEL_X, (FLOAT8)input_shape.y);
     float h_start = fmax((float)ih_start, 0);
     float h_end = fmin(h_start + KERNEL_Y, (float)input_shape.x);
     FLOAT8 total_count = (w_end - w_start) * (FLOAT8)(h_end - h_start);
+#endif
 #else
     FLOAT8 result = (FLOAT8)(-FLT_MAX);
 #if RETURN_REDICE
@@ -347,11 +364,16 @@ __kernel void pooling_c16_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
 #ifdef POOL_AVG
     FLOAT8 result = (FLOAT8)(0);
     FLOAT8 w_start = (FLOAT8)(iw_start, iw_start + STRIDE_X, iw_start + STRIDE_X * 2, iw_start + STRIDE_X * 3, iw_start + STRIDE_X * 4, iw_start + STRIDE_X * 5, iw_start + STRIDE_X * 6, iw_start + STRIDE_X * 7);
+#ifdef COUNT_INCLUDE_PADDING
+    FLOAT8 w_size      = fmin(w_start + KERNEL_X, input_shape.y + pad_shape.y) - w_start;
+    FLOAT8 total_count = (FLOAT8)(min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * w_size;
+#else
     w_start = fmax(w_start, (FLOAT8)0);
     FLOAT8 w_end = fmin(w_start + KERNEL_X, (FLOAT8)input_shape.y);
     float h_start = fmax((float)ih_start, 0);
     float h_end = fmin(h_start + KERNEL_Y, (float)input_shape.x);
     FLOAT8 total_count = (w_end - w_start) * (FLOAT8)(h_end - h_start);
+#endif
 #else
     FLOAT8 result = (FLOAT8)(-FLT_MAX);
 #if RETURN_REDICE

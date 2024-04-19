@@ -59,7 +59,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
         auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mCallBackMode = mode.callBackMode;
@@ -232,6 +232,22 @@ ErrorCode Session::resize() {
 #endif
     return NO_ERROR;
 }
+void Session::openResizeCheck() {
+    for (auto& iter : mPipelines) {
+        iter->openResizeCheck();
+    }
+}
+
+ErrorCode Session::fixResizeCache() {
+    for (auto& iter : mPipelines) {
+        auto code = iter->fixResizeCache();
+        if (NO_ERROR != code) {
+            return code;
+        }
+    }
+    return NO_ERROR;
+}
+
 bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
     switch (code) {
         case Interpreter::MEMORY: {
@@ -290,7 +306,7 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
 }
 
 const Backend* Session::getBackEnd(const Tensor* tensor) const {
-    return TensorUtils::getDescribe(tensor)->getBackend();
+    return TensorUtils::getDescribeOrigin(tensor)->getBackend();
 }
 
 Tensor* Session::getInput(const char* name) const {
@@ -388,6 +404,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
     scheduleInfo.pipelineInfo.resize(1);
+    scheduleInfo.externalWeightPath = mInfo.externalWeightPath;
     Session::ModeGroup modes;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;

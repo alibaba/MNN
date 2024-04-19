@@ -6,10 +6,36 @@
 //
 
 #include "llm.hpp"
+#define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
 #include <fstream>
+#include <sstream>
 #include <stdlib.h>
 
-void benchmark(Llm* llm, std::string prompt_file) {
+static void trace_prepare(Llm* llm) {
+    MNN_PRINT("Prepare for resize opt Begin\n");
+    std::vector<std::string> prompts = {
+        "Hello",
+    };
+    llm->trace(true);
+    int prompt_len = 0;
+    int decode_len = 0;
+    int64_t prefill_time = 0;
+    int64_t decode_time = 0;
+    // llm->warmup();
+    for (int i = 0; i < prompts.size(); i++) {
+        std::ostringstream cacheOs;
+        llm->response(prompts[i], &cacheOs);
+        prompt_len += llm->prompt_len_;
+        decode_len += llm->gen_seq_len_;
+        prefill_time += llm->prefill_us_;
+        decode_time += llm->decode_us_;
+        llm->reset();
+    }
+    MNN_PRINT("Prepare for resize opt End\n");
+    llm->trace(false);
+}
+static void benchmark(Llm* llm, std::string prompt_file) {
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
@@ -46,19 +72,32 @@ void benchmark(Llm* llm, std::string prompt_file) {
     printf("##################################\n");
 }
 
+
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " model_dir <prompt.txt>" << std::endl;
         return 0;
     }
     std::string model_dir = argv[1];
+    int forwardType = 0;
+    if (argc >= 3) {
+        std::istringstream os(argv[2]);
+        os >> forwardType;
+    }
     std::cout << "model path is " << model_dir << std::endl;
-    std::unique_ptr<Llm> llm(Llm::createLLM(model_dir));
-    llm->load(model_dir);
-    if (argc < 3) {
+    std::unique_ptr<Llm> llm(Llm::createLLM(model_dir, "auto", forwardType));
+    {
+        AUTOTIME;
+        llm->load(model_dir);
+    }
+    {
+        AUTOTIME;
+        trace_prepare(llm.get());
+    }
+    if (argc < 4) {
         llm->chat();
     }
-    std::string prompt_file = argv[2];
+    std::string prompt_file = argv[3];
     benchmark(llm.get(), prompt_file);
     return 0;
 }

@@ -224,9 +224,6 @@ struct Vec<int32_t, 4> {
     Vec(const float v) {
         value = vdupq_n_s32((int32_t)v);
     }
-    Vec(const float32x4_t v) {
-        value = reinterpret_cast<int32x4_t>(v);
-    }
     Vec(const int32x4_t v) {
         value = v;
     }
@@ -237,14 +234,18 @@ struct Vec<int32_t, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
+#if defined(_MSC_VER)
+        return value.n128_i32[i];
+#else
         return value[i];
+#endif
     }
     static VecType load(const float* addr) {
-        VecType v = { reinterpret_cast<int32x4_t>(vld1q_f32(addr)) };
+        VecType v = { (int32x4_t)(vld1q_f32(addr)) };
         return v;
     }
     static VecType broadcast(const float* addr) {
-        VecType dst = { reinterpret_cast<int32x4_t>(vld1q_dup_f32(addr)) };
+        VecType dst = { (int32x4_t)(vld1q_dup_f32(addr)) };
         return dst;
     }
     static VecType broadcast(const int32_t* addr) {
@@ -256,7 +257,7 @@ struct Vec<int32_t, 4> {
         return v;
     }
     static void save(float* addr, const VecType& v) {
-        vst1q_f32(addr, reinterpret_cast<float32x4_t>(v.value));
+        vst1q_f32(addr, (float32x4_t)(v.value));
     }
     static void save(int32_t* addr, const VecType& v) {
         vst1q_s32(addr, v.value);
@@ -283,10 +284,10 @@ struct Vec<int32_t, 4> {
         auto m1 = vtrn2q_s32(vec0.value, vec1.value);
         auto m2 = vtrn1q_s32(vec2.value, vec3.value);
         auto m3 = vtrn2q_s32(vec2.value, vec3.value);
-        vec0.value = reinterpret_cast<int32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
-        vec1.value = reinterpret_cast<int32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
-        vec2.value = reinterpret_cast<int32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
-        vec3.value = reinterpret_cast<int32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+        vec0.value = (int32x4_t)(vtrn1q_s64((int64x2_t)(m0), (int64x2_t)(m2)));
+        vec1.value = (int32x4_t)(vtrn1q_s64((int64x2_t)(m1), (int64x2_t)(m3)));
+        vec2.value = (int32x4_t)(vtrn2q_s64((int64x2_t)(m0), (int64x2_t)(m2)));
+        vec3.value = (int32x4_t)(vtrn2q_s64((int64x2_t)(m1), (int64x2_t)(m3)));
 #else
 
         auto m0m1 = vtrnq_s32(vec0.value, vec1.value);
@@ -295,10 +296,10 @@ struct Vec<int32_t, 4> {
         vec1.value = m0m1.val[1];
         vec2.value = m2m3.val[0];
         vec3.value = m2m3.val[1];
-        vec0.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1));
-        vec1.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1));
-        vec2.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0));
-        vec3.value = reinterpret_cast<int32x4_t>(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0));
+        vec0.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1));
+        vec1.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1));
+        vec2.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0));
+        vec3.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0));
 #endif
     }
 
@@ -399,7 +400,11 @@ struct Vec<float, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
+#if defined(_MSC_VER)
+        return value.n128_f32[i];
+#else
         return value[i];
+#endif
     }
     static VecType load(const float* addr) {
         VecType v = { vld1q_f32(addr) };
@@ -417,10 +422,10 @@ struct Vec<float, 4> {
         vst1q_f32(addr, v.value);
     }
     static void save(float* addr, const VecTypeInt32& v) {
-        vst1q_f32(addr, reinterpret_cast<float32x4_t>(v.value));
+        vst1q_f32(addr, (float32x4_t)(v.value));
     }
     static void save(int32_t* addr, const VecType& v) {
-        vst1q_s32(addr, reinterpret_cast<int32x4_t>(v.value));
+        vst1q_s32(addr, (int32x4_t)(v.value));
     }
     static VecType max(const VecType& v1, const VecType& v2) {
         VecType dst = { vmaxq_f32(v1.value, v2.value) };
@@ -440,26 +445,26 @@ struct Vec<float, 4> {
     }
     static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
 #ifdef __aarch64__
-        auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
-        auto m1 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
-        auto m2 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
-        auto m3 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
-        vec0.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
-        vec1.value = reinterpret_cast<float32x4_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
-        vec2.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
-        vec3.value = reinterpret_cast<float32x4_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+        auto m0 = vtrn1q_s32((int32x4_t)(vec0.value), (int32x4_t)(vec1.value));
+        auto m1 = vtrn2q_s32((int32x4_t)(vec0.value), (int32x4_t)(vec1.value));
+        auto m2 = vtrn1q_s32((int32x4_t)(vec2.value), (int32x4_t)(vec3.value));
+        auto m3 = vtrn2q_s32((int32x4_t)(vec2.value), (int32x4_t)(vec3.value));
+        vec0.value = (float32x4_t)(vtrn1q_s64((int64x2_t)(m0), (int64x2_t)(m2)));
+        vec1.value = (float32x4_t)(vtrn1q_s64((int64x2_t)(m1), (int64x2_t)(m3)));
+        vec2.value = (float32x4_t)(vtrn2q_s64((int64x2_t)(m0), (int64x2_t)(m2)));
+        vec3.value = (float32x4_t)(vtrn2q_s64((int64x2_t)(m1), (int64x2_t)(m3)));
 #else
 
-        auto m0m1 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
-        auto m2m3 = vtrnq_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
-        vec0.value = reinterpret_cast<float32x4_t>(m0m1.val[0]);
-        vec1.value = reinterpret_cast<float32x4_t>(m0m1.val[1]);
-        vec2.value = reinterpret_cast<float32x4_t>(m2m3.val[0]);
-        vec3.value = reinterpret_cast<float32x4_t>(m2m3.val[1]);
-        vec0.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[0]), 0), reinterpret_cast<int64x2_t>(vec0.value), 1));
-        vec1.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m2m3.val[1]), 0), reinterpret_cast<int64x2_t>(vec1.value), 1));
-        vec2.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[0]), 1), reinterpret_cast<int64x2_t>(vec2.value), 0));
-        vec3.value = reinterpret_cast<float32x4_t>(vsetq_lane_s64(vgetq_lane_s64(reinterpret_cast<int64x2_t>(m0m1.val[1]), 1), reinterpret_cast<int64x2_t>(vec3.value), 0));
+        auto m0m1 = vtrnq_s32((int32x4_t)(vec0.value), (int32x4_t)(vec1.value));
+        auto m2m3 = vtrnq_s32((int32x4_t)(vec2.value), (int32x4_t)(vec3.value));
+        vec0.value = (float32x4_t)(m0m1.val[0]);
+        vec1.value = (float32x4_t)(m0m1.val[1]);
+        vec2.value = (float32x4_t)(m2m3.val[0]);
+        vec3.value = (float32x4_t)(m2m3.val[1]);
+        vec0.value = (float32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)(m2m3.val[0]), 0), (int64x2_t)(vec0.value), 1));
+        vec1.value = (float32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)(m2m3.val[1]), 0), (int64x2_t)(vec1.value), 1));
+        vec2.value = (float32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)(m0m1.val[0]), 1), (int64x2_t)(vec2.value), 0));
+        vec3.value = (float32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)(m0m1.val[1]), 1), (int64x2_t)(vec3.value), 0));
         /*
         generated arm32 assembly code is almost the same as:
             vtrn.32 d0, d2
@@ -513,35 +518,35 @@ struct Vec<float, 4> {
         int32x4_t one = vdupq_n_s32(1);
         int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcltq_f32(value, lr.value);
-        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
+        VecType dst = { (float32x4_t)(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator>(const VecType& lr) const {
         int32x4_t one = vdupq_n_s32(1);
         int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgtq_f32(value, lr.value);
-        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
+        VecType dst = { (float32x4_t)(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {
         int32x4_t one = vdupq_n_s32(1);
         int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcleq_f32(value, lr.value);
-        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
+        VecType dst = { (float32x4_t)(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator>=(const VecType& lr) const {
         int32x4_t one = vdupq_n_s32(1);
         int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vcgeq_f32(value, lr.value);
-        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
+        VecType dst = { (float32x4_t)(vbslq_s32(res, one, zero)) };
         return dst;
     }
     VecType operator==(const VecType& lr) const {
         int32x4_t one = vdupq_n_s32(1);
         int32x4_t zero = vdupq_n_s32(0);
         uint32x4_t res = vceqq_f32(value, lr.value);
-        VecType dst = { reinterpret_cast<float32x4_t>(vbslq_s32(res, one, zero)) };
+        VecType dst = { (float32x4_t)(vbslq_s32(res, one, zero)) };
         return dst;
     }
 };
