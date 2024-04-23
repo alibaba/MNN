@@ -706,16 +706,26 @@ static void _makeCopyOp(std::shared_ptr<BufferStorage>& copyOp) {
         copyOp->storage = builder.ReleaseRaw(copyOp->allocated_size, copyOp->offset);
     }
 }
-static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>>& shapeFixConstCache, bool ownInput, bool permitCodegen) {
+static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, std::shared_ptr<Tensor>>& mCacheConstTensors, Pipeline::WrapTensorCache& shapeFixConstCache, bool ownInput, bool permitCodegen) {
     std::shared_ptr<BufferStorage> copyOp;
-    for (auto& iter : shapeFixConstCache) {
-        auto des = TensorUtils::getDescribe(iter.second.get());
-        if (des->usage == Tensor::InsideDescribe::CONSTANT && des->stageMask == 0) {
-            // If the tensor is not compute in shape-geometry stage, needn't recopy it
+    for (auto iterP = shapeFixConstCache.begin(); iterP != shapeFixConstCache.end();) {
+        auto& iter = *iterP;
+        if (iter.second.first.lock() == nullptr) {
+            // Has released, remove cache
+            iterP = shapeFixConstCache.erase(iterP);
             continue;
         }
-        TensorUtils::getDescribeOrigin(iter.second.get())->setBackend(nullptr);
-        TensorUtils::getDescribeOrigin(iter.second.get())->mem = nullptr;
+        auto des = iter.first.first;
+        bool needReset = true;
+        if (des->usage == Tensor::InsideDescribe::CONSTANT && ((des->stageMask & Tensor::InsideDescribe::CONTENT_NOT_CHANGE) != 0)) {
+            // If the tensor is not compute in shape-geometry stage, needn't recopy it
+            needReset = false;
+        }
+        if (needReset) {
+            TensorUtils::getDescribeOrigin(iter.second.second.get())->setBackend(nullptr);
+            TensorUtils::getDescribeOrigin(iter.second.second.get())->mem = nullptr;
+        }
+        iterP++;
     }
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT) {
@@ -778,12 +788,12 @@ static ErrorCode _InsertCopy(Schedule::PipelineInfo& mInfo, std::map<Tensor*, st
                             }
                         }
                         {
-                            auto titer = shapeFixConstCache.find(std::make_pair(t, curBackend));
+                            auto titer = shapeFixConstCache.find(std::make_pair(des, curBackend));
                             if (titer != shapeFixConstCache.end()) {
-                                newTensor = titer->second.get();
+                                newTensor = titer->second.second.get();
                             } else {
                                 std::shared_ptr<MNN::Tensor> tensor(new Tensor);
-                                shapeFixConstCache.insert(std::make_pair(std::make_pair(t, curBackend), tensor));
+                                shapeFixConstCache.insert(std::make_pair(std::make_pair(des, curBackend), std::make_pair(std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(t)->mContent), tensor)));
                                 newTensor = tensor.get();
                             }
                             iter.workInputs[v] = newTensor;
@@ -1067,7 +1077,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
                     }
                     auto des = TensorUtils::getDescribe(t);
                     auto usage = des->usage;
-                    if (TensorUtils::getDescribeOrigin(t)->mContent->count() > 1 && usage != Tensor::InsideDescribe::CONSTANT) {
+                    if (TensorUtils::getDescribeOrigin(t)->mContent.use_count() > 1 && usage != Tensor::InsideDescribe::CONSTANT) {
                         TensorUtils::getDescribeOrigin(t)->mem = nullptr;
                         auto res = TensorUtils::getDescribeOrigin(t)->getBackend()->onAcquireBuffer(t, Backend::STATIC);
                         if (!res) {

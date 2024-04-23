@@ -79,10 +79,10 @@ struct Tensor::InsideDescribe {
         GEOMETRY_STAGE = 1,
         CONVERTED_STAGE = 1 << 1,
         COMPUTE_SHAPE_STAGE = 1 << 2,
-        COMPUTE_CONTENT_STAGE = 1 << 3,
+        CONTENT_NOT_CHANGE = 1 << 3,
     };
     /** extra tensor info container */
-    struct NativeInsideDescribe : public RefCount {
+    struct NativeInsideDescribe {
     public:
         /** dimension format */
         MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
@@ -115,7 +115,7 @@ struct Tensor::InsideDescribe {
         // For isMutable = false Tensor , determine whether the content can be convert to main backend
         uint32_t stageMask = 0;
     };
-    SharedPtr<NativeInsideDescribe> mContent;
+    std::shared_ptr<NativeInsideDescribe> mContent;
     SharedPtr<Backend::MemObj> mem;
     inline Backend* getBackend() const {
         return backend;

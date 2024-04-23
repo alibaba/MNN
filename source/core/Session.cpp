@@ -427,6 +427,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
         auto& opInfo = oplists[i];
         opInfo.op = opCaches[i].op;
         opInfo.type = srcOpInfo.type;
+        opInfo.computeCache.copyImmutable(srcOpInfo.computeCache);
         auto op = opInfo.op;
         if (nullptr != op->outputIndexes()) {
             auto data = op->outputIndexes()->data();

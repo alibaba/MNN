@@ -42,6 +42,7 @@ public:
         bool needComputeShape = true;
         bool needExecuteConst = false;
         void addContentIndex(int index);
+        void copyImmutable(const OpResizeCache& cache);
     private:
         struct ShapeInfo {
             int order;

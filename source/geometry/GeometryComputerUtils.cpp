@@ -164,8 +164,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             auto type = des->memoryType;
             MNN_ASSERT(type != Tensor::InsideDescribe::MEMORY_OUTSIDE);
             MNN_ASSERT(type != Tensor::InsideDescribe::MEMORY_HOST);
-            if (TensorUtils::getDescribeOrigin(t)->mContent->count() > 1) {
-                TensorUtils::getDescribeOrigin(t)->mContent = new Tensor::InsideDescribe::NativeInsideDescribe;
+            if (TensorUtils::getDescribeOrigin(t)->mContent.use_count() > 1) {
+                TensorUtils::getDescribeOrigin(t)->mContent.reset(new  Tensor::InsideDescribe::NativeInsideDescribe);
                 t->buffer().dim = TensorUtils::getDescribe(t)->dims;
                 TensorUtils::getDescribeOrigin(t)->setBackend(nullptr);
                 TensorUtils::getDescribeOrigin(t)->mem = nullptr;
@@ -210,12 +210,17 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 TensorUtils::getDescribe(t)->rasterCommand.reset();
                 TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::COMPUTE_SHAPE_STAGE;
                 // The content may be computed by geometry computer, which will not make execution
-                TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE);
+                TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE);
             }
         }
         info.computeCache.needComputeShape = needCompute;
         if (info.type != Schedule::CONSTANT) {
             continue;
+        }
+        if (!needCompute) {
+            for (auto t : info.outputs) {
+                TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE;
+            }
         }
         if (_hasZeroShapeOutput(info)) {
             continue;
@@ -292,7 +297,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                         dirty = true;
                         break;
                     }
-                    if ((des->stageMask &                Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE) == 0) {
+                    if ((des->stageMask &                Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE) == 0) {
                         dirty = true;
                         break;
                     }
@@ -305,26 +310,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     return NOT_SUPPORT;
                 }
                 for (auto t : c.outputs) {
-                    TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE);
+                    TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE);
                 }
-            }
-        }
-    }
-    for (int i=0; i<infos.size(); ++i) {
-        auto& info = infos[i];
-        if (info.type != Schedule::CONSTANT) {
-            continue;
-        }
-        auto& cmdBufferVir = info.executeBuffer;
-        for (auto& cp : cmdBufferVir.command) {
-            auto& c = *cp;
-            bool dirty = false;
-            for (auto t : c.inputs) {
-                auto des = TensorUtils::getDescribe(t);
-                if ((!des->isMutable) || des->group) {
-                    continue;
+            } else {
+                for (auto t : c.outputs) {
+                    TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE;
                 }
-                des->stageMask |= Tensor::InsideDescribe::StageInfo::COMPUTE_CONTENT_STAGE;
             }
         }
     }
