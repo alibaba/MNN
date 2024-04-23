@@ -62,6 +62,7 @@ public:
     MNNForwardType getMainForwardType() const  {
         return mInfo.first.cache.first->type();
     }
+    typedef std::map<std::pair<Tensor::InsideDescribe::NativeInsideDescribe*, Backend*>, std::pair<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<Tensor>>> WrapTensorCache;
 private:
     ErrorCode _allocForTensor(int index, bool allocInput);
     void _copyInputs();
@@ -76,7 +77,7 @@ private:
 
     // For gpu or other backend
     std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
-    std::map<std::pair<Tensor*, Backend*>, std::shared_ptr<Tensor>> mWrapTensors;
+    WrapTensorCache mWrapTensors;
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;

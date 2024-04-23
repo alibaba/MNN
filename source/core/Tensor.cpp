@@ -20,7 +20,7 @@ namespace MNN {
 Tensor::Tensor(int dimSize, DimensionType type) {
     MNN_ASSERT(dimSize <= MNN_MAX_TENSOR_DIM);
     mDescribe          = new InsideDescribe;
-    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    mDescribe->mContent.reset(new InsideDescribe::NativeInsideDescribe);
     auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = dimSize;
     mBuffer.type       = halide_type_of<float>();
@@ -49,7 +49,7 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     auto buffer        = tensor->buffer();
     mDescribe          = new InsideDescribe;
-    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    mDescribe->mContent.reset(new InsideDescribe::NativeInsideDescribe);
     auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = buffer.dimensions;
     mBuffer.type       = buffer.type;

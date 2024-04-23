@@ -81,6 +81,9 @@ bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs) {
 void Schedule::OpResizeCache::open() {
     mCanCache = true;
 }
+void Schedule::OpResizeCache::copyImmutable(const OpResizeCache& cache) {
+    mNeedCompareContent = cache.mNeedCompareContent;
+}
 
 void Schedule::OpResizeCache::insert(const std::vector<Tensor*>& inputs) {
     if (!mCanCache) {

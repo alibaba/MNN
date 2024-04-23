@@ -13,6 +13,7 @@
 
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/AutoTime.hpp>
+#include "cpp/ExprDebug.hpp"
 #include "llm.hpp"
 #include "tokenizer.hpp"
 
@@ -86,6 +87,9 @@ Llm* Llm::createLLM(const std::string& path, std::string model_type, int forward
     } else if (model_type.find("yi") != std::string::npos) {
         llm = new Yi_6b;
         llm->model_name_ = "Yi_6b";
+    } else if (model_type.find("llama3") != std::string::npos) {
+        llm = new Llama3_8b;
+        llm->model_name_ = "Llama3_8b";
     }
     if (!llm) {
         std::cerr << "model type can't judge!" << std::endl;
@@ -229,6 +233,8 @@ void Llm::load(const std::string& model_dir) {
     config.backendConfig = &cpuBackendConfig;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
+//    runtime_manager_->setMode(MNN::Interpreter::Session_Debug);
+//    _initTensorStatic();
     {
         runtime_manager_->setCache(".tempcache");
     }
@@ -800,6 +806,17 @@ std::vector<int> Yi_6b::tokenizer(const std::string& query) {
 
 bool Yi_6b::is_stop(int token_id) {
     return token_id == 7 || token_id == 64001;
+}
+std::vector<int> Llama3_8b::tokenizer(const std::string& query) {
+    // <|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n+query+<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n
+    auto ids = tokenizer_encode(query);
+    ids.insert(ids.begin(), {128000, 128006, 882, 128007, 271});
+    ids.insert(ids.end(), {128009, 128006, 78191, 128007, 271});
+    return ids;
+}
+
+bool Llama3_8b::is_stop(int token_id) {
+    return token_id == 128001 || token_id == 128009;
 }
 // Llm end
 

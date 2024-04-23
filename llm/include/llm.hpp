@@ -228,7 +228,18 @@ private:
     virtual VARP gen_position_ids(int seq_len) override;
     virtual bool is_stop(int token_id) override;
 };
-
+class Llama3_8b : public Llama2_7b {
+public:
+    Llama3_8b() {
+        model_name_ = "Llama3_8b";
+        layer_nums_ = 32;
+        key_value_shape_ = {2, 1, 8, 0, 128};
+        hidden_size_ = 4096;
+    }
+private:
+    virtual std::vector<int> tokenizer(const std::string& query) override;
+    virtual bool is_stop(int token_id) override;
+};
 class Qwen2 : public Llama2_7b {
 public:
     Qwen2() {
