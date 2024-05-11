@@ -175,14 +175,13 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     return NO_ERROR;
 }
 
-void MetalConvolution::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
-    auto oc_4 = UP_DIV(output->channel(), 4);
+void MetalConvolution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0];
+    auto output = outputs[0];
     
-    auto bandwidth  = (MetalBandwidth){mPipeline.threadExecutionWidth, mPipeline.maxTotalThreadsPerThreadgroup, NO};
-
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     MetalBackend::setTensor(mWeight.get(), encoder, 3);
     MetalBackend::setTensor(mBias.get(), encoder, 4);

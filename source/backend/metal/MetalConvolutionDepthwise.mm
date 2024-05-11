@@ -82,12 +82,10 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     return NO_ERROR;
 }
 
-void MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
+void MetalConvolutionDepthwise::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset: TensorUtils::getDescribe(input)->extra.offset
-atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset: TensorUtils::getDescribe(output)->extra.offset
-atIndex:1];
+    MetalBackend::setTensor(inputs[0], encoder, 0);
+    MetalBackend::setTensor(outputs[0], encoder, 1);
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     MetalBackend::setTensor(mWeight.get(), encoder, 3);
     MetalBackend::setTensor(mBias.get(), encoder, 4);

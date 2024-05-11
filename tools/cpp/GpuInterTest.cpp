@@ -13,7 +13,7 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #include <fstream>
 #include <sstream>
 #include <numeric>
@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
         testMode = atoi(argv[3]);
         MNN_PRINT("Use extra forward type: %d(0:OpenCL 1:OpenGL)\n", testMode);
     }
-    
+
     auto type = MNN_FORWARD_CPU;
     if (argc > 4) {
         type = (MNNForwardType)atoi(argv[4]);
@@ -267,7 +267,7 @@ int main(int argc, char *argv[]) {
     }
 
     backendConfig.sharedContext = &DeviceContext;
-    
+
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     std::shared_ptr<Module> net;

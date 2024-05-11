@@ -137,7 +137,7 @@ public:
      * @param creator   registering creator.
      */
     static void addCreator(OpType type, Creator *creator);
-    static void setTensor(MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
+    static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
     static std::pair<id<MTLBuffer>, int> getBuffer(MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
@@ -260,6 +260,11 @@ public:
 } // namespace MNN
 
 #define REGISTER_METAL_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {              \
+        MetalBackend::addCreator(opType, new name); \
+    }
+
+#define REGISTER_METAL_OP_TRANSFORMER_CREATOR(name, opType)     \
     void ___##name##__##opType##__() {              \
         MetalBackend::addCreator(opType, new name); \
     }

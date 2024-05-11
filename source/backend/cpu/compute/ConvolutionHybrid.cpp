@@ -33,19 +33,7 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
     resource->lU = lU;
     resource->hP = hP;
     resource->lP = lP;
-    // Reorder weight
-    auto dstWInt8 = resource->mWeight->host<int8_t>();
-    auto srcWInt8 = int8Info->weight.get();
-    // oc, ic -> oc/hP, ic/lP, hP, lP
-    for (int i = 0; i < hU; i++) {
-        for (int j = 0; j < lU; j++) {
-            for (int k = 0; k < hP; k++) {
-                for (int l = 0; l < lP; l++) {
-                    dstWInt8[i * srcChannel * hP + j * hP * lP + k * lP + l] = srcWInt8[(i * hP + k) * srcChannel + (j * lP + l)];
-                }
-            }
-        }
-    }
+
     // Save scale bias
     resource->mDequantize.mScaleBias.reset(MNN::Tensor::createDevice<float>({hU * hP * 2}));
     res = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
@@ -56,6 +44,12 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + hU * hP * bytes);
     ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
     int h = int8Info->alpha.size();
+    if (int8Info->canUseInt4) {
+        // int4 to uint4, -8 offset merge to bias
+        for (int i = 0; i < h/2; ++i) {
+            int8Info->alpha.get()[2 * i] -= 8 * int8Info->alpha.get()[2 * i + 1];
+        }
+    }
     if (bytes == 2) {
         auto core = static_cast<CPUBackend*>(resource->backend)->functions();
         if (int8Info->asymmetric) {
@@ -86,21 +80,53 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
         MNN_ASSERT(weightLength % 2 == 0);
         weightLength = UP_DIV(weightLength, 2);
         resource->mDequantize.bits = 4;
-        std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<uint8_t>(
-            {weightLength}));
-        auto res = resource->backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
-        if (!res) {
-            return false;
+
+        auto srcPtr = int8Info->weight.get();
+        auto dstPtr = resource->mWeight->host<uint8_t>();
+        // oc, ic -> oc/hP, ic/lP, hP, lP
+        if (hP == 8 && lP == 8) {
+            for (int i = 0; i < hU; i++) {
+                for (int j = 0; j < lU; j++) {
+                    for (int k = 0; k < 2; k++) {
+                        for (int n = 0; n < 16; n++) {
+                            int hp_idx = n / 8;
+                            int lp_idx = n % 8;
+                            int s0 = srcPtr[(i * hP + k * 4 + hp_idx) * srcChannel + (j * lP + lp_idx)];
+                            int s1 = srcPtr[(i * hP + k * 4 + hp_idx + 2) * srcChannel + (j * lP + lp_idx)];
+                            int d = (s0 + 8) * 16 + (s1 + 8);
+                            dstPtr[(i * srcChannel * hP + j * hP * lP + k * 32) / 2 + n] = (uint8_t)d;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (int i = 0; i < hU; i++) {
+                for (int j = 0; j < lU; j++) {
+                    for (int k = 0; k < hP; k++) {
+                        for (int l = 0; l < lP; l+=2) {
+                            int s0 = srcPtr[(i * hP + k) * srcChannel + (j * lP + l)];
+                            int s1 = srcPtr[(i * hP + k) * srcChannel + (j * lP + l + 1)];
+                            int d = (s0 + 8) * 16 + (s1 + 8);
+                            dstPtr[(i * srcChannel * hP + j * hP * lP + k * lP + l) / 2] = d;
+                        }
+                    }
+                }
+            }
         }
-        auto srcPtr = resource->mWeight->host<int8_t>();
-        auto dstPtr = weightLow->host<uint8_t>();
-        for (int i=0; i < weightLength; ++i) {
-            int s0 = srcPtr[2 * i + 0];
-            int s1 = srcPtr[2 * i + 1];
-            int d = (s0 + 8) * 16 + (s1 + 8);
-            dstPtr[i] = d;
+    } else {
+        // Reorder weight for int8
+        auto dstWInt8 = resource->mWeight->host<int8_t>();
+        auto srcWInt8 = int8Info->weight.get();
+        // oc, ic -> oc/hP, ic/lP, hP, lP
+        for (int i = 0; i < hU; i++) {
+            for (int j = 0; j < lU; j++) {
+                for (int k = 0; k < hP; k++) {
+                    for (int l = 0; l < lP; l++) {
+                        dstWInt8[i * srcChannel * hP + j * hP * lP + k * lP + l] = srcWInt8[(i * hP + k) * srcChannel + (j * lP + l)];
+                    }
+                }
+            }
         }
-        resource->mWeight = weightLow;
     }
     return true;
 }
@@ -129,10 +155,10 @@ ConvolutionHybrid::ConvolutionHybrid(const Convolution2DCommon *common, Backend 
     hPack = unit;
     lPack = unit;
     // [oc, ic] => [oc/unit, ic/src_unit, unit, src_unit]
-  if (unit == 4 && core->supportI8mm) { // Low Memory: use fp32 and smmla.
-       hPack = 8;
-       lPack = 8;
-   }
+    if (unit == 4 && core->supportI8mm) { // Low Memory: use fp32 and smmla.
+        hPack = 8;
+        lPack = 8;
+    }
     auto hU = UP_DIV(outputCount, hPack);
     auto lU = UP_DIV(inputCount, lPack);
     ConvolutionHybrid::initQuantizeResource(quantInfo, mResource, hU, hPack, lU, lPack, outputCount, (int)originWeightSize / (int)biasSize, common->kernelX() * common->kernelY(), core->bytes);
@@ -237,8 +263,8 @@ ErrorCode ConvolutionHybrid::onResize(const std::vector<Tensor *> &inputs, const
     int iTileCount = UP_DIV(iC4, threadNumber);
     if (unit == 4 && core->supportI8mm) { // Low Memory: use fp32 and smmla.
        ANeedToPack8 = true;
-   }
-   int8_t order[32] = {0, 1, 2, 3, 12, 13, 14, 15, 16, 17, 18, 19, 28, 29, 30, 31, 8, 9, 10, 11, 4, 5, 6, 7, 24, 25, 26, 27, 20, 21, 22, 23};
+    }
+    int8_t order[32] = {0, 1, 2, 3, 12, 13, 14, 15, 16, 17, 18, 19, 28, 29, 30, 31, 8, 9, 10, 11, 4, 5, 6, 7, 24, 25, 26, 27, 20, 21, 22, 23};
     allocDynamicQuantInfo(threadNumber, batch, ic, oc, bytes);
     mDynamicQuant = [=]() {
         auto maxPtr = mQuantInfo.quant_info.host<uint8_t>();

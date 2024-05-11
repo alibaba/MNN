@@ -75,6 +75,9 @@ extern void ___CPURasterAndInterpolateCreator__OpType_RasterAndInterpolate__();
 extern void ___CPURasterDiffCreator__OpType_RasterDiff__();
 extern void ___CPUTextureCreator__OpType_Texture__();
 #endif
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern void ___CPUAttentionCreator__OpType_Attention__();
+#endif
 void registerCPUOps() {
 ___CPUCropAndResizeCreator__OpType_CropAndResize__();
 ___CPUArgMaxCreator__OpType_ArgMax__();
@@ -149,6 +152,9 @@ ___CPUExternalConstCreator__OpType_TrainableParam__();
 ___CPURasterAndInterpolateCreator__OpType_RasterAndInterpolate__();
 ___CPURasterDiffCreator__OpType_RasterDiff__();
 ___CPUTextureCreator__OpType_Texture__();
+#endif
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+___CPUAttentionCreator__OpType_Attention__();
 #endif
 }
 }

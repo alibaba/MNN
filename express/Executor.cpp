@@ -27,6 +27,7 @@ namespace Express {
 
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
     std::lock_guard<std::mutex> _l(mMutex);
+    
     if(type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
@@ -41,10 +42,12 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
             info.numThread = 4;
         }
         mAttr->firstType = std::make_pair(type, info.numThread);
-
-        info.user = (BackendConfig*)&config;
-        std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        mRuntimes[mAttr->firstType] = bn;
+        auto firstIter = mRuntimes.find(mAttr->firstType);
+        if (firstIter == mRuntimes.end()) {
+            info.user = (BackendConfig*)&config;
+            std::shared_ptr<Runtime> bn(creator->onCreate(info));
+            mRuntimes[mAttr->firstType] = bn;
+        }
     } else {
         auto creator = MNNGetExtraRuntimeCreator(type);
         if (nullptr == creator) {
@@ -56,11 +59,14 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         Backend::Info info;
         info.type = type;
         mAttr->firstType = std::make_pair(type, numberThread);
-        info.mode = Backend::Info::DIRECT;
-        info.numThread = numberThread;
-        info.user = (BackendConfig*)&config;
-        std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        mRuntimes[mAttr->firstType] = bn;
+        auto firstIter = mRuntimes.find(mAttr->firstType);
+        if (firstIter == mRuntimes.end()) {
+            info.mode = Backend::Info::DIRECT;
+            info.numThread = numberThread;
+            info.user = (BackendConfig*)&config;
+            std::shared_ptr<Runtime> bn(creator->onCreate(info));
+            mRuntimes[mAttr->firstType] = bn;
+        }
     }
     _refreshRuntime();
 }
@@ -155,6 +161,10 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
                                                 const BackendConfig& config,
                                                 int numberThread) {
     auto creator = MNNGetExtraRuntimeCreator(type);
+    if(nullptr == creator) {
+        MNN_ERROR("Don't support %d\n", type);
+        return nullptr;
+    }
     Backend::Info info;
     info.type = type;
     info.numThread = numberThread;

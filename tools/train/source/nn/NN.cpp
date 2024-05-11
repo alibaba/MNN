@@ -17,7 +17,7 @@
 #include "RandomGenerator.hpp"
 #include "core/Macro.h"
 #include "math/WingoradGenerater.hpp"
-#include "common/WinogradInt8Attr.hpp"
+#include "core/WinogradInt8Attr.hpp"
 #include <string>
 
 using namespace MNN::Express;
@@ -592,11 +592,11 @@ public:
         mWeightClampValue = _Scalar<float>(mLimit);
         // mInputClampValue = _Scalar<float>(mLimit);
         // mOutputClampValue = _Scalar<float>(mLimit);
-        
+
         // lower bits only apply to weights
         mInputClampValue = _Scalar<float>((float)(1 << (8 - 1)) - 1.0f);
         mOutputClampValue = _Scalar<float>((float)(1 << (8 - 1)) - 1.0f);
-        
+
         mInputMinPos = addParameter(mInputMin);
         mInputMaxPos = addParameter(mInputMax);
         mOutputMinPos = addParameter(mOutputMin);
@@ -761,13 +761,13 @@ public:
         xx = _MatMul(_MatMul(_Transpose(srcTransH, {1, 0}), xx), srcTransW);
         // [alphaH * alphaW, ic, N * h_unit_num * w_unit_num]
         xx = _Reshape(_Transpose(xx, {2, 3, 1, 0}), {alphaH * alphaW, inChannel, -1});
-        
+
         auto inputPair = fakeQuantFeatureWithMinMax(xx, nullptr, nullptr, mInputClampValue, {1, 2, 3});
         mWinogradTransInputMin = updateParameter(mWinogradTransInputMin, inputPair[1]);
         mWinogradTransInputMax = updateParameter(mWinogradTransInputMax, inputPair[2]);
         setParameter(mWinogradTransInputMin, mWinogradTransInputMinPos);
         setParameter(mWinogradTransInputMax, mWinogradTransInputMaxPos);
-        
+
         auto wTransH = _Const(genH.G()->host<void>(), {alphaH, kernelH}, NCHW);
         auto wTransW = _Const(genW.G()->host<void>(), {alphaW, kernelW}, NCHW);
         // [oc, ic, alphaH, alphaW]
@@ -775,12 +775,12 @@ public:
         // [alphaH * alphaW, oc, ic]
         ww = _Transpose(_Reshape(ww, {outChannel, inChannel, -1}), {2, 0, 1});
         auto wwInfo = ww->getInfo();
-        
+
         // simulate weight quant
         auto weightScale = _Maximum(_ReduceMax(_Abs(ww), {2}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
 //        ww = clamp(_Round(ww * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
         setParameter(weightScale, mWinogradTransWeightScalePos);
-        
+
         // [alphaH * alphaW, oc, N * h_unit_num * w_unit_num]
         auto yy = _MatMul(ww, xx);
         // [oc, N * h_unit_num * w_unit_num, alphaH, alphaW]
@@ -963,7 +963,7 @@ public:
                     bias.resize(biasinfo->size);
                     auto ptr = fusedBias->readMap<float>();
                     ::memcpy(bias.data(), ptr, bias.size() * sizeof(float));
-                    
+
                     auto info = weightScale->getInfo();
                     weightScaleVector.resize(info->size);
                     MNN_ASSERT(weightScaleVector.size() == bias.size());
@@ -973,7 +973,7 @@ public:
             }
             bool relu = mActivation == NN::None ? false : true;
             res = _Conv(std::move(weight), std::move(bias), std::move(weightScaleVector), _Convert(x, NC4HW4), mOption.channel,
-                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 
+                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu,
                         mInputScale->readMap<float>()[0], mOutputScale->readMap<float>()[0],
                         inputZeroPoint, outputZeroPoint,
                         -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mWeightClampValue->readMap<float>()[0], mAccumulateToInt16);
@@ -982,7 +982,7 @@ public:
                 auto inputScaleVar = scaleAndZeroPoint.first;
                 auto inputZeroPointVar = scaleAndZeroPoint.second;
                 auto weightScaleVar = parameters()[mWinogradTransWeightScalePos];
-                
+
                 // Winograd Transformed input scale
                 auto inputScaleInfo = inputScaleVar->getInfo();
                 auto inputScaleData = inputScaleVar->readMap<float>();
@@ -1008,11 +1008,11 @@ public:
                     return {};
                 }
                 std::vector<float> weightScales(weightScaleData, weightScaleData + weightScaleInfo->size);
-                
+
                 mWinogradAttr->attrs[0].inputScales = inputScales;
                 mWinogradAttr->attrs[0].inputZeroPoints = inputZeroPoints;
                 mWinogradAttr->attrs[0].weightScales = weightScales;
-                
+
                 res = mWinogradAttr->turnToWinogradConv(res);
             }
             res->setName(name());

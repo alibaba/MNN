@@ -127,7 +127,7 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
 
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
-    auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+    auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize), MNN::Interpreter::destroy);
     revertor.reset();
     net->setSessionMode(MNN::Interpreter::Session_Release);
     MNN::ScheduleConfig config;

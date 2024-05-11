@@ -27,14 +27,6 @@ typedef enum {
     CPUTransparent
 } MetalAccess;
 
-typedef struct {
-    /** wrap size */
-    NSUInteger threadExecutionWidth;
-    /** max threads per thread group */
-    NSUInteger maxThreadsPerThreadgroup;
-    /** run concurrently on z axis or not */
-    BOOL zAxisProtected;
-} MetalBandwidth;
 }
 
 @interface MNNMetalContext : NSObject
@@ -68,14 +60,6 @@ typedef struct {
  * @param encoder   command encoder
  * @return bandwidth info for function
  */
-- (MNN::MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder fp16:(BOOL)fp16;
-
-/**
- * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
- * @param name      pipline name
- * @param encoder   command encoder
- * @return bandwidth info for function
- */
 - (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex queue:(id<MTLCommandQueue>) cmdqueue;
 
 - (NSUInteger)timeUsed:(id<MTLCommandBuffer>) buffer;
@@ -87,26 +71,12 @@ typedef struct {
 - (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device;
 
 /**
- * @brief dispatch encoder with default settings
- * @param encoder   command encoder
- * @param threads   threads size
- * @param bandwidth bandwidth
- */
-- (void)dispatchEncoder:(id<MTLComputeCommandEncoder>)encoder
-                threads:(MTLSize)threads
-              bandwidth:(MNN::MetalBandwidth)bandwidth;
-
-/**
  * @brief dispatch encoder with designated threads per threadgroup
  * @param encoder           command encoder
  * @param threads           threads size
  * @param threadsPerGroup   thread size per group
  * @param bandwidth         bandwidth
  */
-- (void)dispatchEncoder:(id<MTLComputeCommandEncoder>)encoder
-                threads:(MTLSize)threads
-        threadsPerGroup:(MTLSize)threadsPerGroup
-              bandwidth:(MNN::MetalBandwidth)bandwidth;
 - (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name fp16:(BOOL)fp16;
 - (id<MTLComputePipelineState>)pipelineWithSourceOption:(NSString *)source name:(NSString *)name options:(MTLCompileOptions *)options;
 - (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) pipeline threads:(MTLSize)threads;

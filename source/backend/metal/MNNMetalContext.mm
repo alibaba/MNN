@@ -181,25 +181,6 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     return result;
 }
 
-- (MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder fp16:(BOOL)fp16 {
-    id<MTLComputePipelineState> pipeline = [self pipelineWithName:name fp16:fp16];
-    MNN_ASSERT(nil != pipeline);
-    [encoder setComputePipelineState:pipeline];
-#if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
-    if (!name) {
-    } else if (!encoder.label) {
-        encoder.label = name;
-    } else {
-        NSArray *components = [encoder.label componentsSeparatedByString:@","];
-        if (![components containsObject:name]) {
-            components = [components arrayByAddingObject:name];
-        }
-        encoder.label = [components componentsJoinedByString:@","];
-    }
-#endif
-    return {pipeline.threadExecutionWidth, pipeline.maxTotalThreadsPerThreadgroup, NO};
-}
-
 - (NSUInteger)timeUsed:(id<MTLCommandBuffer>)buffer {
     // Get ns precision time
     auto start = mach_absolute_time();
@@ -393,37 +374,6 @@ static NSUInteger smallest_log2(NSUInteger integer) {
 }
 
 - (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
-    if (bw.maxTotalThreadsPerThreadgroup > 64) {
-        auto res = MTLSizeMake(8, 8, 8);
-        int reduceNumber = 0;
-        if (t.depth < 4) {
-            res.depth = 1;
-            reduceNumber++;
-        }
-        if (t.width < 4) {
-            res.width = 1;
-            reduceNumber++;
-        }
-        if (t.height < 4) {
-            res.height = 1;
-            reduceNumber++;
-        }
-        if (reduceNumber == 0) {
-            return MTLSizeMake(4, 4, 4);
-        }
-        if (reduceNumber == 2) {
-            if (res.width > 1) {
-                res.width = 64;
-            }
-            if (res.height > 1) {
-                res.height = 64;
-            }
-            if (res.depth > 1) {
-                res.depth = 64;
-            }
-        }
-        return res;
-    }
     auto pwarp = smallest_log2(bw.threadExecutionWidth);
     auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
     auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
@@ -461,91 +411,6 @@ static NSUInteger smallest_log2(NSUInteger integer) {
         return {t.width, t.height, z};
     }
 
-}
-
-- (MTLSize)threadsPerGroupWithThreads:(MTLSize)t bandwidth:(MetalBandwidth)bw {
-    auto pwarp = smallest_log2(bw.threadExecutionWidth);
-    auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
-    auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
-
-    // accurately match on x
-    if (px >= pwarp) {
-        return {bw.threadExecutionWidth, 1, 1};
-    }
-    // accurately match on xy
-    else if (px + py >= pwarp && sx < pwarp / 2) {
-        NSUInteger x = pow(2, px);
-        return {x, bw.threadExecutionWidth / x, 1};
-    }
-    // similarly match on x
-    else if (sx >= pwarp) {
-        return {bw.threadExecutionWidth, 1, 1};
-    }
-    // similarly match on xy
-    else if (sx + sy >= pwarp) {
-        NSUInteger x = pow(2, sx);
-        return {x, bw.threadExecutionWidth / x, 1};
-    }
-
-    // on xyz (for most shaders do not protect gid.z, z axis must be accurately match)
-    auto pz = smallest_log2(t.depth);
-    auto sz = bw.zAxisProtected ? ceil(log2(t.depth)) : pz;
-    if (px + py + pz >= pwarp) {
-        NSUInteger x = pow(2, px), y = pow(2, py);
-        return {x, y, bw.threadExecutionWidth / x / y};
-    } else if (sx + sy + sz >= pwarp) {
-        NSUInteger x = pow(2, sx), z = pow(2, MIN(sz, pwarp - sx));
-        return {x, bw.threadExecutionWidth / x / z, z};
-    } else {
-        NSUInteger z = pow(2, sz);
-        return {t.width, t.height, z};
-    }
-}
-
-- (void)dispatchEncoder:(id<MTLComputeCommandEncoder>)encoder
-                threads:(MTLSize)threads
-              bandwidth:(MetalBandwidth)bandwidth {
-    [self dispatchEncoder:encoder
-                  threads:threads
-          threadsPerGroup:[self threadsPerGroupWithThreads:threads bandwidth:bandwidth]
-                bandwidth:bandwidth];
-}
-
-- (void)dispatchEncoder:(id<MTLComputeCommandEncoder>)encoder
-                threads:(MTLSize)threads
-        threadsPerGroup:(MTLSize)threadsPerGroup
-              bandwidth:(MetalBandwidth)bandwidth {
-#if MNN_METAL_DEBUG
-    if (threads.width == 0 || threads.height == 0 || threads.depth == 0 || threadsPerGroup.width == 0 ||
-        threadsPerGroup.height == 0 || threadsPerGroup.depth == 0) {
-        printf("[METAL] dispatch error %td %td %td / %td %td %td\n", threads.width, threads.height, threads.depth,
-               threadsPerGroup.width, threadsPerGroup.height, threadsPerGroup.depth);
-    }
-#endif
-
-    //    NSLog(@"dispatch {%td %td %td} with {%td %td %td}",
-    //          threads.width, threads.height, threads.depth,
-    //          threadsPerGroup.width, threadsPerGroup.height, threadsPerGroup.depth);
-    threadsPerGroup.width  = MIN(threadsPerGroup.width, bandwidth.maxThreadsPerThreadgroup);
-    threadsPerGroup.height = MIN(threadsPerGroup.height, bandwidth.maxThreadsPerThreadgroup);
-    threadsPerGroup.depth  = MIN(threadsPerGroup.depth, bandwidth.maxThreadsPerThreadgroup);
-#ifdef MNN_BUILD_FOR_IOS
-    if (@available(iOS 11.0, *)) {
-        if ([_device supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily4_v1]) {
-            [encoder dispatchThreads:threads threadsPerThreadgroup:threadsPerGroup];
-            return;
-        }
-    }
-#endif
-    MTLSize groups = {
-        UP_DIV(threads.width, threadsPerGroup.width), UP_DIV(threads.height, threadsPerGroup.height),
-        UP_DIV(threads.depth, threadsPerGroup.depth),
-    };
-    MNN_ASSERT(threadsPerGroup.width >= 1);
-    MNN_ASSERT(threadsPerGroup.height >= 1);
-    MNN_ASSERT(threadsPerGroup.depth >= 1);
-
-    [encoder dispatchThreadgroups:groups threadsPerThreadgroup:threadsPerGroup];
 }
 
 #if MNN_METAL_DEBUG

@@ -94,7 +94,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize) / 4;
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -114,6 +114,14 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
         inner_size *= inputs.at(0)->length(i);
     }
 
+    if (group_ > 1) {
+        outter_size = inputs[0]->length(0) * group_;
+        inner_size = 1;
+        for (int i = 1; i < rank; i++) {
+            inner_size *= inputs[0]->length(i);
+        }
+        inner_size /= group_;
+    }
     
     std::set<std::string> buildOptions;
     if(RMSNorm){
@@ -150,6 +158,111 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(1),
                 static_cast<uint32_t>(inputBatch)};
+    } else if(inner_size == inputWidth * inputHeight * inputChannels / group_ && outter_size == inputBatch * group_){
+        mUnits.clear();
+        mUnits.resize(3);
+        std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
+        int inputWH[]      = {inputShape[2], inputShape[1]};
+        int region[]       = {inputShape[0], UP_DIV(inputShape[3], 4), inputShape[1], inputShape[2]};
+        
+        mInputPlain = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{inputShape[0], inputShape[3], ROUND_UP(inputShape[1] * inputShape[2], 4), 1}, Tensor::CAFFE));
+        mOpenCLBackend->onAcquireBuffer(mInputPlain.get(), Backend::DYNAMIC);
+        mOutputPlain = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{inputShape[0], inputShape[3], ROUND_UP(inputShape[1] * inputShape[2], 4), 1}, Tensor::CAFFE));
+        mOpenCLBackend->onAcquireBuffer(mOutputPlain.get(), Backend::DYNAMIC);
+
+        // convert nc4hw4 to nchw
+        {
+            auto &unit = mUnits[0];
+            unit.kernel         = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", {}, inputs[0], outputs[0]);
+
+            mGWS = {(uint32_t)(UP_DIV(region[3] * region[1], 16) * 16),
+                (uint32_t)(UP_DIV(region[2] * region[0], 16) * 16)};
+            mLWS = {16, 16};
+            unit.globalWorkSize  = {mGWS[0], mGWS[1]};
+            unit.localWorkSize = {mLWS[0], mLWS[1]};
+            
+            int global_dim0 = region[3] * region[1];
+            int global_dim1 = region[2] * region[0];
+            
+            //MNN_CHECK_CL_SUCCESS
+            uint32_t idx   = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= unit.kernel->get().setArg(idx++, global_dim0);
+            ret |= unit.kernel->get().setArg(idx++, global_dim1);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mInputPlain.get()));
+            ret |= unit.kernel->get().setArg(idx++, inputWH[1]);
+            ret |= unit.kernel->get().setArg(idx++, inputWH[0]);
+            ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormBufExecution with group, convert nc4hw4 to nchw");
+            
+            mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
+        }
+        // do group layernorm
+        {
+            auto &unit = mUnits[1];
+            kernelName = "layernorm_plain_buf";
+            local_size = getLocalSize(UP_DIV(inner_size, 4), MaxLocalSize);
+            buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+            unit.kernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions);
+            
+            mGWS = {static_cast<uint32_t>(local_size),
+                    static_cast<uint32_t>(1),
+                    static_cast<uint32_t>(outter_size)};
+            
+            mLWS = {static_cast<uint32_t>(local_size), 1, 1};
+
+            unit.globalWorkSize  = {mGWS[0], mGWS[1], mGWS[2]};
+            unit.localWorkSize   = {mLWS[0], mLWS[1], mLWS[2]};
+
+            uint32_t idx = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
+            ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
+            ret |= unit.kernel->get().setArg(idx++, mGWS[2]);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mInputPlain.get()));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mOutputPlain.get()));
+            ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inner_size));
+            ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outter_size));
+            if(has_gamma_beta_){
+                ret |= unit.kernel->get().setArg(idx++, *mGammaBuffer.get());
+                ret |= unit.kernel->get().setArg(idx++, *mBetaBuffer.get());
+            }
+            ret |= unit.kernel->get().setArg(idx++, epsilon_);
+            MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormBufExecution with group, do group layernorm");
+            mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
+        }
+        // convert nchw to nc4hw4
+        {
+            auto &unit = mUnits[2];
+
+            unit.kernel         = runtime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer", {}, inputs[0], outputs[0]);
+            mLWS  = {16, 16};
+            mGWS = {(uint32_t)UP_DIV(region[3] * region[1], 16) * 16,
+                    (uint32_t)UP_DIV(region[2] * region[0], 16) * 16};
+            
+            unit.globalWorkSize  = {mGWS[0], mGWS[1]};
+            unit.localWorkSize = {mLWS[0], mLWS[1]};
+            
+            int global_dim0 = region[3] * region[1];
+            int global_dim1 = region[2] * region[0];
+            
+            uint32_t idx   = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= unit.kernel->get().setArg(idx++, global_dim0);
+            ret |= unit.kernel->get().setArg(idx++, global_dim1);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mOutputPlain.get()));
+            ret |= unit.kernel->get().setArg(idx++, inputWH[1]);
+            ret |= unit.kernel->get().setArg(idx++, inputWH[0]);
+            ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormBufExecution with group, convert nchw to nc4hw4");
+            mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
+        }
+        
+        mOpenCLBackend->onReleaseBuffer(mInputPlain.get(), Backend::DYNAMIC);
+        mOpenCLBackend->onReleaseBuffer(mOutputPlain.get(), Backend::DYNAMIC);
+        return NO_ERROR;
     }
     mLWS = {static_cast<uint32_t>(local_size), 1, 1};
 
@@ -189,10 +302,6 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         const auto* layer_norm_param = op->main_as_LayerNorm();
-        int group = layer_norm_param->group();
-        if(group > 1){
-			return nullptr;
-        }
     	return new LayerNormBufExecution(inputs, op, backend);
     }
 };

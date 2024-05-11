@@ -102,9 +102,9 @@ kernel void conv(const device ftype4 *in        [[buffer(0)]],
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
     
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + offset_y * cst.input_width + offset_x;
+    auto z_in  = in + idx_b * cst.input_size + offset_y * cst.input_width + offset_x;
     auto z_wt  = wt + idx_c * cst.input_slice * cst.kernel_size + sy * cst.kernel_x + sx;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + (int)idx_c * cst.output_size                   + (int)gid.y * cst.output_width + (int)gid.x;
+    auto z_out = out + idx_b * cst.output_size + (int)idx_c * cst.batch * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x;
 
     int dilation_h = cst.input_width * cst.dilation_y;
     FLOAT4 result = FLOAT4(biasTerms[idx_c]);
@@ -112,7 +112,7 @@ kernel void conv(const device ftype4 *in        [[buffer(0)]],
         for (auto y = 0; y < kh; y++) {
             for (auto x = 0; x < kw; x++) {
                 auto wt4 = z_wt[z * cst.kernel_size + y * cst.kernel_x + x];
-                auto in4 = z_in[z * cst.input_size  + y * dilation_h   + x * cst.dilation_x];
+                auto in4 = z_in[z * cst.input_size * cst.batch  + y * dilation_h   + x * cst.dilation_x];
                 result += FLOAT4(in4 * wt4);
             }
         }
@@ -141,15 +141,15 @@ kernel void convk3s1d1p1_w2z4(const device ftype4 *in         [[buffer(0)]],
     int offset_x = (int)gid.x * 2 - cst.pad_x;
     int offset_y = (int)gid.y - cst.pad_y;
 
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + offset_y * cst.input_width + offset_x;
+    auto z_in  = in + idx_b * cst.input_size + offset_y * cst.input_width + offset_x;
     auto z_flt  = wt  + uz[0] * cst.input_slice * cst.kernel_size;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + uz[0] * cst.output_size + idx_h * cst.output_width + idx_w;
+    auto z_out = out + idx_b * cst.output_size + uz[0] * cst.batch * cst.output_size + idx_h * cst.output_width + idx_w;
     
     int ws = cst.input_slice * cst.kernel_size;
     FLOAT4 result0 = 0, result1 = 0, result2 = 0, result3 = 0;
     FLOAT4 result4 = 0, result5 = 0, result6 = 0, result7 = 0;
 
-    for (auto z = 0; z < cst.input_slice; z++, z_flt += cst.kernel_size, z_in += cst.input_size) {
+    for (auto z = 0; z < cst.input_slice; z++, z_flt += cst.kernel_size, z_in += (cst.input_size * cst.batch)) {
         auto in00 = (offset_x<0                   || offset_y<0) ? (ftype4)0.f : *(z_in+0*cst.input_width+0);
         auto in01 = (offset_x+1>=cst.input_width  || offset_y<0) ? (ftype4)0.f : *(z_in+0*cst.input_width+1);
         auto in02 = (offset_x+2>=cst.input_width  || offset_y<0) ? (ftype4)0.f : *(z_in+0*cst.input_width+2);
@@ -228,19 +228,19 @@ kernel void conv_s1d1p0_w2(const device ftype4 *in        [[buffer(0)]],
 
     bool valid = (idx_w + 1 < cst.output_width);
     
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + idx_h * cst.input_width + idx_w;
+    auto z_in  = in + idx_b * cst.input_size + idx_h * cst.input_width + idx_w;
     auto z_wt  = wt + idx_c * cst.input_slice * cst.kernel_size;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + idx_c * cst.output_size + idx_h * cst.output_width + idx_w;
+    auto z_out = out + idx_b * cst.output_size + idx_c * cst.batch * cst.output_size + idx_h * cst.output_width + idx_w;
 
     FLOAT4 result0 = FLOAT4(biasTerms[idx_c]);
     FLOAT4 result1 = result0;
     for (auto z = 0; z < cst.input_slice; z++) {
         for (auto y = 0; y < cst.kernel_y; y++) {
             auto wt4 = z_wt[z * cst.kernel_size + y * cst.kernel_x];
-            auto in4_0 = z_in[z * cst.input_size  + y * cst.input_width];
+            auto in4_0 = z_in[z * cst.batch * cst.input_size  + y * cst.input_width];
             result0 += FLOAT4(in4_0 * wt4);
             for (auto x = 1; x < cst.kernel_x; x++) {
-                in4_0 = z_in[z * cst.input_size  + y * cst.input_width + x];
+                in4_0 = z_in[z * cst.batch * cst.input_size  + y * cst.input_width + x];
                 result1 += FLOAT4(in4_0 * wt4);
                 wt4   = z_wt[z * cst.kernel_size + y * cst.kernel_x + x];
                 result0 += FLOAT4(in4_0 * wt4);
@@ -271,9 +271,9 @@ kernel void conv_s1d1p0_w4(const device ftype4 *in        [[buffer(0)]],
     int3 uz = idx_w + int3(1, 2, 3);
     bool3 valids = uz.xyz < cst.output_width;
     
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + idx_h * cst.input_width + idx_w;
+    auto z_in  = in + idx_b * cst.input_size + idx_h * cst.input_width + idx_w;
     auto z_wt  = wt + idx_c * cst.input_slice * cst.kernel_size;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + idx_c * cst.output_size + idx_h * cst.output_width + idx_w;
+    auto z_out = out + idx_b * cst.output_size + idx_c * cst.batch * cst.output_size + idx_h * cst.output_width + idx_w;
 
     FLOAT4 result0 = FLOAT4(biasTerms[idx_c]);
     FLOAT4 result1 = result0;
@@ -286,7 +286,7 @@ kernel void conv_s1d1p0_w4(const device ftype4 *in        [[buffer(0)]],
             auto wt4_1 = wt_base[1];
             auto wt4_2 = wt_base[2];
 
-            auto z_in_base = z_in + z * cst.input_size  + y * cst.input_width;
+            auto z_in_base = z_in + z * cst.batch * cst.input_size  + y * cst.input_width;
             auto in4_0 = z_in_base[0];
             result0 += FLOAT4(in4_0 * wt4_0);
             
@@ -346,14 +346,14 @@ kernel void conv_z4(const device ftype4 *in         [[buffer(0)]],
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
     
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + offset_y * cst.input_width + offset_x;
+    auto z_in  = in + idx_b * cst.input_size + offset_y * cst.input_width + offset_x;
     auto z_wt  = wt  + uz[0] * cst.input_slice * cst.kernel_size + sy * cst.kernel_x + sx;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + uz[0] * cst.output_size + idx_h * cst.output_width + idx_w;
+    auto z_out = out + idx_b * cst.output_size + uz[0] * cst.batch * cst.output_size + idx_h * cst.output_width + idx_w;
     
     int ws = cst.input_slice * cst.kernel_size;
     int dilation_h = cst.input_width * cst.dilation_y;
     FLOAT4 result0 = 0, result1 = 0, result2 = 0, result3 = 0;
-    for (auto z = 0; z < cst.input_slice; z++, z_wt += cst.kernel_size, z_in += cst.input_size) {
+    for (auto z = 0; z < cst.input_slice; z++, z_wt += cst.kernel_size, z_in += cst.input_size * cst.batch) {
         for (auto y = 0; y < kh; y++) {
             for (auto x = 0; x < kw; x++) {
                 auto x_wt = z_wt + y * cst.kernel_x + x;
@@ -400,14 +400,14 @@ kernel void conv_z2(const device ftype4 *in         [[buffer(0)]],
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
     
-    auto z_in  = in + idx_b * cst.input_slice * cst.input_size + offset_y * cst.input_width + offset_x;
+    auto z_in  = in + idx_b * cst.input_size + offset_y * cst.input_width + offset_x;
     auto z_wt  = wt  + uz[0] * cst.input_slice * cst.kernel_size + sy * cst.kernel_x + sx;
-    auto z_out = out + idx_b * cst.output_slice * cst.output_size + uz[0] * cst.output_size + idx_h * cst.output_width + idx_w;
+    auto z_out = out + idx_b * cst.output_size + uz[0] * cst.batch * cst.output_size + idx_h * cst.output_width + idx_w;
     
     int ws = cst.input_slice * cst.kernel_size;
     int dilation_h = cst.input_width * cst.dilation_y;
     FLOAT4 result0 = 0, result1 = 0;
-    for (auto z = 0; z < cst.input_slice; z++, z_wt += cst.kernel_size, z_in += cst.input_size) {
+    for (auto z = 0; z < cst.input_slice; z++, z_wt += cst.kernel_size, z_in += cst.input_size * cst.batch) {
         for (auto y = 0; y < kh; y++) {
             for (auto x = 0; x < kw; x++) {
                 auto x_wt = z_wt + y * cst.kernel_x + x;
@@ -418,5 +418,5 @@ kernel void conv_z2(const device ftype4 *in         [[buffer(0)]],
         }
     }
     /* true                                 */ *z_out = activate(ftype4(result0 + FLOAT4(biasTerms[uz[0]])), cst.activation);
-    if (valids) { z_out += cst.output_size; *z_out = activate(ftype4(result1 + FLOAT4(biasTerms[uz[1]])), cst.activation); }
+    if (valids) { z_out += cst.output_size * cst.batch; *z_out = activate(ftype4(result1 + FLOAT4(biasTerms[uz[1]])), cst.activation); }
 }

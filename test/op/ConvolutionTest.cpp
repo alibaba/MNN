@@ -17,8 +17,8 @@
 #include "CommonOpCreator.hpp"
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
-#include "common/MemoryFormater.h"
-#include "common/CommonCompute.hpp"
+#include "core/MemoryFormater.h"
+#include "core/CommonCompute.hpp"
 
 #define TEST_RANDOM_SEED 100
 
@@ -610,7 +610,7 @@ public:
                 int beginIndex = k * kernel_size;
                 auto absMax = findAbsMax(weightData.data() + beginIndex, kernel_size);
                 wScale[k] = absMax / threshold;
-                
+
                 float* ptr = weightData.data() + beginIndex;
                 for (int i = 0; i < kernel_size; ++i) {
                     int8_t quantVal = (int8_t)(fmax(fmin(round(ptr[i] / wScale[k]), threshold), clampMin));

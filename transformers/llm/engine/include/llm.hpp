@@ -59,7 +59,8 @@ public:
         visual_module_.reset();
         runtime_manager_.reset();
     }
-    static Llm* createLLM(const std::string& path, std::string model_type = "auto", int forwardType = 0);
+    // Default memory is low, precision is low
+    static Llm* createLLM(const std::string& path, std::string model_type = "auto", int forwardType = 0, int memoryprecison = 10);
     void load(const std::string& model_dir);
     void chat();
     void trace(bool start);
@@ -89,6 +90,7 @@ protected:
     std::vector<int> tokenizer_encode(const std::string& input_str);
     std::string decode(int id);
 protected:
+    VARP inputs_embeds_, attention_mask_, position_ids_;
     // model configs
     bool is_single_ = false;
     bool is_disk_embedding_ = false;
@@ -119,6 +121,7 @@ private:
     // model dir
     std::string model_dir_;
     int mForwardType = 0;
+    int mPrecisionMemory = 0;
 };
 
 // some llm models
@@ -369,6 +372,7 @@ private:
     virtual VARP gen_attention_mask(int seq_len) override;
     virtual VARP gen_position_ids(int seq_len) override;
 };
+
 // Embedding end
 
 #endif // LLM_hpp

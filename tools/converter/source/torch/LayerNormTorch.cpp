@@ -32,7 +32,7 @@ void LayerNormTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchSco
     std::string opType = getRealOpType(node);
     if (opType == "group_norm") {
         param->group = getValue<int64_t>(inputs[1]);
-        param->axis = {1,2,3};
+        param->axis = {-1};
         // add scale op after layernorm
         {
             auto scaleName = dstOp->name + "/scale";
@@ -54,7 +54,7 @@ void LayerNormTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchSco
     } else {
         auto norm_shape = getValue<std::vector<int64_t>>(inputs[1]);
         // TODO: convert norm_shape to axis
-        param->axis = {1};
+        param->axis = {-1};
         param->gamma = getValue<float>(weight, shape);
         param->beta = getValue<float>(bias, shape);
     }

@@ -187,6 +187,7 @@ enum OpType : int {
     ZeroGrad,
 
     // User define op
+    Attention = 299,
     FmhaV2 = 300,
     Fmhca = 301,
     SeqLen2Spatial = 302,
@@ -218,7 +219,7 @@ table Extra {
     engine: string;
     info: [byte];
     attr:[Attribute];
-    // The Extra Op can be vectorized for execution    
+    // The Extra Op can be vectorized for execution
     vector: bool;
 }
 
@@ -226,10 +227,14 @@ table StringVec {
     data: [string];
 }
 
+table AttentionParam {
+    kv_cache: bool = true;
+}
+
 table FmhaV2Param {
     heads: int;
 }
- 
+
 table FmhcaParam {
     heads: int;
 }
@@ -408,7 +413,8 @@ union OpParameter {
     CumSum,
     GroupNorm,
     FmhaV2Param,
-    FmhcaParam
+    FmhcaParam,
+    AttentionParam
 }
 
 table Op {

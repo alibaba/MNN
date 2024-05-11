@@ -52,6 +52,9 @@ list(APPEND MNN_CPP_TOOLS testTrain.out)
 add_executable(fuseTest ${CMAKE_CURRENT_LIST_DIR}/fuseTest.cpp)
 list(APPEND MNN_CPP_TOOLS fuseTest)
 
+add_executable(LoRA ${CMAKE_CURRENT_LIST_DIR}/LoRA.cpp)
+list(APPEND MNN_CPP_TOOLS LoRA)
+
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})
     if (MSVC)

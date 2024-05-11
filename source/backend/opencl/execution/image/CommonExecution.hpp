@@ -43,6 +43,7 @@ protected:
     const MNN::Op *mOp;
     OpType mOpType;
     cl_recording_qcom mRecording{NULL};
+    std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
 };
 } // namespace OpenCL
 } // namespace MNN

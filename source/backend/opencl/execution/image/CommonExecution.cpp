@@ -48,8 +48,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int idx = 0;
 #else
     if(openCLBackend->isUseRecordQueue()){
-        if(openCLBackend->isDevideOpRecord())
-            openCLBackend->addRecord(mRecording);
+        openCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
         return NO_ERROR;
     }
 #endif

@@ -74,7 +74,6 @@ public:
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
-    bool isWeightCpuTransHalf() const;
     bool isDeviceSupportedFP16() const;
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
@@ -197,7 +196,9 @@ private:
     uint32_t mUseRecordableQueueSize;
     bool mUseRecordQueue = false;
     bool mDevideOpRecord = true;
-    bool mIsSupportedFP16     = false;
+    int mPrecisionLevel;
+    
+    bool mIsSupportedFP16 = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;
     bool mSupportDotInt8 = false;

@@ -8,7 +8,7 @@
 
 #include <algorithm>
 #include "CommonUtils.hpp"
-#include "common/CommonCompute.hpp"
+#include "core/CommonCompute.hpp"
 #include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
 
 using namespace MNN;

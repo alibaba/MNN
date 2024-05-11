@@ -98,6 +98,21 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
+            case MNN::OpType_Attention: {
+                exe.reset(backend->onCreate({}, {}, op));
+                if (exe.get() == nullptr) {
+                    exe.reset(backupBackend->onCreate({}, {}, op));
+                }
+                if (nullptr == exe) {
+                    break;
+                }
+                // The exe can't clone
+                if (!exe->onClone(nullptr, op, nullptr)) {
+                    exe = nullptr;
+                    break;
+                }
+                break;
+            }
             default: {
                 break;
             }

@@ -25,7 +25,7 @@
 #include <MNN/AutoTime.hpp>
 #include "Helper.hpp"
 #include "core/TensorUtils.hpp"
-#include "cpp/IDSTEncoder.hpp"
+#include "core/IDSTEncoder.hpp"
 
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
@@ -298,7 +298,7 @@ std::vector<int> Calibration::_getInputShape(std::string filename) {
 
 void Calibration::_resizeIfNeeded(std::string filename, bool force) {
     std::vector<int> inputShape = _getInputShape(filename);
-    
+
     if ((inputShape != _inputTensorDims && _featureQuantizeMethod == "KL") || force) {
         _inputTensorDims = inputShape;
         _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
@@ -689,7 +689,7 @@ void Calibration::_insertScale() {
         if (iter != _skip_quant_ops.end()) {
             continue;
         }
-        
+
         if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise && opType != MNN::OpType_Deconvolution) {
             continue;
         }
@@ -981,7 +981,7 @@ void Calibration::_quantizeModelEMA() {
     }
     Variable::save(predicts, _destModelFile.c_str());
     ConvertToFullQuant::convert(_destModelFile);
-    
+
     std::unique_ptr<MNN::NetT> netT;
     {
         std::ifstream input(_destModelFile, std::ifstream::in | std::ifstream::binary);
@@ -1037,7 +1037,7 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
         auto op           = iter->get();
         const auto opType = op->type;
         const auto name   = op->name;
-        
+
         if (opType == MNN::OpType_Raster) {
             continue;
         }
@@ -1055,10 +1055,10 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
             writer.StartArray();
             for (int i = 0; i < inputSize; ++i) {
                 const auto curInputIndex = inputIndexes[i];
-                
+
                 auto input        = _tensorMap[curInputIndex];
                 auto inputOpScale = _scales[input];
-                
+
                 writer.StartObject();
                 writer.Key("tensorIndex");
                 writer.Int(curInputIndex);
@@ -1077,7 +1077,7 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
             }
             writer.EndArray();
         }
- 
+
         auto& outputIndexes  = op->outputIndexes;
         const int outputSize = static_cast<int32_t>(outputIndexes.size());
 
@@ -1086,10 +1086,10 @@ void Calibration::dumpTensorScales(const std::string& modelFile) {
             writer.StartArray();
             for (int i = 0; i < outputSize; ++i) {
                 const auto curOutputIndex = outputIndexes[i];
-                
+
                 auto output        = _tensorMap[curOutputIndex];
                 auto outputOpScale = _scales[output];
-                
+
                 writer.StartObject();
                 writer.Key("tensorIndex");
                 writer.Int(curOutputIndex);

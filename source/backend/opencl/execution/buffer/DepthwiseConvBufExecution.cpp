@@ -39,24 +39,13 @@ DepthwiseConvBufExecution::DepthwiseConvBufExecution(const std::vector<Tensor *>
     mResource->mFilter.reset(Tensor::createDevice<float>({1, ROUND_UP(filterImageShape[1], 2)/*for kernel C8 read*/, 1, 4 * filterImageShape[0]}));
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
         
-    int buffer_size = filterBuffer->elementSize();
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-        buffer_size *= sizeof(half_float::half);
-    } else {
-        buffer_size *= sizeof(float);
-    }
+    size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
     cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     cl_int error;
     auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(ptrCL != nullptr && error == CL_SUCCESS){
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-            for (int i = 0; i < filterBuffer->elementSize(); i++) {
-                ((half_float::half *)ptrCL)[i] = (half_float::half)(filterDataPtr[i]);
-            }
-        } else {
-            ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
-        }
+        ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
     }else{
         MNN_ERROR("Map error ptrCL == nullptr \n");
     }
@@ -65,10 +54,7 @@ DepthwiseConvBufExecution::DepthwiseConvBufExecution(const std::vector<Tensor *>
     mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
     MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
         
-    bool needTrans = false;
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
-        needTrans = true;
-    }
+    bool needTrans = true;
     bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mResource->mFilter.get(), needTrans);
     
     if (mResource->mConv2dCommonParams->relu() == true) {

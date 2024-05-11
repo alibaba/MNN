@@ -64,7 +64,7 @@ asm_function MNNGemmHybridInt4FP16_smmla
 //    int32_t useInt8;
 //};
 
-//void MNNGemmHybridInt4_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param); 
+//void MNNGemmHybridInt4_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param);
 
 
 // Auto: x0: C*, x1: A*, x2:B*, x3: src_depth_quad, x4: dst_step, x5: dst_depth_quad, x6: realSize, x7: param
@@ -135,22 +135,14 @@ LoopDz_TILE_8:
 LoopSz_TILE_8:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
-    // dst    : 2 x 4 x [4] : v16-23
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    // dst    : 2 x 4 x [4] : v16-31
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v10.16b
-    sub v8.16b, v8.16b, v11.16b
-    sub v9.16b, v9.16b, v11.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v10.16b
-    sub v12.16b, v12.16b, v11.16b
-    sub v13.16b, v13.16b, v11.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
 
     .inst 0x4e80a490 // smmla v16.4s, v4.16b, v0.16b // batch=0,1, oc=0,1
     .inst 0x4e81a491 // smmla v17.4s, v4.16b, v1.16b // batch=0,1, oc=2,3
@@ -270,21 +262,13 @@ LoopSz_TILE_4:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 2 x 4 x [4] : v16-23
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.16b, v5.16b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v10.16b
-    sub v8.16b, v8.16b, v11.16b
-    sub v9.16b, v9.16b, v11.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v10.16b
-    sub v12.16b, v12.16b, v11.16b
-    sub v13.16b, v13.16b, v11.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
 
     .inst 0x4e80a490 // smmla v16.4s, v4.16b, v0.16b
     .inst 0x4e81a491 // smmla v17.4s, v4.16b, v1.16b
@@ -313,7 +297,7 @@ LoopSzEnd_TILE_4:
     trn2 v5.2d, v8.2d, v8.2d // alpha: oc 2,3,2,3
     trn1 v6.2d, v9.2d, v9.2d // alpha: oc 4,5,4,5
     trn2 v7.2d, v9.2d, v9.2d // alpha: oc 6,7,6,7
-    
+
     MulScale_New v16, v17, v18, v19, v0, v4, v5, v6, v7
     MulScale_New v20, v21, v22, v23, v1, v4, v5, v6, v7
     Float32ToHalf v16, v17, v18, v19, v0, v1 // (batch,oc) v12:(0,0)(0,1)(1,0)(1,1)(0,2)(0,3)(1,3)(1,2)
@@ -372,21 +356,13 @@ LoopSz_TILE_2:
     // src    : 1 x [2 x 8] : v4
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 1 x 4 x [4] : v16-19
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.16b}, [x24], x15   // src
-   // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v10.16b
-    sub v8.16b, v8.16b, v11.16b
-    sub v9.16b, v9.16b, v11.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v10.16b
-    sub v12.16b, v12.16b, v11.16b
-    sub v13.16b, v13.16b, v11.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    // int4 to int8: v0, v1, v2, v3
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
 
     .inst 0x4e80a490 // smmla v16.4s, v4.16b, v0.16b
     .inst 0x4e81a491 // smmla v17.4s, v4.16b, v1.16b
@@ -409,10 +385,10 @@ LoopSzEnd_TILE_2:
     trn2 v7.2d, v9.2d, v9.2d // alpha: oc 6,7,6,7
     MulScale_New v16, v17, v18, v19, v0, v4, v5, v6, v7
     Float32ToHalf v16, v17, v18, v19, v0, v1 // (batch,oc) v12:(0,0)(0,1)(1,0)(1,1)(0,2)(0,3)(1,3)(1,2)
-    
+
     uzp1 v4.4s, v0.4s, v1.4s
     uzp2 v5.4s, v0.4s, v1.4s
-    
+
 Tile2Dequant:
     ld1 {v16.8h}, [x20], #16  // zero
     ld1 {v17.8h}, [x21], #16  // bias
@@ -463,22 +439,14 @@ LoopSz_TILE_1:
     // dst    : 1 x 4 x [2] : v16-v19
     prfm pldl1keep, [x25, #64]   // 预取下一次权重数据
     prfm pldl1keep, [x24, x15]   // 预取下一次源数据
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.8b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v10.16b
-    sub v8.16b, v8.16b, v11.16b
-    sub v9.16b, v9.16b, v11.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v10.16b
-    sub v12.16b, v12.16b, v11.16b
-    sub v13.16b, v13.16b, v11.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
-    
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
+
     .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
     .inst 0x4e84a431 // smmla v17.4s, v1.16b, v4.16b
     .inst 0x4e84a452 // smmla v18.4s, v2.16b, v4.16b
@@ -505,7 +473,7 @@ LoopSzEnd_TILE_1:
     fcvtn v17.4h,  v20.4s
     fcvtn2 v17.8h, v21.4s
 Tile1Dequant:
-    
+
     ld1 {v1.8h}, [x20], #16  // zero
     ld1 {v2.8h}, [x21], #16  // bias
     ld1 {v3.h}[0], [x22]  // sums

@@ -63,30 +63,30 @@ __kernel void depthwise_conv_2d_buf_c16_c16(
     const uint filter_offset = c * filter_is_pitch;
 
 #ifdef MNN_SUPPORT_FP16
-    FLOAT8 dst = (FLOAT8)(as_half(intel_sub_group_block_read_us((__global ushort*)(biases + c * 16))));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(as_half(intel_sub_group_block_read_us((__global ushort*)(biases + c * 16))));
 
     for(int i = 0; i < FILTER_HEIGHT; ++i){
         if ((input_y + i * DILATION_HEIGHT) < 0 || (input_y + i * DILATION_HEIGHT) >= inputHeight)
             continue;
         for(int j = 0; j < FILTER_WIDTH; ++j){
-            FLOAT wei = as_half(intel_sub_group_block_read_us((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
+            COMPUTE_FLOAT wei = as_half(intel_sub_group_block_read_us((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
             for(int k = 0; k < 8; ++k){
-                FLOAT src = as_half(intel_sub_group_block_read_us((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
+                COMPUTE_FLOAT src = as_half(intel_sub_group_block_read_us((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
                 dst[k] = mad(src, wei, dst[k]);
             }
         }
     }
     
 #else
-    FLOAT8 dst = (FLOAT8)(as_float(intel_sub_group_block_read((__global uint*)(biases + c * 16))));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(as_float(intel_sub_group_block_read((__global uint*)(biases + c * 16))));
 
     for(int i = 0; i < FILTER_HEIGHT; ++i){
         if ((input_y + i * DILATION_HEIGHT) < 0 || (input_y + i * DILATION_HEIGHT) >= inputHeight)
             continue;
         for(int j = 0; j < FILTER_WIDTH; ++j){
-            FLOAT wei = as_float(intel_sub_group_block_read((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
+            COMPUTE_FLOAT wei = as_float(intel_sub_group_block_read((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
             for(int k = 0; k < 8; ++k){
-                FLOAT src = as_float(intel_sub_group_block_read((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
+                COMPUTE_FLOAT src = as_float(intel_sub_group_block_read((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
                 dst[k] = mad(src, wei, dst[k]);
             }
         }
@@ -95,18 +95,18 @@ __kernel void depthwise_conv_2d_buf_c16_c16(
 
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT8)0);
+    dst = fmax(dst, (COMPUTE_FLOAT8)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT8)0, (FLOAT8)6);
+    dst = clamp(dst, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
     
     for (int i = 0; i < 8 && (x + i) < outputWidth; i++) {
 #ifdef MNN_SUPPORT_FP16
-        intel_sub_group_block_write_us((__global ushort*)(output + output_offset + i * output_x_pitch), as_ushort(dst[i]));
+        intel_sub_group_block_write_us((__global ushort*)(output + output_offset + i * output_x_pitch), as_ushort((FLOAT)dst[i]));
 #else
-        intel_sub_group_block_write((__global uint*)(output + output_offset + i * output_x_pitch), as_uint(dst[i]));
+        intel_sub_group_block_write((__global uint*)(output + output_offset + i * output_x_pitch), as_uint((FLOAT)dst[i]));
 #endif
     }
     if(x == 0){
@@ -181,30 +181,30 @@ __kernel void depthwise_conv_2d_buf_c16_c4(
     const uint filter_offset = c * filter_is_pitch;
 
 #ifdef MNN_SUPPORT_FP16
-    FLOAT8 dst = (FLOAT8)(as_half(intel_sub_group_block_read_us((__global ushort*)(biases + c * 16))));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(as_half(intel_sub_group_block_read_us((__global ushort*)(biases + c * 16))));
 
     for(int i = 0; i < FILTER_HEIGHT; ++i){
         if ((input_y + i * DILATION_HEIGHT) < 0 || (input_y + i * DILATION_HEIGHT) >= inputHeight)
             continue;
         for(int j = 0; j < FILTER_WIDTH; ++j){
-            FLOAT wei = as_half(intel_sub_group_block_read_us((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
+            COMPUTE_FLOAT wei = as_half(intel_sub_group_block_read_us((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
             for(int k = 0; k < 8; ++k){
-                FLOAT src = as_half(intel_sub_group_block_read_us((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
+                COMPUTE_FLOAT src = as_half(intel_sub_group_block_read_us((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
                 dst[k] = mad(src, wei, dst[k]);
             }
         }
     }
     
 #else
-    FLOAT8 dst = (FLOAT8)(as_float(intel_sub_group_block_read((__global uint*)(biases + c * 16))));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(as_float(intel_sub_group_block_read((__global uint*)(biases + c * 16))));
 
     for(int i = 0; i < FILTER_HEIGHT; ++i){
         if ((input_y + i * DILATION_HEIGHT) < 0 || (input_y + i * DILATION_HEIGHT) >= inputHeight)
             continue;
         for(int j = 0; j < FILTER_WIDTH; ++j){
-            FLOAT wei = as_float(intel_sub_group_block_read((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
+            COMPUTE_FLOAT wei = as_float(intel_sub_group_block_read((__global ushort*)(weights + filter_offset + i * filter_y_pitch + j * filter_x_pitch)));
             for(int k = 0; k < 8; ++k){
-                FLOAT src = as_float(intel_sub_group_block_read((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
+                COMPUTE_FLOAT src = as_float(intel_sub_group_block_read((__global ushort*)(input + input_offset + i * DILATION_HEIGHT * input_y_pitch + (j * DILATION_WIDTH + k * STRIDE_WIDTH) * input_x_pitch)));
                 dst[k] = mad(src, wei, dst[k]);
             }
         }
@@ -213,11 +213,11 @@ __kernel void depthwise_conv_2d_buf_c16_c4(
 
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT8)0);
+    dst = fmax(dst, (COMPUTE_FLOAT8)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT8)0, (FLOAT8)6);
+    dst = clamp(dst, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
 
     const uint lid_x = sglid % 4;

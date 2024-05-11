@@ -354,12 +354,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
             std::shared_ptr<Tensor> filterBuffer(
                 Tensor::createDevice<float>({mResource->mOutputChannel, ROUND_UP(mResource->mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
             
-            int buffer_size = filterBuffer->elementSize();
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-                buffer_size *= sizeof(half_float::half);
-            } else {
-                buffer_size *= sizeof(float);
-            }
+            int buffer_size = filterBuffer->elementSize() * sizeof(float);
             cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
             filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
 
@@ -367,25 +362,10 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
             auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
             if(ptrCL != nullptr && res == CL_SUCCESS) {
                 ::memset(ptrCL, 0, buffer_size);
-                if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-                    for(int oc=0; oc<mResource->mOutputChannel; oc++) {
-                        for(int ic=0; ic<mResource->mInputChannel; ic++) {
-                            for(int kh=0; kh<mResource->mKernelHeight; kh++) {
-                                for(int kw=0; kw<mResource->mKernelWidth; kw++) {
-                                    int dst_idx = ((oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelHeight + kh)* mResource->mKernelWidth + kw;
-                                    int src_idx = ((oc * mResource->mInputChannel + ic) * mResource->mKernelHeight + kh)* mResource->mKernelWidth + kw;
-                                    
-                                    ((half_float::half*)ptrCL)[dst_idx] = (half_float::half)(mFilterDataPtr[src_idx]);
-                                }
-                            }
-                        }
-                    }
-                }else{
-                    const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(float);
-                    for(int oc=0; oc<mResource->mOutputChannel; oc++) {
-                        for(int ic=0; ic<mResource->mInputChannel; ic++) {
-                            ::memcpy((float *)ptrCL + (oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, mFilterDataPtr + (oc * mResource->mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
-                        }
+                const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(float);
+                for(int oc=0; oc<mResource->mOutputChannel; oc++) {
+                    for(int ic=0; ic<mResource->mInputChannel; ic++) {
+                        ::memcpy((float *)ptrCL + (oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, mFilterDataPtr + (oc * mResource->mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
                     }
                 }
             }else{
@@ -397,10 +377,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
             mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
             MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
-            bool needTrans = false;
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
-                needTrans = true;
-            }
+            bool needTrans = true;
             bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), needTrans);
         }
     }
@@ -697,8 +674,7 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
     mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvBuf2D", event});
 #else
     if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
+        mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
 #ifdef LOG_VERBOSE
         MNN_PRINT("End ConvExecution onExecute... \n");
 #endif
@@ -729,7 +705,7 @@ public:
 #ifdef MNN_LOW_MEMORY
         {
             auto conv2dParams = op->main_as_Convolution2D();
-            if ((static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low) && (conv2dParams->quanParameter() != nullptr)) {
+            if (conv2dParams->quanParameter() != nullptr) {
                 if (((conv2dParams->quanParameter()->type() == 4) ||
                      (conv2dParams->quanParameter()->type() == 1) ||
                      (conv2dParams->quanParameter()->type() == 2))) {

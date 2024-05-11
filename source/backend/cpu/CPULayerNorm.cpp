@@ -105,6 +105,10 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
             mInnerSize *= inputs.at(0)->length(i);
         }
         mInnerSize /= mResource->mGroup;
+        if (mResource->mIniGammaBeta) {
+            MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
+        }
+    
         return NO_ERROR;
     }
     for (int i = 0; i < rank - mResource->mAxis; ++i) {
@@ -112,6 +116,9 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
     }
     for (int i = rank - mResource->mAxis; i < rank; ++i) {
         mInnerSize *= inputs.at(0)->length(i);
+    }
+    if (mResource->mIniGammaBeta) {
+        MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
     }
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
         mInpZero.resize(1);

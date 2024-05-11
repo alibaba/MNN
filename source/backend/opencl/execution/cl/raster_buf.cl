@@ -32,18 +32,6 @@ __kernel void buffer_set_zero(
     output[y*global_size_dim0 + x] = (OUTPUT_TYPE)(0.0f);
 }
 
-__kernel void image_set_zero(
-                    GLOBAL_SIZE_2_DIMS
-                    __write_only image2d_t output
-                    ) {
-    const int x = get_global_id(0);
-    const int y = get_global_id(1);
-    
-    DEAL_NON_UNIFORM_DIM2(x, y);
-
-    WI_F(output, (int2)(x, y), (FLOAT4)(0.0f));
-}
-
 __kernel void raster_buffer(
                     GLOBAL_SIZE_3_DIMS
                     __global INPUT_TYPE *input,

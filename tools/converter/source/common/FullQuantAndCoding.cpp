@@ -9,7 +9,7 @@
 #include <fstream>
 #include "CommonUtils.hpp"
 #include "MNN/expr/ExprCreator.hpp"
-#include "cpp/IDSTEncoder.hpp"
+#include "core/IDSTEncoder.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;

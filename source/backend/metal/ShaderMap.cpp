@@ -3,7 +3,6 @@
 namespace MNN {
 void ShaderMap::init() {
 mMaps.insert(std::make_pair("shader_MetalReLU6_metal", shader_MetalReLU6_metal));
-mMaps.insert(std::make_pair("shader_MetalReLU_metal", shader_MetalReLU_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolutionDepthwise_metal", shader_MetalConvolutionDepthwise_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolutionActivation_metal", shader_MetalConvolutionActivation_metal));
 mMaps.insert(std::make_pair("shader_MetalConvolution_metal", shader_MetalConvolution_metal));

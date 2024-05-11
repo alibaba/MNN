@@ -53,7 +53,7 @@ asm_function MNNGemmHybridInt4FP16_sdot
 //    int32_t useInt8;
 //};
 
-//void MNNGemmHybridInt4_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param); 
+//void MNNGemmHybridInt4_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param);
 
 
 // Auto: x0: C*, x1: A*, x2:B*, x3: src_depth_quad, x4: dst_step, x5: dst_depth_quad, x6: realSize, x7: param
@@ -79,8 +79,6 @@ lsl x13, x3, #5 // x13 = src_depth_quad * UNIT * UNIT_SRC / 2(int4) = src_depth_
 ld1 {v6.16b, v7.16b}, [x14]
 // mask
 movi v14.16b, #15
-// offset
-movi v15.16b, #8
 TILE_4:
     cmp x6, #4
     blt TILE_1
@@ -120,22 +118,14 @@ LoopSz_TILE_4:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 2 x 4 x [4] : v16-23
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.16b, v5.16b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v9.16b, v0.16b, #4
-    ushr v12.16b, v1.16b, #4
-    and v8.16b, v0.16b, v14.16b
-    and v13.16b, v1.16b, v14.16b
-    sub v9.16b, v9.16b, v15.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v12.16b, v12.16b, v15.16b
-    sub v13.16b, v13.16b, v15.16b
-    zip1 v0.16b, v9.16b, v8.16b
-    zip2 v1.16b, v9.16b, v8.16b
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
-    
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v14.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v14.16b
+
     mov v10.d[0], v4.d[1]
     mov v10.d[1], v4.d[0]
     mov v11.d[1], v5.d[0]
@@ -244,21 +234,13 @@ LoopSz_TILE_1:
     // src    : 1 x [1 x 8] : v4
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 1 x 4 x [2] : v16-v19
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v4.8b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v16.16b, v0.16b, #4
-    ushr v17.16b, v1.16b, #4
-    and v18.16b, v0.16b, v14.16b
-    and v19.16b, v1.16b, v14.16b
-    sub v16.16b, v16.16b, v15.16b
-    sub v18.16b, v18.16b, v15.16b
-    sub v17.16b, v17.16b, v15.16b
-    sub v19.16b, v19.16b, v15.16b
-    zip1 v0.16b, v16.16b, v18.16b
-    zip2 v1.16b, v16.16b, v18.16b
-    zip1 v2.16b, v17.16b, v19.16b
-    zip2 v3.16b, v17.16b, v19.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v14.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v14.16b
 
     mov v29.d[0], v4.d[1]
     mov v29.d[1], v4.d[0]

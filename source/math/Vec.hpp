@@ -296,10 +296,10 @@ struct Vec<int32_t, 4> {
         vec1.value = m0m1.val[1];
         vec2.value = m2m3.val[0];
         vec3.value = m2m3.val[1];
-        vec0.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1));
-        vec1.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1));
-        vec2.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0));
-        vec3.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0));
+        vec0.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)m2m3.val[0], 0), (int64x2_t)vec0.value, 1));
+        vec1.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)m2m3.val[1], 0), (int64x2_t)vec1.value, 1));
+        vec2.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)m0m1.val[0], 1), (int64x2_t)vec2.value, 0));
+        vec3.value = (int32x4_t)(vsetq_lane_s64(vgetq_lane_s64((int64x2_t)m0m1.val[1], 1), (int64x2_t)vec3.value, 0));
 #endif
     }
 

@@ -34,6 +34,15 @@
 namespace MNN {
 namespace OpenCL {
 struct TuneInfo;
+struct RecordUpdateInfo{
+    std::vector<cl_array_arg_qcom> update_kernel_args;
+    std::vector<cl_workgroup_qcom> update_global_size;
+    std::vector<cl_workgroup_qcom> update_local_size;
+};
+struct RecordInfo{
+    cl_recording_qcom record;
+    std::vector<RecordUpdateInfo*> updateInfo;
+};
 class CLRuntime : public Runtime {
 public:
     CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0, void *contextPtr = nullptr, void *glshared = nullptr);
@@ -111,6 +120,7 @@ public:
         return mMemory;
     }
     
+    float getBytes(const Tensor* tensor);
     DataType getDataType(const Tensor* tensor);
 
     cl_channel_type fpType();
@@ -125,11 +135,9 @@ public:
     bool isDevideOpRecord(){
         return mDevideOpRecord;
     }
-    void addRecord(cl_recording_qcom &record){
-        mRecordings.emplace_back(record);
-    }
-    void recordKernel2d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
-    void recordKernel3d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws);
+    void addRecord(cl_recording_qcom &record, std::vector<RecordUpdateInfo *>updateInfo);
+    void recordKernel2d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo = nullptr);
+    void recordKernel3d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo = nullptr);
     void startRecord(cl_recording_qcom &recording);
     void endRecord(cl_recording_qcom &recording, bool flag = false);
 
@@ -167,7 +175,7 @@ private:
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mIsCreateError{false};
-    mutable std::vector<cl_recording_qcom> mRecordings;
+    mutable std::vector<RecordInfo> mRecordings;
     bool mUseRecordQueue = false;
     bool mDevideOpRecord = false;
     uint32_t mRecordNums = 0;
@@ -196,6 +204,17 @@ public:
     OpenCLCreatorRegister<name> ___OpenCL##name##__##opType##__##memObj##__(opType, memObj)
 #else
 #define REGISTER_OPENCL_OP_CREATOR(name, opType, memObj)                   \
+    void ___OpenCL##name##__##opType##__##memObj##__() {                   \
+        static name _temp;                                                 \
+        OpenCLBackend::addCreator(std::make_pair(opType, memObj), &_temp); \
+    }
+#endif
+
+#ifdef MNN_OPENCL_SEP_BUILD
+#define REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(name, opType, memObj)  \
+    OpenCLCreatorRegister<name> ___OpenCL##name##__##opType##__##memObj##__(opType, memObj)
+#else
+#define REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(name, opType, memObj)                   \
     void ___OpenCL##name##__##opType##__##memObj##__() {                   \
         static name _temp;                                                 \
         OpenCLBackend::addCreator(std::make_pair(opType, memObj), &_temp); \

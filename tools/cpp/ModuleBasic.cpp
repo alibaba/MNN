@@ -13,7 +13,7 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #include <fstream>
 #include <sstream>
 #include <numeric>

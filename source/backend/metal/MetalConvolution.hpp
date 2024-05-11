@@ -22,7 +22,7 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 protected:
-    virtual void onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     MetalConvolution(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias);

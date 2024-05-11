@@ -20,28 +20,14 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     int preluSize             = mPreluParamPtr->slopeCount();
     const float *preluDataPtr = mPreluParamPtr->slope()->data();
     
-    int buffer_size = ALIGN_UP4(preluSize);
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-        buffer_size *= sizeof(half_float::half);
-    } else {
-        buffer_size *= sizeof(float);
-    }
+    size_t buffer_size = ALIGN_UP4(preluSize) * sizeof(float);
     cl::Buffer preluBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     cl_int error;
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-            for(int i=0; i<preluSize; i++) {
-                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
-            }
-            for(int i=preluSize; i<ALIGN_UP4(preluSize); i++) {
-                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(0.0f);
-            }
-        }else{
-            ::memset(preluDataPtrCL, 0, buffer_size);
-            ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
-        }
+        ::memset(preluDataPtrCL, 0, buffer_size);
+        ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
     }else{
         MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
     }

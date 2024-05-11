@@ -12,7 +12,7 @@
 #include <map>
 #include "core/Macro.h"
 #include "math/Vec.hpp"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 #define DEFAULT_UNIT 8

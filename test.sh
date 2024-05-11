@@ -42,7 +42,8 @@ SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|c
 PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
 PY_CHANGE=$(git show --name-only | grep -E "^pymnn/pip_package/MNN/.*\.(py)$")
 OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
-
+# OPENCL_CHANGE=$(git show --name-only | grep -E "^source/backend/opencl/.*\.(cpp|cc|c|h|hpp)$")
+OPENCL_CHANGE=true
 failed() {
     printf "TEST_NAME_EXCEPTION: Exception\nTEST_CASE_AMOUNT_EXCEPTION: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
     exit 1
@@ -272,11 +273,12 @@ unit_test() {
         echo '### 多线程单元测试失败，测试终止！'
         failed
     fi
-    
-    ./run_test.out op 3 1 4
-    if [ $? -ne 0 ]; then
-        echo '### OpenCL单元测试失败，测试终止！'
-        failed
+    if [ "$OPENCL_CHANGE" ]; then
+        ./run_test.out op 3 1 4
+        if [ $? -ne 0 ]; then
+            echo '### OpenCL单元测试失败，测试终止！'
+            failed
+        fi
     fi
 }
 
@@ -293,10 +295,12 @@ model_test() {
         failed
     fi
     
-    ../tools/script/modelTest.py ~/AliNNModel 3 0.002 1
-    if [ $? -ne 0 ]; then
-        echo '### OpenCL模型测试失败，测试终止！'
-        failed
+    if [ "$OPENCL_CHANGE" ]; then
+        ../tools/script/modelTest.py ~/AliNNModel 3 0.002 1
+        if [ $? -ne 0 ]; then
+            echo '### OpenCL模型测试失败，测试终止！'
+            failed
+        fi
     fi
 }
 
@@ -437,7 +441,7 @@ llm_test() {
         failed
     fi
     # 2. run llm model test
-    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 0 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
+    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 0 10 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
     if [ $? -gt 0 ]; then
         echo '### LLM模型测试失败，测试终止！'
         failed
@@ -508,10 +512,12 @@ android_unit_test() {
         echo '### Android单元测试FP16-roipooling多线程失败，测试终止！'
         failed
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试OpenCL失败，测试终止！'
-        failed
+    if [ "$OPENCL_CHANGE" ]; then
+        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1"
+        if [ $? -ne 0 ]; then
+            echo '### Android单元测试OpenCL失败，测试终止！'
+            failed
+        fi
     fi
 }
 android_model_test() {
@@ -528,11 +534,13 @@ android_model_test() {
         else
             pass_num=$[$pass_num+1]
         fi
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 3 0.002 1"
-        if [ $? -ne 0 ]; then
-            fail_cl_num=$[$fail_cl_num+1]
-        else
-            pass_cl_num=$[$pass_cl_num+1]
+        if [ "$OPENCL_CHANGE" ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 3 0.002 1"
+            if [ $? -ne 0 ]; then
+                fail_cl_num=$[$fail_cl_num+1]
+            else
+                pass_cl_num=$[$pass_cl_num+1]
+            fi
         fi
     done
     
@@ -545,11 +553,13 @@ android_model_test() {
         else
             pass_num=$[$pass_num+1]
         fi
+        if [ "$OPENCL_CHANGE" ]; then
         adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
-        if [ $? -ne 0 ]; then
-            fail_cl_num=$[$fail_cl_num+1]
-        else
-            pass_cl_num=$[$pass_cl_num+1]
+            if [ $? -ne 0 ]; then
+                fail_cl_num=$[$fail_cl_num+1]
+            else
+                pass_cl_num=$[$pass_cl_num+1]
+            fi
         fi
     done
     
@@ -562,11 +572,13 @@ android_model_test() {
         else
             pass_num=$[$pass_num+1]
         fi
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 3 0.002 1"
-        if [ $? -ne 0 ]; then
-            fail_cl_num=$[$fail_cl_num+1]
-        else
-            pass_cl_num=$[$pass_cl_num+1]
+        if [ "$OPENCL_CHANGE" ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 3 0.002 1"
+            if [ $? -ne 0 ]; then
+                fail_cl_num=$[$fail_cl_num+1]
+            else
+                pass_cl_num=$[$pass_cl_num+1]
+            fi
         fi
     done
     printf "TEST_NAME_ANDROID_MODEL_TEST_$1: Android_$1模型测试\nTEST_CASE_AMOUNT_ANDROID_MODEL_TEST_$1: {\"blocked\":0,\"failed\":$fail_num,\"passed\":$pass_num,\"skipped\":0}\n"
@@ -574,10 +586,12 @@ android_model_test() {
         echo '### Android模型测试失败，测试终止！'
         failed
     fi
-    printf "TEST_NAME_ANDROID_MODEL_OPENCL_TEST_$1: Android_$1模型测试\nTEST_CASE_AMOUNT_ANDROID_MODEL_TEST_$1: {\"blocked\":0,\"failed\":$fail_cl_num,\"passed\":$pass_cl_num,\"skipped\":0}\n"
-    if [ $fail_cl_num -ne 0 ]; then
-        echo '### Android OpenCL后端模型测试失败，测试终止！'
-        failed
+    if [ "$OPENCL_CHANGE" ]; then
+        printf "TEST_NAME_ANDROID_MODEL_OPENCL_TEST_$1: Android_$1模型测试\nTEST_CASE_AMOUNT_ANDROID_MODEL_TEST_$1: {\"blocked\":0,\"failed\":$fail_cl_num,\"passed\":$pass_cl_num,\"skipped\":0}\n"
+        if [ $fail_cl_num -ne 0 ]; then
+            echo '### Android OpenCL后端模型测试失败，测试终止！'
+            failed
+        fi
     fi
 }
 android_unit_test_low_memory() {

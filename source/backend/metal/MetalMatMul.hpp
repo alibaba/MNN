@@ -18,7 +18,7 @@ namespace MNN {
 
 class MetalMatMul : public MetalExecution {
 public:
-    MetalMatMul(Backend *backend, const MatMul *matmul);
+    MetalMatMul(Backend *backend, const MatMul *matmul, bool withBias);
     virtual ~MetalMatMul();
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -27,6 +27,8 @@ private:
     id<MTLBuffer> mConstBuffer = nil;
     bool mTransposeA = false;
     bool mTransposeB = false;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

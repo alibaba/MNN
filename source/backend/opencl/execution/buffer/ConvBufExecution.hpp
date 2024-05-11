@@ -19,6 +19,7 @@ struct ConvBufResource {
     const Convolution2DCommon *mConv2dCommonParams;
     const Convolution2D *mConv2dParams;
     std::shared_ptr<cl::Buffer> mKernelBuffer;
+    std::shared_ptr<cl::Image2D> mKernelImage;
     std::shared_ptr<Tensor> dequantScale;
     std::shared_ptr<Tensor> dequantOffset;
     std::shared_ptr<Tensor> mFilter;
@@ -33,6 +34,7 @@ struct ConvBufResource {
     bool mConv1x1Opt = false;
     bool mConv1x1C8Opt = false;
     std::shared_ptr<Execution> mRasterExe;
+    bool mUseImage = false;
 };
 
 class ConvBufCommonExecution {

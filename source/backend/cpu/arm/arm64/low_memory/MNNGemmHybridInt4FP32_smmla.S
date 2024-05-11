@@ -43,7 +43,7 @@ asm_function MNNGemmHybridInt4FP32_smmla
 //    int32_t useInt8;
 //};
 
-//void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param); 
+//void MNNGemmHybridInt4FP32_smmla(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param);
 
 
 // Auto: x0: C*, x1: A*, x2:B*, x3: src_depth_quad, x4: dst_step, x5: dst_depth_quad, x6: realSize, x7: param
@@ -106,28 +106,18 @@ LoopDz_TILE_8:
 
     // mask
     movi v10.16b, #15
-    // offset
-    movi v11.16b, #8
 LoopSz_TILE_8:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 2 x 4 x [4] : v16-23
     //ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x25], #64    // weight
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     ld1 {v12.16b, v13.16b, v14.16b, v15.16b}, [x24], x15   // src
     // int4 to int8: v0, v1, v2, v3
-    ushr v4.16b, v0.16b, #4
-    and v5.16b, v0.16b, v10.16b
-    sub v4.16b, v4.16b, v11.16b
-    sub v5.16b, v5.16b, v11.16b
-    ushr v8.16b, v1.16b, #4
-    and v9.16b, v1.16b, v10.16b
-    sub v8.16b, v8.16b, v11.16b
-    sub v9.16b, v9.16b, v11.16b
-    zip1 v0.16b, v4.16b, v5.16b
-    zip2 v1.16b, v4.16b, v5.16b
-    zip1 v2.16b, v8.16b, v9.16b
-    zip2 v3.16b, v8.16b, v9.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
 
     .inst 0x4e80a590 // smmla v16.4s, v12.16b, v0.16b
     .inst 0x4e81a591 // smmla v17.4s, v12.16b, v1.16b
@@ -247,27 +237,17 @@ LoopDz_TILE_4:
     dup v23.4s, wzr
     // mask
     movi v10.16b, #15
-    // offset
-    movi v11.16b, #8
 LoopSz_TILE_4:
     // src    : 2 x [2 x 8] : v4-5
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 2 x 4 x [4] : v16-23
     //ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x25], #64    // weight
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     // int4 to int8: v0, v1, v2, v3
-    ushr v4.16b, v0.16b, #4
-    and v5.16b, v0.16b, v10.16b
-    sub v4.16b, v4.16b, v11.16b
-    sub v5.16b, v5.16b, v11.16b
-    ushr v6.16b, v1.16b, #4
-    and v7.16b, v1.16b, v10.16b
-    sub v6.16b, v6.16b, v11.16b
-    sub v7.16b, v7.16b, v11.16b
-    zip1 v0.16b, v4.16b, v5.16b
-    zip2 v1.16b, v4.16b, v5.16b
-    zip1 v2.16b, v6.16b, v7.16b
-    zip2 v3.16b, v6.16b, v7.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v10.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v10.16b
     ld1 {v4.16b, v5.16b}, [x24], x15   // src
     .inst 0x4e80a490 // smmla v16.4s, v4.16b, v0.16b
     .inst 0x4e81a491 // smmla v17.4s, v4.16b, v1.16b
@@ -349,27 +329,17 @@ LoopDz_TILE_2:
     dup v19.4s, wzr
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 LoopSz_TILE_2:
     // src    : 1 x [2 x 8] : v4
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 1 x 4 x [4] : v16-19
     //ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x25], #64    // weight
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
-    ushr v10.16b, v1.16b, #4
-    and v11.16b, v1.16b, v14.16b
-    sub v10.16b, v10.16b, v15.16b
-    sub v11.16b, v11.16b, v15.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v10.16b, v11.16b
-    zip2 v3.16b, v10.16b, v11.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v14.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v14.16b
     ld1 {v4.16b}, [x24], x15   // src
     .inst 0x4e80a490 // smmla v16.4s, v4.16b, v0.16b
     .inst 0x4e81a491 // smmla v17.4s, v4.16b, v1.16b
@@ -438,28 +408,18 @@ LoopDz_TILE_1:
     dup v19.4s, wzr
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 
 LoopSz_TILE_1:
     // src    : 1 x [1 x 8] : v4
     // weight : 4 x [2 x 8] : v0-3
     // dst    : 1 x 4 x [2] : v16-v19
     //ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x25], #64    // weight
-    ld1 {v0.16b, v1.16b}, [x25], #32    // weight
+    ld1 {v8.16b, v9.16b}, [x25], #32    // weight
     // int4 to int8: v0, v1, v2, v3
-    ushr v8.16b, v0.16b, #4
-    and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
-    ushr v10.16b, v1.16b, #4
-    and v11.16b, v1.16b, v14.16b
-    sub v10.16b, v10.16b, v15.16b
-    sub v11.16b, v11.16b, v15.16b
-    zip1 v0.16b, v8.16b, v9.16b
-    zip2 v1.16b, v8.16b, v9.16b
-    zip1 v2.16b, v10.16b, v11.16b
-    zip2 v3.16b, v10.16b, v11.16b
+    ushr v0.16b, v8.16b, #4
+    and v1.16b, v8.16b, v14.16b
+    ushr v2.16b, v9.16b, #4
+    and v3.16b, v9.16b, v14.16b
     ld1 {v4.8b}, [x24], x15   // src
     .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
     .inst 0x4e84a431 // smmla v17.4s, v1.16b, v4.16b

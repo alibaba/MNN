@@ -100,29 +100,15 @@ ConvWinograd::ConvWinograd(const MNN::Op *op, Backend* backend) : CommonExecutio
         mResource->mBias.reset(new cl::Image2D(runTime->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, imageChannelType),
                                     UP_DIV(co, 4), 1, 0, nullptr, nullptr));
         
-        int buffer_size = ALIGN_UP4(co);
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-            buffer_size *= sizeof(half_float::half);
-        } else {
-            buffer_size *= sizeof(float);
-        }
+        size_t buffer_size = ALIGN_UP4(co) * sizeof(float);
         std::shared_ptr<cl::Buffer> biasBuffer(
             new cl::Buffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
 
         cl_int error;
         auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(biasC != nullptr && error == CL_SUCCESS){
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-                for(int i=0; i<co; i++) {
-                    ((half_float::half*)biasC)[i] = (half_float::half)(conv2D->bias()->data()[i]);
-                }
-                for(int i=co; i<ALIGN_UP4(co); i++) {
-                    ((half_float::half*)biasC)[i] = (half_float::half)(0.0f);
-                }
-            }else{
-                ::memset(biasC, 0, buffer_size);
-                ::memcpy(biasC, conv2D->bias()->data(), co * sizeof(float));
-            }
+            ::memset(biasC, 0, buffer_size);
+            ::memcpy(biasC, conv2D->bias()->data(), co * sizeof(float));
         }else{
             MNN_ERROR("Map error biasC == nullptr \n");
         }
@@ -140,24 +126,13 @@ ConvWinograd::ConvWinograd(const MNN::Op *op, Backend* backend) : CommonExecutio
         generator.transformWeight(weightDest.get(), sourceWeight.get());
         auto weightDestSize = weightDest->size();
         
-        buffer_size = weightDest->elementSize();
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-            buffer_size *= sizeof(half_float::half);
-        } else {
-            buffer_size *= sizeof(float);
-        }
+        buffer_size = weightDest->elementSize() * sizeof(float);
         cl::Buffer weightBuffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
         {
             cl_int error;
             auto weightPtr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
             if(weightPtr != nullptr && error == CL_SUCCESS){
-                if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-                    for(int i=0; i<weightDest->elementSize(); i++) {
-                        ((half_float::half*)weightPtr)[i] = (half_float::half)(weightDest->host<float>()[i]);
-                    }
-                }else{
-                    ::memcpy(weightPtr, weightDest->host<float>(), buffer_size);
-                }
+                ::memcpy(weightPtr, weightDest->host<float>(), buffer_size);
             } else{
                 MNN_ERROR("Map error weightPtr == nullptr \n");
             }

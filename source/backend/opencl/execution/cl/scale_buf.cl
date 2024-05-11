@@ -30,13 +30,13 @@ __kernel void scale_buf(GLOBAL_SIZE_2_DIMS
     const int out_w_idx = out_w_c_idx % shape.z;
     
     const int offset = (((out_b_idx * shape.w + out_c_idx) * shape.y + out_h_idx) * shape.z + out_w_idx) * 4;
-    FLOAT4 in_value    = vload4(0, input+offset);
-    FLOAT4 scale_value = vload4(out_c_idx, scale);
+    COMPUTE_FLOAT4 in_value    = CONVERT_COMPUTE_FLOAT4(vload4(0, input+offset));
+    COMPUTE_FLOAT4 scale_value = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, scale));
 #ifdef BIAS
-    FLOAT4 bias_value = vload4(out_c_idx, bias);
-    FLOAT4 out_value  = in_value * scale_value + bias_value;
+    COMPUTE_FLOAT4 bias_value = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 out_value  = in_value * scale_value + bias_value;
 #else
-    FLOAT4 out_value  = in_value * scale_value;
+    COMPUTE_FLOAT4 out_value  = in_value * scale_value;
 #endif
-    vstore4(out_value, 0, output+offset);
+    vstore4(CONVERT_FLOAT4(out_value), 0, output+offset);
 }

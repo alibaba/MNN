@@ -75,7 +75,7 @@ static void benchmark(Llm* llm, std::string prompt_file) {
 
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " model_dir <prompt.txt>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " model_dir <forwardtype> <preicionmemory> <prompt.txt>" << std::endl;
         return 0;
     }
     std::string model_dir = argv[1];
@@ -84,8 +84,13 @@ int main(int argc, const char* argv[]) {
         std::istringstream os(argv[2]);
         os >> forwardType;
     }
+    int memoryprecision = 10;
+    if (argc >= 4) {
+        std::istringstream os(argv[3]);
+        os >> memoryprecision;
+    }
     std::cout << "model path is " << model_dir << std::endl;
-    std::unique_ptr<Llm> llm(Llm::createLLM(model_dir, "auto", forwardType));
+    std::unique_ptr<Llm> llm(Llm::createLLM(model_dir, "auto", forwardType, memoryprecision));
     {
         AUTOTIME;
         llm->load(model_dir);
@@ -94,10 +99,10 @@ int main(int argc, const char* argv[]) {
         AUTOTIME;
         trace_prepare(llm.get());
     }
-    if (argc < 4) {
+    if (argc < 5) {
         llm->chat();
     }
-    std::string prompt_file = argv[3];
+    std::string prompt_file = argv[4];
     benchmark(llm.get(), prompt_file);
     return 0;
 }

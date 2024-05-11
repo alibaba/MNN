@@ -3,7 +3,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #include "./FunctionSummary.hpp"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 extern "C" {
 void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);

@@ -183,7 +183,7 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
         layerNormOp->main.type = OpParameter_LayerNorm;
         {
             auto param = layerNormOp->main.AsLayerNorm();
-            param->axis = {2}; // Layernorm only need axis's size as 1
+            param->axis = {-1}; // Layernorm only need axis's size as 1
             param->epsilon = epsilon;
             param->group = 1;
         }

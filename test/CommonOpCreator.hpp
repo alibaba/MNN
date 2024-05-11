@@ -9,7 +9,7 @@
 #ifndef CommonOpCreator_hpp
 #define CommonOpCreator_hpp
 #include "TestUtils.h"
-#include "cpp/IDSTEncoder.hpp"
+#include "core/IDSTEncoder.hpp"
 namespace MNN {
 static PadMode _convertPadMode(Express::PaddingMode mode) {
     switch (mode) {

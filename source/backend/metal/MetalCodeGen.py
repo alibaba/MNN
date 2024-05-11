@@ -18,6 +18,7 @@ def genRegister():
         f.write("   namespace MNN {\n")
         f.write("#if MNN_METAL_ENABLED\n")
         funcs=[]
+        transformerFuncs = []
         for shapath in shaders:
             with open(shapath,"r") as sha:
                 lines=sha.readlines()
@@ -27,10 +28,22 @@ def genRegister():
                         funcname="___"+x[0]+"__"+x[1]+"__();"
                         funcs.append(funcname)
                         f.write("  extern void "+funcname+"\n")
+                    elif l.startswith('REGISTER_METAL_OP_TRANSFORMER_CREATOR('):
+                        x=l.replace("REGISTER_METAL_OP_TRANSFORMER_CREATOR(","").replace(")","").replace(" ","").replace(";","").replace("\n","").split(",")
+                        funcname="___"+x[0]+"__"+x[1]+"__();"
+                        transformerFuncs.append(funcname)
+                        f.write("#ifdef MNN_SUPPORT_TRANSFORMER_FUSE\n")
+                        f.write("  extern void "+funcname+"\n")
+                        f.write('#endif\n')
+
             pass
         f.write("void registerMetalOps() {\n")
         for func in funcs:
             f.write("   "+func+"\n")
+        f.write('#ifdef MNN_SUPPORT_TRANSFORMER_FUSE\n')
+        for func in transformerFuncs:
+            f.write("   "+func+"\n")
+        f.write('#endif\n')
         f.write("}\n#endif\n}")
     if os.path.isdir(renderPath):
         shaders=[]

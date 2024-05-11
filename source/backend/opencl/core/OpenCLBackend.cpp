@@ -294,6 +294,23 @@ private:
     ImagePool* mBufferPool;
 };
 
+float OpenCLBackend::getBytes(const Tensor* tensor) {
+    float bytes = (float)tensor->getType().bytes();
+    if (getOpenCLRuntime()->isSupportedFP16()) {// Fp16
+        if (halide_type_float == tensor->getType().code) {
+            bytes = 2.0;
+        }
+    }
+    auto quant = TensorUtils::getDescribe(tensor)->quantAttr.get();
+    if (nullptr != quant && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8) {
+        bytes = 1.0;
+    }
+    if(tensor->getType().bits == 4) {
+        bytes = 0.5;
+    }
+    return bytes;
+}
+
 Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
     #ifdef LOG_VERBOSE
     MNN_PRINT("Start OpenCLBackend::onAcquireBuffer !\n");
@@ -312,7 +329,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER) {
         size_t size;
-        size_t typeSize = 4;
+        float typeSize = getBytes(nativeTensor);
         if (nativeTensor->dimensions() >= 2) {
             auto alignC = ROUND_UP(C, 8);
             // increment of height and width
@@ -331,16 +348,9 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size_t imageHeight = (size_t)N * H;
             size = imageWidth*imageHeight*cPack;
         }
-        cl_channel_type dataType = CL_FLOAT;
-        //when support and want fp16, use half datatype
-        if ((nativeTensor->getType().code == halide_type_int || nativeTensor->getType().code == halide_type_uint)){
-            if(nativeTensor->getType().bits == 8){
-                typeSize = 1;
-            }
-        } else if (getOpenCLRuntime()->isSupportedFP16()) {
-            typeSize = 2;
-        }
-
+        // Align when int4 memory
+        size = ROUND_UP(size, 2);
+        
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(size*typeSize, true);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
@@ -352,23 +362,8 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             return new CLMemReleaseBuffer(buffer, mBufferPool);
         }
         MNN_ASSERT(storageType == STATIC);
-#ifdef MNN_LOW_MEMORY
-        // for weight quant model's weight
-        if ((nativeTensor->getType().code == halide_type_int) &&
-            (nativeTensor->getType().bits == 8 || nativeTensor->getType().bits == 4)) {
-            // int8 quant
-            size_t alloc_size = size;
-            if (nativeTensor->getType().bits == 4) {
-                // int4 quant
-                alloc_size = size / 2;
-            }
-            auto buffer = mStaticBufferPool->alloc(alloc_size);
-            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
-            return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
-        }
-#endif
-        auto buffer = mStaticBufferPool->alloc(size*
-                     (dataType == CL_HALF_FLOAT ? sizeof(half_float::half) : sizeof(float)));
+
+        auto buffer = mStaticBufferPool->alloc(size*typeSize);
         ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
         return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
     }
@@ -569,7 +564,7 @@ ErrorCode OpenCLBackend::onResizeEnd() {
     mOpenCLRuntime->setCommandQueueProfileDisable();
 #endif
     if(!mRecordings.empty()){
-        endRecord(mRecordings.back(), true);
+        endRecord(mRecordings.back().record, true);
     }
     return NO_ERROR;
 }
@@ -1188,8 +1183,25 @@ void OpenCLBackend::clearRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if(mUseRecordQueue && mDevideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
-                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            std::vector<cl_array_arg_qcom> update_kernel_args;
+            std::vector<cl_workgroup_qcom> update_global_size;
+            std::vector<cl_workgroup_qcom> update_local_size;
+            for (int j = 0; j < mRecordings[i].updateInfo.size(); ++j){
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_kernel_args.size(); ++k){
+                    update_kernel_args.emplace_back(mRecordings[i].updateInfo[j]->update_kernel_args[k]);
+                    update_kernel_args.back().dispatch_index = j;
+                }
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_global_size.size(); ++k){
+                    update_global_size.emplace_back(mRecordings[i].updateInfo[j]->update_global_size[k]);
+                    update_global_size.back().dispatch_index = j;
+                }
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_local_size.size(); ++k){
+                    update_local_size.emplace_back(mRecordings[i].updateInfo[j]->update_local_size[k]);
+                    update_local_size.back().dispatch_index = j;
+                }
+            }
+            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i].record, update_kernel_args.size(), update_kernel_args.data(), 0, nullptr,
+                                                                             update_global_size.size(), update_global_size.data(), update_local_size.size(), update_local_size.data(), 0, nullptr, nullptr);
             MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
         }
         mOpenCLRuntime->commandQueue().finish();
@@ -1202,8 +1214,22 @@ void OpenCLBackend::enqeueRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if(mUseRecordQueue && !mDevideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i], 0, nullptr, 0, nullptr,
-                  0, nullptr, 0, nullptr, 0, nullptr, nullptr);
+            std::vector<cl_array_arg_qcom> update_kernel_args;
+            std::vector<cl_workgroup_qcom> update_global_size;
+            std::vector<cl_workgroup_qcom> update_local_size;
+            for (int j = 0; j < mRecordings[i].updateInfo.size(); ++j){
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_kernel_args.size(); ++k){
+                    update_kernel_args.emplace_back(mRecordings[i].updateInfo[j]->update_kernel_args[k]);
+                }
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_global_size.size(); ++k){
+                    update_global_size.emplace_back(mRecordings[i].updateInfo[j]->update_global_size[k]);
+                }
+                for(int k = 0; k < mRecordings[i].updateInfo[j]->update_local_size.size(); ++k){
+                    update_local_size.emplace_back(mRecordings[i].updateInfo[j]->update_local_size[k]);
+                }
+            }
+            cl_int res = mOpenCLRuntime->commandQueue().EnqueueRecordingQCOM(mRecordings[i].record, update_kernel_args.size(), update_kernel_args.data(), 0, nullptr,
+                                                                             update_global_size.size(), update_global_size.data(), update_local_size.size(), update_local_size.data(), 0, nullptr, nullptr);
             MNN_CHECK_CL_SUCCESS(res, "EnqueueRecordingQCOM");
         }
         mOpenCLRuntime->commandQueue().finish();
@@ -1215,7 +1241,7 @@ void OpenCLBackend::releaseRecord(){
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if(mUseRecordQueue  && !mDevideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
-            cl_int res = clReleaseRecordingQCOM(mRecordings[i]);
+            cl_int res = clReleaseRecordingQCOM(mRecordings[i].record);
             MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
         }
         mRecordings.clear();
@@ -1258,8 +1284,9 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
         res = clEndRecordingQCOM(recording);
         MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
     } else if(flag) {
+        // endRecord for last kernel be recorded when record mode is MNN_GPU_RECORD_BATCH
         if(!mRecordings.empty()){
-            cl_int res = clEndRecordingQCOM(mRecordings.back());
+            cl_int res = clEndRecordingQCOM(mRecordings.back().record);
             mRecordNums = 0;
             MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
         }
@@ -1270,7 +1297,18 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
 #endif //ENABLE_OPENCL_TIME_PROFILER
 }
 
-void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws) {
+void OpenCLBackend::addRecord(cl_recording_qcom &record, std::vector<RecordUpdateInfo *>updateInfo){
+    if(mDevideOpRecord){
+        RecordInfo info;
+        info.record = record;
+        for(int i = 0; i < updateInfo.size(); ++i) {
+            info.updateInfo.emplace_back(updateInfo[i]);
+        }
+        mRecordings.emplace_back(info);
+    }
+}
+
+void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo) {
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if(!mUseRecordQueue){
         return;
@@ -1281,17 +1319,35 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
 #endif
     cl_int res = CL_SUCCESS;
     if(!mDevideOpRecord){
+        RecordInfo info;
+        if(updateInfo != nullptr){
+            for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
+                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+            }
+            for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
+                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+            }
+            for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
+                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+            }
+            info.updateInfo.emplace_back(updateInfo);
+        }
         if(mRecordNums == 0){
             cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
             MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            mRecordings.emplace_back(recording);
+            info.record = recording;
+            mRecordings.emplace_back(info);
         }else if(mRecordNums == mUseRecordableQueueSize){
-            res = clEndRecordingQCOM(mRecordings.back());
+            res = clEndRecordingQCOM(mRecordings.back().record);
             MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
             cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
             MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            mRecordings.emplace_back(recording);
+            info.record = recording;
+            mRecordings.emplace_back(info);
             mRecordNums = 0;
+        } else if(updateInfo != nullptr){
+            auto &lastInfo = mRecordings.back();
+            lastInfo.updateInfo.emplace_back(updateInfo);
         }
         mRecordNums++;
     }
@@ -1317,7 +1373,7 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
 #endif //ENABLE_OPENCL_TIME_PROFILER
 }
 
-void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws) {
+void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo) {
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
     if(!mUseRecordQueue){
         return;
@@ -1332,17 +1388,35 @@ void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, c
         internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
     if(!mDevideOpRecord){
+        RecordInfo info;
+        if(updateInfo != nullptr){
+            for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
+                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+            }
+            for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
+                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+            }
+            for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
+                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+            }
+            info.updateInfo.emplace_back(updateInfo);
+        }
         if(mRecordNums == 0){
             cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
             MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            mRecordings.emplace_back(recording);
+            info.record = recording;
+            mRecordings.emplace_back(info);
         }else if(mRecordNums == mUseRecordableQueueSize){
-            res = clEndRecordingQCOM(mRecordings.back());
+            res = clEndRecordingQCOM(mRecordings.back().record);
             MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
             cl_recording_qcom recording = mOpenCLRuntime->recordableQueue().NewRecordingQCOM(&res);
             MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            mRecordings.emplace_back(recording);
+            info.record = recording;
+            mRecordings.emplace_back(info);
             mRecordNums = 0;
+        } else if(updateInfo != nullptr){
+            auto &lastInfo = mRecordings.back();
+            lastInfo.updateInfo.emplace_back(updateInfo);
         }
         mRecordNums++;
     }
