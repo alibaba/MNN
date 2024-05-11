@@ -61,6 +61,7 @@ public:
                              Context& context, CommandBuffer& cmd) const {
         return false;
     }
+    static bool ComputePermuteRegion(Tensor* input, Tensor* output, int* newshape, int shapeDim);
 };
 
 class DefaultGeometryComputer : public GeometryComputer {

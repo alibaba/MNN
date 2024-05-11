@@ -572,6 +572,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_ROIPooling:
         case OpType_ROIAlign:
         case OpType_DynamicQuant:
+        case OpType_Attention:
             return true;
         default:
             break;

@@ -93,7 +93,7 @@ public:
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
 
     virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
-    
+
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
 
@@ -189,6 +189,12 @@ private:
 #endif
 
 #define REGISTER_CPU_OP_CREATOR_RENDER(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static name _temp;\
+        CPUBackend::addCreator(opType, &_temp); \
+    }
+
+#define REGISTER_CPU_OP_CREATOR_TRANSFORMER(name, opType)     \
     void ___##name##__##opType##__() {            \
         static name _temp;\
         CPUBackend::addCreator(opType, &_temp); \

@@ -31,11 +31,10 @@ MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op) : 
     loadWeight(op->main_as_Convolution2D(), ldInt8Weight);
 }
 
-MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, std::shared_ptr<MNN::Tensor> dequantBias, int dequantBits) : MetalConvolutionCommon(backend, op, bias) {
+MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, int dequantBits) : MetalConvolutionCommon(backend, op, bias) {
     mWeight = weight;
     mBias = bias;
-    mDequantScale = dequantScale;
-    mDequantZero = dequantBias;
+    mDequantScaleBias = dequantScale;
     mDequantBits = dequantBits;
 }
 
@@ -47,7 +46,7 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    *dst = new MetalConvolution1x1(bn, op, mWeight, mBias, mDequantScale, mDequantZero, mDequantBits);
+    *dst = new MetalConvolution1x1(bn, op, mWeight, mBias, mDequantScaleBias, mDequantBits);
     return true;
 }
 
@@ -55,15 +54,18 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
+    // For C4NHW4 format, NHW can be fuse to W
     auto input = inputs[0];
     auto output = outputs[0];
-    
-    auto is  = input->width() * input->height();
-    auto ic_4  = UP_DIV(input->channel(), 4);
-    auto ow  = output->width();
-    auto oh  = output->height();
-    auto os  = ow * oh;
-    auto ob  = output->batch();
+    int is = input->batch();
+    for (int i=2; i<input->dimensions(); ++i) {
+        is *= input->length(i);
+    }
+    int ic_4  = UP_DIV(input->channel(), 4);
+    int ow  = is;
+    int oh  = 1;
+    int os  = ow;
+    int ob  = 1;
     auto oc  = output->channel();
     auto oc_4  = UP_DIV(output->channel(), 4);
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -75,7 +77,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
-    if (ow == input->width() && oh == input->height() && mDequantScale.get()) {
+    if (mDequantScaleBias.get()) {
         NSUInteger gid_x = UP_DIV(ow * oh, 4);
         NSUInteger gid_y = oc_4;
         NSUInteger gid_z = ob;
@@ -89,8 +91,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                         mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(),
                         ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(),
-                        (((MetalRuntimeAllocator::MetalBufferAlloc *)mDequantScale->deviceId()))->getBuffer(),
-                        (((MetalRuntimeAllocator::MetalBufferAlloc *)mDequantZero->deviceId()))->getBuffer(), nil];
+                        (((MetalRuntimeAllocator::MetalBufferAlloc *)mDequantScaleBias->deviceId()))->getBuffer(),
+                        nil];
         const Tensor* weight = mWeight.get();
         const Tensor* bias = mBias.get();
         int buffer_offset[] = {
@@ -99,8 +101,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             0,
             TensorUtils::getDescribe(weight)->extra.offset,
             TensorUtils::getDescribe(bias)->extra.offset,
-            TensorUtils::getDescribe(mDequantScale.get())->extra.offset,
-            TensorUtils::getDescribe(mDequantZero.get())->extra.offset,
+            TensorUtils::getDescribe(mDequantScaleBias.get())->extra.offset,
             0};
         
         MetalRuntime *rt = (MetalRuntime *)backend->runtime();
@@ -147,9 +148,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             //printf("conv1x1_z4, %d %d %d %d\n", ow, oh, oc_4, ic_4);
         }
     } else {
-        NSString* shaderName[] = {@"conv1x1_w4h2", @"conv1x1_w2h2", @"conv1x1_w4h4",  @"conv1x1_w2c2", @"conv1x1_w2h2c2"};
-        int itemW[] = {4, 2, 4, 2, 2};
-        int itemH[] = {2, 2, 4, 1, 2};
+        NSString* shaderName[] = {@"conv1x1_g1z8", @"conv1x1_g1z4", @"conv1x1_w4h4",  @"conv1x1_w2c2", @"conv1x1_w4c2"};
+        int itemW[] = {8, 4, 16, 2, 4};
         int itemC[] = {4, 4, 4, 8, 8};
         int actual_kernel = 5;
         if (oc_4 % 2 != 0) {
@@ -168,8 +168,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
             id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:backend->useFp16InsteadFp32()];
             NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
-            NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
-            NSUInteger gid_z = ob * UP_DIV(oc, itemC[knl_idx]);
+            NSUInteger gid_y = UP_DIV(oc, itemC[knl_idx]);
+            NSUInteger gid_z = 1;
             
             std::string name = [shaderName[knl_idx] UTF8String];
             auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets:buffer_offset queue:backend->queue()];
@@ -188,16 +188,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     return NO_ERROR;
 }
 
-void MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
+void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0];
+    auto output = outputs[0];
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
     [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     MetalBackend::setTensor(mWeight.get(), encoder, 3);
     MetalBackend::setTensor(mBias.get(), encoder, 4);
-    if (mDequantScale && mDequantZero) {
-        MetalBackend::setTensor(mDequantScale.get(), encoder, 5);
-        MetalBackend::setTensor(mDequantZero.get(), encoder, 6);
+    if (mDequantScaleBias) {
+        MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
     }
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }

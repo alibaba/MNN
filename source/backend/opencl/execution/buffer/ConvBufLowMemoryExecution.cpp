@@ -13,7 +13,7 @@ namespace OpenCL {
 // set mDequantScale mDequantOffset mNumQuantBit mFilterDataPtr from mConv2dParams
 void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     quanCommon = ConvolutionCommon::load(mResource->mConv2dParams, this->backend(), false, true);
-    if ((mOpenCLBackend->getMemory() == BackendConfig::Memory_Low) && (mResource->mConv2dParams->quanParameter() != nullptr)) {
+    if (mResource->mConv2dParams->quanParameter() != nullptr) {
         mLowMemoryFlag = true;
     } else {
         MNN_ERROR("Conv buf low memory init error.\n");
@@ -30,44 +30,34 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<Convoluti
     int numAlpha = mResource->mOutputChannel;
     // set mDequantScale mDequantOffset
     int numAlphaPack = ROUND_UP(numAlpha, 16);
-    mResource->dequantScale.reset(Tensor::createDevice<float>({numAlphaPack}));
-    mResource->dequantOffset.reset(Tensor::createDevice<float>({numAlphaPack}));
+    mResource->dequantScale.reset(Tensor::createDevice<int32_t>({numAlphaPack}));
+    mResource->dequantOffset.reset(Tensor::createDevice<int32_t>({numAlphaPack}));
+
     mOpenCLBackend->onAcquireBuffer(mResource->dequantScale.get(), Backend::STATIC);
     mOpenCLBackend->onAcquireBuffer(mResource->dequantOffset.get(), Backend::STATIC);
     cl::Buffer &dequantScaleBuffer = openCLBuffer(mResource->dequantScale.get());
     cl::Buffer &dequantOffsetBuffer = openCLBuffer(mResource->dequantOffset.get());
     // transfer data from src in cpu to dst in gpu
-    int bytes = mOpenCLBackend->fpBytes();
+    int fpBytes = mOpenCLBackend->fpBytes();
     cl_int resBias, resScale, resOffset;
-    void * dequantScaleBufferMap = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(dequantScaleBuffer, true, CL_MAP_WRITE, 0, numAlphaPack * bytes, nullptr, nullptr, &resScale);
-    void * dequantOffsetBufferMap = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(dequantOffsetBuffer, true, CL_MAP_WRITE, 0, numAlphaPack * bytes, nullptr, nullptr, &resOffset);
 
-    ::memset(dequantScaleBufferMap, -1, numAlphaPack * bytes);
-    ::memset(dequantOffsetBufferMap, 0, numAlphaPack * bytes);
+    
+    void * dequantScaleBufferMap = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(dequantScaleBuffer, true, CL_MAP_WRITE, 0, numAlphaPack * sizeof(int32_t), nullptr, nullptr, &resScale);
+    void * dequantOffsetBufferMap = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(dequantOffsetBuffer, true, CL_MAP_WRITE, 0, numAlphaPack * sizeof(int32_t), nullptr, nullptr, &resOffset);
+    
+    ::memset(dequantScaleBufferMap, -1, numAlphaPack * sizeof(int32_t));
+    ::memset(dequantOffsetBufferMap, 0, numAlphaPack * sizeof(int32_t));
+
     if (dequantScaleBufferMap != nullptr && dequantOffsetBufferMap != nullptr && resScale == CL_SUCCESS && resOffset == CL_SUCCESS) {
-        if (bytes == 2) {
-            if (quanCommon->asymmetric) {
-                for (int i = 0; i < numAlpha; ++i) {
-                    ((half_float::half *)dequantOffsetBufferMap)[i] = (half_float::half)dequantAlpha[2 * i];
-                    ((half_float::half *)dequantScaleBufferMap)[i] = (half_float::half)dequantAlpha[2 * i + 1];
-                }
-            } else {
-                for (int i = 0; i < numAlpha; ++i) {
-                    ((half_float::half *)dequantScaleBufferMap)[i] = (half_float::half)dequantAlpha[i];
-                    ((half_float::half *)dequantOffsetBufferMap)[i] = 0.0f;
-                }
+        if (quanCommon->asymmetric) {
+            for (int i = 0; i < numAlpha; ++i) {
+                ((float *)dequantOffsetBufferMap)[i] = dequantAlpha[2 * i];
+                ((float *)dequantScaleBufferMap)[i] = dequantAlpha[2 * i + 1];
             }
         } else {
-            if (quanCommon->asymmetric) {
-                for (int i = 0; i < numAlpha; ++i) {
-                    ((float *)dequantOffsetBufferMap)[i] = dequantAlpha[2 * i];
-                    ((float *)dequantScaleBufferMap)[i] = dequantAlpha[2 * i + 1];
-                }
-            } else {
-                for (int i = 0; i < numAlpha; ++i) {
-                    ((float *)dequantScaleBufferMap)[i] = dequantAlpha[i];
-                    ((float *)dequantOffsetBufferMap)[i] = 0.0f;
-                }
+            for (int i = 0; i < numAlpha; ++i) {
+                ((float *)dequantScaleBufferMap)[i] = dequantAlpha[i];
+                ((float *)dequantOffsetBufferMap)[i] = 0.0f;
             }
         }
     } else {
@@ -82,7 +72,7 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<Convoluti
 // set mKernelBuffer for the 1x1 kernels
 void ConvBufLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin, void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     cl_int res;
-    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 8)/*Cout pack set to max 8*/, ROUND_UP(mResource->mInputChannel, packCin), mResource->mKernelWidth, mResource->mKernelHeight}));
+    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, packCout), ROUND_UP(mResource->mInputChannel, packCin), mResource->mKernelWidth, mResource->mKernelHeight}));
     size_t buffer_size = filterBuffer->usize() / sizeof(float);
     float *dequantAlpha = quanCommon->alpha.get();
     // shared part for all cases
@@ -93,43 +83,66 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin,
         // int4 case
         buffer_size /= 2;
     } else {/* More types to be supported. */}
-    mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
-    auto kernelBufferPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mKernelBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-    if(kernelBufferPtr != nullptr && res == CL_SUCCESS){
-        ::memset(kernelBufferPtr, 0, buffer_size);
-
+    
+    // Use Image load weights
+    void *mapPtr = nullptr;
+    size_t row_pitch;
+    size_t slice_pitch;
+    if(UP_DIV(mResource->mInputChannel, packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, packCout) <= 16384){
+        mResource->mUseImage = true;
+    }
+    if(mResource->mUseImage) {
+        if(mNumQuantBit == 4){
+            packCin *= 2;
+        }
+        size_t w = ROUND_UP(mResource->mOutputChannel, packCout);
+        size_t h = UP_DIV(mResource->mInputChannel, packCin);
+        mResource->mKernelImage.reset(new cl::Image2D(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, CL_FLOAT), w, h, 0, nullptr, &res));
+        if (nullptr == mResource->mKernelImage.get() || res != CL_SUCCESS) {
+            MNN_ERROR("Alloc Image %d x %d error, code:%d \n", w, h, res);
+        }
+        mapPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapImage(*(mResource->mKernelImage.get()), true, CL_MAP_WRITE, {0, 0, 0}, {w, h, 1}, &row_pitch, &slice_pitch, nullptr, nullptr, &res);
+        if(mNumQuantBit == 4){
+            row_pitch *= 2;
+        }
+    } else{
+        mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+        mapPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mKernelBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        row_pitch = ROUND_UP(mResource->mOutputChannel, packCout) * packCin;
+    }
+    if(mapPtr != nullptr && res == CL_SUCCESS){
         for(int o = 0; o < mResource->mOutputChannel; o++){
             float zero = 0;
             if(quanCommon->asymmetric){
                 zero = (-dequantAlpha[2 * o + 1])/dequantAlpha[2 * o];
             }
             int i = 0;
-            for(; i < mResource->mInputChannel; i++){
-                int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mResource->mOutputChannel, packCout) + (o%packCout)*packCin + (i%packCin);//(Ci/packCin， Co/packCout，packCout, packCin)
+            for(; i < mResource->mInputChannel ; i++){
+                int bufferIdx = (i/packCin) * row_pitch + o*packCin + (i%packCin);//(Ci/packCin， Co/packCout * packCout * packCin)
                 int filterIdx = o*mResource->mInputChannel + i;
                 if (mNumQuantBit == 8) {
                     // int8 case
-                    ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
+                    ((int8_t *)mapPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
                 } else if (mNumQuantBit == 4){
                     // int4 case
                     if (bufferIdx % 2 == 0) {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
+                        ((uint8_t *)mapPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
                     } else {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
+                        ((uint8_t *)mapPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
                     }
                 } else {/* More types to be supported. */}
             }
-            for(; i < ROUND_UP(mResource->mInputChannel, 4); i++){
-                int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mResource->mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
+            for(; i < ROUND_UP(mResource->mInputChannel, packCin); i++){
+                int bufferIdx = (i/packCin) * row_pitch + o*packCin + (i%packCin);//(Ci/packCin， Co/packCout * packCout * packCin)
                 if (mNumQuantBit == 8) {
                     // int8 case
-                    ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(zero);
+                    ((int8_t *)mapPtr)[bufferIdx] = (int8_t)(zero);
                 } else if (mNumQuantBit == 4){
                     // int4 case
                     if (bufferIdx % 2 == 0) {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((zero + 8) * 16);
+                        ((uint8_t *)mapPtr)[bufferIdx / 2] += (uint8_t)((zero + 8) * 16);
                     } else {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(zero + 8);
+                        ((uint8_t *)mapPtr)[bufferIdx / 2] += (uint8_t)(zero + 8);
                     }
                 }
             }
@@ -138,7 +151,11 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin,
         MNN_ERROR("set1x1WeightLowMemory: Map error ptrCL == nullptr \n");
         MNN_ASSERT(false);
     }
-    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelBuffer.get()), kernelBufferPtr);
+    if(mResource->mUseImage){
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelImage.get()), mapPtr);
+    } else{
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelBuffer.get()), mapPtr);
+    }
 }
 // set mFilter for the general kernels
 void ConvBufLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
@@ -321,13 +338,11 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     const int width = outputShape.at(2);
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
     const int outputChannelBlocks = UP_DIV(outChannel, 4);
-    std::string kernelname = "gemm_conv_buf";
-    int global_x = outputChannelBlocks;
+
     int global_y = batch * height;
-    
-    const int total_kernel = 3;
-    std::string kernelName[total_kernel] = {"gemm_conv_c1_buf", "gemm_conv_c2_buf", "gemm_conv_c4_buf",};
-    int itemC[total_kernel] = {1, 2, 4};
+    const int total_kernel = 5;
+    std::string kernelName[total_kernel] = {"gemm_conv_c1_buf", "gemm_conv_c2_buf", "gemm_conv_c4_buf", "gemm_conv_c1_image",  "gemm_conv_c2_image"};
+    int itemC[total_kernel] = {1, 2, 4, 1, 2};
     int actual_kernel = total_kernel;
     std::shared_ptr<KernelWrap> kernel[total_kernel];
     std::vector<uint32_t> globalWorkSize[total_kernel];
@@ -337,12 +352,27 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     if(width == 1 && height == 1){
         buildOption.emplace("-DWIDTH_HEIGHT_1");
     }
+    
     if(inputChannels % 16 != 0){
+        buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
+    } else if (mResource->mUseImage && mNumQuantBit == 4 && inputChannels % 32 != 0) {
+        // Image weight-int4 use load32
         buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
     }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
-    for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", kernelName[knl_idx], buildOption);
+    if(batch > 1){
+        global_y = UP_DIV(batch, 2) * height;
+        buildOption.emplace("-DBACTH_BLOCK2");
+        info += "_BATCH_BLOCK2";
+    }
+    int knl_idx = 0;
+    actual_kernel = 3;
+    if(mResource->mUseImage){
+        knl_idx = 3;
+        actual_kernel = total_kernel;
+    }
+    for (; knl_idx < actual_kernel; knl_idx++) {
+        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName[knl_idx], buildOption);
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
         
         globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outChannel, itemC[knl_idx]) * width), static_cast<uint32_t>(global_y)};
@@ -351,7 +381,11 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
         ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][0]);
         ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][1]);
         ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(input));
-        ret |= kernel[knl_idx]->get().setArg(idx++, *mResource->mKernelBuffer.get());
+        if(mResource->mUseImage){
+            ret |= kernel[knl_idx]->get().setArg(idx++, *mResource->mKernelImage.get());
+        }else{
+            ret |= kernel[knl_idx]->get().setArg(idx++, *mResource->mKernelBuffer.get());
+        }
         ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->dequantScale.get()));
         ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->dequantOffset.get()));
         ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
@@ -361,7 +395,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(batch));
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(height));
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(width));
-        MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_conv_buf Kernel Select");
+        MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf Kernel Select");
         std::pair<std::vector<uint32_t>, int> retTune;
         retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx] + info, maxWorkGroupSize);
         if(min_cost.first > retTune.second) {
@@ -374,14 +408,18 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
     
     
-    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", kernelName[min_index], buildOption);
+    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName[min_index], buildOption);
     //MNN_PRINT("Kernel is %d.\n", min_index);
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
-    ret |= unit.kernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
+    if(mResource->mUseImage){
+        ret |= unit.kernel->get().setArg(idx++, *mResource->mKernelImage.get());
+    }else{
+        ret |= unit.kernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
+    }
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->dequantScale.get()));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->dequantOffset.get()));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
@@ -391,7 +429,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(height));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width));
-    MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_conv_buf");
+    MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf");
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -422,7 +460,7 @@ ConvBufLowMemoryExecution::ConvBufLowMemoryExecution(const std::vector<Tensor *>
     // prepare mDequantScale mDequantOffset mFilterDataPtr
     getInfoFromOpLowMemory(quanCommon);
     //select opt conv method
-    if (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1) {
+    if (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 && conv2dCommonParams->padX() == 0 && conv2dCommonParams->padY() == 0 && conv2dCommonParams->dilateX() == 1 && conv2dCommonParams->dilateY() == 1) {
         set1x1WeightLowMemory(4, 16, mFilterDataPtr, quanCommon);
         mResource->mConv1x1Opt = true;
     }else {

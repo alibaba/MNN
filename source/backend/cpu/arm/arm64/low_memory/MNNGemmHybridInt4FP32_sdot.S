@@ -43,7 +43,7 @@ asm_function MNNGemmHybridInt4FP32_sdot
 //    int32_t useInt8;
 //};
 
-//void MNNGemmHybridInt4FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param); 
+//void MNNGemmHybridInt4FP32_sdot(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param);
 
 
 // Auto: x0: C*, x1: A*, x2:B*, x3: src_depth_quad, x4: dst_step, x5: dst_depth_quad, x6: realSize, x7: param
@@ -99,11 +99,9 @@ LoopDz_TILE_12:
     movi v25.4s, #0
     movi v26.4s, #0
     movi v27.4s, #0
-    
+
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 LoopSz_TILE_12:
     // src    : 4(batch) x [1 x 4] : v4
     // weight : 4(oc) x [1 x 4] : v0
@@ -113,8 +111,6 @@ LoopSz_TILE_12:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
     .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0] // batch0
     .inst 0x4fa4e011 // sdot v17.4s, v0.16b, v4.4b[1] // batch1
@@ -203,11 +199,9 @@ LoopDz_TILE_8:
     movi v21.4s, #0
     movi v22.4s, #0
     movi v23.4s, #0
-    
+
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 LoopSz_TILE_8:
     // src    : 4(batch) x [1 x 4] : v4
     // weight : 4(oc) x [1 x 4] : v0
@@ -217,8 +211,6 @@ LoopSz_TILE_8:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
     .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0] // batch0
     .inst 0x4fa4e011 // sdot v17.4s, v0.16b, v4.4b[1] // batch1
@@ -294,8 +286,6 @@ LoopDz_TILE_4:
     dup v19.4s, wzr
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 LoopSz_TILE_4:
     // src    : 4(batch) x [1 x 4] : v4
     // weight : 4(oc) x [1 x 4] : v0
@@ -305,8 +295,6 @@ LoopSz_TILE_4:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
     .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0] // batch0
     .inst 0x4fa4e011 // sdot v17.4s, v0.16b, v4.4b[1] // batch1
@@ -368,8 +356,6 @@ LoopDz_TILE_1:
     dup v16.4s, wzr
     // mask
     movi v14.16b, #15
-    // offset
-    movi v15.16b, #8
 LoopSz_TILE_1:
     // src    : 1(batch) x [1 x 4] : v4
     // weight : 4(oc) x [1 x 4] : v0
@@ -379,10 +365,8 @@ LoopSz_TILE_1:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
-    
+
     .inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0]
 
     subs x26, x26, #1

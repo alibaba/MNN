@@ -37,7 +37,7 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 namespace MNN {
 
@@ -465,7 +465,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("convertMatmulToConv")) {
         modelPath.convertMatmulToConv = result["convertMatmulToConv"].as<int>();
     }
-    
+
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }
@@ -1234,7 +1234,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
             if (layerInfo.HasMember("method")) {
                 newLayer->set_method((MNN::Compression::LayerQuantizeParams_QuantMethod)layerInfo["method"].GetInt());
             }
-            
+
             // Weight.
             auto weights_ = layerInfo["weight"].GetArray();
             for (auto w = weights_.begin(); w != weights_.end(); ++w) {
@@ -1255,7 +1255,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
                     weight->add_scales(scale[k].GetFloat());
                 }
             }
-            
+
             // Input.
             auto inputs_ = layerInfo["input"].GetArray();
             for (auto w = inputs_.begin(); w != inputs_.end(); ++w) {
@@ -1276,7 +1276,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
                     input->add_scales(scale[k].GetFloat());
                 }
             }
-            
+
             // Output.
             auto outputs_ = layerInfo["output"].GetArray();
             for (auto w = outputs_.begin(); w != outputs_.end(); ++w) {

@@ -656,8 +656,8 @@ static inline __m128i _load_int4_to_int8(const uint8_t* src) {
     int32_t data[4];
     int8_t temp[16];
     for (int i = 0; i < 8; ++i) {
-        temp[2 * i] = (src[i] >> 4) - 8;
-        temp[2 * i +1] = (src[i] & c) - 8;
+        temp[2 * i] = (src[i] >> 4);
+        temp[2 * i +1] = (src[i] & c);
     }
     auto int8_tx16 = _mm_loadu_si128((const __m128i*)temp);
     return int8_tx16;

@@ -901,7 +901,8 @@ ErrorCode Pipeline::fixResizeCache() {
         if (info.type != Schedule::CONSTANT) {
             totalNumber += buffer.command.size();
         }
-        if (info.computeCache.needComputeShape) {
+        if ((!info.computeCache.canCache()) && info.computeCache.needComputeShape) {
+            // If the session has been resized and the op is checked will change shape, set as shape mutable
             info.computeCache.close(false);
             continue;
         }

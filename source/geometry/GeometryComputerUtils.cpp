@@ -182,7 +182,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         for (auto t : info.outputs) {
             TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::COMPUTE_SHAPE_STAGE);
         }
-        bool needCompute = !info.computeCache.match(info.inputs);
+        bool compared = false;
+        bool needCompute = !info.computeCache.match(info.inputs, compared);
+        if (needCompute && compared) {
+            // If not match, means the op's shape is mutable, close cache and don't compare
+            info.computeCache.close(false);
+        }
         if ((!skipShapeCompute) && needCompute) {
             auto res = SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
             if (!res) {
@@ -458,6 +463,44 @@ std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, T
     opB.add_type(OpType_Reduction);
     opB.add_main(mainOffset);
     opB.add_main_type(OpParameter_ReductionParam);
+    builder.Finish(opB.Finish());
+    std::shared_ptr<Command> cmdP(new Command);
+    auto& cmd = *cmdP;
+    cmd.buffer.reset(new BufferStorage);
+    cmd.buffer->storage = builder.ReleaseRaw(cmd.buffer->allocated_size, cmd.buffer->offset);
+    cmd.inputs  = {input0};
+    cmd.outputs = {output};
+    cmd.op      = flatbuffers::GetRoot<Op>(cmd.buffer->buffer());
+    return cmdP;
+}
+std::shared_ptr<Command> GeometryComputerUtils::makeLayerNorm(Tensor* input0, Tensor* output, std::vector<int32_t> axis, float epsilon, std::vector<float> gamma, std::vector<float> beta, std::vector<int64_t> external, int group, bool useRMS) {
+    flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
+    std::vector<float> g, b;
+    auto vecaxis = builder.CreateVector(axis);
+    auto vecgamma = builder.CreateVector(g);
+    auto vecbeta = builder.CreateVector(b);
+    if (gamma.size() > 0 && beta.size() > 0) {
+        vecgamma = builder.CreateVector(gamma.data(), gamma.size());
+        vecbeta = builder.CreateVector(beta.data(), beta.size());
+    }
+
+    auto vecexternal = builder.CreateVector(external);
+    LayerNormBuilder builder_(builder);
+    builder_.add_axis(vecaxis);
+    builder_.add_group(group);
+    builder_.add_epsilon(epsilon);
+    if (gamma.size() > 0 && beta.size() > 0) {
+        builder_.add_gamma(vecgamma);
+        builder_.add_beta(vecbeta);
+    }
+    
+    builder_.add_useRMSNorm(useRMS);
+    builder_.add_external(vecexternal);
+    auto mainOffset = builder_.Finish().Union();
+    OpBuilder opB(builder);
+    opB.add_type(OpType_LayerNorm);
+    opB.add_main(mainOffset);
+    opB.add_main_type(OpParameter_LayerNorm);
     builder.Finish(opB.Finish());
     std::shared_ptr<Command> cmdP(new Command);
     auto& cmd = *cmdP;

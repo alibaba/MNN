@@ -210,7 +210,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
                 fast = false;
                 break;
             }
-            if (!OpCommonUtils::canBlitFast(slice, output)) {
+            if (!OpCommonUtils::canBlitFast(slice, output, 4, true)) {
                 fast = false;
                 break;
             }
@@ -239,7 +239,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
                 for (int v=0; v<iter.second.size(); ++v) {
                     auto& oldr = des->regions[iter.second[v]];
                     Tensor::InsideDescribe::Region slice;
-                    OpCommonUtils::turnToPackRegion(oldr, slice, output, 4);
+                    OpCommonUtils::turnToPackRegion(oldr, slice, output, 4, true);
                     slice.dst.offset /= 4;
                     slice.src.offset /= 4;
                     writeSamplerInfo(infoP[v], slice);

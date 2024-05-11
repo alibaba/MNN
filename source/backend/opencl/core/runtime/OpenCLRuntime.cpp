@@ -230,9 +230,11 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_MEM_ALLOC_SIZE, &mMaxMemAllocSize);
-	    cl_device_fp_config fpConfig;
+            cl_device_fp_config fpConfig;
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
+            bool checkFp16Exetension = getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_khr_fp16");
+            mIsDeviceSupportedFP16 = (mIsDeviceSupportedFP16 && checkFp16Exetension);
             
             //set gpu mode, tuning level and memory object
             setGpuMode(cl_mode);
@@ -245,11 +247,17 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 }
             }
             
-            auto permitFloat16 = false;
-            if (precision == BackendConfig::Precision_Low || (mMemType == BUFFER && precision == BackendConfig::Precision_Normal)) {//buffer mode not support Normal Precision yet
-                permitFloat16 = true;
+            mPrecisionLevel = 1;
+            if (mIsDeviceSupportedFP16) {
+                if (precision == BackendConfig::Precision_Low) {
+                    mPrecisionLevel = 2;
+                } else if (precision == BackendConfig::Precision_Normal && mMemType == BUFFER) {
+                    mPrecisionLevel = 0;
+                }
             }
-            mIsSupportedFP16 = mIsDeviceSupportedFP16 && permitFloat16;
+            
+            // Is supported fp16 IO storage
+            mIsSupportedFP16 = (mPrecisionLevel == 2 || mPrecisionLevel == 0);
 
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
                 mSupportDotInt8 = true;
@@ -257,7 +265,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_accumulate_int8")){
                 mSupportDotAccInt8 = true;
             }
-            
+          
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
             {
                 if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) 
@@ -267,7 +275,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     cl_int err;
                     if(MaxRecordableQueueSize > 0){
                         // TODO: Use setSessionHint to set the number of mUseRecordableQueueSize
-                        mUseRecordableQueueSize = 10;
+                        mUseRecordableQueueSize = MaxRecordableQueueSize;
                         mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;
                         mUseRecordQueue = true;
                         mRecordableQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_RECORDABLE_QCOM, &err);
@@ -435,13 +443,6 @@ std::vector<size_t> OpenCLRuntime::getMaxImage2DSize() {
 bool OpenCLRuntime::isSupportedFP16() const {
     return mIsSupportedFP16;
 }
-bool OpenCLRuntime::isWeightCpuTransHalf() const {
-#ifdef USE_HALF_WEIGHT_MEMORY
-    return mIsSupportedFP16;
-#else
-    return false;//most of time
-#endif
-}
 
 bool OpenCLRuntime::isDeviceSupportedFP16() const {
     return mIsDeviceSupportedFP16;
@@ -536,10 +537,12 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernel(const std::string &progra
 std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::string &programName, const std::string &kernelName,
                                       const std::set<std::string> &buildOptions, const Tensor *input, const Tensor *output, bool useCache) {
     std::string buildOptionsStr;
-    if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DCONVERT_FLOAT8=convert_half8 -DCONVERT_FLOAT16=convert_half16 -DMNN_SUPPORT_FP16";
-    } else {
-        buildOptionsStr = "-DFLOAT=float  -DFLOAT2=float2 -DFLOAT3=float3 -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4 -DCONVERT_FLOAT8=convert_float8 -DCONVERT_FLOAT16=convert_float16";
+    if (mPrecisionLevel == 2) {// Fp16 Memory and fp16 compute
+        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DCOMPUTE_FLOAT=half  -DCOMPUTE_FLOAT2=half2 -DCOMPUTE_FLOAT3=half3 -DCOMPUTE_FLOAT4=half4 -DCOMPUTE_FLOAT8=half8 -DCOMPUTE_FLOAT16=half16 -DCONVERT_COMPUTE_FLOAT2=convert_half2 -DCONVERT_COMPUTE_FLOAT4=convert_half4 -DCONVERT_COMPUTE_FLOAT8=convert_half8 -DCONVERT_COMPUTE_FLOAT16=convert_half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT2=convert_half2 -DCONVERT_FLOAT4=convert_half4 -DCONVERT_FLOAT8=convert_half8 -DCONVERT_FLOAT16=convert_half16 -DMNN_SUPPORT_FP16";
+    } else if (mPrecisionLevel == 0) {// Fp16 Memory and fp32 compute
+        buildOptionsStr = "-DFLOAT=half -DFLOAT2=half2 -DFLOAT3=half3 -DFLOAT4=half4 -DFLOAT8=half8 -DFLOAT16=half16 -DCOMPUTE_FLOAT=float  -DCOMPUTE_FLOAT2=float2 -DCOMPUTE_FLOAT3=float3 -DCOMPUTE_FLOAT4=float4 -DCOMPUTE_FLOAT8=float8 -DCOMPUTE_FLOAT16=float16 -DCONVERT_COMPUTE_FLOAT2=convert_float2 -DCONVERT_COMPUTE_FLOAT4=convert_float4 -DCONVERT_COMPUTE_FLOAT8=convert_float8 -DCONVERT_COMPUTE_FLOAT16=convert_float16 -DCONVERT_FLOAT2=convert_half2 -DCONVERT_FLOAT4=convert_half4 -DCONVERT_FLOAT8=convert_half8 -DCONVERT_FLOAT16=convert_half16 -DRI_F=read_imageh -DWI_F=write_imageh -DMNN_SUPPORT_FP16";
+    } else {// Fp32 Memory and fp32 compute
+        buildOptionsStr = "-DFLOAT=float -DFLOAT2=float2 -DFLOAT3=float3 -DFLOAT4=float4 -DFLOAT8=float8 -DFLOAT16=float16 -DCOMPUTE_FLOAT=float  -DCOMPUTE_FLOAT2=float2 -DCOMPUTE_FLOAT3=float3 -DCOMPUTE_FLOAT4=float4 -DCOMPUTE_FLOAT8=float8 -DCOMPUTE_FLOAT16=float16 -DCONVERT_COMPUTE_FLOAT2=convert_float2 -DCONVERT_COMPUTE_FLOAT4=convert_float4 -DCONVERT_COMPUTE_FLOAT8=convert_float8 -DCONVERT_COMPUTE_FLOAT16=convert_float16 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT2=convert_float2 -DCONVERT_FLOAT4=convert_float4 -DCONVERT_FLOAT8=convert_float8 -DCONVERT_FLOAT16=convert_float16";
     }
     
     if(nullptr != input){
@@ -907,6 +910,7 @@ void OpenCLRuntime::printEventTime(){
         return;
     }
     int raster_num = 0, raster_time = 0;
+    unsigned int conv_time = 0, while_time = 0;
     for(int i = 0; i < mEvents.size(); ++i){
         auto event = &mEvents[i].second;
         cl_int res = event->wait();
@@ -915,10 +919,16 @@ void OpenCLRuntime::printEventTime(){
         auto StopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
         auto kernel_time = (unsigned int)((StopNanos - StartNanos) / 1000.0);
         mKernelTime += kernel_time;
+        if(mEvents[i].first == "ConvBuf2D" || (mEvents[i].first.length() >= 11 && mEvents[i].first.substr(0, 11) == "Convolution")) {
+            conv_time += kernel_time;
+        }
+        if((mEvents[i].first.length() >= 5 && mEvents[i].first.substr(0, 5) == "While")) {
+            while_time += kernel_time;
+        }
         MNN_PRINT("kernel time = %d    us %s\n", kernel_time, mEvents[i].first.c_str());
     }
     mEvents.clear();
-    MNN_PRINT("total kernel time = %d  us\n", mKernelTime);
+    MNN_PRINT("total kernel time = %d  us, conv time = %d us, while time = %d us\n", mKernelTime, conv_time, while_time);
 #endif
 }
 } // namespace MNN

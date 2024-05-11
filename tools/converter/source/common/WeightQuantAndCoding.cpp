@@ -7,8 +7,8 @@
 //
 
 #include "CommonUtils.hpp"
-#include "common/CommonCompute.hpp"
-#include "cpp/IDSTEncoder.hpp"
+#include "core/CommonCompute.hpp"
+#include "core/IDSTEncoder.hpp"
 
 static float findAbsMax(const float *weights, const int count) {
     float absMax = fabs(weights[0]);

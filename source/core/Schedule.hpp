@@ -35,7 +35,7 @@ public:
     };
     class OpResizeCache {
     public:
-        bool match(const std::vector<Tensor*>& inputs);
+        bool match(const std::vector<Tensor*>& inputs, bool& compared);
         void insert(const std::vector<Tensor*>& inputs);
         void close(bool pass = false);
         void open();
@@ -43,6 +43,9 @@ public:
         bool needExecuteConst = false;
         void addContentIndex(int index);
         void copyImmutable(const OpResizeCache& cache);
+        bool canCache() const {
+            return mCanCache;
+        }
     private:
         struct ShapeInfo {
             int order;

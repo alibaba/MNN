@@ -43,7 +43,7 @@ asm_function MNNGemmHybridInt4FP32
 //    int32_t useInt8;
 //};
 
-//void MNNGemmHybridInt4FP32(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param); 
+//void MNNGemmHybridInt4FP32(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, float** param);
 
 
 // Auto: x0: C*, x1: A*, x2:B*, x3: src_depth_quad, x4: dst_step, x5: dst_depth_quad, x6: realSize, x7: param
@@ -120,8 +120,6 @@ LoopSz_TILE_4:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
 
     Unit_TILE_4:
@@ -244,8 +242,6 @@ LoopSz_TILE_1:
     // int4->int8
     ushr v8.16b, v0.16b, #4
     and v9.16b, v0.16b, v14.16b
-    sub v8.16b, v8.16b, v15.16b
-    sub v9.16b, v9.16b, v15.16b
     zip1 v0.16b, v8.16b, v9.16b
 
     Unit_TILE_1:
@@ -261,7 +257,7 @@ LoopSz_TILE_1:
         smlal v11.4s, v5.4h, v29.4h
         smlal v12.4s, v5.4h, v30.4h
         smlal v13.4s, v5.4h, v31.4h
-    
+
     //.inst 0x4f84e010 // sdot v16.4s, v0.16b, v4.4b[0]
 
     subs x26, x26, #1

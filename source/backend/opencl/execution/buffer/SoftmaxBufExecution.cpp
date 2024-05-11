@@ -54,7 +54,9 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
     
     const auto dims = input->buffer().dimensions;
     auto runtime       = mOpenCLBackend->getOpenCLRuntime();
-    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize) / 4;
+
     int inside  = 1;
     int outside = 1;
     int channel = 1;

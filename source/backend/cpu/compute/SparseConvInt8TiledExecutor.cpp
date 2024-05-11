@@ -15,7 +15,7 @@
 #include "CommonOptFunction.h"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #include "MNN/AutoTime.hpp"
 #include <math.h>
 #ifdef MNN_USE_SSE

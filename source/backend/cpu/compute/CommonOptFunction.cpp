@@ -18,7 +18,7 @@
 #include "math/Vec.hpp"
 #include <vector>
 #include "../CPURuntime.hpp"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 // TODO: Find better way to optimize it
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
@@ -376,7 +376,7 @@ void MNN1BitCopyFast (uint8_t* dstO, const uint8_t* srcO, int size, int stride, 
 #ifdef MNN_USE_SSE
         std::vector<uint8_t> arr(16, val);
         auto val16 = _mm_loadu_ps((float*)arr.data());
-        
+
         for (; cnt >= 16; cnt-=16) {
             _mm_storeu_ps((float*)dstO, val16);
             dstO += 16;
@@ -427,7 +427,7 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
     if (size >= 8) {
         auto sum4_1 = _mm_set_ps1(0.f);
         auto sum4_2 = _mm_set_ps1(0.f);
-        
+
         for (; i < size8; i += 8) {
             auto v4 = _mm_loadu_ps(src);
             auto u4 = _mm_loadu_ps(src + 4);
@@ -435,7 +435,7 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
             sum4_2 = _mm_add_ps(sum4_2, u4);
             src += 8;
         }
-        
+
         sum4_1 = _mm_add_ps(sum4_1, sum4_2);
         _mm_storeu_ps(tmp, sum4_1);
         sum += (tmp[0] + tmp[1] + tmp[2] + tmp[3]);
@@ -823,7 +823,7 @@ void MNNGemmHybridInt8FP32(float* C, const int8_t* A, const int8_t* B, size_t sr
                     }
                 }
             }
-            
+
             // int32->float
             for (int cn = 0; cn < pack; ++cn) {
                 float val = (float)tmp[cn] * scale[0];
@@ -873,7 +873,7 @@ void MNNGemmHybridInt4FP32(float* C, const int8_t* A, const int8_t* B, size_t sr
                     }
                 }
             }
-            
+
             // int32->float
             for (int cn = 0; cn < pack; ++cn) {
                 float val = (float)tmp[cn] * scale[0];
@@ -3333,7 +3333,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
     // Set min value as 1 << 24
     gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
-    
+
     gCoreFunction->MNNPoolingMaxWithRedice = (decltype(gCoreFunction->MNNPoolingMaxWithRedice))(poolingMaxWithRedice<float, -16777216>);
     // ImageProcess Functions
     gCoreFunction->MNNRGBAToBGRA = MNNRGBAToBGRA;
@@ -3353,7 +3353,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNN4BitcopyFast = MNN4BitcopyFast;
     gCoreFunction->MNN2BitcopyFast = MNN2BitcopyFast;
     gCoreFunction->MNN1BitcopyFast = MNN1BitCopyFast;
-    
+
     gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber;
 
     cpuinfo_arm_isa gCPUInfo;

@@ -15,7 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 constexpr int FULSE_THRESHHOLD_NUMERATOR = 10;
 constexpr int FULSE_THRESHHOLD_DENOMINATOR = 10;

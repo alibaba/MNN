@@ -33,6 +33,14 @@ bool OpenCLSymbols::LoadOpenCLLibrary() {
         "libGLES_mali.so",
         "libmali.so",
         "libOpenCL-pixel.so",
+    /*
+    #elif defined(__OHOS__)
+        "/vendor/lib64/chipsetsdk/libGLES_mali.so",
+        "/system/lib64/libGLES_mali.so",
+        "libGLES_mali.so",
+        "/vendor/lib64/chipsetsdk/libhvgr_v200.so",
+        "/vendor/lib64/chipsetsdk/libEGI_imp1.so",
+    */
     #if defined(__aarch64__)
         // Qualcomm Adreno
         "/system/vendor/lib64/libOpenCL.so",
@@ -110,7 +118,7 @@ bool OpenCLSymbols::isSvmError() {
 bool OpenCLSymbols::isPropError() {
     return mPropError;
 }
-    
+
 bool OpenCLSymbols::isQcomError() {
     return mQcomError;
 }
@@ -118,11 +126,11 @@ bool OpenCLSymbols::isQcomError() {
 bool OpenCLSymbols::isGlError() {
     return mGlError;
 }
-    
+
 bool OpenCLSymbols::isCL1_2Error() {
     return mCL_12Error;
 }
-    
+
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #if defined(WIN32)
     handle_ = LoadLibraryA(library_path.c_str());
@@ -133,38 +141,38 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mIsError = true; \
     }
-    
+
 #define MNN_LOAD_SVM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mSvmError = true; \
     }
-   
+
 #define MNN_LOAD_PROP_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mPropError = true; \
     }
-    
+
 #define MNN_LOAD_QCOM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mQcomError = true; \
     }
-    
+
 #define MNN_LOAD_CL_12_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mCL_12Error = true; \
     }
-    
+
 #define MNN_LOAD_GL_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
     if(func_name == nullptr){ \
         mGlError = true; \
     }
-    
+
 #else
     handle_ = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (handle_ == nullptr) {
         return false;
     }
-    
+
     typedef void* (*loadOpenCLPointerFunc)(const char* name);
     typedef void (*enableOpenCLFunc)();
     loadOpenCLPointerFunc loadOpenCLPointer = nullptr;
@@ -180,7 +188,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mIsError = true; \
     }
-    
+
 #define MNN_LOAD_SVM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
     if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
         func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
@@ -188,7 +196,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mSvmError = true; \
     }
-    
+
 #define MNN_LOAD_PROP_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
     if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
         func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
@@ -196,7 +204,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mPropError = true; \
     }
-    
+
 #define MNN_LOAD_QCOM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
     if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
         func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
@@ -204,7 +212,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mQcomError = true; \
     }
-    
+
 #define MNN_LOAD_CL_12_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
     if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
         func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
@@ -212,7 +220,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mCL_12Error = true; \
     }
-    
+
 #define MNN_LOAD_GL_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
     if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
         func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
@@ -220,7 +228,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mGlError = true; \
     }
-    
+
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -277,7 +285,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_CL_12_PTR(clCreateImage);
     MNN_LOAD_CL_12_PTR(clRetainDevice);
     MNN_LOAD_CL_12_PTR(clReleaseDevice);
-    
+
     MNN_LOAD_PROP_PTR(clCreateCommandQueueWithProperties);
     MNN_LOAD_SVM_PTR(clSVMAlloc);
     MNN_LOAD_SVM_PTR(clSVMFree);
@@ -707,7 +715,7 @@ cl_mem CL_API_CALL clCreateFromGLTexture(cl_context context,
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateFromGLTexture;
     MNN_CHECK_NOTNULL(func);
     return func(context, flags, target, miplevel, texture, errcode_ret);
-    
+
 }
 
 cl_int CL_API_CALL clEnqueueAcquireGLObjects(cl_command_queue command_queue,

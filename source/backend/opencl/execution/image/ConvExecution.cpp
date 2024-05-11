@@ -25,28 +25,13 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
     int biasSize             = conv2dParams->bias()->size();
     const float *biasDataPtr = conv2dParams->bias()->data();
     
-    int buffer_size = ALIGN_UP4(biasSize);
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-        buffer_size *= sizeof(half_float::half);
-    } else {
-        buffer_size *= sizeof(float);
-    }
+    int buffer_size = ALIGN_UP4(biasSize) * sizeof(float);
     cl::Buffer biasBuffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     cl_int error;
-    auto biasPtrCL = runtime->commandQueue().enqueueMapBuffer(
-                                                                                        biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
+    auto biasPtrCL = runtime->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(biasPtrCL != nullptr && error == CL_SUCCESS){
-        if(runtime->isWeightCpuTransHalf()){
-            for(int i=0; i<biasSize; i++) {
-                ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
-            }
-            for(int i=biasSize; i<ALIGN_UP4(biasSize); i++) {
-                ((half_float::half*)biasPtrCL)[i] = (half_float::half)(0.0f);
-            }
-        }else{
-            ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
-            ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
-        }
+        ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
+        ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
     }else{
         MNN_ERROR("Map error biasPtrCL == nullptr \n");
     }
@@ -206,12 +191,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         std::shared_ptr<Tensor> filterBuffer(
                                              Tensor::createDevice<float>({outputChannel, inputChannel, kernelWidth, kernelHeight}));
         
-        int buffer_size = filterBuffer->elementSize();
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-            buffer_size *= sizeof(half_float::half);
-        } else {
-            buffer_size *= sizeof(float);
-        }
+        size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
         cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
         filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
         
@@ -219,13 +199,8 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(ptrCL != nullptr && error == CL_SUCCESS) {
             ::memset(ptrCL, 0, buffer_size);
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-                for(int i = 0 ; i < filterBuffer->elementSize(); i++){
-                    ((half_float::half*)ptrCL)[i] = (half_float::half)(filterDataPtr[i]);
-                }
-            }else{
-                ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
-            }
+            ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+            
         }else{
             MNN_ERROR("Map error ptrCL == nullptr \n");
         }
@@ -243,10 +218,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
             mResource->mFilter.get()->buffer().device = (uint64_t)mResource->mKernelBuffer.get();
             MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
-            bool needTrans = false;
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
-                needTrans = true;
-            }
+            bool needTrans = true;
             bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), needTrans);
         } else
 #endif
@@ -255,10 +227,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
             mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
             MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
-            std::string buildOption = "";
-            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
-                buildOption = "-DBUFFER_INP_FP32";
-            }
+            std::string buildOption = "-DBUFFER_INP_FP32";
             imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
         }
     }

@@ -10,7 +10,7 @@
 #include <cstring> // for memset
 #include "Int8FunctionsOpt.h"
 #include "core/Macro.h"
-#include "common/CommonCompute.hpp"
+#include "core/CommonCompute.hpp"
 #include "CommonOptFunction.h"
 #include "math/Vec.hpp"
 
@@ -1537,7 +1537,7 @@ static void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src,
         }
 
         for (int i = 0; i < pack; ++i) {
-            
+
             float val = (dstInt32[i] + bias_z[i]) * scale_z[i];
             int valOut = roundf(val) + offset;
             if (valOut > parameters->maxValue + offset) {
@@ -1615,7 +1615,7 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
         for (int y = 0; y < kernely; ++y) {
             for (int x = 0; x < kernelx; ++x) {
                 const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
-                for (int idx = 0; idx < pack; ++idx) {   
+                for (int idx = 0; idx < pack; ++idx) {
                     results[idx] = std::max(results[idx], *(inputPtr + idx));
                 }
             }
@@ -2125,7 +2125,7 @@ void MNNCoreInt8FunctionInit() {
     // pooling
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
     gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8;
-    
+
     // Norm
     gCoreFunc->MNNNormInt8 = MNNNormInt8;
 
@@ -2143,7 +2143,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 4>;
         // ConvDepthwise
         gCoreFunc->ConvDepthwise3x3LineInt8_ARM82 = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3;
-        
+
     }
     if (core->supportI8mm) {
         // MatMul

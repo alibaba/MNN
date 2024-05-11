@@ -1,3 +1,11 @@
+//
+//  MetalLoop.mm
+//  MNN
+//
+//  Created by MNN on 2023/12/28.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #import "core/Macro.h"
 #import "MetalCast.hpp"
 #import "MetalBinary.hpp"

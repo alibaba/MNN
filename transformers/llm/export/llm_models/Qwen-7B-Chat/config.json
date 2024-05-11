@@ -1,0 +1,37 @@
+{
+  "architectures": [
+    "QWenLMHeadModel"
+  ],
+  "auto_map": {
+    "AutoConfig": "configuration_qwen.QWenConfig",
+    "AutoModelForCausalLM": "modeling_qwen.QWenLMHeadModel"
+  },
+  "attn_dropout_prob": 0.0,
+  "bf16": false,
+  "fp16": false,
+  "fp32": false,
+  "emb_dropout_prob": 0.0,
+  "intermediate_size": 22016,
+  "initializer_range": 0.02,
+  "kv_channels": 128,
+  "layer_norm_epsilon": 1e-06,
+  "model_type": "qwen",
+  "hidden_size": 4096,
+  "num_attention_heads": 32,
+  "num_hidden_layers": 32,
+  "max_position_embeddings": 8192,
+  "no_bias": true,
+  "onnx_safe": null,
+  "rotary_emb_base": 10000,
+  "rotary_pct": 1.0,
+  "scale_attn_weights": true,
+  "seq_length": 2048,
+  "tie_word_embeddings": false,
+  "tokenizer_type": "QWenTokenizer",
+  "transformers_version": "4.31.0",
+  "use_cache": true,
+  "use_flash_attn": "auto",
+  "vocab_size": 151936,
+  "use_dynamic_ntk": true,
+  "use_logn_attn": false
+}

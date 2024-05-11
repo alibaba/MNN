@@ -27,8 +27,12 @@ int main(int argc, char* argv[]) {
     int memory = (int)MNN::BackendConfig::Memory_Normal;
     int thread = 1;
     const char* flag = "";
+    MNN::BackendConfig config;
+    config.precision = (MNN::BackendConfig::PrecisionMode)precision;
+    config.memory = (MNN::BackendConfig::MemoryMode)memory;
+    auto type = MNN_FORWARD_CPU;
     if (argc > 2) {
-        auto type = (MNNForwardType)atoi(argv[2]);
+        type = (MNNForwardType)atoi(argv[2]);
         FUNC_PRINT(type);
         if (argc > 3) {
             precision   = atoi(argv[3]);
@@ -53,11 +57,16 @@ int main(int argc, char* argv[]) {
             MNN_ERROR("Invalid memory mode, use 0 instead\n");
             memory = 0;
         }
-        MNN::BackendConfig config;
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         config.memory = (MNN::BackendConfig::MemoryMode)memory;
-        MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, thread);
     }
+    auto exe = MNN::Express::Executor::newExecutor(type, config, thread);
+    if (exe == nullptr) {
+        MNN_ERROR("Can't create executor with type:%d, exit!\n", type);
+        return 0;
+    }
+    MNN::Express::ExecutorScope scope(exe);
+    exe->setGlobalExecutorConfig(type, config, thread);
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {

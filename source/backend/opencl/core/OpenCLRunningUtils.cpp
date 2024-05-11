@@ -548,9 +548,7 @@ void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h) {
     std::set<std::string> buildOptions;
-    if(runtime->isWeightCpuTransHalf() == false) {
-        buildOptions.emplace("-DBUFFER_INP_FP32");
-    }
+    buildOptions.emplace("-DBUFFER_INP_FP32");
     auto kernelW = runtime->buildKernelWithCache("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
     auto kernel = kernelW->get();
     auto status = kernel.setArg(0, buffer);

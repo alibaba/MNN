@@ -41,24 +41,13 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     std::shared_ptr<Tensor> filterBuffer(
         Tensor::createDevice<float>({outputChannel, inputChannel, kernelHeight, kernelWidth}));
         
-    int buffer_size = filterBuffer->elementSize();
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
-        buffer_size *= sizeof(half_float::half);
-    } else {
-        buffer_size *= sizeof(float);
-    }
+    size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
     cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     cl_int error;
     auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(ptrCL != nullptr && error == CL_SUCCESS){
-        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
-            for(int i=0; i<filterBuffer->elementSize(); i++) {
-                ((half_float::half*)ptrCL)[i] = (half_float::half)(filterDataPtrTransformed[i]);
-            }
-        }else{
-            ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
-        }
+        ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
     }else{
         MNN_ERROR("Map error ptrCL == nullptr \n");
     }
@@ -68,10 +57,7 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     
-    std::string buildOption = "";
-    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
-        buildOption = "-DBUFFER_INP_FP32";
-    }
+    std::string buildOption = "-DBUFFER_INP_FP32";
     imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
         
     mResource->mBuildOptions.emplace("-DBIAS");

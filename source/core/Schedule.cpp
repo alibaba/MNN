@@ -36,7 +36,7 @@ void Schedule::OpResizeCache::addContentIndex(int index) {
     mNeedCompareContent.emplace_back(index);
 }
 
-bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs) {
+bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs, bool& compared) {
     if (!mCanCache) {
         return mPass;
     }
@@ -46,6 +46,7 @@ bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs) {
     if (mInputInfos.size() != inputs.size()) {
         return false;
     }
+    compared = true;
     for (int u=0; u<mInputInfos.size(); ++u) {
         auto des = TensorUtils::getDescribe(inputs[u]);
         if (mInputInfos[u].order != des->dimensionFormat) {
@@ -55,12 +56,10 @@ bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs) {
             return false;
         }
         if (mInputInfos[u].dim.size() != inputs[u]->dimensions()) {
-            mCanCache = false;
             return false;
         }
         for (int v=0; v<mInputInfos[u].dim.size(); ++v) {
             if (mInputInfos[u].dim[v] != inputs[u]->length(v)) {
-                mCanCache = false;
                 return false;
             }
         }
@@ -72,7 +71,6 @@ bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs) {
         auto t = inputs[dim];
         auto& s = mInputInfos[dim];
         if (0 != ::memcmp(s.buffer.data(), t->host<void>(), s.buffer.size())) {
-            mCanCache = false;
             return false;
         }
     }

@@ -71,6 +71,16 @@ bool IsSoftmax(EXPRP expr) {
     return op && op->type() == OpType_Softmax;
 }
 
+bool IsSelect(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Select;
+}
+
+bool IsGatherV2(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_GatherV2;
+}
+
 bool IsSlice(EXPRP expr) {
     const Op* op = expr->get();
     return op && (op->type() == OpType_Slice || op->type() == OpType_StridedSlice || op->type() == OpType_SliceTf);

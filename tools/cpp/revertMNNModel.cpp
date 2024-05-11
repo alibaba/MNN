@@ -16,9 +16,9 @@
 #include <stdlib.h>
 #include <MNN/MNNDefine.h>
 #include "revertMNNModel.hpp"
-#include "common/CommonCompute.hpp"
-#include "common/MemoryFormater.h"
-#include "IDSTEncoder.hpp"
+#include "core/CommonCompute.hpp"
+#include "core/MemoryFormater.h"
+#include "core/IDSTEncoder.hpp"
 #include "core/ConvolutionCommon.hpp"
 
 int SymmetricQuantizeWeight(const float* weight, const int size, int8_t* quantizedWeight, float* scale,
@@ -98,7 +98,7 @@ void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
         const float inputScale = *scale;
         const float outputScale = *scale;
         const int outputChannel = static_cast<int32_t>(op->outputIndexes.size());
-        
+
         auto param = op->main.AsConvolution2D();
         float* originWeight = param->weight.data();
         const int channels = param->common->outputCount;
@@ -108,7 +108,7 @@ void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
         param->common->inputCount = weightSize / (channels * param->common->kernelX * param->common->kernelY);
         std::vector<int8_t> quantizedWeight(weightSize);
         std::vector<float> quantizedWeightScale(channels);
-        
+
         if (originWeight[0] == 0.f && originWeight[1] == 0.f) { // Process weight is null.
             // Initialize originWeight
             std::uniform_real_distribution<double> u(-200, 200);
@@ -117,7 +117,7 @@ void Revert::writeExtraDescribeTensor(float* scale, float* offset) {
                 originWeight[i] = u(e);
             }
         }
-        
+
         SymmetricQuantizeWeight(originWeight, weightSize, quantizedWeight.data(), quantizedWeightScale.data(), channels, 127.0f);
         param->quanParameter = IDSTEncoder::encode(param->weight.data(), quantizedWeightScale, weightSize/channels, channels, false, quantizedWeight.data(), -127.0f);
         param->quanParameter->scaleIn = *scale;

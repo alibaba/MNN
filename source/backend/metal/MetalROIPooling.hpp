@@ -24,6 +24,7 @@ public:
 private:
     float mSpatialScale;
     id<MTLBuffer> mShape;
+    id<MTLComputePipelineState> mPipeline;
 };
 
 } // namespace MNN

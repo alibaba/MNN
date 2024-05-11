@@ -97,7 +97,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT2 dst = (FLOAT2)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT2 dst = (COMPUTE_FLOAT2)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -127,7 +127,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -139,7 +139,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -147,11 +147,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT2)0);
+    dst = fmax(dst, (COMPUTE_FLOAT2)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT2)0, (FLOAT2)6);
+    dst = clamp(dst, (COMPUTE_FLOAT2)0, (COMPUTE_FLOAT2)6);
 #endif
 
     const uint lid_x = lid % 4;
@@ -160,13 +160,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -234,7 +234,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT4 dst = (FLOAT4)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT4 dst = (COMPUTE_FLOAT4)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -264,7 +264,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -276,7 +276,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -284,11 +284,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT4)0);
+    dst = fmax(dst, (COMPUTE_FLOAT4)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT4)0, (FLOAT4)6);
+    dst = clamp(dst, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
     const uint lid_x = lid % 4;
@@ -297,13 +297,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -371,7 +371,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT8 dst = (FLOAT8)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -401,7 +401,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -413,7 +413,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -421,11 +421,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT8)0);
+    dst = fmax(dst, (COMPUTE_FLOAT8)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT8)0, (FLOAT8)6);
+    dst = clamp(dst, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
 
     const uint lid_x = lid % 4;
@@ -434,13 +434,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -507,7 +507,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT2 dst = (FLOAT2)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT2 dst = (COMPUTE_FLOAT2)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -537,7 +537,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -549,7 +549,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -557,11 +557,11 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT2)0);
+    dst = fmax(dst, (COMPUTE_FLOAT2)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT2)0, (FLOAT2)6);
+    dst = clamp(dst, (COMPUTE_FLOAT2)0, (COMPUTE_FLOAT2)6);
 #endif
 
     if(x == 0){
@@ -579,16 +579,16 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 2; i++) {
             if ((f_block*16 + lid < output_channel) && (x + i) < output_width)
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
         }
     }
     else
     {
         if (x + 2 <= output_width || output_width % 2 == 0) {
-            GROUP_WRITE2(output, output_offset, dst);
+            GROUP_WRITE2(output, output_offset, CONVERT_FLOAT2(dst));
         }else{
             for (int i = 0; i < output_width % 2; i++) {
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
             }
         }
     }
@@ -656,7 +656,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT4 dst = (FLOAT4)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT4 dst = (COMPUTE_FLOAT4)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -686,7 +686,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -698,7 +698,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -706,11 +706,11 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT4)0);
+    dst = fmax(dst, (COMPUTE_FLOAT4)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT4)0, (FLOAT4)6);
+    dst = clamp(dst, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
     if(x == 0){
@@ -728,16 +728,16 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 4; i++) {
             if ((f_block*16 + lid < output_channel) && (x + i) < output_width)
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
         }
     }
     else
     {
         if (x + 4 <= output_width || output_width % 4 == 0) {
-            GROUP_WRITE4(output, output_offset, dst);
+            GROUP_WRITE4(output, output_offset, CONVERT_FLOAT4(dst));
         }else{
             for (int i = 0; i < output_width % 4; i++) {
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
             }
         }
     }
@@ -805,7 +805,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
     const uint filter_offset = f_block * filter_os_pitch;
 
     uint bias_offset = f_block * 16;
-    FLOAT8 dst = (FLOAT8)(GROUP_READ(biases, bias_offset));
+    COMPUTE_FLOAT8 dst = (COMPUTE_FLOAT8)(GROUP_READ(biases, bias_offset));
     
     FLOAT line_cache[INPUT_CHANNEL * INPUT_BLOCK_SIZE];
     for (int ic = 0; ic < INPUT_CHANNEL; ic++)
@@ -835,7 +835,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
         {
             uint offset = filter_offset + kh * filter_y_pitch + kw * filter_x_pitch;
     
-            FLOAT wei[INPUT_CHANNEL];
+            COMPUTE_FLOAT wei[INPUT_CHANNEL];
             __attribute__((opencl_unroll_hint(INPUT_CHANNEL)))
             for (int ic = 0; ic < INPUT_CHANNEL; ic++)
                 wei[ic] = GROUP_READ(weights, offset + ic * filter_isv_pitch);
@@ -847,7 +847,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
                 const uint buf_group  = (kw*DILATION_WIDTH + STRIDE_WIDTH * i + (kh*DILATION_HEIGHT) * INPUT_LINE_SIZE) % 16;
     
                 for (int ic = 0; ic < INPUT_CHANNEL; ic++) {
-                    FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
+                    COMPUTE_FLOAT src = GROUP_SHUFFLE(line_cache[ic * INPUT_BLOCK_SIZE + buf_offset], buf_group);
                     dst[i] = mad(wei[ic], src, dst[i]);
                 }
             }
@@ -855,11 +855,11 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
     }
 
 #ifdef RELU
-    dst = fmax(dst, (FLOAT8)0);
+    dst = fmax(dst, (COMPUTE_FLOAT8)0);
 #endif
 
 #ifdef RELU6
-    dst = clamp(dst, (FLOAT8)0, (FLOAT8)6);
+    dst = clamp(dst, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
 
     if(x == 0){
@@ -877,16 +877,16 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 8; i++) {
             if ((f_block*16 + lid < output_channel) && (x + i) < output_width)
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
         }
     }
     else
     {
         if (x + 8 <= output_width || output_width % 8 == 0) {
-            GROUP_WRITE8(output, output_offset, dst);
+            GROUP_WRITE8(output, output_offset, CONVERT_FLOAT8(dst));
         }else{
             for (int i = 0; i < output_width % 8; i++) {
-                output[output_offset + i * output_x_pitch + lid] = dst[i];
+                output[output_offset + i * output_x_pitch + lid] = (FLOAT)dst[i];
             }
         }
     }
