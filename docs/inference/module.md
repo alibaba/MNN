@@ -2,7 +2,7 @@
 ## 概念说明
 `Module`接口可以用于模型训练与模型推理
 - 模型训练时用户可以继承`Module`类增加自己的实现用来训练；
-- 模型推理与`Session`的区别是不需要用户显示resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
+- 模型推理与`Session`的区别是不需要用户显式resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
 ### 相关数据结构
 - `Module` Module接口的核心类，表示一个模型的虚类；实际加载模型时会创建其子类
 - `Executor` 包含若干个`RuntimeManager`，提供内存管理接口，每个`Executor`必须在单线程环境下运行。默认提供全局 `Executor`，需要并发执行时，可自行创建。
