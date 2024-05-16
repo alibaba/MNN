@@ -28,6 +28,7 @@ USE_TORCH    = False
 USE_INTERNAL = False
 USE_RENDER   = False
 USE_SSE      = True
+USE_OPENMP   = False
 
 if len(sys.argv) > 1 and sys.argv[1] != None:
     if "trt" in sys.argv[1]:
@@ -48,6 +49,8 @@ if len(sys.argv) > 1 and sys.argv[1] != None:
         USE_RENDER = True
     if "no_sse" in sys.argv[1]:
         USE_SSE = False
+    if "openmp" in sys.argv[1]:
+        USE_OPENMP = True
 
 print ("USE_INTERNAL:", USE_INTERNAL)
 print ("USE_TRT:", USE_TRT)
@@ -58,6 +61,7 @@ print ("USE_OPENCL:", USE_OPENCL)
 print ("USE_VULKAN:", USE_VULKAN)
 print ("USE_RENDER:", USE_RENDER)
 print ("USE_SSE:", USE_SSE)
+print ("USE_OPENMP:", USE_OPENMP)
 
 def build_deps():
     """ build depency """
@@ -75,6 +79,8 @@ def build_deps():
         extra_opts += ' -DMNN_VULKAN=ON -DMNN_VULKAN_IMAGE=OFF'
     if USE_OPENCL:
         extra_opts += ' -DMNN_OPENCL=ON'
+    extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON' if USE_OPENMP else ' -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF'
+
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" ' + extra_opts +' -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON\
@@ -92,7 +98,7 @@ def build_deps():
         os.system('cmake ' + extra_opts +
             '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-            -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF .. && make MNN MNNTrain MNNConvertDeps -j32')
+             .. && make MNN MNNTrain MNNConvertDeps -j32')
     else:
         extra_opts += ' -DMNN_INTERNAL=ON ' if USE_INTERNAL else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '
