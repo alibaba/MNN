@@ -231,6 +231,31 @@ private:
     virtual VARP gen_position_ids(int seq_len) override;
     virtual bool is_stop(int token_id) override;
 };
+
+class MiniCPM_1_2b : public Llama2_7b {
+public:
+    MiniCPM_1_2b() {
+        model_name_ = "MiniCPM_1_2b";
+        layer_nums_ = 52;
+        key_value_shape_ = {2, 1, 8, 0, 64};
+        hidden_size_ = 1536;
+    }
+private:
+    virtual std::vector<int> tokenizer(const std::string& query) override;
+};
+
+class MiniCPM_2_4b : public Llama2_7b {
+public:
+    MiniCPM_2_4b() {
+        model_name_ = "MiniCPM_1_2b";
+        layer_nums_ = 40;
+        key_value_shape_ = {2, 1, 36, 0, 64};
+        hidden_size_ = 2304;
+    }
+private:
+    virtual std::vector<int> tokenizer(const std::string& query) override;
+};
+
 class Llama3_8b : public Llama2_7b {
 public:
     Llama3_8b() {

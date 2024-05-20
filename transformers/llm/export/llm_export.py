@@ -922,7 +922,7 @@ class Llama2_7b_Chat(LLM):
         # some wrapper
         self.hidden_size = self.embed_.weight.shape[-1]
         self.stop_id = self.tokenizer.eos_token_id
-        if hasattr(model, 'generation_config'):
+        if hasattr(self.model, 'generation_config'):
             self.stop_ids.append(self.stop_id)
             self.stop_ids.append(self.model.generation_config.eos_token_id)
         if self.model_name == 'Llama3_8B':
@@ -1199,6 +1199,8 @@ if __name__ == '__main__':
         'TinyLlama-1_1B-Chat': Llama2_7b_Chat,
         'Yi-6B-Chat': Llama2_7b_Chat,
         'deepseek-llm-7b-chat': Llama2_7b_Chat,
+        'MiniCPM-1.2b': Llama2_7b_Chat,
+        'MiniCPM-2.4b': Llama2_7b_Chat,
         'phi-2': phi_2,
         'bge-large-zh': bge,
         'lora': LoraModule

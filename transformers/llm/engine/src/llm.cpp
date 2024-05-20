@@ -90,6 +90,10 @@ Llm* Llm::createLLM(const std::string& path, std::string model_type, int forward
     } else if (model_type.find("llama3") != std::string::npos) {
         llm = new Llama3_8b;
         llm->model_name_ = "Llama3_8b";
+    } else if (model_type.find("MiniCPM_1_2b") != std::string::npos) {
+        llm = new MiniCPM_1_2b;
+    } else if (model_type.find("MiniCPM_2_4b") != std::string::npos) {
+        llm = new MiniCPM_2_4b;
     }
     if (!llm) {
         std::cerr << "model type can't judge!" << std::endl;
@@ -789,6 +793,22 @@ bool Llama2_7b::is_stop(int token_id) {
         return token_id == 100001;
     }
     return token_id == 2;
+}
+
+std::vector<int> MiniCPM_1_2b::tokenizer(const std::string& query) {
+    auto ids = tokenizer_encode(query);
+    // auto prompt = "<用户>" + query + "<AI>";
+    ids.insert(ids.begin(), {59396, 4194, 59388});
+    ids.insert(ids.end(), {59396, 10850, 59388});
+    return ids;
+}
+
+std::vector<int> MiniCPM_2_4b::tokenizer(const std::string& query) {
+    auto ids = tokenizer_encode(query);
+    // auto prompt = "<用户>" + query + "<AI>";
+    ids.insert(ids.begin(), {95396, 4194, 95388});
+    ids.insert(ids.end(), {95396, 10850, 95388});
+    return ids;
 }
 
 std::vector<int> Qwen2::tokenizer(const std::string& query) {
