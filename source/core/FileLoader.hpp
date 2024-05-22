@@ -9,6 +9,8 @@
 #define MNN_FileLoader_hpp
 #include <vector>
 #include <mutex>
+#include <string>
+
 #include "core/AutoStorage.h"
 namespace MNN {
 class MNN_PUBLIC FileLoader {
