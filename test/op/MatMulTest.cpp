@@ -174,6 +174,17 @@ public:
 protected:
     virtual bool run(int precision) {
         {
+            // Test avoid crash
+            int e = 5, l = 5, h = 4;
+            // Use Conv1x1 instead of MatMul
+            auto x0 = MNN::Express::_Input({1, l, e, 1}, NC4HW4, halide_type_of<float>());
+            auto y = _Conv(0.0f, 0.0f, x0, {l, h}, {1, 1});
+            Variable::prepareCompute({y});
+            //Prepare
+            x0->writeMap<float>();
+            y->readMap<float>();
+        }
+        {
             bool succ = MatMulCommonTest::test(MNN_FORWARD_CPU, "device_name", "MatMul", 2, 2, 2,
                                                1, true, false, precision, true);
             if (!succ) {

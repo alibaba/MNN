@@ -59,6 +59,23 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
     }
 }
 
+void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
+    // TODO: support sse
+    int w = dim[0];
+    int h = dim[1];
+    int srcStride = dim[2];
+    int dstStride = dim[3];
+    for (int i=0; i<h; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j=0; j<w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+}
+
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     auto areaC4  = area / 4;
     auto depthC4 = depth / 4;

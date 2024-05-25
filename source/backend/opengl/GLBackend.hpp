@@ -99,7 +99,7 @@ public:
 
     virtual void onExecuteEnd() const override;
 
-    ErrorCode onResizeEnd() { return NO_ERROR; }
+    virtual ErrorCode onResizeEnd() override { return NO_ERROR; }
 
     /// get execution
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

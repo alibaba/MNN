@@ -130,7 +130,7 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
         }
     }
 }
-void GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, int kw, int batch, int oh, int ow, int ih,
+std::shared_ptr<Tensor> GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, int kw, int batch, int oh, int ow, int ih,
                                int iw, int sh, int sw, int dh, int dw, std::pair<int, int> pads, int srcKernelOffset, Tensor* padVal) {
     im2Col->buffer().type       = halide_type_of<float>();
     im2Col->buffer().dimensions = 2;
@@ -141,83 +141,110 @@ void GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, in
     des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
-    if (padVal == nullptr) {
-        des->regions.reserve(batch * kw * kh);
+    std::shared_ptr<Tensor> tempTensor;
+    if (batch > 1) {
+        tempTensor.reset(new Tensor);
+        tempTensor->buffer().type       = halide_type_of<float>();
+        tempTensor->buffer().dimensions = 2;
+        tempTensor->setLength(0, kw * kh * ic * batch);
+        tempTensor->setLength(1, ow * oh);
+        TensorUtils::setLinearLayout(tempTensor.get());
+        des = TensorUtils::getDescribe(tempTensor.get());
+        des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     }
-    int dstStrideChannel = batch * oh * ow * kh * kw;
+    des->regions.reserve(kw * kh);
+    int dstStrideChannel = oh * ow * kh * kw;
     int srcStrideChannel = iw * ih;
-    for (int n = 0; n < batch; ++n) {
-        auto dstOffset = ow * oh * n;
-        auto srcOffset = n * ic * iw * ih;
-        for (int ky = 0; ky < kh; ++ky) {
-            auto startSy = ky * dh - pads.second;
-            int startDy  = 0;
-            int upPad = 0, belowPad = 0;
-            if (startSy < 0) {
-                startDy = ((-startSy) + sh - 1) / sh;
-                startSy = startSy + startDy * sh;
-                upPad = startDy * ow;
+    auto dstOffset = 0;
+    auto srcOffset = 0;
+    for (int ky = 0; ky < kh; ++ky) {
+        auto startSy = ky * dh - pads.second;
+        int startDy  = 0;
+        int upPad = 0, belowPad = 0;
+        if (startSy < 0) {
+            startDy = ((-startSy) + sh - 1) / sh;
+            startSy = startSy + startDy * sh;
+            upPad = startDy * ow;
+        }
+        auto endDy = oh - 1;
+        auto endSy = endDy * sh + ky * dh - pads.second;
+        if (endSy >= ih) {
+            endDy = endDy - (endSy - ih + sh) / sh;
+            endSy = endDy * sh + ky * dh - pads.second;
+            belowPad = (oh - endDy - 1) * ow;
+        }
+        if (startDy > endDy || endDy < 0 || startSy >= ih) {
+            continue;
+        }
+        auto dstOffsetKy = dstOffset + ky * kw * ow * oh + startDy * ow;
+        auto srcOffsetKy = srcOffset + startSy * iw;
+        for (int kx = 0; kx < kw; ++kx) {
+            auto startSx = kx * dw - pads.first;
+            int startDx  = 0;
+            int leftPad = 0, rightPad = 0;
+            if (startSx < 0) {
+                startDx = ((-startSx) + sw - 1) / sw;
+                startSx = startSx + startDx * sw;
+                leftPad = startDx;
             }
-            auto endDy = oh - 1;
-            auto endSy = endDy * sh + ky * dh - pads.second;
-            if (endSy >= ih) {
-                endDy = endDy - (endSy - ih + sh) / sh;
-                endSy = endDy * sh + ky * dh - pads.second;
-                belowPad = (oh - endDy - 1) * ow;
+            auto endDx = ow - 1;
+            auto endSx = endDx * sw + kx * dw - pads.first;
+            if (endSx >= iw) {
+                endDx = endDx - (endSx - iw + sw) / sw;
+                endSx = endDx * sw + kx * dw - pads.first;
+                rightPad = ow - endDx - 1;
             }
-            if (startDy > endDy || endDy < 0 || startSy >= ih) {
+            if (startDx > endDx || endDx < 0 || startSx >= iw) {
                 continue;
             }
-            auto dstOffsetKy = dstOffset + ky * kw * ow * oh * batch + startDy * ow;
-            auto srcOffsetKy = srcOffset + startSy * iw;
-            for (int kx = 0; kx < kw; ++kx) {
-                auto startSx = kx * dw - pads.first;
-                int startDx  = 0;
-                int leftPad = 0, rightPad = 0;
-                if (startSx < 0) {
-                    startDx = ((-startSx) + sw - 1) / sw;
-                    startSx = startSx + startDx * sw;
-                    leftPad = startDx;
-                }
-                auto endDx = ow - 1;
-                auto endSx = endDx * sw + kx * dw - pads.first;
-                if (endSx >= iw) {
-                    endDx = endDx - (endSx - iw + sw) / sw;
-                    endSx = endDx * sw + kx * dw - pads.first;
-                    rightPad = ow - endDx - 1;
-                }
-                if (startDx > endDx || endDx < 0 || startSx >= iw) {
-                    continue;
-                }
-                auto dstOffsetKx = dstOffsetKy + kx * ow * oh * batch + startDx;
-                auto srcOffsetKx = srcOffsetKy + startSx + srcKernelOffset * (kx + ky * kw);
-                const int ohExcludePad = endDy - startDy + 1;
-                const int owExcludePad = endDx - startDx + 1;
-                // if given padVal, pad value will use padVa otherwise use zero
-                if (padVal) {
-                    ADD_PAD_VALUE(up, -(startDx+upPad), 1, 0);
-                    ADD_PAD_VALUE(below, ohExcludePad * ow - startDx, 1, 0);
-                    ADD_PAD_VALUE(left, -leftPad, ohExcludePad, ow);
-                    ADD_PAD_VALUE(right, owExcludePad, ohExcludePad, ow);
-                }
-                Tensor::InsideDescribe::Region region;
-                region.origin        = input;
-                region.size[0]       = ic;
-                region.size[1]       = ohExcludePad;
-                region.size[2]       = owExcludePad;
-                region.src.offset    = srcOffsetKx;
-                region.dst.offset    = dstOffsetKx;
-                region.src.stride[0] = srcStrideChannel;
-                region.dst.stride[0] = dstStrideChannel;
-                region.src.stride[1] = sh * iw;
-                region.dst.stride[1] = ow;
-                region.src.stride[2] = sw;
-                region.dst.stride[2] = 1;
-                des->regions.emplace_back(std::move(region));
+            auto dstOffsetKx = dstOffsetKy + kx * ow * oh + startDx;
+            auto srcOffsetKx = srcOffsetKy + startSx + srcKernelOffset * (kx + ky * kw);
+            const int ohExcludePad = endDy - startDy + 1;
+            const int owExcludePad = endDx - startDx + 1;
+            // if given padVal, pad value will use padVa otherwise use zero
+            if (padVal) {
+                ADD_PAD_VALUE(up, -(startDx+upPad), 1, 0);
+                ADD_PAD_VALUE(below, ohExcludePad * ow - startDx, 1, 0);
+                ADD_PAD_VALUE(left, -leftPad, ohExcludePad, ow);
+                ADD_PAD_VALUE(right, owExcludePad, ohExcludePad, ow);
             }
+            Tensor::InsideDescribe::Region region;
+            region.origin        = input;
+            region.size[0]       = ic * batch;
+            region.size[1]       = ohExcludePad;
+            region.size[2]       = owExcludePad;
+            region.src.offset    = srcOffsetKx;
+            region.dst.offset    = dstOffsetKx;
+            region.src.stride[0] = srcStrideChannel;
+            region.dst.stride[0] = dstStrideChannel;
+            region.src.stride[1] = sh * iw;
+            region.dst.stride[1] = ow;
+            region.src.stride[2] = sw;
+            region.dst.stride[2] = 1;
+            des->regions.emplace_back(std::move(region));
         }
-        // MNN_ASSERT(des->regions.size() > 0);
     }
+    if (batch > 1) {
+        // Transpose: batch, ic, kh, kw, oh, ow -> ic, kh, kw, batch, oh, ow
+        auto destDes = TensorUtils::getDescribe(im2Col);
+        destDes->regions.resize(1);
+        auto& reg = destDes->regions[0];
+        reg.size[0] = ic * kh * kw;
+        reg.size[1] = batch;
+        reg.size[2] = oh * ow;
+        reg.src.offset = 0;
+        reg.src.stride[0] = reg.size[2];
+        reg.src.stride[1] = reg.size[2] * reg.size[0];
+        reg.src.stride[2] = 1;
+
+        reg.dst.offset = 0;
+        reg.dst.stride[0] = reg.size[2] * batch;
+        reg.dst.stride[1] = reg.size[2];
+        reg.dst.stride[2] = 1;
+        reg.origin = tempTensor.get();
+    }
+    return tempTensor;
 }
 bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, GeometryComputer::Context& context, CommandBuffer& res) {
     auto newOutputs   = outputs;
@@ -236,7 +263,7 @@ bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& 
         newOutputs[0] = output;
         res.extras.emplace_back(newOutput);
     }
-    SharedPtr<Command> cmd(new Command);
+    std::shared_ptr<Command> cmd(new Command);
     cmd->op      = op;
     cmd->inputs  = std::move(newInputs);
     cmd->outputs = std::move(newOutputs);

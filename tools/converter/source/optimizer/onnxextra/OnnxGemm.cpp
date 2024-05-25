@@ -11,6 +11,15 @@
 
 namespace MNN {
 namespace Express {
+static VARP _MatMul_Int8(VARP a, VARP b, bool tranposeA, bool tranposeB, VARP scaleA, VARP zeroA, VARP scaleB, VARP zeroB, VARP ScaleOut, VARP ScaleZero, VARP bias = nullptr) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->main.type                   = OpParameter_MatMul;
+    op->type                        = OpType_MatMul;
+    op->main.value                  = new MatMulT;
+    op->main.AsMatMul()->transposeA = tranposeA;
+    op->main.AsMatMul()->transposeB = tranposeB;
+    return (Variable::create(Expr::create(op.get(), {a, b, scaleA, zeroA, scaleB, zeroB, ScaleOut, ScaleZero, bias})));
+}
 
 class OnnxGemmTransform : public OnnxExtraManager::Transform {
 public:
@@ -21,6 +30,7 @@ public:
         bool transB = false;
         float alpha = 1.0f;
         float beta  = 1.0f;
+        bool op8 = false;
 
         auto extraParam    = op->main_as_Extra();
         const int attrSize = extraParam->attr()->size();
@@ -46,7 +56,32 @@ public:
         }
         auto X = inputs[0];
         auto Y = inputs[1];
+        auto x_expr = X->expr().first;
+        auto y_expr = Y->expr().first;
         auto Z = _MatMul(X, Y, transA, transB);
+        if (x_expr->get() && y_expr->get() && x_expr->get()->type() == OpType_Int8ToFloat && y_expr->get()->type() == OpType_Int8ToFloat) {
+            // input quant info
+            auto y_int8 = y_expr->inputs().at(0);
+            auto y_scale = y_expr->inputs().at(2);
+            auto y_zero = y_expr->inputs().at(3);
+            auto x_int8 = x_expr->inputs().at(0);
+            auto x_scale = x_expr->inputs().at(2);
+            auto x_zero = x_expr->inputs().at(3);
+            // output quant info
+            auto outputExpr = expr->outputs().front().lock();
+            auto outputScaleVar = outputExpr->inputs()[1];
+            auto outputZero = outputExpr->inputs()[2];
+            
+            Z = _MatMul_Int8(X, y_int8, transA, transB, x_scale, x_zero, y_scale, y_zero, outputScaleVar, outputZero);
+            if (inputs.size() > 2) {
+                auto bias_expr = inputs[2]->expr().first;
+                auto bias_int32 = bias_expr->inputs().at(0);
+                Z = _MatMul_Int8(X, y_int8, transA, transB, x_scale, x_zero, y_scale, y_zero, outputScaleVar, outputZero, bias_int32);
+            }
+            Z->setName(expr->name());
+            return Z->expr().first;
+        }
+        
         if (1.0f != alpha) {
             Z = Z * _Scalar<float>(alpha);
         }

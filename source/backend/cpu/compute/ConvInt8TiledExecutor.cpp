@@ -231,6 +231,10 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     } else {
         quanParam.minValue = mMutableResource.mClampMin;
     }
+    int dstBytes = static_cast<CPUBackend*>(backend())->getBytes(backend(), output);
+    if (dstBytes != 1) {
+        quanParam.useInt8 = 0;
+    }
     //MNN_PRINT("max: %d, min: %d\n", quanParam.maxValue, quanParam.minValue);
     const int col_buffer_unit_size = mIm2ColParamter.kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     auto col_buffer_size = col_buffer_unit_size * mIm2ColCount;
@@ -262,13 +266,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             if (number > 0) {
                 blitProc(colAddr, srcPtr, info, el);
             }
-            auto outputInTilePtr = outputDataPtr + xIndexStart * PackUnit;
+            auto outputInTilePtr = outputDataPtr + xIndexStart * PackUnit * dstBytes;
             auto colAddrTemp = colAddr;
             do {
                 int step = ALIMIN(DST_XUNIT, realDstCount);
-                mGemmKernel(outputInTilePtr, colAddrTemp, weightDataPtr, kernelCountUnitDouble, dstZStep, ocDiv4, &quanParam, step);
+                mGemmKernel(outputInTilePtr, colAddrTemp, weightDataPtr, kernelCountUnitDouble, dstZStep * dstBytes, ocDiv4, &quanParam, step);
                 realDstCount-=step;
-                outputInTilePtr += DST_XUNIT * PackUnit;
+                outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
                 colAddrTemp += col_buffer_unit_size;
             } while(realDstCount > 0);
         }

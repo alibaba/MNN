@@ -12,9 +12,9 @@
 #include "MNN_generated.h"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
-#include "common/CommonCompute.hpp"
-#include "common/MemoryFormater.h"
-#include "common/WinogradInt8Attr.hpp"
+#include "core/CommonCompute.hpp"
+#include "core/MemoryFormater.h"
+#include "core/WinogradInt8Attr.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
 
@@ -271,7 +271,7 @@ protected:
             // warm up, do onResize first for shapeDirty
             x->writeMap<float>();
             y->readMap<float>();
-            
+
             MNN::Timer _t;
             const int LOOP = 100;
             for (int i = 0; i < LOOP; ++i) {
@@ -442,10 +442,10 @@ class ConvInt8WinogradTestCommon : public MNNTestCase {
 public:
     static VARP referenceWinograd(const VARP xInt, const std::vector<int8_t>& weight, const std::vector<float>& wScale, const std::vector<float>& bias, INTS kernel, INTS channel, INTS pads, const WinogradInt8Attr::Attr& attr, float xScale, float yScale, int8_t xZeroPoint, int8_t yZeroPoint, bool relu) {
         auto clamp = [](VARP x) {return _Maximum(_Minimum(x, _Scalar<float>(127)), _Scalar<float>(-127));};
-        
+
         //auto round = [](VARP x) { return _Round(x); };
         auto roundWithEps = [](VARP x) { return _Round(x + _Sign(x) * _Scalar<float>(1e-6)); };
-        
+
         auto inDims = xInt->getInfo()->dim;
         int batch = inDims[0], inH = inDims[2], inW = inDims[3];
         int outChannel = channel[1], inChannel = channel[0], kernelH = kernel[1], kernelW = kernel[0];
@@ -453,10 +453,10 @@ public:
         int outH = inH + 2 * padH - kernelH + 1, outW = inW + 2 * padW - kernelW + 1;
         int unitH = attr.unitY, unitW = attr.unitX, unitNumH = UP_DIV(outH, unitH), unitNumW = UP_DIV(outW, unitW);
         int alphaH = unitH + kernelH - 1, alphaW = unitW + kernelW - 1;
-        
+
         int needH = unitNumH * unitH + kernelH - 1, needW = unitNumW * unitW + kernelW - 1;
         int paddings[] = {0, 0, 0, 0, padH, needH - inH - padH, padW, needW - inW - padW};
-        
+
         auto xx = _Int8ToFloat(xInt, _Scalar<float>(xScale), xZeroPoint);
         xx = _Convert(xx, NCHW);
         xx = _Pad(xx, _Const(paddings, {8}, NCHW, halide_type_of<int32_t>()));
@@ -470,12 +470,12 @@ public:
         xx = _MatMul(_MatMul(_Transpose(srcTransH, {1, 0}), xx), srcTransW);
         // [alphaH * alphaW, ic, N * h_unit_num * w_unit_num]
         xx = _Reshape(_Transpose(xx, {2, 3, 1, 0}), {alphaH * alphaW, inChannel, -1});
-        
+
         // simulate input asym quant
         auto xxScale = _Const(attr.inputScales.data(), {alphaH * alphaW, 1, 1}, NCHW);
         auto xxZeroPoint = _Cast<float>(_Const(attr.inputZeroPoints.data(), {alphaH * alphaW, 1, 1}, NCHW, halide_type_of<int>()));
         xx = (clamp(_Round(xx / xxScale + xxZeroPoint)) - xxZeroPoint) * xxScale;
-        
+
         auto w = _Const(weight.data(), {outChannel, inChannel, kernelH, kernelW}, NCHW, halide_type_of<int8_t>());
         w = _Cast<float>(w) * _Const(wScale.data(), {outChannel, 1, 1, 1}, NCHW);
         auto wTransH = _Const(genH.G()->host<void>(), {alphaH, kernelH}, NCHW);
@@ -539,11 +539,11 @@ public:
                     }
                 }
             }
-            
+
             x = _Convert(x, NC4HW4);
             // For sse we use uint8 instead of int8, use FloatToInt8 to hidden detail
             x = _FloatToInt8(x, _Scalar<float>(1.0 / xScale), -127, 127, xZeroPoint);
-            
+
             WinogradInt8Attr attrs;
             std::vector<float> transInputScales(alpha2, 0.9), transWeightScales(alpha2 * oc, 1.1);
             std::vector<int> transInputZeroPoint(alpha2, 1);
@@ -553,7 +553,7 @@ public:
                            kernel, CAFFE, {1, 1}, {1, 1}, 1, pads, relu, xScale, yScale, xZeroPoint, yZeroPoint,
                            -127, 127, 127, false);
             y = attrs.turnToWinogradConv(y);
-            
+
             yTarget = _Convert(_Cast<int>(_Int8ToFloat(yTarget, _Scalar<float>(1.0))), NCHW);
             y = _Convert(_Cast<int>(_Int8ToFloat(y, _Scalar<float>(1.0))), NCHW);
             auto yTargetInfo = yTarget->getInfo(), yInfo = y->getInfo();
@@ -575,7 +575,7 @@ public:
                 // warm up, do onResize first for shapeDirty
                 x->writeMap<float>();
                 y->readMap<float>();
-                
+
                 MNN::Timer _t;
                 const int LOOP = 20;
                 for (int i = 0; i < LOOP; ++i) {
@@ -626,7 +626,7 @@ class ConvSpeedInt8WinogradTest : public ConvInt8WinogradTestCommon {
         std::vector<INTS> kernels = {
             {3, 3}//, {5, 5}, {7, 1}, {1, 7} // {w, h}
         };
-        
+
         std::vector<std::string> titles = {"3x3", "5x5", "1x7", "7x1"};
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], channel, pad, {4, 4}, true, titles[i] + ",alpha=4");

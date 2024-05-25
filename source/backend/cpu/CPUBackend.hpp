@@ -33,7 +33,6 @@ public:
     void onConcurrencyEnd() const;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
-
 private:
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
@@ -79,6 +78,8 @@ public:
 
     // Return sizeDivide, scheduleNumber aligned memory
     std::pair<int, int> multiThreadDivide(int size) const;
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
+
 public:
     virtual MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onClearBuffer() override;
@@ -89,7 +90,10 @@ public:
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
-    
+    virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
+
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
+
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
 
@@ -115,7 +119,7 @@ public:
     }
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
-        return mDynamicAllocator.get();
+        return mCurrentDynamicAllocator;
     }
 
     BackendConfig::MemoryMode memoryMode() const {
@@ -145,11 +149,14 @@ protected:
 private:
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
+    std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     CPUResizeCache* mCache;
+    std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
+    BufferAllocator* mCurrentDynamicAllocator = nullptr;
 };
 /** execution cast wrapper. insert tensor cast dynamic. */
 class CastWrapExecution : public Execution {
@@ -180,6 +187,18 @@ private:
     void ___##name##__##opType##__() {            \
     }
 #endif
+
+#define REGISTER_CPU_OP_CREATOR_RENDER(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static name _temp;\
+        CPUBackend::addCreator(opType, &_temp); \
+    }
+
+#define REGISTER_CPU_OP_CREATOR_TRANSFORMER(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        static name _temp;\
+        CPUBackend::addCreator(opType, &_temp); \
+    }
 
 } // namespace MNN
 

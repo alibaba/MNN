@@ -19,14 +19,27 @@ namespace helpers {
 bool IsConstant(Express::EXPRP expr);
 bool IsBinaryOp(Express::EXPRP expr);
 bool IsUnaryOp(Express::EXPRP expr);
+bool IsCast(Express::EXPRP expr);
+bool IsConcat(Express::EXPRP expr);
+bool IsReshape(Express::EXPRP expr);
+bool IsUnsqueeze(Express::EXPRP expr);
+bool IsTranspose(Express::EXPRP expr);
+bool IsScatterNd(Express::EXPRP expr);
+bool IsMatMul(Express::EXPRP expr);
+bool IsSoftmax(Express::EXPRP expr);
+bool IsSlice(Express::EXPRP expr);
+bool IsSelect(Express::EXPRP expr);
+bool IsGatherV2(Express::EXPRP expr);
 
 bool IsBinaryAdd(Express::EXPRP expr);
 bool IsBinarySub(Express::EXPRP expr);
 bool IsBinaryMul(Express::EXPRP expr);
-
+bool IsBinaryRealDiv(Express::EXPRP expr);
+bool IsBinaryPow(Express::EXPRP expr);
 bool IsBinarySquaredDifference(Express::EXPRP expr);
 
 bool IsUnarySquare(Express::EXPRP expr);
+bool IsUnarySqrt(Express::EXPRP expr);
 bool IsUnaryRsqrt(Express::EXPRP expr);
 bool IsUnaryNeg(Express::EXPRP expr);
 

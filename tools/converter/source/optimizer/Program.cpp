@@ -24,7 +24,7 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
 }
 
 void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists,
-                    MNN::OpT* op, const std::vector<std::string>& tensorName, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes) {
+                    MNN::OpT* op, const std::vector<std::string>& tensorName, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes, const MNN::NetT* net) {
     if (invalidSet.find(op) != invalidSet.end()) {
         return;
     }
@@ -46,7 +46,7 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
             for (int j = 0; j < oplists.size(); ++j) {
                 for (auto outputIndex : oplists[j]->outputIndexes) {
                     if (outputIndex == input) {
-                        createUnit(varMap, inputIndexes, oplists, oplists[j].get(), tensorName, invalidSet, extraInputIndexes);
+                        createUnit(varMap, inputIndexes, oplists, oplists[j].get(), tensorName, invalidSet, extraInputIndexes, net);
                     }
                 }
             }
@@ -69,32 +69,21 @@ void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputInd
         }
         auto newVar = Variable::create(expr, j);
         newVar->setName(tensorName[outputIndexes[j]]);
+        if (op->type != OpType_ConvertTensor && nullptr != net && !net->extraTensorDescribe.empty()) {
+            auto& extraDescribes = net->extraTensorDescribe;
+            int idx = outputIndexes[j];
+            if (idx < extraDescribes.size() && nullptr != extraDescribes[idx] && nullptr != extraDescribes[idx]->quantInfo) {
+                float scale = extraDescribes[idx]->quantInfo->scale;
+                float zero = extraDescribes[idx]->quantInfo->zero;
+                newVar->writeScaleMap(scale, zero);
+            }
+        }
         varMap[outputIndexes[j]] = newVar;
     }
 }
 
 VARPS Program::input(const std::unordered_map<std::string, VARP>& inputs, bool lazy) {
     VARPS inputUpdate;
-    for (auto& it : mVars) {
-        auto var = it.second;
-        auto expr = var->expr().first;
-        if (expr->get() != nullptr || expr->inputType() != VARP::INPUT) {
-            continue;
-        }
-        if (inputs.count(var->name())) {
-            VARP input = inputs.at(var->name());
-            inputUpdate.emplace_back(var);
-            if (lazy) {
-                // only replace expr, not do getInfo, avoid unnecessary getInfo error
-                // replace will override var(and expr)'s name, remain them so we can track input var
-                // origin input var will be used when save program to net
-                mOriginInputs.emplace_back(var, var->expr().first, var->expr().second);
-                var->setExpr(input->expr().first, input->expr().second);
-            } else {
-                var->input(input);
-            }
-        }
-    }
     return inputUpdate;
 }
 
@@ -108,7 +97,7 @@ void Program::save(MNN::NetT* net) {
 }
 
 std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra, bool saveAllVars) {
-    return create(net->oplists, net->tensorName, net->outputName, supportExtra, saveAllVars);
+    return create(net->oplists, net->tensorName, net->outputName, supportExtra, saveAllVars, net);
 }
 
 std::shared_ptr<Program> Program::create(const MNN::SubGraphProtoT* subgraph, bool supportExtra, bool saveAllVars) {
@@ -119,13 +108,13 @@ std::shared_ptr<Program> Program::create(const MNN::SubGraphProtoT* subgraph, bo
     return create(subgraph->nodes, subgraph->tensors, outputName, supportExtra, saveAllVars);
 }
 
-std::shared_ptr<Program> Program::create(const std::vector<std::unique_ptr<OpT>>& oplists, const std::vector<std::string>& tensorName, const std::vector<std::string>& outputName, bool supportExtra, bool saveAllVars) {
+std::shared_ptr<Program> Program::create(const std::vector<std::unique_ptr<OpT>>& oplists, const std::vector<std::string>& tensorName, const std::vector<std::string>& outputName, bool supportExtra, bool saveAllVars, const MNN::NetT* net) {
     std::map<int, VARP> varMap;
     std::vector<int> inputIndexes;
     std::set<int> extraInputIndexes;
     for (int index = 0; index < oplists.size(); ++index) {
         std::set<OpT*> invalidSet;
-        createUnit(varMap, inputIndexes, oplists, oplists[index].get(), tensorName, invalidSet, extraInputIndexes);
+        createUnit(varMap, inputIndexes, oplists, oplists[index].get(), tensorName, invalidSet, extraInputIndexes, net);
     }
     std::map<std::string, VARP> outputs;
     for (auto& iter : varMap) {
@@ -148,13 +137,22 @@ std::shared_ptr<Program> Program::create(const std::vector<std::unique_ptr<OpT>>
     }
     std::shared_ptr<Program> newProgram(new Program);
     Program& program = *newProgram;
-    if (saveAllVars) {
-        program.mVars    = std::move(varMap);
-    }
     for (auto output : outputs) {
         program.mOutputs.emplace_back(output.second);
     }
     return newProgram;
+}
+
+void Program::updateVars(std::map<std::string, VARP> map, std::vector<std::string> tensorName) {
+    for (auto& iter: mVars) {
+        if (iter.first < tensorName.size() && iter.first >= 0) {
+            auto name = tensorName[iter.first];
+            if (map.find(name) != map.end()) {
+                auto var_ = map[name];
+                mVars[iter.first] = var_;
+            }
+        }
+    }
 }
 } // namespace Express
 } // namespace MNN

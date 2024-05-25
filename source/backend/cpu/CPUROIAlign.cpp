@@ -13,16 +13,6 @@
 #include "CPUTensorConvert.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/TensorUtils.hpp"
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
-#ifdef MNN_USE_SSE
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-#endif
 
 namespace MNN {
 
@@ -44,13 +34,28 @@ ErrorCode CPUROIAlign::onResize(const std::vector<Tensor*>& inputs, const std::v
     auto& roi = inputs[1]->buffer();
 
     mROI.buffer().dimensions = roi.dimensions;
-    mROI.buffer().type = halide_type_of<int>();// Use int32 instead of float to ensure the backend alloc 4 byte unit
+    mROI.buffer().type = halide_type_of<float>();
     memcpy(mROI.buffer().dim, roi.dim, sizeof(halide_dimension_t) * roi.dimensions);
     TensorUtils::getDescribe(&mROI)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     TensorUtils::setLinearLayout(&mROI);
-
-    backend()->onAcquireBuffer(&mROI, Backend::DYNAMIC);
+    auto core    = static_cast<CPUBackend*>(backend())->functions();
+    if (core->bytes < 4) {
+        mROITemp.reset(MNN::Tensor::createDevice<int32_t>({mROI.elementSize()}));
+    }
+    auto res = backend()->onAcquireBuffer(&mROI, Backend::DYNAMIC);
+    if (!res) {
+        return OUT_OF_MEMORY;
+    }
+    if (core->bytes < 4) {
+        res = backend()->onAcquireBuffer(mROITemp.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+    }
     backend()->onReleaseBuffer(&mROI, Backend::DYNAMIC);
+    if (core->bytes < 4) {
+        backend()->onReleaseBuffer(mROITemp.get(), Backend::DYNAMIC);
+    }
 
     return NO_ERROR;
 }
@@ -64,8 +69,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
 
     // dataType of ROI must be float32.
     Tensor *roiTensor = &mROI;
+    auto roiPtrSrc = roiTensor->host<float>();
     if (core->bytes != 4) {
-        core->MNNLowpToFp32(mROI.host<int16_t>(), mROI.host<float>(), mROI.elementSize());
+        core->MNNLowpToFp32(mROI.host<int16_t>(), mROITemp->host<float>(), mROI.elementSize());
+        roiPtrSrc = mROITemp->host<float>();
     }
 
     if (mOutputGrad == false) {
@@ -79,7 +86,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
 
         for (int n = 0; n < numROI; ++n) {
             auto batchOutput = output->host<uint8_t>() + os * n * core->bytes;
-            auto roiPtr      = roiTensor->host<float>() + rs * n;
+            auto roiPtr      = roiPtrSrc + rs * n;
             int batchIdx     = (int)roiPtr[0], idxRoi = 1;
             if (inputs.size() == 3) {
                 batchIdx = inputs[2]->host<int>()[n];
@@ -139,9 +146,10 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
         auto numSlice     = UP_DIV(input->channel(), core->pack);
         float alignOffset = mAligned ? -0.5f : 0.f;
         auto& bwDiff = inputs[3];
+        ::memset(output->host<uint8_t>(), 0, static_cast<CPUBackend*>(backend())->getTensorSize(output, true));
 
         for (int n = 0; n < numROI; ++n) {
-            auto roiPtr      = roiTensor->host<float>() + rs * n;
+            auto roiPtr      = roiPtrSrc + rs * n;
             int batchIdx     = inputs[2]->host<int>()[n], idxRoi = 0;
             float x1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
             float y1         = roiPtr[idxRoi++] * mSpatialScale + alignOffset;
@@ -318,6 +326,9 @@ public:
         auto core = static_cast<CPUBackend*>(backend)->functions();
         if (core->MNNRoiAlignMax == nullptr || core->MNNRoiAlignAvg == nullptr) {
             MNN_ERROR("Don't have function for CPUROIAlign\n");
+            return nullptr;
+        }
+        if (core->bytes < 4 && roiAlign->outputGrad()) {
             return nullptr;
         }
         return new CPUROIAlign(backend, roiAlign->pooledWidth(), roiAlign->pooledHeight(), roiAlign->samplingRatio(),

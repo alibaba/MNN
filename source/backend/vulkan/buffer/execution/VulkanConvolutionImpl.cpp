@@ -20,7 +20,7 @@ private:
     const VulkanPipeline* mSlideWindow;
 
     std::shared_ptr<VulkanBuffer> mBias;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mConvSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mConvSet;
     const Convolution2DCommon* mConvCommonOption;
     VulkanRaster::Componet mKernelReorder;
     std::shared_ptr<Tensor> mKernel;
@@ -98,9 +98,8 @@ public:
                 return;
             }
             {
-                auto sourcePtr = reinterpret_cast<VulkanBuffer*>( sourceWeight->deviceId())->map(TensorUtils::getDescribe(sourceWeight.get())->extra.offset);
-                ::memcpy(sourcePtr, weightPtr, sourceWeight->size());
-                reinterpret_cast<VulkanBuffer*>( sourceWeight->deviceId())->unmap();
+                auto vkTensor = extra->getBuffer(sourceWeight.get());
+                extra->copyToGPUBuffer(weightPtr, std::get<0>(vkTensor), sourceWeight->size(), std::get<2>(vkTensor));
             }
             std::shared_ptr<VulkanCommandPool::Buffer> prearrangeCmd( vkBn->getPool().allocBuffer());
             for (auto& reg : des->regions) {

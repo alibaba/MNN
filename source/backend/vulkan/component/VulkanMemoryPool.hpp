@@ -68,9 +68,6 @@ public:
     VkBuffer allocBuffer(size_t size, VkBufferUsageFlags flags, VkSharingMode shared);
     void returnBuffer(VkBuffer buffer, size_t size, VkBufferUsageFlags flags, VkSharingMode shared);
 
-    // For image fast alloc
-    VkImage allocImage(const std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>& info);
-    void returnImage(VkImage dst, std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>&& info);
 private:
     // MemoryTypeIndex, Size, Memory
     std::vector<std::shared_ptr<BufferAllocator>> mAllocators;

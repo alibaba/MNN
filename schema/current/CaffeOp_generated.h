@@ -1139,13 +1139,15 @@ struct QuantizedFloatParamT : public flatbuffers::NativeTable {
   int8_t clampMin;
   int8_t clampMax;
   std::vector<int32_t> winogradAttr;
+  DataType outputDataType;
   QuantizedFloatParamT()
       : method(QuantizeAlgo_DEFAULT),
         nbits(8),
         zeroPoint(0),
         outputZeroPoint(0),
         clampMin(-128),
-        clampMax(127) {
+        clampMax(127),
+        outputDataType(DataType_DT_INT8) {
   }
 };
 
@@ -1187,6 +1189,9 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   const flatbuffers::Vector<int32_t> *winogradAttr() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(24);
   }
+  DataType outputDataType() const {
+    return static_cast<DataType>(GetField<int32_t>(26, 6));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -1205,6 +1210,7 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyField<int8_t>(verifier, 22) &&
            VerifyOffset(verifier, 24) &&
            verifier.VerifyVector(winogradAttr()) &&
+           VerifyField<int32_t>(verifier, 26) &&
            verifier.EndTable();
   }
   QuantizedFloatParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1248,6 +1254,9 @@ struct QuantizedFloatParamBuilder {
   void add_winogradAttr(flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr) {
     fbb_.AddOffset(24, winogradAttr);
   }
+  void add_outputDataType(DataType outputDataType) {
+    fbb_.AddElement<int32_t>(26, static_cast<int32_t>(outputDataType), 6);
+  }
   explicit QuantizedFloatParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1272,8 +1281,10 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(
     int8_t outputZeroPoint = 0,
     int8_t clampMin = -128,
     int8_t clampMax = 127,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr = 0,
+    DataType outputDataType = DataType_DT_INT8) {
   QuantizedFloatParamBuilder builder_(_fbb);
+  builder_.add_outputDataType(outputDataType);
   builder_.add_winogradAttr(winogradAttr);
   builder_.add_nbits(nbits);
   builder_.add_tensorScale(tensorScale);
@@ -4488,6 +4499,7 @@ inline void QuantizedFloatParam::UnPackTo(QuantizedFloatParamT *_o, const flatbu
   { auto _e = clampMin(); _o->clampMin = _e; };
   { auto _e = clampMax(); _o->clampMax = _e; };
   { auto _e = winogradAttr(); if (_e) { _o->winogradAttr.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->winogradAttr[_i] = _e->Get(_i); } } };
+  { auto _e = outputDataType(); _o->outputDataType = _e; };
 }
 
 inline flatbuffers::Offset<QuantizedFloatParam> QuantizedFloatParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4509,6 +4521,7 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
   auto _clampMin = _o->clampMin;
   auto _clampMax = _o->clampMax;
   auto _winogradAttr = _o->winogradAttr.size() ? _fbb.CreateVector(_o->winogradAttr) : 0;
+  auto _outputDataType = _o->outputDataType;
   return MNN::CreateQuantizedFloatParam(
       _fbb,
       _weight,
@@ -4521,7 +4534,8 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
       _outputZeroPoint,
       _clampMin,
       _clampMax,
-      _winogradAttr);
+      _winogradAttr,
+      _outputDataType);
 }
 
 inline Convolution2DT *Convolution2D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5989,10 +6003,12 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_INT, 0, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
-    QuantizeAlgoTypeTable
+    QuantizeAlgoTypeTable,
+    DataTypeTypeTable
   };
   static const char * const names[] = {
     "weight",
@@ -6005,10 +6021,11 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     "outputZeroPoint",
     "clampMin",
     "clampMax",
-    "winogradAttr"
+    "winogradAttr",
+    "outputDataType"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 12, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

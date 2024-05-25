@@ -9,22 +9,24 @@
 #ifndef MetalCast_hpp
 #define MetalCast_hpp
 
-#import "core/Execution.hpp"
-#import "MetalDefine.h"
-#import "Type_generated.h"
+#import "MetalExecution.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalCast : public Execution {
+class MetalCast : public MetalExecution {
 public:
-    MetalCast(Backend *backend, DataType srcType, DataType dstType);
+    MetalCast(Backend *backend, id<MTLComputePipelineState> pipeline);
     virtual ~MetalCast() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
+    static NSString* getScalarType(const halide_type_t& srcType, bool useFp16);
+    static NSString* getVecType(const halide_type_t& srcType, bool useFp16);
 
-private:
-    DataType mSrcType;
-    DataType mDstType;
+protected:
+    id<MTLBuffer> mConstBuffer;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

@@ -7,6 +7,7 @@
 //
 
 #include "Convolution1x1Strassen.hpp"
+#include "DenseConvolutionTiledExecutor.hpp"
 #include <string.h>
 #include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUBackend.hpp"
@@ -18,20 +19,40 @@
 
 namespace MNN {
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-                                               size_t originWeightSize, const float *bias, size_t biasSize)
+                                               size_t originWeightSize, const float *bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo)
     : CPUConvolution(common, b) {
     auto outputCount = (int)biasSize;
-    auto mSrcCount   = (int)originWeightSize / outputCount;
+    int ePack, lPack, hPack;
+    auto core = static_cast<CPUBackend*>(b)->functions();
+    core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
     mResource.reset(new CPUConvolution::Resource);
     mResource->backend = b;
-    if (!mResource->copyBiasAlign(bias, biasSize)) {
+    auto mSrcCount   = (int)originWeightSize / outputCount;
+    if (!mResource->copyBiasAlign(bias, (int)biasSize)) {
         MNN_ERROR("Not Enough Memory\n");
         mValid = false;
         return;
     }
-    auto core = static_cast<CPUBackend*>(b)->functions();
-    int ePack, lPack, hPack;
-    core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
+#ifdef MNN_LOW_MEMORY
+    if ((originWeightSize == 0 || nullptr == originWeight) && nullptr != quantInfo.get()) { // Use Int8 Weight.
+        originWeightSize = quantInfo->weight.size();
+        int lSize = (int)originWeightSize / (int)biasSize * common->kernelX() * common->kernelY();
+        auto hU = UP_DIV(outputCount, hPack);
+        auto lU = UP_DIV(lSize, lPack);
+        mSrcCount   = (int)originWeightSize / outputCount;
+
+        mResource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{UP_DIV(outputCount, hPack), UP_DIV(mSrcCount, lPack) * lPack, hPack}));
+        mValid = b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
+        if (!mValid) {
+            MNN_ERROR("Not Enough Memory\n");
+            return;
+        }
+
+        DenseConvolutionTiledExecutor::initQuantizeResource(quantInfo, mResource, hU, hPack, lU, lPack, outputCount, (int)originWeightSize / (int)biasSize, common->kernelX() * common->kernelY(), core->bytes);
+        return;
+    }
+#endif
+    // Use Float Weight.
     mResource->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, hPack), UP_DIV(mSrcCount, lPack) * lPack, hPack}));
     mValid = b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!mValid) {
@@ -89,9 +110,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     mUnits.clear();
-    auto inputPtr = TensorUtils::getDescribe(input)->mem->chunk();
-    auto outputPtr = TensorUtils::getDescribe(output)->mem->chunk();
-    
     std::shared_ptr<char> __autoFunction;
     auto padY     = mPadY;
     auto padX     = mPadX;
@@ -104,6 +122,17 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     int maxDepth = 5;
     auto icAlign = UP_DIV(ic, lPack) * lPack;
     auto weightTensor = mResource->mWeight.get();
+    uint8_t* dequantAlpha = nullptr;
+    uint8_t* dequantBias = nullptr;
+    int dequantBits = bytes * 8; // fp16:16, fp32:32
+#ifdef MNN_LOW_MEMORY
+    if (mResource && mResource->mDequantize.bits <= 8) {
+        dequantAlpha = mResource->mDequantize.mScaleBias->host<uint8_t>();
+        dequantBias = dequantAlpha + mResource->hU * mResource->hP * bytes;
+        dequantBits = mResource->mDequantize.bits;
+    }
+#endif
+    mWeightBytes = static_cast<float>(dequantBits) / 8.0f;
     if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
         // Divide in plane, in this case the divide equal numberThread
         int divideStep = UP_DIV(matrixSizeE, numberThread);
@@ -121,14 +150,14 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.offset[2] = 0;
             unit.offset[0] = core->pack * planeStart * bytes;
             unit.offset[3] = core->pack * planeStart * bytes;
-            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
+            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth, dequantAlpha, dequantBias, dequantBits));
             int e = planeSize;
             int l = ic;
             int h = oc;
-            auto aPtr = inputPtr + core->pack * planeStart * bytes;
-            auto bPtr = TensorUtils::getDescribe(weightTensor)->mem->chunk();;
-            auto cPtr = outputPtr + core->pack * planeStart * bytes;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk();
+            uint8_t* aPtr = nullptr;
+            auto bPtr = TensorUtils::getDescribeOrigin(weightTensor)->mem->chunk();;
+            uint8_t* cPtr = nullptr;
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk();
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
@@ -160,19 +189,19 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             }
             auto ocStartWeight = (ocStart * core->pack) / hPack;
             auto ocWeightSize = std::min(UP_DIV((ocSize * core->pack), hPack), mResource->mWeight->length(0) - ocStartWeight);
-            unit.offset[1] = hPack * icAlign * ocStartWeight * bytes;
+            unit.offset[1] = hPack * icAlign * ocStartWeight * mWeightBytes;
             unit.offset[2] = core->pack * ocStart * bytes;
             unit.offset[0] = 0;
             unit.offset[3] = core->pack * matrixSizeE * ocStart * bytes;
 
-            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
+            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth, dequantAlpha, dequantBias, dequantBits));
             int e = matrixSizeE;
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
-            auto aPtr = inputPtr;
-            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * bytes;
-            auto cPtr = outputPtr + core->pack * matrixSizeE * ocStart * bytes;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
+            uint8_t* aPtr = nullptr;
+            auto bPtr = TensorUtils::getDescribeOrigin(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
+            uint8_t* cPtr = nullptr;
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {

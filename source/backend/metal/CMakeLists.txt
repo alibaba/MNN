@@ -1,4 +1,8 @@
 FILE(GLOB MNN_Metal_SRC ${CMAKE_CURRENT_LIST_DIR}/*.mm ${CMAKE_CURRENT_LIST_DIR}/*.hpp ${CMAKE_CURRENT_LIST_DIR}/*.h ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+IF(MNN_SUPPORT_RENDER)
+    file(GLOB MNN_Metal_Render_SRC ${CMAKE_CURRENT_LIST_DIR}/render/*.mm ${CMAKE_CURRENT_LIST_DIR}/render/*.hpp ${CMAKE_CURRENT_LIST_DIR}/render/*.cpp)
+    list(APPEND MNN_Metal_SRC ${MNN_Metal_Render_SRC})
+ENDIF()
 FILE(GLOB MNN_Metal_KERNELS_SRC ${CMAKE_CURRENT_LIST_DIR}/*.metal)
 option(MNN_METALLIB_SOURCE "Use Metal Source Directly" ON)
 add_library(MNNMetal OBJECT ${MNN_Metal_SRC} "${CMAKE_CURRENT_LIST_DIR}/MetalOPRegister.mm")

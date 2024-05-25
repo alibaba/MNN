@@ -282,11 +282,11 @@ ErrorCode TopKV2Execution::onExecute(const std::vector<Tensor *> &inputs, const 
     void * outputValuesDeviceAddr = reinterpret_cast<void *>(outputs[0]->deviceId());
 
     // configure threads
-    dim3 grid1 = {mParams.mNumBlockPerRow, mParams.mNumRow};
-    dim3 block1 = {mParams.mNumThreadPerBlock, 1};
+    dim3 grid1 = {(unsigned int)mParams.mNumBlockPerRow, (unsigned int)mParams.mNumRow};
+    dim3 block1 = {(unsigned int)mParams.mNumThreadPerBlock, (unsigned int)1};
     int smemSize1 = mParams.mNumThreadPerBlock * mParams.mNumK;
-    dim3 grid2 = {mParams.mNumBlockFinal};
-    dim3 block2 = {mParams.mNumThreadFinal};
+    dim3 grid2 = {(unsigned int)mParams.mNumBlockFinal};
+    dim3 block2 = {(unsigned int)mParams.mNumThreadFinal};
     int smemSize2 = mParams.mNumBlockPerRow * mParams.mNumK;
 
     if (inputs[0]->getType().code == halide_type_int && inputs[0]->getType().bits == 32) {

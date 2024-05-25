@@ -77,10 +77,12 @@ struct Tensor::InsideDescribe {
     // For Mask
     enum StageInfo {
         GEOMETRY_STAGE = 1,
-        CONVERTED_STAGE = 1 << 4
+        CONVERTED_STAGE = 1 << 1,
+        COMPUTE_SHAPE_STAGE = 1 << 2,
+        CONTENT_NOT_CHANGE = 1 << 3,
     };
     /** extra tensor info container */
-    struct NativeInsideDescribe : public RefCount {
+    struct NativeInsideDescribe {
     public:
         /** dimension format */
         MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
@@ -92,6 +94,7 @@ struct Tensor::InsideDescribe {
             void (*handleFreeFunction)(void*);
         } extra;
         MemoryType memoryType = MEMORY_BACKEND;
+        std::weak_ptr<Command> rasterCommand;
         /** for DEVICE tensor only. */
         int useCount = 0;
         Usage usage = NORMAL;
@@ -103,25 +106,26 @@ struct Tensor::InsideDescribe {
         std::shared_ptr<QuantAttr> quantAttr;
         // Only valid when quantAttr is not nullptr
         DataType type = DataType_DT_FLOAT;
-        AutoRelease<Backend::MemObj> mem;
         bool isMutable = true;
         int index = -1;
+        int group = 0;
 		int channel_pack_num = 4;
         bool support_pack16 = true;
         pad mPads;
         // For isMutable = false Tensor , determine whether the content can be convert to main backend
         uint32_t stageMask = 0;
-        inline Backend* getBackend() const {
-            return backend;
-        }
-        inline void setBackend(Backend* bn) {
-            backend = bn;
-        }
-    private:
-        /** for DEVICE tensor only. backend used to manage tensor's device memory. */
-        Backend* backend = nullptr;
     };
-    SharedPtr<NativeInsideDescribe> mContent;
+    std::shared_ptr<NativeInsideDescribe> mContent;
+    SharedPtr<Backend::MemObj> mem;
+    inline Backend* getBackend() const {
+        return backend;
+    }
+    inline void setBackend(Backend* bn) {
+        backend = bn;
+    }
+private:
+    /** for DEVICE tensor only. backend used to manage tensor's device memory. */
+    Backend* backend = nullptr;
 };
 
 typedef Tensor::InsideDescribe::Usage TensorUsage;

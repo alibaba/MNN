@@ -10,22 +10,33 @@
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalConvolution1x1.hpp"
-#import "backend/metal/MetalConvolutionGEMM.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
 #include <string>
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op) {
+MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op, nullptr) {
     loadWeight(op->main_as_Convolution2D());
 }
-
+MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
+    mWeight = weight;
+}
+bool MetalConvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new MetalConvolution(bn, op, mWeight, mBias);
+    return true;
+}
 ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
     auto backend = static_cast<MetalBackend *>(this->backend());
+    auto mtbn = backend;
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0];
     auto output = outputs[0];
@@ -92,13 +103,15 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         NSUInteger gid_y = oh;
         NSUInteger gid_z = UP_DIV(oc_4, packC) * ob;
 
-        mPipeline = [context pipelineWithName:kernelName];
+        mPipeline = [context pipelineWithName:kernelName fp16:backend->useFp16InsteadFp32()];
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, mWeight, mBias, nil];
-        
+                        mConstBuffer, ((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId())->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+        const Tensor* weight = mWeight.get();
+        const Tensor* bias = mBias.get();
+        int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, 0, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset};
         std::string name = [kernelName UTF8String] + mParam;
-        auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+        auto ret = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets:buffer_offset queue:backend->queue()];
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
     } else {
         const int total_kernel = 5;
@@ -127,16 +140,25 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
-                        mConstBuffer, mWeight, mBias, nil];
+                        mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
+        const Tensor* weight = mWeight.get();
+        const Tensor* bias = mBias.get();
+        int buffer_offset[] = {
+            TensorUtils::getDescribe(input)->extra.offset,
+            TensorUtils::getDescribe(output)->extra.offset,
+            0,
+            TensorUtils::getDescribe(weight)->extra.offset,
+            TensorUtils::getDescribe(bias)->extra.offset
+        };
 
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx]];
+            id<MTLComputePipelineState> pipeline = [context pipelineWithName:shaderName[knl_idx] fp16:mtbn->useFp16InsteadFp32()];
             NSUInteger gid_x = UP_DIV(ow, itemW[knl_idx]);
             NSUInteger gid_y = UP_DIV(oh, itemH[knl_idx]);
             NSUInteger gid_z = UP_DIV(oc_4, itemC[knl_idx]) * ob;
 
             std::string name = [shaderName[knl_idx] UTF8String] + mParam;
-            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+            auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets: buffer_offset queue:backend->queue()];
             
             if(min_cost.first > std::get<2>(ret)) {
                 min_cost.first = std::get<2>(ret);
@@ -148,45 +170,23 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         // printf("conv idx:%d, min_cost:%d\n", (int)min_cost.second, (int)min_cost.first);
         // std::string tmp = [shaderName[min_cost.second] UTF8String];
         // printf("!!~ %s\n", tmp.c_str());
-        mPipeline = [context pipelineWithName:shaderName[min_cost.second]];
+        mPipeline = [context pipelineWithName:shaderName[min_cost.second] fp16:mtbn->useFp16InsteadFp32()];
     }
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
+void MetalConvolution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0];
+    auto output = outputs[0];
     
-    auto func = [=](){
-        auto oc_4 = UP_DIV(output->channel(), 4);
-        auto encoder    = backend->encoder();
-        
-        auto bandwidth  = (MetalBandwidth){mPipeline.threadExecutionWidth, mPipeline.maxTotalThreadsPerThreadgroup, NO};
+    [encoder setComputePipelineState:mPipeline];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    MetalBackend::setTensor(mWeight.get(), encoder, 3);
+    MetalBackend::setTensor(mBias.get(), encoder, 4);
 
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mWeight offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        
-        //need to commit
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    
-    func();
-    backend->addOpEncoder(func);
-
-    return NO_ERROR;
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
 class MetalConvolutionCreator : public MetalBackend::Creator {
@@ -201,14 +201,14 @@ public:
         if (inputs.size() > 1) {
             return nullptr;
         }
+        auto conv  = op->main_as_Convolution2D();
+        if (conv->common()->group() > 1) {
+            return nullptr;
+        }
         if (op->type() == OpType_Convolution) {
-            auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
             if (MetalConvolutionWinograd::isValid(conv, inputs[0], outputs[0])) {
-                return new MetalConvolutionWinograd(backend, input, op);
-            }
-            if (MetalConvolutionGEMM::isValid(conv, input)) {
-                return new MetalConvolutionGEMM(backend, input, op);
+                return new MetalConvolutionWinograd(backend, op);
             }
             if (MetalConvolution1x1::isValid(conv, input)) {
                 return new MetalConvolution1x1(backend, op);

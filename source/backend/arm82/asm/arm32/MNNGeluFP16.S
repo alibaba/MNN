@@ -62,6 +62,17 @@ vadd.f16 q3, q3, q1
 vmul.f16 q2, q2, q14
 vmul.f16 q3, q3, q14
 
+mov lr, #5
+vdup.16 q4, lr
+vcvt.f32.s32 q4, q4
+mov lr, #-5
+vdup.16 q5, lr
+vcvt.f32.s32 q5, q5
+vmax.f16 q2, q2, q5
+vmin.f16 q2, q2, q4
+vmax.f16 q3, q3, q5
+vmin.f16 q3, q3, q4
+
 // tanh(value)
 vmul.f16 q4, q2, q2     // q4: value*value
 vmul.f16 q5, q3, q3     // q5: value*value

@@ -59,7 +59,10 @@ public:
         des->regions[0].origin = inputs[0];
         des->regions[0].size[0] = 1;
         des->regions[0].size[1] = 1;
-        des->regions[0].size[2] = inputs[0]->elementSize();
+        des->regions[0].size[2] = 1;
+        for (int i = 0; i < inputs[0]->dimensions(); ++i) {
+            des->regions[0].size[2] *= inputs[0]->length(i);
+        }
         des->regions[0].src.stride[2] = 1;
         des->regions[0].dst.stride[2] = 1;
         des->regions[0].src.offset = 0;

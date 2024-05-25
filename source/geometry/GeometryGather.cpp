@@ -39,6 +39,35 @@ static void _computeGather(const std::vector<Tensor*>& inputs, const std::vector
     for (int i = axis + 1; i < params->dimensions(); ++i) {
         inside *= params->length(i);
     }
+    const int limit = 3;
+    if (TensorUtils::getDescribe(indices)->usage == Tensor::InsideDescribe::CONSTANT && N < limit) {
+        // Use Raster instead of loop
+        auto outDes = TensorUtils::getDescribe(output);
+        outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outDes->regions.clear();
+        outDes->regions.reserve(N);
+        auto indicePtr = indices->host<int>();
+        auto axisLen = params->length(axis);
+        for (int i=0; i<N; ++i) {
+            if (indicePtr[i] < 0 || indicePtr[i] >= axisLen) {
+                continue;
+            }
+            Tensor::InsideDescribe::Region reg;
+            reg.origin = inputs[0];
+            reg.size[0] = 1;
+            reg.size[1] = outside;
+            reg.size[2] = inside;
+            reg.src.offset = indicePtr[i] * inside;
+            reg.src.stride[0] = 0;
+            reg.src.stride[1] = inside * axisLen;
+            reg.src.stride[2] = 1;
+            reg.dst.offset = i * inside;
+            reg.dst.stride[1] = inside * N;
+            reg.dst.stride[2] = 1;
+            outDes->regions.emplace_back(std::move(reg));
+        }
+        return;
+    }
     flatbuffers::FlatBufferBuilder builder;
     OpBuilder unaryOp(builder);
     unaryOp.add_type(OpType_UnaryOp);
@@ -331,15 +360,11 @@ public:
             paramSize = dimCount;
         }
         // recompute reshape
-        reshapeIndice->buffer().device = 0;
-        reshapeIndice->buffer().host = 0;
         auto des = TensorUtils::getDescribe(reshapeIndice.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
         // recompute broadcast
-        broadcastStride->buffer().device = 0;
-        broadcastStride->buffer().host = 0;
         des = TensorUtils::getDescribe(broadcastStride.get());
         des->extra.offset = 0;
         des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;

@@ -179,7 +179,7 @@ TensorArray 和控制流支持需要借助 MNN-Express ，
    - 加载网络时，把需要获取的中间结果加到 output name 中
 
 
-### GPU 后端无法使用
+### OpenCL 或 Vulkan 后端无法使用
 Linux系统上的简单解决方案:
 cmake .. -DMNN_USE_SYSTEM_LIB=true -DMNN_SEP_BUILD=false
 
@@ -192,6 +192,21 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 
 1. 设置 MNN_SEP_BUILD = OFF  （cmake -DMNN_SEP_BUILD=OFF）.  把 opencl / vulkan 后端统一编入 MNN 的 so.
 1. 自己在使用的代码中加上 dlopen("libMNN_CL.so") . 参考 [https://github.com/alibaba/MNN/issues/105](https://github.com/alibaba/MNN/issues/105) .
+
+#### Android App 上因权限问题打不开 OpenCL 库
+由于Android新版本增强了权限控制，有可能遇到加载OpenCL库失败的问题，可以修改 AndroidManifest.xml 对应栏，加入OpenCL相关 so 的权限需求
+
+```
+<application>
+        ...
+
+        <uses-native-library android:name="libOpenCL.so"
+            android:required="true"/>
+
+        ...
+
+</>
+```
 
 ### 部分模型用 MNNV2Basic 运行出现段错误
 
@@ -246,7 +261,7 @@ GPU 后端调用 copy 的时间包含两个部分
    - x86 / x64 架构下，无 vnni 指令，量化计算需要先从 int8 转到 int16 ，乘加到 int32 ，本身计算效率不如浮点直接乘加到 fp32 上快。
    - x64 + vnni 指令，量化计算有 sdot 指令，明显快于 FP32 ，编译 MNN 时需要开启 MNN_AVX512 以支持这个指令，一般相比 AVX512 的浮点运算快 30%
    - ARM v7a / ARMv8 ：量化计算采用 int8 乘加到 int16，再双加到 int32 的方式，计算效率略快于浮点（一般 30% 左右提升）。
-   - ARMv8.2 + 量化计算有 sdot 指令，但同时 FP32 相对之前架构发射数也提升了一倍，编译 MNN 打开 MNN_ARM82 启用 sdot 指令则量化计算更快，否则 FP32 更快，理想情况比 FP32 快1倍以上，比 FP16 快 20%。
+   - ARMv8.2 架构有 sdot 指令，但同时 FP32 相对之前架构发射数也提升了一倍，也支持了比 FP32 快一倍的 FP16 向量计算指令，MNN 会检查设备架构以开启 sdot / smmla ，理想情况下量化计算性能比 FP32 快1倍以上，比 FP16 快 20%。
 
 ## 其他问题
 ### MNN模型如何加密

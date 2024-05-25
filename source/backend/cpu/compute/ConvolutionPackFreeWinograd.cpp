@@ -15,7 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

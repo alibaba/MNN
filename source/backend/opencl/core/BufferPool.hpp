@@ -23,21 +23,24 @@ public:
         mFlag = flags;
     }
 
-    cl::Buffer* alloc(int size, bool separate = false);
+    cl::Buffer* alloc(size_t size, bool separate = false);
     void recycle(cl::Buffer* buffer, bool release = false);
     void clear();
+    void releaseFreeList();
+    size_t totalSize() { return mTotalSize; }
 
     struct Node {
-        int size;
+        size_t size;
         std::shared_ptr<cl::Buffer> buffer;
     };
 
 private:
     std::map<cl::Buffer*, std::shared_ptr<Node>> mAllBuffer;
-    std::multimap<int, std::shared_ptr<Node>> mFreeList;
+    std::multimap<size_t, std::shared_ptr<Node>> mFreeList;
 
     cl::Context& mContext;
     cl_mem_flags mFlag;
+    size_t mTotalSize = 0;
 };
 
 } // namespace OpenCL

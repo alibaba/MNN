@@ -37,10 +37,12 @@ stp d8,  d9,  [sp, #48]
 cmp x6, #0
 beq End
 
-ldr w4, [x3, #8]
-ldr w3, [x3]
+ldr w3, [x4]
+ldr w10, [x4, #8]
+ldr w4, [x4, #4]
 mov v0.s[0], w3
 mov v0.s[1], w4
+mov v0.s[2], w10
 
 ldr x8, [x5, #16]
 ldr x9, [x8, #8]   // input1 zeroPoint
@@ -128,43 +130,79 @@ L8Loop:
     sxtl  v29.4s, v14.4h
     sxtl2 v30.4s, v14.8h
 
-    mul v15.4s, v15.4s, v0.s[0]
-    mul v16.4s, v16.4s, v0.s[0]
-    mul v17.4s, v17.4s, v0.s[0]
-    mul v18.4s, v18.4s, v0.s[0]
-    mul v19.4s, v19.4s, v0.s[0]
-    mul v20.4s, v20.4s, v0.s[0]
-    mul v21.4s, v21.4s, v0.s[0]
-    mul v22.4s, v22.4s, v0.s[0]
+    scvtf v15.4s, v15.4s 
+    scvtf v16.4s, v16.4s 
+    scvtf v17.4s, v17.4s 
+    scvtf v18.4s, v18.4s 
+    scvtf v19.4s, v19.4s 
+    scvtf v20.4s, v20.4s 
+    scvtf v21.4s, v21.4s 
+    scvtf v22.4s, v22.4s 
 
-    mul v23.4s, v23.4s, v0.s[1]
-    mul v24.4s, v24.4s, v0.s[1]
-    mul v25.4s, v25.4s, v0.s[1]
-    mul v26.4s, v26.4s, v0.s[1]
-    mul v27.4s, v27.4s, v0.s[1]
-    mul v28.4s, v28.4s, v0.s[1]
-    mul v29.4s, v29.4s, v0.s[1]
-    mul v30.4s, v30.4s, v0.s[1]
+    scvtf v23.4s, v23.4s    
+    scvtf v24.4s, v24.4s
+    scvtf v25.4s, v25.4s
+    scvtf v26.4s, v26.4s
+    scvtf v27.4s, v27.4s
+    scvtf v28.4s, v28.4s
+    scvtf v29.4s, v29.4s
+    scvtf v30.4s, v30.4s
+
+    fmul v15.4s, v15.4s, v0.s[0]
+    fmul v16.4s, v16.4s, v0.s[0]
+    fmul v17.4s, v17.4s, v0.s[0]
+    fmul v18.4s, v18.4s, v0.s[0]
+    fmul v19.4s, v19.4s, v0.s[0]
+    fmul v20.4s, v20.4s, v0.s[0]
+    fmul v21.4s, v21.4s, v0.s[0]
+    fmul v22.4s, v22.4s, v0.s[0]
+
+    fmul v23.4s, v23.4s, v0.s[1]
+    fmul v24.4s, v24.4s, v0.s[1]
+    fmul v25.4s, v25.4s, v0.s[1]
+    fmul v26.4s, v26.4s, v0.s[1]
+    fmul v27.4s, v27.4s, v0.s[1]
+    fmul v28.4s, v28.4s, v0.s[1]
+    fmul v29.4s, v29.4s, v0.s[1]
+    fmul v30.4s, v30.4s, v0.s[1]
     dup v11.16b, w11
     dup v12.16b, w12
 
-    add v15.4s, v15.4s, v23.4s
-    add v16.4s, v16.4s, v24.4s 
-    add v17.4s, v17.4s, v25.4s 
-    add v18.4s, v18.4s, v26.4s 
-    add v19.4s, v19.4s, v27.4s 
-    add v20.4s, v20.4s, v28.4s 
-    add v21.4s, v21.4s, v29.4s 
-    add v22.4s, v22.4s, v30.4s 
+    fadd v15.4s, v15.4s, v23.4s
+    fadd v16.4s, v16.4s, v24.4s 
+    fadd v17.4s, v17.4s, v25.4s 
+    fadd v18.4s, v18.4s, v26.4s 
+    fadd v19.4s, v19.4s, v27.4s 
+    fadd v20.4s, v20.4s, v28.4s 
+    fadd v21.4s, v21.4s, v29.4s 
+    fadd v22.4s, v22.4s, v30.4s
 
-    sqrshrn  v1.4h, v15.4s, #16
-    sqrshrn2 v1.8h, v16.4s, #16
-    sqrshrn  v2.4h, v17.4s, #16
-    sqrshrn2 v2.8h, v18.4s, #16
-    sqrshrn  v3.4h, v19.4s, #16
-    sqrshrn2 v3.8h, v20.4s, #16
-    sqrshrn  v4.4h, v21.4s, #16
-    sqrshrn2 v4.8h, v22.4s, #16
+    fmul v15.4s, v15.4s, v0.s[2]
+    fmul v16.4s, v16.4s, v0.s[2]
+    fmul v17.4s, v17.4s, v0.s[2]
+    fmul v18.4s, v18.4s, v0.s[2]
+    fmul v19.4s, v19.4s, v0.s[2]
+    fmul v20.4s, v20.4s, v0.s[2]
+    fmul v21.4s, v21.4s, v0.s[2]
+    fmul v22.4s, v22.4s, v0.s[2]
+
+    fcvtas v15.4s, v15.4s
+    fcvtas v16.4s, v16.4s
+    fcvtas v17.4s, v17.4s
+    fcvtas v18.4s, v18.4s
+    fcvtas v19.4s, v19.4s
+    fcvtas v20.4s, v20.4s
+    fcvtas v21.4s, v21.4s
+    fcvtas v22.4s, v22.4s
+
+    sqxtn v1.4h, v15.4s
+    sqxtn2 v1.8h, v16.4s
+    sqxtn v2.4h, v17.4s
+    sqxtn2 v2.8h, v18.4s
+    sqxtn v3.4h, v19.4s
+    sqxtn2 v3.8h, v20.4s
+    sqxtn v4.4h, v21.4s
+    sqxtn2 v4.8h, v22.4s
 
     cmp w10, #0
     beq SQXTN_S8
@@ -248,25 +286,45 @@ L4Loop:
     sxtl  v25.4s, v12.4h
     sxtl2 v26.4s, v12.8h
 
-    mul v15.4s, v15.4s, v0.s[0]
-    mul v16.4s, v16.4s, v0.s[0]
-    mul v17.4s, v17.4s, v0.s[0]
-    mul v18.4s, v18.4s, v0.s[0]
+    scvtf v15.4s, v15.4s 
+    scvtf v16.4s, v16.4s 
+    scvtf v17.4s, v17.4s 
+    scvtf v18.4s, v18.4s
 
-    mul v23.4s, v23.4s, v0.s[1]
-    mul v24.4s, v24.4s, v0.s[1]
-    mul v25.4s, v25.4s, v0.s[1]
-    mul v26.4s, v26.4s, v0.s[1]
+    scvtf v23.4s, v23.4s    
+    scvtf v24.4s, v24.4s
+    scvtf v25.4s, v25.4s
+    scvtf v26.4s, v26.4s
 
-    add v15.4s, v15.4s, v23.4s
-    add v16.4s, v16.4s, v24.4s 
-    add v17.4s, v17.4s, v25.4s 
-    add v18.4s, v18.4s, v26.4s
+    fmul v15.4s, v15.4s, v0.s[0]
+    fmul v16.4s, v16.4s, v0.s[0]
+    fmul v17.4s, v17.4s, v0.s[0]
+    fmul v18.4s, v18.4s, v0.s[0]
 
-    sqrshrn  v1.4h, v15.4s, #16
-    sqrshrn2 v1.8h, v16.4s, #16
-    sqrshrn  v2.4h, v17.4s, #16
-    sqrshrn2 v2.8h, v18.4s, #16
+    fmul v23.4s, v23.4s, v0.s[1]
+    fmul v24.4s, v24.4s, v0.s[1]
+    fmul v25.4s, v25.4s, v0.s[1]
+    fmul v26.4s, v26.4s, v0.s[1]
+
+    fadd v15.4s, v15.4s, v23.4s
+    fadd v16.4s, v16.4s, v24.4s 
+    fadd v17.4s, v17.4s, v25.4s 
+    fadd v18.4s, v18.4s, v26.4s
+
+    fmul v15.4s, v15.4s, v0.s[2]
+    fmul v16.4s, v16.4s, v0.s[2]
+    fmul v17.4s, v17.4s, v0.s[2]
+    fmul v18.4s, v18.4s, v0.s[2]
+
+    fcvtas v15.4s, v15.4s
+    fcvtas v16.4s, v16.4s
+    fcvtas v17.4s, v17.4s
+    fcvtas v18.4s, v18.4s
+
+    sqxtn v1.4h, v15.4s
+    sqxtn2 v1.8h, v16.4s
+    sqxtn v2.4h, v17.4s
+    sqxtn2 v2.8h, v18.4s
 
     cmp w10, #0
     beq L4_SQXTN_S8
@@ -330,12 +388,17 @@ L1Loop:
     sxtl  v15.4s, v7.4h
     sxtl  v23.4s, v11.4h
 
-    mul v15.4s, v15.4s, v0.s[0]
-    mul v23.4s, v23.4s, v0.s[1]
+    scvtf v15.4s, v15.4s
+    scvtf v23.4s, v23.4s
 
-    add v15.4s, v15.4s, v23.4s
+    fmul v15.4s, v15.4s, v0.s[0]
+    fmul v23.4s, v23.4s, v0.s[1]
 
-    sqrshrn  v1.4h, v15.4s, #16
+    fadd v15.4s, v15.4s, v23.4s
+    fmul v15.4s, v15.4s, v0.s[2]
+    fcvtas v15.4s, v15.4s
+    sqxtn v1.4h, v15.4s
+    
 
     cmp w10, #0
     beq L1_SQXTN_S8
@@ -345,7 +408,7 @@ L1Loop:
     L1_SQXTN_S8:
     sqxtn v5.8b, v1.8h
     smax v5.8b, v5.8b, v30.8b
-    smin v6.8b, v6.8b, v31.8b
+    smin v5.8b, v5.8b, v31.8b
     st1 {v5.s}[0], [x0], #4
 
     subs x6, x6, #1

@@ -11,27 +11,20 @@
 #ifndef InterpBufExecution_hpp
 #define InterpBufExecution_hpp
 
-#include <array>
-#include <memory>
-#include <vector>
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class InterpBufExecution : public Execution {
+class InterpBufExecution : public CommonExecution {
 public:
     InterpBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
     virtual ~InterpBufExecution() = default;
 
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 
 private:
-    cl::Kernel mKernel;
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
     uint32_t mMaxWorkGroupSize;

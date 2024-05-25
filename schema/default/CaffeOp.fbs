@@ -95,6 +95,7 @@ table QuantizedFloatParam{
     clampMax: byte = 127;
     // binary proto: [originKySize, originKxSize, transKySize, transKxSize, {kyStart, kxStart, unitY, unitX}, {...} ...]
     winogradAttr:[int];
+    outputDataType:DataType=DT_INT8;
 }
 
 table Convolution2D {

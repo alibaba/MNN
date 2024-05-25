@@ -16,6 +16,7 @@
 #include "VulkanImage.hpp"
 #include "VulkanInstance.hpp"
 #include "VulkanPipeline.hpp"
+#include "VulkanQueryPool.hpp"
 #include "core/Backend.hpp"
 #define MNN_VULKAN
 #include <MNN/MNNSharedContext.h>
@@ -42,6 +43,7 @@ private:
     std::shared_ptr<VulkanSampler> mSampler;
     std::shared_ptr<VulkanSampler> mClampSampler;
     std::shared_ptr<VulkanInstance> mInstance;
+    std::shared_ptr<VulkanQueryPool> mQueryPool;
     std::shared_ptr<VulkanDevice> mDevice;
     std::queue<std::shared_ptr<VulkanBuffer>> mUniformCache;
     // Limit Uniform cache size = mUniformSize * mCacheUniformLimitSize B

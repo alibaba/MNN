@@ -29,6 +29,9 @@ public:
         if (op0->main.type != op1->main.type) {
             return false;
         }
+        if (op0->externalPath != op1->externalPath) {
+            return false;
+        }
         if (op0->main.type == OpParameter_NONE) {
             return true;
         }
@@ -41,6 +44,9 @@ public:
         if (op0->main.type == OpParameter_Blob) {
             auto v0 = op0->main.AsBlob();
             auto v1 = op1->main.AsBlob();
+            if (v0->external != v1->external) {
+                return false;
+            }
             if (v0->dataFormat != v1->dataFormat) {
                 return false;
             }

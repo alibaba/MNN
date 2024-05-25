@@ -35,5 +35,4 @@ public:
 REGISTER_SHAPE(CastSizeComputer, OpType_Cast);
 REGISTER_SHAPE(CastSizeComputer, OpType_FloatToInt8);
 REGISTER_SHAPE(CastSizeComputer, OpType_Int8ToFloat);
-
 } // namespace MNN

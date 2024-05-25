@@ -10,6 +10,7 @@
 #include <sstream>
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
+#include "core/FileLoader.hpp"
 #include "utils/InitNet.hpp"
 #include "core/Command.hpp"
 #include "shape/SizeComputer.hpp"
@@ -184,9 +185,13 @@ static void genStaticModel(CommandBuffer buffer, const std::string& modelName, s
         auto index = tensorPair.second;
         //FUNC_PRINT(index);
         auto des = TensorUtils::getDescribe(tensor);
-        if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+        if (des->usage == Tensor::InsideDescribe::CONSTANT || des->usage == MNN::Tensor::InsideDescribe::TRAINABLE) {
             std::unique_ptr<OpT> op(new OpT);
-            op->type = OpType_Const;
+            if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+                op->type = OpType_Const;
+            } else {
+                op->type = OpType_TrainableParam;
+            }
             auto blob = new BlobT;
             op->main.type = OpParameter_Blob;
             op->main.value = blob;
@@ -308,7 +313,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     std::vector<std::shared_ptr<Tensor>> allTensors;
     allTensors.resize(net->tensorName()->size());
     ErrorCode code = NO_ERROR;
-    initConstTensors(allTensors, net, defaultBackend.get(), code);
+    initConstTensors(allTensors, net, defaultBackend.get(), code, nullptr);
     if (NO_ERROR != code) {
         MNN_ERROR("Init tensor error code = %d\n", code);
         return;
@@ -331,7 +336,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     GeometryComputerUtils::buildConstantTensors(infos);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, ctx, defaultBackend, runtime->onGetCompilerType());
+    GeometryComputerUtils::shapeComputeAndGeometryTransform(nullptr, infos, ctx, defaultBackend, runtime->onGetCompilerType());
     std::map<Tensor*, std::pair<std::string, int>> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = std::make_pair(net->tensorName()->GetAsString(i)->str(), i);

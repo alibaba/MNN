@@ -8,7 +8,7 @@
 
 #include "VulkanROIPooling.hpp"
 #include "core/Macro.h"
-
+#include "core/TensorUtils.hpp"
 namespace MNN {
 struct GpuParam {
     ivec4 inputImgSize;
@@ -71,6 +71,10 @@ ErrorCode VulkanROIPooling::onEncode(const std::vector<Tensor*>& inputs, const s
 class VulkanROIPoolingCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        if (TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            // Don't support old op version
+            return nullptr;
+        }
         return new VulkanROIPooling(bn, op->main_as_RoiParameters()->spatialScale());
     }
 };

@@ -35,10 +35,10 @@ public:
 
     void setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod);
 
-    float finishAndCompute();
+    std::pair<float, int8_t> finishAndCompute();
 
     // only this one for ADMM
-    float computeScaleADMM();
+    std::pair<float, int8_t> computeScaleADMM();
 
     std::string name() {
         return mName;
@@ -79,5 +79,6 @@ private:
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
     bool mVisited = false;
     float mScale;
+    int8_t mZeroPoint = 0;
     float mFeatureClampValue = 127.0f;
 };

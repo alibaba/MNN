@@ -102,7 +102,11 @@ void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat,
         getDescribe(dest)->dimensionFormat = getDescribe(source)->dimensionFormat;
     }
     if (copyRef) {
-        getDescribe(dest)->regions = getDescribe(source)->regions;
+        auto dstDes = getDescribe(dest);
+        auto srcDes = getDescribe(source);
+        dstDes->regions = srcDes->regions;
+        dstDes->quantAttr = srcDes->quantAttr;
+        dstDes->type = srcDes->type;
         dest->buffer().type = source->getType();
     }
     adjustTensorForCompability(dest);
@@ -137,7 +141,7 @@ void TensorUtils::setLinearLayout(Tensor* tensor) {
 static const Tensor* createHostPlanar(const Tensor* source) {
     // check
     auto bnType        = MNN_FORWARD_CPU;
-    auto tensorBackend = TensorUtils::getDescribe(source)->getBackend();
+    auto tensorBackend = TensorUtils::getDescribeOrigin(source)->getBackend();
     if (tensorBackend) {
         bnType = tensorBackend->type();
     }
@@ -457,11 +461,15 @@ static inline bool expandStrideSize(int* src, int* dst, int* size, int& num, int
 bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     auto des = TensorUtils::getDescribe(dst);
     auto srcDes = TensorUtils::getDescribe(src);
+    auto desO = TensorUtils::getDescribeOrigin(dst);
+    auto srcDesO = TensorUtils::getDescribeOrigin(src);
     bool needMalloc = dst->buffer().host != src->buffer().host || dst->buffer().device != src->buffer().device || des->extra.offset != srcDes->extra.offset;
-    des->setBackend(srcDes->getBackend());
+    desO->setBackend(srcDesO->getBackend());
     dst->buffer().host = src->buffer().host;
     dst->buffer().device = src->buffer().device;
+    dst->buffer().flags = src->buffer().flags;
     des->extra.offset = srcDes->extra.offset;
+    des->group = -1;
     return needMalloc;
 }
 
@@ -749,7 +757,7 @@ int TensorUtils::getTensorChannelPack(const Tensor* tensor) {
 
 void TensorUtils::setTensorChannelPack(const Tensor* tensor, int pack) {
     auto srcDes = TensorUtils::getDescribe(tensor);
-    srcDes->channel_pack_num = pack;
+    srcDes->channel_pack_num = srcDes->support_pack16 ? pack : 4;
 }
 
 void TensorUtils::setTensorSupportPack(const Tensor* tensor, bool flag) {

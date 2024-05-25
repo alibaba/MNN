@@ -21,13 +21,12 @@ public:
     BinaryBufExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend);
     virtual ~BinaryBufExecution() = default;
     uint32_t realSize(const Tensor* tensor);
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-    bool mBroadCast;
     std::string mCompute;
     std::set<std::string> mBuildOptions;
     uint32_t mMaxWorkGroupSize;

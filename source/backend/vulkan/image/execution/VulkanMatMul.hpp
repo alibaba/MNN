@@ -30,8 +30,8 @@ public:
     private:
         const VulkanPipeline* mFirst;
         const VulkanPipeline* mSecond;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mBufferBufferSet;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mImageBufferSet;
+        std::shared_ptr<VulkanLayout::DescriptorSet> mBufferBufferSet;
+        std::shared_ptr<VulkanLayout::DescriptorSet> mImageBufferSet;
         const VulkanBackend* mBackend;
         std::shared_ptr<VulkanBuffer> mUnitBuffer;
     };
@@ -63,7 +63,7 @@ private:
     std::shared_ptr<VulkanMatrixMultier4x4> mCore;
     bool mTransposeA;
     bool mTransposeB;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mSets;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mSets;
     std::shared_ptr<VulkanImage> mKernelImage;
     std::shared_ptr<VulkanImage> mInputImage;
     std::shared_ptr<VulkanImage> mOutputImage;

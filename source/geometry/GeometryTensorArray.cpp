@@ -398,6 +398,8 @@ public:
             }
             if (splitLast == splitLen) {
                 outDes->regions[outDes->regions.size() - 1].size[0] += 1;
+                splitSum += splitLen;
+                splitLast = splitLen;
                 continue;
             }
             Tensor::InsideDescribe::Region reg;

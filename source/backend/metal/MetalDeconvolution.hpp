@@ -9,19 +9,17 @@
 #ifndef MetalDeconvolution_hpp
 #define MetalDeconvolution_hpp
 
-#import "core/Execution.hpp"
-#import "MNN_generated.h"
-#import "MetalDefine.h"
-
+#import "MetalExecution.hpp"
+#include "MNN_generated.h"
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-class MetalDeconvolution : public Execution {
+class MetalDeconvolution : public MetalExecution {
 public:
     MetalDeconvolution(Backend *backend, const MNN::Op *op);
     virtual ~MetalDeconvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 
 private:
     bool mDepthwise  = false;
@@ -39,8 +37,8 @@ private:
 
     const MNN::Op *mOp = nullptr;
 
-    id<MTLBuffer> mWeight      = nil;
-    id<MTLBuffer> mBias        = nil;
+    std::shared_ptr<MNN::Tensor> mWeight;
+    std::shared_ptr<MNN::Tensor> mBias;
     id<MTLBuffer> mConstBuffer = nil;
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;

@@ -49,8 +49,8 @@ public:
         };
         Mode mode = DIRECT;
         enum Allocator {
-            EAGER = 0,
-            DEFER = 1
+            DEFER = 0,
+            EAGER = 1
         };
         Allocator allocator = DEFER;
     };
@@ -115,7 +115,7 @@ public:
     /**
      * @brief callback after resize ops.
      */
-    virtual ErrorCode onResizeEnd();
+    virtual ErrorCode onResizeEnd() = 0;
 
     /**
      * @brief callback before executing ops.
@@ -129,8 +129,7 @@ public:
     virtual const Runtime* getRuntime() {
         return nullptr;
     }
-    const std::string externalFile();
-public:
+    
     /**
      * @brief allocate buffer of tensor for given storage type.
      * @param tensor        buffer provider.
@@ -147,7 +146,7 @@ public:
      */
     MNN_PUBLIC bool onReleaseBuffer(const Tensor* tensor, StorageType storageType);
 
-    class MemObj {
+    class MemObj : public RefCount {
     public:
         MemObj() {}
         virtual ~ MemObj() {}
@@ -160,6 +159,18 @@ public:
      * @return MemObj for release, if failed, return nullptr.
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
+    
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) {
+        return false;
+    }
+    /**
+     * @brief get buffer from tensor directly
+     * @param tensor        buffer provider.
+     * @return support or not
+     */
+    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+        return false;
+    }
 
     /**
      * @brief clear all dynamic buffers.
@@ -221,13 +232,13 @@ public:
         Allocator_Defer = 0,
         Allocator_Eager = 1,
     };
-
-    void setExternalFile(std::string file) {
-        mExternalFile = file;
+    
+    void setWinogradMemoryLevel(int level) {
+        mWinogradMemoryLevel = level;
     }
-
-    std::string getExternalFile() const {
-        return mExternalFile;
+    
+    int getWinogradMemoryLevel() const {
+        return mWinogradMemoryLevel;
     }
 
     void setAllocatorType(int type) {
@@ -308,8 +319,8 @@ public:
     MNN_PUBLIC void waitAsyncWork();
 private:
     std::future<int> mFuture;
-    std::string mExternalFile;
-    AllocatorType mAllocatorType;
+    AllocatorType mAllocatorType = Allocator_Eager;
+    int mWinogradMemoryLevel = 3;
 };
 
 /** abstract Runtime register */

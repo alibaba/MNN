@@ -43,7 +43,6 @@ public:
     struct ResourceDequantizeInfo {
         int bits = 32;
         std::shared_ptr<Tensor> mScaleBias;
-        std::vector<int8_t> mLowBitWeightMap;
     };
     struct Resource {
         std::shared_ptr<Tensor> mWeight;

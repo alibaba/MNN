@@ -31,9 +31,12 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 
     int l = weightSize / oc;
     int h = oc;
+    int ic = common->inputCount();
+    if(ic == 0) {
+        ic = l / common->kernelX() / common->kernelY();
+    }
     int lp = UP_DIV(l, 8) * 8;
     int hp = UP_DIV(h, 8) * 8;
-
     // Reorder weight
     {
         auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
@@ -51,7 +54,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         if(precision == 2) {
             precision == 0;
         }
-        callWeightFill((const void *)cacheWeight, (void *)mFilter, l, h, lp, hp, static_cast<CUDABackend*>(bn)->getPrecision() == 1, runtime);
+        callWeightFill((const void *)cacheWeight, (void *)mFilter, ic, l, h, lp, hp, static_cast<CUDABackend*>(bn)->getPrecision() == 1, runtime);
 
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     }
@@ -129,6 +132,7 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     mIm2ColParamter.strideX         = convCommon->strideX();
     mIm2ColParamter.strideY         = convCommon->strideY();
     mIm2ColParamter.icDiv4          = icDiv;
+    mIm2ColParamter.ic              = ic;
     mIm2ColParamter.kernelX         = convCommon->kernelX();
     mIm2ColParamter.kernelY         = convCommon->kernelY();
     mIm2ColParamter.padX = std::get<0>(pads);
@@ -195,12 +199,54 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
 
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
-    if(mGpuComputeCap < 70) {
+    if (mGpuComputeCap < 70) {
         return callCutlassGemmCudaCoreFloat16(inputs, outputs);
-    } else if(mGpuComputeCap < 75) {
+    } else if (mGpuComputeCap < 75) {
         return callCutlassGemmTensorCore884(inputs, outputs);
     }
+    #ifdef ENABLE_CUDA_TUNE_PARAM
+    if (mGpuComputeCap >= 80) {
+        mIsTuned = true;
+        /*
+        // 0 -> Gemm, 1~N -> BatchGemm
+        int32_t batchSize = 0;
+        // [0]->A, [1]->B, [2]->bias, [3]->output
+        std::pair<void *, int32_t> ptrOffset[4]; 
+        int32_t batchOffset[4];
+        // [0]->alpha, [1]->beta, [2]->splitK
+        int32_t coefs[3]; 
+        // 0 -> RowColumn, 1 -> RowRow
+        int32_t layout;
+        bool epilogueVectorize
+        */
+        mInfo.problemSize[0] = mGemmInfo.elh[0];
+        mInfo.problemSize[1] = mGemmInfo.elhPad[2];
+        mInfo.problemSize[2] = mGemmInfo.elhPad[1];
 
+        mInfo.coefs[0] = 1;
+        mInfo.coefs[1] = 1;
+        mInfo.coefs[2] = 1;
+
+        mInfo.epilogueVectorize = true;
+        mInfo.epilogueType = mActivationType;// Linear-Relu-Relu6
+        mInfo.precisionType = mPrecisonLevel;//
+        mInfo.backend = mBackendPtr;
+
+        mInfo.batchSize = 0;// For Gemm
+        mInfo.layout = 0;
+        void *inputA_ptr = mNeedIm2Col ? (void *)mIm2ColBuffer : (void *)input->deviceId();
+
+        mInfo.ptrOffset[0] = std::make_pair((void *)inputA_ptr, mGemmInfo.elhPad[1]);
+        mInfo.ptrOffset[1] = std::make_pair((void *)mFilterAddr, mGemmInfo.elhPad[1]);
+        mInfo.ptrOffset[2] = std::make_pair((void *)mBiasAddr, 0);
+        mInfo.ptrOffset[3] = std::make_pair((void *)outputs[0]->deviceId(), mGemmInfo.elhPad[2]);
+        getGemmTensorCoreFloat16Param(&mInfo);
+        // set preferd block shape argments
+        setGemmTensorCoreFloat16Argments(&mInfo);
+        return NO_ERROR;
+    }
+    #endif
+    
     return callCutlassGemmTensorCore(inputs, outputs);
 }
 

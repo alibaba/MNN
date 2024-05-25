@@ -105,7 +105,7 @@ public:
         auto size = y->getInfo()->size;
         int e = 14;
         y = _Reshape(y, {e, -1});
-        auto l = size / e;
+        int l = size / e;
         VARP res;
         {
             std::unique_ptr<OpT> mat(new OpT);

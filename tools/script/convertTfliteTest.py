@@ -7,8 +7,10 @@ total_num = 0
 
 import os
 def run_cmd(args):
-    from subprocess import Popen, PIPE, STDOUT
-    stdout, _ = Popen(args, stdout=PIPE, stderr=STDOUT).communicate()
+    cmd = args[0]
+    for i in range(1, len(args)):
+        cmd += ' ' + args[i]
+    stdout = os.popen(cmd).read()
     global total_num
     total_num += 1
     return stdout

@@ -72,10 +72,10 @@ enum OpType : int {
     QuantizedConcat,
     QuantizedDepthwiseConv2D,
     QuantizedLogistic,
-    QuantizedMatMul,
+    RasterAndInterpolate,
     QuantizedMaxPool,
-    QuantizedRelu,
-    QuantizedRelu6,
+    Texture,
+    RasterDiff,
     QuantizedReshape,
     QuantizedSoftmax,
     QuantizeMaxMin,
@@ -167,6 +167,7 @@ enum OpType : int {
     GatherElements = 152,
     Svd = 153,
     Histogram = 154,
+    DynamicQuant = 155,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -184,6 +185,14 @@ enum OpType : int {
     ConvTranspose3D,
     // Use for self defined grad
     ZeroGrad,
+
+    // User define op
+    Attention = 299,
+    FmhaV2 = 300,
+    Fmhca = 301,
+    SeqLen2Spatial = 302,
+    SplitGeLU = 303,
+    GroupNorm = 304,
 
     Extra = 512,
     // quantization
@@ -210,12 +219,24 @@ table Extra {
     engine: string;
     info: [byte];
     attr:[Attribute];
-    // The Extra Op can be vectorized for execution    
+    // The Extra Op can be vectorized for execution
     vector: bool;
 }
 
 table StringVec {
     data: [string];
+}
+
+table AttentionParam {
+    kv_cache: bool = true;
+}
+
+table FmhaV2Param {
+    heads: int;
+}
+
+table FmhcaParam {
+    heads: int;
 }
 
 table WhileParam {
@@ -389,7 +410,11 @@ union OpParameter {
     GridSample,
     LoopParam,
     ImageProcessParam,
-    CumSum
+    CumSum,
+    GroupNorm,
+    FmhaV2Param,
+    FmhcaParam,
+    AttentionParam
 }
 
 table Op {
@@ -399,6 +424,7 @@ table Op {
     outputIndexes: [int];
     type: OpType;
     defaultDimentionFormat : MNN_DATA_FORMAT = NHWC;
+    externalPath:string;
 }
 
 table View {

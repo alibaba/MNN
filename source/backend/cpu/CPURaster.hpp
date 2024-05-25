@@ -31,7 +31,6 @@ private:
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
     std::vector<std::pair<const Tensor*, Tensor::InsideDescribe::Region>> mFastBlit;
     std::shared_ptr<Tensor> mTempOutput;
-    void* mOutputPtr;
     bool mNeedZero = false;
     bool mFast = false;
     OpCommonUtils::TensorConvertParameter mSingleConvert;

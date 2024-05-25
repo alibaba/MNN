@@ -65,7 +65,12 @@ template <typename Tx, typename Ty> static bool _equal(cv::Mat cv, VARP mnn) {
     // _dump<Tx>("cv:", xPtr, {0, 4, 0, 4, 0, 3}, cv.channels(), cv.cols * cv.channels());
     // _dump<Ty>("mnn:", yPtr, {0, 4, 0, 4, 0, 3}, cv.channels(), cv.cols * cv.channels());
     float deta = 0.f;
-    for (int i = 0; i < mnn->getInfo()->size / sizeof(Ty); i++) {
+    auto dims = mnn->getInfo()->dim;
+    int size = 1;
+    for (int i = 0; i < dims.size(); ++i) {
+        size *= dims[i];
+    }
+    for (int i = 0; i < size; i++) {
         Tx x = xPtr[i];
         Ty y = yPtr[i];
         if (_compare<Tx, Ty>(x, y)) {

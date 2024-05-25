@@ -7,6 +7,7 @@
 //
 #ifdef MNN_CODEGEN_CUDA
 #include "FuseExecution.hpp"
+#include "FuseExecutionV2.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "MNNCUDADefine.hpp"
 #include "MNNCUDAFunction.cuh"
@@ -144,6 +145,9 @@ class FuseCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        if (FuseExecutionV2::check(op)) {
+            return FuseExecutionV2::create(op, backend, inputs.size(), outputs.size());
+        }
         return new FuseExecution(op, backend);
     }
 };

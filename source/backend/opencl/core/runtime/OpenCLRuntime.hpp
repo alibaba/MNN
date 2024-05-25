@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "Type_generated.h"
 #include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 #include "MNN/MNNForwardType.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -43,15 +45,35 @@ enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
+struct KernelPool {
+    uint64_t maxWorkGroupSize;
+    std::queue<std::shared_ptr<cl::Kernel>> recycle;
+};
+class KernelWrap {
+public:
+    KernelWrap(std::shared_ptr<cl::Kernel> k, KernelPool* recycle) : mKernel(k), mRecycle(recycle) {
+        // Do nothing
+    }
+    ~ KernelWrap() {
+        if (nullptr != mRecycle) {
+            mRecycle->recycle.push(mKernel);
+        }
+    }
+    cl::Kernel& get() {
+        return *mKernel;
+    }
+    KernelPool* mRecycle;
+private:
+    std::shared_ptr<cl::Kernel> mKernel;
+};
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
-    bool isWeightCpuTransHalf() const;
     bool isDeviceSupportedFP16() const;
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
@@ -65,30 +87,18 @@ public:
     uint32_t MaxThreadsPerDevice() const;
     uint32_t MaxWorkGroupSize() const;
     uint32_t maxFreq() const;
-    uint64_t getMaxWorkGroupSize(const ::cl::Kernel &kernel);
-    uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
+    uint64_t getMaxWorkGroupSize(std::shared_ptr<KernelWrap> kernel);
+    uint64_t GetKernelWaveSize(std::shared_ptr<KernelWrap> kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
-    std::vector<cl_recording_qcom> *getRecordings(){
-        return &mRecordings;
-    }
     uint32_t getUseRecordableQueueSize(){
         return mUseRecordableQueueSize;
     }
-    bool isUseRecordQueue(){
+    bool isSupportRecordQueue(){
         return mUseRecordQueue;
     }
     bool isDevideOpRecord(){
         return mDevideOpRecord;
-    }
-    void setDevideOpRecord(){
-        mDevideOpRecord = true;
-    }
-    void setRecordNum(int num){
-        mRecordNums = num;
-    }
-    uint32_t getRecordNum(){
-        return mRecordNums;
     }
     GpuType getGpuType() {
         return mGpuType;
@@ -124,10 +134,6 @@ public:
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
-    void clearRecord();
-    void enqeueRecord();
-    void endRecord();
-    void releaseRecord();
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
@@ -136,9 +142,13 @@ public:
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
     
-    ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
-                             const std::set<std::string> &buildOptions);
-    ::cl::Kernel buildKernelFromSource(const std::string&, const std::string &kernelName,
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>>& getTuneLwsMap();
+    
+    std::shared_ptr<KernelWrap> buildKernel(const std::string &programName, const std::string &kernelName,
+                             const std::set<std::string> &buildOptions, const Tensor *input = nullptr, const Tensor *output = nullptr);
+    std::shared_ptr<KernelWrap> buildKernelWithCache(const std::string &programName, const std::string &kernelName,
+                             const std::set<std::string> &buildOptions, const Tensor *input = nullptr, const Tensor *output = nullptr, bool useCache = true);
+    std::shared_ptr<KernelWrap> buildKernelFromSource(const std::string&, const std::string &kernelName,
                                        const std::set<std::string> &buildOptions);
 
     std::vector<size_t> getMaxImage2DSize();
@@ -163,24 +173,32 @@ private:
     void setGpuMode(const int cl_mode_num);
 
 private:
+    std::vector<size_t> mMaxImageSize;
+    std::vector<uint32_t> mMaxWorkIterms;
     std::shared_ptr<::cl::Context> mContext;
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
-    std::map<std::tuple<std::string, std::string>, ::cl::Program> mBuildProgramMap;
+    std::shared_ptr<::cl::CommandQueue> mCommandQueueTuning;
+    struct ProgramWithKernel {
+        cl::Program program;
+        std::map<std::string, KernelPool> kernels;
+    };
+    cl::CommandQueue* mCurrentCommandQueue;
+    std::map<std::tuple<std::string, std::string>, ProgramWithKernel> mBuildProgramMap;
     std::shared_ptr<::cl::CommandQueue> mRecordableQueuePtr;
-    std::vector<cl_recording_qcom> mRecordings;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
-    uint32_t mMaxMemAllocSize;
+    uint64_t mMaxMemAllocSize;
     uint64_t mMaxLocalMemSize;
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
     uint32_t mUseRecordableQueueSize;
-    uint32_t mRecordNums = 0;
     bool mUseRecordQueue = false;
     bool mDevideOpRecord = true;
-    bool mIsSupportedFP16     = false;
+    int mPrecisionLevel;
+    
+    bool mIsSupportedFP16 = false;
     bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;
     bool mSupportDotInt8 = false;
@@ -206,6 +224,7 @@ private:
     double mStopNanos;
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
     std::vector<uint8_t> mBuffer;
     const void* mCacheOutside = nullptr;
     size_t mCacheOutsideSize = 0;

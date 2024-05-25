@@ -152,13 +152,13 @@ void filter(cv::Mat cvimg, VARP mnnimg) {
 void geometric(cv::Mat cvimg, VARP mnnimg) {
     cv::Mat dst;
     // getAffineTransform
-    float points[] = { 50, 50, 200, 50, 50, 200, 10, 100, 200, 20, 100, 250 };
-    cv::Point2f cvSrc[3], cvDst[3];
-    memcpy(cvSrc, points, 6 * sizeof(float));
-    memcpy(cvDst, points + 6, 6 * sizeof(float));
-    Point mnnSrc[3], mnnDst[3];
-    memcpy(mnnSrc, points, 6 * sizeof(float));
-    memcpy(mnnDst, points + 6, 6 * sizeof(float));
+    float points[] = { 50, 50, 200, 50, 50, 200, 10, 100, 200, 20, 100, 250, 100, 20, 50, 100};
+    cv::Point2f cvSrc[4], cvDst[4];
+    memcpy(cvSrc, points, 8 * sizeof(float));
+    memcpy(cvDst, points + 8, 8 * sizeof(float));
+    Point mnnSrc[4], mnnDst[4];
+    memcpy(mnnSrc, points, 8 * sizeof(float));
+    memcpy(mnnDst, points + 8, 8 * sizeof(float));
     BENCHMARK_CV(getAffineTransform, cvSrc, cvDst);
     BENCHMARK(3, getAffineTransform, mnnSrc, mnnDst);
     // getPerspectiveTransform
@@ -193,12 +193,14 @@ void miscellaneous(cv::Mat cvimg, VARP mnnimg) {
     // blendLinear
     int weightSize = cvimg.rows * cvimg.cols;
     std::vector<float> weight1(weightSize, 0.6), weight2(weightSize, 0.7);
+    std::vector<float> mnnweight1(weightSize), mnnweight2(weightSize);
     cv::Mat cvWeight1 = cv::Mat(cvimg.rows, cvimg.cols, CV_32FC1);
     cv::Mat cvWeight2 = cv::Mat(cvimg.rows, cvimg.cols, CV_32FC1);
     memcpy(cvWeight1.data, weight1.data(), weight1.size() * sizeof(float));
     memcpy(cvWeight2.data, weight2.data(), weight2.size() * sizeof(float));
     auto mnnWeight1 = cv2mnn<float>(cvWeight1);
     auto mnnWeight2 = cv2mnn<float>(cvWeight2);
+
     BENCHMARK_CV(blendLinear, cvimg, cvimg, cvWeight1, cvWeight2, dst);
     BENCHMARK_MNN(blendLinear, mnnimg, mnnimg, mnnWeight1, mnnWeight2);
     // threshold
@@ -207,7 +209,7 @@ void miscellaneous(cv::Mat cvimg, VARP mnnimg) {
 }
 
 void structral(cv::Mat cvimg, VARP mnnimg) {
-    static std::vector<uint8_t> img = {
+    static std::vector<float> img = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,1,0,0,0,0,0,0,0,0,0,

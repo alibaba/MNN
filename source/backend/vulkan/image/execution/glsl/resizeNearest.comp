@@ -23,10 +23,16 @@ void main()
     if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
 	{
 		float srcX = float(pos.x) * uResizeParam.scale.x + uResizeParam.scale.y;
+#ifdef NEAREST_ROUND
+        srcX = srcX + 0.499;
+#endif
 		int x1 = int(floor(srcX));
 		int x11 = clamp(x1, 0, inputImgSize.x - 1);
 
 		float srcY = float(pos.y) * uResizeParam.scale.z + uResizeParam.scale.w;
+#ifdef NEAREST_ROUND
+        srcY = srcY + 0.499;
+#endif
 		int y1 = int(floor(srcY));
 		int y11 = clamp(y1, 0, inputImgSize.y - 1);
         int sz = pos.z % inputImgSize.z;

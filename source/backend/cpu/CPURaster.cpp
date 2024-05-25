@@ -42,7 +42,6 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     mTempOutput = nullptr;
     auto midFormat = MNN_DATA_FORMAT_NCHW;
     mTempInputCopy.clear();
-    mOutputPtr = output->host<void>();
     mFast = false;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     mSingleConvert.type = 0;
@@ -91,7 +90,6 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (!res) {
             return OUT_OF_MEMORY;
         }
-        mOutputPtr = mTempOutput->host<void>();
     }
     // input is NC4HW4 add Convert
     std::vector<Tensor*> forRelease;
@@ -235,7 +233,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     }
     return NO_ERROR;
 }
-static void _transpose4Bit(int32_t* dstO, const int32_t* srcO, const Tensor::InsideDescribe::Region& region) {
+static void _transpose(int32_t* dstO, const int32_t* srcO, const Tensor::InsideDescribe::Region& region, int bytes) {
     int dims[4], keepDim = -1;
     for (int i = 0; i < 3; i++) {
         if (region.src.stride[i] == 1 && region.size[i] != 1) {
@@ -248,43 +246,27 @@ static void _transpose4Bit(int32_t* dstO, const int32_t* srcO, const Tensor::Ins
             keepDim = i;
         }
     }
-    for (int z=0; z<region.size[keepDim]; ++z) {
-        auto srcZ = srcO + region.src.stride[keepDim] * z;
-        auto dstZ = dstO + region.dst.stride[keepDim] * z;
-        MNNTranspose32Bit(dstZ, srcZ, dims);
+    if (bytes == 4) {
+        for (int z=0; z<region.size[keepDim]; ++z) {
+            auto srcZ = srcO + region.src.stride[keepDim] * z;
+            auto dstZ = dstO + region.dst.stride[keepDim] * z;
+            MNNTranspose32Bit(dstZ, srcZ, dims);
+        }
+        return;
+    }
+    if (bytes == 2) {
+        auto srcH = reinterpret_cast<const int16_t*>(srcO);
+        auto dstH = reinterpret_cast<int16_t*>(dstO);
+        for (int z = 0; z < region.size[keepDim]; ++z) {
+            auto srcZ = srcH + region.src.stride[keepDim] * z;
+            auto dstZ = dstH + region.dst.stride[keepDim] * z;
+            MNNTranspose16Bit(dstZ, srcZ, dims);
+        }
+        return;
     }
 }
 typedef void (*BlitProc)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
 
-static void _4BitcopyWithStride(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
-    auto src = (uint32_t*)srcO;
-    auto dst = (uint32_t*)dstO;
-    for (int i=0; i<size; ++i) {
-        *dst = *src;
-        src+=stride;
-        dst+=ds;
-    }
-}
-
-static void _2BitcopyWithStride(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
-    auto src = (uint16_t*)srcO;
-    auto dst = (uint16_t*)dstO;
-    for (int i=0; i<size; ++i) {
-        *dst = *src;
-        src+=stride;
-        dst+=ds;
-    }
-}
-
-static void _1BitcopyWithStride(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
-    auto src = (uint8_t*)srcO;
-    auto dst = (uint8_t*)dstO;
-    for (int i=0; i<size; ++i) {
-        *dst = *src;
-        src+=stride;
-        dst+=ds;
-    }
-}
 static void _4BitcopyWithStrideC4(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
     auto src = (float*)srcO;
     auto dst = (float*)dstO;
@@ -315,7 +297,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
         ::memset(output->host<void>(), mZeroPoint, static_cast<CPUBackend*>(backend())->getTensorSize(output) * bytes);
     }
     auto byteC4 = bytes * core->pack;
-    auto C4proc = _4BitcopyWithStride;
+    auto C4proc = core->MNN4BitcopyWithStride;
     switch (byteC4) {
         case 16:
             C4proc = _4BitcopyWithStrideC4;
@@ -324,7 +306,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             C4proc = _2BitcopyWithStrideC4;
             break;
         case 4:
-            C4proc = _4BitcopyWithStride;
+            C4proc = core->MNN4BitcopyWithStride;
             break;
         default:
             C4proc = core->MNNSelectBlitFunction(byteC4);
@@ -336,7 +318,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             auto& slice = iter.second;
             //Offset use byte
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
-            auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
+            auto dstPtr = output->host<uint8_t>() + slice.dst.offset * bytes;
             if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
                 for (int z=0; z<slice.size[0]; ++z) {
                     auto srcZ = srcPtr + z * slice.src.stride[0] * byteC4;
@@ -371,17 +353,30 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
     MNN_CONCURRENCY_END();
 }
 
-static BlitProc _selectUnitProc(int bytes) {
-    auto proc = _1BitcopyWithStride;
+static BlitProc _selectUnitProc(int bytes, int stride, int ds) {
+    auto core = MNNGetCoreFunctions();
+    auto proc = core->MNN1BitcopyFast;
     switch (bytes) {
         case 4:
-            proc = _4BitcopyWithStride;
+            if (ds == 1 && (stride == 1 || stride == 0)) {
+                proc = core->MNN4BitcopyFast;
+            } else {
+                proc = core->MNN4BitcopyWithStride;
+            }
             break;
         case 2:
-            proc = _2BitcopyWithStride;
+            if (ds == 1 && (stride == 1 || stride == 0)) {
+                proc = core->MNN2BitcopyFast;
+            } else {
+                proc = core->MNN2BitcopyWithStride;
+            }
             break;
         case 1:
-            proc = _1BitcopyWithStride;
+            if (ds == 1 && (stride == 1 || stride == 0)) {
+                proc = core->MNN1BitcopyFast;
+            } else {
+                proc = core->MNN1BitcopyWithStride;
+            }
             break;
         default:
             MNN_ASSERT(false);
@@ -493,7 +488,8 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
     return false;
 }
 
-static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, void(*proc)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds)) {
+static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr) {
+    auto proc = _selectUnitProc(bytes, slice.src.stride[2], slice.dst.stride[2]);
 #define MNN_BLIT_SUPPORT_REDUCE
 #ifdef MNN_BLIT_SUPPORT_REDUCE
     if (_reduceblit(slice, bytes, srcPtr, dstPtr)) {
@@ -512,8 +508,9 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
         return;
     }
     int srcOne, dstOne;
-    if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && 4 == bytes) {
-        _transpose4Bit((int32_t*)dstPtr, (const int32_t*)srcPtr, slice);
+    if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && (4 == bytes || 2 == bytes)) {
+    // if (OpCommonUtils::isTranspose(slice, srcOne, dstOne) && 4 == bytes) {
+        _transpose((int32_t*)dstPtr, (const int32_t*)srcPtr, slice, bytes);
         return;
     }
     if (1 == slice.src.stride[2] && 1 == slice.dst.stride[2]) {
@@ -530,7 +527,7 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
     }
     for (int z=0; z<slice.size[0]; ++z) {
         auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
-        auto dstZ = dstPtr + (z) * slice.dst.stride[0] * bytes;
+        auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
         for (int y=0; y<slice.size[1]; ++y) {
             auto srcY = srcZ + y * slice.src.stride[1] * bytes;
             auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
@@ -560,6 +557,7 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
 
 
 ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
+    void* mOutputPtr = nullptr;
     if (nullptr != mTempOutput) {
         mOutputPtr = mTempOutput->host<void>();
     } else {
@@ -575,7 +573,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mSingleConvert.type > 0) {
-        auto realInput = TensorUtils::getDescribe(output)->regions[0].origin;
+        auto realInput = ____inputs[0];
         int srcBatch = mSingleConvert.batch, srcChannel = mSingleConvert.channel, srcArea = mSingleConvert.area;
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
         auto destFormat = TensorUtils::getDescribe(output)->dimensionFormat;
@@ -623,7 +621,6 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     for (auto& iter : mTempInput) {
         tensorConvert(iter.first, iter.second, bytes);
     }
-    auto proc = _selectUnitProc(bytes);
     threadNum = ALIMIN(threadNum, (int)mTempInputCopy.size());
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
@@ -631,7 +628,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
             auto& slice = *(iter.second);
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
-            _blit(slice, bytes, srcPtr, dstPtr, proc);
+            _blit(slice, bytes, srcPtr, dstPtr);
         }
     }
     MNN_CONCURRENCY_END();
@@ -805,11 +802,10 @@ public:
                     auto inputSize = input->elementSize();
                     auto output = mStack[cmd->indexes()->data()[0]];
                     auto bytes = input->getType().bytes();
-                    if (halide_type_float == input->getType().code && bytes == 4) {
+                    if (halide_type_float == input->getType().code) {
                         bytes = cpubackend->functions()->bytes;
                     }
-                    auto proc = _selectUnitProc(bytes);
-                    _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>(), proc);
+                    _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>());
                 }
 
             }
@@ -844,10 +840,9 @@ public:
                 auto inputSize = input->elementSize();
                 auto output = mStack[cmd->indexes()->data()[0]];
                 auto bytes = input->getType().bytes();
-                if (halide_type_float == input->getType().code && bytes == 4) {
+                if (halide_type_float == input->getType().code) {
                     bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
                 }
-                auto proc = _selectUnitProc(bytes);
                 auto step0 = cmd->steps()->data()[0];
                 auto step1 = cmd->steps()->data()[1];
                 auto loopNumber = mLoop->loopNumber();
@@ -858,7 +853,7 @@ public:
                     auto dstOffset = dstIter * step0 + dstView->offset();
                     if (dstOffset >= 0) {
                         if (srcOffset >= 0 && srcOffset < inputSize) {
-                            _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset, proc);
+                            _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset);
                         } else {
                             _zero(reg, bytes, output->host<uint8_t>() + bytes * dstOffset);
                         }
@@ -869,12 +864,12 @@ public:
         }
         auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
         auto func = [&](int iter, int tId) {
-            auto blit = _selectUnitProc(bytes);
             int fuseOutputStride[3];
             const int32_t* outputStride = nullptr;
             auto fuseBuffer = mFuseBuffer + mMaxFuseBufferSize * tId;
             for (int index=0; index<mLoop->commands()->size(); ++index) {
                 auto cmd = mLoop->commands()->GetAs<RegionCommand>(index);
+                auto blit = _selectUnitProc(bytes, cmd->view()->GetAs<View>(1)->stride()->data()[2], 1);
                 auto op = cmd->op();
                 int iterIndexsize = cmd->iterIndexes()->size();
                 
@@ -888,14 +883,14 @@ public:
                     // Loop Op's command's first index must be output
                     outputStride = cmd->view()->GetAs<View>(0)->stride()->data();
                 }
-                halide_type_t outputType;
+                halide_type_t inputType;
                 for (int v=0; v<iterIndexsize; ++v) {
                     auto tensorIndex = cmd->indexes()->data()[v];
                     auto tensor = mStack[tensorIndex];
                     auto iterIndex = cmd->iterIndexes()->data()[v];
                     auto offset = iter;
-                    if (0 == v) {
-                        outputType = tensor->getType();
+                    if (1 == v) {
+                        inputType = tensor->getType();
                     }
                     if (iterIndex >= 0) {
                         offset = mStack[iterIndex]->host<int32_t>()[iter];
@@ -921,11 +916,10 @@ public:
                             ::memcpy(reg.size, cmd->size()->data(), 3 * sizeof(int32_t));
                             ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
                             ::memcpy(reg.dst.stride, outputStride, 3 * sizeof(int32_t));
-                            auto proc = _selectUnitProc(bytes);
                             auto step0 = cmd->steps()->data()[0];
                             auto step1 = cmd->steps()->data()[1];
                             auto loopNumber = mLoop->loopNumber();
-                            _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst, proc);
+                            _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst);
                             break;
                         }
                         auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend())->precisionMode());
@@ -974,10 +968,10 @@ public:
                     if (OpType_BinaryOp == op->type()) {
                         auto src0 = mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
                         MNNBinaryExecute proc;
-                        if (outputType.code == halide_type_float) {
+                        if (inputType.code == halide_type_float) {
                             proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
                         } else {
-                            MNN_ASSERT(outputType.code == halide_type_int);
+                            MNN_ASSERT(inputType.code == halide_type_int);
                             proc = CPUBinary::selectForInt(op->main_as_BinaryOp()->opType());
                         }
                         auto lastS = cmd->size()->data()[2];
@@ -986,6 +980,8 @@ public:
                         MNN_ASSERT(stride0[2] == 1);
                         auto src1 = mContainer[tId].stackPtr[cmd->indexes()->data()[2]];
                         auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
+                        auto blit1   = _selectUnitProc(bytes, stride1[2], 1);
+                        auto blit2   = _selectUnitProc(bytes, stride2[2], 1);
                         if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride2[2] == 1)) {
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
                                 auto src0Z = src0 + z * stride1[0] * bytes;
@@ -1009,8 +1005,8 @@ public:
                                     auto src0Y = src0Z + y * stride1[1] * bytes;
                                     auto src1Y = src1Z + y * stride2[1] * bytes;
                                     auto dstY = dstZ + y * stride0[1] * bytes;
-                                    blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
-                                    blit(cache1, src1Y, cmd->size()->data()[2], stride2[2], 1);
+                                    blit1(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
+                                    blit2(cache1, src1Y, cmd->size()->data()[2], stride2[2], 1);
                                     proc(dstY, cache0, cache1, cmd->size()->data()[2], -1);
                                 }
                             }

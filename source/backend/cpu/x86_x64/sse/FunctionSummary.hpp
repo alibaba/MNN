@@ -39,6 +39,7 @@ void _SSE_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride,
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 void _SSE_MNNGelu(float* dst, const float* src, size_t size, float* parameters);
+void _SSE_MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
 
 void _SSE_MNNHardSwish(float* dst, const float* src, size_t size);
 
@@ -58,6 +59,12 @@ void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const s
                                const float* postParameters, const float* bias, const float* k, const float* b);
 void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b);
+void _SSE_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, size_t realSize, const float** param);
+void _SSE_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, size_t realSize, const float** param);
+void _SSE_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void _SSE_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack);
 #endif
 void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -77,9 +84,9 @@ void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, si
 void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
 void _SSE_MNNSoftmax(float* dest, const float* source, size_t size);
 void _SSE_ExtraInit(void* functions);
-void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size);
+void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm);
 void _SSE_ImageProcessInit(void* functions, int cpuFlags);
-void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params);
+void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm);
 
 /* Image process functions */
 void _SSE_MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count);
@@ -98,3 +105,6 @@ void _SSE_MNNSampleC4Bilinear(const unsigned char* source, unsigned char* dest, 
                           size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride);
 void _SSE_MNNSampleBilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
                                   size_t iw, size_t ih, size_t yStride, size_t bpp);
+
+// Dynamic Quant
+void _SSE_MNNComputeScaleZeroScalar(float* source, float* minVal, float* maxVal, size_t size);

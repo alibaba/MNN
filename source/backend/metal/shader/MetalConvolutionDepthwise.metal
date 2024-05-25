@@ -28,7 +28,7 @@ kernel void conv_depthwise(const device ftype4 *in          [[buffer(0)]],
                            uint3 gid                      [[thread_position_in_grid]]) {
     if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.slice * cst.batch) return;
     
-    int oz = gid.z % cst.slice;
+    int oz = gid.z / cst.batch;
     int offset_x = (int)gid.x * cst.stride_x - cst.pad_x;
     int offset_y = (int)gid.y * cst.stride_y - cst.pad_y;
     int sx = max(0, (UP_DIV(-offset_x, cst.dilation_x)));

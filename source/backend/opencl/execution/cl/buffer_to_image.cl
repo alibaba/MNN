@@ -9,67 +9,6 @@
     }
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
-
-__kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS
-                                    #ifdef BUFFER_IMAGE_IO_TRANS
-                                    __global const float *input_ptr,
-                                    #else
-                                    __global const FLOAT *input_ptr,
-                                    #endif
-                                    __private const int2 output_shape,
-                                    __private const int batch_size, __write_only image2d_t output) {
-
-    int image_width_idx  = get_global_id(0);
-    int image_height_idx = get_global_id(1);
-
-    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
-
-    const int batch_idx         = image_height_idx / output_shape.x;
-    const int height_idx        = image_height_idx % output_shape.x;
-    const int width_idx         = image_width_idx % output_shape.y;
-    const int channel_block_idx = image_width_idx / output_shape.y;
-    int buffer_offset =
-        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
-    #ifdef BUFFER_IMAGE_IO_TRANS
-    FLOAT4 values = CONVERT_FLOAT4(vload4(0, input_ptr + buffer_offset));
-    #else
-    FLOAT4 values = vload4(0, input_ptr + buffer_offset);
-    #endif
-    int2 coord = (int2)(image_width_idx, image_height_idx);
-    WI_F(output, coord, values);
-}
-
-__kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
-                                    #ifdef BUFFER_IMAGE_IO_TRANS
-                                    __global float *output, /* nc4hw4 */
-                                    #else
-                                    __global FLOAT *output, /* nc4hw4 */
-                                    #endif
-                                    __private const int2 output_shape,
-                                    __private const int batch_size,
-                                    __read_only image2d_t input_ptr) {
-    int image_width_idx  = get_global_id(0);
-    int image_height_idx = get_global_id(1);
-
-    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
-
-    const int batch_idx   = image_height_idx / output_shape.x;
-    const int height_idx  = image_height_idx % output_shape.x;
-    const int width_idx   = image_width_idx % output_shape.y;
-    int channel_block_idx = image_width_idx / output_shape.y;
-
-    int buffer_offset =
-        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
-
-    int2 coord        = (int2)(image_width_idx, image_height_idx);
-    #ifdef BUFFER_IMAGE_IO_TRANS
-    float4 values = convert_float4(RI_F(input_ptr, SAMPLER, coord));
-    #else
-    FLOAT4 values = RI_F(input_ptr, SAMPLER, coord);
-    #endif
-    vstore4(values, 0, output + buffer_offset);
-}
-
 // convert kernel : from buffer(oi ) to image(oc, ic/4)
 __kernel void conv2d1x1_opt_filter_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const FLOAT *input_ptr,
                                             __private const int input_channel, __private const int2 kernel_shape, __private const int ic_h_w_size,
@@ -282,13 +221,50 @@ __kernel void dw_filter_buffer_to_image(GLOBAL_SIZE_2_DIMS
     WI_F(output, (int2)(image_width_idx, image_height_idx), output_values);
 }
 
-// convert data from buffer(nhwc) to image(b h, ic/4 w ic4)
+__kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS
+                                    __global const INPUT_TYPE *input_ptr,
+                                    __private const int2 output_shape,
+                                    __private const int batch_size, __write_only image2d_t output) {
+
+    int image_width_idx  = get_global_id(0);
+    int image_height_idx = get_global_id(1);
+
+    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
+
+    const int batch_idx         = image_height_idx / output_shape.x;
+    const int height_idx        = image_height_idx % output_shape.x;
+    const int width_idx         = image_width_idx % output_shape.y;
+    const int channel_block_idx = image_width_idx / output_shape.y;
+    int buffer_offset =
+        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+    int2 coord = (int2)(image_width_idx, image_height_idx);
+    WI_DATA(output, coord, CONVERT_OUTPUT_I4(vload4(0, input_ptr + buffer_offset)));
+}
+
+__kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
+                                    __global OUTPUT_TYPE *output,
+                                    __private const int2 output_shape,
+                                    __private const int batch_size,
+                                    __read_only image2d_t input_ptr) {
+    int image_width_idx  = get_global_id(0);
+    int image_height_idx = get_global_id(1);
+
+    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
+
+    const int batch_idx   = image_height_idx / output_shape.x;
+    const int height_idx  = image_height_idx % output_shape.x;
+    const int width_idx   = image_width_idx % output_shape.y;
+    int channel_block_idx = image_width_idx / output_shape.y;
+
+    int buffer_offset =
+        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+
+    int2 coord        = (int2)(image_width_idx, image_height_idx);
+    vstore4(CONVERT_OUTPUT4(RI_DATA(input_ptr, SAMPLER, coord)), 0, output + buffer_offset);
+}
+
 __kernel void nhwc_buffer_to_image(GLOBAL_SIZE_2_DIMS
-                                   #ifdef BUFFER_IMAGE_IO_TRANS
-                                   __global const float *input_ptr,
-                                   #else
-                                   __global const FLOAT *input_ptr,
-                                   #endif
+                                   __global const INPUT_TYPE *input_ptr,
                                    __private const int height,
                                    __private const int width, __private const int channels,
                                    __write_only image2d_t output) {
@@ -304,15 +280,7 @@ __kernel void nhwc_buffer_to_image(GLOBAL_SIZE_2_DIMS
     const int buffer_offset = ((batch_idx * height + height_idx) * width + width_idx) * channels + channel_4_idx;
 
     const int remain_channel                = channels - channel_4_idx;
-    FLOAT4 values                           = 0;
-
-    #ifdef BUFFER_IMAGE_IO_TRANS
-    __global const float *input_current_ptr = input_ptr + buffer_offset;
-    values                                  = CONVERT_FLOAT4(vload4(0, input_current_ptr));
-    #else
-    __global const FLOAT *input_current_ptr = input_ptr + buffer_offset;
-    values                                  = vload4(0, input_current_ptr);
-    #endif
+    INPUT_TYPE4 values                      = vload4(0, input_ptr + buffer_offset);
 
     if (remain_channel == 3) {
         values.w = 0;
@@ -324,16 +292,11 @@ __kernel void nhwc_buffer_to_image(GLOBAL_SIZE_2_DIMS
         values.z = 0;
         values.w = 0;
     }
-    WI_F(output, (int2)(image_width_idx, image_height_idx), values);
+    WI_DATA(output, (int2)(image_width_idx, image_height_idx), CONVERT_OUTPUT_I4(values));
 }
 
-// convert data from buffer(nchw) to image(b h, ic/4 w ic4)
 __kernel void nchw_buffer_to_image(GLOBAL_SIZE_2_DIMS
-                                   #ifdef BUFFER_IMAGE_IO_TRANS
-                                   __global const float *input_ptr,
-                                   #else
-                                   __global const FLOAT *input_ptr,
-                                   #endif
+                                   __global const INPUT_TYPE *input_ptr,
                                    __private const int height, __private const int width, __private const int channels,
                                    __write_only image2d_t output) {
     int image_width_idx  = get_global_id(0);
@@ -349,45 +312,39 @@ __kernel void nchw_buffer_to_image(GLOBAL_SIZE_2_DIMS
 
     const int remain_channel    = channels - channel_4_idx;
     const int height_width_size = height * width;
-    FLOAT4 output_values    = 0;
+    INPUT_TYPE4 output_values    = 0;
 
     if (remain_channel >= 4) {
         int offset      = buffer_offset;
-        output_values.x = (FLOAT)*(input_ptr + offset);
+        output_values.x = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.y = (FLOAT)*(input_ptr + offset);
+        output_values.y = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.z = (FLOAT)*(input_ptr + offset);
+        output_values.z = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.w = (FLOAT)*(input_ptr + offset);
+        output_values.w = *(input_ptr + offset);
     } else if (remain_channel == 3) {
         int offset      = buffer_offset;
-        output_values.x = (FLOAT)*(input_ptr + offset);
+        output_values.x = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.y = (FLOAT)*(input_ptr + offset);
+        output_values.y = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.z = (FLOAT)*(input_ptr + offset);
+        output_values.z = *(input_ptr + offset);
     } else if (remain_channel == 2) {
         int offset      = buffer_offset;
-        output_values.x = (FLOAT)*(input_ptr + offset);
+        output_values.x = *(input_ptr + offset);
         offset += height_width_size;
-        output_values.y = (FLOAT)*(input_ptr + offset);
+        output_values.y = *(input_ptr + offset);
     } else if (remain_channel == 1) {
         int offset      = buffer_offset;
-        output_values.x = (FLOAT)*(input_ptr + offset);
+        output_values.x = *(input_ptr + offset);
     }
 
-    WI_F(output, (int2)(image_width_idx, image_height_idx), output_values);
+    WI_DATA(output, (int2)(image_width_idx, image_height_idx), CONVERT_OUTPUT_I4(output_values));
 }
 
-// only for debug
-// convert data from image(b h, ic/4 w ic4) to buffer(nhwc)
 __kernel void image_to_nhwc_buffer(GLOBAL_SIZE_2_DIMS
-                                    #ifdef BUFFER_IMAGE_IO_TRANS
-                                    __global float *output, /* nhwc */
-                                    #else
-                                    __global FLOAT *output, /* nhwc */
-                                    #endif
+                                    __global OUTPUT_TYPE *output,
                                     __private const int height, __private const int width,
                                     __private const int channels,
                                     __read_only image2d_t input_ptr) {
@@ -404,40 +361,30 @@ __kernel void image_to_nhwc_buffer(GLOBAL_SIZE_2_DIMS
 
     int2 coord               = (int2)(image_width_idx, image_height_idx);
     
-    #ifdef BUFFER_IMAGE_IO_TRANS
-    float4 values        = convert_float4(RI_F(input_ptr, SAMPLER, coord));
-    #else
-    FLOAT4 values        = RI_F(input_ptr, SAMPLER, coord);
-    #endif
+    INPUT_TYPE_I4 values        = RI_DATA(input_ptr, SAMPLER, coord);
     const int remain_channel = channels - channel_4_idx;
     if (remain_channel >= 4) {
-        vstore4(values, 0, output + buffer_offset);
+        vstore4(CONVERT_OUTPUT4(values), 0, output + buffer_offset);
     } else if (remain_channel == 3) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset++;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
         offset++;
-        output[offset] = values.z;
+        output[offset] = (OUTPUT_TYPE)values.z;
     } else if (remain_channel == 2) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset++;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
     } else if (remain_channel == 1) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
     }
 }
 
-// only for debug
-// convert data from image(b h, ic/4 w ic4) to buffer(nchw)
 __kernel void image_to_nchw_buffer(GLOBAL_SIZE_2_DIMS
-                                    #ifdef BUFFER_IMAGE_IO_TRANS
-                                    __global float *output, /* nchw */
-                                    #else
-                                    __global FLOAT *output, /* nchw */
-                                    #endif
+                                    __global OUTPUT_TYPE *output,
                                     __private const int height, __private const int width,
                                     __private const int channels,
                                     __read_only image2d_t input_ptr) {
@@ -452,11 +399,7 @@ __kernel void image_to_nchw_buffer(GLOBAL_SIZE_2_DIMS
     int channel_4_idx    = (image_width_idx / width) * 4;
     int buffer_offset    = ((batch_idx * channels + channel_4_idx) * height + height_idx) * width + width_idx;
     
-    #ifdef BUFFER_IMAGE_IO_TRANS
-    float4 values    = convert_float4(RI_F(input_ptr, SAMPLER, (int2)(image_width_idx, image_height_idx)));
-    #else
-    FLOAT4 values    = RI_F(input_ptr, SAMPLER, (int2)(image_width_idx, image_height_idx));
-    #endif
+    INPUT_TYPE_I4 values    = RI_DATA(input_ptr, SAMPLER, (int2)(image_width_idx, image_height_idx));
 
     const int height_width_size = height * width;
 
@@ -464,33 +407,33 @@ __kernel void image_to_nchw_buffer(GLOBAL_SIZE_2_DIMS
 
     if (remain_channel >= 4) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset += height_width_size;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
         offset += height_width_size;
-        output[offset] = values.z;
+        output[offset] = (OUTPUT_TYPE)values.z;
         offset += height_width_size;
-        output[offset] = values.w;
+        output[offset] = (OUTPUT_TYPE)values.w;
     } else if (remain_channel == 3) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset += height_width_size;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
         offset += height_width_size;
-        output[offset] = values.z;
+        output[offset] = (OUTPUT_TYPE)values.z;
     } else if (remain_channel == 2) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset += height_width_size;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
     } else if (remain_channel == 1) {
         int offset     = buffer_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
     }
 }
 
 // convert arg as 4 alignment
-__kernel void arg_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const FLOAT *input_ptr, __private const int count,
+__kernel void arg_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const INPUT_TYPE *input_ptr, __private const int count,
                                   __write_only image2d_t output) {
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -501,7 +444,7 @@ __kernel void arg_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const FLOAT *input
     const int remain          = count - buffer_4_offset;
 
     int offset        = buffer_4_offset;
-    FLOAT4 values = 0;
+    INPUT_TYPE4 values = 0;
     if (remain >= 4) {
         values = vload4(0, input_ptr + offset);
     } else if (remain == 3) {
@@ -517,11 +460,11 @@ __kernel void arg_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const FLOAT *input
     } else if (remain == 1) {
         values.x = *(input_ptr + offset);
     }
-    WI_F(output, (int2)(image_width_idx, image_height_idx), values);
+    WI_DATA(output, (int2)(image_width_idx, image_height_idx), CONVERT_OUTPUT_I4(values));
 }
 
 // only for debug
-__kernel void arg_image_to_buffer(GLOBAL_SIZE_2_DIMS __global FLOAT *output, __private const int count,
+__kernel void arg_image_to_buffer(GLOBAL_SIZE_2_DIMS __global OUTPUT_TYPE *output, __private const int count,
                                   __read_only image2d_t input_ptr) {
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -531,37 +474,37 @@ __kernel void arg_image_to_buffer(GLOBAL_SIZE_2_DIMS __global FLOAT *output, __p
     const int buffer_4_offset = image_width_idx << 2;
 
     int2 coord        = (int2)(image_width_idx, image_height_idx);
-    FLOAT4 values = RI_F(input_ptr, SAMPLER, coord);
+    INPUT_TYPE_I4 values = RI_DATA(input_ptr, SAMPLER, coord);
     const int remain  = count - buffer_4_offset;
     if (remain < 4) {
         switch (remain) {
             case 3:
-                output[buffer_4_offset + 2] = values.s2;
+                output[buffer_4_offset + 2] = (OUTPUT_TYPE)values.s2;
             case 2:
-                output[buffer_4_offset + 1] = values.s1;
+                output[buffer_4_offset + 1] = (OUTPUT_TYPE)values.s1;
             case 1:
-                output[buffer_4_offset] = values.s0;
+                output[buffer_4_offset] = (OUTPUT_TYPE)values.s0;
         }
     } else {
-        vstore4(values, 0, output + buffer_4_offset);
+        vstore4(CONVERT_OUTPUT4(values), 0, output + buffer_4_offset);
     }
 
     if (remain >= 4) {
-        vstore4(values, 0, output + buffer_4_offset);
+        vstore4(CONVERT_OUTPUT4(values), 0, output + buffer_4_offset);
     } else if (remain == 3) {
         int offset     = buffer_4_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset++;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
         offset++;
-        output[offset] = values.z;
+        output[offset] = (OUTPUT_TYPE)values.z;
     } else if (remain == 2) {
         int offset     = buffer_4_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
         offset++;
-        output[offset] = values.y;
+        output[offset] = (OUTPUT_TYPE)values.y;
     } else if (remain == 1) {
         int offset     = buffer_4_offset;
-        output[offset] = values.x;
+        output[offset] = (OUTPUT_TYPE)values.x;
     }
 }

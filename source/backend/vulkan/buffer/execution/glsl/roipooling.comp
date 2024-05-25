@@ -1,5 +1,5 @@
 #version 440 core
-layout(std140) buffer;
+layout(std430) buffer;
 layout(set = 0, binding = 0) writeonly buffer outputBuffer{
     vec4 data[];
 }uOutput;
@@ -9,7 +9,7 @@ layout(set = 0, binding = 1) readonly buffer inputBuffer{
 }uInput;
 
 layout(set = 0, binding = 2) readonly buffer roiBuffer{
-    vec4 data[];
+    float data[];
 }uRoI;
 
 layout(set = 0, binding = 3) uniform constBuffer
@@ -32,13 +32,16 @@ void main()
 		int roiBatchIndex = pos.z % uRoiPoolingParam.outputImgSize.w;
 		int inputZIndex = pos.z / uRoiPoolingParam.outputImgSize.w;
 		// 0, xmin, ymin, xmax, ymax
-		vec4 roiData0 = uRoI.data[roiBatchIndex];
-		vec4 roiData1 = uRoI.data[roiBatchIndex + uRoiPoolingParam.outputImgSize.w];
-		int inputBatch = int(roiData0.x);
-		int x1 = int(round(float(roiData0.y) * uRoiPoolingParam.spatialScale));
-		int y1 = int(round(float(roiData0.z) * uRoiPoolingParam.spatialScale));
-		int x2 = int(round(float(roiData0.w) * uRoiPoolingParam.spatialScale));
-		int y2 = int(round(float(roiData1.x) * uRoiPoolingParam.spatialScale));
+		float roiData0 = uRoI.data[roiBatchIndex * 5 + 0];
+		float roiData1 = uRoI.data[roiBatchIndex * 5 + 1];
+		float roiData2 = uRoI.data[roiBatchIndex * 5 + 2];
+		float roiData3 = uRoI.data[roiBatchIndex * 5 + 3];
+		float roiData4 = uRoI.data[roiBatchIndex * 5 + 4];
+		int inputBatch = int(roiData0);
+		int x1 = int(round(float(roiData1) * uRoiPoolingParam.spatialScale));
+		int y1 = int(round(float(roiData2) * uRoiPoolingParam.spatialScale));
+		int x2 = int(round(float(roiData3) * uRoiPoolingParam.spatialScale));
+		int y2 = int(round(float(roiData4) * uRoiPoolingParam.spatialScale));
 
 		int roiW = max(x2 - x1 + 1, 1);
 		int roiH = max(y2 - y1 + 1, 1);

@@ -26,7 +26,7 @@ private:
     std::shared_ptr<VulkanBuffer> mGpuPreluParam;
     std::shared_ptr<VulkanBuffer> mSlope;
     const VulkanPipeline* mPreluPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
 };
 
 } // namespace MNN

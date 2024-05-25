@@ -70,14 +70,18 @@ static std::vector<T> VARP2Vec(const VARP& var, int ddepth) {
 static std::pair<VARP, VARP> getScharrKernels(int dx, int dy, bool normalize) {
     MNN_ASSERT( dx >= 0 && dy >= 0 && dx + dy == 1 );
     float K[2][3] = {{ 3, 10, 3 }, { -1, 0, 1 }};
-    VARP kx = _Const(&K[dx], {1, 3});
-    VARP ky = _Const(&K[dy], {1, 3});
     if (normalize && dx) {
-        kx = kx * _Scalar<float>(1 / 32.f);
+        for (int i = 0; i < 3; ++i) {
+            K[dx][i] /= 32.f;
+        }
     }
     if (normalize && dy) {
-        ky = ky * _Scalar<float>(1 / 32.f);
+        for (int i = 0; i < 3; ++i) {
+            K[dy][i] /= 32.f;
+        }
     }
+    VARP kx = _Const(&K[dx], {1, 3});
+    VARP ky = _Const(&K[dy], {1, 3});
     return { kx, ky };
 }
 
@@ -90,8 +94,18 @@ static std::pair<VARP, VARP> getSobelKernels(int dx, int dy, int ksize, bool nor
     if (ksize == 1 || ksize == 3) {
         ksize = 3;
         float K[3][3] = {{ 1, 2, 1 }, { -1, 0, 1 }, {1, -2, 1}};
-        kx = _Const(&K[dx > 2 ? 2 : dx], {1, 3});
-        ky = _Const(&K[dy > 2 ? 2 : dy], {1, 3});
+        int jx = dx > 2 ? 2 : dx;
+        int jy = dy > 2 ? 2 : dy;
+        float scalex = 1./(1 << (ksize - dx -1));
+        float scaley = 1./(1 << (ksize - dy -1));
+        if (normalize) {
+            for (int i = 0; i < 3; ++i) {
+                K[jx][i] *= scalex;
+                K[jy][i] *= scaley;
+            }
+        }
+        kx = _Const(&K[jx], {1, 3});
+        ky = _Const(&K[jy], {1, 3});
     } else {
         auto getKernel = [&ksize](int order) {
             std::vector<float> kernel(ksize + 1);
@@ -120,13 +134,21 @@ static std::pair<VARP, VARP> getSobelKernels(int dx, int dy, int ksize, bool nor
             }
             return kernel;
         };
-        kx = _Const(getKernel(dx).data(), {1, ksize});
-        ky = _Const(getKernel(dy).data(), {1, ksize});
+        std::vector<float> dxKernel, dyKernel;
+        dxKernel = getKernel(dx);
+        dyKernel = getKernel(dy);
+        if (normalize) {
+            float scalex = 1./(1 << (ksize - dx -1));
+            float scaley = 1./(1 << (ksize - dy -1));
+            for (int i = 0; i < ksize; ++i) {
+                dxKernel[i] *= scalex;
+                dyKernel[i] *= scaley;
+            }
+        }
+        kx = _Const(dxKernel.data(), {1, ksize});
+        ky = _Const(dyKernel.data(), {1, ksize});
     }
-    if (normalize) {
-        kx = kx * _Scalar<float>(1./(1 << (ksize - dx -1)));
-        ky = ky * _Scalar<float>(1./(1 << (ksize - dy -1)));
-    }
+    
     return { kx, ky };
 }
 

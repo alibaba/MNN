@@ -146,9 +146,9 @@ public:
             int once_weight  = weightInfo->size / multiplier;
             convolution2D->weight.resize(once_weight);
             ::memcpy(convolution2D->weight.data(), weightTensorData, weightInfo->size * sizeof(float));
+            convolution2D->bias.resize(num_output);
+            std::fill(convolution2D->bias.begin(), convolution2D->bias.end(), 0.0f);
         }
-        convolution2D->bias.resize(num_output);
-        std::fill(convolution2D->bias.begin(), convolution2D->bias.end(), 0.0f);
         convolution2D->common.reset(new MNN::Convolution2DCommonT);
         auto common = convolution2D->common.get();
 

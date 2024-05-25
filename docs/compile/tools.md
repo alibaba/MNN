@@ -29,10 +29,8 @@
 - 编译产物
   - `MNNTrain` 训练框架库
   - `runTrainDemo.out` 运行训练框架demo的入口程序
-  - `transformer.out` 训练模型转换器
-  - `train.out` 训练功能入口程序
-  - `rawDataTransform.out` 将json文件转换为flatbuffers文件
-  - `dataTransformer.out` 将图片转换为flatbuffers文件
+  - `transformer` 训练模型转换器，将推理用的MNN模型转换为执行训练的MNN模型
+  - `extractForInfer` 从执行训练的MNN模型中提取参数，对应更新推理用的MNN模型
 ## 测试工具
 - 相关编译选项
   - `MNN_BUILD_TOOL` 是否编译测试工具
@@ -57,14 +55,12 @@
   - `checkInvalidValue.out` 检测输出目录里的数据
   - `timeProfile.out` 测试模型在指定后端上执行的时间，并获取每层的执行时间占比
   - `testTrain.out` 测试训练功能
-  - `aoa_nlu_encoder.out` 测试NLU编码
-  - `aoa_nlu_decoder1.out` 测试NLU解码1
-  - `aoa_nlu_decoder2.out` 测试NLU解码2
   - `checkDir.out`  测试两个文件夹是否一致
   - `checkFile.out` 测试两个文件是否一致
   - `winogradExample.out` winograd示例
-  - `winogradGenerateGLSL.out` winograd生成GLSL
-  - `winogradGenerateCL.out`  winograd生成CL
+  - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
+  - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时许打开 MNN_OPENCL 与 MNN_OPENGL
+  - `LoRA` 将LorA权重添加到模型权重中
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

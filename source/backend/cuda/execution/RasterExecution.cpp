@@ -50,10 +50,10 @@ static bool _directBlitC4(const Tensor::InsideDescribe::Region& slice0, const Te
         // area pack for fast blit only
         return false;
     }
-    if(slice0.size[1] % PACK_NUMBER != 0 || slice0.size[0] != 1) {
+    if(slice0.size[1] % PACK_NUMBER != 0) {
         return false;
     }
-    if(slice1.size[1] % PACK_NUMBER != 0 || slice1.size[0] != 1) {
+    if(slice1.size[1] % PACK_NUMBER != 0) {
         return false;
     }
     if(slice0.dst.offset % (slice0.size[1] * slice0.size[2]) != 0) {
@@ -86,7 +86,7 @@ static void _turnToNewRegion(const Tensor::InsideDescribe::Region& region, Tenso
     newRegion.src.stride[1] = region.src.stride[2] * region.size[1] * srcStep;
     newRegion.src.stride[2] = region.src.stride[1] / region.size[2];
 
-    newRegion.dst.stride[0] = region.dst.stride[0] * dstStep;
+    newRegion.dst.stride[0] = region.dst.stride[0];// * dstStep;
     newRegion.dst.stride[1] = region.dst.stride[2] * region.size[1] * dstStep;
     newRegion.dst.stride[2] = region.dst.stride[1] / region.size[2];
 
@@ -124,12 +124,12 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
                 mFast = false;
                 break;
             }
-            if(!_directBlitC4(slice0, slice, output)) {
-                mFast = false;
+	    if(!_directBlitC4(slice0, slice, output)) {
+		mFast = false;
                 break;
             }
             if (!OpCommonUtils::canBlitFast(slice, output, pack, false, true)) {
-                mFast = false;
+		mFast = false;
                 break;
             }
 	    }

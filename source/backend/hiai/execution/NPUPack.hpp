@@ -19,8 +19,6 @@ public:
     NPUPack(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUPack() = default;
-   
-private:
 };
 } // namespace MNN
 

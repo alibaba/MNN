@@ -29,7 +29,7 @@ Model Version: < 2.0.0
 `./MNNV2Basic.out model [runLoops runMask forwardType numberThread precision_memory inputSize]`
 - `model:str` 模型文件路径
 - `runLoops:int` 性能测试的循环次数，可选，默认为`1`
-- `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt），2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），可选，默认为`0`
+- `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt）;2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录）; 16为开启自动选择后端；32为针对Winograd算法开启内存优化模式，开启后会降低模型（如果含有Winograd Convolution算子）运行时的内存但可能会导致算子的性能损失。可选，默认为`0`
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
 - `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 low (2) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
@@ -79,6 +79,10 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 ### 默认输出
 在当前目录 output 文件夹下，依次打印输出为 0.txt , 1.txt , 2.txt , etc
 
+### 测试文件夹生成
+- 若有原始的tf模型/Onnx模型，可以使用testMNNFromTf.py / testMNNFromOnnx.py / testMNNFromTflite.py 等脚本生成
+- 若只有mnn模型，可以用 tools/script/make_test_for_mnn.py 脚本生成测试文件夹，使用方式：mkdir testdir && pythhon3 make_test_for_mnn.py XXX.mnn testdir
+
 ### runMask 参数说明
 - 1 : 输出推理中间结果，每个算子的输入存到（Input_{op_name}.txt），输出存为（{op_name}.txt）， 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），不支持与 2 / 4 叠加
 - 2 : 打印推理中间结果的统计值（最大值/最小值/平均值），只支持浮点类型的统计，不支持与 1 / 4 叠加
@@ -87,11 +91,13 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 - 16 : 适用于使用 GPU 的情况，由 MNN 优先选择 CPU 运行，并将 GPU 的 tuning 信息存到 cache 文件，所有算子 tuning 完成则启用 GPU
 - 32 : rearrange 设为 true ，降低模型加载后的内存大小，但会增加模型加载的初始化时间
 - 64 : 创建模型后，clone 出一个新的模型运行，用于测试 clone 功能（主要用于多并发推理）的正确性
+- 128 : 使用文件夹下面的 input.mnn 和 output.mnn 做为输入和对比输出，对于数据量较大的情况宜用此方案
+- 512 : 开启使用Winograd算法计算卷积时的内存优化，开启后模型的运行时内存会降低，但可能导致性能损失。
 
 
 ### 示例
 ```bash
-$ python ../tools/script/fastTestOnnx.py mobilenetv2-7.onnx
+$ python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx
 $ ./ModuleBasic.out mobilenetv2-7.mnn onnx 0 0 10   
 Test mobilenetv2-7.mnn from input info: onnx
 input
@@ -113,8 +119,8 @@ Avg= 9.946699 ms, min= 9.472000 ms, max= 10.227000 ms
 `./SequenceModuleTest.out model [forwardType] [shapeMutable] dir1 dir2 ......`
 - `model:str` 模型文件路径
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)
-- `shapeMutable:int` 输入形状是否可变
-- `dir_n:str` 输入输出信息文件夹，可使用 fastTestOnnx.py / fastTestTf.py / fastTestTflite.py 等脚本生成，参考模型转换的正确性校验部分
+- `numberThread:int` 线程数或GPU模式
+- `dir_n:str` 输入输出信息文件夹，可使用 testMNNFromOnnx.py 等脚本生成，参考模型转换的正确性校验部分
 ```bash
 ./SequenceModuleTest.out transformer.mnn 0 1 tr tr1 tr2 tr3 tr4 > error.txt
 ```
@@ -456,3 +462,27 @@ Matrix:
 0.0000000	0.0000000	1.0000000
 ```
 
+## fuseTest
+### 功能
+测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
+
+### 参数
+`Usage: ./fuseTest user.spirv config.json`
+- `user.spirv:str`：SPIRV文件路径，可以用 glslangValidator -V user.comp -o user.spirv 编译获得
+- `config.json:str`: 配置文件路径
+### 示例
+```bash
+$ ./fuseTest user.spirv user.json
+
+## GpuInterTest.out
+### 功能
+GPU 内存输入测试用例
+### 参数
+类似`ModuleBasic.out` 
+`./GpuInterTest.out model dir [testmode forwardType numberThread precision_memory]`
+- `model:str` 模型文件路径
+- `dir:str` 输入输出信息文件夹，可使用 testMNNFromTf.py / testMNNFromOnnx.py / testMNNFromTflite.py 等脚本生成，参考模型转换的正确性校验部分。
+- `testmode:int` 默认为 0 ，测试输入GPU内存的类型，0 (OpenCL Buffer) 、 1（OpenGL Texture）
+- `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
+- `numberThread:int` GPU的线程数，可选，默认为`1`
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)

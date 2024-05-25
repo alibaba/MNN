@@ -163,7 +163,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
 }
 
 DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* convOp, Backend* b)
-    : CPUDeconvolutionCommon(input, convOp, b) {
+    : CPUDeconvolutionCommon(input, convOp, b, false) {
     auto conv2D = convOp->main_as_Convolution2D();
     MNN_ASSERT(nullptr != conv2D->bias());
     auto common     = conv2D->common();

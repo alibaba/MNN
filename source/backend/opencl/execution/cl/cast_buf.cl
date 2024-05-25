@@ -11,8 +11,8 @@ __private const int global_size_dim0, __private const int global_size_dim1, __pr
     }
 
 __kernel void cast_buf(GLOBAL_SIZE_3_DIMS
-                            __global FLOAT* input,
-                            __global FLOAT* output,
+                            __global INPUT_TYPE* input,
+                            __global OUTPUT_TYPE* output,
                             __private const int width,
                             __private const int height,
                             __private const int channelBlock
@@ -30,9 +30,8 @@ __kernel void cast_buf(GLOBAL_SIZE_3_DIMS
 #ifdef TO_BOOL
     int4 value = convert_int4(vload4(0, input + inp_offset));
     value = value == (int4)0 ? (int4)0 : (int4)1;
-    vstore4(CONVERT_FLOAT4(value), 0, output + inp_offset);
+    vstore4(CONVERT_OUTPUT4(value), 0, output + inp_offset);
 #else
-    FLOAT4 value = vload4(0, input + inp_offset);
-    vstore4(value, 0, output + inp_offset);
+    vstore4(CONVERT_OUTPUT4(vload4(0, input + inp_offset)), 0, output + inp_offset);
 #endif
 }

@@ -31,6 +31,12 @@ ConvCutlassBf16Execution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 
     int l = weightSize / oc;
     int h = oc;
+
+    int ic = common->inputCount();
+    if(ic == 0) {
+        ic = l / common->kernelX() / common->kernelY();
+    }
+
     int lp = UP_DIV(l, 8) * 8;
     int hp = UP_DIV(h, 8) * 8;
 
@@ -44,7 +50,7 @@ ConvCutlassBf16Execution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         mFilter = (void *)weightTensor.get()->buffer().device;
 
         // From Float32 To Bfloat16
-        callWeightFill((const void *)cacheWeight, (void *)mFilter, l, h, lp, hp, 3, runtime);
+        callWeightFill((const void *)cacheWeight, (void *)mFilter, ic, l, h, lp, hp, 3, runtime);
 
         static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
     }
@@ -117,6 +123,7 @@ ErrorCode ConvCutlassBf16Execution::onResize(const std::vector<Tensor*> &inputs,
 
     mIm2ColParamter.ih = input->height();
     mIm2ColParamter.iw = input->width();
+    mIm2ColParamter.ic = ic;
     mIm2ColParamter.oh = output->height();
     mIm2ColParamter.ow = output->width();
     mIm2ColParamter.srcZStep = input->height() * input->width() * UNIT * input->batch();

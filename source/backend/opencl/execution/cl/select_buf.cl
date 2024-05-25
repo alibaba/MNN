@@ -11,7 +11,7 @@ __private const int global_size_dim0, __private const int global_size_dim1,
     }
 
 __kernel void select_buf(GLOBAL_SIZE_2_DIMS
-                            __global const FLOAT* select,
+                            __global const int* select,
                             __global const FLOAT* input0,
                             __global const FLOAT* input1,
                             __global FLOAT* output
@@ -20,7 +20,7 @@ __kernel void select_buf(GLOBAL_SIZE_2_DIMS
     const int idy = get_global_id(1);
 
     DEAL_NON_UNIFORM_DIM2(idx, idy);
-    if ((int)select[idx]) {
+    if (select[idx]) {
 #ifdef INSIZE1_EUQAL_1
         output[idx] = input0[0];
 #else

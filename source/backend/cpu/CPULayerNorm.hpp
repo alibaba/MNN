@@ -14,22 +14,27 @@
 namespace MNN {
 class CPULayerNorm : public Execution {
 public:
-    explicit CPULayerNorm(const MNN::Op* op, Backend* backend);
+    struct Resource {
+        int mGroup = 1;
+        float mEpsilon = 0.001;
+        std::unique_ptr<Tensor> mGamma;
+        std::unique_ptr<Tensor> mBeta;
+        bool mIniGammaBeta = false;
+        bool mRMSNorm = false;
+        int mAxis = 0;
+    };
+    CPULayerNorm(std::shared_ptr<Resource> res, Backend* backend);
     virtual ~CPULayerNorm();
 
-    ErrorCode onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
-    ErrorCode onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
+    static std::shared_ptr<Resource> makeResource(const MNN::Op* op, Backend* backend);
 private:
-    bool allocGammaBeta(int size);
-private:
-    int mAxis = 0;
+    std::shared_ptr<Resource> mResource;
     int mInnerSize = 1;
     int mOutterSize = 1;
-    int mGroup = 1;
-    float mEpsilon = 0.001;
-    std::unique_ptr<Tensor> mGamma;
-    std::unique_ptr<Tensor> mBeta;
-    bool mIniGammaBeta = false;
     // LayerNormInt8 parameters.
     std::vector<float> mInpScale;
     std::vector<float> mOutScale;

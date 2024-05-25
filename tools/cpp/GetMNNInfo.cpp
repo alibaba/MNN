@@ -7,6 +7,7 @@
 //
 
 #include "MNN_generated.h"
+#include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>

@@ -76,7 +76,7 @@ Loop_8:
     movk    w12, #15658, lsl #16
     movk    w10, #15914, lsl #16
     dup     v2.4s, v0.s[0]
-    movi    v1.2d, #0
+    movi    v1.16b, #0
     fmov    v3.4s, #1.0
     dup     v16.4s, w11
     dup     v17.4s, w12

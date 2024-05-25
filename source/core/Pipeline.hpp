@@ -27,8 +27,11 @@ public:
         bool autoSetOpType;
         int maxTuningNumber;
     };
-    Pipeline(Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt);
+    Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt);
     ~Pipeline();
+    ErrorCode fixResizeCache();
+    void openResizeCheck();
+
     class UnitInfo : public OperatorInfo {
     public:
         UnitInfo()          = default;
@@ -59,7 +62,9 @@ public:
     MNNForwardType getMainForwardType() const  {
         return mInfo.first.cache.first->type();
     }
+    typedef std::map<std::pair<Tensor::InsideDescribe::NativeInsideDescribe*, Backend*>, std::pair<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<Tensor>>> WrapTensorCache;
 private:
+    ErrorCode _allocForTensor(int index, bool allocInput);
     void _copyInputs();
     void _pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos);
     void _recycleDynamicMemory(Command* command);
@@ -72,13 +77,15 @@ private:
 
     // For gpu or other backend
     std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
-    std::map<Tensor*, std::shared_ptr<Tensor>> mShapeFixConstCache;
+    WrapTensorCache mWrapTensors;
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;
 #endif
     const Runtime* mRuntime;
     const Runtime* mCpuRuntime;
+    std::string mExternalFile;
+    std::vector<std::shared_ptr<BufferStorage>> mExternalStorage;
 };
 } // namespace MNN
 

@@ -19,10 +19,6 @@ public:
     NPUSlice(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUSlice() = default;
-   
-private:
-    vector<int> mNHWC{0, 1, 2, 3};
-    vector<int> mNCHW{0, 2, 3, 1};
 };
 } // namespace MNN
 

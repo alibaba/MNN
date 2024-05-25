@@ -2,12 +2,16 @@
 DIR=MNN
 
 make -j16
+adb push ./libllm.so /data/local/tmp/MNN/libllm.so
+adb push ./llm_demo /data/local/tmp/MNN/llm_demo
 adb push ./libMNN.so /data/local/tmp/$DIR/libMNN.so
 adb push ./libMNN_CL.so /data/local/tmp/$DIR/libMNN_CL.so
 adb push ./libMNN_Vulkan.so /data/local/tmp/$DIR/libMNN_Vulkan.so
 adb push ./libMNN_GL.so /data/local/tmp/$DIR/libMNN_GL.so
+adb push source/backend/hiai/libMNN_NPU.so /data/local/tmp/$DIR/libMNN_NPU.so
 adb push ./libMNN_Express.so /data/local/tmp/$DIR/libMNN_Express.so
 adb push ./MNNV2Basic.out /data/local/tmp/$DIR/MNNV2Basic.out
+adb push ./ModuleBasic.out /data/local/tmp/$DIR/ModuleBasic.out
 adb shell "cd /data/local/tmp/$DIR && rm -r output"
 adb shell "cd /data/local/tmp/$DIR && mkdir output"
 adb push ./unitTest.out /data/local/tmp/$DIR/unitTest.out

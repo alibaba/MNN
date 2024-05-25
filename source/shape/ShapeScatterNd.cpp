@@ -20,17 +20,13 @@ class ShapeScatterNd : public SizeComputer {
         auto updates = inputs[1];
         auto shape   = inputs[2];
         auto output  = outputs[0];
-        MNN_CHECK(shape->dimensions() == 1, "shape rank should be one");
+        //MNN_CHECK(shape->dimensions() == 1, "shape rank should be one");
         const int indicesDimension = indices->dimensions();
         //MNN_CHECK(indices->length(indicesDimension - 1) == 1, "indices.shape[-1] = shape.rank");
 
         const int outerDims = indicesDimension - 1;
-        for (int i = 0; i < outerDims; ++i) {
-            MNN_CHECK(indices->length(i) == updates->length(i), "indices shape does not match updates'");
-        }
-
         const int dimension = shape->length(0);
-        MNN_CHECK(updates->dimensions() == dimension, "updates dimension should be equal to given shape");
+        //MNN_CHECK(updates->dimensions() == dimension, "updates dimension should be equal to given shape");
 
         output->buffer().dimensions = dimension;
 

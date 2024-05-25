@@ -224,15 +224,20 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     } else {
         mDynamicAllocator.reset(new EagerBufferAllocator(defaultAlloc));
     }
+    mCurrentDynamicAllocator = mDynamicAllocator.get();
     mStaticAllocator = runtime->mStaticAllocator;
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();
-    mCache = new CPUResizeCache;
+    mCacheGroup.resize(2);
+    for (int i=0; i<mCacheGroup.size(); ++i) {
+        mCacheGroup[i].reset(new CPUResizeCache);
+    }
+    mCache = mCacheGroup[0].get();
 }
 
 CPUBackend::~CPUBackend() {
-    delete mCache;
+    mCacheGroup.clear();
 }
 
 void CPUBackend::onExecuteBegin() const {
@@ -244,21 +249,40 @@ void CPUBackend::onExecuteEnd() const {
 }
 
 void CPUBackend::onResizeBegin() {
-    mDynamicAllocator->reset();
+    mCurrentDynamicAllocator->reset();
+}
+bool CPUBackend::onSelectDynamicAllocator(int index, int maxIndex) {
+    if (maxIndex > 2) {
+        return false;
+    }
+    if (maxIndex == 2 && mDynamicAllocatorBackup.get() == nullptr) {
+        if (mRuntime->getAllocatorType() == Runtime::Allocator_Defer) {
+            mDynamicAllocatorBackup.reset(new DeferBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get())));
+        } else {
+            mDynamicAllocatorBackup.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get())));
+        }
+    }
+    if (1 == index) {
+        mCurrentDynamicAllocator = mDynamicAllocatorBackup.get();
+    } else {
+        mCurrentDynamicAllocator = mDynamicAllocator.get();
+    }
+    mCache = mCacheGroup[index].get();
+    return true;
 }
 
 ErrorCode CPUBackend::onResizeEnd() {
     getCache()->release();
-    return mDynamicAllocator->compute();
+    return mCurrentDynamicAllocator->compute();
 }
 
 Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType storageType) {
-    auto originMem = TensorUtils::getDescribe(dest)->mem.get();
+    auto originMem = TensorUtils::getDescribeOrigin(dest)->mem.get();
     if (nullptr != originMem) {
         if (static_cast<CPUMemObj*>(originMem)->getSize() >= size) {
             return originMem;
         } else {
-            TensorUtils::getDescribe(dest)->mem.reset(nullptr);
+            TensorUtils::getDescribeOrigin(dest)->mem = nullptr;
         }
     }
     // MNN_PRINT("Acquire size = %d\n", size);
@@ -279,11 +303,11 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
             break;
         }
         case DYNAMIC: {
-            chunk = mDynamicAllocator->alloc(size, false);
+            chunk = mCurrentDynamicAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC_SEPERATE: {
-            chunk = mDynamicAllocator->alloc(size, true);
+            chunk = mCurrentDynamicAllocator->alloc(size, true);
             break;
         }
         default:
@@ -301,7 +325,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     if (storageType == STATIC) {
         res = new CPUMemObj(mStaticAllocator.get(), chunk, size);
     } else {
-        res = new CPUMemObj(mDynamicAllocator.get(), chunk, size);
+        res = new CPUMemObj(mCurrentDynamicAllocator, chunk, size);
         chunk.attach(dest);
     }
     if (chunk.ptr()) {
@@ -337,6 +361,26 @@ static OpType _getRealOpType(OpType opType) {
             return opType;
     }
 }
+void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
+    if (getBytes(this, srcTensor) != srcTensor->getType().bytes()) {
+        return nullptr;
+    }
+    if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat) != dtype) {
+        return nullptr;
+    }
+    return srcTensor->host<void>();
+}
+
+bool CPUBackend::onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
+    if (getBytes(this, dstTensor) != dstTensor->getType().bytes()) {
+        return false;
+    }
+    if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(dstTensor)->dimensionFormat) != dtype) {
+        return false;
+    }
+    return true;
+}
+
 size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     auto core = mCoreFunctions;
     size_t dataSize = 1;
@@ -420,7 +464,7 @@ const Runtime* CPUBackend::getRuntime() {
 
 bool CPUBackend::onClearBuffer() {
     mCache->reset();
-    mDynamicAllocator->release(true);
+    mCurrentDynamicAllocator->release(true);
     return true;
 }
 
@@ -448,19 +492,7 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     }
     std::unique_ptr<Tensor> wrapTensor;
     if (getDataType(srcTensor) != getDataType(dstTensor)) {
-        auto dimType = Tensor::CAFFE;
-        switch (TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
-            case MNN_DATA_FORMAT_NCHW:
-                break;
-            case MNN_DATA_FORMAT_NC4HW4:
-                dimType = Tensor::CAFFE_C4;
-                break;
-            case MNN_DATA_FORMAT_NHWC:
-                dimType = Tensor::TENSORFLOW;
-                break;
-            default:
-                break;
-        }
+        auto dimType =  OpCommonUtils::convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat);
         auto convertType = CPUCastCreator::FlOAT_TO_INT8;
         if (getDataType(srcTensor) == DataType_DT_INT8) {
             convertType = CPUCastCreator::INT8_TO_FlOAT;
@@ -512,6 +544,7 @@ extern void registerBF16Backend();
 extern void registerArm82RuntimeCreator();
 #endif
 void registerCPURuntimeCreator() {
+    MNNCoreFunctionInit();
     CPUBackend::initCreatorMap();
     registerCPUOps();
 #ifdef MNN_SUPPORT_BF16
@@ -521,7 +554,6 @@ void registerCPURuntimeCreator() {
     registerArm82RuntimeCreator();
 #endif
     // TODO: Merge _initCoreFunction MNNFunctionInit and cpuinfo_arm_init
-    MNNCoreFunctionInit();
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_CPU, new CPURuntimeCreator);
 };
 } // namespace MNN

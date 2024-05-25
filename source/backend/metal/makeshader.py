@@ -19,8 +19,11 @@ def getName(fileName):
     return s1
 
 def generateFile(headfile, sourcefile, shaders):
+    lasthead = headfile.split('/')
+    lasthead = lasthead[len(lasthead)-1]
+
     h = "#ifndef MNN_METAL_SHADER_AUTO_GENERATE_H\n#define MNN_METAL_SHADER_AUTO_GENERATE_H\n"
-    cpp = "#include \"AllShader.hpp\"\n"
+    cpp = "#include \"" + lasthead +"\"\n"
     mapcpp = "#include \"ShaderMap.hpp\"\n"
     mapcpp += '#include \"AllShader.hpp\"\n'
     mapcpp += 'namespace MNN {\n'
@@ -37,6 +40,8 @@ def generateFile(headfile, sourcefile, shaders):
                 if (len(l) < 1):
                     continue
                 if l.find('#include') >= 0:
+                    continue
+                if l.find('#pragma clang') >= 0:
                     continue
                 if l.find('\\') >= 0:
                     l = l.replace('\\', '')
@@ -67,6 +72,10 @@ def generateFile(headfile, sourcefile, shaders):
         f.write(mapcpp)
 
 if __name__ == '__main__':
-    gDefaultPath = sys.argv[1]#"glsl"
+    renderPath = "render"
+    if os.path.isdir(renderPath):
+        shaders = findAllShader("render/shader")
+        generateFile(os.path.join(renderPath, "AllRenderShader.hpp"), os.path.join(renderPath, "AllRenderShader.cpp"), shaders)
+    gDefaultPath = "shader"
     shaders = findAllShader(gDefaultPath)
     generateFile(gOutputHeadFile, gOutputSourceFile, shaders);

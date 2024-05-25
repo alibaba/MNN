@@ -15,6 +15,7 @@
 #include "core/Macro.h"
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/FileLoader.hpp"
 #ifndef MNN_BUILD_MINI
 #include "shape/SizeComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
@@ -26,6 +27,87 @@
 using namespace std;
 //#define MNN_AUTO_CHECK_COST
 namespace MNN {
+void Schedule::OpResizeCache::close(bool pass) {
+    mCanCache = false;
+    mInputInfos.clear();
+    mPass = pass;
+}
+void Schedule::OpResizeCache::addContentIndex(int index) {
+    mNeedCompareContent.emplace_back(index);
+}
+
+bool Schedule::OpResizeCache::match(const std::vector<Tensor*>& inputs, bool& compared) {
+    if (!mCanCache) {
+        return mPass;
+    }
+    if (!mComputed) {
+        return false;
+    }
+    if (mInputInfos.size() != inputs.size()) {
+        return false;
+    }
+    compared = true;
+    for (int u=0; u<mInputInfos.size(); ++u) {
+        auto des = TensorUtils::getDescribe(inputs[u]);
+        if (mInputInfos[u].order != des->dimensionFormat) {
+            return false;
+        }
+        if (mInputInfos[u].type.code != inputs[u]->getType().code || mInputInfos[u].type.bits != inputs[u]->getType().bits) {
+            return false;
+        }
+        if (mInputInfos[u].dim.size() != inputs[u]->dimensions()) {
+            return false;
+        }
+        for (int v=0; v<mInputInfos[u].dim.size(); ++v) {
+            if (mInputInfos[u].dim[v] != inputs[u]->length(v)) {
+                return false;
+            }
+        }
+        if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL && (des->stageMask & Tensor::InsideDescribe::COMPUTE_SHAPE_STAGE)) {
+            return false;
+        }
+    }
+    for (auto dim : mNeedCompareContent) {
+        auto t = inputs[dim];
+        auto& s = mInputInfos[dim];
+        if (0 != ::memcmp(s.buffer.data(), t->host<void>(), s.buffer.size())) {
+            return false;
+        }
+    }
+    return true;
+}
+void Schedule::OpResizeCache::open() {
+    mCanCache = true;
+}
+void Schedule::OpResizeCache::copyImmutable(const OpResizeCache& cache) {
+    mNeedCompareContent = cache.mNeedCompareContent;
+}
+
+void Schedule::OpResizeCache::insert(const std::vector<Tensor*>& inputs) {
+    if (!mCanCache) {
+        return;
+    }
+    mComputed = true;
+    mInputInfos.resize(inputs.size());
+    for (int u=0; u<inputs.size(); ++u) {
+        mInputInfos[u].dim = inputs[u]->shape();
+        mInputInfos[u].order = TensorUtils::getDescribe(inputs[u])->dimensionFormat;
+        mInputInfos[u].type = inputs[u]->getType();
+    }
+    for (auto dim : mNeedCompareContent) {
+        const int limit = 10000;
+        auto t = inputs[dim];
+        auto& s = mInputInfos[dim];
+        auto size = t->usize();
+        if (size > limit) {
+            close();
+            return;
+        }
+        s.buffer.resize(size);
+        ::memcpy(s.buffer.data(), t->host<void>(), size);
+    }
+}
+
 
 MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
     MNNForwardType type = config.type;
@@ -39,6 +121,7 @@ MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
         priorityList.push_back(MNN_FORWARD_CUDA);   //CUDA
         priorityList.push_back(MNN_FORWARD_OPENCL); //OpenCL
         priorityList.push_back(MNN_FORWARD_METAL);  //METAL
+        priorityList.push_back(MNN_FORWARD_VULKAN); //Vulkan
         priorityList.push_back(MNN_FORWARD_CPU);    //CPU
 
         for (auto bn : priorityList) {
@@ -212,7 +295,8 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         defaultConfig.flags = 4;
         scheduleInfo.defaultBackend.reset(runtimeInfo.second->onCreate(&defaultConfig));
         ErrorCode code = NO_ERROR;
-        initConstTensors(scheduleInfo.allTensors, net, scheduleInfo.defaultBackend.get(), code);
+        FileLoader loader(scheduleInfo.externalWeightPath.c_str());
+        initConstTensors(scheduleInfo.allTensors, net, scheduleInfo.defaultBackend.get(), code, &loader);
         if (NO_ERROR != code) {
             MNN_ERROR("Schedule Const init errorcode = %d\n", code);
             return false;

@@ -159,6 +159,7 @@ enum UnaryOpOperation : int {
 table UnaryOp {
     opType:UnaryOpOperation;
     T:DataType;
+    tableInt8:[int8];
 }
 
 table TopKV2 {
@@ -311,6 +312,16 @@ table LayerNorm {
     gamma: [float];
     beta: [float];
     group: int = 1;
+    external:[int64]; // [offset, gamma_bytes_size, beta_bytes_size]
+    useRMSNorm: bool = false;
+}
+table GroupNorm {
+    axis: int;
+    epsilon: float;
+    gamma: [float];
+    beta: [float];
+    group: int = 1;
+    bSwish: int = 0;
     external:[int64]; // [offset, gamma_bytes_size, beta_bytes_size]
 }
 table RandomUniform {

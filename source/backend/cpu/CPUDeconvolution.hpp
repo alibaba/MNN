@@ -10,10 +10,10 @@
 #define CPUDeconvolution_hpp
 
 #include "CPUConvolution.hpp"
+#include "compute/CommonOptFunction.h"
 #include "compute/StrassenMatmulComputor.hpp"
 #include "compute/GemmInt8Executor.hpp"
 #include "core/TensorUtils.hpp"
-
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {
 public:
@@ -28,11 +28,12 @@ protected:
 
 class CPUDeconvolutionCommon : public CPUDeconvolutionBasic {
 public:
-    CPUDeconvolutionCommon(const Tensor *input, const Op *convOp, Backend *b);
+    CPUDeconvolutionCommon(const Tensor *input, const Op *convOp, Backend *b, bool dynamicWeight);
     virtual ~CPUDeconvolutionCommon();
 
 protected:
     std::shared_ptr<Tensor> mBias;
+    bool mDynamicWeight;
 };
 
 class CPUDeconvolutionOrigin : public CPUDeconvolutionBasic {
@@ -43,7 +44,8 @@ public:
             const auto weightDataPtr = weight->host<int8_t>();
             auto conv2d = convOp->main_as_Convolution2D();
             auto common = conv2d->common();
-            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d);
+            auto pack = static_cast<CPUBackend*>(b)->functions()->pack;
+            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d, pack);
             CPUConvolution::MutableResourceInt8 mutableResource(mResource, b);
             auto core = static_cast<CPUBackend*>(b)->int8Functions();
             auto gemmKernel = core->Int8GemmKernel;
@@ -97,19 +99,21 @@ private:
 
 class CPUDeconvolution : public CPUDeconvolutionCommon {
 public:
-    CPUDeconvolution(const Tensor *input, const Op *convOp, Backend *b);
+    CPUDeconvolution(const Tensor *input, const Op *convOp, Backend *b, bool dynamicWeight);
     virtual ~CPUDeconvolution();
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        mOrigin->onExecute(mTempInputs, outputs);
-        return NO_ERROR;
-    }
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
-        return mOrigin->onResize(mTempInputs, outputs);
-    }
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
+    struct Param {
+        int outputCount;
+        int srcCount;
+        int fh;
+        int fw;
+    };
 private:
+    Param mParam;
     std::shared_ptr<Tensor> mWeight;
+    std::shared_ptr<Tensor> mWeightTransformCache;
     std::vector<Tensor *> mTempInputs;
     std::shared_ptr<CPUDeconvolutionOrigin> mOrigin;
 };

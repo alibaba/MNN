@@ -18,8 +18,8 @@
 #include <memory>
 #include "core/Macro.h"
 #define CL_TARGET_OPENCL_VERSION 200
-#define CL_HPP_TARGET_OPENCL_VERSION 110
-#define CL_HPP_MINIMUM_OPENCL_VERSION 110
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
 
 #if !defined(_MSC_VER)
 #pragma GCC diagnostic push
@@ -54,6 +54,8 @@ public:
     bool isSvmError();
     bool isPropError();
     bool isQcomError();
+    bool isCL1_2Error();
+    bool isGlError();
     
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
@@ -127,6 +129,7 @@ public:
     using clCreateKernelFunc            = cl_kernel (CL_API_CALL *)(cl_program, const char *, cl_int *);
     using clRetainKernelFunc            = cl_int (CL_API_CALL *)(cl_kernel kernel);
     using clCreateBufferFunc            = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, size_t, void *, cl_int *);
+    using clCreateImageFunc             = cl_mem(CL_API_CALL *)(cl_context, cl_mem_flags, const cl_image_format *, const cl_image_desc *, void *, cl_int *);
     using clCreateImage2DFunc           = cl_mem(CL_API_CALL *)(cl_context, // NOLINT
                                                       cl_mem_flags, const cl_image_format *, size_t, size_t, size_t,
                                                       void *, cl_int *);
@@ -147,6 +150,12 @@ public:
                                                    size_t param_value_size, void *param_value,
                                                    size_t *param_value_size_ret);
     using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
+    using clCreateFromGLBufferFunc     = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, cl_GLuint, int *);
+    using clCreateFromGLTextureFunc     = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, cl_GLenum, cl_GLint, cl_GLuint, cl_int*);
+    using clEnqueueAcquireGLObjectsFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_uint, const cl_mem *, cl_uint, const cl_event *, cl_event *);
+    using clEnqueueReleaseGLObjectsFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_uint, const cl_mem *, cl_uint, const cl_event *, cl_event *);
+    using clReleaseDeviceFunc = cl_int (CL_API_CALL *)(cl_device_id);
+    using clRetainDeviceFunc = cl_int (CL_API_CALL *)(cl_device_id);
 
     // opencl 2.0 get sub group info and wave size.
     using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (CL_API_CALL *)(cl_context, cl_device_id,
@@ -179,6 +188,7 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clReleaseKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateProgramWithSource);
     MNN_CL_DEFINE_FUNC_PTR(clCreateBuffer);
+    MNN_CL_DEFINE_FUNC_PTR(clCreateImage);
     MNN_CL_DEFINE_FUNC_PTR(clCreateImage2D);
     MNN_CL_DEFINE_FUNC_PTR(clRetainKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateKernel);
@@ -218,6 +228,12 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clGetImageInfo);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueReadImage);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueWriteImage);
+    MNN_CL_DEFINE_FUNC_PTR(clCreateFromGLBuffer);
+    MNN_CL_DEFINE_FUNC_PTR(clCreateFromGLTexture);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueAcquireGLObjects);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueReleaseGLObjects);
+    MNN_CL_DEFINE_FUNC_PTR(clRetainDevice);
+    MNN_CL_DEFINE_FUNC_PTR(clReleaseDevice);
     
     MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueueWithProperties);
     MNN_CL_DEFINE_FUNC_PTR(clSVMAlloc);
@@ -246,6 +262,8 @@ private:
     bool mSvmError{false};
     bool mPropError{false};
     bool mQcomError{false};
+    bool mCL_12Error{false};
+    bool mGlError{false};
 };
 
 class OpenCLSymbolsOperator {

@@ -70,7 +70,7 @@ Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad)
 
 Express::VARP SGD::onComputeUpdateValue(Express::VARP param, Express::VARP grad) {
     auto lr         = _Const(mLearningRate, {}, NCHW);
-    mHistory[param] = lr * (grad + _Const(mMomentum, {}, NCHW) * mHistory[param]);
+    mHistory[param] = lr * grad + _Const(mMomentum, {}, NCHW) * mHistory[param];;
     mHistory[param].fix(Express::VARP::CONSTANT);
     //FUNC_PRINT_ALL(_ReduceMax(grad)->readMap<float>()[0], f);
     return mHistory[param];
@@ -117,5 +117,59 @@ std::map<Express::VARP, Express::VARP> SGD::onGetNextParameter(Express::VARP los
     return grad;
 }
 
+std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>>  SGD::onMakeParameterUpdateGraphByGrad(const std::vector<ParameterOptGrad>& parameterGrads) {
+    std::map<MNN::Express::VARP, MNN::Express::VARP> varUpdateMap;
+    auto momentum = _Const(mMomentum, {}, NCHW);
+    auto weightDecay = _Const(mWeightDecay, {}, NCHW);
+    for (int pIndex=0; pIndex<parameterGrads.size(); ++pIndex) {
+        auto p = parameterGrads[pIndex].parameter;
+        auto grad = parameterGrads[pIndex].parameterGrad;
+
+        // FIXME
+#if 0
+        if (p->name().find("_BN_RunningMean_Weight") != string::npos) {
+            varUpdateMap[p] = trainInfo[p->name()];
+            continue; // not update running stats
+        }
+        if (p->name().find("_BN_RunningVariance_Weight") != string::npos) {
+            varUpdateMap[p] = trainInfo[p->name()];
+            continue; // not update running stats
+        }
+        if (p->name().find("_BN_Eps_Weight") != string::npos) {
+            continue; // not update eps
+        }
+#endif
+        auto pInfo = p->getInfo();
+        auto pDims = pInfo->dim;
+
+        auto l2grad = weightDecay * p;
+        l2grad->setName(p->name() + "_l2grad");
+
+        VARP gradWithDecay = grad + l2grad;
+
+        VARP history = _Const(0.0f, pDims, pInfo->order);
+        history->setName(p->name() + "_momentum");
+        history.fix(VARP::TRAINABLE);
+
+        auto newHistory = gradWithDecay + momentum * history;
+        newHistory->setName("update_" + history->name());
+
+        VARP localLearningRate = parameterGrads[pIndex].learningRate;
+        VARP finalGrad = localLearningRate * history;
+        finalGrad->setName(p->name() + "_final_grad");
+
+        auto updateValue = _Subtract(p, finalGrad);
+        updateValue->setName("update_" + p->name());
+        varUpdateMap[p] = updateValue;
+        varUpdateMap[history] = newHistory;
+    }
+    std::vector<Express::VARP> res;
+    std::vector<Express::VARP> resUpdate;
+    for (auto& iter : varUpdateMap) {
+        res.push_back(iter.first);
+        resUpdate.push_back(iter.second);
+    }
+    return std::make_pair(res, resUpdate);
+}
 } // namespace Train
 } // namespace MNN

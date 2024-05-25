@@ -199,37 +199,37 @@ void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const i
 }
 
 
-struct VecBinaryAdd : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinaryAdd {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vaddq_f16(x, y);
     }
 };
 
-struct VecBinarySub : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinarySub {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vsubq_f16(x, y);
     }
 };
 
-struct VecBinaryMul : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinaryMul {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vmulq_f16(x, y);
     }
 };
 
-struct VecBinaryMin : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinaryMin {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vminq_f16(x, y);
     }
 };
 
-struct VecBinaryMax : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinaryMax {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vmaxq_f16(x, y);
     }
 };
 
-struct VecBinarySqd : std::binary_function<float16x8_t, float16x8_t, float16x8_t> {
+struct VecBinarySqd {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
         return vmulq_f16(vsubq_f16(x, y), vsubq_f16(x, y));
     }

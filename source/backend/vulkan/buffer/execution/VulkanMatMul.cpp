@@ -14,7 +14,7 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn, bool h
     mTransposeA = transposeA;
     mTransposeB = transposeB;
     auto vkbackend = static_cast<VulkanBackend*>(bn);
-    mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(VulkanBatchMatMulInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+    mParam = vkbackend->allocUniform();
     mHasBias = hasBias;
     if (!mHasBias) {
         mPipeline = vkbackend->getPipeline("glsl_matmulunit_comp", {
@@ -41,6 +41,11 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn, bool h
     }
     mDescribe.reset(mPipeline->createSet());
 }
+VulkanMatMul::~ VulkanMatMul() {
+    auto vkbackend = static_cast<VulkanBackend*>(backend());
+    vkbackend->recycleUniform(mParam);
+}
+
 ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                            const VulkanCommandPool::Buffer *cmdBuffer) {
     const Tensor* A = inputs[0];
@@ -60,6 +65,7 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
     int totalSize = e * h;
     auto param = reinterpret_cast<VulkanBatchMatMulInfo*>(mParam->map());
+    ::memset(param, 0, sizeof(VulkanBatchMatMulInfo));
     param->size[3] = 1;
     param->size[0] = e;
     param->size[1] = l;
@@ -70,7 +76,6 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     param->stride_c[0] = 0;
     param->stride_c[1] = 0;
     param->stride_c[2] = 1;
-    param->stride_c[0] = 0;
     param->iter[0] = -1;
     param->iter[1] = -1;
     param->iter[2] = -1;

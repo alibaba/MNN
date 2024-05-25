@@ -180,7 +180,7 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         });
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(pipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(pipeline->createSet());
         des->writeImage(weight->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         des->writeImage(mKernel->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         weight->barrierRead(cmdBuffer->get());

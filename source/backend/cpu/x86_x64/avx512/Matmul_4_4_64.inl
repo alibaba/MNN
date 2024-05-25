@@ -141,10 +141,10 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
                 dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f15);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -318,9 +318,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
                 dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -468,8 +468,8 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
                 dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -589,7 +589,7 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 dst_x += dst_step_tmp;
                 _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
                 dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
             } else {
                 POSTTREAT(0, 0);
                 dst_x += dst_step_tmp;

@@ -17,9 +17,7 @@ struct ConstBuffer {
     ivec4 stride00;
     int activationType = 0;
 };
-static std::string _getShaderName(const Op* op, bool image) {
-    std::string prefix = "glsl_binary_";
-    std::string posfix = "_comp";
+std::string VulkanBinary::getMidName(const Op *op) {
     std::string mid = "";
     if (op->type() == OpType_Eltwise) {
         if (op->main_as_Eltwise()->coeff() != nullptr) {
@@ -46,6 +44,9 @@ static std::string _getShaderName(const Op* op, bool image) {
         switch (op->main_as_BinaryOp()->opType()) {
             case BinaryOpOperation_ADD:
                 mid = "ADD";
+                break;
+            case BinaryOpOperation_ATAN2:
+                mid = "ATAN2";
                 break;
             case BinaryOpOperation_SUB:
                 mid = "SUB";
@@ -87,10 +88,29 @@ static std::string _getShaderName(const Op* op, bool image) {
             case BinaryOpOperation_NOTEQUAL:
                 mid = "NOTEQUAL";
                 break;
+            case BinaryOpOperation_MOD:
+                mid = "VMOD";
+                break;
+            case BinaryOpOperation_FLOORDIV:
+                mid = "FLOORDIV";
+                break;
+            case BinaryOpOperation_FLOORMOD:
+                mid = "FLOORMOD";
+                break;
             default:
+                FUNC_PRINT(op->main_as_BinaryOp()->opType());
                 break;
         }
     }
+    return mid;
+}
+static std::string _getShaderName(const Op* op, bool isInt) {
+    std::string prefix = "glsl_binary_";
+    if (isInt) {
+        prefix = "glsl_binary_int_";
+    }
+    std::string posfix = "_comp";
+    auto mid = VulkanBinary::getMidName(op);
     if (mid.empty()) {
         return mid;
     }
@@ -127,8 +147,11 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
     MNN_ASSERT(1 == outputs.size());
 
     auto vkBn = (VulkanBackend*)backend();
-    auto input0Scalar = inputs[0]->elementSize() == 1;
-    auto input1Scalar = inputs[1]->elementSize() == 1;
+    auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+    auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
+
+    auto input0Scalar = input0DataCount == 1;
+    auto input1Scalar = input1DataCount == 1;
     auto writeBinary = [&](const VULKAN_TENSOR& input0, const VULKAN_TENSOR& input1, const VULKAN_TENSOR& output, int index) {
         auto constBuffer = mConstBuffer[index];
         auto total = std::get<1>(output) / 4 / sizeof(float);
@@ -145,7 +168,7 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
         }
         binaryOpParam->activationType = mActivationType;
         constBuffer->unmap();
-        std::shared_ptr<VulkanPipeline::DescriptorSet> desSet = mDescriptorSet[index];
+        std::shared_ptr<VulkanLayout::DescriptorSet> desSet = mDescriptorSet[index];
         desSet->writeBuffer(output, 0);
         desSet->writeBuffer(input0, 1);
         desSet->writeBuffer(input1, 2);
@@ -172,7 +195,7 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input0 = inputs[0];
-        auto shader = _getShaderName(op, false);
+        auto shader = _getShaderName(op, input0->getType().code == halide_type_int);
         if (shader.empty()) {
             return nullptr;
         }

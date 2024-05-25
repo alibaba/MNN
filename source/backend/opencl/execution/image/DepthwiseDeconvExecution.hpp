@@ -13,26 +13,20 @@
 namespace MNN {
 namespace OpenCL {
 
-class DepthwiseDeconvExecution : public ConvCommonExecution {
+class DepthwiseDeconvExecution : public ConvCommonExecution, public CommonExecution {
 public:
     DepthwiseDeconvExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    DepthwiseDeconvExecution(std::shared_ptr<ConvResource> resource, const Op* op, Backend* backend);
     virtual ~DepthwiseDeconvExecution();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    const Convolution2DCommon *mConv2dCommonParams;
-    const Convolution2D *mCon2dParams;
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
-    std::vector<int> mStrides{1, 1};
     std::vector<int> mPaddings{0, 0};
-    std::vector<int> mDilations{1, 1};
-    std::shared_ptr<Tensor> mFilter;
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
-    OpenCLBackend *mOpenCLBackend;
 };
 
 } // namespace OpenCL

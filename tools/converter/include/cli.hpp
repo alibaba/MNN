@@ -22,9 +22,4 @@ public:
 };
 };
 
-class CommonKit {
-public:
-    static bool FileIsExist(std::string path);
-};
-
 #endif // CLI_HPP

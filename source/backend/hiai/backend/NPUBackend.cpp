@@ -231,8 +231,20 @@ namespace MNN {
             if (isInput && mGrapMap.find(inputIndex) == mGrapMap.end()) {
                 auto opName = string("input") + to_string(inputIndex);
                 shared_ptr<hiai::op::Data> data(new hiai::op::Data(opName));
-                auto shape = tensorShapeFormat(inputTensor);
-                ge::TensorDesc desc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                vector<int64_t> dims;
+                for(int32_t i = 0; i < inputTensor->buffer().dimensions; i++) {
+                    dims.push_back(inputTensor->buffer().dim[i].extent);
+                }
+                ge::TensorDesc desc(ge::Shape(dims), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                if (TensorUtils::getDescribe(inputTensor)->dimensionFormat == MNN_DATA_FORMAT::MNN_DATA_FORMAT_NHWC) {
+                    desc.SetFormat(ge::FORMAT_NHWC);
+                }
+                if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
+                    desc.SetDataType(ge::DT_INT32);
+                }
+                if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 64) {
+                    desc.SetDataType(ge::DT_INT64);
+                }
                 data->update_input_desc_x(desc);
                 // map
                 vector<pair<shared_ptr<ge::Operator>, string>> ops;
@@ -248,19 +260,25 @@ namespace MNN {
                 shared_ptr<hiai::op::Const> mConst(new hiai::op::Const(opName));
                 {
                     ge::TensorPtr filter = std::make_shared<ge::Tensor>();
-                    auto shape = tensorShapeFormat(inputTensor);
-                    ge::TensorDesc fdesc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT);
-                    filter->SetTensorDesc(fdesc);
-                    if (TensorUtils::getDescribe(inputTensor)->dimensionFormat == MNN::MNN_DATA_FORMAT_NCHW) {
-                        filter->SetData((uint8_t *)inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
-                        mConst->set_attr_value(filter);
-                    } else {
-                        vector<float> temp(inputTensor->elementSize(), 0);
-                        NHWC2NCHW((float*)inputTensor->host<float>(), (float*)temp.data(), shape[0], shape[1], shape[2]*shape[3]);
-                        filter->SetData((uint8_t *)temp.data(), temp.size() * sizeof(float));
-                        mConst->set_attr_value(filter);
+                    vector<int64_t> dims;
+                    for(int32_t i = 0; i < inputTensor->buffer().dimensions; i++) {
+                        dims.push_back(inputTensor->buffer().dim[i].extent);
                     }
+                    ge::TensorDesc fdesc(ge::Shape(dims), ge::FORMAT_NCHW, ge::DT_FLOAT);
+                    if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
+                        fdesc.SetDataType(ge::DT_INT32);
+                    }
+                    if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 64) {
+                        fdesc.SetDataType(ge::DT_INT64);
+                    }
+                    filter->SetTensorDesc(fdesc);
                     filter->SetData((uint8_t *)inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
+                    if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 32) {
+                        filter->SetData((uint8_t *)inputTensor->host<int32_t>(), inputTensor->elementSize() * sizeof(int32_t));
+                    }
+                    if (inputTensor->getType().code == halide_type_int && inputTensor->getType().bits == 64) {
+                        filter->SetData((uint8_t *)inputTensor->host<int64_t>(), inputTensor->elementSize() * sizeof(int64_t));
+                    }
                     mConst->set_attr_value(filter);
                 }
                 vector<pair<shared_ptr<ge::Operator>, string>> ops;
@@ -339,14 +357,7 @@ namespace MNN {
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));
             MNN_ASSERT(index != mInputMap.end());
             shared_ptr<hiai::INDTensorBuffer> input = inputTensors[index->second];
-            if(TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
-             ||TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
-                memcpy(input->GetData(), srcTensor->host<float>(), (size_t)input->GetSize());
-            } else {
-                shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true));
-                tensorConvert(srcTensor, tmpTensor.get());
-                memcpy(input->GetData(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
-            }
+            memcpy(input->GetData(), srcTensor->host<void>(), (size_t)input->GetSize());
         } else if(isOutputCopy){
             int index;
             bool flag = false;
@@ -361,18 +372,8 @@ namespace MNN {
                 return;
             }
             shared_ptr<hiai::INDTensorBuffer> output = outputTensors[index];
-            if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
-             ||TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
-                memcpy(dstTensor->buffer().host, output->GetData(), (size_t)output->GetSize());
-            } else {
-                auto tmpShape = tensorShapeFormat(srcTensor);
-                vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
-                shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
-                                                            (void*)(output->GetData()), 
-                                                            Tensor::DimensionType::CAFFE));
-                auto shape = output->GetTensorDesc(); 
-                tensorConvert(tmpTensor.get(), dstTensor);
-            }
+            Tensor* tmpTensor = const_cast<Tensor*>(dstTensor);
+            memcpy(tmpTensor->buffer().host, output->GetData(), (size_t)output->GetSize());
         }
 #ifdef HIAI_DEBUG
         ATrace_endSection();
@@ -420,7 +421,7 @@ namespace MNN {
         model->SetGraph(graph);
 
         hiai::ModelBuildOptions buildOptions;
-
+        buildOptions.formatMode = hiai::FormatMode::USE_ORIGIN;
         std::ifstream file("quant_param", std::ios::binary | std::ios::ate);
         if (!file.is_open()) {
             MNN_PRINT("no quant_param config file, build non-quantized model.\n");
@@ -507,7 +508,7 @@ namespace MNN {
 
     void NPUBackend::setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op,
                                   const std::vector<Tensor *> &outputs){
-        if(op->type() == OpType_Slice){
+        if(op->type() == OpType_Slice || op->type() == OpType_TopKV2){
             for (size_t i = 0; i < op->outputIndexes()->size(); i++){
                 auto index = op->outputIndexes()->data()[i];
                 mSclipMap[index] = i;

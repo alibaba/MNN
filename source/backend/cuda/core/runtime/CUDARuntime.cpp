@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 #include "core/Macro.h"
+#include "execution/cutlass_common/tune/CudaCache_generated.h"
 
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -32,9 +33,11 @@ CUDARuntime::CUDARuntime(int device_id) {
     int version;
     cuda_check(cudaRuntimeGetVersion(&version));
     int id = device_id;
-    if (id < 0) {
+    cuda_check(cudaGetDeviceCount(&mDeviceCount));
+    if (id < 0 || id >= mDeviceCount) {
         cuda_check(cudaGetDevice(&id));
     }
+    
     // printf("use GPU device id:%d\n", id);
     // id = selectDeviceMaxFreeMemory();
     cuda_check(cudaSetDevice(id));
@@ -58,8 +61,6 @@ CUDARuntime::~CUDARuntime() {
 
 int CUDARuntime::selectDeviceMaxFreeMemory() {
     cudaDeviceProp deviceProp;
-    int deviceCount;
-    cuda_check(cudaGetDeviceCount(&deviceCount));
 
     // Check id:0 card info
     int id = 0;
@@ -69,7 +70,7 @@ int CUDARuntime::selectDeviceMaxFreeMemory() {
     cuda_check(memStatus);
     // printf("card:0, free:%zu, total:%zu, memStatusSuccess:%d\n", free_size_max, total_size, memStatus == cudaSuccess);
 
-    for(int i = 1; i < deviceCount; i++) {
+    for(int i = 1; i < mDeviceCount; i++) {
         cuda_check(cudaSetDevice(i));
         size_t free_size;
         cuda_check(cudaMemGetInfo(&free_size, &total_size));
@@ -164,6 +165,75 @@ void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
     checkKernelErrors;
 }
 
+void CUDARuntime::device_sync() {
+    cuda_check(cudaDeviceSynchronize());
+}
 
+std::pair<const void*, size_t> CUDARuntime::makeCache() {
+    std::unique_ptr<CudaCache::CacheT> cache(new CudaCache::CacheT);
+
+    for (auto& iter : mTunedBlockWarpShape) {
+        std::unique_ptr<CudaCache::AutotuningT> tuning(new CudaCache::AutotuningT);
+        tuning->params = iter.first.first;
+        tuning->problemSize = iter.first.second;
+        
+        tuning->threadBlockSize = iter.second.first;
+        tuning->timeCost = iter.second.second;
+
+        cache->tunings.emplace_back(std::move(tuning));
+    }
+
+    flatbuffers::FlatBufferBuilder builder;
+    auto lastOffset = CudaCache::Cache::Pack(builder, cache.get());
+    builder.Finish(lastOffset);
+    mBuffer.resize(builder.GetSize());
+    ::memcpy(mBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
+    return std::make_pair(mBuffer.data(), mBuffer.size());
+}
+
+bool CUDARuntime::setCache(std::pair<const void*, size_t> cache) {
+    auto buffer = cache.first;
+    auto size = cache.second;
+    if (nullptr == buffer) {
+        mCacheOutside = nullptr;
+        mCacheOutsideSize = 0;
+        mBuffer.clear();
+        return false;//actually get nothing
+    }
+    mCacheOutsideSize = size;
+    mCacheOutside = buffer;
+    auto cacheBuffer = CudaCache::GetCache(buffer);
+    flatbuffers::Verifier verify((const uint8_t*)buffer, size);
+    if (false == CudaCache::VerifyCacheBuffer(verify)) {
+        return false;
+    }
+    if (nullptr == cacheBuffer->tunings()) {
+        return false;
+    }
+
+    // Load Auto Tuning Info
+    if (nullptr != cacheBuffer->tunings()) {
+        auto tuningInfo = cacheBuffer->tunings();
+        for (int i=0; i<tuningInfo->size(); ++i) {
+            auto tun = tuningInfo->GetAs<CudaCache::Autotuning>(i);
+            if (nullptr == tun->params() || nullptr == tun->problemSize()) {
+                MNN_ERROR("Error tunning info\n");
+                continue;
+            }
+            std::vector<int32_t> param(tun->params()->size());
+            for (int v=0; v<param.size(); ++v) {
+                param[v] = tun->params()->data()[v];
+            }
+            std::vector<uint32_t> problem(tun->problemSize()->size());
+            for (int v=0; v<problem.size(); ++v) {
+                problem[v] = tun->problemSize()->data()[v];
+            }
+            std::string blockShape = tun->threadBlockSize()->str();
+            uint32_t cost = tun->timeCost();
+            mTunedBlockWarpShape.insert(std::make_pair(std::make_pair(param, problem), std::make_pair(blockShape, cost)));
+        }
+    }
+    return true;
+}
 
 } // namespace MNN

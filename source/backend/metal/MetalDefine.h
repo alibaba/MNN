@@ -19,11 +19,6 @@
 #import <float.h>
 #endif
 
-#if (TARGET_OS_IPHONE && TARGET_OS_SIMULATOR)
-#undef MNN_METAL_ENABLED
-#define MNN_METAL_ENABLED 0
-#endif
-
 #endif
 #ifndef MNN_METAL_DEBUG
 #if DEBUG
@@ -34,14 +29,6 @@
 #endif
 
 #define MNN_METAL_BENCHMARK 0
-#define MNN_METAL_FULL_PRECISION 0 // should edit in metal too
 
-#if MNN_METAL_FULL_PRECISION || !defined(__FLT16_EPSILON__)
-typedef float metal_float;
-#define MNNMetalPixelFormatRGBAFloat MTLPixelFormatRGBA32Float
-#else
-typedef __fp16 metal_float;
-#define MNNMetalPixelFormatRGBAFloat MTLPixelFormatRGBA16Float
-#endif
 
 #endif /* MetalDefine_h */

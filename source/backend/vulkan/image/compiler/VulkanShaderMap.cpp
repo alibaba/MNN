@@ -69,6 +69,7 @@ mMaps.insert(std::make_pair("glsl_fill_image_comp", std::make_pair(glsl_fill_ima
 mMaps.insert(std::make_pair("glsl_imageTonchw_comp", std::make_pair(glsl_imageTonchw_comp,glsl_imageTonchw_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
+mMaps.insert(std::make_pair("glsl_resizeNearest_NEAREST_ROUND_comp", std::make_pair(glsl_resizeNearest_NEAREST_ROUND_comp,glsl_resizeNearest_NEAREST_ROUND_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_comp", std::make_pair(glsl_reduce_comp,glsl_reduce_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_VMAX_comp", std::make_pair(glsl_reduce_VMAX_comp,glsl_reduce_VMAX_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_VMIN_comp", std::make_pair(glsl_reduce_VMIN_comp,glsl_reduce_VMIN_comp_len)));

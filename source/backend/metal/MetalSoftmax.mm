@@ -15,8 +15,10 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalSoftmax::MetalSoftmax(Backend *backend, int32_t axis) : Execution(backend), mAxis(axis) {
-    // nothing to do
+MetalSoftmax::MetalSoftmax(Backend *backend, int32_t axis) : MetalExecution(backend), mAxis(axis) {
+    auto mtbn = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mShapeBuffer               = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
 }
 
 ErrorCode MetalSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -50,7 +52,6 @@ ErrorCode MetalSoftmax::onResize(const std::vector<Tensor *> &inputs, const std:
     if (reorder) {
         axis = UP_DIV(axis, 4);
     }
-    mShapeBuffer               = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     ((int *)mShapeBuffer.contents)[0] = inside;
     ((int *)mShapeBuffer.contents)[1] = axis;
     ((int *)mShapeBuffer.contents)[2] = outside;
@@ -59,43 +60,21 @@ ErrorCode MetalSoftmax::onResize(const std::vector<Tensor *> &inputs, const std:
     // encode
     auto plane     = !(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
     auto kernel = plane ? @"softmax_plane" : reorder ? @"softmax_on_reorder" : @"softmax_off_reorder";
-    mPipeline = [context pipelineWithName:kernel];
+    mPipeline = [context pipelineWithName:kernel fp16:backend->useFp16InsteadFp32()];
     
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)outside, 1)];
     return NO_ERROR;
 }
 
-ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
-    auto func = [=](){
+void MetalSoftmax::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
 
-        auto input = inputs[0], output = outputs[0];
-
-        auto encoder   = backend->encoder();
-        [encoder setComputePipelineState:mPipeline];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
-
-        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-        MNN_PRINT_ENCODER(context, encoder);
-
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
-    
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    MNN_PRINT_ENCODER(context, encoder);
 }
 
 class MetalSoftmaxCreator : public MetalBackend::Creator {

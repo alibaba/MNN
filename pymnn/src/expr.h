@@ -99,6 +99,9 @@ static PyObject* PyMNNVar_read(PyMNNVar *self, PyObject *args);
 #endif
 static PyObject* PyMNNVar_read_as_tuple(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_write(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_sync(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_set_device_ptr(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_copy_to_device_ptr(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_add(PyMNNVar *self, PyObject *args);
 static PyGetSetDef PyMNNVar_getsetters[] = {
     {"shape", (getter)PyMNNVar_getshape, NULL, "shape", NULL},
@@ -130,6 +133,11 @@ static PyMethodDef PyMNNVar_methods[] = {
 #endif
     {"read_as_tuple", (PyCFunction)PyMNNVar_read_as_tuple, METH_VARARGS, "read data(tuple)"},
     {"write", (PyCFunction)PyMNNVar_write, METH_VARARGS, "write data"},
+    {"sync", (PyCFunction)PyMNNVar_sync, METH_VARARGS, "sync var data"},
+    {"set_device_ptr", (PyCFunction)PyMNNVar_set_device_ptr, METH_VARARGS, "set_device_ptr data"},
+    {"copy_to_device_ptr", (PyCFunction)PyMNNVar_copy_to_device_ptr, METH_VARARGS, "copy_to_device_ptr data"},
+
+    
     {NULL}  /* Sentinel */
 };
 static PyObject* PyMNNVar_add(PyObject*, PyObject*);
@@ -439,11 +447,6 @@ static void dealSlice(PyObject* slice, std::vector<int>& begin, std::vector<int>
             Py_ssize_t startl = 0, stopl = 0, stepl = 1;
             auto slice_res = PySlice_Unpack(item, &startl, &stopl, &stepl);
             // py2 don't check return value.
-#if PY_MAJOR_VERSION >= 3
-            if (!slice_res) {
-                PyMNN_ERROR_LOG("slice is invalid.");
-            }
-#endif
             int start = static_cast<int>(startl);
             int stop = static_cast<int>(stopl);
             int step = static_cast<int>(stepl);
@@ -694,7 +697,7 @@ static PyObject* PyMNNVar_getsize(PyMNNVar *self, void *closure) {
         if(nullptr == info) {
             PyMNN_ERROR("getsize: unable to get variable info");
         }
-        return toPyObj(info->size);
+        return toPyObj((int)info->size);
     }
     Py_RETURN_NONE;
 }
@@ -936,6 +939,30 @@ static PyObject* PyMNNVar_write(PyMNNVar *self, PyObject *args) {
     toPtr(data, dtype, total_length, (*(self->var))->writeMap<void>());
     Py_RETURN_NONE;
 }
+static PyObject* PyMNNVar_sync(PyMNNVar *self, PyObject *args) {
+    ((MNN::Tensor*)(*(self->var))->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_set_device_ptr(PyMNNVar *self, PyObject *args) {
+    uint64_t devicePtr;
+    int memoryType;
+    if (!PyArg_ParseTuple(args, "Ki", &devicePtr, &memoryType)) {
+        Py_RETURN_NONE;
+    }
+
+    (*(self->var))->setDevicePtr((const void*)devicePtr, memoryType);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_copy_to_device_ptr(PyMNNVar *self, PyObject *args) {
+    uint64_t devicePtr;
+    int memoryType;
+    if (!PyArg_ParseTuple(args, "Ki", &devicePtr, &memoryType)) {
+        Py_RETURN_NONE;
+    }
+
+    (*(self->var))->copyToDevicePtr((void*)devicePtr, memoryType);
+    Py_RETURN_NONE;
+}
 // Expr methods
 static PyObject* PyMNNExpr_set_thread_number(PyObject *self, PyObject *args) {
     int numberThread;
@@ -1018,6 +1045,27 @@ static PyObject* PyMNNExpr_lazy_eval(PyObject *self, PyObject *args) {
         return NULL;
     }
     ExecutorScope::Current()->lazyEval = lazy;
+    Py_RETURN_NONE;
+}
+
+static PyObject* PyMNNExpr_set_lazy_mode(PyObject *self, PyObject *args) {
+    int lazy = 0;
+    if (!PyArg_ParseTuple(args, "i", &lazy)) {
+        return NULL;
+    }
+    ExecutorScope::Current()->setLazyComputeMode((Executor::LazyMode)lazy);
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNExpr_set_global_executor_config(PyObject *self, PyObject *args) {
+    int numberThread, backendType, precisionType;
+    if (!PyArg_ParseTuple(args, "iii", &backendType, &precisionType, &numberThread)) {
+        Py_RETURN_NONE;
+    }
+
+    auto exe = ExecutorScope::Current();
+    BackendConfig config;
+    config.precision = (BackendConfig::PrecisionMode)precisionType;
+    exe->setGlobalExecutorConfig((MNNForwardType)backendType, config, numberThread);
     Py_RETURN_NONE;
 }
 
@@ -1483,6 +1531,13 @@ static PyObject* PyMNNExpr_transpose(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("transpose require args: (Var, [int]|Var)");
 }
+static PyObject* PyMNNExpr_reverse(PyObject *self, PyObject *args) {
+    PyObject *x, *y;
+    if (PyArg_ParseTuple(args, "OO", &x, &y) && isVar(x) && isVar(y)) {
+        return toPyObj(Express::_Reverse(toVar(x), toVar(y)));
+    }
+    PyMNN_ERROR("reverse require args: (Var, Var)");
+}
 static PyObject* PyMNNExpr_reverse_sequence(PyObject *self, PyObject *args) {
     PyObject *x, *y;
     int batchDim, seqDim;
@@ -1692,13 +1747,15 @@ static PyMethodDef PyMNNExpr_methods[] = {
     )
     register_methods(Expr,
         // Var methods
-        set_thread_number, "set threan number of expr.",
+        set_thread_number, "set thread number of expr.",
         load_as_list, "load file as var list.",
         save, "save vars to file.",
         load_as_dict, "load file as var dict.",
         get_inputs_and_outputs, "get input and output of var dict.",
         gc, "do gc full or part.",
-        lazy_eval, "expr do lazy evaluation or not."
+        lazy_eval, "expr do lazy evaluation or not.",
+        set_lazy_mode, "set lazy compute mode, content: 0 or full: 1.",
+        set_global_executor_config, "set global executor config for expr."
     )
     register_methods(Expr,
         // unary expr
@@ -1821,6 +1878,7 @@ static PyMethodDef PyMNNExpr_methods[] = {
     {"transpose",  PyMNNExpr_transpose, METH_VARARGS, "build transpose: (Var, [int]/Var)"},
     register_methods(Expr,
         channel_shuffle, "build channel_shuffle expr",
+        reverse, "build reverse expr",
         reverse_sequence, "build reverse_sequence expr",
         crop, "build crop expr",
         resize, "build resize expr",

@@ -27,7 +27,7 @@ public:
             }
         }
         if (axis == numAxes - 1) {
-            SharedPtr<Command> cmdP(new Command);
+            std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
             cmd.inputs.assign({inputs[0], inputs[1]});
@@ -81,7 +81,7 @@ public:
             res.extras.emplace_back(transInd);
         }
         { // do TopK on last axis
-            SharedPtr<Command> cmdP(new Command);
+            std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
             cmd.inputs.assign({transInput.get(), inputs[1]});

@@ -77,7 +77,7 @@ class TestModel():
             inp = {}
             inp['name'] = inputVar.name
             inp['shape'] = self.__get_shape(inputVar)
-            inputs[inputVar.name + ':0'] = np.random.uniform(0.1, 1.2, inp['shape']).astype(np.typeDict[inputVar.outputs[0].dtype.name])
+            inputs[inputVar.name + ':0'] = np.random.uniform(0.1, 1.2, inp['shape']).astype(np.sctypeDict[inputVar.outputs[0].dtype.name])
             jsonDict['inputs'].append(inp)
         print([output.name for output in self.outputOps])
         for output in self.outputOps:

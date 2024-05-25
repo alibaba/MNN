@@ -50,7 +50,7 @@ void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxSco
         }
     }
     if (type == 0) {
-        dstOp->main.value = convertTensorToBlob(constantTp);
+        dstOp->main.value = convertTensorToBlob(constantTp, scope->mModelDir, dstOp);
     } else {
         auto blob = new MNN::BlobT;
         blob->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;

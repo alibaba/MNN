@@ -210,7 +210,7 @@ struct GpuCache {
     const float means[3]   = {103.94f, 116.78f, 123.68f};
     const float normals[3] = {0.017f, 0.017f, 0.017f};
     auto pretreat          = std::shared_ptr<MNN::CV::ImageProcess>(
-        MNN::CV::ImageProcess::create(MNN::CV::RGBA, MNN::CV::BGR, means, 3, normals, 3));
+    MNN::CV::ImageProcess::create(MNN::CV::RGBA, MNN::CV::BGR, means, 3, normals, 3));
     MNN::CV::Matrix matrix;
     matrix.postScale((w - 1) / 223.0, (h - 1) / 223.0);
     pretreat->setMatrix(matrix);
@@ -255,7 +255,7 @@ struct GpuCache {
         [enc setTexture:inputTexture atIndex:0];
         [enc setBuffer:_cache->_constant offset:0 atIndex:1];
         MNNMetalTensorContent sharedContent;
-        MNNMetalGetTensorContent(&sharedContent, _input);
+        _input->getDeviceInfo(&sharedContent, MNN_FORWARD_METAL);
         // For Metal Context to write, don't need finish, just use flush
         _input->wait(MNN::Tensor::MAP_TENSOR_WRITE, false);
         [enc setBuffer:sharedContent.buffer offset:sharedContent.offset atIndex:0];
@@ -275,7 +275,7 @@ struct GpuCache {
     const float means[3]   = {103.94f, 116.78f, 123.68f};
     const float normals[3] = {0.017f, 0.017f, 0.017f};
     auto pretreat          = std::shared_ptr<MNN::CV::ImageProcess>(
-        MNN::CV::ImageProcess::create(MNN::CV::BGRA, MNN::CV::BGR, means, 3, normals, 3));
+    MNN::CV::ImageProcess::create(MNN::CV::BGRA, MNN::CV::BGR, means, 3, normals, 3));
     MNN::CV::Matrix matrix;
     matrix.postScale((w - 1) / 223.0, (h - 1) / 223.0);
     pretreat->setMatrix(matrix);

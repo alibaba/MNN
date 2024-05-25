@@ -11,6 +11,8 @@
 #include "MNN/expr/NeuralNetWorkOp.hpp"
 #include "MNN_generated.h"
 #include "MNN_compression.pb.h"
+#include "cli.hpp"
+#include "commonKit.hpp"
 #include <fstream>
 
 namespace MNN {
@@ -57,9 +59,15 @@ static auto gRegister = []() {
         std::string compressFileName = gConverterConfig->compressionParamsFile;
         Compression::Pipeline proto;
         if (compressFileName != "") {
-            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
-            if (!proto.ParseFromIstream(&input)) {
-                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            std::string jsonSuffix = "json";
+            std::string suffix = compressFileName.substr(compressFileName.find_last_of('.') + 1);
+            if (suffix.compare(jsonSuffix) != 0) {
+                std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
+                if (!proto.ParseFromIstream(&input)) {
+                    MNN_ERROR("Failed to parse compression pipeline proto.\n");
+                }
+            } else {
+                CommonKit::json2protobuf(compressFileName.c_str(), nullptr, &proto);
             }
         }
         auto convert1          = expr->inputs()[0];

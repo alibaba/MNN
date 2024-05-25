@@ -16,6 +16,7 @@
 #include "MetalDefine.h"
 #include <MNN/ErrorCode.hpp>
 #include <vector>
+#include <queue>
 //#include "MNNMetalContext.h"
 #include "MetalCache_generated.h"
 using namespace MetalCache;
@@ -37,10 +38,18 @@ public:
     }
 
     void setGpuMode(const int cl_mode_num);
+    void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
+    id<MTLCommandQueue> getCommandQueue() const {
+        return mQueue;
+    }
+    bool userSync() const {
+        return mUserSync;
+    }
     
     std::pair<const void*, size_t> makeCache(TunedInfo* info);
     bool setCache(std::pair<const void*, size_t> cache);
-    
+    id<MTLComputePipelineState> findPipeline(const std::vector<std::string>& keys) const;
+    void insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const;
     MetalTuneLevel getTuneLevel() {
         return mTuneLevel;
     }
@@ -70,14 +79,18 @@ private:
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
 
 private:
+    id<MTLCommandQueue> mQueue = nil;
+    bool mUserSync = false;
     std::vector<uint8_t> mBuffer;
     const void* mCacheOutside = nullptr;
     size_t mCacheOutsideSize = 0;
     TunedInfo* mTunedInfo;
+    BackendConfig mDefaultConfig;
+    mutable std::map<std::vector<std::string>, id<MTLComputePipelineState>> mCachePipeine;
 };
 
 
-class MetalRuntimeAllocator : public EagerBufferAllocator::Allocator {
+class MetalRuntimeAllocator : public BufferAllocator::Allocator {
 public:
     class MetalBufferAlloc {
     public:
@@ -89,7 +102,7 @@ public:
         }
         ~MetalBufferAlloc(){};
     private:
-        id<MTLBuffer> mBuffer = nil;
+        id<MTLBuffer> mBuffer;
     };
     
     MetalRuntimeAllocator(id<MTLDevice> device): mDevice(device) {
@@ -124,11 +137,16 @@ public:
      * @param creator   registering creator.
      */
     static void addCreator(OpType type, Creator *creator);
-
+    static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
+    static std::pair<id<MTLBuffer>, int> getBuffer(MNN::Tensor* tensor);
+    size_t getTensorSizeInBytes(const Tensor* tensor) const;
+    virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     id<MTLBuffer> getHostBuffer(size_t size) const;
     id<MTLBuffer> getConstBuffer(size_t size) const;
+    void returnConstBuffer(id<MTLBuffer> buffer) const;
+    id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
 public:
-    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime);
+    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32);
     virtual ~MetalBackend();
     const MetalRuntime* runtime() const {
         return mRuntime;
@@ -146,6 +164,7 @@ public:
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
+    virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) override;
 
 public:
     /**
@@ -164,34 +183,54 @@ public:
                               id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
 
     void flushEncoder() const;
-    id<MTLComputeCommandEncoder> encoder() const;
+    id<MTLComputeCommandEncoder> encoder_for_net() const;
     void addOpEncoder(std::function<void(void)> opEncoder);
     
     bool isCommandEncoderSet();
-    void setOpEncoder() const;
     
-    EagerBufferAllocator *getBufferPool() const {
-        return mBufferPool.get();
-    }
+    BufferAllocator* getBufferPool() const;
     EagerBufferAllocator *getStaticBufferPool() const {
         return mStaticBufferPool.get();
     }
 
     bool isCmdBufferCommit();
+    bool isIphone(){
+        return mIsIphone;
+    }
     
+    void commit() const;
+    void commit_net() const;
+    void wait() const;
+    id<MTLCommandQueue> queue() const {
+        return _commandQueue;
+    }
+    bool useFp16InsteadFp32() const {
+        return mUseFloatAsFp16;
+    }
 private:
+    MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
+    id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
+    id<MTLCommandBuffer> getCommandBufferForNet() const;
+    id<MTLComputeCommandEncoder> encoder_net() const;
+    mutable id<MTLCommandBuffer> _commandBuffer = nil;
+    mutable id<MTLCommandBuffer> _commandBuffer_net = nil;
+    mutable id<MTLCommandBuffer> _waiting = nil;
+    mutable std::queue<id<MTLBuffer>> mHoldBuffers;
+
+    id<MTLCommandQueue> _commandQueue;
+
     const MetalRuntime* mRuntime;
-    std::vector<id<MTLBuffer>> mHoldBuffers;
     id<MTLBuffer> mShapeH2D;
     id<MTLBuffer> mShapeD2H;
     mutable NSUInteger mEncoderCount = 0;
     mutable bool mOpEncoderSet = false;//whether has set encoder
-    mutable bool mOpFullSupport = true;
+    mutable bool mSupportDeferEncode = true;
     mutable bool mFrameEncodeCache = false;
 
     std::vector<std::function<void(void)>> mOpEncoders;
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
-    std::shared_ptr<EagerBufferAllocator> mBufferPool;
+    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<BufferAllocator> mBufferPoolShapeImmutable;
     std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
 
 private:
@@ -199,6 +238,9 @@ private:
     void onCopyHostToDevice(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
+    bool mUseFloatAsFp16;
+    bool mIsIphone = false;
+    BufferAllocator* mCurrentAllocator = nullptr;
 };
 
 
@@ -218,6 +260,11 @@ public:
 } // namespace MNN
 
 #define REGISTER_METAL_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {              \
+        MetalBackend::addCreator(opType, new name); \
+    }
+
+#define REGISTER_METAL_OP_TRANSFORMER_CREATOR(name, opType)     \
     void ___##name##__##opType##__() {              \
         MetalBackend::addCreator(opType, new name); \
     }

@@ -2,7 +2,7 @@
 ## 概念说明
 `Module`接口可以用于模型训练与模型推理
 - 模型训练时用户可以继承`Module`类增加自己的实现用来训练；
-- 模型推理与`Session`的区别是不需要用户显示resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
+- 模型推理与`Session`的区别是不需要用户显式resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
 ### 相关数据结构
 - `Module` Module接口的核心类，表示一个模型的虚类；实际加载模型时会创建其子类
 - `Executor` 包含若干个`RuntimeManager`，提供内存管理接口，每个`Executor`必须在单线程环境下运行。默认提供全局 `Executor`，需要并发执行时，可自行创建。
@@ -45,9 +45,10 @@ rtmgr->setCache(".cachefile");
 // 从模型文件加载并创建新Module
 const std::string model_file = "/tmp/mymodule.mnn"; // model file with path
 
-// 输入名，可以为空，为空时 MNN 自动搜索模型中的输入，多输入情况下无法保证顺序，需要通过 getInfo 接口查看
+// 输入名：多个输入时按顺序填入，其顺序与后续 onForward 中的输入数组需要保持一致
 const std::vector<std::string> input_names{"input_1", "input_2", "input_3"};
-// 输出名，可以为空，为空时 MNN 自动搜索模型中的输出，多输出情况下无法保证顺序，需要通过 getInfo 接口查看
+
+// 输出名，多个输出按顺序填入，其顺序决定 onForward 的输出数组顺序
 const std::vector<std::string> output_names{"output_1"};
 
 Module::Config mdconfig; // default module config
@@ -55,6 +56,43 @@ std::unique_ptr<Module> module; // module
 // 若 rtMgr 为 nullptr ，Module 会使用Executor的后端配置
 module.reset(Module::load(input_names, output_names, model_filename.c_str(), rtMgr, &mdconfig));
 ```
+
+输入输出的名字可以为空，此时，MNN 会检索模型中的输入/输出填入，在多输入/输出情况下无法保证顺序，需要通过 getInfo 接口查看。
+
+### Module::Config 
+创建`Module`时可传入`Module::Config`，具体结构如下：
+
+```cpp
+struct Config {
+    // Load module as dynamic, default static
+    bool dynamic = false;
+
+    // for static mode, if the shape is mutable, set true, otherwise set false to avoid resizeSession freqencily
+    bool shapeMutable = true;
+    // Pre-rearrange weights or not. Disabled by default.
+    // The weights will be rearranged in a general way, so the best implementation
+    // may not be adopted if `rearrange` is enabled.
+    bool rearrange = false;
+
+    BackendInfo* backend = nullptr;
+};
+```
+
+#### dynamic
+- 默认为 false ，输出的变量为const ，只能得到数据
+- 若 dynamic = true ，加载出的模型将按动态图方式运行，会增加额外构图耗时，但可以保存输出变量的计算路径，存成模型
+- 若 dynamic = true ，后面的 shapeMutable / rearrange 不再生效
+
+#### shapeMutable
+- 默认为 true ，表示输入形状易变，将延迟进行形状相关计算
+- 设置为 false 时，会提前申请内存，在 onForward 时做输入数据的拷贝而不是直接使用指针
+
+#### rearrange
+- 若为 true ，在创建 Module 时会预先创建卷积算子，做权重重排，以降低运行时的内存
+- 目前只支持 CPU 和 CUDA 后端
+
+#### backend
+已经废弃，不要设置此项
 
 ### 获取模型信息
 调用`getInfo`函数可获取`Module`信息，可以参考代码：`tools/cpp/GetMNNInfo.cpp`，[工具](../tools/test.html#getmnninfo)

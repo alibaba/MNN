@@ -36,14 +36,13 @@ MultiInputDWDeconvExecution::~MultiInputDWDeconvExecution() {
     // do nothing
 }
 
-ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mUnits.clear();
     mUnits.resize(4);
 
     auto originLayout = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
     auto openclBackend = static_cast<OpenCLBackend *>(backend());
     auto runtime = openclBackend->getOpenCLRuntime();
-    startRecord(runtime, mRecording);
 
     auto inputShape  = tensorShapeFormat(inputs[0]);
     auto outputShape = tensorShapeFormat(outputs[0]);
@@ -86,7 +85,8 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         auto shape = tensorShapeFormat(inputs[1]);
         std::vector<uint32_t> gws = {static_cast<uint32_t>(shape[2] * UP_DIV(shape[3], 4)), static_cast<uint32_t>(shape[0] * shape[1])};
 
-        cl::Kernel kernel = runtime->buildKernel("buffer_to_image", kernelName, {});
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, {}, inputs[1], inputs[1]);
+        auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(0, gws[0]);
         ret |= kernel.setArg(1, gws[1]);
@@ -97,23 +97,24 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         ret |= kernel.setArg(6, openCLImage(inputs[1]));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution transform input");
 
-        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
+        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernelW);
         std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
         for (size_t i = 0; i < lws.size(); ++i) {
             gws[i] = ROUND_UP(gws[i], lws[i]);
         }
 
-        mUnits[0].kernel = kernel;
+        mUnits[0].kernel = kernelW;
         mUnits[0].localWorkSize = {lws[0], lws[1]};
         mUnits[0].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[0].kernel, gws, lws, runtime);
+        openclBackend->recordKernel2d(mUnits[0].kernel, gws, lws);
     }
     
     // convert kernel from IOHW to OIHW, similar to DeconvExecution.cpp
     {
         auto shape = tensorShapeFormat(inputs[1]);
         
-        cl::Kernel kernel = runtime->buildKernel("deconv_2d", "iohw2oihw", {});
+        auto kernelW = runtime->buildKernel("deconv_2d", "iohw2oihw", {});
+        auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(0, *rawBufferPtr);
         ret |= kernel.setArg(1, *bufferPtr);
@@ -122,16 +123,16 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         ret |= kernel.setArg(4, shape[0]);
         MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution transform kernel");
 
-        mUnits[1].kernel = kernel;
+        mUnits[1].kernel = kernelW;
         mUnits[1].localWorkSize = cl::NullRange;
         mUnits[1].globalWorkSize = {
             static_cast<uint32_t>(shape[3]),
             static_cast<uint32_t>(shape[0])
         };
-        recordKernel2d(mUnits[1].kernel, {
+        openclBackend->recordKernel2d(mUnits[1].kernel, {
             static_cast<uint32_t>(shape[3]),
             static_cast<uint32_t>(shape[0])
-        }, {0, 0}, runtime);
+        }, {0, 0});
     }
     
     // transform kernel from original form (maybe NCHW or NHWC) to filter format
@@ -150,9 +151,9 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
 
         std::string kernelName = "dw_filter_buffer_to_image";
 
-
         std::set<std::string> buildOptions;
-        cl::Kernel kernel = runtime->buildKernel("buffer_to_image", kernelName, buildOptions);
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, buildOptions, buffer, image);
+        auto kernel = kernelW->get();
 
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -168,16 +169,16 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         ret |= kernel.setArg(idx++, openCLImage(image));
     
     
-        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
+        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernelW);
         std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
         for (size_t i = 0; i < lws.size(); ++i) {
             gws[i] = ROUND_UP(gws[i], lws[i]);
         }
 
-        mUnits[2].kernel = kernel;
+        mUnits[2].kernel = kernelW;
         mUnits[2].localWorkSize = {lws[0], lws[1]};
         mUnits[2].globalWorkSize = {gws[0], gws[1]};
-        recordKernel2d(mUnits[2].kernel, {gws[0], gws[1]}, {lws[0], lws[1]}, runtime);
+        openclBackend->recordKernel2d(mUnits[2].kernel, {gws[0], gws[1]}, {lws[0], lws[1]});
     }
 
     {
@@ -230,7 +231,8 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
             buildOptions.emplace("-DNO_BIAS");
         }
 
-        auto kernel = runtime->buildKernel("depthwise_deconv2d", kernelName, buildOptions);
+        auto kernelW = runtime->buildKernel("depthwise_deconv2d", kernelName, buildOptions);
+        auto kernel = kernelW->get();
         int index = 0;
         
         uint32_t idx = 0;
@@ -255,19 +257,18 @@ ErrorCode MultiInputDWDeconvExecution::onResize(const std::vector<Tensor *> &inp
         ret |= kernel.setArg(idx++, static_cast<int32_t>(channelBlocks));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MultiInputDWDeconvExecution");
 
-        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
+        const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernelW);
         std::string name = "depthwiseDeconv";
-        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernel).first;
+        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernelW).first;
         for (size_t i = 0; i < 3; ++i) {
             gws[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
         }
 
-        mUnits[3].kernel = kernel;
+        mUnits[3].kernel = kernelW;
         mUnits[3].localWorkSize = {lws[0], lws[1], lws[2]};
         mUnits[3].globalWorkSize = {gws[0], gws[1], gws[2]};
-        recordKernel2d(mUnits[2].kernel, gws, lws, runtime);
+        openclBackend->recordKernel3d(mUnits[3].kernel, gws, lws);
     }
-    endRecord(runtime, mRecording);
    
     return NO_ERROR;
 }

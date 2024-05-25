@@ -49,6 +49,10 @@ public:
         }
         ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
         res = _run(precision, true);
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_COMPUTE_ONCE);
+        res = _run(precision, true);
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_COMPUTE_ONCE | MNN::Express::Executor::LAZY_CONTENT);
+        res = _run(precision, true);
         return res;
     }
 };

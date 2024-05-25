@@ -13,10 +13,13 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "geometry/GeometryComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#ifdef MNN_INTERNAL_ENABLED
+#include "internal/logging/Log.hpp"
+#endif
 
 namespace MNN {
-
-void registerBackend();
 
 static std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>& GetExtraCreator() {
     static std::once_flag gInitFlag;
@@ -24,6 +27,65 @@ static std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>& GetExtr
     std::call_once(gInitFlag,
                    [&]() { gExtraCreator = new std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>; });
     return *gExtraCreator;
+}
+
+extern void registerCPURuntimeCreator();
+
+#if MNN_METAL_ENABLED
+extern void registerMetalRuntimeCreator();
+#endif
+#if MNN_OPENCL_ENABLED
+namespace OpenCL {
+extern void registerOpenCLRuntimeCreator();
+}
+#endif
+#if MNN_COREML_ENABLED
+extern void registerCoreMLRuntimeCreator();
+#endif
+#if MNN_NNAPI_ENABLED
+extern void registerNNAPIRuntimeCreator();
+#endif
+
+static std::once_flag s_flag;
+void registerBackend() {
+    std::call_once(s_flag, [&]() {
+#ifdef MNN_INTERNAL_ENABLED
+        LogInit();
+#endif
+        registerCPURuntimeCreator();
+#ifndef MNN_BUILD_MINI
+        SizeComputerSuite::init();
+        GeometryComputer::init();
+#endif
+#if MNN_COREML_ENABLED
+        registerCoreMLRuntimeCreator();
+#endif
+#ifdef MNN_NNAPI_ENABLED
+        registerNNAPIRuntimeCreator();
+#endif
+#if MNN_OPENCL_ENABLED
+        OpenCL::registerOpenCLRuntimeCreator();
+#endif
+#if MNN_METAL_ENABLED
+        registerMetalRuntimeCreator();
+#endif
+        auto& gExtraCreator = GetExtraCreator();
+        for(auto iter = gExtraCreator.begin(); iter != gExtraCreator.end();){
+            if(!iter->second.second){
+                iter++;
+            }else{
+                Backend::Info info;
+                info.type = iter->first;
+                std::shared_ptr<Runtime> bn(iter->second.first->onCreate(info));
+                if (nullptr == bn.get()) {
+                    iter = gExtraCreator.erase(iter);
+                    MNN_ERROR("Error to use creator of %d, delete it\n", info.type);
+                }else{
+                    iter++;
+                }
+            }
+        }
+    });
 }
 
 const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
@@ -77,21 +139,15 @@ bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
     if (nullptr == mem) {
         return false;
     }
-    if (mem == TensorUtils::getDescribe(tensor)->mem.get()) {
+    if (mem == TensorUtils::getDescribeOrigin(tensor)->mem.get()) {
         return true;
     }
-    TensorUtils::getDescribe(tensor)->mem.reset(mem);
+    TensorUtils::getDescribeOrigin(tensor)->mem = mem;
     return true;
-}
-ErrorCode Backend::onResizeEnd() {
-    return NO_ERROR;
 }
 bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
-    TensorUtils::getDescribe(tensor)->mem.reset(nullptr);
+    TensorUtils::getDescribeOrigin(tensor)->mem = nullptr;
     return true;
-}
-const std::string Backend::externalFile() {
-    return this->getRuntime()->getExternalFile();
 }
 
 bool Runtime::hasAsyncWork() const {

@@ -2,6 +2,8 @@
 #include "PoolExecution.hpp"
 #include <float.h>
 #include "MNNCUDADefine.hpp"
+#include "MNNCUDAFunction.cuh"
+
 namespace MNN {
 namespace CUDA {
 #define HALF_MIN  half(-65504)
@@ -112,6 +114,66 @@ __global__ void avgpool_C8(const T* uInput, T* uOutput,
     }
 }
 
+template <typename T>
+__global__ void global_avgpool_C8(const T *input, T *output,
+    const int outside,
+    const int axis,
+    const int inside,
+    const int per_block_size,
+    const int calc_multi_num
+) {
+    int idx_outside = blockIdx.x / inside;
+    int idx_inside = blockIdx.x -  idx_outside * inside;
+
+    const T* src = input + idx_outside * axis * inside + idx_inside;
+    int tid = threadIdx.x;
+
+    float local_src = 0.0;
+    __shared__ float sumValue;
+    for(int i=0; i<calc_multi_num; i++) {
+        if(tid + i * per_block_size < axis) {
+            local_src += (float)(src[(tid + i * per_block_size) * inside]);
+        }
+    }
+    float maxRes = blockReduceSum<float>(local_src);
+    if(tid == 0)
+        sumValue = maxRes;
+    __syncthreads();
+
+    output[idx_outside * inside + idx_inside] = (T)(sumValue / (float)axis);
+    return;
+}
+
+template <typename T>
+__global__ void global_maxpool_C8(const T *input, T *output,
+    const int outside,
+    const int axis,
+    const int inside,
+    const int per_block_size,
+    const int calc_multi_num
+) {
+    int idx_outside = blockIdx.x / inside;
+    int idx_inside = blockIdx.x -  idx_outside * inside;
+
+    const T* src = input + idx_outside * axis * inside + idx_inside;
+    int tid = threadIdx.x;
+
+    float local_src = -FLT_MAX;;
+    __shared__ float maxValue;
+    for(int i=0; i<calc_multi_num; i++) {
+        if(tid + i * per_block_size < axis) {
+            local_src = max(local_src, (float)src[(tid + i * per_block_size) * inside]);
+        }
+    }
+    float maxRes = blockReduceMax<float>(local_src);
+    if(tid == 0)
+        maxValue = maxRes;
+    __syncthreads();
+
+    output[idx_outside * inside + idx_inside] = (T)(maxValue);
+    return;
+}
+
 ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto layer       = mParameter;
     int strideWidth  = layer->strideX();
@@ -165,6 +227,7 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     auto& prop = runtime->prop();
     int threads_num = prop.maxThreadsPerBlock;
     int block_num = prop.multiProcessorCount;
+    // MNN_PRINT("%d %d, %d %d %d %d %d %d, %d %d\n", ih, iw, mKernels[0], mKernels[1], mPaddings[0], mPaddings[1], mStrides[0], mStrides[1], oh, ow);
 
     #ifdef ENABLE_CUDA_BF16
     if (static_cast<CUDABackend*>(backend())->getPrecision() == 3) {
@@ -195,6 +258,41 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
         return NO_ERROR;
     }
     #endif
+
+    // Global Pooling
+    if(ih == mKernels[0] && iw == mKernels[1] && mPaddings[0] == 0 && mPaddings[1] == 0 && oh == 1 && ow == 1) {
+        auto outside = ib;
+        auto axis = ih * iw;
+        auto inside = ic_p;
+        int count = outside * inside;
+        int calc_multi_num = (axis + 127) / 128;
+        if (static_cast<CUDABackend*>(backend())->useFp16()) {
+            auto inputPtr = (const half*)inputs[0]->deviceId();
+            auto outputPtr = (half*)outputs[0]->deviceId();
+            if (mPoolType == PoolType_AVEPOOL) {
+                global_avgpool_C8<<<count, 128>>>(inputPtr, outputPtr, outside, axis, inside, 128, calc_multi_num);
+                checkKernelErrors;
+            } else if (mPoolType == PoolType_MAXPOOL) {
+                global_maxpool_C8<<<count, 128>>>(inputPtr, outputPtr, outside, axis, inside, 128, calc_multi_num);
+                checkKernelErrors;
+            } else {
+                MNN_ERROR("MNN not support pool type:%d\n", mPoolType);
+            }
+        } else {
+            auto inputPtr = (const float*)inputs[0]->deviceId();
+            auto outputPtr = (float*)outputs[0]->deviceId();
+            if (mPoolType == PoolType_AVEPOOL) {
+                global_avgpool_C8<<<count, 128>>>(inputPtr, outputPtr, outside, axis, inside, 128, calc_multi_num);
+                checkKernelErrors;
+            } else if (mPoolType == PoolType_MAXPOOL) {
+                global_maxpool_C8<<<count, 128>>>(inputPtr, outputPtr, outside, axis, inside, 128, calc_multi_num);
+                checkKernelErrors;
+            } else {
+                MNN_ERROR("MNN not support pool type:%d\n", mPoolType);
+            }
+        }
+        return NO_ERROR;
+    }
 
     if (static_cast<CUDABackend*>(backend())->useFp16()) {
         auto inputPtr = (const half*)inputs[0]->deviceId();

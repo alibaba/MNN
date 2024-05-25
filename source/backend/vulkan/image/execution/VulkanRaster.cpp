@@ -58,7 +58,7 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         uniformInfo.imageSize[3] = image->width() * image->height();
         std::shared_ptr<VulkanBuffer> uniform(new VulkanBuffer(vkBn->getMemoryPool(), false, sizeof(FillImage), &uniformInfo, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
         mExtraUniform.emplace_back(uniform);
-        std::shared_ptr<VulkanPipeline::DescriptorSet> des(fillPipeline->createSet());
+        std::shared_ptr<VulkanLayout::DescriptorSet> des(fillPipeline->createSet());
         des->writeImage(image->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         des->writeBuffer(uniform->buffer(), 1, uniform->size());
         auto totalSize = UP_DIV(uniformInfo.imageSize[3], 256);

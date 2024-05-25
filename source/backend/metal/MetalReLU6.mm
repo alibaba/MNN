@@ -15,49 +15,39 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalReLU6::MetalReLU6(Backend *backend, float minV, float maxV) : Execution(backend) {
+MetalReLU6::MetalReLU6(Backend *backend, float minV, float maxV, bool isRelu) : MetalExecution(backend) {
+    // For Relu use minV and slope
     auto metal   = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)metal->context();
-    mConst             = [context newDeviceBuffer:4 * sizeof(float) access:CPUWriteOnly];
+    mConst = [context newDeviceBuffer:4 * sizeof(float) access:CPUWriteOnly];
     ((float*)mConst.contents)[0] = minV;
     ((float*)mConst.contents)[1] = maxV;
-}
-ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
+    if (isRelu) {
+        mPipeline = [context pipelineWithName:@"relu" fp16:metal->useFp16InsteadFp32()];
+    } else {
+        mPipeline = [context pipelineWithName:@"relu6" fp16:metal->useFp16InsteadFp32()];
     }
+}
+void MetalReLU6::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0], output = outputs[0];
+    int size = output->elementSize();
+    size = UP_DIV(size, 4);
+    ((int*)mConst.contents)[2] = size;
+    ((int*)mConst.contents)[3] = size;
 
-    auto func = [=](){
-        auto input = inputs[0], output = outputs[0];
-        NSUInteger size = output->elementSize();
-        auto simd       = size % 4 == 0;
-        if (simd) {
-            size /= 4;
-        }
-
-        auto encoder   = backend->encoder();
-        auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-        [encoder setBuffer:mConst offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
-
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-    return NO_ERROR;
+    [encoder setComputePipelineState:mPipeline];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
+    [encoder setBuffer:mConst offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(size, 256), 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
 }
 
 class MetalReLU6Creator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
+        if (op->type() == OpType_ReLU) {
+            return new MetalReLU6(backend, op->main_as_Relu()->slope(), 0.0f, true);
+        }
         float minV = 0.0f;
         float maxV = 6.0f;
         if (nullptr != op->main()) {
@@ -65,9 +55,10 @@ public:
             minV = p->minValue();
             maxV = p->maxValue();
         }
-        return new MetalReLU6(backend, minV, maxV);
+        return new MetalReLU6(backend, minV, maxV, false);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalReLU6Creator, OpType_ReLU6);
+REGISTER_METAL_OP_CREATOR(MetalReLU6Creator, OpType_ReLU);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

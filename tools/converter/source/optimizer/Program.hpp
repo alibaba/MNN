@@ -32,10 +32,11 @@ public:
     const std::map<int, VARP>& vars() const {
         return mVars;
     }
+    void updateVars(std::map<std::string, VARP> map, std::vector<std::string> tensorName);
     void save(MNN::NetT* net);
 private:
-    static std::shared_ptr<Program> create(const std::vector<std::unique_ptr<OpT>>& oplists, const std::vector<std::string>& tensorName, const std::vector<std::string>& outputName, bool supportExtra, bool saveAllVars);
-    static void createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists, MNN::OpT* op, const std::vector<std::string>& tensorName, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes);
+    static std::shared_ptr<Program> create(const std::vector<std::unique_ptr<OpT>>& oplists, const std::vector<std::string>& tensorName, const std::vector<std::string>& outputName, bool supportExtra, bool saveAllVars, const MNN::NetT* net=nullptr);
+    static void createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists, MNN::OpT* op, const std::vector<std::string>& tensorName, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes, const MNN::NetT* net=nullptr);
     Program() {
     }
     std::map<int, VARP> mVars;

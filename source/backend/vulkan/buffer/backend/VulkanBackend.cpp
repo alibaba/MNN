@@ -35,15 +35,8 @@ static inline std::map<OpType, VulkanBackend::Creator*>* getCreatorMap() {
     return gCreator;
 }
 
-template<typename T>
-void _copyIn(const T* src, float* dst, size_t size) {
-    for (int i=0; i<size; ++i) {
-        dst[i] = src[i];
-    }
-}
-
-template<typename T>
-void _copyOut(const float* src, T* dst, size_t size) {
+template<typename T0, typename T1>
+void _copy(const T0* src, T1* dst, size_t size) {
     for (int i=0; i<size; ++i) {
         dst[i] = src[i];
     }
@@ -51,49 +44,13 @@ void _copyOut(const float* src, T* dst, size_t size) {
 
 static void _copyBufferToTensor(const Tensor* dest, const VulkanBuffer* source, size_t offset) {
     auto sourcePtr   = (const float*)source->map(offset);
-    auto dataType    = dest->getType();
-    auto eleSize = dest->elementSize();
-    if (dataType == halide_type_of<float>()) {
-        ::memcpy(dest->host<float>(), sourcePtr, dest->size());
-    }
-    else if (dataType == halide_type_of<uint8_t>()) {
-        _copyOut(sourcePtr, dest->host<uint8_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<int8_t>()) {
-        _copyOut(sourcePtr, dest->host<int8_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<int32_t>()) {
-        _copyOut(sourcePtr, dest->host<int32_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<uint32_t>()) {
-        _copyOut(sourcePtr, dest->host<uint32_t>(), eleSize);
-    } else {
-        MNN_PRINT("Don't support typecode = %d, bits = %d\n", dataType.code, dataType.bits);
-    }
+    ::memcpy(dest->host<float>(), sourcePtr, dest->usize());
     source->unmap();
 }
 
 static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, size_t offset) {
     auto destPtr     = (float*)dest->map(offset);
-    auto dataType    = source->getType();
-    auto eleSize = source->elementSize();
-    if (dataType == halide_type_of<float>()) {
-        ::memcpy(destPtr, source->host<float>(), source->size());
-    }
-    else if (dataType == halide_type_of<uint8_t>()) {
-        _copyIn(source->host<uint8_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<int8_t>()) {
-        _copyIn(source->host<int8_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<int32_t>()) {
-        _copyIn(source->host<int32_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<uint32_t>()) {
-        _copyIn(source->host<uint32_t>(), destPtr, eleSize);
-    } else {
-        MNN_PRINT("Don't support typecode = %d, bits = %d\n", dataType.code, dataType.bits);
-    }
+    ::memcpy(destPtr, source->host<float>(), source->usize());
     dest->unmap();
 }
 
@@ -101,14 +58,20 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
-
-    mDynamicBufferPool.reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    mDynamicBufferPool.resize(2);
+    mDynamicBufferPool[0].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    mCurrentDynamicBufferPool = mDynamicBufferPool[0].get();
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
     if (!mDirect) {
         mCmdBuffer.reset(runtime->mCmdPool->allocBuffer());
     }
+    std::string deviceName = dev.proty().deviceName;
+    if(deviceName.find("Apple") != std::string::npos){
+        mUseAutoTune = false;
+    }
+    mCmdBufferForCopy.reset(runtime->mCmdPool->allocBuffer());
 }
 
 VulkanBackend::~VulkanBackend() {
@@ -188,11 +151,22 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
         return mem;
     }
     bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
-    auto newBuffer = mDynamicBufferPool->alloc(alignSize, seperate);
-    auto mem = new VulkanMemRelease(mDynamicBufferPool.get(), newBuffer, alignSize);
+    auto newBuffer = mCurrentDynamicBufferPool->alloc(alignSize, seperate);
+    auto mem = new VulkanMemRelease(mCurrentDynamicBufferPool, newBuffer, alignSize);
     MTensor->buffer().device = (uint64_t)(newBuffer.first);
     des->extra.offset = newBuffer.second;
     return mem;
+}
+bool VulkanBackend::onSelectDynamicAllocator(int index, int maxIndex) {
+    if (maxIndex > 2 || index >= 2 || index < 0) {
+        return false;
+    }
+    if (mDynamicBufferPool[1].get() == nullptr) {
+        std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(mRuntime->mBufferPool.get());
+        mDynamicBufferPool[1].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    }
+    mCurrentDynamicBufferPool = mDynamicBufferPool[index].get();
+    return true;
 }
 
 std::shared_ptr<VulkanBuffer> VulkanBackend::allocUniform(const void* src, int size) {
@@ -205,7 +179,7 @@ void VulkanBackend::recycleUniform(std::shared_ptr<VulkanBuffer> buffer) {
 }
 
 bool VulkanBackend::onClearBuffer() {
-    mDynamicBufferPool->release(false);
+    mCurrentDynamicBufferPool->release(false);
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -270,6 +244,9 @@ void VulkanBackend::_finish() const {
 const VulkanDevice& VulkanBackend::device() const {
     return (* mRuntime->mDevice);
 }
+const VulkanPipelineFactory* VulkanBackend::getPipelineFactory() const {
+    return mRuntime->mPipelineFactory.get();
+}
 
 static Tensor::DimensionType _convert(MNN_DATA_FORMAT format) {
     switch (format) {
@@ -284,6 +261,30 @@ static Tensor::DimensionType _convert(MNN_DATA_FORMAT format) {
     }
     return Tensor::CAFFE;
 }
+void VulkanBackend::copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const {
+    _requireHostBuffer(size);
+    ::memcpy(mHostBuffer->map(), src, size);
+    mHostBuffer->unmap();
+    auto cmdbuffer = mCmdBufferForCopy;
+    cmdbuffer->begin(0);
+    VkBufferCopy bufferCopy;
+    bufferCopy.size = size;
+    bufferCopy.dstOffset = offset;
+    bufferCopy.srcOffset = 0;
+    vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer,
+                    1, &bufferCopy);
+    cmdbuffer->end();
+    pushCommand(cmdbuffer->get());
+    _finish();
+    mHostBuffer.reset();
+}
+void VulkanBackend::_requireHostBuffer(size_t size) const {
+    _finish();
+    if (nullptr == mHostBuffer || mHostBuffer->size() < size) {
+        mHostBuffer.reset(new VulkanBuffer(*mRuntime->mMemoryPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+    }
+}
+
 void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
 #ifdef MNN_VULKAN_DEBUG
     AUTOTIME;
@@ -310,7 +311,20 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             MNNCPUCopyBuffer(srcTensor, tempTensor.get());
             srcTensor = tempTensor.get();
         }
-        _copyTensorToBuffer(srcTensor, buffer, offset);
+        auto eleSize = srcTensor->elementSize();
+        _requireHostBuffer(eleSize * sizeof(float));
+        _copyTensorToBuffer(srcTensor, mHostBuffer.get(), 0);
+        auto cmdbuffer = mCmdBufferForCopy;
+        cmdbuffer->begin(0);
+        VkBufferCopy bufferCopy;
+        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.dstOffset = offset;
+        bufferCopy.srcOffset = 0;
+        vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer->buffer(),
+                        1, &bufferCopy);
+        cmdbuffer->end();
+        pushCommand(cmdbuffer->get());
+        _finish();
     } else if (dstTensor->host<float>() != nullptr) {
         // gpu->host
         _finish();
@@ -323,10 +337,22 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             });
             dstTensor = tempTensor.get();
         }
+        auto eleSize = dstTensor->elementSize();
+        _requireHostBuffer(eleSize * sizeof(float));
         auto buffer = reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId());
         auto offset = TensorUtils::getDescribe(srcTensor)->extra.offset;
-
-        _copyBufferToTensor(dstTensor, buffer, offset);
+        auto cmdbuffer = mCmdBufferForCopy;
+        cmdbuffer->begin(0);
+        VkBufferCopy bufferCopy;
+        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.dstOffset = 0;
+        bufferCopy.srcOffset = offset;
+        vkCmdCopyBuffer(cmdbuffer->get(), buffer->buffer(), mHostBuffer->buffer(),
+                        1, &bufferCopy);
+        cmdbuffer->end();
+        pushCommand(cmdbuffer->get());
+        _finish();
+        _copyBufferToTensor(dstTensor, mHostBuffer.get(), 0);
     } else if (srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0) {
         // gpu->gpu
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
@@ -345,11 +371,82 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         _finish();
     }
 }
+int VulkanBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
+    _finish();
+    return 0;
+}
 
 bool VulkanBackend::addCreator(OpType t, Creator* c) {
     auto allKind = getCreatorMap();
     allKind->insert(std::make_pair(t, c));
     return true;
+}
+
+bool VulkanBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
+    if (nullptr == dstInfo) {
+        return true;
+    }
+    auto vkBuffer = getBuffer(tensor);
+    auto dst = (MNNVulkanTensorContent*)dstInfo;
+    dst->buffer = std::get<0>(vkBuffer);
+    dst->offset = std::get<2>(vkBuffer);
+    dst->size = std::get<1>(vkBuffer);
+    return true;
+}
+
+float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> groupSize){
+    std::shared_ptr<VulkanCommandPool::Buffer> cmd;
+    cmd.reset(const_cast<VulkanCommandPool::Buffer *>(getPool().allocBuffer()));
+    cmd->begin(0);
+    mRuntime->mQueryPool->VulkanCmdResetQueryPool(cmd.get()->get());
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 0);
+    pipeline->bind(cmd.get()->get(), des->get());
+    vkCmdDispatch(cmd.get()->get(), groupSize[0], groupSize[1], groupSize[2]);
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 1);
+    cmd->end();
+    getPool().submitAndWait(cmd.get()->get());
+    float time = mRuntime->mQueryPool->VulkanGetQueryPoolResults();
+    return time;
+}
+
+std::vector<uint32_t> VulkanBackend::autoTunePipeline(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> gws){
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<int> groupSize(3, 1);
+    std::vector<int> maxGroups(3, 1);
+    int maxGroupSize = mRuntime->mDevice->getMaxComputeWorkGroupInvocations();
+    mRuntime->mDevice->getMaxComputeWorkGroupSize(maxGroups);
+    
+    std::vector<uint32_t> lws_prefer(3, 1);
+    uint32_t min_cost = UINT_MAX;
+    
+    while(lws[2] <= gws[2] && lws[2] <= maxGroups[2]) {
+        lws[1] = 1;
+        while(lws[1] <= gws[1] && lws[1] <= maxGroups[1]) {
+            lws[0] = 1;
+            while(lws[0] <= gws[0] && lws[0] <= maxGroups[0]) {
+                if(lws[0]*lws[1]*lws[2] <= maxGroupSize) {
+                    groupSize[0] = UP_DIV(gws[0], lws[0]);
+                    groupSize[1] = UP_DIV(gws[1], lws[1]);
+                    groupSize[2] = UP_DIV(gws[2], lws[2]);
+                    
+                    pipeline->changePipeline(lws);
+                    int cost_time = (int)getPipelineTime(pipeline, des, groupSize);
+                    if(cost_time < min_cost) {
+                        min_cost = cost_time;
+                        lws_prefer[0] = lws[0];
+                        lws_prefer[1] = lws[1];
+                        lws_prefer[2] = lws[2];
+                    }
+                }
+                lws[0]*=2;
+            }
+            lws[1]*=2;
+        }
+        lws[2]*=2;
+    }
+    
+    pipeline->changePipeline(lws_prefer);
+    return lws_prefer;
 }
 
 } // namespace MNN

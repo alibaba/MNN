@@ -26,8 +26,17 @@ public:
     bool step(Express::VARP loss);
     int currentStep();
     void setCurrentStep(int step);
+    static void makeLoopModel(const char* mnnFileName, std::vector<Express::VARP> outputs, const std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>>& parameters);
+    
+    struct ParameterOptGrad {
+        Express::VARP parameter;
+        Express::VARP parameterGrad;
+        Express::VARP learningRate;
+    };
 
     virtual std::map<Express::VARP, Express::VARP> onGetNextParameter(Express::VARP loss) = 0;
+    virtual std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>>  onMakeParameterUpdateGraphByGrad(const std::vector<ParameterOptGrad>& parameterGrads);
+    std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>> makeParameterUpdateGraphByGrad(const std::vector<Express::VARP>& p, const std::vector<Express::VARP>& pd, const std::vector<Express::VARP>& lr);
 
     static ParameterOptimizer* createSGD(std::shared_ptr<Express::Module> module, float lr, float momentum, float weightDecay, RegularizationMethod method);
     static ParameterOptimizer* createADAM(std::shared_ptr<Express::Module> module, float lr, float momentum, float momentum2, float weightDecay, float eps, RegularizationMethod method);

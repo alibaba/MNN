@@ -129,19 +129,38 @@ public:
             return _transformConv3D(expr);
         }
         auto inputs         = expr->inputs();
-        const int inputSize = inputs.size();
+        const int inputSize = static_cast<int32_t>(inputs.size());
+        auto x            = inputs[0];
         if (inputSize != 3 && inputSize != 2) {
             MNN_ERROR("Convolution Input ERROR!\n");
             return nullptr;
         }
         auto weight = inputs[1];
-
-        auto weightInfo = weight->getInfo();
-        if (nullptr == weightInfo) {
+        auto weight_expr = weight->expr().first;
+        bool weightIden = false;
+        bool xIden = false;
+        if (weight_expr->get()) {
+            weightIden = weight_expr->get()->type() == OpType_Int8ToFloat;
+        }
+        if (inputs[0]->expr().first->get()) {
+            xIden = inputs[0]->expr().first->get()->type() == OpType_Int8ToFloat;
+        }
+        if (false == weightIden && nullptr == weight->getInfo()) {
             MNN_ERROR("Convolution should know weight shape infromation!\n");
             return nullptr;
         }
-        auto& weightShape = weightInfo->dim;
+        INTS weightShape;
+        if (weightIden) {
+            auto dim = weight_expr->inputs().at(4)->readMap<int32_t>();
+            int dimSize = weight_expr->inputs().at(4)->getInfo()->dim[0];
+            for (int k = 0; k < dimSize; ++k) {
+                weightShape.emplace_back(dim[k]);
+            }
+        } else {
+            weightShape = weight->getInfo()->dim;
+        }
+        bool convertToConvint8 = false;
+        convertToConvint8 = (true == weightIden && true == xIden && weight_expr->inputs().size() == 5);
 
         auto op         = expr->get();
         auto extraParam = op->main_as_Extra();
@@ -273,11 +292,99 @@ public:
             // Fastest
             limitNumber = 100;
         }
-        if (weight->linkNumber() <= limitNumber) {
+        if ( weight->linkNumber() <= limitNumber && !convertToConvint8) {
             weightDataPtr = weight->readMap<float>();
         }
-        // weight is Constant node
-        if (weightDataPtr) {
+        EXPRP reluExpr;
+        bool hasRelu = false;
+        if (convertToConvint8) {
+            // Get output quant info.
+            auto outputExpr = expr->outputs().front().lock();
+            
+            if (outputExpr->get() && (outputExpr->get()->type() == OpType::OpType_ReLU || outputExpr->get()->type() == OpType_ReLU6)) {
+                reluExpr = std::move(outputExpr);
+                outputExpr = reluExpr->outputs().front().lock();
+                hasRelu = true;
+            }
+            auto outputScaleVar = outputExpr->inputs()[1];
+            float outputScale = outputScaleVar->readMap<float>()[0];
+            if (hasRelu) {
+                outputScale = 1.0f;
+            }
+            int8_t outputZero = 0;
+            if (outputExpr->inputs().size() > 2) {
+                outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0]);
+            }
+            // Get weight quant info.
+            float inputClampMin = -128;
+            float inputClampMax = 127;
+            auto weightexpr = weight->expr().first;
+            auto weightInt8 = weightexpr->inputs()[0];
+            auto pw= weightInt8->readMap<int8_t>();
+            const size_t weightSize = co * ci * kh * kw;
+//            std::vector<int8_t> weightData(weightSize);
+            std::vector<int32_t> weightKenelSum(co);
+            const int kernelSize = static_cast<int32_t>(weightSize / co);
+//            for (int cnt = 0; cnt < weightSize; ++cnt) {
+//                weightData[cnt] = pw[cnt];
+//            }
+            for (int i = 0; i < co; i++) {
+                int temp = 0;
+                int offset = i * kernelSize;
+                for (int j = 0; j < kernelSize; j++) {
+                    temp += int(pw[offset + j]);
+                }
+                weightKenelSum[i] = temp;
+            }
+            std::vector<int32_t> biasInt32(common->outputCount, 0);
+            convParam->symmetricQuan.reset(new QuantizedFloatParamT);
+            convParam->symmetricQuan->weight.resize(weightSize);
+            ::memcpy(convParam->symmetricQuan->weight.data(), pw, weightSize * sizeof(int8_t));
+            convParam->symmetricQuan->nbits = 8;
+            if (hasRelu) {
+                convParam->symmetricQuan->outputDataType = DataType_DT_FLOAT;
+            }
+            
+            // Get input quant info.
+            auto inputExpr = inputs[0]->expr().first;
+            //x = inputExpr->inputs()[0]; // for op merge to convint8, so remain int8ToFloat layer for the moment
+            auto inputScaleVar = inputExpr->inputs()[2];
+            auto inputZeroVar = inputExpr->inputs()[3];
+            float inputScale = inputScaleVar->readMap<float>()[0];
+            int8_t inputZero = static_cast<int8_t>(inputZeroVar->readMap<float>()[0]);
+
+            // Compute convInt8 scale=(inputScale * weightScale)/outputScale
+            std::vector<float> scale(co);
+            auto weightScale = weightexpr->inputs().at(2);
+            auto ptrscale = weightScale->readMap<float>();
+            for (int cnt = 0; cnt < co; ++cnt) {
+                if (outputScale != 0){
+                    scale[cnt] = ptrscale[cnt] * inputScale / outputScale;
+                } else {
+                    scale[cnt] = 0.f;
+                }
+            }
+            if (inputSize > 2) {
+                auto biasExpr = inputs[2]->expr().first;
+                auto biasInt32Var = biasExpr->inputs()[0];
+                auto ptr = biasInt32Var->readMap<int32_t>();
+                if (!ptr) {
+                    MNN_ERROR("Convolution bias should be constant\n");
+                    return nullptr;
+                }
+                for (int cnt = 0; cnt < co; ++cnt) {
+                    biasInt32[cnt] = ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(inputZero) + static_cast<int32_t>(static_cast<float>(outputZero) / scale[cnt]);
+                }
+            }
+            convParam->symmetricQuan->bias = std::move(biasInt32);
+            convParam->symmetricQuan->scale = std::move(scale);
+            convParam->symmetricQuan->clampMax = 127;
+            convParam->symmetricQuan->clampMin = -128;
+            convParam->symmetricQuan->zeroPoint = std::move(inputZero);
+            convParam->symmetricQuan->outputZeroPoint = std::move(outputZero);
+        }
+        // Do not return convInt8.
+        if (false == convertToConvint8 && weightDataPtr) {
             if (weight->linkNumber() > 1) {
                 static bool gPrint = false;
                 if (!gPrint) {
@@ -289,7 +396,7 @@ public:
             // MNN_PRINT("MNNCountNNZBlock:%p\n", MNNCountNNZBlock);
             const size_t weightSize = co * ci * kh * kw;
             convParam->weight.resize(weightSize);
-            ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
+                ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
             convParam->bias.resize(common->outputCount);
             if (inputSize == 3) {
                 // read bias data
@@ -300,12 +407,14 @@ public:
                     MNN_ERROR("[TODO] Conv's bias support broadcast!\n");
                     return nullptr;
                 }
+                
                 auto biasDataPtr = bias->readMap<float>();
                 if (!biasDataPtr) {
                     MNN_ERROR("Conv's bias input should be Constant!\n");
                     return nullptr;
                 }
                 ::memcpy(convParam->bias.data(), biasDataPtr, common->outputCount * sizeof(float));
+                
             } else {
                 ::memset(convParam->bias.data(), 0, common->outputCount * sizeof(float));
             }
@@ -325,10 +434,17 @@ public:
                 newOp->type = OpType_ConvolutionDepthwise;
             }
         }
-
+        
+        if (!isDeconv && true == weightIden && true == xIden && weight_expr->inputs().size() == 5) {
+            newOp->type = OpType_ConvInt8;
+            if (common->inputCount == common->outputCount && common->outputCount == common->group) {
+                newOp->type = OpType_DepthwiseConvInt8;
+            }
+        }
+        
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convParam.release();
-        auto x            = inputs[0];
+        
         bool needSqueeze  = false;
         if (nullptr != x->getInfo()) {
             if (x->getInfo()->dim.size() == 3) {
@@ -336,41 +452,43 @@ public:
                 needSqueeze = true;
             }
         }
-        EXPRP convolutinExpr;
+        EXPRP convolutionExpr;
         if (!outputShape.empty()) {
             // [1, outputHeight, outputWidth, 1]
             outputShape.insert(outputShape.begin(), 1);
             outputShape.push_back(1);
             auto output_shape = _Const(outputShape.data(), {4}, NHWC, halide_type_of<int>());
-            if (weightDataPtr) {
+            if (weightDataPtr || convertToConvint8) {
                 // merge weight(bias) node to Conv parameter
-                convolutinExpr = Expr::create(newOp.get(), {x, output_shape});
+                convolutionExpr = Expr::create(newOp.get(), {x, output_shape});
             } else {
                 // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
                 // Constant
                 if (inputs.size() > 2) {
-                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2], output_shape});
+                    convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2], output_shape});
                 } else {
-                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
+                    convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
                 }
             }
-        } else if (weightDataPtr) {
+        } else if (weightDataPtr || convertToConvint8) {
             // merge weight(bias) node to Conv parameter
-            convolutinExpr = Expr::create(newOp.get(), {x});
+            convolutionExpr = Expr::create(newOp.get(), {x});
         } else {
             // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
             // Constant
             if (inputs.size() > 2) {
-                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2]});
+                convolutionExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2]});
             } else {
-                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1]});
+                convolutionExpr = Expr::create(newOp.get(), {x, inputs[1]});
             }
         }
-        convolutinExpr->setName(expr->name());
-        auto res = Variable::create(convolutinExpr);
+        convolutionExpr->setName(expr->name());
+        auto res = Variable::create(convolutionExpr);
+
         if (needSqueeze) {
             res = _Squeeze(res, {3});
         }
+        
         return res->expr().first;
     }
 };

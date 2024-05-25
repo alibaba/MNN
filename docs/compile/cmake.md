@@ -45,6 +45,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CUDA_PROFILE     | 是否打开CUDA profile工具，默认为`OFF` |
 | MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
 | MNN_CUDA_BF16        | 是否打开CUDA Bf16文件编译，默认为`OFF` |
+| MNN_CUDA_TUNE_PARAM  | 是否打开CUDA TUNE相关文件编译，目前仅支持安培及以上架构，默认为`OFF` |
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
@@ -62,11 +63,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_VULKAN_DEBUG     | 是否打开Vulkan的DEBUG模式，该宏仅在`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_OPENGL_REGEN     | 是否重新生成OpenGL Kenel，该宏仅在`MNN_OPENGL=ON`时生效，默认为`OFF` |
 | MNN_TRT_DYNAMIC      | 是否通过dlopen的方式引入TRT的动态库，该宏仅在`MNN_TENSORRT=ON`时生效，默认为`OFF |
-| TF_CONVERT_ORIGIN    | 构建的`MNNConvert`是否使用原始TF转换模式，该宏仅在`MNN_BUILD_CONVERTER=ON`时生效，默认为`OFF` |
-| TFMODEL_OPTIMIZE     | 构建的`MNNConvert`是否对Tensorflow模型执行优化，该宏仅在`MNN_BUILD_CONVERTER=ON`时生效，默认为`OFF` |
 | MNN_BUILD_TORCH      | 构建的`MNNConvert`是否支持`TorchScript`，该宏仅在`MNN_BUILD_CONVERTER=ON`时生效，默认为`OFF` |
 | MNN_TRAIN_DEBUG      | 构建的训练模块是否支持调试，该宏仅在`MNN_BUILD_TRAIN=ON`时生效，默认为`OFF` |
-| MNN_BUILD_TRAIN_MINI | 构建删减版训练模块，不构建`Dataset`与`model`，该宏仅在`MNN_BUILD_TRAIN=ON`时生效，默认为`OFF` |
 | MNN_USE_OPENCV       | 构建的训练Demo是否使用`OpenCV`依赖，该宏仅在`MNN_BUILD_TRAIN=ON`时生效，默认为`OFF` |
 | MNN_IMGPROC_COLOR    | 构建MNN的OpenCV功能是否开启`颜色空间转换`，默认为`ON` |
 | MNN_IMGPROC_GEOMETRIC | 构建MNN的OpenCV功能是否开启`形变`，默认为`ON` |
@@ -82,3 +80,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_OPENCV_BENCH     | 构建MNN的OpenCV功能是否开启性能benchmark，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |
 | MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |
+| MNN_SUPPORT_RENDER   | 是否支持图形渲染相关算子实现，默认为 `OFF` |
+| MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
+| MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` |
+| MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，需要打开MNN_BUILD_OPENCV和MNN_IMGCODECS宏使用 默认为`OFF` |

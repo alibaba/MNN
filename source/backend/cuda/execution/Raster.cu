@@ -125,6 +125,28 @@ __global__ void FLOAT##Name(const T *input, T *output,\
     output[dstOffset] = (float)(Func);\
   }\
 }\
+template<typename T>\
+__global__ void UNARY_SINGLE##Name(const T *input, T *output,\
+        int count\
+        ) { \
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {\
+    float x = (float)input[i];\
+    output[i] = (T)(Func);\
+  }\
+}\
+
+template<typename T>
+__global__ void UNARY_HALF2_SIGMOID(const T *input, T *output,
+        int count
+        ) { 
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
+    half2 x = input[i];
+    half2 one;
+    one.x = 1.0;
+    one.y = 1.0f;
+    output[i] = __h2div(one, __hadd2(one, h2exp(__hneg2(x))));
+  }
+}
 
 template<typename T>
 __global__ void blit_2_float(const T *input, T *output,
@@ -184,7 +206,7 @@ UNARY_FUNC(ACOS, (T)(acos((float)x)));
 UNARY_FUNC(ATAN, (T)(atan((float)x)));
 UNARY_FUNC(LOG1P, log(1+x));
 UNARY_FUNC(TANH, tanh(x));
-UNARY_FUNC(SIGMOID, 1./(1.+exp(-x)));
+UNARY_FUNC(SIGMOID, (x>87.?1.0f:(x<-87.?0.0f: 1./(1.+exp(-x)))));
 UNARY_FUNC(EXPM1, exp(x)-1);
 UNARY_FUNC(ATANH, atanh(x));
 UNARY_FUNC(ACOSH, acosh(x));
@@ -535,24 +557,37 @@ void UnaryBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const
     int count = size[0] * size[1] * size[2];
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
+
     DivModFast sz(size[0]);
     DivModFast sy(size[1]);
     DivModFast sx(size[2]);
     // TODO: Support FP16
     #define COMPUTE(TYPE)\
     if (opType == MNN::UnaryOpOperation_##TYPE ) {\
-        if(bytes==2) {\
-            FLOAT##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output,\
-                count, \
-                sz, sy, sx,\
-                srcStride[0], srcStride[1], srcStride[2],\
-                dstStride[0], dstStride[1], dstStride[2]);\
+        if(size[0] == 1 && size[1] == 1 && srcStride[2] == 1 && dstStride[2] == 1 && opType == MNN::UnaryOpOperation_SIGMOID && bytes==2 && count % 2 == 0) {\
+             block_num = runtime->blocks_num(count/2);\
+             threads_num = runtime->threads_num();\
+             UNARY_HALF2_SIGMOID<<<block_num, threads_num>>>((const half2*)input, (half2*)output, count/2);\
+        } else if(size[0] == 1 && size[1] == 1 && srcStride[2] == 1 && dstStride[2] == 1) {\
+            if(bytes==2) {\
+                UNARY_SINGLE##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output, count);\
+            } else {\
+                UNARY_SINGLE##TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output, count);\
+            }\
         } else {\
-            TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output,\
-                count, \
-                sz, sy, sx,\
-                srcStride[0], srcStride[1], srcStride[2],\
-                dstStride[0], dstStride[1], dstStride[2]);\
+            if(bytes==2) {\
+                FLOAT##TYPE<<<block_num, threads_num>>>((const half*)input, (half*)output,\
+                    count, \
+                    sz, sy, sx,\
+                    srcStride[0], srcStride[1], srcStride[2],\
+                    dstStride[0], dstStride[1], dstStride[2]);\
+            } else {\
+                TYPE<<<block_num, threads_num>>>((const float*)input, (float*)output,\
+                    count, \
+                    sz, sy, sx,\
+                    srcStride[0], srcStride[1], srcStride[2],\
+                    dstStride[0], dstStride[1], dstStride[2]);\
+            }\
         }\
         return;\
     }\
@@ -621,6 +656,32 @@ __global__ void Binary##Name(\
         output[dstOffset] = val;\
     }\
 }\
+
+
+#define BINARY_FUSEADD_FUNC(Name, Func)\
+__global__ void BinaryFuseAdd##Name(\
+    const float *input0, const float* input1, float *output,\
+    int sizeZ, int sizeY, int sizeX,\
+    int strideZ, int strideY, int strideX,\
+    int strideZ1, int strideY1, int strideX1,\
+    int dstStrideZ, int dstStrideY, int dstStrideX\
+    ) { \
+    int count = sizeZ * sizeY * sizeX;\
+    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {\
+        int ix = i % sizeX;\
+        int tmp = i / sizeX;\
+        int iy = tmp % sizeY;\
+        int iz = tmp / sizeY;\
+        int srcOffset = iz * strideZ + iy * strideY + ix * strideX;\
+        int srcOffset1 = iz * strideZ1 + iy * strideY1 + ix * strideX1;\
+        int dstOffset = iz * dstStrideZ + iy * dstStrideY + ix * dstStrideX;\
+        float x = input0[srcOffset];\
+        float y = input1[srcOffset1];\
+        float val = (float)(Func);\
+        atomicAdd(output + dstOffset, val);\
+    }\
+}\
+
 
 #define BINARY_FUNC_FLOATMID(Name, Func)\
 template<typename TIn, typename TOut>\
@@ -875,6 +936,19 @@ BINARY_FUNC(ATAN2, atan2(x, y));
 BINARY_FUNC(MOD, (x % y));
 BINARY_FUNC(LOGICALOR, (x || y) ? 1 : 0);
 
+BINARY_FUSEADD_FUNC(ADD, x+y);
+BINARY_FUSEADD_FUNC(SUB, x-y);
+BINARY_FUSEADD_FUNC(MUL, x*y);
+BINARY_FUSEADD_FUNC(DIV, x/y);
+BINARY_FUSEADD_FUNC(REALDIV, (float)sign(y) * x / max(abs(y), 0.0000001));
+BINARY_FUSEADD_FUNC(MINIMUM, min(x, y));
+BINARY_FUSEADD_FUNC(MAXIMUM, max(x, y));
+BINARY_FUSEADD_FUNC(FLOORDIV, floor(x / y));
+BINARY_FUSEADD_FUNC(FLOORMOD, x - floor(x / y) * y);
+BINARY_FUSEADD_FUNC(SquaredDifference, (x-y)*(x-y));
+BINARY_FUSEADD_FUNC(POW, pow(x, y));
+BINARY_FUSEADD_FUNC(ATAN2, atan2(x, y));
+
 BINARY_FUNC_FLOATMID(ADD, x+y);
 BINARY_FUNC_FLOATMID(SUB, x-y);
 BINARY_FUNC_FLOATMID(MUL, x*y);
@@ -949,7 +1023,7 @@ void BinaryBlitTemplateFloat(T* output, const T* input, const T* input1, const i
             } else {\
                 bool isVectorSizeZ = (size[0] == 1 || ((srcStride[2] == 0 || srcStride[0] % bytes == 0) && (srcStride1[2] == 0 || srcStride1[0] % bytes == 0) && dstStride[0] % bytes == 0));\
                 bool isVectorSizeY = (size[1] == 1 || ((srcStride[2] == 0 || srcStride[1] % bytes == 0) && (srcStride1[2] == 0 || srcStride1[1] % bytes == 0) && dstStride[1] % bytes == 0));\
-                bool isVector4 = size[2] % bytes == 0 && isVectorSizeZ && isVectorSizeY;\                
+                bool isVector4 = size[2] % bytes == 0 && isVectorSizeZ && isVectorSizeY;\
 		        if(isVector4 && count > 16384 && (srcStride[2] == 0 || srcStride[2] == 1) && (srcStride1[2] == 0 || srcStride1[2] == 1) && dstStride[2] == 1) {\
                     block_num = runtime->blocks_num(count/bytes);\
                     threads_num = runtime->threads_num();\
@@ -1044,11 +1118,51 @@ void BinaryBlit(uint8_t* output, const uint8_t* input, const uint8_t* input1, co
             BinaryBlitTemplateFloat((float*)output, (float*)input, (float*)input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
         } else if (type.bits == 16) {
             BinaryBlitTemplateFloat((half*)output, (half*)input, (half*)input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        } else {
+            MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
         }
     } else if (type.code == halide_type_int) {
-        BinaryBlitTemplateInt32(output, input, input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        if(type.bits == 32) {
+            BinaryBlitTemplateInt32(output, input, input1, size, srcStride, srcStride1, dstStride, type.bytes(), runtime, opType, activationType);
+        } else {
+            MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
+        }
+    } else {
+        MNN_ERROR("CUDA not supoort data code:%d, data bits:%d\n", type.code, type.bits);
     }
 }
+
+
+void BinaryBlitFuse(uint8_t* output, const uint8_t* input, const uint8_t* input1, const int32_t* size, const int32_t* srcStride, const int32_t* srcStride1, const int32_t* dstStride, halide_type_t type, CUDARuntime* runtime, int opType, int fuseType) {
+    int count = size[0] * size[1] * size[2];
+    int block_num = runtime->blocks_num(count);
+    int threads_num = runtime->threads_num();
+#define COMPUTE_FLOAT_FUSE(TYPE, T)\
+    if (opType == MNN::BinaryOpOperation_##TYPE ) {\
+        BinaryFuseAdd##TYPE<<<block_num, threads_num>>>((const T*)input, (const T*)(input1), (T*)output,\
+            size[0], size[1], size[2],\
+            srcStride[0], srcStride[1], srcStride[2],\
+            srcStride1[0], srcStride1[1], srcStride1[2],\
+            dstStride[0], dstStride[1], dstStride[2]);\
+        return;\
+    }\
+
+    COMPUTE_FLOAT_FUSE(ADD, float);
+    COMPUTE_FLOAT_FUSE(SUB, float);
+    COMPUTE_FLOAT_FUSE(MUL, float);
+    COMPUTE_FLOAT_FUSE(DIV, float);
+    COMPUTE_FLOAT_FUSE(REALDIV, float);
+    COMPUTE_FLOAT_FUSE(MINIMUM, float);
+    COMPUTE_FLOAT_FUSE(MAXIMUM, float);
+    COMPUTE_FLOAT_FUSE(FLOORDIV, float);
+    COMPUTE_FLOAT_FUSE(FLOORMOD, float);
+    COMPUTE_FLOAT_FUSE(POW, float);
+    COMPUTE_FLOAT_FUSE(SquaredDifference, float);
+    COMPUTE_FLOAT_FUSE(ATAN2, float);
+
+#undef COMPUTE_FLOAT_FUSE
+}
+
 
 }// namespace CUDA
 }// namespace MNN

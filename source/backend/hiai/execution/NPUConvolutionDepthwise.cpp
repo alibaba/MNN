@@ -34,6 +34,19 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;
 
+    std::vector<int64_t> pads;
+    if (conv2DCommon->pads() != nullptr) {
+        int32_t size = conv2DCommon->pads()->size() / 2;
+        for (int32_t i = 0; i < size; i++) {
+            pads.push_back(static_cast<int64_t>(conv2DCommon->pads()->data()[i]));
+            pads.push_back(static_cast<int64_t>(conv2DCommon->pads()->data()[i+size]));
+        }
+    } else {
+        pads.push_back(static_cast<int64_t>(conv2DCommon->padY()));
+        pads.push_back(static_cast<int64_t>(conv2DCommon->padY()));
+        pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
+        pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
+    }
     std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2D->quanParameter()) {
         quanCommon = ConvolutionCommon::load(conv2D, backend(), true);
@@ -87,15 +100,20 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     } else if (PadMode_SAME == conv2DCommon->padMode()) {
         padMode = "SAME";
     }
-
+    auto inputIndex = mOp->inputIndexes()->data()[0];
+    auto iops = mNpuBackend->mGrapMap[inputIndex];
+    xOp = iops.back().first;
+    if (mNpuBackend->mSclipMap.find(inputIndex) == mNpuBackend->mSclipMap.end()) {
+        (*conv).set_input_x(*xOp.get());
+    } else {
+        (*conv).set_input_x(xOp->GetOutput(mNpuBackend->mSclipMap[inputIndex]));
+    }
     (*conv)
-        .set_input_x(*(xOp.get()))
         .set_input_filter(mConst_w)
         .set_input_bias(mConst_b)
         .set_attr_strides(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
         .set_attr_dilations(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
-        .set_attr_pads(ge::AttrValue::LIST_INT(
-            {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()})) // 上下左右
+        .set_attr_pads(pads) // 上下左右
         .set_attr_pad_mode(padMode);
 
     shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));

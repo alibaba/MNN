@@ -25,7 +25,7 @@ private:
     ConvertInfo mOutputBuffer;
     struct BlitInfo {
         const VulkanPipeline* pipeline = nullptr;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe;
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe;
         std::shared_ptr<VulkanBuffer> uniform;
         VkBuffer srcBuffer;
         int srcBufferSize;
@@ -34,7 +34,7 @@ private:
         ivec3 workGroup;
     };
     struct BlitImageInfo {
-        std::shared_ptr<VulkanPipeline::DescriptorSet> describe;
+        std::shared_ptr<VulkanLayout::DescriptorSet> describe;
         std::shared_ptr<VulkanBuffer> uniform;
     };
     std::vector<BlitInfo> mBlits;
@@ -45,7 +45,7 @@ private:
         int dstBufferSize;
     };
     FillInfo mZero;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mExtraDescribes;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mExtraDescribes;
     std::vector<std::shared_ptr<VulkanBuffer>> mExtraUniform;
 };
 };

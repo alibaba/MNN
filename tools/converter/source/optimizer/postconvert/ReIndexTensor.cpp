@@ -90,7 +90,9 @@ public:
                 defaultName << EnumNameOpType(op->type);
                 defaultName << i;
                 op->name = defaultName.str();
+#ifdef DEBUG
                 MNN_PRINT("%d op name is empty or dup, set to %s\n", i, op->name.c_str());
+#endif
                 opName = op->name;
             }
             names.insert(opName);

@@ -11,99 +11,39 @@
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
-
+#include <algorithm>
 namespace MNN {
 
 template <typename T>
-class TopContainer {
-public:
-    TopContainer() = delete;
-    TopContainer(int32_t k, int32_t rowSize, bool largest) : mK(k), mLargest(largest) {
-        mContainer.reserve(std::min(k, rowSize) + 1);
-    }
-
-    void startCollecting(const T* values) {
-        mValues = values;
-        mContainer.clear();
-    }
-    void push(int32_t a) {
-        std::function<bool(int32_t, int32_t)> comparator;
-        if (mLargest) {
-            comparator = [this](int32_t a, int32_t b) { return compareDescend(a, b); };
-        } else {
-            comparator = [this](int32_t a, int32_t b) { return compareAscend(a, b); };
-        }
-        if (mContainer.size() <= mK) {
-            mContainer.push_back(a);
-            if (mContainer.size() == mK + 1) {
-                std::make_heap(mContainer.begin(), mContainer.end(), comparator);
-                std::pop_heap(mContainer.begin(), mContainer.end(), comparator);
-            }
-        } else if (comparator(a, mContainer.front())) {
-            mContainer.back() = a;
-            std::push_heap(mContainer.begin(), mContainer.end(), comparator);
-            std::pop_heap(mContainer.begin(), mContainer.end(), comparator);
-        }
-    }
-
-    const std::vector<int32_t>& sortedResult() {
-        std::function<bool(int32_t, int32_t)> comparator;
-        if (mLargest) {
-            comparator = [this](int32_t a, int32_t b) { return compareDescend(a, b); };
-        } else {
-            comparator = [this](int32_t a, int32_t b) { return compareAscend(a, b); };
-        }
-        if (mContainer.size() <= mK) {
-            std::sort(mContainer.begin(), mContainer.end(), comparator);
-        } else {
-            std::sort_heap(mContainer.begin(), mContainer.end() - 1, comparator);
-            mContainer.resize(mK);
-        }
-        return mContainer;
-    }
-
-private:
-    int32_t mK;
-    bool mLargest;
-    std::vector<int32_t> mContainer;
-    const T* mValues = nullptr;
-
-    bool compareDescend(int32_t a, int32_t b) const {
-        if (mValues[b] < mValues[a]) {
-            return true;
-        } else if (mValues[b] > mValues[a]) {
-            return false;
-        } else {
-            return a < b;
-        }
-    }
-    bool compareAscend(int32_t a, int32_t b) const {
-        if (mValues[b] < mValues[a]) {
-            return false;
-        } else if (mValues[b] > mValues[a]) {
-            return true;
-        } else {
-            return a < b;
-        }
-    }
-};
-
-template <typename T>
 void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_t* outputIndexes, T* outputValues, bool largest) {
-    TopContainer<T> topc(k, rowSize, largest);
+    struct DataType {
+        T value;
+        int index;
+    };
+    std::vector<DataType> cacheData(rowSize);
+    auto compareL = [](const DataType& A, const DataType& B) {
+        return A.value > B.value;
+    };
+    auto compareM = [](const DataType& A, const DataType& B) {
+        return A.value < B.value;
+    };
     for (int row = 0; row < numRows; row++) {
         const T* valuesRow = data + row * rowSize;
-        topc.startCollecting(valuesRow);
-        for (int c = 0; c < rowSize; c++) {
-            topc.push(c);
-        }
-
         int32_t* indexesRow = outputIndexes + row * k;
         T* outputRow         = outputValues + row * k;
-
-        const auto& topK = topc.sortedResult();
-        std::copy(topK.begin(), topK.end(), indexesRow);
-        std::transform(topK.begin(), topK.end(), outputRow, [valuesRow](const int32_t loc) { return valuesRow[loc]; });
+        for (int i=0; i<rowSize; ++i) {
+            cacheData[i].value = valuesRow[i];
+            cacheData[i].index = i;
+        }
+        if (largest) {
+            std::partial_sort(cacheData.begin(), cacheData.begin() + k, cacheData.end(), compareL);
+        } else {
+            std::partial_sort(cacheData.begin(), cacheData.begin() + k, cacheData.end(), compareM);
+        }
+        for (int i=0; i<k; ++i) {
+            outputRow[i] = cacheData[i].value;
+            indexesRow[i] = cacheData[i].index;
+        }
     }
 }
 

@@ -8,9 +8,6 @@ using namespace metal;
 #define UP_DIV(x, y)    ( ((x) + (y) - 1) / (y) )
 #define ROUND_UP(x, y)  ( ((x) + (y) - 1) / (y) * (y) )
 
-// whether store with float32
-#define MNN_METAL_FULL_PRECISION 0 // should edit in .h too
-
 // whether computer with float32 when store with float16
 #define MNN_METAL_FLOAT32_COMPUTER 1 //
 
@@ -245,4 +242,108 @@ namespace MNN {
             return float4x4( float4(v[0]), float4(v[1]), float4(v[2]), float4(v[3]) );
         }
     } char4x4;
+
+    typedef struct char4x2 {
+    private:
+        char2 v[4];
+    public:
+        char4x2(char2 a) {
+            v[0] = a; v[1] = a; v[2] = a; v[3] = a;
+        }
+        char4x2(char2 a, char2 b, char2 c, char2 d) {
+            v[0] = a; v[1] = b; v[2] = c; v[3] = d;
+        }
+        
+        inline thread char2& operator[] (const int index) {
+            return v[index];
+        }
+        inline device char2& operator[] (const int index) device {
+            return v[index];
+        }
+        inline threadgroup char2& operator[] (const int index) threadgroup {
+            return v[index];
+        }
+        
+        inline const thread char2& operator[] (const int index) const {
+            return v[index];
+        }
+        inline const device char2& operator[] (const int index) const device {
+            return v[index];
+        }
+        inline const threadgroup char2& operator[] (const int index) const threadgroup {
+            return v[index];
+        }
+        
+        inline explicit operator half4x2() const {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        inline explicit operator half4x2() const device {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        inline explicit operator half4x2() const threadgroup {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        
+        inline explicit operator float4x2() const {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+        inline explicit operator float4x2() const device {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+        inline explicit operator float4x2() const threadgroup {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+    } char4x2;
+
+    typedef struct uchar4x2 {
+    private:
+        uchar2 v[4];
+    public:
+        uchar4x2(uchar2 a) {
+            v[0] = a; v[1] = a; v[2] = a; v[3] = a;
+        }
+        uchar4x2(uchar2 a, uchar2 b, uchar2 c, uchar2 d) {
+            v[0] = a; v[1] = b; v[2] = c; v[3] = d;
+        }
+        
+        inline thread uchar2& operator[] (const int index) {
+            return v[index];
+        }
+        inline device uchar2& operator[] (const int index) device {
+            return v[index];
+        }
+        inline threadgroup uchar2& operator[] (const int index) threadgroup {
+            return v[index];
+        }
+        
+        inline const thread uchar2& operator[] (const int index) const {
+            return v[index];
+        }
+        inline const device uchar2& operator[] (const int index) const device {
+            return v[index];
+        }
+        inline const threadgroup uchar2& operator[] (const int index) const threadgroup {
+            return v[index];
+        }
+        
+        inline explicit operator half4x2() const {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        inline explicit operator half4x2() const device {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        inline explicit operator half4x2() const threadgroup {
+            return half4x2( half2(v[0]), half2(v[1]), half2(v[2]), half2(v[3]) );
+        }
+        
+        inline explicit operator float4x2() const {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+        inline explicit operator float4x2() const device {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+        inline explicit operator float4x2() const threadgroup {
+            return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
+        }
+    } uchar4x2;
 }

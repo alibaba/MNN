@@ -16,7 +16,7 @@ namespace MNN {
 
 class VulkanUnary : public VulkanBasicExecution {
 public:
-    VulkanUnary(const std::string& midType, Backend* bn, float slope0 = 0.0f, float slope1 = 6.0f);
+    VulkanUnary(const std::string& midType, Backend* bn, bool isInt, float slope0 = 0.0f, float slope1 = 6.0f, bool iscast = false);
     virtual ~VulkanUnary();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
@@ -24,7 +24,7 @@ public:
 private:
     std::shared_ptr<VulkanBuffer> mParam;
     const VulkanPipeline* mUnaryPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDesSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDesSet;
     vec4 mSlopes;
 };
 

@@ -28,7 +28,7 @@ public:
 private:
     std::vector<std::shared_ptr<VulkanBuffer>> mParams;
     const VulkanPipeline* mUnaryPipeline;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDesSet;
+    std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> mDesSet;
 };
 
 } // namespace MNN

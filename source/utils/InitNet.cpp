@@ -18,7 +18,30 @@ bool needComputeOp(const Op* op) {
     }
     return false;
 }
-bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code) {
+bool computeShapeForBlob(const Blob* parameter, Tensor* output) {
+    bool zeroShape = false;
+    if (parameter->dims() != nullptr) {
+        output->buffer().dimensions = parameter->dims()->size();
+        for (int i = 0; i < output->buffer().dimensions; i++) {
+            output->buffer().dim[i].extent = parameter->dims()->Get(i);
+            if (output->length(i) <= 0) {
+                zeroShape = true;
+            }
+        }
+    } else {
+        output->buffer().dimensions = 0;
+    }
+    if (parameter->dataType() == DataType_DT_HALF) {
+        output->setType(DataType_DT_FLOAT);
+    } else {
+        output->setType(parameter->dataType());
+    }
+    TensorUtils::getDescribe(output)->dimensionFormat = parameter->dataFormat();
+    TensorUtils::setLinearLayout(output);
+    return zeroShape;
+}
+
+bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code, FileLoader* external) {
     bool valid    = true;
     tensors.resize(net->tensorName()->size());
     // Set up const
@@ -31,31 +54,13 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
             TensorUtils::getDescribe(tensors[index].get())->index = index;
             auto parameter = op->main_as_Blob();
             auto output    = tensors[index].get();
-            bool zeroShape = false;
-            if (parameter->dims() != nullptr) {
-                output->buffer().dimensions = parameter->dims()->size();
-                for (int i = 0; i < output->buffer().dimensions; i++) {
-                    output->buffer().dim[i].extent = parameter->dims()->Get(i);
-                    if (output->length(i) <= 0) {
-                        zeroShape = true;
-                    }
-                }
-            } else {
-                output->buffer().dimensions = 0;
-            }
-            if (parameter->dataType() == DataType_DT_HALF) {
-                output->setType(DataType_DT_FLOAT);
-            } else {
-                output->setType(parameter->dataType());
-            }
-            TensorUtils::getDescribe(output)->dimensionFormat = parameter->dataFormat();
-            TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::CONSTANT;
-            TensorUtils::getDescribe(output)->isMutable = false;
             if (op->type() == OpType_TrainableParam) {
                 TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::TRAINABLE;
             }
-            TensorUtils::setLinearLayout(output);
-            TensorUtils::getDescribe(output)->setBackend(defaultBackend);
+            bool zeroShape = computeShapeForBlob(parameter, output);
+            TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::CONSTANT;
+            TensorUtils::getDescribe(output)->isMutable = false;
+            TensorUtils::getDescribeOrigin(output)->setBackend(defaultBackend);
             //MNN_PRINT("Const tensor %p is %p bn\n", output, defaultBackend);
             if (zeroShape) {
                 continue;
@@ -78,7 +83,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                 if (USE_EXTERNAL_DATA(parameter)) {
                     tmp.reset((new half_float::half[size]));
                     src = tmp.get();
-                    OpCommonUtils::loadExternalDatas(defaultBackend, {reinterpret_cast<char*>(src)}, parameter->external()->data());
+                    OpCommonUtils::loadExternalDatas(external, {reinterpret_cast<char*>(src)}, parameter->external()->data());
                 } else {
                     src = (half_float::half*)parameter->uint8s()->data();
                 }
@@ -86,7 +91,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                     outputPtr[i] = src[i];
                 }
             } else {
-                OpCommonUtils::loadBlobData(defaultBackend, op, output->host<char>(), output->size());
+                OpCommonUtils::loadBlobData(external, op, output->host<char>(), output->size());
             }
         } else {
             if (nullptr != op->outputIndexes()) {

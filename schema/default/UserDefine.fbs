@@ -12,13 +12,15 @@ enum SampleMode : byte {
 enum BorderMode : byte {
     ZEROS=0,
     CLAMP,
-    REFLECTION
+    REFLECTION,
+    CUBE
 }
 
 table GridSample {
     mode:SampleMode;
     paddingMode:BorderMode;
     alignCorners:bool=false;
+    backward:bool=false;
 }
 
 enum ImageFormatType : int {

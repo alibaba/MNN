@@ -9,6 +9,7 @@
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include <algorithm>
 #include <string>
+#include <math.h>
 #include <vector>
 #include "core/Macro.h"
 
@@ -43,16 +44,21 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel) {
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
     MNN_ASSERT(gws.size() == 3);
-    
+    auto mKernel = mKernelW->get();
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 3);
     auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
         return tunedLws[info];
+    }
+    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
+    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+        return tuneLwsRes;
     }
     
     std::vector<uint32_t> lws(3, 1);
@@ -259,7 +265,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end()) {
+    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
         //printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -268,16 +274,22 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                        OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel) {
+                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
     MNN_ASSERT(gws.size() == 2);
+    auto mKernel = mKernelW->get();
     
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
         return tunedLws[info];
+    }
+    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
+    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+        return tuneLwsRes;
     }
     
     std::vector<uint32_t> lws(3, 1);
@@ -453,7 +465,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end()) {
+    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
         //printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -461,26 +473,23 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     return std::make_pair(lws_prefer, min_cost);
 }
 
-void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime, cl::Event* eventPtr) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start run3DKernelDefault !\n");
 #endif
+    auto kernel = kernelw->get();
 
     MNN_ASSERT(lws.size() >= 3);
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 3; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
 
     cl_int res = CL_SUCCESS;
     if(lws[0]==0 || lws[1]==0 || lws[2]==0){
         res        = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1], gws[2]),
             cl::NullRange, nullptr, eventPtr);
     }else{
         res        = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1], gws[2]),
             cl::NDRange(lws[0], lws[1], lws[2]), nullptr, eventPtr);
     }
     MNN_CHECK_CL_SUCCESS(res, "run3d");
@@ -502,25 +511,20 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
 #endif
 }
 
-void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
+void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                  OpenCLRuntime *runtime,  cl::Event* eventPtr) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start runKernel2D !\n");
 #endif
-
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 2; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
-
+    auto kernel = kernelw->get();
     cl_int res = CL_SUCCESS;
     if(lws[0]==0 || lws[1]==0){
         res = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, eventPtr);
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1]), cl::NullRange, nullptr, eventPtr);
 
     }else{
         res = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws[0], lws[1]), nullptr, eventPtr);
+            kernel, cl::NullRange, cl::NDRange(gws[0], gws[1]), cl::NDRange(lws[0], lws[1]), nullptr, eventPtr);
     }
     MNN_CHECK_CL_SUCCESS(res, "run2d");
 
@@ -544,10 +548,9 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h) {
     std::set<std::string> buildOptions;
-    if(runtime->isWeightCpuTransHalf() == false) {
-        buildOptions.emplace("-DBUFFER_INP_FP32");
-    }
-    auto kernel = runtime->buildKernel("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
+    buildOptions.emplace("-DBUFFER_INP_FP32");
+    auto kernelW = runtime->buildKernelWithCache("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
+    auto kernel = kernelW->get();
     auto status = kernel.setArg(0, buffer);
     MNN_ASSERT(status == CL_SUCCESS);
     status = kernel.setArg(1, image);
@@ -560,144 +563,31 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
     comandQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(w, h, 1));
 }
 
-void startRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(!runtime->isUseRecordQueue()){
-        return;
+bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res){
+    float minScale = 0.1;
+    auto iter = tuneMap.find(kernelName);
+    if(iter == tuneMap.end()){
+        return false;
     }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start startRecord !\n");
-#endif
-    cl_int res = CL_SUCCESS;
-    if(runtime->isDevideOpRecord()){
-        if(recording != NULL){
-            clReleaseRecordingQCOM(recording);
+    auto gwsAndLws = iter->second;
+    int size = gws.size();
+    uint32_t minPoint = UINT_MAX;
+    int index = -1;
+    for(int i = 0; i < gwsAndLws.size(); ++i){
+        int point = 0;
+        for(int j = 0; j < size; ++j){
+            point += ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]) * ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]);
         }
-        recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-        MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end startRecord !\n");
-#endif
-#endif //ENABLE_OPENCL_TIME_PROFILER
-}
-
-void endRecord(OpenCLRuntime *runtime, cl_recording_qcom &recording){
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(!runtime->isUseRecordQueue()){
-        return;
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start endRecord !\n");
-#endif
-    if(runtime->isDevideOpRecord()){
-        cl_int res = CL_SUCCESS;
-        res = clEndRecordingQCOM(recording);
-        MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end endRecord !\n");
-#endif
-#endif //ENABLE_OPENCL_TIME_PROFILER
-}
-
-void recordKernel2d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                 OpenCLRuntime *runtime) {
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(!runtime->isUseRecordQueue()){
-        return;
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start recordKernel !\n");
-#endif
-    cl_int res = CL_SUCCESS;
-    if(!runtime->isDevideOpRecord()){
-        auto RecordNum = runtime->getRecordNum();
-        auto maxRecordNum = runtime->getUseRecordableQueueSize();
-        if(RecordNum == 0){
-            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            runtime->getRecordings()->emplace_back(recording);
-        }else if(RecordNum == maxRecordNum){
-            res = clEndRecordingQCOM( runtime->getRecordings()->back());
-            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
-            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            runtime->getRecordings()->emplace_back(recording);
-            RecordNum = 0;
+        point = sqrt(point);
+        if(point < minPoint){
+            index = i;
+            minPoint = point;
         }
-        RecordNum++;
-        runtime->setRecordNum(RecordNum);
     }
-    
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 2; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+    if(index != -1){
+        res = gwsAndLws[index].second;
     }
-
-    if(lws[0]==0 || lws[1]==0){
-        res = runtime->recordableQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, nullptr);
-
-    }else{
-        res = runtime->recordableQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws[0], lws[1]), nullptr, nullptr);
-    }
-    MNN_CHECK_CL_SUCCESS(res, "recordKernel2d");
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end recordKernel !\n");
-#endif
-#endif //ENABLE_OPENCL_TIME_PROFILER
-}
-
-void recordKernel3d(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                 OpenCLRuntime *runtime) {
-#if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(!runtime->isUseRecordQueue()){
-        return;
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start recordKernel !\n");
-#endif
-    cl_int res = CL_SUCCESS;
-    std::vector<uint32_t> internalGlobalWS = gws;
-    for (size_t i = 0; i < 3; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
-    if(!runtime->isDevideOpRecord()){
-        auto maxRecordNum = runtime->getUseRecordableQueueSize();
-        auto RecordNum = runtime->getRecordNum();
-        if(RecordNum == 0){
-            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            runtime->getRecordings()->emplace_back(recording);
-        }else if(RecordNum == maxRecordNum){
-            res = clEndRecordingQCOM( runtime->getRecordings()->back());
-            MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
-            cl_recording_qcom recording = runtime->recordableQueue().NewRecordingQCOM(&res);
-            MNN_CHECK_CL_SUCCESS(res, "clNewRecordingQCOM");
-            runtime->getRecordings()->emplace_back(recording);
-            RecordNum = 0;
-        }
-        RecordNum++;
-        runtime->setRecordNum(RecordNum);
-    }
-
-    if(lws[0]==0 || lws[1]==0 || lws[2]==0){
-        res = runtime->recordableQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NullRange, nullptr, nullptr);
-
-    }else{
-        res = runtime->recordableQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]), cl::NDRange(lws[0], lws[1], lws[2]), nullptr, nullptr);
-    }
-    MNN_CHECK_CL_SUCCESS(res, "recordKernel3d");
-    
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end recordKernel !\n");
-#endif
-#endif //ENABLE_OPENCL_TIME_PROFILER
+    return true;
 }
 
 } // namespace OpenCL

@@ -45,7 +45,7 @@ class CodeGenerator():
 			'\n\n\tprivate:\n' + \
 			'\t\tstd::shared_ptr<VulkanBuffer> mParamBuffer;\n' + \
 			'\t\tconst VulkanPipeline* mxxxxxPipeline;\n' + \
-			'\t\tstd::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;\n' + \
+			'\t\tstd::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;\n' + \
 			'\t};\n}\n#endif'
 
 		return res.replace('xxxxx', self.cpp_class)

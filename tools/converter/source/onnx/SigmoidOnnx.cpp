@@ -11,15 +11,18 @@
 DECLARE_OP_CONVERTER(SigmoidOnnx);
 
 MNN::OpType SigmoidOnnx::opType() {
-    return MNN::OpType_Sigmoid;
+    return MNN::OpType_UnaryOp;
 }
 
 MNN::OpParameter SigmoidOnnx::type() {
-    return MNN::OpParameter_NONE;
+    return MNN::OpParameter_UnaryOp;
 }
 
 void SigmoidOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
                       OnnxScope* scope) {
+    auto res = new MNN::UnaryOpT;
+    res->opType = MNN::UnaryOpOperation_SIGMOID;;
+    dstOp->main.value = res;
     return;
 }
 

@@ -33,19 +33,20 @@ public:
 
         const float threshold = 1e-4;
 
+        bool res = true;
         for (int i = 0; i < len; ++i) {
             auto diff = ::fabsf(gotOutputA[i] - expectedOutputA[i]);
             if (diff > threshold) {
-                MNN_ERROR("%s %s grad test failed for input A, expected: %f, but got: %f!\n", name, subname, expectedOutputA[i], gotOutputA[i]);
-                return false;
+                MNN_ERROR("%s %s %d grad test failed for input A, expected: %f, but got: %f!\n", name, subname, i, expectedOutputA[i], gotOutputA[i]);
+                res = false;
             }
             diff = ::fabsf(gotOutputB[i] - expectedOutputB[i]);
             if (diff > threshold) {
-                MNN_ERROR("%s %s grad test failed for input B, expected: %f, but got: %f!\n", name, subname, expectedOutputB[i], gotOutputB[i]);
-                return false;
+                MNN_ERROR("%s %s %d grad test failed for input B, expected: %f, but got: %f!\n", name, subname, i, expectedOutputB[i], gotOutputB[i]);
+                res = false;
             }
         }
-        return true;
+        return res;
     }
 
     virtual bool run(int precision) {

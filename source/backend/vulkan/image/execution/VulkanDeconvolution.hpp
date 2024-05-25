@@ -34,10 +34,10 @@ private:
     std::shared_ptr<VulkanBuffer> mMidBuffer;
 
     const VulkanPipeline* mIm2Col;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mIm2ColSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mIm2ColSet;
 
     const VulkanPipeline* mCol2Im;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mCol2ImSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mCol2ImSet;
     const VulkanSampler* mSampler;
 
     const Convolution2DCommon* mConvCommonOption;

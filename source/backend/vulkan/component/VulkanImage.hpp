@@ -26,14 +26,16 @@ private:
     const VulkanDevice& mDevice;
 };
 
-class VulkanImage : public NonCopyable {
+class VulkanImage : public RefCount {
 public:
     VulkanImage(const VulkanMemoryPool& pool, bool separate, const std::vector<int>& dims,
-                halide_type_t type = halide_type_of<float>());
+                VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT, VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
     VulkanImage(const VulkanMemoryPool& pool, bool separate, int w, int h)
         : VulkanImage(pool, separate, std::vector<int>{w, h}) {
     }
     virtual ~VulkanImage();
+    void barrierWrite(VkCommandBuffer buffer) const;
+    void barrierRead(VkCommandBuffer buffer) const;
 
     inline int width() const {
         return std::get<1>(mInfo);
@@ -63,8 +65,22 @@ public:
     VkImageLayout currentLayout() const {
         return mLayout;
     }
-    void barrierWrite(VkCommandBuffer buffer) const;
-    void barrierRead(VkCommandBuffer buffer) const;
+    const VulkanDevice& device() const {
+        return mDevice;
+    }
+
+    static void insertMemoryBarrier(
+                                  VkCommandBuffer cmdbuffer,
+                                  VkImage image,
+                                  VkAccessFlags srcAccessMask,
+                                  VkAccessFlags dstAccessMask,
+                                  VkImageLayout oldImageLayout,
+                                  VkImageLayout newImageLayout,
+                                  VkPipelineStageFlags srcStageMask,
+                                  VkPipelineStageFlags dstStageMask,
+                                  VkImageSubresourceRange subresourceRange
+                                  );
+
 private:
     std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat> mInfo;
     std::pair<VkImage, VkImageView> mImage;

@@ -18,7 +18,7 @@ class GeometryConvUtils {
 public:
     static void im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, int kh, int kw, int batch, int od, int oh, int ow, int id, int ih, int iw,
                          int sd, int sh, int sw, int dd, int dh, int dw, int pd, int ph, int pw, int srcKernelOffset = 0);
-    static void im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, int kw, int batch, int oh, int ow, int ih, int iw,
+    static std::shared_ptr<Tensor> im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, int kw, int batch, int oh, int ow, int ih, int iw,
                        int sh, int sw, int dh, int dw, std::pair<int, int> pads, int srcKernelOffset = 0, Tensor* padVal = nullptr);
     static bool computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        GeometryComputer::Context& context, CommandBuffer& res);

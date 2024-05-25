@@ -17,7 +17,7 @@ struct Param {
     vec4 slope;
 };
 
-VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, float slope0, float slope1) : VulkanBasicExecution(bn) {
+VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool isInt, float slope0, float slope1, bool iscast) : VulkanBasicExecution(bn) {
     mSlopes[0] = slope0;
     mSlopes[1] = slope1;
     auto vkbackend = static_cast<VulkanBackend*>(bn);
@@ -28,13 +28,20 @@ VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, float slope0, 
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
-    if (!midType.empty()) {
-        auto prefix = "glsl_unary_";
-        std::string posfix = "_comp";
-        // get pipeline
-        mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
+    if (iscast) {
+        mUnaryPipeline = vkbackend->getPipeline(midType, types);
     } else {
-        mUnaryPipeline = vkbackend->getPipeline("glsl_unary_comp", types);
+        if (!midType.empty()) {
+            auto prefix = "glsl_unary_";
+            if (isInt) {
+                prefix = "glsl_unary_int_";
+            }
+            std::string posfix = "_comp";
+            // get pipeline
+            mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
+        } else {
+            mUnaryPipeline = vkbackend->getPipeline("glsl_unary_comp", types);
+        }
     }
     mDesSet.reset(mUnaryPipeline->createSet());
 }
@@ -122,19 +129,43 @@ public:
                 minValue = op->main_as_Relu6()->minValue();
                 maxValue = op->main_as_Relu6()->maxValue();
             }
-            return new VulkanUnary("CLAMP", bn, minValue, maxValue);
+            return new VulkanUnary("CLAMP", bn, false, minValue, maxValue);
         }
         if (op->type() == OpType_ReLU) {
-            return new VulkanUnary("RELU", bn, op->main_as_Relu()->slope());
+            return new VulkanUnary("RELU", bn, false, op->main_as_Relu()->slope());
         }
         if (op->type() == OpType_Cast) {
-            return new VulkanUnary("", bn);
+            if (inputs[0]->getType().bytes() != 4 || outputs[0]->getType().bytes() != 4) {
+                return nullptr;
+            }
+            if (op->main_as_CastParam()->dstT() == MNN::DataType_DT_BOOL) {
+                return new VulkanUnary("glsl_cast_int_bool_comp", bn, false, 0.0f, 0.0f, true);
+            }
+            if (inputs[0]->getType().code == halide_type_float) {
+                if (outputs[0]->getType().code == halide_type_float) {
+                    return new VulkanUnary("", bn, false);
+                }
+                if (outputs[0]->getType().code == halide_type_int) {
+                    return new VulkanUnary("glsl_cast_float_int_comp", bn, false, 0.0f, 0.0f, true);
+                }
+                return nullptr;
+            }
+            if (inputs[0]->getType().code == halide_type_int) {
+                if (outputs[0]->getType().code == halide_type_int) {
+                    return new VulkanUnary("", bn, false);
+                }
+                if (outputs[0]->getType().code == halide_type_float) {
+                    return new VulkanUnary("glsl_cast_float_int_REVERT_comp", bn, false, 0.0f, 0.0f, true);
+                }
+                return nullptr;
+            }
+            return nullptr;
         }
         auto midType = _getMidType(op);
         if (midType.empty()) {
             return nullptr;
         }
-        return new VulkanUnary(midType, bn);
+        return new VulkanUnary(midType, bn, inputs[0]->getType().code == halide_type_int);
     }
 };
 

@@ -8,7 +8,7 @@
 //
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 

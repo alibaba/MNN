@@ -15,7 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 constexpr int FULSE_THRESHHOLD_NUMERATOR = 10;
 constexpr int FULSE_THRESHHOLD_DENOMINATOR = 10;
@@ -143,15 +143,20 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
 
 
     auto core = static_cast<CPUBackend*>(b)->functions();
+    auto winogradMemoryLevel = static_cast<CPUBackend*>(b)->getRuntime()->getWinogradMemoryLevel();
     int ow      = outputTensor->width();
     int oh      = outputTensor->height();
     int oc      = outputTensor->channel();
     int ePack, hPack, lPack;
     core->MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
     int unit2   = UP_DIV(ow * oh, threadNumber);
+
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
     maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);
+    if (winogradMemoryLevel != 3) {
+       maxUnit = CONVOLUTION_WINOGRAD_MIN_UNIT;
+    }
 
     int ic           = inputTensor->channel();
     auto kernelSize  = common->kernelY();

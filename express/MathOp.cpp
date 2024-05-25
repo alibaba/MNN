@@ -329,6 +329,7 @@ VARP _Asin(VARP x)
 {
     return _Unary(x, UnaryOpOperation_ASIN);
 }
+
 /*Computes acos of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
@@ -344,7 +345,7 @@ VARP _Acos(VARP x)
 /*Computes acosh of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
-Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Note: The output of atan will lie within (0, +inf). The input lies in [1, +inf)
 Returns:
 A variable. Has the same type as x.
 */
@@ -368,7 +369,7 @@ VARP _Asinh(VARP x)
 /*Computes atanh of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
-Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Note: The input of atanh will lie within (-1, 1). The output of atan will lie within (-inf, +inf).
 Returns:
 A variable. Has the same type as x.
 */
@@ -389,6 +390,7 @@ VARP _Cosh(VARP x)
     return _Unary(x, UnaryOpOperation_COSH);
 }
 
+
 /*Computes sinh of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
@@ -404,7 +406,7 @@ VARP _Sinh(VARP x)
 /*Computes the Gauss error function of `x` element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
-Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Note: The output of atan will lie within (-1.0, 1.0). The input will lie in (-inf, inf)
 Returns:
 A variable. Has the same type as x.
 */
@@ -428,7 +430,7 @@ VARP _Erfc(VARP x)
 /*Computes the inverse function for erf, for `x` element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
-Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Note: The input of atan will lie within (-1, 1).
 Returns:
 A variable. Has the same type as x.
 */
@@ -514,6 +516,7 @@ A variable. Has the same type as x.
 VARP _Tanh(VARP x) {
     return _Unary(x, UnaryOpOperation_TANH);
 }
+
 /*Computes sigmoid of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Float
@@ -524,6 +527,7 @@ VARP _Sigmoid(VARP x) {
     return _Unary(x, UnaryOpOperation_SIGMOID);
 }
 
+
 /*Computes ((exponential of x) - 1) element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Float
@@ -533,7 +537,6 @@ A variable. Has the same type as x.
 VARP _Expm1(VARP x) {
     return _Unary(x, UnaryOpOperation_EXPM1);
 }
-
 
 /*Returns x + y element-wise.
 Args:

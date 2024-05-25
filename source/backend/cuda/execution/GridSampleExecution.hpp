@@ -37,6 +37,8 @@ private:
     int mOutputHeight;
     int mOutputWidth;
     int mChannelPack;
+    int mInputDepth;
+    int mOutputDepth;
 };
 
 } // namespace CUDA

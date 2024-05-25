@@ -8,10 +8,14 @@
 
 #include "ConvSingleInputExecution.hpp"
 #include "ConvWinogradExecution.hpp"
+#include "ConvImplicitExecution.hpp"
 #include "ConvCutlassExecution.hpp"
 #include "MultiInputConvExecution.hpp"
 #ifdef ENABLE_CUDA_QUANT
 #include "int8/ConvInt8CutlassExecution.hpp"
+#endif
+#ifdef MNN_LOW_MEMORY
+#include "weight_only_quant/ConvFpAIntBExecution.hpp"
 #endif
 #include "bf16/ConvCutlassBf16Execution.hpp"
 #include "backend/cuda/core/CUDATools.hpp"
@@ -33,17 +37,26 @@ public:
             }
         }
 
+        #ifdef MNN_LOW_MEMORY
+        auto conv2dParams = op->main_as_Convolution2D();
+        bool isMemoryLowWeightOnlyQuant = (conv2dParams->quanParameter() != nullptr && conv2dParams->quanParameter()->buffer() != nullptr);
+        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low);
+        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && ConvFpAIntBExecution::isValid(op->main_as_Convolution2D(), backend);
+        if (isMemoryLowWeightOnlyQuant) {
+            std::shared_ptr<ConvFpAIntBExecution::Resource> resource(new ConvFpAIntBExecution::Resource(backend, op));
+            return new ConvFpAIntBExecution(backend, op, resource);
+        }
+        #endif
+
         if (inputs.size() == 2 || inputs.size() == 3) {
             return new MultiInputConvExecution(op, backend);
         }
 
-#ifdef USE_MNN_CONV
-
-        std::shared_ptr<ConvSingleInputExecution::Resource> resource(new ConvSingleInputExecution::Resource(backend, op));
-        return new ConvSingleInputExecution(backend, op, resource);
-
-#else
         auto conv = op->main_as_Convolution2D()->common();
+        if(ConvImplicitExecution::isValid(op->main_as_Convolution2D(), inputs[0], outputs[0], backend)) { // inputs[0] is invalid now.
+            std::shared_ptr<ConvImplicitExecution::Resource> resource(new ConvImplicitExecution::Resource(backend, op));
+            return new ConvImplicitExecution(backend, op, resource);
+        }
         if(ConvWinogradExecution::isValid(op->main_as_Convolution2D())) { // inputs[0] is invalid now.
             //printf("%dx%ds%dd%d\n", conv->kernelX(), conv->kernelY(), conv->strideX(), conv->dilateX());
 
@@ -57,10 +70,9 @@ public:
             return new ConvCutlassBf16Execution(backend, op, resource);
         }
         #endif
+
         std::shared_ptr<ConvCutlassExecution::Resource> resource(new ConvCutlassExecution::Resource(backend, op));
         return new ConvCutlassExecution(backend, op, resource);
-#endif
-
     }
 };
 

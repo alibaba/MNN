@@ -24,6 +24,15 @@ struct ExtraT;
 struct StringVec;
 struct StringVecT;
 
+struct AttentionParam;
+struct AttentionParamT;
+
+struct FmhaV2Param;
+struct FmhaV2ParamT;
+
+struct FmhcaParam;
+struct FmhcaParamT;
+
 struct WhileParam;
 struct WhileParamT;
 
@@ -62,6 +71,12 @@ inline const flatbuffers::TypeTable *PluginTypeTable();
 inline const flatbuffers::TypeTable *ExtraTypeTable();
 
 inline const flatbuffers::TypeTable *StringVecTypeTable();
+
+inline const flatbuffers::TypeTable *AttentionParamTypeTable();
+
+inline const flatbuffers::TypeTable *FmhaV2ParamTypeTable();
+
+inline const flatbuffers::TypeTable *FmhcaParamTypeTable();
 
 inline const flatbuffers::TypeTable *WhileParamTypeTable();
 
@@ -143,10 +158,10 @@ enum OpType {
   OpType_QuantizedConcat = 54,
   OpType_QuantizedDepthwiseConv2D = 55,
   OpType_QuantizedLogistic = 56,
-  OpType_QuantizedMatMul = 57,
+  OpType_RasterAndInterpolate = 57,
   OpType_QuantizedMaxPool = 58,
-  OpType_QuantizedRelu = 59,
-  OpType_QuantizedRelu6 = 60,
+  OpType_Texture = 59,
+  OpType_RasterDiff = 60,
   OpType_QuantizedReshape = 61,
   OpType_QuantizedSoftmax = 62,
   OpType_QuantizeMaxMin = 63,
@@ -236,6 +251,7 @@ enum OpType {
   OpType_GatherElements = 152,
   OpType_Svd = 153,
   OpType_Histogram = 154,
+  OpType_DynamicQuant = 155,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -250,6 +266,12 @@ enum OpType {
   OpType_BatchNorm = 267,
   OpType_ConvTranspose3D = 268,
   OpType_ZeroGrad = 269,
+  OpType_Attention = 299,
+  OpType_FmhaV2 = 300,
+  OpType_Fmhca = 301,
+  OpType_SeqLen2Spatial = 302,
+  OpType_SplitGeLU = 303,
+  OpType_GroupNorm = 304,
   OpType_Extra = 512,
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
@@ -265,7 +287,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[175] {
+inline const OpType (&EnumValuesOpType())[182] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -324,10 +346,10 @@ inline const OpType (&EnumValuesOpType())[175] {
     OpType_QuantizedConcat,
     OpType_QuantizedDepthwiseConv2D,
     OpType_QuantizedLogistic,
-    OpType_QuantizedMatMul,
+    OpType_RasterAndInterpolate,
     OpType_QuantizedMaxPool,
-    OpType_QuantizedRelu,
-    OpType_QuantizedRelu6,
+    OpType_Texture,
+    OpType_RasterDiff,
     OpType_QuantizedReshape,
     OpType_QuantizedSoftmax,
     OpType_QuantizeMaxMin,
@@ -417,6 +439,7 @@ inline const OpType (&EnumValuesOpType())[175] {
     OpType_GatherElements,
     OpType_Svd,
     OpType_Histogram,
+    OpType_DynamicQuant,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -431,6 +454,12 @@ inline const OpType (&EnumValuesOpType())[175] {
     OpType_BatchNorm,
     OpType_ConvTranspose3D,
     OpType_ZeroGrad,
+    OpType_Attention,
+    OpType_FmhaV2,
+    OpType_Fmhca,
+    OpType_SeqLen2Spatial,
+    OpType_SplitGeLU,
+    OpType_GroupNorm,
     OpType_Extra,
     OpType_ConvInt8,
     OpType_Int8ToFloat,
@@ -505,10 +534,10 @@ inline const char * const *EnumNamesOpType() {
     "QuantizedConcat",
     "QuantizedDepthwiseConv2D",
     "QuantizedLogistic",
-    "QuantizedMatMul",
+    "RasterAndInterpolate",
     "QuantizedMaxPool",
-    "QuantizedRelu",
-    "QuantizedRelu6",
+    "Texture",
+    "RasterDiff",
     "QuantizedReshape",
     "QuantizedSoftmax",
     "QuantizeMaxMin",
@@ -603,7 +632,7 @@ inline const char * const *EnumNamesOpType() {
     "GatherElements",
     "Svd",
     "Histogram",
-    "",
+    "DynamicQuant",
     "",
     "",
     "",
@@ -747,12 +776,12 @@ inline const char * const *EnumNamesOpType() {
     "",
     "",
     "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
+    "Attention",
+    "FmhaV2",
+    "Fmhca",
+    "SeqLen2Spatial",
+    "SplitGeLU",
+    "GroupNorm",
     "",
     "",
     "",
@@ -1160,11 +1189,15 @@ enum OpParameter {
   OpParameter_LoopParam = 92,
   OpParameter_ImageProcessParam = 93,
   OpParameter_CumSum = 94,
+  OpParameter_GroupNorm = 95,
+  OpParameter_FmhaV2Param = 96,
+  OpParameter_FmhcaParam = 97,
+  OpParameter_AttentionParam = 98,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_CumSum
+  OpParameter_MAX = OpParameter_AttentionParam
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[95] {
+inline const OpParameter (&EnumValuesOpParameter())[99] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1260,7 +1293,11 @@ inline const OpParameter (&EnumValuesOpParameter())[95] {
     OpParameter_GridSample,
     OpParameter_LoopParam,
     OpParameter_ImageProcessParam,
-    OpParameter_CumSum
+    OpParameter_CumSum,
+    OpParameter_GroupNorm,
+    OpParameter_FmhaV2Param,
+    OpParameter_FmhcaParam,
+    OpParameter_AttentionParam
   };
   return values;
 }
@@ -1362,13 +1399,17 @@ inline const char * const *EnumNamesOpParameter() {
     "LoopParam",
     "ImageProcessParam",
     "CumSum",
+    "GroupNorm",
+    "FmhaV2Param",
+    "FmhcaParam",
+    "AttentionParam",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_CumSum) return "";
+  if (e < OpParameter_NONE || e > OpParameter_AttentionParam) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1751,6 +1792,22 @@ template<> struct OpParameterTraits<ImageProcessParam> {
 
 template<> struct OpParameterTraits<CumSum> {
   static const OpParameter enum_value = OpParameter_CumSum;
+};
+
+template<> struct OpParameterTraits<GroupNorm> {
+  static const OpParameter enum_value = OpParameter_GroupNorm;
+};
+
+template<> struct OpParameterTraits<FmhaV2Param> {
+  static const OpParameter enum_value = OpParameter_FmhaV2Param;
+};
+
+template<> struct OpParameterTraits<FmhcaParam> {
+  static const OpParameter enum_value = OpParameter_FmhcaParam;
+};
+
+template<> struct OpParameterTraits<AttentionParam> {
+  static const OpParameter enum_value = OpParameter_AttentionParam;
 };
 
 struct OpParameterUnion {
@@ -2536,6 +2593,38 @@ struct OpParameterUnion {
     return type == OpParameter_CumSum ?
       reinterpret_cast<const CumSumT *>(value) : nullptr;
   }
+  GroupNormT *AsGroupNorm() {
+    return type == OpParameter_GroupNorm ?
+      reinterpret_cast<GroupNormT *>(value) : nullptr;
+  }
+  const GroupNormT *AsGroupNorm() const {
+    return type == OpParameter_GroupNorm ?
+      reinterpret_cast<const GroupNormT *>(value) : nullptr;
+  }
+  FmhaV2ParamT *AsFmhaV2Param() {
+    return type == OpParameter_FmhaV2Param ?
+      reinterpret_cast<FmhaV2ParamT *>(value) : nullptr;
+  }
+  const FmhaV2ParamT *AsFmhaV2Param() const {
+    return type == OpParameter_FmhaV2Param ?
+      reinterpret_cast<const FmhaV2ParamT *>(value) : nullptr;
+  }
+  FmhcaParamT *AsFmhcaParam() {
+    return type == OpParameter_FmhcaParam ?
+      reinterpret_cast<FmhcaParamT *>(value) : nullptr;
+  }
+  const FmhcaParamT *AsFmhcaParam() const {
+    return type == OpParameter_FmhcaParam ?
+      reinterpret_cast<const FmhcaParamT *>(value) : nullptr;
+  }
+  AttentionParamT *AsAttentionParam() {
+    return type == OpParameter_AttentionParam ?
+      reinterpret_cast<AttentionParamT *>(value) : nullptr;
+  }
+  const AttentionParamT *AsAttentionParam() const {
+    return type == OpParameter_AttentionParam ?
+      reinterpret_cast<const AttentionParamT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -2832,6 +2921,168 @@ inline flatbuffers::Offset<StringVec> CreateStringVec(
 }
 
 flatbuffers::Offset<StringVec> CreateStringVec(flatbuffers::FlatBufferBuilder &_fbb, const StringVecT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct AttentionParamT : public flatbuffers::NativeTable {
+  typedef AttentionParam TableType;
+  bool kv_cache;
+  AttentionParamT()
+      : kv_cache(true) {
+  }
+};
+
+struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef AttentionParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return AttentionParamTypeTable();
+  }
+  bool kv_cache() const {
+    return GetField<uint8_t>(4, 1) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(AttentionParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<AttentionParam> Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct AttentionParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_kv_cache(bool kv_cache) {
+    fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(kv_cache), 1);
+  }
+  explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  AttentionParamBuilder &operator=(const AttentionParamBuilder &);
+  flatbuffers::Offset<AttentionParam> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<AttentionParam>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool kv_cache = true) {
+  AttentionParamBuilder builder_(_fbb);
+  builder_.add_kv_cache(kv_cache);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FmhaV2ParamT : public flatbuffers::NativeTable {
+  typedef FmhaV2Param TableType;
+  int32_t heads;
+  FmhaV2ParamT()
+      : heads(0) {
+  }
+};
+
+struct FmhaV2Param FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef FmhaV2ParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return FmhaV2ParamTypeTable();
+  }
+  int32_t heads() const {
+    return GetField<int32_t>(4, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  FmhaV2ParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FmhaV2ParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<FmhaV2Param> Pack(flatbuffers::FlatBufferBuilder &_fbb, const FmhaV2ParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct FmhaV2ParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_heads(int32_t heads) {
+    fbb_.AddElement<int32_t>(4, heads, 0);
+  }
+  explicit FmhaV2ParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  FmhaV2ParamBuilder &operator=(const FmhaV2ParamBuilder &);
+  flatbuffers::Offset<FmhaV2Param> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<FmhaV2Param>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<FmhaV2Param> CreateFmhaV2Param(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t heads = 0) {
+  FmhaV2ParamBuilder builder_(_fbb);
+  builder_.add_heads(heads);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<FmhaV2Param> CreateFmhaV2Param(flatbuffers::FlatBufferBuilder &_fbb, const FmhaV2ParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FmhcaParamT : public flatbuffers::NativeTable {
+  typedef FmhcaParam TableType;
+  int32_t heads;
+  FmhcaParamT()
+      : heads(0) {
+  }
+};
+
+struct FmhcaParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef FmhcaParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return FmhcaParamTypeTable();
+  }
+  int32_t heads() const {
+    return GetField<int32_t>(4, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  FmhcaParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FmhcaParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<FmhcaParam> Pack(flatbuffers::FlatBufferBuilder &_fbb, const FmhcaParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct FmhcaParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_heads(int32_t heads) {
+    fbb_.AddElement<int32_t>(4, heads, 0);
+  }
+  explicit FmhcaParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  FmhcaParamBuilder &operator=(const FmhcaParamBuilder &);
+  flatbuffers::Offset<FmhcaParam> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<FmhcaParam>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<FmhcaParam> CreateFmhcaParam(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t heads = 0) {
+  FmhcaParamBuilder builder_(_fbb);
+  builder_.add_heads(heads);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<FmhcaParam> CreateFmhcaParam(flatbuffers::FlatBufferBuilder &_fbb, const FmhcaParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct WhileParamT : public flatbuffers::NativeTable {
   typedef WhileParam TableType;
@@ -3296,6 +3547,7 @@ struct OpT : public flatbuffers::NativeTable {
   std::vector<int32_t> outputIndexes;
   OpType type;
   MNN_DATA_FORMAT defaultDimentionFormat;
+  std::string externalPath;
   OpT()
       : type(OpType_AbsVal),
         defaultDimentionFormat(MNN_DATA_FORMAT_NHWC) {
@@ -3599,6 +3851,18 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const CumSum *main_as_CumSum() const {
     return main_type() == OpParameter_CumSum ? static_cast<const CumSum *>(main()) : nullptr;
   }
+  const GroupNorm *main_as_GroupNorm() const {
+    return main_type() == OpParameter_GroupNorm ? static_cast<const GroupNorm *>(main()) : nullptr;
+  }
+  const FmhaV2Param *main_as_FmhaV2Param() const {
+    return main_type() == OpParameter_FmhaV2Param ? static_cast<const FmhaV2Param *>(main()) : nullptr;
+  }
+  const FmhcaParam *main_as_FmhcaParam() const {
+    return main_type() == OpParameter_FmhcaParam ? static_cast<const FmhcaParam *>(main()) : nullptr;
+  }
+  const AttentionParam *main_as_AttentionParam() const {
+    return main_type() == OpParameter_AttentionParam ? static_cast<const AttentionParam *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -3610,6 +3874,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   MNN_DATA_FORMAT defaultDimentionFormat() const {
     return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(16, 1));
+  }
+  const flatbuffers::String *externalPath() const {
+    return GetPointer<const flatbuffers::String *>(18);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
@@ -3624,6 +3891,8 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(outputIndexes()) &&
            VerifyField<int32_t>(verifier, 14) &&
            VerifyField<int8_t>(verifier, 16) &&
+           VerifyOffset(verifier, 18) &&
+           verifier.VerifyString(externalPath()) &&
            verifier.EndTable();
   }
   OpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4007,6 +4276,22 @@ template<> inline const CumSum *Op::main_as<CumSum>() const {
   return main_as_CumSum();
 }
 
+template<> inline const GroupNorm *Op::main_as<GroupNorm>() const {
+  return main_as_GroupNorm();
+}
+
+template<> inline const FmhaV2Param *Op::main_as<FmhaV2Param>() const {
+  return main_as_FmhaV2Param();
+}
+
+template<> inline const FmhcaParam *Op::main_as<FmhcaParam>() const {
+  return main_as_FmhcaParam();
+}
+
+template<> inline const AttentionParam *Op::main_as<AttentionParam>() const {
+  return main_as_AttentionParam();
+}
+
 struct OpBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
@@ -4031,6 +4316,9 @@ struct OpBuilder {
   void add_defaultDimentionFormat(MNN_DATA_FORMAT defaultDimentionFormat) {
     fbb_.AddElement<int8_t>(16, static_cast<int8_t>(defaultDimentionFormat), 1);
   }
+  void add_externalPath(flatbuffers::Offset<flatbuffers::String> externalPath) {
+    fbb_.AddOffset(18, externalPath);
+  }
   explicit OpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4051,8 +4339,10 @@ inline flatbuffers::Offset<Op> CreateOp(
     flatbuffers::Offset<flatbuffers::String> name = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> outputIndexes = 0,
     OpType type = OpType_AbsVal,
-    MNN_DATA_FORMAT defaultDimentionFormat = MNN_DATA_FORMAT_NHWC) {
+    MNN_DATA_FORMAT defaultDimentionFormat = MNN_DATA_FORMAT_NHWC,
+    flatbuffers::Offset<flatbuffers::String> externalPath = 0) {
   OpBuilder builder_(_fbb);
+  builder_.add_externalPath(externalPath);
   builder_.add_type(type);
   builder_.add_outputIndexes(outputIndexes);
   builder_.add_name(name);
@@ -4799,6 +5089,84 @@ inline flatbuffers::Offset<StringVec> CreateStringVec(flatbuffers::FlatBufferBui
       _data);
 }
 
+inline AttentionParamT *AttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new AttentionParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = kv_cache(); _o->kv_cache = _e; };
+}
+
+inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateAttentionParam(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const AttentionParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _kv_cache = _o->kv_cache;
+  return MNN::CreateAttentionParam(
+      _fbb,
+      _kv_cache);
+}
+
+inline FmhaV2ParamT *FmhaV2Param::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new FmhaV2ParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void FmhaV2Param::UnPackTo(FmhaV2ParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = heads(); _o->heads = _e; };
+}
+
+inline flatbuffers::Offset<FmhaV2Param> FmhaV2Param::Pack(flatbuffers::FlatBufferBuilder &_fbb, const FmhaV2ParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFmhaV2Param(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<FmhaV2Param> CreateFmhaV2Param(flatbuffers::FlatBufferBuilder &_fbb, const FmhaV2ParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const FmhaV2ParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _heads = _o->heads;
+  return MNN::CreateFmhaV2Param(
+      _fbb,
+      _heads);
+}
+
+inline FmhcaParamT *FmhcaParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new FmhcaParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void FmhcaParam::UnPackTo(FmhcaParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = heads(); _o->heads = _e; };
+}
+
+inline flatbuffers::Offset<FmhcaParam> FmhcaParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const FmhcaParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFmhcaParam(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<FmhcaParam> CreateFmhcaParam(flatbuffers::FlatBufferBuilder &_fbb, const FmhcaParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const FmhcaParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _heads = _o->heads;
+  return MNN::CreateFmhcaParam(
+      _fbb,
+      _heads);
+}
+
 inline WhileParamT *WhileParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new WhileParamT();
   UnPackTo(_o, _resolver);
@@ -4979,6 +5347,7 @@ inline void Op::UnPackTo(OpT *_o, const flatbuffers::resolver_function_t *_resol
   { auto _e = outputIndexes(); if (_e) { _o->outputIndexes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputIndexes[_i] = _e->Get(_i); } } };
   { auto _e = type(); _o->type = _e; };
   { auto _e = defaultDimentionFormat(); _o->defaultDimentionFormat = _e; };
+  { auto _e = externalPath(); if (_e) _o->externalPath = _e->str(); };
 }
 
 inline flatbuffers::Offset<Op> Op::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4996,6 +5365,7 @@ inline flatbuffers::Offset<Op> CreateOp(flatbuffers::FlatBufferBuilder &_fbb, co
   auto _outputIndexes = _o->outputIndexes.size() ? _fbb.CreateVector(_o->outputIndexes) : 0;
   auto _type = _o->type;
   auto _defaultDimentionFormat = _o->defaultDimentionFormat;
+  auto _externalPath = _o->externalPath.empty() ? 0 : _fbb.CreateString(_o->externalPath);
   return MNN::CreateOp(
       _fbb,
       _inputIndexes,
@@ -5004,7 +5374,8 @@ inline flatbuffers::Offset<Op> CreateOp(flatbuffers::FlatBufferBuilder &_fbb, co
       _name,
       _outputIndexes,
       _type,
-      _defaultDimentionFormat);
+      _defaultDimentionFormat,
+      _externalPath);
 }
 
 inline ViewT *View::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5628,6 +5999,22 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_GroupNorm: {
+      auto ptr = reinterpret_cast<const GroupNorm *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_FmhaV2Param: {
+      auto ptr = reinterpret_cast<const FmhaV2Param *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_FmhcaParam: {
+      auto ptr = reinterpret_cast<const FmhcaParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_AttentionParam: {
+      auto ptr = reinterpret_cast<const AttentionParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -6022,6 +6409,22 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const CumSum *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_GroupNorm: {
+      auto ptr = reinterpret_cast<const GroupNorm *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case OpParameter_FmhaV2Param: {
+      auto ptr = reinterpret_cast<const FmhaV2Param *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case OpParameter_FmhcaParam: {
+      auto ptr = reinterpret_cast<const FmhcaParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case OpParameter_AttentionParam: {
+      auto ptr = reinterpret_cast<const AttentionParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6404,6 +6807,22 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const CumSumT *>(value);
       return CreateCumSum(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_GroupNorm: {
+      auto ptr = reinterpret_cast<const GroupNormT *>(value);
+      return CreateGroupNorm(_fbb, ptr, _rehasher).Union();
+    }
+    case OpParameter_FmhaV2Param: {
+      auto ptr = reinterpret_cast<const FmhaV2ParamT *>(value);
+      return CreateFmhaV2Param(_fbb, ptr, _rehasher).Union();
+    }
+    case OpParameter_FmhcaParam: {
+      auto ptr = reinterpret_cast<const FmhcaParamT *>(value);
+      return CreateFmhcaParam(_fbb, ptr, _rehasher).Union();
+    }
+    case OpParameter_AttentionParam: {
+      auto ptr = reinterpret_cast<const AttentionParamT *>(value);
+      return CreateAttentionParam(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6784,6 +7203,22 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_CumSum: {
       value = new CumSumT(*reinterpret_cast<CumSumT *>(u.value));
+      break;
+    }
+    case OpParameter_GroupNorm: {
+      value = new GroupNormT(*reinterpret_cast<GroupNormT *>(u.value));
+      break;
+    }
+    case OpParameter_FmhaV2Param: {
+      value = new FmhaV2ParamT(*reinterpret_cast<FmhaV2ParamT *>(u.value));
+      break;
+    }
+    case OpParameter_FmhcaParam: {
+      value = new FmhcaParamT(*reinterpret_cast<FmhcaParamT *>(u.value));
+      break;
+    }
+    case OpParameter_AttentionParam: {
+      value = new AttentionParamT(*reinterpret_cast<AttentionParamT *>(u.value));
       break;
     }
     default:
@@ -7263,6 +7698,26 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_GroupNorm: {
+      auto ptr = reinterpret_cast<GroupNormT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_FmhaV2Param: {
+      auto ptr = reinterpret_cast<FmhaV2ParamT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_FmhcaParam: {
+      auto ptr = reinterpret_cast<FmhcaParamT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_AttentionParam: {
+      auto ptr = reinterpret_cast<AttentionParamT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -7445,12 +7900,19 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7509,10 +7971,10 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "QuantizedConcat",
     "QuantizedDepthwiseConv2D",
     "QuantizedLogistic",
-    "QuantizedMatMul",
+    "RasterAndInterpolate",
     "QuantizedMaxPool",
-    "QuantizedRelu",
-    "QuantizedRelu6",
+    "Texture",
+    "RasterDiff",
     "QuantizedReshape",
     "QuantizedSoftmax",
     "QuantizeMaxMin",
@@ -7602,6 +8064,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GatherElements",
     "Svd",
     "Histogram",
+    "DynamicQuant",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7616,6 +8079,12 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "BatchNorm",
     "ConvTranspose3D",
     "ZeroGrad",
+    "Attention",
+    "FmhaV2",
+    "Fmhca",
+    "SeqLen2Spatial",
+    "SplitGeLU",
+    "GroupNorm",
     "Extra",
     "ConvInt8",
     "Int8ToFloat",
@@ -7629,7 +8098,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 175, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 182, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7730,7 +8199,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 90 },
     { flatbuffers::ET_SEQUENCE, 0, 91 },
     { flatbuffers::ET_SEQUENCE, 0, 92 },
-    { flatbuffers::ET_SEQUENCE, 0, 93 }
+    { flatbuffers::ET_SEQUENCE, 0, 93 },
+    { flatbuffers::ET_SEQUENCE, 0, 94 },
+    { flatbuffers::ET_SEQUENCE, 0, 95 },
+    { flatbuffers::ET_SEQUENCE, 0, 96 },
+    { flatbuffers::ET_SEQUENCE, 0, 97 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7826,7 +8299,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     GridSampleTypeTable,
     LoopParamTypeTable,
     ImageProcessParamTypeTable,
-    CumSumTypeTable
+    CumSumTypeTable,
+    GroupNormTypeTable,
+    FmhaV2ParamTypeTable,
+    FmhcaParamTypeTable,
+    AttentionParamTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7923,10 +8400,14 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "GridSample",
     "LoopParam",
     "ImageProcessParam",
-    "CumSum"
+    "CumSum",
+    "GroupNorm",
+    "FmhaV2Param",
+    "FmhcaParam",
+    "AttentionParam"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 95, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 99, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -8023,6 +8504,45 @@ inline const flatbuffers::TypeTable *StringVecTypeTable() {
   };
   static const char * const names[] = {
     "data"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "kv_cache"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *FmhaV2ParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "heads"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *FmhcaParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "heads"
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
@@ -8144,7 +8664,8 @@ inline const flatbuffers::TypeTable *OpTypeTable() {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_INT, 0, 1 },
-    { flatbuffers::ET_CHAR, 0, 2 }
+    { flatbuffers::ET_CHAR, 0, 2 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpParameterTypeTable,
@@ -8158,10 +8679,11 @@ inline const flatbuffers::TypeTable *OpTypeTable() {
     "name",
     "outputIndexes",
     "type",
-    "defaultDimentionFormat"
+    "defaultDimentionFormat",
+    "externalPath"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

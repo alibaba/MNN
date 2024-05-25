@@ -114,8 +114,11 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
             mDescriptorSet[i].reset(mBinaryPipeline->createSet());
         }
     }
-    auto input0Scalar = inputs[0]->elementSize() == 1;
-    auto input1Scalar = inputs[1]->elementSize() == 1;
+    auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
+    auto input1DataCount = TensorUtils::getRawSize(inputs[1]);
+
+    auto input0Scalar = input0DataCount == 1;
+    auto input1Scalar = input1DataCount == 1;
     auto writeBinary = [&](VulkanTensor* input0T, VulkanTensor* input1T, VulkanTensor* outputT, int tensorIndex) {
         auto imageSize = outputT->imageSize();
         for (int index=0; index < imageSize; ++index) {
@@ -140,7 +143,7 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
                 binaryOpParam->posLimit[1] = 0;
             }
             constBuffer->unmap();
-            std::shared_ptr<VulkanPipeline::DescriptorSet> desSet = mDescriptorSet[tensorIndex * imageSize + index];
+            std::shared_ptr<VulkanLayout::DescriptorSet> desSet = mDescriptorSet[tensorIndex * imageSize + index];
             auto sampler = vkBn->getCommonSampler(true);
             desSet->writeImage(output->view(), sampler->get(),
                                        VK_IMAGE_LAYOUT_GENERAL, 0);

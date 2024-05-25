@@ -24,6 +24,8 @@ public:
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
+    virtual int onOptimize(Interpreter::SessionMode stage) override;
+
 private:
     StaticModule() = default;
     void resetInputOutputs();

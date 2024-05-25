@@ -22,36 +22,24 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 
 __kernel void buffer_set_zero(
                     GLOBAL_SIZE_2_DIMS
-                    __global FLOAT *output
+                    __global OUTPUT_TYPE *output
                     ) {
     const int x = get_global_id(0);
     const int y = get_global_id(1);
     
     DEAL_NON_UNIFORM_DIM2(x, y);
     
-    output[y*global_size_dim0 + x] = (FLOAT)(0.0f);
-}
-
-__kernel void image_set_zero(
-                    GLOBAL_SIZE_2_DIMS
-                    __write_only image2d_t output
-                    ) {
-    const int x = get_global_id(0);
-    const int y = get_global_id(1);
-    
-    DEAL_NON_UNIFORM_DIM2(x, y);
-
-    WI_F(output, (int2)(x, y), (FLOAT4)(0.0f));
+    output[y*global_size_dim0 + x] = (OUTPUT_TYPE)(0.0f);
 }
 
 __kernel void raster_buffer(
                     GLOBAL_SIZE_3_DIMS
-                    __global FLOAT *input,
+                    __global INPUT_TYPE *input,
                     __private const int inputOffset,
                     __private const int inputStride0,
                     __private const int inputStride1,
                     __private const int inputStride2,
-                    __global FLOAT *output,
+                    __global OUTPUT_TYPE *output,
                     __private const int outputOffset,
                     __private const int outputStride0,
                     __private const int outputStride1,
@@ -65,13 +53,13 @@ __kernel void raster_buffer(
     
     int inputIndex = inputOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
     int outputIndex = outputOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
-    output[outputIndex] = input[inputIndex];
+    output[outputIndex] = (OUTPUT_TYPE)input[inputIndex];
 }
 
 
 __kernel void raster_nc4hw4_buffer(
                     GLOBAL_SIZE_3_DIMS
-                    __global FLOAT *input,
+                    __global INPUT_TYPE *input,
                     __private const int inputOffset,
                     __private const int inputStride0,
                     __private const int inputStride1,
@@ -79,7 +67,7 @@ __kernel void raster_nc4hw4_buffer(
                     __private const int inputHeight,
                     __private const int inputWidth,
                     __private const int inputChannel,
-                    __global FLOAT *output,
+                    __global OUTPUT_TYPE *output,
                     __private const int outputOffset,
                     __private const int outputStride0,
                     __private const int outputStride1,
@@ -97,6 +85,72 @@ __kernel void raster_nc4hw4_buffer(
     int inputIndex = inputOffset + (z * inputStride0 + y * inputStride1 + x * inputStride2) * 4;
     int outputIndex = outputOffset + (z * outputStride0 + y * outputStride1 + x * outputStride2) * 4;
     
-    FLOAT4 values = vload4(0, (__global FLOAT *)(input+inputIndex));
-    vstore4(values, 0, (__global FLOAT *)(output+outputIndex));
+    vstore4(CONVERT_OUTPUT4(vload4(0, input+inputIndex)), 0, output+outputIndex);
+}
+
+__kernel void raster_direct_buffer(
+                    GLOBAL_SIZE_3_DIMS
+                    __private const int size_x,
+                    __global INPUT_TYPE *input,
+                    __private const int inputOffset,
+                    __private const int combineSrcOffset,
+                    __private const int inputStride0,
+                    __private const int inputStride1,
+                    __private const int inputStride2,
+                    __private const int src_width,
+                    __private const int src_height,
+                    __private const int src_channel,
+                    __global OUTPUT_TYPE *output,
+                    __private const int outputOffset,
+                    __private const int combineDstOffset,
+                    __private const int outputStride0,
+                    __private const int outputStride1,
+                    __private const int outputStride2,
+                    __private const int dst_width,
+                    __private const int dst_height,
+                    __private const int dst_channel
+                    ) {
+    const int idx = get_global_id(0);
+    const int y = get_global_id(1);
+    const int z = get_global_id(2);
+    
+    DEAL_NON_UNIFORM_DIM3(idx, y, z);
+    const int x = idx % size_x;
+    const int id = idx / size_x;
+    
+    int inputIndex = inputOffset + id * combineSrcOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
+    int outputIndex = outputOffset + id * combineDstOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
+#ifdef INPUT_DATA_FORMAT_NHWC
+    int in_c = inputIndex % src_channel; inputIndex /= src_channel;
+    int in_w = inputIndex % src_width; inputIndex /= src_width;
+    int in_h = inputIndex % src_height;
+    int in_b = inputIndex / src_height;
+    int src_channel4 = (src_channel + 3) / 4;
+    int inputIndexC4 = (((in_b * src_channel4 + (in_c / 4)) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
+#else
+    int in_w = inputIndex % src_width; inputIndex /= src_width;
+    int in_h = inputIndex % src_height; inputIndex /= src_height;
+    int in_c = inputIndex % src_channel;
+    int in_b = inputIndex / src_channel;
+    int src_channel4 = (src_channel + 3) / 4;
+    int inputIndexC4 = (((in_b * src_channel4 + (in_c / 4)) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
+#endif
+    
+#ifdef OUTPUT_DATA_FORMAT_NHWC
+    int out_c = outputIndex % dst_channel; outputIndex /= dst_channel;
+    int out_w = outputIndex % dst_width; outputIndex /= dst_width;
+    int out_h = outputIndex % dst_height;
+    int out_b = outputIndex / dst_height;
+    int dst_channel4 = (dst_channel + 3) / 4;
+    int outputIndexC4 = (((out_b * dst_channel4 + (out_c / 4)) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
+#else
+    int out_w = outputIndex % dst_width; outputIndex /= dst_width;
+    int out_h = outputIndex % dst_height; outputIndex /= dst_height;
+    int out_c = outputIndex % dst_channel;
+    int out_b = outputIndex / dst_channel;
+    int dst_channel4 = (dst_channel + 3) / 4;
+    int outputIndexC4 = (((out_b * dst_channel4 + (out_c / 4)) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
+#endif
+    
+    output[outputIndexC4] = (OUTPUT_TYPE)input[inputIndexC4];
 }

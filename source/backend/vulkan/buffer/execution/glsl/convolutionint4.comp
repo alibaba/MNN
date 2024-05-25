@@ -1,0 +1,119 @@
+#version 440 core
+
+#ifdef FP16
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#define MAT4 f16mat4
+#extension GL_AMD_gpu_shader_half_float: enable
+#else
+#define FLOAT4 vec4
+#define MAT4 mat4
+#endif
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT4 data[];
+}uOutput;
+
+layout(set=0, binding=1) readonly buffer inputBuffer {
+    FLOAT4 data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer KernelBuffer{
+    uint data[];
+} uKernel;
+
+layout(set=0, binding=3) readonly buffer BiasBuffer{
+    FLOAT4 data[];
+} uBias;
+
+layout(set=0, binding=4) readonly buffer wss{
+    FLOAT4 data[];
+} uWeightScale;
+
+layout(set=0, binding=5) uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    ivec4 offset;//batchOffset, hOffset, outputHeight, other
+} uConstant;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int gpuIndex = int(gl_GlobalInvocationID.x);
+    int gpuIndexX = gpuIndex % uConstant.outputSize.x;
+    int temp = gpuIndex / uConstant.outputSize.x;
+    int gpuIndexY = temp % uConstant.outputSize.y;
+    int gpuIndexZ = temp / uConstant.outputSize.y;
+    ivec3 pos = ivec3(gpuIndexX, gpuIndexY, gpuIndexZ);
+    ivec3 outputSize = uConstant.outputSize.xyz;
+    int oz = pos.z / uConstant.outputSize.w;
+    int ob = pos.z % uConstant.outputSize.w;
+
+    if (gpuIndex < uConstant.outputSize.x * uConstant.outputSize.y * uConstant.outputSize.z * uConstant.outputSize.w)
+    {
+        ivec3 inputSize = uConstant.inputSize.xyz;
+        ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
+        ivec2 sta = max(ivec2(0, 0), (UP_DIV(-s0, uConstant.dilate)));
+        ivec2 end = min(uConstant.kernelSize, UP_DIV(uConstant.inputSize.xy - s0, uConstant.dilate));
+        int fx, fy, fz;
+        vec4 color = uBias.data[oz];
+        vec4 ws = uWeightScale.data[oz];
+        vec4 wb = uWeightScale.data[oz+uConstant.outputSize.z];
+        for (fy=sta.y; fy<end.y; ++fy)
+        {
+            int sy = fy*uConstant.dilate.y + s0.y;
+            for (fx=sta.x; fx<end.x; ++fx)
+            {
+                int sx = fx*uConstant.dilate.x + s0.x;
+                int kPosOffset = (fx+fy*uConstant.kernelSize.x + oz * uConstant.kernelSize.x * uConstant.kernelSize.y) * uConstant.inputSize.z;
+                for (fz=0; fz<uConstant.inputSize.z; ++fz)
+                {
+                    int iPos = sx
+                        + sy * uConstant.inputSize.x
+                        + fz * uConstant.inputSize.x * uConstant.inputSize.y * uConstant.inputSize.w
+                        + ob * uConstant.inputSize.x * uConstant.inputSize.y
+                        ;
+                    vec4 inputValue = uInput.data[iPos];
+                    uvec4 u0 = uvec4(unpackUnorm4x8(uKernel.data[(kPosOffset+fz) * 2 + 0]) * 255.0);
+                    uvec4 u1 = uvec4(unpackUnorm4x8(uKernel.data[(kPosOffset+fz) * 2 + 1]) * 255.0);
+                    uvec4 lu0 = u0 / 16;
+                    uvec4 hu0 = u0 % 16;
+                    uvec4 lu1 = u1 / 16;
+                    uvec4 hu1 = u1 % 16;
+                    vec4 k0 = vec4(lu0.x, hu0.x, lu0.y, hu0.y);
+                    vec4 k1 = vec4(lu0.z, hu0.z, lu0.w, hu0.w);
+                    vec4 k2 = vec4(lu1.x, hu1.x, lu1.y, hu1.y);
+                    vec4 k3 = vec4(lu1.z, hu1.z, lu1.w, hu1.w);
+
+                    k0 = k0 * ws + wb;
+                    k1 = k1 * ws + wb;
+                    k2 = k2 * ws + wb;
+                    k3 = k3 * ws + wb;
+                    color  += k0*inputValue.x;
+                    color  += k1*inputValue.y;
+                    color  += k2*inputValue.z;
+                    color  += k3*inputValue.w;
+                }
+            }
+        }
+
+#ifdef RELU
+        color = max(color, vec4(0));
+#endif
+#ifdef RELU6
+        color = clamp(color, vec4(0), vec4(6));
+#endif
+        int oPos = pos.x
+            + pos.y * uConstant.outputSize.x
+            + pos.z * uConstant.outputSize.x * uConstant.outputSize.y
+            ;
+        uOutput.data[oPos] = color;
+    }
+}

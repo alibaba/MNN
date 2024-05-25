@@ -20,7 +20,9 @@ public:
     static Tensor* create(int w, int h);
 
     static void multi(Tensor* C, const Tensor* A, const Tensor* B);
+    static void multi(float* C, float* A, float* B, int M, int K, int N = 0, bool A_needTranspose=false, bool B_needTranspose=false);
     static void add(Tensor* C, const Tensor* A, const Tensor* B);
+    static void add(float* C, float* A, float* B, int size);
     static void sub(Tensor* C, const Tensor* A, const Tensor* B);
     static void dot(Tensor* C, const Tensor* A, const Tensor* B);
     static void divPerLine(Tensor* C, const Tensor* A, const Tensor* Line);

@@ -96,7 +96,7 @@ public:
         }
         if (inputs.size() >= 5 && inputs[4].get() != nullptr) {
             MNN_ERROR("MNN LSTM not support sequence_lens, all batch must be seq_length\n");
-            return nullptr;
+            // return nullptr;
         }
         std::unique_ptr<OpT> lstm(new OpT);
         lstm->name       = expr->name();

@@ -7,6 +7,7 @@
 //
 
 #include "cli.hpp"
+#include "commonKit.hpp"
 #if defined(_MSC_VER)
 #include <Windows.h>
 #undef min
@@ -36,7 +37,8 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
+
 namespace MNN {
 
 static std::string _getDataType(const halide_type_t& type) {
@@ -222,7 +224,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      )
     (
      "targetVersion",
-     "compability for old mnn engine, default: 1.2f",
+     "compability for old mnn engine, default the same as converter",
      cxxopts::value<float>()
      )
     (
@@ -278,8 +280,17 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "saveExternalData",
      "save weight to extenal bin file.",
      cxxopts::value<bool>()
+     )
+    (
+     "convertMatmulToConv",
+     "if 1, converter matmul with constant input to convolution. default: 1, range: {0, 1}",
+     cxxopts::value<int>()
+     )
+    (
+     "transformerFuse",
+     "fuse attention op, like fmhaV2/fmhca/splitGelu/groupNorm. default: false",
+     cxxopts::value<bool>()
      );
-
 
     auto result = options.parse(argc, argv);
 
@@ -409,11 +420,6 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.inputConfigFile         = inputConfigFile;
     }
 
-    // benchmarkModel
-    if (result.count("benchmarkModel")) {
-        modelPath.benchmarkModel = true;
-        modelPath.bizCode        = "benchmark";
-    }
     // half float
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
@@ -425,7 +431,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.defaultBatchSize = result["batch"].as<int>();
     }
     if (result.count("keepInputFormat")) {
-        modelPath.keepInputFormat = true;
+        modelPath.keepInputFormat = result["keepInputFormat"].as<bool>();
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
@@ -456,6 +462,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("detectSparseSpeedUp")) {
         modelPath.detectSparseSpeedUp = result["detectSparseSpeedUp"].as<int>();
     }
+    if (result.count("convertMatmulToConv")) {
+        modelPath.convertMatmulToConv = result["convertMatmulToConv"].as<int>();
+    }
 
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
@@ -469,6 +478,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("saveExternalData")) {
         modelPath.saveExternalData = true;
     }
+    if (result.count("transformerFuse")) {
+        modelPath.transformerFuse = true;
+    }
     return true;
 }
 
@@ -477,7 +489,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
         dumpModelInfo(modelPath.modelFile.c_str());
         return true;
     }
-    std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
+    std::cout << "Start to Convert Other Model Format To MNN Model..., target version: " << modelPath.targetVersion << std::endl;
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     int parseRes = 1;
     if (modelPath.model == modelConfig::CAFFE) {
@@ -713,6 +725,9 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
+    std::shared_ptr<MNN::Express::Module> net2;
+    net2.reset(MNN::Express::Module::clone(net.get()));
+    net = net2;
     auto mInfo = net->getInfo();
     std::vector<MNN::Express::VARP> inputs(mInfo->inputs.size());
 #define LOAD_DATA(TYPE)\
@@ -1180,5 +1195,123 @@ bool CommonKit::FileIsExist(std::string path) {
     }
 #endif
     return false;
+}
+
+bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::Compression::Pipeline* pipeline) {
+    rapidjson::Document document;
+    {
+        std::ifstream fileNames(jsonFile);
+        std::ostringstream output;
+        output << fileNames.rdbuf();
+        auto outputStr = output.str();
+        document.Parse(outputStr.c_str());
+        if (document.HasParseError()) {
+            MNN_ERROR("Invalid json\n");
+            return 0;
+        }
+    }
+    if (!document.HasMember("pipeline")) {
+        MNN_ERROR("Error||Invalid json file: missing pipeline member.\n");
+        return 0;
+    }
+    auto pipelineInfo = document["pipeline"].GetObject();
+    std::string version = pipelineInfo["version"].GetString();
+    pipeline->set_version(version);
+
+    auto algos = pipelineInfo["algo"].GetArray();
+    for (auto iter = algos.begin(); iter != algos.end(); ++iter) {
+        auto algoInfo = iter->GetObject();
+        auto compressionType = (MNN::Compression::CompressionAlgo_CompressionType)algoInfo["type"].GetInt();
+        std::unique_ptr<MNN::Compression::QuantizeParams> quant_params(new MNN::Compression::QuantizeParams());
+        auto quantParamsInfo = algoInfo["quant_params"].GetObject();
+        auto round_mode = quantParamsInfo["round_mode"].GetInt();
+        quant_params->set_round_mode((MNN::Compression::QuantizeParams_RoundMode)round_mode);
+
+        auto layer = quantParamsInfo["layer"].GetArray();
+        for (auto ly = layer.begin(); ly != layer.end(); ++ly) {
+            auto layerInfo = ly->GetObject();
+            auto newLayer = quant_params->add_layer();
+            if (layerInfo.HasMember("method")) {
+                newLayer->set_method((MNN::Compression::LayerQuantizeParams_QuantMethod)layerInfo["method"].GetInt());
+            }
+
+            // Weight.
+            auto weights_ = layerInfo["weight"].GetArray();
+            for (auto w = weights_.begin(); w != weights_.end(); ++w) {
+                // Get weight info.
+                int bits = w->GetObject()["bits"].GetInt();
+                auto name = w->GetObject()["name"].GetString();
+                auto scale = w->GetObject()["scales"].GetArray();
+                auto zeropoint = w->GetObject()["zero_point"].GetInt();
+                auto clamp_min = w->GetObject()["clamp_min"].GetInt();
+                auto clamp_max = w->GetObject()["clamp_max"].GetInt();
+                // Write to newLayer
+                auto weight = newLayer->add_weight();
+                weight->set_bits(bits);
+                weight->set_name(name);
+                weight->set_clamp_max(clamp_max);
+                weight->set_clamp_min(clamp_min);
+                for (int k = 0; k < scale.Size(); ++k) {
+                    weight->add_scales(scale[k].GetFloat());
+                }
+            }
+
+            // Input.
+            auto inputs_ = layerInfo["input"].GetArray();
+            for (auto w = inputs_.begin(); w != inputs_.end(); ++w) {
+                // Get weight info.
+                int bits = w->GetObject()["bits"].GetInt();
+                auto name = w->GetObject()["name"].GetString();
+                auto scale = w->GetObject()["scales"].GetArray();
+                auto zeropoint = w->GetObject()["zero_point"].GetInt();
+                auto clamp_min = w->GetObject()["clamp_min"].GetInt();
+                auto clamp_max = w->GetObject()["clamp_max"].GetInt();
+                // Write to newLayer
+                auto input = newLayer->add_input();
+                input->set_bits(bits);
+                input->set_name(name);
+                input->set_clamp_max(clamp_max);
+                input->set_clamp_min(clamp_min);
+                for (int k = 0; k < scale.Size(); ++k) {
+                    input->add_scales(scale[k].GetFloat());
+                }
+            }
+
+            // Output.
+            auto outputs_ = layerInfo["output"].GetArray();
+            for (auto w = outputs_.begin(); w != outputs_.end(); ++w) {
+                // Get weight info.
+                int bits = w->GetObject()["bits"].GetInt();
+                auto name = w->GetObject()["name"].GetString();
+                auto scale = w->GetObject()["scales"].GetArray();
+                auto zeropoint = w->GetObject()["zero_point"].GetInt();
+                auto clamp_min = w->GetObject()["clamp_min"].GetInt();
+                auto clamp_max = w->GetObject()["clamp_max"].GetInt();
+                // Write to newLayer
+                auto output = newLayer->add_output();
+                output->set_bits(bits);
+                output->set_name(name);
+                output->set_clamp_max(clamp_max);
+                output->set_clamp_min(clamp_min);
+                for (int k = 0; k < scale.Size(); ++k) {
+                    output->add_scales(scale[k].GetFloat());
+                }
+            }
+        }
+        MNN::Compression::CompressionAlgo* algo = pipeline->add_algo();
+        algo->set_type(compressionType);
+        auto params = algo->quant_params();
+        params.CopyFrom(*quant_params.get());
+    }
+    // Write protobuf.bin
+    if (protoFile) {
+        std::ofstream output(protoFile, std::ios::out | std::ios::binary);
+        if (!pipeline->SerializeToOstream(&output)) {
+            MNN_ERROR("->Error: Fail saving Json file to protobuf file\n");
+            return 0;
+        }
+        MNN_PRINT("Finish convert json file to protobuf binary file\n");
+    }
+    return 1;
 }
 

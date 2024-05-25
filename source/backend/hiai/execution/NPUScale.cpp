@@ -35,7 +35,6 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         filter->SetTensorDesc(fdesc);
         filter->SetData((uint8_t *)scaleData->data(), scaleData->size() * sizeof(float));
-
         mConst_fliter.set_attr_value(filter);
     }
     // om input bias const op
@@ -45,14 +44,32 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
         ge::TensorPtr filter = std::make_shared<ge::Tensor>();
         filter->SetTensorDesc(fdesc);
         filter->SetData((uint8_t *)biasData->data(), biasData->size() * sizeof(float));
-
         mConst_bias.set_attr_value(filter);
     }
-
-    (*scale).set_input_x(*xOp.get()).set_input_scale(mConst_fliter).set_input_bias(mConst_bias);
-
-    mNpuBackend->setOutputOps(mOp, {scale}, outputs);
-
+    if (inputs[0]->buffer().dimensions == 2) {
+        vector<int32_t> shape;
+        for (int32_t i = 0; i < inputs[0]->buffer().dimensions; i++) {
+            shape.push_back(inputs[0]->buffer().dim[i].extent);
+        }
+        for (int32_t i = inputs[0]->buffer().dimensions; i < 4; i++) {
+            shape.push_back(1);
+        }
+        shapeConst = hiai::op::Const(opName + "_shape_const");
+        {
+            ge::TensorDesc fdesc(ge::Shape({static_cast<int64_t>(shape.size())}), ge::FORMAT_NCHW, ge::DT_INT32); // in o h w ?
+            ge::TensorPtr filter = std::make_shared<ge::Tensor>();
+            filter->SetTensorDesc(fdesc);
+            filter->SetData((uint8_t *)shape.data(), shape.size() * sizeof(int32_t));
+            shapeConst.set_attr_value(filter);
+        }
+        shared_ptr<hiai::op::Reshape> reshape(new hiai::op::Reshape(opName + "_reshape"));
+        (*reshape).set_input_x(*xOp.get()).set_input_shape(shapeConst);
+        (*scale).set_input_x(*reshape.get()).set_input_scale(mConst_fliter).set_input_bias(mConst_bias);
+        mNpuBackend->setOutputOps(mOp, {reshape, scale}, outputs);
+    } else {
+        (*scale).set_input_x(*xOp.get()).set_input_scale(mConst_fliter).set_input_bias(mConst_bias);
+        mNpuBackend->setOutputOps(mOp, {scale}, outputs);
+    }
     return NO_ERROR;
 }
 

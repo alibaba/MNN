@@ -15,7 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 
 //#define MNN_WINOGRAD_PRINT_REDUCE_RATE

@@ -33,6 +33,16 @@ __global__ void CASTMIDFLOAT(T1 *input, T2 *output, size_t count) {
   return;
 }
 
+template <typename T>
+__global__ void BF162FLOAT(int16_t *input, T *output, size_t count) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+    float tmp;
+    ((int16_t *)&tmp)[0] = 0;
+    ((int16_t *)&tmp)[1] = input[i];
+    output[i] = (T)tmp;
+  }
+}
+
 __global__ void CASTBOOL(int32_t *input, int32_t *output, size_t count) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
     output[i] = input[i] > 0 ? 1 : 0;
@@ -184,6 +194,11 @@ ErrorCode CastExecution::onExecute(const std::vector<Tensor*>& inputs, const std
         } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
             CASTMIDFLOAT<<<block_num, threads_num>>>((half*)input, (uint8_t*)output, count);
             checkKernelErrors;
+        } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_t(halide_type_float, 16) == inputDataType) {
+            BF162FLOAT<<<block_num, threads_num>>>((int16_t*)input, (half*)output, count);
+            checkKernelErrors;
+        } else {
+            MNN_PRINT("Error: CUDABackend don't support cast form %d, %d to %d\n", inputDataType.code, inputDataType.bits, dstT);
         }
     } else {
         if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
@@ -204,6 +219,11 @@ ErrorCode CastExecution::onExecute(const std::vector<Tensor*>& inputs, const std
         } else if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
             CASTMIDFLOAT<<<block_num, threads_num>>>((float*)input, (uint8_t*)output, count);
             checkKernelErrors;
+        } else if (dstT == MNN::DataType_DT_FLOAT && halide_type_t(halide_type_float, 16) == inputDataType) {
+            BF162FLOAT<<<block_num, threads_num>>>((int16_t*)input, (float*)output, count);
+            checkKernelErrors;
+        } else {
+            MNN_PRINT("Error: CUDABackend don't support cast form %d, %d to %d\n", inputDataType.code, inputDataType.bits, dstT);
         }
     }
     checkKernelErrors;

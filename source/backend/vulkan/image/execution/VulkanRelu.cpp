@@ -19,8 +19,6 @@ struct GpuReluParam {
 //--------------------------relu--------------------------//
 VulkanRelu::VulkanRelu(Backend *bn, const Op* op) : VulkanBasicExecution(bn) {
     auto vulkanBn = static_cast<VulkanBackend *>(bn);
-    mGpuReluParam.reset(new VulkanBuffer(vulkanBn->getMemoryPool(), false, sizeof(GpuReluParam), nullptr,
-                                         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
     if (op->type() == OpType_ReLU6) {
         float minv = 0.0f;
         float maxv = 6.0f;
@@ -62,26 +60,32 @@ ErrorCode VulkanRelu::onEncode(const std::vector<Tensor *> &inputs, const std::v
 
     auto inputTensor = reinterpret_cast<VulkanTensor*>(input->deviceId());
     auto outputTensor = reinterpret_cast<VulkanTensor*>(output->deviceId());
-    auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuReluParam->map());
-    ::memset(reluParam, 0, sizeof(GpuReluParam));
-    reluParam->imgSize[0] = inputTensor->image()->width();
-    reluParam->imgSize[1] = inputTensor->image()->height();
-    reluParam->imgSize[2] = inputTensor->image()->depth();
-    reluParam->imgSize[3] = 0;
-    for (int i=0; i<4; ++i) {
-        reluParam->slope[i]      = mSlope[i];
+    auto vkOutput = reinterpret_cast<VulkanTensor*>(output->deviceId());
+    auto vkInput  = reinterpret_cast<VulkanTensor*>(input->deviceId());
+    mDescriptorSet.resize(vkOutput->imageSize());
+    mGpuReluParam.resize(vkOutput->imageSize());
+    for (int i=0; i<vkOutput->imageSize(); ++i) {
+        mGpuReluParam[i].reset(new VulkanBuffer(vkBn->getMemoryPool(), false, sizeof(GpuReluParam), nullptr,
+                                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+        auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuReluParam[i]->map());
+        ::memset(reluParam, 0, sizeof(GpuReluParam));
+        reluParam->imgSize[0] = inputTensor->image(i)->width();
+        reluParam->imgSize[1] = inputTensor->image(i)->height();
+        reluParam->imgSize[2] = inputTensor->image(i)->depth();
+        reluParam->imgSize[3] = 0;
+        for (int v=0; v<4; ++v) {
+            reluParam->slope[v]      = mSlope[v];
+        }
+        mGpuReluParam[i]->unmap();
+        mDescriptorSet[i].reset(mReluPipeline->createSet());
+        mDescriptorSet[i]->writeImage(outputTensor->image(i)->view(), vkBn->getCommonSampler()->get(),
+                                VK_IMAGE_LAYOUT_GENERAL, 0);
+        mDescriptorSet[i]->writeImage(inputTensor->image(i)->view(), vkBn->getCommonSampler()->get(),
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        mDescriptorSet[i]->writeBuffer(mGpuReluParam[i]->buffer(), 2, mGpuReluParam[i]->size());
+        mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet[i]->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputTensor->image(i)->width(), 16), UP_DIV(inputTensor->image(i)->height(), 16), 1);
     }
-    mGpuReluParam->unmap();
-    mDescriptorSet.reset(mReluPipeline->createSet());
-    mDescriptorSet->writeImage(outputTensor->image()->view(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_GENERAL, 0);
-    mDescriptorSet->writeImage(inputTensor->image()->view(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
-    mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    outputTensor->image()->barrierWrite(cmdBuffer->get());
-    inputTensor->image()->barrierRead(cmdBuffer->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputTensor->image()->width(), 16), UP_DIV(inputTensor->image()->height(), 16), 1);
     return NO_ERROR;
 }
 //--------------------------Prelu--------------------------//

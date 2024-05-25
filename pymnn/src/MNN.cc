@@ -2636,14 +2636,22 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 
 #ifdef PYMNN_EXPR_API
     // for expr multi-thread
+#ifdef PYMNN_USE_ALINNPYTHON
+    // create different excutor for each thread when alinn python
     BackendConfig bnConfig;
     auto threadExecutor = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
     // close lazy evaluation in python for speed and memory
     threadExecutor->lazyEval = false;
-#if TARGET_OS_IPHONE
+    #if TARGET_OS_IPHONE
     tlsData->scope = new ExecutorScope(threadExecutor);
-#else
+    #else
     static thread_local ExecutorScope scope(threadExecutor);
+    #endif
+#else
+    // use the same excutor for each thread
+    auto exe = ExecutorScope::Current();
+    // close lazy evaluation in python for speed and memory
+    exe->lazyEval = false;
 #endif
     // _expr submodule
     auto expr_module = def_submodule(m, "_expr");

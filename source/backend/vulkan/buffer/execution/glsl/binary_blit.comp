@@ -1,0 +1,119 @@
+#version 440 core
+#ifdef C4
+#define FLOAT vec4
+#else
+#define FLOAT float
+#endif
+
+#define OUTPUT_TYPE float
+
+#if defined(LESS) || defined(LESSEQUAL) || defined(GREATER) || defined(GREATEREQUAL) || defined(EQUAL) || defined(NOTEQUAL)
+#undef OUTPUT_TYPE
+#define OUTPUT_TYPE int
+#endif
+
+#define FLOAT4 vec4
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer sourceBuffer{
+    OUTPUT_TYPE data[];
+} uOutput;
+
+
+layout(set=0, binding=1) readonly buffer destBuffer{
+    FLOAT data[];
+} uInput0;
+
+layout(set=0, binding=2) readonly buffer destBuffer0{
+    FLOAT data[];
+} uInput1;
+
+layout(set=0, binding=3) uniform constBuffer{
+    ivec4 srcview0;
+    ivec4 srcview1;
+    ivec4 dstview;
+    ivec4 size;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+int computeVec4dot(ivec4 a, ivec4 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+FLOAT4 binary(FLOAT4 x0, FLOAT4 x1) {
+    FLOAT4 value;
+#ifdef ADD
+        value = x0 + x1;
+#endif
+#ifdef ATAN2
+        value = atan(x0, x1);
+#endif
+#ifdef SUB
+        value = x0 - x1;
+#endif
+#ifdef MUL
+        value = x0 * x1;
+#endif
+#ifdef DIV
+        value = x0 / x1;
+#endif
+#ifdef POW
+        value = pow(x0, x1);
+#endif
+#ifdef VMAX
+        value = max(x0, x1);
+#endif
+#ifdef VMIN
+        value = min(x0, x1);
+#endif
+#ifdef SQUDIFF
+        value = (x0 - x1) * (x0 - x1);
+#endif
+#ifdef LESS
+        value = FLOAT4(lessThan(x0, x1));
+#endif
+#ifdef LESSEQUAL
+        value = FLOAT4(lessThanEqual(x0, x1));
+#endif
+#ifdef GREATER
+        value = FLOAT4(greaterThan(x0, x1));
+#endif
+#ifdef GREATEREQUAL
+        value = FLOAT4(greaterThanEqual(x0, x1));
+#endif
+#ifdef EQUAL
+        value = FLOAT4(equal(x0, x1));
+#endif
+#ifdef NOTEQUAL
+        value = FLOAT4(notEqual(x0, x1));
+#endif
+#ifdef VMOD
+        value = mod(x0, x1);
+#endif
+#ifdef FLOORMOD
+        value = x0 - x1 * floor(x0/x1);
+#endif
+#ifdef FLOORDIV
+        value = floor(x0/x1);
+#endif
+    return value;
+}
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.w)
+    {
+        ivec4 pos;
+        pos.x = posTmp.x / (uConstant.size.y * uConstant.size.z);
+        int subIndex = posTmp.x % (uConstant.size.y * uConstant.size.z);
+        pos.z = subIndex % uConstant.size.z;
+        pos.y = subIndex / uConstant.size.z;
+        pos.w = 1;
+        int s0 = computeVec4dot(uConstant.srcview0, pos);
+        int s1 = computeVec4dot(uConstant.srcview1, pos);
+        int d = computeVec4dot(uConstant.dstview, pos);
+
+        uOutput.data[d] = OUTPUT_TYPE(binary(FLOAT4(uInput0.data[s0]), FLOAT4(uInput1.data[s1])).x);
+    }
+}

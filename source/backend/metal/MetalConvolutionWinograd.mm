@@ -39,12 +39,28 @@ bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor* 
     return (ow <= 16 && oh <= 16);
 }
 
-MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const Tensor *input, const MNN::Op *op)
-    : MetalConvolutionCommon(backend, op) {
+MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::Op *op)
+    : MetalConvolutionCommon(backend, op, nullptr) {
     auto conv = op->main_as_Convolution2D();
     mSrcUnit  = UNIT + conv->common()->kernelY() - 1;
     mDstUnit  = UNIT;
     loadWeight(conv);
+}
+MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::Op *op, std::shared_ptr<Tensor> weight, std::shared_ptr<Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
+    auto conv = op->main_as_Convolution2D();
+    mSrcUnit  = UNIT + conv->common()->kernelY() - 1;
+    mDstUnit  = UNIT;
+    mWeight = weight;
+}
+bool MetalConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new MetalConvolutionWinograd(bn, op, mWeight, mBias);
+    return true;
 }
 
 ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs,
@@ -110,10 +126,11 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     mOutputTransformThreads.width  = uw;
     mOutputTransformThreads.height = uh;
     mOutputTransformThreads.depth  = oz;
+    int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
 
     // accquire space
-    int is = mSrcUnit * mSrcUnit * us * iz * 16 * sizeof(metal_float) / sizeof(uint8_t);
-    int os = mSrcUnit * mSrcUnit * us * oz * 16 * sizeof(metal_float) / sizeof(uint8_t);
+    int is = mSrcUnit * mSrcUnit * us * iz * 16 * bytes;
+    int os = mSrcUnit * mSrcUnit * us * oz * 16 * bytes;
     mTempSrc.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
     mTempDst.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
     backend->onAcquireBuffer(mTempSrc.get(), Backend::DYNAMIC);
@@ -124,75 +141,75 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output) {
+void MetalConvolutionWinograd::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0];
+    auto output = outputs[0];
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
+    { // transform
+        auto pipeline = [context pipelineWithName:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(input, encoder, 0);
+        MetalBackend::setTensor(mTempSrc.get(), encoder, 1);
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mInputTransformThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
-    
-    auto func = [=](){
-        auto encoder = backend->encoder();
-        { // transform
-            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:1];
-            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-            [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
-        }
-        { // gemm
-            auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:0];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:1];
-            [encoder setBuffer:mWeight offset:0 atIndex:2];
-            [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-            [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
-        }
-        { // transform
-            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:0];
-            [encoder setBuffer:mBias offset:0 atIndex:1];
-            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
-            [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-            [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
-        }
-        MNN_PRINT_ENCODER(context, encoder);
-        
-        auto context = (__bridge MNNMetalContext *)backend->context();
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            [context commit_net];
-        }
-    };
-    func();
-    backend->addOpEncoder(func);
-
-    return NO_ERROR;
+    { // gemm
+        auto pipeline = [context pipelineWithName:@"matmul4x4" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(mTempSrc.get(), encoder, 0);
+        MetalBackend::setTensor(mTempDst.get(), encoder, 1);
+        MetalBackend::setTensor(mWeight.get(), encoder, 2);
+        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mMatMulThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
+    }
+    { // transform
+        auto pipeline = [context pipelineWithName:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(mTempDst.get(), encoder, 0);
+        MetalBackend::setTensor(mBias.get(), encoder, 1);
+        MetalBackend::setTensor(output, encoder, 2);
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mOutputTransformThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
+    }
 }
-id<MTLBuffer> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionWinograd::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
     std::shared_ptr<Tensor> srcWeight(Tensor::create<float>(std::vector<int>{oc, ic, kh, kh}, (void *)src, Tensor::CAFFE));
     Math::WinogradGenerater generater(mDstUnit, kh, 1.0f);
     std::shared_ptr<Tensor> dstWeight = generater.allocTransformWeight(srcWeight.get(), 4, 4);
-    generater.transformWeight(dstWeight.get(), srcWeight.get());
-
-#if MNN_METAL_FULL_PRECISION
-    auto bytes = dstWeight->host<metal_float>();
-#else
-    std::shared_ptr<Tensor> dstWeightHalf(Tensor::create<int16_t>(dstWeight->shape()));
-    auto f32 = dstWeight->host<float>();
-    auto f16 = dstWeightHalf->host<metal_float>();
-    for (int i = 0; i < dstWeight->elementSize(); ++i) {
-        f16[i] = f32[i];
+    if (nullptr == dstWeight->host<float>()) {
+        // Alloc cpu memory error
+        MNN_ERROR("Alloca cpu memory error in MetalConvolutionWinograd.mm\n");
+        return nullptr;
     }
-    auto bytes = dstWeightHalf->host<metal_float>();
-#endif
-    return [context newDeviceBuffer:4 * UP_DIV(ic, 4) * UP_DIV(oc, 4) * mSrcUnit * mSrcUnit * 4 * sizeof(metal_float)
-                              bytes:bytes
-                             access:CPUWriteOnly];
+    generater.transformWeight(dstWeight.get(), srcWeight.get());
+    std::shared_ptr<Tensor> dstWeightGpu = generater.allocTransformWeight(srcWeight.get(), 4, 4, false);
+    auto res = backend->onAcquireBuffer(dstWeightGpu.get(), Backend::STATIC);
+    if (!res) {
+        MNN_ERROR("Alloca GPU memory error in MetalConvolutionWinograd.mm\n");
+        return nullptr;
+    }
+
+    auto buffer = MetalBackend::getBuffer(dstWeightGpu.get());
+    uint8_t* bytes = (uint8_t*)[buffer.first contents] + buffer.second;
+    auto length = dstWeight->elementSize();
+    if (backend->useFp16InsteadFp32()) {
+        auto f32 = dstWeight->host<float>();
+        auto f16 = (__fp16*)bytes;
+        for (int i = 0; i < length; ++i) {
+            f16[i] = f32[i];
+        }
+    } else {
+        ::memcpy(bytes, dstWeight->host<float>(), length * sizeof(float));
+    }
+    return dstWeightGpu;
 }
 
 } // namespace MNN

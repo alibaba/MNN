@@ -52,6 +52,7 @@ ErrorCode MultiInputConvExecution::onResize(const std::vector<Tensor*> &inputs, 
 
     mIm2ColParamter.ih = input->height();
     mIm2ColParamter.iw = input->width();
+    mIm2ColParamter.ic = ic;
     mIm2ColParamter.oh = output->height();
     mIm2ColParamter.ow = output->width();
     mIm2ColParamter.srcZStep = input->height() * input->width() * UNIT * input->batch();
@@ -162,7 +163,7 @@ ErrorCode MultiInputConvExecution::onExecute(const std::vector<Tensor*> &inputs,
     }
 
     if(mNeedWeightFill) {
-        callWeightFill((const void *)inputs[1]->deviceId(), (void *)mFilterAddr, mGemmInfo.elh[1], mGemmInfo.elh[2], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2], mPrecisonLevel, runtime);
+        callWeightFill((const void *)inputs[1]->deviceId(), (void *)mFilterAddr, mIm2ColParamter.ic, mGemmInfo.elh[1], mGemmInfo.elh[2], mGemmInfo.elhPad[1], mGemmInfo.elhPad[2], mPrecisonLevel, runtime);
     }
 
     if(mNeedBiasFill) {

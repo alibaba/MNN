@@ -185,8 +185,8 @@ bool EagerBufferAllocator::free(MemChunk chunk) {
         returnMemory(&mFreeList, node);
     }
 #ifdef DUMP_USAGE
-    if (x->second.get()) {
-        auto memoryUsed = x->second->size / 1024.0f / 1024.0f;
+    if (node.get()) {
+        auto memoryUsed = node->size / 1024.0f / 1024.0f;
         MNN_PRINT("Free: %f\n", memoryUsed);
     }
 #endif
@@ -287,12 +287,26 @@ std::pair<void*, size_t> EagerBufferAllocator::getFromFreeList(FREELIST* list, s
     MNN_ASSERT(pointer.second % align == 0);
     return pointer;
 }
+static void _CPUMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* t) {
+    t->buffer().host = ptr + offset;
+}
+
+DeferBufferAllocator::DeferBufferAllocator(std::shared_ptr<Allocator> parent, size_t align, MemChunkApplyToTensor func) : mAllocator(parent), mAlign(align) {
+    if (nullptr == func) {
+        mApplyFunction = _CPUMemChunkApplyToTensor;
+    } else {
+        mApplyFunction = func;
+    }
+}
 
 //------------------------------- DeferBufferAllocator -----------------------------------//
 MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
     if (mFreeList.empty() || separate) {
         auto newChunk = createMemNode(size);
         insert_after(newChunk);
+#ifdef DUMP_USAGE
+    MNN_PRINT("Defer alloc: %p\n", newChunk);
+#endif
         return MemChunk(newChunk);
     }
     std::unique_ptr<MemNode> tmpChunk(new MemNode(size));
@@ -313,9 +327,15 @@ MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
     }
     // equal no change; small expand
     selectChunk->size = size;
+#ifdef DUMP_USAGE
+    MNN_PRINT("Defer alloc: %p\n", selectChunk);
+#endif
     return MemChunk(selectChunk);
 }
 bool DeferBufferAllocator::free(MemChunk chunk) {
+#ifdef DUMP_USAGE
+    MNN_PRINT("Defer free: %p\n", chunk.mNode);
+#endif
     if (mBarrrier) {
         mBarrrierFreeChunks.emplace_back(std::move(chunk));
         return true;
@@ -411,11 +431,10 @@ ErrorCode DeferBufferAllocator::compute() {
     if (mPtr.ptr() == nullptr) {
         return OUT_OF_MEMORY;
     }
-    // mPtr.reset(static_cast<uint8_t*>(malloc(mTotalSize)));
     for (auto& chunk : mChunks) {
         chunk->base = mPtr.ptr();
         for (auto t : chunk->tensors) {
-            t->buffer().host = mPtr.ptr() + chunk->offset;
+            mApplyFunction((uint8_t*)mPtr.base(), chunk->offset + mPtr.offset(), t);
         }
     }
     return NO_ERROR;

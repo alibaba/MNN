@@ -7,88 +7,50 @@
 //
 
 #include "CommonUtils.hpp"
-#include "../source/core/FileLoader.hpp"
 #include <fstream>
 
-auto RemoveParams = [](std::unique_ptr<MNN::OpT>& op) {
-    const auto opType = op->type;
-    switch (opType) {
-        case MNN::OpType_Convolution:
-        case MNN::OpType_Deconvolution:
-        case MNN::OpType_ConvolutionDepthwise: {
-            auto param = op->main.AsConvolution2D();
-            param->weight.clear();
-            param->bias.clear();
-            break;
-        }
-        case MNN::OpType_TfQuantizedConv2D: {
-            auto param = op->main.AsTfQuantizedConv2D();
-            param->weight.clear();
-            param->bias.clear();
-            break;
-        }
-        case MNN::OpType_MatMul: {
-            auto param = op->main.AsMatMul();
-            param->weight.clear();
-            param->bias.clear();
-            break;
-        }
-        case MNN::OpType_BatchNorm: {
-            auto param = op->main.AsBatchNorm();
-            param->slopeData.clear();
-            param->meanData.clear();
-            param->varData.clear();
-            param->biasData.clear();
-            param->Adata.clear();
-            param->Bdata.clear();
-            break;
-        }
-        case MNN::OpType_Scale: {
-            auto param = op->main.AsScale();
-            param->scaleData.clear();
-            param->biasData.clear();
-            break;
-        }
-        case MNN::OpType_LayerNorm: {
-            auto param = op->main.AsLayerNorm();
-            param->gamma.clear();
-            param->beta.clear();
-        }
-        default:
-            break;
-    }
-};
 
 template <typename T>
-static void storeWeight(std::ofstream* fs, std::vector<T>& weight, std::vector<int64_t>& external, int64_t& offset) {
+static void storeWeight(std::ofstream* fs, std::vector<T>& weight, std::vector<int64_t>& external, int64_t& offset, bool check = true) {
+    if (weight.empty() && check) {
+        return;
+    }
     if (external.empty()) {
         external.push_back(offset);
     }
     int64_t size = weight.size() * sizeof(T);
     fs->write(reinterpret_cast<const char*>(weight.data()), size);
     weight.clear();
+    std::vector<T> empty;
+    weight.swap(empty);
     external.push_back(size);
     offset += size;
 }
 
 void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64_t& offset) {
-    const auto opType = op->type;
+    if (!op->externalPath.empty()) {
+        return;
+    }
+    const auto opType = op->main.type;
     switch (opType) {
-        case MNN::OpType_Convolution:
-        case MNN::OpType_Deconvolution:
-        case MNN::OpType_ConvolutionDepthwise:
+        case MNN::OpParameter_Convolution2D:
         {
+            if (op->inputIndexes.size() > 1) {
+                break;
+            }
             auto param = op->main.AsConvolution2D();
             if (param->quanParameter) {
-                storeWeight<int8_t>(fs, param->quanParameter->buffer, param->external, offset);
-                storeWeight<float>(fs, param->quanParameter->alpha, param->external, offset);
+                storeWeight<int8_t>(fs, param->quanParameter->buffer, param->external, offset, false);
+                storeWeight<float>(fs, param->quanParameter->alpha, param->external, offset, false);
+                storeWeight<float>(fs, param->bias, param->external, offset, false);
+                storeWeight<uint32_t>(fs, param->quanParameter->index, param->external, offset, false);
             } else {
                 storeWeight<float>(fs, param->weight, param->external, offset);
                 storeWeight<float>(fs, param->bias, param->external, offset);
             }
             break;
         }
-        case MNN::OpType_Scale: {
+        case MNN::OpParameter_Scale: {
             auto param = op->main.AsScale();
             storeWeight<float>(fs, param->scaleData, param->external, offset);
             if (!param->biasData.empty()) {
@@ -96,7 +58,7 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             }
             break;
         }
-        case MNN::OpType_LayerNorm: {
+        case MNN::OpParameter_LayerNorm: {
             auto param = op->main.AsLayerNorm();
             if (!param->gamma.empty() && !param->beta.empty()) {
                 storeWeight<float>(fs, param->gamma, param->external, offset);
@@ -104,8 +66,7 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             }
             break;
         }
-        case MNN::OpType_TrainableParam:
-        case MNN::OpType_Const: {
+        case MNN::OpParameter_Blob: {
             auto param = op->main.AsBlob();
             size_t totalSize = 1;
             for (auto dim : param->dims) {
@@ -140,17 +101,6 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
     }
 }
 
-void removeParams(std::unique_ptr<MNN::NetT>& netT) {
-    for (auto& op : netT->oplists) {
-        RemoveParams(op);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            RemoveParams(op);
-        }
-    }
-}
-
 bool saveExternalData(std::unique_ptr<MNN::NetT>& netT, const std::string& extraFileName) {
     std::ofstream extraFile(extraFileName, std::ios::binary);
     if (!extraFile.is_open()) {
@@ -170,12 +120,20 @@ bool saveExternalData(std::unique_ptr<MNN::NetT>& netT, const std::string& extra
 }
 
 template <typename T>
-static void loadExternalData(MNN::FileLoader& fl, std::vector<T>& data, int64_t size) {
+static void loadExternalData(MNN::FileLoader* fl, std::vector<T>& data, int64_t size) {
+    if (0 == size) {
+        return;
+    }
     data.resize(size / sizeof(T));
-    fl.read(reinterpret_cast<char*>(data.data()), size);
+    fl->read(reinterpret_cast<char*>(data.data()), size);
 }
 
-void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader& fl) {
+void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl) {
+    std::unique_ptr<MNN::FileLoader> flp;
+    if (!op->externalPath.empty()) {
+        flp.reset(new MNN::FileLoader(op->externalPath.c_str()));
+        fl = flp.get();
+    }
     const auto opType = op->type;
     switch (opType) {
         case MNN::OpType_Convolution:
@@ -186,10 +144,16 @@ void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader& fl) {
             if (param->external.size() != 3) {
                 return;
             }
-            fl.offset(param->external[0]);
+            fl->offset(param->external[0]);
             if (param->quanParameter) {
                 loadExternalData<int8_t>(fl, param->quanParameter->buffer, param->external[1]);
                 loadExternalData<float>(fl, param->quanParameter->alpha, param->external[2]);
+                if (param->external.size() > 3) {
+                    loadExternalData<float>(fl, param->bias, param->external[3]);
+                }
+                if (param->external.size() > 4) {
+                    loadExternalData<uint32_t>(fl, param->quanParameter->index, param->external[4]);
+                }
             } else {
                 loadExternalData<float>(fl, param->weight, param->external[1]);
                 loadExternalData<float>(fl, param->bias, param->external[2]);
@@ -215,7 +179,7 @@ void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader& fl) {
             for (auto dim : param->dims) {
                 totalSize *= dim;
             }
-            fl.offset(param->external[0]);
+            fl->offset(param->external[0]);
             switch (param->dataType) {
                 case MNN::DataType_DT_FLOAT:
                     loadExternalData<float>(fl, param->float32s, param->external[1]);
@@ -238,17 +202,5 @@ void loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader& fl) {
         default:
             break;
     }
-}
-
-bool loadExternalData(std::unique_ptr<MNN::NetT>& netT, const char* extraFileName) {
-    MNN::FileLoader fileloader(extraFileName);
-    for (auto& op : netT->oplists) {
-        loadExternalParam(op, fileloader);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            loadExternalParam(op, fileloader);
-        }
-    }
-    return true;
+    op->externalPath.clear();
 }

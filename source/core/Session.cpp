@@ -59,7 +59,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
         auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mCallBackMode = mode.callBackMode;
@@ -166,7 +166,7 @@ void Session::_clearCache() {
 
 ErrorCode Session::resize() {
 #ifdef LOG_VERBOSE
-    for (auto& iter : mInputs) {
+    for (auto& iter : mInfo.inputTensors) {
         auto& inputTensor = iter.second;
         MNN_PRINT("before resize, input name:%s, ptr:%p, hostPtr:%p,  shape:", iter.first.c_str(), inputTensor, inputTensor->host<void>());
         inputTensor->printShape();
@@ -223,7 +223,7 @@ ErrorCode Session::resize() {
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("session after resize\n");
-    for (auto& iter : mOutputs) {
+    for (auto& iter : mInfo.outputTensor) {
         auto& outputTensor = iter.second;
         MNN_PRINT("output name:%s, ptr:%p,shape:", iter.first.c_str(), outputTensor);
         outputTensor->printShape();
@@ -232,6 +232,22 @@ ErrorCode Session::resize() {
 #endif
     return NO_ERROR;
 }
+void Session::openResizeCheck() {
+    for (auto& iter : mPipelines) {
+        iter->openResizeCheck();
+    }
+}
+
+ErrorCode Session::fixResizeCache() {
+    for (auto& iter : mPipelines) {
+        auto code = iter->fixResizeCache();
+        if (NO_ERROR != code) {
+            return code;
+        }
+    }
+    return NO_ERROR;
+}
+
 bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
     switch (code) {
         case Interpreter::MEMORY: {
@@ -290,7 +306,7 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
 }
 
 const Backend* Session::getBackEnd(const Tensor* tensor) const {
-    return TensorUtils::getDescribe(tensor)->getBackend();
+    return TensorUtils::getDescribeOrigin(tensor)->getBackend();
 }
 
 Tensor* Session::getInput(const char* name) const {
@@ -338,10 +354,7 @@ ErrorCode Session::updateToModel(Net* net) const {
     int opSize = net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
-        if ((net->usage() == Usage_INFERENCE || net->usage() == Usage_INFERENCE_STATIC) && op->type() != OpType_Const) {
-            continue;
-        }
-        if (net->usage() == Usage_TRAIN && op->type() != OpType_TrainableParam) {
+        if (op->type() != OpType_Const && op->type() != OpType_TrainableParam) {
             continue;
         }
         if (!op->outputIndexes() || op->outputIndexes()->size() != 1) {
@@ -391,6 +404,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
     scheduleInfo.pipelineInfo.resize(1);
+    scheduleInfo.externalWeightPath = mInfo.externalWeightPath;
     Session::ModeGroup modes;
     scheduleInfo.defaultBackend = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
@@ -413,6 +427,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
         auto& opInfo = oplists[i];
         opInfo.op = opCaches[i].op;
         opInfo.type = srcOpInfo.type;
+        opInfo.computeCache.copyImmutable(srcOpInfo.computeCache);
         auto op = opInfo.op;
         if (nullptr != op->outputIndexes()) {
             auto data = op->outputIndexes()->data();

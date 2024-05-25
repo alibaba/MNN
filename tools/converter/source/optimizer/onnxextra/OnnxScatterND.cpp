@@ -33,21 +33,29 @@ public:
         }
         auto indice = inputs[1];
         auto update = inputs[2];
+        auto config = Global<modelConfig>::Get();
+        auto version = config->targetVersion;
         auto shape  = _Shape(data, true);
-        auto tfRes  = _ScatterNd(indice, update, shape);
-        VARP tfMask;
-        if (type.code == halide_type_float) {
-            auto updateOne = _Fill(_Shape(update, NCHW), _Scalar<float>(1.0f));
-            auto mask = _ScatterNd(indice, updateOne, shape);
-            tfMask = _Cast<float>(_Less(mask, _Scalar<float>(0.5f)));
-        } else {
-            auto updateOne = _Fill(_Shape(update, NCHW), _Scalar<int>(1));
-            auto mask = _ScatterNd(indice, updateOne, shape);
-            tfMask = _Less(mask, _Scalar<int>(1));
+        if (version < 2.0f) {
+            // For target version < 2.0 , don't support 4 input scatternd
+            auto tfRes  = _ScatterNd(indice, update, shape);
+            VARP tfMask;
+            if (type.code == halide_type_float) {
+                auto updateOne = _Fill(_Shape(update, NCHW), _Scalar<float>(1.0f));
+                auto mask = _ScatterNd(indice, updateOne, shape);
+                tfMask = _Cast<float>(_Less(mask, _Scalar<float>(0.5f)));
+            } else {
+                auto updateOne = _Fill(_Shape(update, NCHW), _Scalar<int>(1));
+                auto mask = _ScatterNd(indice, updateOne, shape);
+                tfMask = _Less(mask, _Scalar<int>(1));
+            }
+            auto dst    = data * tfMask + tfRes;
+            dst->setName(expr->name());
+            return dst->expr().first;
         }
-        auto dst    = data * tfMask + tfRes;
-        dst->setName(expr->name());
-        return dst->expr().first;
+        auto tfRes  = _ScatterNd(indice, update, shape, data);
+        tfRes->setName(expr->name());
+        return tfRes->expr().first;
     }
 };
 

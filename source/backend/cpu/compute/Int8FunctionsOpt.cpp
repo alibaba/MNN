@@ -10,7 +10,7 @@
 #include <cstring> // for memset
 #include "Int8FunctionsOpt.h"
 #include "core/Macro.h"
-#include "common/CommonCompute.hpp"
+#include "core/CommonCompute.hpp"
 #include "CommonOptFunction.h"
 #include "math/Vec.hpp"
 
@@ -27,7 +27,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
-
+void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                         const QuanPostTreatParameters* post, size_t realDstCount);
@@ -142,7 +142,7 @@ static void _MNNPackC4Int8ForMatMul_ASparse(int8_t* destOrigin, int8_t const** s
     }
 }
 
-void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params) {
+void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
 #ifdef MNN_USE_SSE
     uint8_t* srcPtr = (uint8_t*)src;
     uint8_t* dstPtr = (uint8_t*)dst;
@@ -159,11 +159,14 @@ void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float
     float sum = 0.f;
     int max_ = static_cast<int>(params->maxValue);
     int min_ = static_cast<int>(params->minValue);
-    for (int j = 0; j < size; ++j) {
-        float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-        sum += fx;
+    float mean = 0;
+    if(false == RMSNorm){
+        for (int j = 0; j < size; ++j) {
+            float fx = (srcPtr[j] - inpZero - offset) * inpScale;
+            sum += fx;
+        }
+        mean = sum / size;
     }
-    float mean = sum / size;
     float square_sum = 0.f;
     for (int j = 0; j < size; ++j) {
         float fx = (srcPtr[j] - inpZero - offset) * inpScale;
@@ -1472,6 +1475,29 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
     }
 }
 
+static void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
+    float mulVal = 0.f;
+    float inputScale = params->inputScale[0];
+    float outputScale = params->outputScale[0];
+    int32_t inputZero = static_cast<int32_t>(params->inputZeroPoint[0]);
+    int32_t outputZero = static_cast<int32_t>(params->outputZeroPoint[0]);
+    for (int j = 0;j < depthQuad; ++j) {
+        const float* slopeZ = slope + 4 * j;
+        const int8_t* srcZ = src + 4 * j * planeNumber;
+        int8_t* dstZ = dst + 4 * j * planeNumber;
+        for (int i = 0; i < planeNumber; ++i) {
+            for (int c = 0; c < 4; ++c) {
+                if (srcZ[4 * i + c] < 0) {
+                    mulVal = (srcZ[4 * i + c] - inputZero) * slopeZ[c];
+                    dstZ[4 * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)) + outputZero, params->minValue), params->maxValue);
+                } else {
+                    dstZ[4 * i + c] = srcZ[4 * i + c];
+                }
+            }
+        }
+    }
+}
+
 static void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }
@@ -1511,7 +1537,7 @@ static void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src,
         }
 
         for (int i = 0; i < pack; ++i) {
-            
+
             float val = (dstInt32[i] + bias_z[i]) * scale_z[i];
             int valOut = roundf(val) + offset;
             if (valOut > parameters->maxValue + offset) {
@@ -1589,7 +1615,7 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
         for (int y = 0; y < kernely; ++y) {
             for (int x = 0; x < kernelx; ++x) {
                 const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
-                for (int idx = 0; idx < pack; ++idx) {   
+                for (int idx = 0; idx < pack; ++idx) {
                     results[idx] = std::max(results[idx], *(inputPtr + idx));
                 }
             }
@@ -1620,22 +1646,19 @@ void MNNBinaryAddInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const int minValue = static_cast<int32_t>(params->minValue) + offset;
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             sum =  inp0 + inp1;
         } else if (needBroadcast == 1) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             sum = inp0 + inp1;
         } else {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
-            sum = inp0 + inp1;
+           float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
+           sum = inp0 + inp1;
         }
-        int value  = (sum + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        if (sum < 0) {
-            value  = (sum - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        }
+        int value = (int)roundf(sum * inputScalesFp32[2]) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (value > maxValue) {
             value = maxValue;
         }
@@ -1663,22 +1686,19 @@ void MNNBinarySubInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const int minValue = static_cast<int32_t>(params->minValue) + offset;
     for (int i = 0; i < elementSize; ++i) {
         if (needBroadcast == 0) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[0] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+           float inp0 = static_cast<int32_t>(inputData0[0] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+           float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         } else if (needBroadcast == 1) {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[0] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+            float inp1 = static_cast<int32_t>(inputData1[0] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         } else {
-            int32_t inp0 = static_cast<int32_t>(inputData0[i] - offset - params->inputZeroPoint[0]) * static_cast<int32_t>(inputScalesInt32[0]);
-            int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
+            float inp0 = static_cast<int32_t>(inputData0[i] - offset - (int32_t)params->inputZeroPoint[0]) * static_cast<float>(inputScalesFp32[0]);
+            float inp1 = static_cast<int32_t>(inputData1[i] - offset - (int32_t)params->inputZeroPoint[1]) * static_cast<float>(inputScalesFp32[1]);
             res = inp0 - inp1;
         }
-        int value  = (res + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        if (res < 0) {
-            value  = (res - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
-        }
+        int value = (int)roundf(res * inputScalesFp32[2]) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (value > maxValue) {
             value = maxValue;
         }
@@ -1758,9 +1778,9 @@ void MNNBinaryMinInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
             int32_t inp1 = static_cast<int32_t>(inputData1[i] - offset - params->inputZeroPoint[1]) * static_cast<int32_t>(inputScalesInt32[1]);
             res = std::min(inp0, inp1);
         }
-        int value  = (res + (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
+        int value  = roundf((res + (1<<15)) / (1 << 16)) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         if (res < 0) {
-            value  = (res - (1<<15)) / (1 << 16) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
+            value  = roundf((res - (1<<15)) / (1 << 16)) + offset + static_cast<int32_t>(params->outputZeroPoint[0]);
         }
         if (value > maxValue) {
             value = maxValue;
@@ -1883,9 +1903,9 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
             for (int i = 0; i < pack; ++i) {
                 int32_t val = static_cast<int32_t>(srcX[i] - intputZeroPointValue) * alphaZ[i] + biasZ[i];
 
-                int valOut  = (val + (1<<d)) / (1 << mShiftBits) + outputZeroPointValue;
+                int valOut  = roundf((val + (1<<d)) / (1 << mShiftBits)) + outputZeroPointValue;
                 if (val < 0) {
-                    valOut  = (val - (1<<d)) / (1 << mShiftBits) + outputZeroPointValue;
+                    valOut  = roundf((val - (1<<d)) / (1 << mShiftBits)) + outputZeroPointValue;
                 }
 
                 if (valOut > maxValue + offset) {
@@ -2105,9 +2125,12 @@ void MNNCoreInt8FunctionInit() {
     // pooling
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
     gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8;
-    
+
     // Norm
     gCoreFunc->MNNNormInt8 = MNNNormInt8;
+
+    // ReluWithSlopeChannel
+    gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8;
 
 #if defined(__aarch64__)
     auto core = MNNGetCoreFunctions();
@@ -2120,7 +2143,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 4>;
         // ConvDepthwise
         gCoreFunc->ConvDepthwise3x3LineInt8_ARM82 = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3;
-        
+
     }
     if (core->supportI8mm) {
         // MatMul

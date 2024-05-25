@@ -10,12 +10,17 @@
 
 #include <MNN/expr/Optimizer.hpp>
 #include <set>
+#include <MNN/expr/ExecutorScope.hpp>
 #include "PostConverter.hpp"
 #include "PostTreatUtils.hpp"
 #include "Program.hpp"
 #include "SubGraphComplete.hpp"
 #include "GenerateSubGraph.hpp"
 #include "TemplateMerge.hpp"
+#include "core/Backend.hpp"
+#include "RuntimeAttr.hpp"
+
+#include <MNN/expr/ExecutorScope.hpp>
 //#define MNN_POST_CONVERTER_DEBUG
 
 namespace MNN {
@@ -184,7 +189,15 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 
     std::string pass = "Merge";
     auto& merge      = MNN::Express::TemplateMerge::getInstance(pass);
-    merge.onExecute(program->outputs(), priority, boundary);
+    std::map<std::string, VARP> updateVars;
+    merge.onExecute(program->outputs(), priority, updateVars, boundary);
+
+    auto Update = [&](std::shared_ptr<Program> program, const std::vector<std::string>& tensorName) {
+        program->updateVars(updateVars, tensorName);
+    };
+
+    Update(program, originNet->tensorName);
+
     originNet->oplists.clear();
     originNet->tensorName.clear();
 
@@ -200,6 +213,11 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 
 std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet,
                                            const std::unordered_map<std::string, VARP>& inputs) {
+    auto current = ExecutorScope::Current();
+    current->lazyEval = true;
+    current->setLazyComputeMode(Executor::LAZY_FULL);
+    current->getAttr()->externalFile = ".__convert_external_data.bin";
+
     auto* ctx = Global<OptimizeContext>::Get();
     MNN_ASSERT(ctx != nullptr);
 
