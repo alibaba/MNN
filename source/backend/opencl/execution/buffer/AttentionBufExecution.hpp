@@ -61,6 +61,7 @@ private:
     int mSoftmaxShape[4];
     cl_recording_qcom mRecording{NULL};
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
+    int mByte = 4;
 };
 
 class AttentionBufExecution : public CommonExecution {

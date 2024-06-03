@@ -259,7 +259,7 @@ public:
     Qwen2_0_5b() {
         model_name_ = "Qwen2_0.5b";
         layer_nums_ = 24;
-        key_value_shape_ = {2, 1, 16, 0, 64};
+        key_value_shape_ = {2, 1, 0, 16, 64};
         hidden_size_ = 1024;
     }
 };

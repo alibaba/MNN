@@ -185,7 +185,8 @@ void StaticModule::resetInputOutputs() {
             des->usage = Tensor::InsideDescribe::INPUT;
         }
         pipelineInfo.first.inputTensorCopyCache.insert(std::make_pair(mInputTensors[i], std::make_tuple(nullptr, nullptr, true, true)));
-        mPrevInputTensor[i] = nullptr;
+        mPrevInputTensor[i].first = nullptr;
+        mPrevInputTensor[i].second = nullptr;
     }
     mOutputTensors.resize(mResource->mOutputFromTensor.size());
     for (int i = 0; i < mResource->mOutputFromTensor.size(); ++i) {
@@ -221,9 +222,15 @@ StaticModule::StaticModule(std::vector<int> inputs,
     if (bnCache.cache.first->type() == MNN_FORWARD_CPU) {
         bnCache.cache.second = bnCache.cache.first;
     } else {
+        // Use Multi-thread if user has set numberthread > 1
         BackendConfig defaultConfig;
         defaultConfig.flags = 4;
-        bnCache.cache.second.reset(rt.second->onCreate(&defaultConfig));
+        auto cpurt = rt.first.find(MNN_FORWARD_CPU);
+        if (cpurt != rt.first.end()) {
+            bnCache.cache.second.reset(cpurt->second->onCreate(&defaultConfig));
+        } else {
+            bnCache.cache.second.reset(rt.second->onCreate(&defaultConfig));
+        }
     }
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get());
@@ -285,7 +292,8 @@ StaticModule::~StaticModule() {
 void StaticModule::onClearCache() {
     if (nullptr != mSession) {
         for (int i=0; i<mPrevInputTensor.size(); ++i) {
-            mPrevInputTensor[i] = nullptr;
+            mPrevInputTensor[i].first = nullptr;
+            mPrevInputTensor[i].second = nullptr;
         }
         for (auto& iter : mSession->getPipelineInfo(0).first.inputTensorCopyCache) {
             std::get<3>(iter.second) = true;
@@ -318,19 +326,23 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     MNN_ASSERT(inputs.size() == mInputTensors.size());
     auto& pipelineInfo = mSession->getPipelineInfo(0);
     if (mResource->mModes.inputMode == Interpreter::Session_Input_User) {
+        pipelineInfo.first.inputBackendChange = false;
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
                 continue;
             }
             auto inputTensor = Utils::getTensor(inputs[i]);
             Schedule::TENSORCACHE* cacheTensor = nullptr;
-
-            if (mPrevInputTensor[i] != inputTensor) {
+            if (mPrevInputTensor[i].first != inputTensor) {
+                auto newBackend = TensorUtils::getDescribeOrigin(inputTensor)->getBackend();
+                if (mPrevInputTensor[i].second != newBackend) {
+                    pipelineInfo.first.inputBackendChange = true;
+                }
                 auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
                 cacheTensor = &cacheIter->second;
                 MNN_ASSERT(cacheIter != pipelineInfo.first.inputTensorCopyCache.end());
                 std::get<3>(cacheIter->second) = true;
-                mPrevInputTensor[i] = inputTensor;
+                mPrevInputTensor[i] = std::make_pair(inputTensor, newBackend);
                 if (std::get<1>(*cacheTensor) != nullptr) {
                     if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribeOrigin(std::get<0>(*cacheTensor))->getBackend())) {
                         // No need copy now, reset it

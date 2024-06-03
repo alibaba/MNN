@@ -574,11 +574,10 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
     uint32_t minPoint = UINT_MAX;
     int index = -1;
     for(int i = 0; i < gwsAndLws.size(); ++i){
-        int point = 0;
+        uint32_t point = 0;
         for(int j = 0; j < size; ++j){
-            point += ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]) * ((uint32_t)gws[j] - (uint32_t)gwsAndLws[i].first[j]);
+            point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(gwsAndLws[i].first[j]));
         }
-        point = sqrt(point);
         if(point < minPoint){
             index = i;
             minPoint = point;

@@ -49,7 +49,7 @@ int SoftmaxExecution::getLocalSize(int size, int maxGroupSize){
 ErrorCode SoftmaxExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mUnits.resize(1);
     auto &unit = mUnits[0];
-    auto MaxLocalSize = std::min(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+    auto MaxLocalSize = std::min(std::min(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), static_cast<uint32_t>(512));
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     

@@ -59,10 +59,11 @@ void _AVX_MNNGelu(float *dst, const float *src, size_t size, float* parameters) 
         _mm256_storeu_ps(dst + i * 8, y);
     }
 }
-void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void _AVX_MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     auto count = countC8;
     auto A     = _mm256_broadcast_ss(offset + 0);
     auto B     = _mm256_broadcast_ss(offset + 1);
+    auto C     = _mm256_broadcast_ss(offset + 2);
     auto p0    = _mm256_set1_ps(parameters[0]);
     auto p1    = _mm256_set1_ps(parameters[1]);
     auto p2    = _mm256_set1_ps(parameters[2]);
@@ -76,8 +77,10 @@ void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const 
     auto basic = _mm256_set1_epi32(1 << 23);
     auto temp127 = _mm256_set1_epi32(127);
     auto negZero = _mm256_set1_ps(-0.f);
+    auto summer = _mm256_setzero_ps();
     for (int i = 0; i < count; ++i) {
         auto x            = _mm256_mul_ps(_mm256_loadu_ps(source + i * 8), A);
+        x = _mm256_add_ps(x, C);
         x                 = _mm256_max_ps(x, xMin);
         x                 = _mm256_min_ps(x, xMax);
         auto div          = _mm256_mul_ps(x, p1);
@@ -99,8 +102,17 @@ void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const 
         auto c8        = _mm256_mul_ps(c7, t);
         auto c9        = _mm256_add_ps(c8, p2);
         auto expRemain = c9;
-        _mm256_storeu_ps(dest + 8 * i, _mm256_add_ps(_mm256_mul_ps(expBasic, expRemain), B));
+        auto res =  _mm256_add_ps(_mm256_mul_ps(expBasic, expRemain), B);
+        _mm256_storeu_ps(dest + 8 * i, res);
+        summer = _mm256_add_ps(summer, res);
     }
+    float tmp[8];
+    _mm256_storeu_ps(tmp, summer);
+    float total = offset[3];
+    for (int i=0; i<8; ++i) {
+        total+=tmp[i];
+    }
+    offset[3] = total;
 }
 
 
@@ -270,82 +282,4 @@ void _AVX_MNNNorm(float *dst, const float *src, const float *gamma, const float 
             dst[i] = (src[i] - mean) * variable;
         }
     }
-}
-
-void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
-    float tmpfloat8[8];
-    int count  = static_cast<int32_t>(size / 8);
-    int remain = count * 8;
-    std::vector<float> inpf(size);
-    std::vector<float> outf(size);
-    std::vector<float> inpScale(4, params->inputScale[0]);
-    std::vector<float> outScale(4, params->outputScale[0]);
-    float* srcf = inpf.data();
-    float* dstf = outf.data();
-    // step 0: Int8 -> Float
-    _AVX_MNNInt8ScaleToFloat(inpf.data(), src, inpScale.data(), size / 4, params->inputZeroPoint[0]);
-    float mean = 0;
-    // step 1: get sum
-    if(!RMSNorm){
-        float sum = 0.f;
-        if (count > 0) {
-            auto sumVal = _mm256_set1_ps(0.f);
-            for (int i = 0; i < count; i++) {
-                sumVal = _mm256_add_ps(sumVal, _mm256_loadu_ps(srcf + i * 8));
-            }
-            _mm256_storeu_ps(tmpfloat8, sumVal);
-            for (int i = 0; i < 8; i++) {
-                sum += tmpfloat8[i];
-            }
-        }
-        for (int i = remain; i < size; i++) {
-            sum += srcf[i];
-        }
-        mean = sum / size;
-    }
-    // step 2: get square_sum
-    float square_sum = 0.f;
-    auto meanVal = _mm256_set1_ps(mean);
-    if (count > 0) {
-        auto sumVal = _mm256_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            auto x = _mm256_sub_ps(_mm256_loadu_ps(srcf + i * 8), meanVal);
-            sumVal = _mm256_add_ps(sumVal, _mm256_mul_ps(x, x));
-        }
-        _mm256_storeu_ps(tmpfloat8, sumVal);
-        for (int i = 0; i < 8; i++) {
-            square_sum += tmpfloat8[i];
-        }
-    }
-    for (int i = remain; i < size; i++) {
-        float x = (srcf[i] - mean);
-        square_sum += x * x;
-    }
-    // step 3: get result
-    float variable = square_sum / size;
-    variable = 1.f / sqrt(variable + epsilon);
-    auto variableVal = _mm256_set1_ps(variable);
-    if (gamma && beta) {
-        for (int i = 0; i < count; i++) {
-            auto x = _mm256_sub_ps(_mm256_loadu_ps(srcf + i * 8), meanVal);
-            auto g = _mm256_loadu_ps(gamma + i * 8);
-            auto b = _mm256_loadu_ps(beta + i * 8);
-            auto y = _mm256_add_ps(_mm256_mul_ps(_mm256_mul_ps(x, g), variableVal), b);
-            _mm256_storeu_ps(dstf + i * 8, y);
-        }
-        for (int i = remain; i < size; i++) {
-            dstf[i] = (srcf[i] - mean) * gamma[i] * variable + beta[i] ;
-        }
-    } else {
-        for (int i = 0; i < count; i++) {
-            auto x = _mm256_sub_ps(_mm256_loadu_ps(srcf + i * 8), meanVal);
-            auto y = _mm256_mul_ps(x, variableVal);
-            _mm256_storeu_ps(dstf + i * 8, y);
-        }
-        for (int i = remain; i < size; i++) {
-            dstf[i] = (srcf[i] - mean) * variable;
-        }
-    }
-    // step 4: Float -> Int8
-    _AVX_MNNFloat2Int8(dstf, dst, size / 4, outScale.data(), params->minValue, params->maxValue, params->outputZeroPoint[0]);
 }

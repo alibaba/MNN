@@ -1088,7 +1088,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
                 }
             }
         }
-        if (OpCommonUtils::supportDynamicInputMemory(mInfo.first.cache.first->type())) {
+        if (OpCommonUtils::supportDynamicInputMemory(mInfo.first.cache.first->type()) && (!mInfo.first.inputBackendChange)) {
             return NO_ERROR;
         }
     }

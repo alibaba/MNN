@@ -231,6 +231,7 @@ void Llm::load(const std::string& model_dir) {
 
     cpuBackendConfig.precision = (BackendConfig::PrecisionMode)(mPrecisionMemory % 4);
     cpuBackendConfig.memory = (BackendConfig::MemoryMode)((mPrecisionMemory / 4) % 4);
+    printf("### precision, memory = %d, %d\n", (mPrecisionMemory % 4), ((mPrecisionMemory / 4) % 4));
     config.backendConfig = &cpuBackendConfig;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
@@ -748,28 +749,25 @@ std::vector<int> Llama2_7b::tokenizer(const std::string& query) {
 }
 
 VARP Llama2_7b::gen_attention_mask(int seq_len) {
-    if (seq_len == 1) {
-        auto attention_mask = _Input({1, 1, 1, all_seq_len_ + 1}, NCHW, halide_type_of<float>());
-        auto ptr = attention_mask->writeMap<float>();
-        for (int i = 0; i < all_seq_len_ + 1; i++) {
-            ptr[i] = 0;
-        }
-        return attention_mask;
+    if (needNewVar(attention_mask_, 2, seq_len)) {
+        attention_mask_ = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
     } else {
-        auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
-        auto ptr = attention_mask->writeMap<float>();
-        for (int i = 0; i < seq_len; i++) {
-            for (int j = 0; j < seq_len; j++) {
-                ptr[seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
-            }
-        }
-        return attention_mask;
+        return attention_mask_;
     }
+    auto ptr = attention_mask_->writeMap<float>();
+    for (int i = 0; i < seq_len; i++) {
+        for (int j = 0; j < seq_len; j++) {
+            ptr[seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
+        }
+    }
+    return attention_mask_;
 }
 
 VARP Llama2_7b::gen_position_ids(int seq_len) {
-    auto position_ids = _Input({1, seq_len}, NCHW, halide_type_of<int>());
-    auto ptr = position_ids->writeMap<int>();
+    if (needNewVar(position_ids_, 1, seq_len)) {
+        position_ids_ = _Input({1, seq_len}, NCHW, halide_type_of<int>());
+    }
+    auto ptr = position_ids_->writeMap<int>();
     if (seq_len == 1) {
         ptr[0] = all_seq_len_;
     } else {
@@ -777,7 +775,7 @@ VARP Llama2_7b::gen_position_ids(int seq_len) {
             ptr[i] = i;
         }
     }
-    return position_ids;
+    return position_ids_;
 }
 
 bool Llama2_7b::is_stop(int token_id) {

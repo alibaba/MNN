@@ -27,7 +27,7 @@ stp x21, x22, [sp, #(16 * 6)]
 stp x19, x20, [sp, #(16 * 7)]
 
 mov w22, #0x0f
-dup v10.8b, w22
+dup v10.16b, w22
 
 mov x22, x7 // alpha
 mov x23, x8 // bias
@@ -67,8 +67,6 @@ LoopE8:
     LoopH8x8:
         mov x15, x1
         subs x12, x9, #1
-        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
-        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
 
         ld1 {v0.s}[0], [x13], #4
         ushr v1.8b, v0.8b, #4
@@ -78,18 +76,17 @@ LoopE8:
         sxtl v4.8h, v3.8b
         sxtl v8.4s, v4.4h
         sxtl2 v9.4s, v4.8h
-        scvtf v0.4s, v8.4s
-        scvtf v1.4s, v9.4s
-        fmul v3.4s, v0.4s, v12.4s
-        fmul v4.4s, v1.4s, v13.4s
-        fadd v3.4s, v3.4s, v14.4s
-        fadd v4.4s, v4.4s, v15.4s
+        scvtf v3.4s, v8.4s
+        scvtf v4.4s, v9.4s
         
         ld1 {v0.4s, v1.4s}, [x15], x11
         fmul v16.4s, v3.4s, v0.s[0]
         fmul v17.4s, v3.4s, v0.s[1]
         fmul v18.4s, v3.4s, v0.s[2]
         fmul v19.4s, v3.4s, v0.s[3]
+
+        mov v14.16b, v0.16b
+        mov v15.16b, v1.16b
 
         fmul v20.4s, v4.4s, v0.s[0]
         fmul v21.4s, v4.4s, v0.s[1]
@@ -116,12 +113,8 @@ LoopE8:
             sxtl v4.8h, v3.8b
             sxtl v8.4s, v4.4h
             sxtl2 v9.4s, v4.8h
-            scvtf v0.4s, v8.4s
-            scvtf v1.4s, v9.4s
-            fmul v3.4s, v0.4s, v12.4s
-            fmul v4.4s, v1.4s, v13.4s
-            fadd v3.4s, v3.4s, v14.4s
-            fadd v4.4s, v4.4s, v15.4s
+            scvtf v3.4s, v8.4s
+            scvtf v4.4s, v9.4s
 
             ld1 {v0.4s, v1.4s}, [x15], x11
             fmla v16.4s, v3.4s, v0.s[0]
@@ -144,6 +137,9 @@ LoopE8:
             fmla v30.4s, v4.4s, v1.s[2]
             fmla v31.4s, v4.4s, v1.s[3]
 
+            fadd v14.4s, v0.4s, v14.4s
+            fadd v15.4s, v1.4s, v15.4s
+
             subs x12, x12, #1
             bne LoopL
 
@@ -152,6 +148,52 @@ LoopE8:
         add x13, x13, x19
         sub x8, x8, #2
         cmp x8, #2
+
+        mov v0.16b, v14.16b
+        mov v1.16b, v15.16b
+
+        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
+        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
+
+        fmul v16.4s, v16.4s, v12.4s
+        fmul v17.4s, v17.4s, v12.4s
+        fmul v18.4s, v18.4s, v12.4s
+        fmul v19.4s, v19.4s, v12.4s
+
+        fmul v24.4s, v24.4s, v12.4s
+        fmul v25.4s, v25.4s, v12.4s
+        fmul v26.4s, v26.4s, v12.4s
+        fmul v27.4s, v27.4s, v12.4s
+
+        fmul v20.4s, v20.4s, v13.4s
+        fmul v21.4s, v21.4s, v13.4s
+        fmul v22.4s, v22.4s, v13.4s
+        fmul v23.4s, v23.4s, v13.4s
+
+        fmul v28.4s, v28.4s, v13.4s
+        fmul v29.4s, v29.4s, v13.4s
+        fmul v30.4s, v30.4s, v13.4s
+        fmul v31.4s, v31.4s, v13.4s
+
+        fmla v16.4s, v14.4s, v0.s[0]
+        fmla v17.4s, v14.4s, v0.s[1]
+        fmla v18.4s, v14.4s, v0.s[2]
+        fmla v19.4s, v14.4s, v0.s[3]
+
+        fmla v20.4s, v15.4s, v0.s[0]
+        fmla v21.4s, v15.4s, v0.s[1]
+        fmla v22.4s, v15.4s, v0.s[2]
+        fmla v23.4s, v15.4s, v0.s[3]
+
+        fmla v24.4s, v14.4s, v1.s[0]
+        fmla v25.4s, v14.4s, v1.s[1]
+        fmla v26.4s, v14.4s, v1.s[2]
+        fmla v27.4s, v14.4s, v1.s[3]
+
+        fmla v28.4s, v15.4s, v1.s[0]
+        fmla v29.4s, v15.4s, v1.s[1]
+        fmla v30.4s, v15.4s, v1.s[2]
+        fmla v31.4s, v15.4s, v1.s[3]
 
         cbz x5, StoreLH8
         AddBiasLH8:
@@ -225,11 +267,6 @@ LoopE8:
         stp q30, q31, [x0, #(32 * 3)]
         add x0, x0, x7
 
-        // st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0], #64
-        // st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x0], x14
-        // st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x0], #64
-        // st1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x0], x14
-
         bge LoopH8x8
 
     LH4:
@@ -237,8 +274,6 @@ LoopE8:
     LoopHRemain:
         mov x15, x1
         subs x12, x9, #1
-        ld1 {v12.4s}, [x14] // alpha
-        ld1 {v14.4s}, [x24] // bias
 
         ld1 {v0.s}[0], [x13], #4
         ushr v1.8b, v0.8b, #4
@@ -247,9 +282,7 @@ LoopE8:
 
         sxtl v4.8h, v3.8b
         sxtl v8.4s, v4.4h
-        scvtf v0.4s, v8.4s
-        fmul v3.4s, v0.4s, v12.4s
-        fadd v3.4s, v3.4s, v14.4s
+        scvtf v3.4s, v8.4s
 
         ld1 {v0.4s}, [x15], #16
         fmul v16.4s, v3.4s, v0.s[0]
@@ -263,6 +296,10 @@ LoopE8:
         fmul v21.4s, v3.4s, v1.s[1]
         fmul v22.4s, v3.4s, v1.s[2]
         fmul v23.4s, v3.4s, v1.s[3]
+
+        mov v14.16b, v0.16b
+        mov v15.16b, v1.16b
+
         beq LoopLREnd
 
         LoopLR:
@@ -273,9 +310,7 @@ LoopE8:
 
             sxtl v4.8h, v3.8b
             sxtl v8.4s, v4.4h
-            scvtf v0.4s, v8.4s
-            fmul v3.4s, v0.4s, v12.4s
-            fadd v3.4s, v3.4s, v14.4s
+            scvtf v3.4s, v8.4s
             ld1 {v0.4s}, [x15], #16
             fmla v16.4s, v3.4s, v0.s[0]
             fmla v17.4s, v3.4s, v0.s[1]
@@ -284,6 +319,8 @@ LoopE8:
             sub x15, x15, #16
             fmla v19.4s, v3.4s, v0.s[3]
             add x15, x15, x11
+            fadd v14.4s, v0.4s, v14.4s
+            fadd v15.4s, v1.4s, v15.4s
 
             fmla v20.4s, v3.4s, v1.s[0]
             fmla v21.4s, v3.4s, v1.s[1]
@@ -293,6 +330,30 @@ LoopE8:
             subs x12, x12, #1
             bne LoopLR
         LoopLREnd:
+        mov v0.16b, v14.16b
+        mov v1.16b, v15.16b
+        ld1 {v12.4s}, [x14] // alpha
+        ld1 {v14.4s}, [x24] // bias
+
+        fmul v16.4s, v16.4s, v12.4s
+        fmul v17.4s, v17.4s, v12.4s
+        fmul v18.4s, v18.4s, v12.4s
+        fmul v19.4s, v19.4s, v12.4s
+
+        fmul v20.4s, v20.4s, v12.4s
+        fmul v21.4s, v21.4s, v12.4s
+        fmul v22.4s, v22.4s, v12.4s
+        fmul v23.4s, v23.4s, v12.4s
+
+        fmla v16.4s, v14.4s, v0.s[0]
+        fmla v17.4s, v14.4s, v0.s[1]
+        fmla v18.4s, v14.4s, v0.s[2]
+        fmla v19.4s, v14.4s, v0.s[3]
+
+        fmla v20.4s, v14.4s, v1.s[0]
+        fmla v21.4s, v14.4s, v1.s[1]
+        fmla v22.4s, v14.4s, v1.s[2]
+        fmla v23.4s, v14.4s, v1.s[3]
 
         cbz x5, StoreLH8x4
         AddBiasLH8x4:
@@ -612,34 +673,76 @@ LoopE1:
     E1LH8:
     E1LoopH8:
         mov x15, x1
-        subs x12, x9, #1
+        mov x12, x9
 
-        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
-        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
+        movi v16.16b, #0
+        movi v20.16b, #0
 
-        ld1 {v0.s}[0], [x13], #4
-        ushr v1.8b, v0.8b, #4
-        and v2.8b, v0.8b, v10.8b
-        zip1 v3.8b, v1.8b, v2.8b
+        movi v17.16b, #0
 
-        sxtl v4.8h, v3.8b
-        sxtl v8.4s, v4.4h
-        sxtl2 v9.4s, v4.8h
-        scvtf v0.4s, v8.4s
-        scvtf v1.4s, v9.4s
-        fmul v3.4s, v0.4s, v12.4s
-        fmul v4.4s, v1.4s, v13.4s
-        fadd v3.4s, v3.4s, v14.4s
-        fadd v4.4s, v4.4s, v15.4s
+#if 1
+        cmp x12, #4
+        blt E1LoopL
+        E1LoopL4:
+            sub x12, x12, #4
+            ld1 {v3.4s}, [x13], #16
+            ld1 {v0.s}[0], [x15], x11
+            ushr v1.16b, v3.16b, #4
+            ld1 {v0.s}[1], [x15], x11
+            and v2.16b, v3.16b, v10.16b
+            zip1 v3.16b, v1.16b, v2.16b
+            zip2 v4.16b, v1.16b, v2.16b
+            ld1 {v0.s}[2], [x15], x11
 
-        ld1 {v0.s}[0], [x15], x11
-        fmul v16.4s, v3.4s, v0.s[0]
-        fmul v20.4s, v4.4s, v0.s[0]
+            sxtl v24.8h, v3.8b
+            sxtl2 v25.8h, v3.16b
+            ld1 {v0.s}[3], [x15], x11
 
+            sxtl v28.4s, v24.4h
+            sxtl2 v29.4s, v24.8h
+            sxtl v30.4s, v25.4h
+            sxtl2 v31.4s, v25.8h
+
+            scvtf v28.4s, v28.4s
+            scvtf v29.4s, v29.4s
+            scvtf v30.4s, v30.4s
+            scvtf v31.4s, v31.4s
+
+            fadd v17.4s, v0.4s, v17.4s
+
+            fmla v16.4s, v28.4s, v0.s[0]
+            fmla v20.4s, v29.4s, v0.s[0]
+            fmla v16.4s, v30.4s, v0.s[1]
+            fmla v20.4s, v31.4s, v0.s[1]
+
+            sxtl v24.8h, v4.8b
+            sxtl2 v25.8h, v4.16b
+
+            sxtl v28.4s, v24.4h
+            sxtl2 v29.4s, v24.8h
+            sxtl v30.4s, v25.4h
+            sxtl2 v31.4s, v25.8h
+
+            scvtf v28.4s, v28.4s
+            scvtf v29.4s, v29.4s
+            scvtf v30.4s, v30.4s
+            scvtf v31.4s, v31.4s
+
+            fmla v16.4s, v28.4s, v0.s[2]
+            fmla v20.4s, v29.4s, v0.s[2]
+            fmla v16.4s, v30.4s, v0.s[3]
+            fmla v20.4s, v31.4s, v0.s[3]
+
+            cmp x12, #4
+            bge E1LoopL4
+        faddp v17.4s, v17.4s, v17.4s
+        faddp v17.2s, v17.2s, v17.2s
+        cmp x12, #0
         beq E1LoopLEnd
 
+#endif
         E1LoopL:
-
+            subs x12, x12, #1
             ld1 {v0.s}[0], [x13], #4
             ushr v1.8b, v0.8b, #4
             and v2.8b, v0.8b, v10.8b
@@ -648,24 +751,31 @@ LoopE1:
             sxtl v4.8h, v3.8b
             sxtl v8.4s, v4.4h
             sxtl2 v9.4s, v4.8h
-            scvtf v0.4s, v8.4s
-            scvtf v1.4s, v9.4s
-            fmul v3.4s, v0.4s, v12.4s
-            fmul v4.4s, v1.4s, v13.4s
-            fadd v3.4s, v3.4s, v14.4s
-            fadd v4.4s, v4.4s, v15.4s
+            scvtf v3.4s, v8.4s
+            scvtf v4.4s, v9.4s
+
             ld1 {v0.s}[0], [x15], x11
             fmla v16.4s, v3.4s, v0.s[0]
             fmla v20.4s, v4.4s, v0.s[0]
+            fadd v17.2s, v0.2s, v17.2s
 
-            subs x12, x12, #1
             bne E1LoopL
 
         E1LoopLEnd:
 
         add x13, x13, x19
         sub x8, x8, #2
+        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
+        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
         cmp x8, #2
+
+        dup v17.4s, v17.s[0]
+        fmul v16.4s, v12.4s, v16.4s
+        fmul v20.4s, v13.4s, v20.4s
+        fmul v14.4s, v17.4s, v14.4s 
+        fmul v15.4s, v17.4s, v15.4s 
+        fadd v16.4s, v14.4s, v16.4s
+        fadd v20.4s, v15.4s, v20.4s
 
         cbz x5, StoreLH1x8
         AddBiasLH1x8:
@@ -692,21 +802,18 @@ LoopE1:
     mov x15, x1
     subs x12, x9, #1
 
-    ld1 {v12.4s}, [x14] // alpha
-    ld1 {v14.4s}, [x24] // bias
     ld1 {v0.s}[0], [x13], #4
     ushr v1.8b, v0.8b, #4
     and v2.8b, v0.8b, v10.8b
     zip1 v3.8b, v1.8b, v2.8b
 
-    sxtl v4.8h, v3.8b
-    sxtl v8.4s, v4.4h
-    scvtf v0.4s, v8.4s
-    fmul v3.4s, v0.4s, v12.4s
-    fadd v3.4s, v3.4s, v14.4s
+    sxtl v3.8h, v3.8b
+    sxtl v3.4s, v3.4h
+    scvtf v3.4s, v3.4s
 
     ld1 {v0.s}[0], [x15], x11
     fmul v16.4s, v3.4s, v0.s[0]
+    mov v4.16b, v0.16b
 
     beq E1LoopLREnd
 
@@ -716,17 +823,21 @@ LoopE1:
         and v2.8b, v0.8b, v10.8b
         zip1 v3.8b, v1.8b, v2.8b
 
-        sxtl v4.8h, v3.8b
-        sxtl v8.4s, v4.4h
-        scvtf v0.4s, v8.4s
-        fmul v3.4s, v0.4s, v12.4s
-        fadd v3.4s, v3.4s, v14.4s
+        sxtl v3.8h, v3.8b
+        sxtl v3.4s, v3.4h
+        scvtf v3.4s, v3.4s
+
         ld1 {v0.s}[0], [x15], x11
         fmla v16.4s, v3.4s, v0.s[0]
+        fadd v4.2s, v0.2s, v4.2s
 
         subs x12, x12, #1
         bne E1LoopLR
     E1LoopLREnd:
+    ld1 {v12.4s}, [x14] // alpha
+    ld1 {v14.4s}, [x24] // bias
+    fmul v16.4s, v12.4s, v16.4s
+    fmla v16.4s, v14.4s, v4.s[0]
 
     cbz x5, StoreLH1x4
     AddBiasLH1x4:

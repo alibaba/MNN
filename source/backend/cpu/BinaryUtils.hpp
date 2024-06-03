@@ -198,7 +198,26 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
 
     if (-1 == needBroadcastIndex) {
         if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
+            int sizeDivC4 = sizeDivUnit / 4;
+            int sizeDivUnitRemain = sizeDivUnit % 4;
+            for (int i = 0; i < sizeDivC4; ++i) {
+                V a0 = V::load(src0);
+                V b0 = V::load(src1);
+                V a1 = V::load(src0 + 1 * pack);
+                V b1 = V::load(src1 + 1 * pack);
+                V a2 = V::load(src0 + 2 * pack);
+                V b2 = V::load(src1 + 2 * pack);
+                V a3 = V::load(src0 + 3 * pack);
+                V b3 = V::load(src1 + 3 * pack);
+                V::save(dst, compute(a0, b0));
+                V::save(dst+1*pack, compute(a1, b1));
+                V::save(dst+2*pack, compute(a2, b2));
+                V::save(dst+3*pack, compute(a3, b3));
+                src0 += 4*pack;
+                src1 += 4*pack;
+                dst += 4*pack;
+            }
+            for (int i = 0; i < sizeDivUnitRemain; ++i) {
                 V a = V::load(src0);
                 V b = V::load(src1);
                 V::save(dst, compute(a, b));
@@ -222,11 +241,23 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
         const U srcValue0 = src0[0];
         V a = V(srcValue0);
         if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
-                const auto src1Ptr = src1;
-                auto dstPtr = dst;
-                V b = V::load(src1Ptr);
-                V::save(dstPtr, compute(a, b));
+            int sizeDivC4 = sizeDivUnit / 4;
+            int sizeUnitRemain = sizeDivUnit % 4;
+            for (int i = 0; i < sizeDivC4; ++i) {
+                V b0 = V::load(src1);
+                V b1 = V::load(src1 + 1*pack);
+                V b2 = V::load(src1 + 2*pack);
+                V b3 = V::load(src1 + 3*pack);
+                V::save(dst, compute(a, b0));
+                V::save(dst+1*pack, compute(a, b1));
+                V::save(dst+2*pack, compute(a, b2));
+                V::save(dst+3*pack, compute(a, b3));
+                src1 += 4*pack;
+                dst += 4*pack;
+            }
+            for (int i = 0; i < sizeUnitRemain; ++i) {
+                V b = V::load(src1);
+                V::save(dst, compute(a, b));
                 src1 += pack;
                 dst += pack;
             }
@@ -243,7 +274,23 @@ void executeVec(void* outputRaw, const void* inputRaw0, const void* inputRaw1, i
         const auto srcValue1 = static_cast<U>(src1[0]);
         V b = V(srcValue1);
         if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
+            int sizeDivC4 = sizeDivUnit / 4;
+            int sizeUnitRemain = sizeDivUnit % 4;
+            for (int i = 0; i < sizeDivC4; ++i) {
+                const auto src0Ptr = src0;
+                auto dstPtr = dst;
+                V a0 = V::load(src0Ptr);
+                V a1 = V::load(src0Ptr + 1*pack);
+                V a2 = V::load(src0Ptr + 2*pack);
+                V a3 = V::load(src0Ptr + 3*pack);
+                V::save(dstPtr, compute(a0, b));
+                V::save(dstPtr+1*pack, compute(a1, b));
+                V::save(dstPtr+2*pack, compute(a2, b));
+                V::save(dstPtr+3*pack, compute(a3, b));
+                src0 += 4*pack;
+                dst += 4*pack;
+            }
+            for (int i = 0; i < sizeUnitRemain; ++i) {
                 const auto src0Ptr = src0;
                 auto dstPtr = dst;
                 V a = V::load(src0Ptr);

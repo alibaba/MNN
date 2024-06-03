@@ -56,13 +56,6 @@ protected:
         auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x,
                            channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, false);
         auto yfp32 = _Conv(std::move(weightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
-
-        if (nbit != 8) {
-            std::unique_ptr<MNN::OpT> op(y->expr().first->get()->UnPack());
-            op->main.AsConvolution2D()->symmetricQuan->nbits = nbit;
-            y = Variable::create(Expr::create(op.get(), {x}));
-            op.reset();
-        }
         auto yInfo = y->getInfo();
         auto ow = yInfo->dim[3], oh = yInfo->dim[2];
 #if defined (__aarch64__) && (precision == 2)
@@ -73,18 +66,20 @@ protected:
         auto yPtr  = y->readMap<FLOAT_T>();
         auto tgPtr = yfp32->readMap<FLOAT_T>();
         auto elesize = batch * oc * oh * ow;
-        if (nbit == 8) {
-            for (int i = 0; i < elesize; ++i) {
-                float targetValue = tgPtr[i], computeResult = yPtr[i];
-                float diff = targetValue - computeResult;
-                float ratio = fabsf(diff) / fmax(targetValue, computeResult);
-                if (targetValue != 0 && computeResult != 0 && ratio > 0.02) {
-                    MNN_PRINT("HybridConv result Error: %f -> %f\n", targetValue, computeResult);
-                    return false;
-                } else if ((targetValue == 0 || computeResult == 0) && fabsf(diff) > 0.02) {
-                    MNN_PRINT("HybridConv result Error: %f -> %f\n", targetValue, computeResult);
-                    return false;
-                }
+        float limit = 0.02f;
+        if (nbit < 8) {
+            limit = 0.1f;
+        }
+        for (int i = 0; i < elesize; ++i) {
+            float targetValue = tgPtr[i], computeResult = yPtr[i];
+            float diff = targetValue - computeResult;
+            float ratio = fabsf(diff) / fmax(targetValue, computeResult);
+            if (targetValue != 0 && computeResult != 0 && ratio > limit) {
+                MNN_PRINT("HybridConv result Error: %f -> %f\n", targetValue, computeResult);
+                return false;
+            } else if ((targetValue == 0 || computeResult == 0) && fabsf(diff) > limit) {
+                MNN_PRINT("HybridConv result Error: %f -> %f\n", targetValue, computeResult);
+                return false;
             }
         }
         if (testSpeed) {
@@ -112,9 +107,10 @@ public:
         INTS channel1 = {1496, 256};
         int batch[2] = {1, 13};
         std::vector<int> kernels = {1, 1};
-        std::vector<int> weightBits = {8};
+        std::vector<int> weightBits = {8, 4};
         bool lowmemory = true;
         for (auto& bits : weightBits) {
+            MNN_PRINT("Test for %d bits\n", bits);
             for (int n = 0; n < 2; ++n) {
                 auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channel0, pad, strides, dilate, batch[n], bits, precision, true);
                 if (!res) {

@@ -39,6 +39,8 @@ public:
     LoopBatchMatMulBufExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
     virtual ~LoopBatchMatMulBufExecution() = default;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
 
 private:
     const LoopParam *mLoop;
@@ -52,6 +54,8 @@ private:
     bool mTransposeA = false;
     bool mTransposeB = false;
     std::set<std::string> mBuildOptions;
+    bool mBatchGemmOpt = false;
+    int mBatch, mM, mN, mK;
 };
 
 

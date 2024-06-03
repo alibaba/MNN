@@ -25,11 +25,7 @@ void AttentionBufImpl::allocKVCache() {
         return;
     }
     mMaxLength = mPastLength + mExpandChunk;
-    int byte = 4;
-    if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-        byte = 2;
-    }
-    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * byte;
+    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * mByte;
     // past_key: [1, numhead, headdim, maxlen]
     mPastKey.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
     // past_value: [1, numhead, maxlen, headdim]
@@ -40,13 +36,9 @@ void AttentionBufImpl::reallocKVCache() {
     if (!mKVCache || mPastLength < mMaxLength) {
         return;
     }
-    int byte = 4;
-    if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-        byte = 2;
-    }
-    size_t old_size = mNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * byte;
+    size_t old_size = mNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
     mMaxLength = mPastLength + mExpandChunk;
-    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * byte;
+    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * mByte;
     // past_key: [1, numhead, headdim, maxlen]
     auto new_key = new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     // past_value: [1, numhead, maxlen, headdim]
@@ -77,7 +69,7 @@ void AttentionBufImpl::reallocKVCache() {
     
     mPastKey.reset(new_key);
     mPastValue.reset(new_value);
-    size_t temp_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * byte;
+    size_t temp_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * mByte;
     mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, temp_size));
     mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, temp_size));
     
@@ -145,17 +137,16 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         mKv_seq_len = mPastLength + 1;
     }
     
-    allocKVCache();
-    int byte = 4;
     if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-        byte = 2;
+        mByte = 2;
     }
+    allocKVCache();
     if (mIsDecode) {
-        size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * byte;
+        size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * mByte;
         mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
         mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
     } else {
-        size_t buffer_size = UP_DIV(mPastLength, 4) * mPastLength * mNumHead * 4 * byte;
+        size_t buffer_size = UP_DIV(mPastLength, 4) * mPastLength * mNumHead * 4 * mByte;
         mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
         mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
     }
@@ -168,6 +159,9 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         }
         if((mHeadDim % 4) != 0){
             buildOption.emplace("-DHEADDIM_LEAVE");
+        }
+        if(mask->getType() == halide_type_of<float>()){
+            buildOption.emplace("-DADD_MASK");
         }
         mKernel_qk = runtime->buildKernel("attention_buf", "matmul_qk_div_mask", buildOption, inputs[0], outputs[0]);
         mGlobalWorkSizeQk =  {static_cast<uint32_t>(UP_DIV(seq_len, 4)), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(UP_DIV(mKv_seq_len, 4))};
@@ -209,7 +203,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
     
     // softmax
     {
-        auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+        auto MaxLocalSize = std::min(std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), static_cast<uint32_t>(512));
         int localSize = getLocalSize(mKv_seq_len, MaxLocalSize);
         if(localSize < 4){
             localSize = 1;
@@ -269,10 +263,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         }
         mKernel_qkv = runtime->buildKernel("attention_buf", "matmul_qkv", buildOption, inputs[0], outputs[0]);
         auto maxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_qkv));
-        mGlobalWorkSizeQkv =  {static_cast<uint32_t>(UP_DIV(seq_len, 4)), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(mHeadDim)};
-        if(mIsDecode){
-            mGlobalWorkSizeQkv =  {static_cast<uint32_t>(1), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(UP_DIV(mHeadDim, 4))};
-        }
+        mGlobalWorkSizeQkv =  {static_cast<uint32_t>(UP_DIV(seq_len, 4)), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(UP_DIV(mHeadDim, 4))};
         
         uint32_t index = 0;
         cl_int ret = CL_SUCCESS;

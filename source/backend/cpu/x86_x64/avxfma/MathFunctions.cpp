@@ -55,10 +55,11 @@ void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size, float* parameter
     }
 }
 
-void _AVX_MNNExpC8FMA(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void _AVX_MNNExpC8FMA(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     auto count = countC8;
     auto A     = _mm256_broadcast_ss(offset + 0);
     auto B     = _mm256_broadcast_ss(offset + 1);
+    auto C     = _mm256_broadcast_ss(offset + 2);
     auto p0    = _mm256_set1_ps(parameters[0]);
     auto p1    = _mm256_set1_ps(parameters[1]);
     auto p2    = _mm256_set1_ps(parameters[2]);
@@ -72,8 +73,10 @@ void _AVX_MNNExpC8FMA(float* dest, const float* source, const float* offset, con
     auto basic = _mm256_set1_epi32(1 << 23);
     auto temp127 = _mm256_set1_epi32(127);
     auto negZero = _mm256_set1_ps(-0.f);
+    auto summer = _mm256_setzero_ps();
     for (int i = 0; i < count; ++i) {
         auto x            = _mm256_mul_ps(_mm256_loadu_ps(source + i * 8), A);
+        x = _mm256_add_ps(x, C);
         x                 = _mm256_max_ps(x, xMin);
         x                 = _mm256_min_ps(x, xMax);
         auto div          = _mm256_mul_ps(x, p1);
@@ -90,6 +93,15 @@ void _AVX_MNNExpC8FMA(float* dest, const float* source, const float* offset, con
         auto c7        = _mm256_fmadd_ps(c5, t, p3);
         auto c9        = _mm256_fmadd_ps(c7, t, p2);
         auto expRemain = c9;
-        _mm256_storeu_ps(dest + 8 * i, _mm256_fmadd_ps(expBasic, expRemain, B));
+        auto res = _mm256_fmadd_ps(expBasic, expRemain, B);
+        summer = _mm256_add_ps(summer, res);
+        _mm256_storeu_ps(dest + 8 * i, res);
     }
+    float tmp[8];
+    _mm256_storeu_ps(tmp, summer);
+    float total = offset[3];
+    for (int i=0; i<8; ++i) {
+        total+=tmp[i];
+    }
+    offset[3] = total;
 }

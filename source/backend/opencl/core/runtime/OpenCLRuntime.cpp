@@ -110,7 +110,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             }
         #endif
             
-            if (deviceName == "QUALCOMM Adreno(TM)") {
+            if (deviceName.find("QUALCOMM Adreno") != std::string::npos) {
                 mGpuType = ADRENO;
                 
                 // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
@@ -582,12 +582,14 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DINPUT_TYPE_I4=half4";
                 buildOptionsStr += " -DINPUT_TYPE=half";
                 buildOptionsStr += " -DINPUT_TYPE4=half4";
+                buildOptionsStr += " -DINPUT_TYPE16=half16";
                 buildOptionsStr += " -DRI_DATA=read_imageh";
             }else{
                 buildOptionsStr += " -DINPUT_TYPE_I=float";
                 buildOptionsStr += " -DINPUT_TYPE_I4=float4";
                 buildOptionsStr += " -DINPUT_TYPE=float";
                 buildOptionsStr += " -DINPUT_TYPE4=float4";
+                buildOptionsStr += " -DINPUT_TYPE16=float16";
                 buildOptionsStr += " -DRI_DATA=read_imagef";
             }
         }
@@ -601,11 +603,13 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
             if(output->getType().bits == 8){
                 buildOptionsStr += " -DOUTPUT_TYPE=char";
                 buildOptionsStr += " -DOUTPUT_TYPE4=char4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=char16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_char4";
                 buildOptionsStr += " -DWI_DATA=write_imagei";
             } else if(output->getType().bits == 32){
                 buildOptionsStr += " -DOUTPUT_TYPE=int";
                 buildOptionsStr += " -DOUTPUT_TYPE4=int4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=int16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_int4";
                 buildOptionsStr += " -DWI_DATA=write_imagei";
             } else {
@@ -619,11 +623,13 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
             if(output->getType().bits == 8){
                 buildOptionsStr += " -DOUTPUT_TYPE=uchar";
                 buildOptionsStr += " -DOUTPUT_TYPE4=uchar4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=uchar16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_uchar4";
                 buildOptionsStr += " -DWI_DATA=write_imageui";
             } else if(output->getType().bits == 32){
                 buildOptionsStr += " -DOUTPUT_TYPE=uint";
                 buildOptionsStr += " -DOUTPUT_TYPE4=uint4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=uint16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_uint4";
                 buildOptionsStr += " -DWI_DATA=write_imageui";
             } else {
@@ -637,7 +643,9 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_half4";
                 buildOptionsStr += " -DOUTPUT_TYPE=half";
                 buildOptionsStr += " -DOUTPUT_TYPE4=half4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=half16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_half4";
+                buildOptionsStr += " -DCONVERT_OUTPUT16=convert_half16";
                 buildOptionsStr += " -DWI_DATA=write_imageh";
             }else{
                 buildOptionsStr += " -DOUTPUT_TYPE_I=float";
@@ -645,7 +653,9 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DCONVERT_OUTPUT_I4=convert_float4";
                 buildOptionsStr += " -DOUTPUT_TYPE=float";
                 buildOptionsStr += " -DOUTPUT_TYPE4=float4";
+                buildOptionsStr += " -DOUTPUT_TYPE16=float16";
                 buildOptionsStr += " -DCONVERT_OUTPUT4=convert_float4";
+                buildOptionsStr += " -DCONVERT_OUTPUT16=convert_float16";
                 buildOptionsStr += " -DWI_DATA=write_imagef";
             }
         }
@@ -910,7 +920,11 @@ void OpenCLRuntime::printEventTime(){
         return;
     }
     int raster_num = 0, raster_time = 0;
-    unsigned int conv_time = 0, while_time = 0;
+    unsigned int conv_time = 0, loop_bg_time = 0, loop_bg_gemm_time = 0;
+    unsigned int conv_gemm2_buf_time = 0, conv_gemm1_buf_time = 0;
+    unsigned int conv_1x1_buf_time = 0, conv_ori_buf_time = 0, wino_gemm_time = 0;
+
+    std::vector<std::pair<std::string, int>> kernels(mEvents.size());
     for(int i = 0; i < mEvents.size(); ++i){
         auto event = &mEvents[i].second;
         cl_int res = event->wait();
@@ -919,16 +933,52 @@ void OpenCLRuntime::printEventTime(){
         auto StopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
         auto kernel_time = (unsigned int)((StopNanos - StartNanos) / 1000.0);
         mKernelTime += kernel_time;
-        if(mEvents[i].first == "ConvBuf2D" || (mEvents[i].first.length() >= 11 && mEvents[i].first.substr(0, 11) == "Convolution")) {
+        if (mEvents[i].first.length() >= 15 && mEvents[i].first.substr(0, 15) == "ConvBuf2D-gemm2") {
+            conv_gemm2_buf_time += kernel_time;
+            conv_time += kernel_time;
+        } else if (mEvents[i].first.length() >= 15 && mEvents[i].first.substr(0, 15) == "ConvBuf2D-gemm1") {
+            conv_gemm1_buf_time += kernel_time;
+            conv_time += kernel_time;
+        } else if (mEvents[i].first.length() >= 17 && mEvents[i].first.substr(0, 17) == "ConvBuf2D-conv1x1") {
+            conv_1x1_buf_time += kernel_time;
+            conv_time += kernel_time;
+        } else if (mEvents[i].first.length() >= 13 && mEvents[i].first.substr(0, 13) == "ConvBuf2D-ori") {
+            conv_ori_buf_time += kernel_time;
+            conv_time += kernel_time;
+        } else if (mEvents[i].first.length() >= 11 && mEvents[i].first.substr(0, 11) == "Convolution") {
             conv_time += kernel_time;
         }
-        if((mEvents[i].first.length() >= 5 && mEvents[i].first.substr(0, 5) == "While")) {
-            while_time += kernel_time;
+        if((mEvents[i].first.length() >= 10 && mEvents[i].first.substr(0, 10) == "While-gemm")) {
+            loop_bg_time += kernel_time;
         }
-        MNN_PRINT("kernel time = %d    us %s\n", kernel_time, mEvents[i].first.c_str());
+        if((mEvents[i].first.length() >= 20 && mEvents[i].first.substr(0, 20) == "While-gemm-batchgemm")) {
+            loop_bg_gemm_time += kernel_time;
+        }
+        if((mEvents[i].first.length() >= 23 && mEvents[i].first.substr(0, 23) == "Conv-winograd-batchgemm")) {
+            wino_gemm_time += kernel_time;
+            conv_time += kernel_time;
+        }
+        
+        kernels[i] = std::make_pair(mEvents[i].first, kernel_time);
+    }
+#ifdef SORT_PROFILE_TIME
+    for(int i = 0; i < mEvents.size(); i++) {
+        for(int j = i+1; j < mEvents.size(); j++) {
+            if(kernels[i].second > kernels[j].second) {
+                auto tmp = kernels[i];
+                kernels[i].first = kernels[j].first;
+                kernels[i].second = kernels[j].second;
+                kernels[j].first = tmp.first;
+                kernels[j].second = tmp.second;
+            }
+        }
+    }
+#endif
+    for(int i = 0; i < mEvents.size(); i++) {
+        MNN_PRINT("kernel time = %d    us %s\n", kernels[i].second, kernels[i].first.c_str());
     }
     mEvents.clear();
-    MNN_PRINT("total kernel time = %d  us, conv time = %d us, while time = %d us\n", mKernelTime, conv_time, while_time);
+    MNN_PRINT("total kernel time = %d  us, conv time = %d us (gemm2:%d us, gemm1:%d us, 1x1:%d us, ori:%d us, wino: %d us, other: %d us), while gemm time = %d us (core gemm time: %d us)\n", mKernelTime, conv_time, conv_gemm2_buf_time, conv_gemm1_buf_time, conv_1x1_buf_time, conv_ori_buf_time, wino_gemm_time, conv_time-conv_gemm2_buf_time-conv_gemm1_buf_time-conv_1x1_buf_time-conv_ori_buf_time-wino_gemm_time, loop_bg_time, loop_bg_gemm_time);
 #endif
 }
 } // namespace MNN

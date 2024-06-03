@@ -148,7 +148,6 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     const int intput_width_idx0 = out_w4_idx;
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
-        int input_width_base  = mul24(in_channel_block_idx, out_w);
 
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
         const int inp_offset =
@@ -308,7 +307,6 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     const int intput_width_idx0 = out_w2_idx;
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
-        int input_width_base  = mul24(in_channel_block_idx, out_w);
 
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
         const int inp_offset =
@@ -422,8 +420,7 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     const int intput_width_idx0 = out_w_idx;
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
-        int input_width_base  = mul24(in_channel_block_idx, out_w);
-
+        
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*4;
         const int inp_offset =
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
@@ -484,7 +481,6 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     const int intput_width_idx0 = out_w2_idx;
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
-        int input_width_base  = mul24(in_channel_block_idx, out_w);
 
         int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*4;
         const int inp_offset =

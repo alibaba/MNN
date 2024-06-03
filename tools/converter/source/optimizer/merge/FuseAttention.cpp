@@ -66,15 +66,19 @@ FuseAttention::FuseAttention() {
         if (!helpers::IsSoftmax(x)) {
             return false;
         }
-        // where
+        // mask
         x = x->inputs().at(0)->expr().first;
-        if (!helpers::IsSelect(x)) {
+        if (helpers::IsSelect(x)) {
+            mask = x->inputs().at(0);
+            x = x->inputs().at(1)->expr().first;
+        } else if (helpers::IsBinaryAdd(x)) {
+            mask = x->inputs().at(1);
+            x = x->inputs().at(0)->expr().first;
+        } else {
             return false;
         }
-        // mask
-        mask = x->inputs().at(0);
+
         // div
-        x = x->inputs().at(1)->expr().first;
         if (helpers::IsCast(x)) {
             x = x->inputs().at(0)->expr().first;
         }

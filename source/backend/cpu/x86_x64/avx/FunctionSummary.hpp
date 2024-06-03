@@ -55,7 +55,7 @@ void _AVX_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale,
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
-void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8);
+void _AVX_MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8);
 void _AVX_MNNSoftmax(float* dest, const float* source, size_t size);
 void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint);
 void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, ssize_t zeroPoint);

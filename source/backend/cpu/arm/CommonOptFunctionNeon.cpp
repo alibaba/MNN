@@ -4,7 +4,6 @@
 #include <arm_neon.h>
 #include "./FunctionSummary.hpp"
 #include "core/MemoryFormater.h"
-
 extern "C" {
 void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);
 void MNNTranspose16Bit8x8(int16_t* dstO, const int16_t* srcO, int32_t* dim);

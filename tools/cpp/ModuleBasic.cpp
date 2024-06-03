@@ -14,8 +14,6 @@
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
 #include "core/MemoryFormater.h"
-#include <fstream>
-#include <sstream>
 #include <numeric>
 #include "ExprDebug.hpp"
 
@@ -400,16 +398,23 @@ int main(int argc, char *argv[]) {
         }
         if (nullptr != gTimeTraceInfo) {
             float opSummer = 0.0f;
+            float opFlopsSummber = 0.0f;
             for (auto& iter : gTimeTraceInfo->mTypes) {
                 float summer = 0.0f;
+                float summerflops = 0.0f;
                 for (auto& t : iter.second) {
-                    summer += std::accumulate(t.second.begin(), t.second.end(), 0.0f);
+                    for (auto& t0 : t.second) {
+                        summer += t0.first;
+                        summerflops += t0.second;
+                    }
                 }
                 summer = summer / (float)t;
-                MNN_PRINT("%s : %.7f\n", iter.first.c_str(), summer);
+                summerflops = summerflops / (float)t;
+                MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops, summerflops / summer);
                 opSummer += summer;
+                opFlopsSummber+= summerflops;
             }
-            MNN_PRINT("OP Summer: %.7f\n", opSummer);
+            MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
         }
         auto minTime = std::min_element(times.begin(), times.end());
         auto maxTime = std::max_element(times.begin(), times.end());

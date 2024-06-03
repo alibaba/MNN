@@ -55,7 +55,7 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
     const auto dims = input->buffer().dimensions;
     auto runtime       = mOpenCLBackend->getOpenCLRuntime();
 
-    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize) / 4;
+    auto MaxLocalSize = std::min(std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), static_cast<uint32_t>(256));
 
     int inside  = 1;
     int outside = 1;
@@ -99,6 +99,8 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         mAxis = 3;
         mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight};
     }
+    
+//    printf("softmax: %d %d %d %d, %d\n", inputBatch, inputChannels, inputHeight, inputWidth, mAxis);
     buildSoftmaxKernel(localSize);
     
     cl_int ret = CL_SUCCESS;

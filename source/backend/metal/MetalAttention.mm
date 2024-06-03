@@ -32,7 +32,11 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     const device T* input1 [[buffer(1)]],
     device T* output [[buffer(2)]],
     device T* past_key [[buffer(3)]],
+#ifdef FLOAT_MASK
+    const device T* mask [[buffer(4)]],
+#else
     const device int* mask [[buffer(4)]],
+#endif
     constant Param& param [[buffer(5)]],
     uint3 gid[[thread_position_in_grid]]) {
     const int x = gid.x; // query_seq_len
@@ -65,7 +69,11 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     
     out0 *= Vscale;
     
+#ifdef FLOAT_MASK
+    out0 = mask[((x + 0) * key_seq_len + (z + 0))] + out0;
+#else
     out0 = mask[((x + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
+#endif
     output[output_offset + x * key_seq_len + z] = (T)out0;
 #else
     const device T *B_offset = input1 + offset_head;
@@ -187,12 +195,12 @@ private:
     bool mIsDecode = false;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
     int mNumHead = 0, mHeadDim = 0, mValueH = 0;
-    id<MTLComputePipelineState> mKernel_softmax;
+    id<MTLComputePipelineState> mKernel_softmax = nil;
     
-    id<MTLComputePipelineState> mKernel_qk;
-    id<MTLComputePipelineState> mKernel_qkv;
-    id<MTLComputePipelineState> mKernelPrefill_qk;
-    id<MTLComputePipelineState> mKernelPrefill_qkv;
+    id<MTLComputePipelineState> mKernel_qk = nil;
+    id<MTLComputePipelineState> mKernel_qkv = nil;
+    id<MTLComputePipelineState> mKernelPrefill_qk = nil;
+    id<MTLComputePipelineState> mKernelPrefill_qkv = nil;
     id<MTLBuffer> mParamQKV;
     id<MTLBuffer> mParamSoftmax;
 };
@@ -205,57 +213,16 @@ struct Param {
     float scale;
 };
 AttentionBufExecution::AttentionBufExecution(Backend *backend, bool kv_cahce)
-    : MetalExecution(backend) , mKVCache(kv_cahce){
+    : MetalExecution(backend) , mKVCache(kv_cahce) {
     _init();
 }
 void AttentionBufExecution::_init() {
     mCache.reset(new SharedCache);
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
-    mKernel_softmax = [context pipelineWithName:@"softmax_plane" fp16:mtbn->useFp16InsteadFp32()];
     mParamQKV = [context newDeviceBuffer:sizeof(Param) access:CPUWriteOnly];
     mParamSoftmax = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
-    auto rt = mtbn->runtime();
-    std::string T = "float";
-    if (mtbn->useFp16InsteadFp32()) {
-        T = "half";
-    }
-    std::vector<std::string> keys = {
-        "matmul_qk_div_mask",
-        T
-    };
-    auto pipeline = rt->findPipeline(keys);
-    if (nil == pipeline) {
-        // Rebuild Pipeline
-        MTLCompileOptions *decodeOption = [[MTLCompileOptions alloc] init];
-        decodeOption.preprocessorMacros = @{
-            @"T" : @(T.c_str()),
-        };
 
-        MTLCompileOptions* encodeOption = [[MTLCompileOptions alloc] init];
-        encodeOption.preprocessorMacros = @{
-            @"T" : @(T.c_str()),
-            @"FOR_PREFILL": @"1"
-        };
-        mKernel_qk = mtbn->makeComputePipelineWithSourceOption(gMatMulDivMask, "main0", decodeOption);
-        mKernelPrefill_qk = mtbn->makeComputePipelineWithSourceOption(gMatMulDivMask, "main0", encodeOption);
-        mKernel_qkv = mtbn->makeComputePipelineWithSourceOption(gMatMulQKV, "main0", decodeOption);
-        mKernelPrefill_qkv = mtbn->makeComputePipelineWithSourceOption(gMatMulQKV, "main0", encodeOption);
-
-        rt->insertPipeline({"matmul_qk_div_mask", T}, mKernel_qk);
-        rt->insertPipeline({"matmul_qk_div_mask", T, "PREFILL"}, mKernelPrefill_qk);
-        rt->insertPipeline({"matmul_qkv", T}, mKernel_qkv);
-        rt->insertPipeline({"matmul_qkv", T, "PREFILL"}, mKernelPrefill_qkv);
-    } else {
-        mKernel_qk = rt->findPipeline({"matmul_qk_div_mask", T});
-        mKernelPrefill_qk = rt->findPipeline({"matmul_qk_div_mask", T, "PREFILL"});
-        mKernel_qkv = rt->findPipeline({"matmul_qkv", T});
-        mKernelPrefill_qkv = rt->findPipeline({"matmul_qkv", T, "PREFILL"});
-    }
-    MNN_ASSERT(nil != mKernel_qk);
-    MNN_ASSERT(nil != mKernel_qkv);
-    MNN_ASSERT(nil != mKernelPrefill_qk);
-    MNN_ASSERT(nil != mKernelPrefill_qkv);
 }
 
 void AttentionBufExecution::reallocKVCache() {
@@ -315,7 +282,68 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     auto shape = query->shape();
-    
+    if (nil == mKernel_softmax) {
+        // Init Kernel
+        bool float_mask = (mask->getType() == halide_type_of<float>());
+        auto rt = mtbn->runtime();
+        std::string T = "float";
+        if (mtbn->useFp16InsteadFp32()) {
+            T = "half";
+        }
+        std::vector<std::string> qkKeys = {
+            {"matmul_qk_div_mask", T}
+        };
+        std::vector<std::string> qkvKeys = {
+            {"matmul_qkv", T}
+        };
+        std::vector<std::string> qkPrefillKeys = {
+            {"matmul_qk_div_mask", T, "FOR_PREFILL"}
+        };
+        if (float_mask) {
+            qkPrefillKeys.emplace_back("FLOAT_MASK");
+        }
+        std::vector<std::string> qkvPrefillKeys = {
+            {"matmul_qkv", T, "FOR_PREFILL"}
+        };
+        std::vector<std::vector<std::string>> keys = {
+            qkKeys,
+            qkvKeys,
+            qkPrefillKeys,
+            qkvPrefillKeys
+        };
+        std::vector<const char*> sources = {
+            gMatMulDivMask,
+            gMatMulQKV,
+            gMatMulDivMask,
+            gMatMulQKV,
+        };
+        std::vector<id<MTLComputePipelineState>> pipelines(keys.size());
+        for (int i=0; i<keys.size(); ++i) {
+            auto pipeline = rt->findPipeline(keys[i]);
+            if (nil == pipeline) {
+                // Rebuild Pipeline
+                MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+                auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+                [dic setValue:@(keys[i][1].c_str()) forKey:@"T"];
+                for (int j=2; j<keys[i].size(); ++j) {
+                    [dic setValue:@"1" forKey:@(keys[i][j].c_str())];;
+                }
+                option.preprocessorMacros = dic;
+                pipeline = mtbn->makeComputePipelineWithSourceOption(sources[i], "main0", option);
+                rt->insertPipeline(keys[i], pipeline);
+            }
+            pipelines[i] = pipeline;
+        }
+        mKernel_qk = pipelines[0];
+        mKernel_qkv = pipelines[1];
+        mKernelPrefill_qk = pipelines[2];
+        mKernelPrefill_qkv = pipelines[3];
+        MNN_ASSERT(nil != mKernel_qk);
+        MNN_ASSERT(nil != mKernel_qkv);
+        MNN_ASSERT(nil != mKernelPrefill_qk);
+        MNN_ASSERT(nil != mKernelPrefill_qkv);
+        mKernel_softmax = [context pipelineWithName:@"softmax_plane" fp16:mtbn->useFp16InsteadFp32()];
+    }
     int seq_len = shape[1];
     mNumHead = shape[2];
     mHeadDim = shape[3];

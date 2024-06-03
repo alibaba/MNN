@@ -595,7 +595,13 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     Session::ModeGroup group;
     group.inputMode = Interpreter::Session_Input_User;
     group.outputMode = Interpreter::Session_Output_User;
-    group.callBackMode = Interpreter::Session_Release;
+    auto globalExecutor = ExecutorScope::Current();
+    auto debug = globalExecutor->getDebugTools();
+    if (debug->after != nullptr && debug->before != nullptr) {
+        group.callBackMode = Interpreter::Session_Debug;
+    } else {
+        group.callBackMode = Interpreter::Session_Release;
+    }
     group.memoryUsageMode = Interpreter::Session_Memory_Cache;
     std::shared_ptr<ComputeCache> cahce(new ComputeCache);
     for (auto& iter : dstExpr) {

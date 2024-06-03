@@ -754,7 +754,4 @@ void _AVX_MNNInt8FunctionInit(void* functions) {
 
     // conv depthwise
     gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit;
-
-    // Norm
-    gAVX2CoreInt8Functions->MNNNormInt8 = _AVX_MNNNormInt8;
 }

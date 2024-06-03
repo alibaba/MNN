@@ -1976,12 +1976,13 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* a
     MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
-void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     auto count = countC8 * 8;
     auto param = parameters[0];
     float xLimit = 87;
+    float summer = offset[3];
     for (int i = 0; i < count; ++i) {
-        auto x         = source[i] * offset[0];
+        auto x         = source[i] * offset[0] + offset[2];
         x = ALIMAX(x, -xLimit);
         x = ALIMIN(x, xLimit);
         int div        = (x * parameters[1]);
@@ -1993,7 +1994,9 @@ void MNNExpC8(float* dest, const float* source, const float* offset, const float
             ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
             parameters[2];
         dest[i] = expBasic * expRemain + offset[1];
+        summer+= dest[i];
     }
+    offset[3] = summer;
 }
 
 void MNNSoftmax(float* dest, const float* source, size_t size) {
@@ -2537,7 +2540,7 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, i
     }
 }
 
-void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize) {
+void MNNExp(float* dst, const float* src, float* offset, size_t dataSize) {
     int countC8        = static_cast<int32_t>(dataSize) / 8;
     int remain = static_cast<int32_t>(dataSize) % 8;
     float parameters[] = {
@@ -2547,11 +2550,27 @@ void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize) 
         MNNExpC8(dst, src, offset, parameters, countC8);
     }
     if (remain > 0) {
-        float intmp[8] = {0};
-        float outmp[8] = {0};
-        ::memcpy(intmp, src + 8 * countC8, remain * sizeof(float));
-        MNNExpC8(outmp, intmp, offset, parameters, 1);
-        ::memcpy(dst + 8 * countC8, outmp, remain * sizeof(float));
+        auto param = parameters[0];
+        float xLimit = 87;
+        float summer = offset[3];
+        auto source = src + countC8 * 8;
+        auto dest = dst + countC8 * 8;
+        for (int i = 0; i < remain; ++i) {
+            auto x         = source[i] * offset[0] + offset[2];
+            x = ALIMAX(x, -xLimit);
+            x = ALIMIN(x, xLimit);
+            int div        = (x * parameters[1]);
+            int div2       = (div + 127) << 23;
+            auto xReamin   = x - div * param;
+            float expBasic = *(float*)(&div2);
+            auto t = xReamin;
+            auto expRemain =
+                ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
+                parameters[2];
+            dest[i] = expBasic * expRemain + offset[1];
+            summer+= dest[i];
+        }
+        offset[3] = summer;
     }
 }
 
@@ -2577,8 +2596,10 @@ void MNNTanh(float* dst, const float* src, size_t dataSize) {
         dst[i] = tanhf_poly(src[i]);
     }
      */
-    float offset[2] = {
+    float offset[4] = {
         -2.0f,
+        0.0f,
+        0.0f,
         0.0f
     };
     MNNExp(dst, src, offset, dataSize);
@@ -2798,19 +2819,32 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
             C[y] = sumRemain + sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
         }
     } else {
-        auto hC4 = h / 4;
-        auto hR = hC4 * 4;
+        auto hC4 = h / 16;
+        auto hR = hC4 * 16;
         for (int y=tId; y<hC4; y+=numberThread) {
-            auto bs = B + 4 * y;
-            Vec4 sumValue = Vec4(0.0f);
+            auto bs = B + 16 * y;
+            Vec4 sumValue0 = Vec4(0.0f);
+            Vec4 sumValue1 = Vec4(0.0f);
+            Vec4 sumValue2 = Vec4(0.0f);
+            Vec4 sumValue3 = Vec4(0.0f);
             if (biasPtr != nullptr) {
-                sumValue = Vec4::load(biasPtr + 4 * y);
+                sumValue0 = Vec4::load(biasPtr + 16 * y + 0);
+                sumValue1 = Vec4::load(biasPtr + 16 * y + 4);
+                sumValue2 = Vec4::load(biasPtr + 16 * y + 8);
+                sumValue3 = Vec4::load(biasPtr + 16 * y + 12);
             }
             auto srcY = A + y * l;
             for (int x=0; x<l; ++x) {
-                sumValue = sumValue + Vec4(A[x]) * Vec4::load(bs + h * x);
+                auto a = Vec4(A[x]);
+                sumValue0 = sumValue0 + a * Vec4::load(bs + h * x);
+                sumValue1 = sumValue1 + a * Vec4::load(bs + h * x + 4);
+                sumValue2 = sumValue2 + a * Vec4::load(bs + h * x + 8);
+                sumValue3 = sumValue3 + a * Vec4::load(bs + h * x + 12);
             }
-            Vec4::save(C + 4 * y, sumValue);
+            Vec4::save(C + 16 * y, sumValue0);
+            Vec4::save(C + 16 * y + 4, sumValue1);
+            Vec4::save(C + 16 * y + 8, sumValue2);
+            Vec4::save(C + 16 * y + 12, sumValue3);
         }
         for (int y=hR + tId; y<h; y+=numberThread) {
             auto bs = B + y;
@@ -2982,8 +3016,10 @@ void MNNSin(float* dst, const float* src, size_t dataSize) {
 }
 
 void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
-    float offset[2] = {
+    float offset[4] = {
        -1.0f,
+        0.0f,
+        0.0f,
         0.0f
     };
     MNNExp(dst, src, offset, dataSize);
@@ -2997,8 +3033,10 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
  Thanks for https://github.com/hroken
  */
 void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
-    float offset[2] = {
+    float offset[4] = {
        -1.0f,
+        0.0f,
+        0.0f,
         0.0f
     };
     MNNExp(dst, src, offset, dataSize);

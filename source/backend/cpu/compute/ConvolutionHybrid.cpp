@@ -44,7 +44,7 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + hU * hP * bytes);
     ::memset(alphaPtr, 0, 2 * hU * hP * bytes);
     int h = int8Info->alpha.size();
-    if (int8Info->canUseInt4) {
+    if (int8Info->canUseInt4 && int8Info->asymmetric) {
         // int4 to uint4, -8 offset merge to bias
         for (int i = 0; i < h/2; ++i) {
             int8Info->alpha.get()[2 * i] -= 8 * int8Info->alpha.get()[2 * i + 1];
@@ -61,6 +61,12 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
             }
         } else {
             core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(alphaPtr), h);
+            if (int8Info->canUseInt4) {
+                for (int i = 0; i < h; ++i) {
+                    int8Info->alpha.get()[i] *= -8.0;
+                    core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(biasPtr), h);
+                }
+            }
         }
     } else {
         if (int8Info->asymmetric) {
@@ -72,7 +78,11 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
         } else {
             for (int i=0; i<h; ++i) {
                 alphaPtr[i] = int8Info->alpha.get()[i];
-                biasPtr[i] = 0.f;
+                if (int8Info->canUseInt4) {
+                    biasPtr[i] = -8.0 * int8Info->alpha.get()[i];
+                } else {
+                    biasPtr[i] = 0.f;
+                }
             }
         }
     }

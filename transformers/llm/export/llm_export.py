@@ -771,21 +771,22 @@ class Qwen_Chat(LLM):
         return hidden_states.view(-1, 1, self.hidden_size)
 
 class QWEN2Block(torch.nn.Module):
-    def __init__(self, name, block, block_id, hidden_size, head_dim, final_layernorm = None):
+    def __init__(self, name, block, block_id, config, final_layernorm = None):
         super().__init__()
         self.name = name
         self.block = block
         self.block_id = block_id
         self.final_layernorm = final_layernorm
-        self.hidden_size = hidden_size
-        self.head_dim = head_dim
+        self.hidden_size = config.hidden_size
+        self.head_dim = config.hidden_size // config.num_attention_heads
+        self.rope_theta = config.rope_theta
 
     def forward(self, hidden_states, attention_mask, position_ids, past_kv):
-        theta = 1.0 / (10000.0 ** (torch.arange(0, self.head_dim, 2, dtype=torch.float32) / self.head_dim))
+        theta = 1.0 / (self.rope_theta ** (torch.arange(0, self.head_dim, 2, dtype=torch.float32) / self.head_dim))
         position_ids = position_ids.float().reshape(-1, 1)
         idx_theta = position_ids * theta
         rotary_pos_emb = torch.cat((idx_theta, idx_theta), dim=-1)
-        rotary_pos_emb = rotary_pos_emb.unsqueeze(0).unsqueeze(0)
+        rotary_pos_emb = rotary_pos_emb.unsqueeze(1).unsqueeze(0)
         rotary_pos_emb = torch.stack([torch.cos(rotary_pos_emb), torch.sin(rotary_pos_emb)])
         hidden_states = hidden_states.view(1, -1, self.hidden_size)
         hidden_states, presents = self.block(hidden_states=hidden_states,
@@ -815,30 +816,36 @@ class Qwen2_Chat(LLM):
         self.final_layernorm_ = transformer.norm
         # some wrapper
         self.stop_id = self.tokenizer.eos_token_id
-        if hasattr(model, 'generation_config'):
+        if hasattr(self.model, 'generation_config'):
             self.stop_ids.append(self.stop_id)
             for id in self.model.generation_config.eos_token_id:
                 self.stop_ids.append(id)
         self.block_nums = self.config.num_hidden_layers
         self.hidden_size = self.config.hidden_size
         self.num_heads = self.config.num_attention_heads
+        self.rope_theta = self.config.rope_theta
         self.head_dim = self.hidden_size // self.num_heads
-        self.embed = Embedding(self.embed_, self.embed_bf16)
+        if self.embed_.weight is self.lm_.weight:
+            import copy
+            embed_copy = copy.deepcopy(self.embed_)
+            self.embed = Embedding(embed_copy, self.embed_bf16)
+        else:
+            self.embed = Embedding(self.embed_, self.embed_bf16)
         self.lm = Lm(self.lm_)
-        self.past_kv_shape = [self.block_nums, 2, 1, self.num_heads, 0, self.head_dim]
-        self.blocks = [QWEN2Block(self.model_name, self.blocks_[i], i, self.hidden_size, self.head_dim, self.final_layernorm_ if i == len(self.blocks_) - 1 else None) for i in range(self.block_nums)]
+        self.past_kv_shape = [self.block_nums, 2, 1, 0, self.num_heads, self.head_dim]
+        self.blocks = [QWEN2Block(self.model_name, self.blocks_[i], i, self.config, self.final_layernorm_ if i == len(self.blocks_) - 1 else None) for i in range(self.block_nums)]
         # some config for export
         self.block_dynamic_axes = {
             "inputs_embeds" : { 0: "seq_len" },
             "attention_mask" : { 2: "seq_len", 3: "seq_len" },
             "position_ids" : { 0: "seq_len" },
-            "past_key_values" : { 2: "history_len" }
+            "past_key_values" : { 1: "history_len" }
         }
         self.model_dynamic_axes = {
             "input_ids" : { 0: "seq_len" },
             "attention_mask" : { 2: "seq_len", 3: "seq_len" },
             "position_ids" : { 0: "seq_len" },
-            "past_key_values" : { 3: "history_len" }
+            "past_key_values" : { 2: "history_len" }
         }
 
     def build_prompt(self, query):
@@ -922,7 +929,7 @@ class Llama2_7b_Chat(LLM):
         # some wrapper
         self.hidden_size = self.embed_.weight.shape[-1]
         self.stop_id = self.tokenizer.eos_token_id
-        if hasattr(model, 'generation_config'):
+        if hasattr(self.model, 'generation_config'):
             self.stop_ids.append(self.stop_id)
             self.stop_ids.append(self.model.generation_config.eos_token_id)
         if self.model_name == 'Llama3_8B':
@@ -940,13 +947,13 @@ class Llama2_7b_Chat(LLM):
         self.block_dynamic_axes = {
             "inputs_embeds" : { 0: "seq_len" },
             "attention_mask" : { 2: "seq_len", 3: "seq_len" },
-            "position_ids" : { 0: "seq_len" },
+            "position_ids" : { 1: "seq_len" },
             "past_key_values" : { 3: "history_len" }
         }
         self.model_dynamic_axes = {
             "input_ids" : { 0: "seq_len" },
             "attention_mask" : { 2: "seq_len", 3: "seq_len" },
-            "position_ids" : { 0: "seq_len" },
+            "position_ids" : { 1: "seq_len" },
             "past_key_values" : { 4: "history_len" }
         }
 
