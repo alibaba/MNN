@@ -33,6 +33,12 @@ struct ConvBufResource {
     std::set<std::string> mBuildOptions;
     bool mConv1x1Opt = false;
     bool mConv1x1C8Opt = false;
+    /*
+     0 -> not use
+     1 -> use small tile
+     2 -> use quieter large tile
+     */
+    int mConvGemmOptLevel = 0;
     std::shared_ptr<Execution> mRasterExe;
     bool mUseImage = false;
 };
@@ -67,6 +73,14 @@ private:
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     std::shared_ptr<KernelWrap> mKernel;
+    std::shared_ptr<Tensor> mConvGemmInpTensor;
+    std::shared_ptr<Tensor> mConvGemmOutTensor;
+    std::shared_ptr<KernelWrap> mPreKernel = nullptr;
+    std::vector<uint32_t> mPreGlobalWorkSize{1, 1, 1};
+    std::vector<uint32_t> mPreLocalWorkSize{1, 1, 1, 1};
+    std::shared_ptr<KernelWrap> mPostKernel = nullptr;
+    std::vector<uint32_t> mPostGlobalWorkSize{1, 1, 1};
+    std::vector<uint32_t> mPostLocalWorkSize{1, 1, 1, 1};
     const float* mFilterDataPtr = nullptr;
 };
 

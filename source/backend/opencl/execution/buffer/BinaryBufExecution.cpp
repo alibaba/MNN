@@ -257,20 +257,33 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
     int fullCount[2] = {1, 1};
+    fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
+    fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
     
     int activationType = 0;
     if(mOp->type() == OpType_BinaryOp) {
         activationType = mOp->main_as_BinaryOp()->activationType();
     }
     auto &unit = mUnits[0];
-    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions, inputs[0], output);
+    
+    std::set<std::string> buildOptions = mBuildOptions;
+    int wh_pack = 1;
+    if((outputShape[1]*outputShape[2]) % 4 == 0) {
+        wh_pack = 4;
+        buildOptions.emplace("-DWH_PACK4");
+    }
+    if(fullCount[0] == 0) {
+        buildOptions.emplace("-DA_SINGLE");
+    }
+    if(fullCount[1] == 0) {
+        buildOptions.emplace("-DB_SINGLE");
+    }
+    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[0], output);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize =  {(uint32_t)UP_DIV(outputShape[3], 4) * outputShape[0],
-                                        (uint32_t)outputShape[1]*outputShape[2]};
-    fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
-    fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
-    
+                                        (uint32_t)UP_DIV(outputShape[1]*outputShape[2], wh_pack)};
+
     uint32_t index = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(index++, mGlobalWorkSize[0]);
@@ -284,7 +297,7 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
     std::string name = "binary_buf";
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLocalWorkSize = {(uint32_t)16, (uint32_t)16};
     
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -293,7 +306,15 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         fullCount[0] = 1;
         fullCount[1] = realSize(inputs[i]) == 1 ? 0 : 1;
         auto &unit = mUnits[i-1];
-        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions, inputs[i], output);
+        
+        std::set<std::string> buildOptions = mBuildOptions;
+        if((outputShape[1]*outputShape[2]) % 4 == 0) {
+            buildOptions.emplace("-DWH_PACK4");
+        }
+        if(fullCount[1] == 0) {
+            buildOptions.emplace("-DB_SINGLE");
+        }
+        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[i], output);
 
         uint32_t index = 0;
         ret |= unit.kernel->get().setArg(index++, mGlobalWorkSize[0]);

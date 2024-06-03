@@ -80,8 +80,10 @@ void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
 
-void MNNExpC8(float* dest, const float* source, const float* parameters, const float* offset, size_t countC8);
-void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize);
+void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8);
+
+// Offset: o0, o1, o2, o3: dst = exp(src*o0+o2)+o1, o3 = o3+sum(dst)
+void MNNExp(float* dst, const float* src, float* offset, size_t dataSize);
 void MNNSin(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNSigmoid(float* dst, const float* src, size_t dataSize);

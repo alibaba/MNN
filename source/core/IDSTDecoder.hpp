@@ -134,7 +134,7 @@ static void InsertSimpleSet(PSIMPLE_SET set, int8_t value) {
     //    SimpleRank(set->UniSet, set->CurUniCnt, 1);
 }
 
-void DestorySimpleSet(PSIMPLE_SET set) {
+static void DestorySimpleSet(PSIMPLE_SET set) {
     if (set->UniSet != nullptr)
         free(set->UniSet);
     free(set);

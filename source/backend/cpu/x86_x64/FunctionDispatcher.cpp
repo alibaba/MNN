@@ -28,7 +28,7 @@ struct FunctionGroup {
     int eP                                                                                       = 12;
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
-    void (*MNNExpC8)(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
+    void (*MNNExpC8)(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
     void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
@@ -130,7 +130,6 @@ void MNNInt8FunctionInit() {
     auto core = MNN::MNNGetInt8CoreFunctions();
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
     core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
-    core->MNNNormInt8    = _SSE_MNNNormInt8;
     core->MNNReluWithSlopeChannelInt8 = _SSE_MNNReluWithSlopeChannelInt8;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
@@ -185,7 +184,7 @@ void MNNGelu(float* dst, const float* src, size_t size, float* parameters) {
     return gFunc.MNNGelu(dst, src, size, parameters);
 }
 
-void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     gFunc.MNNExpC8(dest, source, offset, parameters, countC8);
 }
 

@@ -29,14 +29,8 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
     if (isIntel) {
         return input->width() * input->height() <= 4096;
     }
-    if (output->channel() > 512) {
-        return false;
-    }
-    const int input_channel_limit = output->channel() <= 64 ? 1024 : 512;
-    if(input->channel() < 32 || input->channel() > input_channel_limit){
-        return false;
-    }
-    return (input->width() <= 32 && input->height() <= 32);
+
+    return input->channel() >= 32 && output->channel() >= 32 && input->width() < output->channel();
 }
 
 ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
@@ -598,6 +592,63 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
         }
     }
     
+    return NO_ERROR;
+}
+    
+ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime = openCLBackend->getOpenCLRuntime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int idx = 0;
+#else
+    if(openCLBackend->isUseRecordQueue()){
+        openCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
+        return NO_ERROR;
+    }
+#endif
+    auto res = CL_SUCCESS;
+    for (auto &unit : mUnits) {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize,
+                                                    nullptr,
+                                                    &event);
+        std::string name = "Conv-winograd";
+
+        if(idx % 3 == 1) {
+            name += "-batchgemm";
+        } else {
+            name += "-rearrange";
+        }
+        auto wUnit = UP_DIV(outputs[0]->width(), UNIT);
+        auto hUnit = UP_DIV(outputs[0]->height(), UNIT);
+        auto icC4 = ROUND_UP(inputs[0]->channel(), 4);
+
+        auto ocC4 = ROUND_UP(outputs[0]->channel(), 4);
+        int alpha  = mKernelX + UNIT - 1;
+
+        auto gemmHeight = ocC4;
+        auto gemmWidth  = ROUND_UP(wUnit * hUnit, 4);
+        
+        std::string b = std::to_string(alpha*alpha);
+        std::string m = std::to_string(gemmWidth);
+        std::string n = std::to_string(gemmHeight);
+        std::string k = std::to_string(icC4);
+        std::string total = std::to_string(1.0 / 1000000 * alpha*alpha * gemmWidth * gemmHeight * icC4);
+        name += "-b" + b + "m" + m + "n" + n + "k" + k + "-total:" + total + "*10^6";
+        runtime->pushEvent({name.c_str(), event});
+        idx++;
+    #else
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize);
+    #endif
+        MNN_CHECK_CL_SUCCESS(res, "While-gemm execute");
+    }
     return NO_ERROR;
 }
 

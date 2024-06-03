@@ -24,7 +24,7 @@ namespace MNN {
 
 CPUMatMul::CPUMatMul(Backend* backend, bool transposeA, bool transposeB, bool transposeC, bool multiThread)
     : Execution(backend), mTransposeA(transposeA), mTransposeB(transposeB), mTransposeC(transposeC), mSupportMultiThread(multiThread) {
-    mComputer.reset(new StrassenMatrixComputor(backend, mSupportMultiThread, 5));
+        // Do nothing
 }
 
 void CPUMatMul::_scheduleForVecE(int e, int l, int h) {
@@ -37,7 +37,7 @@ void CPUMatMul::_scheduleForVecE(int e, int l, int h) {
     param.BTranspose = mTransposeB;
     param.numberThread = numberThread;
     auto func = static_cast<CPUBackend*>(backend())->functions()->MNNComputeMatMulForE_1;
-    mPostFunctions.emplace_back(std::make_pair([param, func](
+    mPreFunctions.emplace_back(std::make_pair([param, func](
                                                                              int tId, const float* A, const float* B, const float* biasPtr, float* C) {
         func(A, B, C, biasPtr, &param, tId);
     }, numberThread));
@@ -54,7 +54,7 @@ void CPUMatMul::_scheduleForVec(int e, int l, int h) {
     auto func = static_cast<CPUBackend*>(backend())->functions()->MNNComputeMatMulForH_1;
     // TODD: Support e = 1
     MNN_ASSERT(h == 1);
-    mPostFunctions.emplace_back(std::make_pair([param, func](
+    mPreFunctions.emplace_back(std::make_pair([param, func](
         int tId, const float* A, const float* B, const float* biasPtr, float* C) {
         func(A, B, C, biasPtr, &param, tId);
     }, numberThread));
@@ -66,12 +66,16 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     Tensor* C       = outputs[0];
     auto core = static_cast<CPUBackend*>(backend())->functions();
     mPreFunctions.clear();
-    mPostFunctions.clear();
     int e, l, h;
-    OpCommonUtils::computeMatMulSize(mTransposeA, mTransposeB, A, B, e, l, h);
+    bool valid = OpCommonUtils::computeMatMulSize(mTransposeA, mTransposeB, A, B, e, l, h);
+    if (!valid) {
+        return COMPUTE_SIZE_ERROR;
+    }
+    mE = 0;
+    mL = 0;
+    mH = 0;
 
     // If encoded but resized as h=1/e=1, the computer should clear firstly
-    mComputer->onReset();
     if (h == 1) {
         _scheduleForVec(e, l, h);
         return NO_ERROR;
@@ -83,38 +87,19 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     }
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+    int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
-    auto ATPtrAlloc = bufferAlloc->alloc(UP_DIV(l, core->pack) * e * core->pack * core->bytes);
+    auto ATPtrAlloc = bufferAlloc->alloc(eP * l * core->bytes * numberThread);
     auto BTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, hP) * UP_DIV(l, lP) * lP * hP * core->bytes);
-    auto CTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, core->pack) * e * core->pack * core->bytes);
+    auto CTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, core->pack) * eP * core->pack * core->bytes * numberThread);
     if (ATPtrAlloc.invalid() || BTPtrAlloc.invalid() || CTPtrAlloc.invalid()) {
         return OUT_OF_MEMORY;
     }
 
-    int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias) {
+    mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias, float* C) {
         core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), BPtr, h, l, mTransposeB);
     } , 1));
-    if (mTransposeA) {
-        // l, e -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair([ATPtrAlloc, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
-            int offset[] = {
-                e, e
-            };
-            core->MNNPackCUnit((float*)ATPtrAlloc.ptr(), APtr, e, l, offset);
-        }, 1));
-    } else {
-        // e, l -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair(
-            [ATPtrAlloc, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
-            int offset[] = {
-                e, e
-            };
-            core->MNNPackCUnitTranspose((float*)ATPtrAlloc.ptr(), APtr, e, l, offset);
-        }, 1));
-    }
     bool useBias = false;
-    std::vector<float> postParameters;
     MemChunk bdestAlloc;
     bool bdestNeedFree = false;
     if (inputs.size() > 2) {
@@ -122,59 +107,44 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
         useBias = true;
         auto biasLength = bias->elementSize();
         if (biasLength % core->pack != 0) {
-            mStrassenUseBiasDirectly = false;
+            mUseBiasDirectly = false;
             // Padding to align of 4
             bdestAlloc = bufferAlloc->alloc(UP_DIV(biasLength, core->pack) * core->pack * core->bytes);
             bdestNeedFree = true;
             if (bdestAlloc.invalid()) {
                 return OUT_OF_MEMORY;
             }
+            mTempBias = bdestAlloc;
             mPreFunctions.emplace_back(std::make_pair(
-                [biasLength, bdestAlloc, core](int tId, const float* APtr, const float* BPtr, const float* borigin) {
+                [biasLength, bdestAlloc, core](int tId, const float* APtr, const float* BPtr, const float* borigin, float* C) {
                 ::memset(bdestAlloc.ptr(), 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
                 ::memcpy(bdestAlloc.ptr(), borigin, biasLength * core->bytes);
             }, 1));
         } else {
-            mStrassenUseBiasDirectly = true;
+            mUseBiasDirectly = true;
             if (TensorUtils::getDescribeOrigin(bias)->mem.get()) {
                 bdestAlloc = TensorUtils::getDescribeOrigin(bias)->mem->chunk();
             }
         }
-        postParameters = {
+        mPostParameters = {
             1.0f,
             1.0f,
             -std::numeric_limits<float>().max(),
             std::numeric_limits<float>().max(),
         };
     }
-    auto code = mComputer->onEncode(e, l, h, e * core->pack, UP_DIV(l, lP) * lP * hP, e * core->pack, ATPtrAlloc, BTPtrAlloc, CTPtrAlloc, useBias, bdestAlloc, postParameters);
-    if (NO_ERROR != code) {
-        return code;
-    }
     if (bdestNeedFree) {
         bufferAlloc->free(bdestAlloc);
-    }
-    // hC4, e, 4 -> e, h
-    if (mTransposeC) {
-        mPostFunctions.emplace_back(std::make_pair([CTPtrAlloc, e, h, core](
-                int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
-            int offset[] = {
-                e, e
-            };
-            core->MNNUnpackCUnitTranspose(CPtr, (float*)CTPtrAlloc.ptr(), e, h, offset);
-        }, 1));
-    } else {
-        mPostFunctions.emplace_back(std::make_pair([CTPtrAlloc, e, h, core](
-                int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
-            int offset[] = {
-                e, e
-            };
-            core->MNNUnpackCUnit(CPtr, (float*)CTPtrAlloc.ptr(), e, h, offset);
-        }, 1));
     }
     bufferAlloc->free(ATPtrAlloc);
     bufferAlloc->free(BTPtrAlloc);
     bufferAlloc->free(CTPtrAlloc);
+    mTempA = ATPtrAlloc;
+    mTempB = BTPtrAlloc;
+    mTempC = CTPtrAlloc;
+    mE = e;
+    mL = l;
+    mH = h;
     return NO_ERROR;
 }
 
@@ -195,19 +165,81 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
 void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const float* biasPtr) {
     for (auto& f : mPreFunctions) {
         MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId, APtr, BPtr, biasPtr);
+            f.first(tId, APtr, BPtr, biasPtr, CPtr);
         }
         MNN_CONCURRENCY_END();
     }
-    if (mStrassenUseBiasDirectly) {
-        mComputer->onExecute(nullptr, nullptr, (uint8_t*)biasPtr, nullptr);
-    } else {
-        mComputer->onExecute();
-    }
-    for (auto& f : mPostFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId, APtr, BPtr, biasPtr, CPtr);
+    if (mE > 0) {
+        auto core = static_cast<CPUBackend*>(backend())->functions();
+        int eP, lP, hP;
+        core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+        const float* postPtr = mPostParameters.data();
+        if (!mUseBiasDirectly) {
+            biasPtr = (const float*)mTempBias.ptr();
         }
+        if (nullptr == biasPtr) {
+            postPtr = nullptr;
+        }
+        int tileCount = UP_DIV(mE, eP);
+        int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
+        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+            auto TA = mTempA.ptr() + tId * eP * mL * core->bytes;
+            auto TB = mTempB.ptr();
+            auto hC4 = UP_DIV(mH, core->pack);
+            auto TC = mTempC.ptr() + tId * eP * hC4 * core->pack * core->bytes;
+            size_t parameters[6];
+            parameters[0] = eP * core->bytes;
+            parameters[1] = mL;
+            parameters[2] = mH;
+            parameters[3] = eP * core->pack * core->bytes;
+            parameters[4] = 0;
+            parameters[5] = 0;
+            for (int tx=tId; tx<tileCount; tx+=numberThread) {
+                int xStart = tx * eP;
+                int xEnd = ALIMIN(xStart + eP, mE);
+                int xC = xEnd - xStart;
+                if (mTransposeA) {
+                    for (int y=0; y<mL; ++y) {
+                        ::memcpy(TA + y*eP*core->bytes, (uint8_t*)APtr + (y * mE + xStart) * core->bytes, core->bytes * xC);
+                    }
+                } else {
+                    // e, l -> l, eP
+                    int dims[] = {
+                        xC,
+                        mL,
+                        mL,
+                        eP
+                    };
+                    if (core->bytes == 2) {
+                        auto S = (const int16_t*)APtr + xStart * mL;
+                        auto D = (int16_t*)TA;
+                        MNNTranspose16Bit(D, S, dims);
+                    } else if (core->bytes == 4) {
+                        auto S = (const int32_t*)APtr + xStart * mL;
+                        auto D = (int32_t*)TA;
+                        MNNTranspose32Bit(D, S, dims);
+                    }
+                }
+                if (xC == eP) {
+                    core->MNNPackedMatMul((float*)TC, (float*)TA, (float*)TB, parameters, postPtr, biasPtr, nullptr, nullptr);
+                } else {
+                    core->MNNPackedMatMulRemain((float*)TC, (float*)TA, (float*)TB, xC, parameters, postPtr, biasPtr, nullptr, nullptr);
+                }
+                int area[] = {
+                    eP,
+                    mE
+                };
+                if (mTransposeC) {
+                    // hC4, e, 4 -> e, h
+                    auto dst = (uint8_t*)CPtr + xStart * mH * core->bytes;
+                    core->MNNUnpackCUnitTranspose((float*)dst, (const float*)TC, xC, mH, area);
+                } else {
+                    // hC4, e, 4 -> h, e
+                    auto dst = (uint8_t*)CPtr + xStart * core->bytes;
+                    core->MNNUnpackCUnit((float*)dst, (const float*)TC, xC, mH, area);
+                }
+            }
+        };
         MNN_CONCURRENCY_END();
     }
 }

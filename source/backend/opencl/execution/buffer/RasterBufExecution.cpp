@@ -132,10 +132,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
         
         unit.localWorkSize = {lws[0], lws[1], lws[2]};
-        
-        unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
-            ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
-            ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+        unit.globalWorkSize = {gws[0], gws[1], gws[2]};
         mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
     }else{
         for(auto& slice : des->regions){
@@ -194,10 +191,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
             const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
-            
-            unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
-                ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
-                ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+            unit.globalWorkSize = {gws[0], gws[1], gws[2]};
             mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
         }
     }

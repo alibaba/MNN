@@ -361,9 +361,9 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     if(batch > 1){
-        global_y = UP_DIV(batch, 2) * height;
-        buildOption.emplace("-DBACTH_BLOCK2");
-        info += "_BATCH_BLOCK2";
+        global_y = UP_DIV(batch, 4) * height;
+        buildOption.emplace("-DBACTH_BLOCK4");
+        info += "_BATCH_BLOCK4";
     }
     int knl_idx = 0;
     actual_kernel = 3;

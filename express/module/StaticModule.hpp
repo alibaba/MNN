@@ -49,7 +49,7 @@ private:
     };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
-    std::vector<Tensor*> mPrevInputTensor;
+    std::vector<std::pair<Tensor*, Backend*>> mPrevInputTensor;
     std::vector<Tensor*> mOutputTensors;
     std::shared_ptr<Resource> mResource;
 };

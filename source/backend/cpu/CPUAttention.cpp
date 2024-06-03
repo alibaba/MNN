@@ -113,14 +113,23 @@ static void prefill_unpack(char* pack_qkv, char* unpack_qkv, int mNumHead, int m
 
 template <typename T>
 static void prefill_softmax(int* mask_ptr, float* mask_qk, float* softmax_qk, char* unpack_qk, char* pack_qk,
-                            float mScale, int eP, int query_e, int seq_len,  float min_val) {
+                            float mScale, int eP, int query_e, int seq_len,  float min_val, bool float_mask) {
     T* qk_src = reinterpret_cast<T*>(unpack_qk);
     T* qk_dst = reinterpret_cast<T*>(pack_qk);
-    for (int i = 0; i < seq_len * seq_len; i++) {
-        if (mask_ptr[i]) {
-            mask_qk[i] = qk_src[i] * mScale;
-        } else {
-            mask_qk[i] = min_val;
+    if (float_mask) {
+        T* fpmask_ptr = reinterpret_cast<T*>(mask_ptr);
+        // float mask
+        for (int i = 0; i < seq_len * seq_len; i++) {
+            mask_qk[i] = qk_src[i] * mScale + fpmask_ptr[i];
+        }
+    } else {
+        // int mask
+        for (int i = 0; i < seq_len * seq_len; i++) {
+            if (mask_ptr[i]) {
+                mask_qk[i] = qk_src[i] * mScale;
+            } else {
+                mask_qk[i] = min_val;
+            }
         }
     }
     for (int i = 0; i < seq_len; i++) {
@@ -258,6 +267,7 @@ ErrorCode CPUAttentionImpl::onExecute(Backend* _backend, const std::vector<Tenso
     auto key = inputs[1];
     auto value = inputs[2];
     auto mask = inputs[3];
+    bool float_mask = (mask->getType() == halide_type_of<float>());
     auto shape = query->shape();
     int seq_len = shape[1];
     mThreadNum = ((CPUBackend *)backend())->threadNumber();
@@ -324,9 +334,9 @@ ErrorCode CPUAttentionImpl::onExecute(Backend* _backend, const std::vector<Tenso
             // div scale and mask
             auto mask_ptr = mask->host<int>();
             if (bytes == 2) {
-                prefill_softmax<FLOAT16_T>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mScale, eP, query_e, seq_len, -65504.0);
+                prefill_softmax<FLOAT16_T>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mScale, eP, query_e, seq_len, -65504.0, float_mask);
             } else {
-                prefill_softmax<float>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mScale, eP, query_e, seq_len, std::numeric_limits<float>::lowest());
+                prefill_softmax<float>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mScale, eP, query_e, seq_len, std::numeric_limits<float>::lowest(), float_mask);
             }
             // qk @ v
             for (int i = 0 ; i < loop_e; i++) {

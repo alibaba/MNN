@@ -94,7 +94,14 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./testModel_expr.out model.mnn input.mnn output.mnn [type] [tolerance] [precision]\n");
         return 0;
     }
+    MNN::ScheduleConfig sdConfig;
+    auto rtMgr = std::shared_ptr<MNN::Express::Executor::RuntimeManager>(MNN::Express::Executor::RuntimeManager::createRuntimeManager(sdConfig), MNN::Express::Executor::RuntimeManager::destroy);
+//#define TEST_DEBUG
+#ifdef TEST_DEBUG
+    _initTensorStatic();
     //_initDebug();
+    rtMgr->setMode(MNN::Interpreter::Session_Debug);
+#endif
     // check given & expect
     const char* modelPath  = argv[1];
     const char* inputName  = argv[2];
@@ -134,7 +141,7 @@ int main(int argc, const char* argv[]) {
     }
     Module::Config config;
     config.rearrange = true;
-    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath, &config), [](void* net) {
+    std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath, rtMgr, &config), [](void* net) {
         MNN::Express::Module::destroy((MNN::Express::Module*)net);
     });
     if (nullptr == m) {

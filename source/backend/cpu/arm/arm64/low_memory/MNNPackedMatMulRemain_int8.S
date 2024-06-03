@@ -575,23 +575,18 @@ LoopE1:
         mov x15, x1
         subs x12, x9, #1
 
-        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
-        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
-
         ld1 {v3.8b}, [x13], #8
         sxtl v4.8h, v3.8b
         sxtl v8.4s, v4.4h
         sxtl2 v9.4s, v4.8h
-        scvtf v0.4s, v8.4s
-        scvtf v1.4s, v9.4s
-        fmul v3.4s, v0.4s, v12.4s
-        fmul v4.4s, v1.4s, v13.4s
-        fadd v3.4s, v3.4s, v14.4s
-        fadd v4.4s, v4.4s, v15.4s
+        scvtf v3.4s, v8.4s
+        scvtf v4.4s, v9.4s
 
         ld1 {v0.s}[0], [x15], x11
         fmul v16.4s, v3.4s, v0.s[0]
         fmul v20.4s, v4.4s, v0.s[0]
+
+        mov v2.16b, v0.16b
 
         beq E1LoopLEnd
 
@@ -600,21 +595,26 @@ LoopE1:
             ld1 {v3.8b}, [x13], #8
             sxtl v4.8h, v3.8b
             sxtl v8.4s, v4.4h
-            sxtl2 v9.4s, v4.8h
-            scvtf v0.4s, v8.4s
-            scvtf v1.4s, v9.4s
-            fmul v3.4s, v0.4s, v12.4s
-            fmul v4.4s, v1.4s, v13.4s
-            fadd v3.4s, v3.4s, v14.4s
-            fadd v4.4s, v4.4s, v15.4s
             ld1 {v0.s}[0], [x15], x11
+            sxtl2 v9.4s, v4.8h
+            scvtf v3.4s, v8.4s
+            scvtf v4.4s, v9.4s
             fmla v16.4s, v3.4s, v0.s[0]
             fmla v20.4s, v4.4s, v0.s[0]
+            fadd v2.2s, v0.2s, v2.2s
 
             subs x12, x12, #1
             bne E1LoopL
 
         E1LoopLEnd:
+
+        ld1 {v12.4s, v13.4s}, [x14], #32 // alpha
+        ld1 {v14.4s, v15.4s}, [x24], #32 // bias
+
+        fmul v16.4s, v16.4s, v12.4s
+        fmul v20.4s, v20.4s, v13.4s
+        fmla v16.4s, v14.4s, v2.s[0]
+        fmla v20.4s, v15.4s, v2.s[0]
 
         add x13, x13, x19
         sub x8, x8, #2

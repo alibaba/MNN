@@ -310,10 +310,13 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             info.computeCache.needExecuteConst = dirty;
             if (dirty) {
+                backupBackend->onExecuteBegin();
                 auto code = cp->execution->onExecute(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
+                backupBackend->onExecuteEnd();
+
                 for (auto t : c.outputs) {
                     TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE);
                 }

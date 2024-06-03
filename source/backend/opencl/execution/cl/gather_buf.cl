@@ -4,14 +4,21 @@
 
 __kernel void batch_gather_buf(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                             __global OUTPUT_TYPE* output, __global INPUT_TYPE* input,
-                            __global int* offset_dst, __global int* offset_src,
+                            #ifdef OFFSET_DST
+                            __global int* offset_dst_ptr,
+                            __private const int4 offset_dst_shape,// w, h, c, n
+                            #endif
+                            #ifdef OFFSET_SRC
+                            __global int* offset_src_ptr,
+                            __private const int4 offset_src_shape,// w, h, c, n
+                            #endif
                             __private const int x_size,
                             __private const int4 stride_src,
                             __private const int4 stride_dst,
                             __private const int2 steps,
                             __private const int2 iters,
-                            __private const int4 dst_c4size,
-                            __private const int4 src_c4size,
+                            __private const int4 dst_c4size,// w, h, c, n
+                            __private const int4 src_c4size,// w, h, c, n
                             __private const int inputSize) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
     
@@ -21,24 +28,51 @@ __kernel void batch_gather_buf(__private int global_dim0, __private int global_d
         int y = pos.x / x_size;
 
         int2 index = (int2)(pos.z, pos.z);
-        if (iters.x >= 0) {
-#ifdef OFFSET_DST_CHANNEL_STRIDE4
-            index.x = offset_dst[pos.z * 4];
-#else
-            index.x = offset_dst[pos.z];
-#endif
-        }
-        if (iters.y >= 0) {
-#ifdef OFFSET_SRC_CHANNEL_STRIDE4
-            index.y = offset_src[pos.z * 4];
-#else
-            index.y = offset_src[pos.z];
-#endif
         
+        #ifdef OFFSET_DST
+        {
+            int offset_value = pos.z;
+            int off_c4_size = (offset_dst_shape.z + 3) >> 2;
+            #ifdef GATHER_INPUT_NHWC
+            int off_c = offset_value % offset_dst_shape.z; offset_value /= offset_dst_shape.z;
+            int off_w = offset_value % offset_dst_shape.x; offset_value /= offset_dst_shape.x;
+            int off_h = offset_value % offset_dst_shape.y;
+            int off_b = offset_value / offset_dst_shape.y;
+            #else
+            int off_w = offset_value % offset_dst_shape.x; offset_value /= offset_dst_shape.x;
+            int off_h = offset_value % offset_dst_shape.y; offset_value /= offset_dst_shape.y;
+            int off_c = offset_value % offset_dst_shape.z;
+            int off_b = offset_value / offset_dst_shape.z;
+            #endif
+            int real_dst_offset = (((off_b * off_c4_size + off_c / 4) * offset_dst_shape.y + off_h) * offset_dst_shape.x + off_w) * 4 + off_c % 4;
+            index.x = offset_dst_ptr[real_dst_offset];
         }
+        #endif
+    
+        #ifdef OFFSET_SRC
+        {
+            int offset_value = pos.z;
+            int off_c4_size = (offset_src_shape.z + 3) >> 2;
+            #ifdef GATHER_INPUT_NHWC
+            int off_c = offset_value % offset_src_shape.z; offset_value /= offset_src_shape.z;
+            int off_w = offset_value % offset_src_shape.x; offset_value /= offset_src_shape.x;
+            int off_h = offset_value % offset_src_shape.y;
+            int off_b = offset_value / offset_src_shape.y;
+            #else
+            int off_w = offset_value % offset_src_shape.x; offset_value /= offset_src_shape.x;
+            int off_h = offset_value % offset_src_shape.y; offset_value /= offset_src_shape.y;
+            int off_c = offset_value % offset_src_shape.z;
+            int off_b = offset_value / offset_src_shape.z;
+            #endif
+            int real_src_offset = (((off_b * off_c4_size + off_c / 4) * offset_src_shape.y + off_h) * offset_src_shape.x + off_w) * 4 + off_c % 4;
+            index.y = offset_src_ptr[real_src_offset];
+        }
+        #endif
+    
         int2 offset = index * steps;
         int src_offset = offset.y + stride_src.w + x * stride_src.x + y * stride_src.y + pos.y * stride_src.z;
         int dst_offset = offset.x + stride_dst.w + x * stride_dst.x + y * stride_dst.y + pos.y * stride_dst.z;
+
         int src_offsetC4, dst_offsetC4;
         {
 #ifdef GATHER_INPUT_NHWC

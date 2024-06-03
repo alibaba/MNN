@@ -109,6 +109,39 @@ static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>&
     }
     return std::make_tuple(inside, axis, outside);
 }
+
+static bool _checkFuseValid(const OpCommonUtils::SPLITS& srcTup, const OpCommonUtils::SPLITS& srcSplits, bool swapnc, bool swapcw, bool srcAllLengthValid) {
+    auto srcFused = _computeAxisFused(srcTup);
+    if (swapnc) {
+        // cw can't be fused if n > 1, because layout is c, n, w
+        if (std::get<1>(srcFused) && srcAllLengthValid) {
+            return false;
+        }
+        if (std::get<0>(srcFused)) {
+            // nc fuse but n is not full, don't support fuse
+            if (std::get<2>(srcTup) + 1 != std::get<2>(srcSplits)) {
+                return false;
+            }
+        }
+    } else if (swapcw) {
+        // nc can't be fused if w > 1
+        if (std::get<0>(srcFused) && srcAllLengthValid) {
+            return false;
+        }
+        if (std::get<1>(srcFused)) {
+            // cw fuse but c is not full, don't support fuse
+            if (std::get<1>(srcTup) + 1 != std::get<1>(srcSplits)) {
+                return false;
+            }
+        }
+    } else {
+        // nw can't be fused if c > 1
+        if (std::get<2>(srcFused) && srcAllLengthValid) {
+            return false;
+        }
+    }
+    return true;
+}
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const SPLITS& srcSplits,
                                 const SPLITS& dstSplits, int pack, bool swapnc, bool swapcw) {
     int srcCOffset = (region.src.offset / std::get<0>(srcSplits)) % std::get<1>(srcSplits);
@@ -130,43 +163,11 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
         if (std::get<1>(dstTup) != std::get<1>(srcTup)) {
             return false;
         }
-        if (srcAllLengthValid) {
-            auto srcFused = _computeAxisFused(srcTup);
-            if (swapnc) {
-                // cw can't be fused, because layout is c, n, w
-                if (std::get<1>(srcFused)) {
-                    return false;
-                }
-            } else if (swapcw) {
-                // nc can't be fused
-                if (std::get<0>(srcFused)) {
-                    return false;
-                }
-            } else {
-                // nw can't be fused
-                if (std::get<2>(srcFused)) {
-                    return false;
-                }
-            }
+        if (!_checkFuseValid(srcTup, srcSplits, swapnc, swapcw, srcAllLengthValid)) {
+            return false;
         }
-        if (dstAllLengthValid) {
-            auto dstFused = _computeAxisFused(dstTup);
-            if (swapnc) {
-                // cw can't be fused, because layout is c, n, w
-                if (std::get<1>(dstFused)) {
-                    return false;
-                }
-            } else if (swapcw) {
-                // nc can't be fused
-                if (std::get<0>(dstFused)) {
-                    return false;
-                }
-            } else {
-                // nw can't be fused
-                if (std::get<2>(dstFused)) {
-                    return false;
-                }
-            }
+        if (!_checkFuseValid(dstTup, dstSplits, swapnc, swapcw, dstAllLengthValid)) {
+            return false;
         }
     }
     return true;
@@ -573,6 +574,8 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_ROIAlign:
         case OpType_DynamicQuant:
         case OpType_Attention:
+        case OpType_LayerNorm:
+        case OpType_Softmax:
             return true;
         default:
             break;

@@ -89,6 +89,7 @@ public:
         bool needComputeShape = true;
         bool needComputeGeometry = true;
         bool reportError = true;
+        bool inputBackendChange = false;
         std::map<Tensor*, TENSORCACHE> inputTensorCopyCache;
     };
     typedef std::pair<BackendCache, std::vector<OpCacheInfo>> PipelineInfo;

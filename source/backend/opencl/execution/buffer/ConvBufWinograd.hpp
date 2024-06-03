@@ -34,6 +34,8 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel = false, int limit = 8192);
     std::vector<uint32_t> getLocalWS(std::string kernelName, int index, std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel);
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */

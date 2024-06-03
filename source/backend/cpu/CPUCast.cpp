@@ -14,7 +14,7 @@
 #include <cmath>
 
 namespace MNN {
-ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, ConvertType type,
+ErrorCode CPUCastCreator::cast(const void* inputRaw, void* outputRaw, ConvertType type,
                                int number, float scale, float zero, float min, float max, const CPUBackend* bn) {
     auto pack = bn->functions()->pack;
     int c4Size = number / pack;
@@ -22,11 +22,11 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, ConvertTyp
     if (type == FlOAT_TO_INT8) {
         scale = (scale == 0.f ? 0.f : 1.f / scale);
         std::vector<float> scales(pack, scale);
-        bn->int8Functions()->MNNFloat2Int8(static_cast<float*>(inputRaw), static_cast<int8_t*>(outputRaw), c4Size, scales.data(), min, max, zero);
+        bn->int8Functions()->MNNFloat2Int8((float*)(inputRaw), (int8_t*)(outputRaw), c4Size, scales.data(), min, max, zero);
         if (remain > 0) {
             std::vector<float> tempSrc(pack);
             std::vector<int8_t> tempDst(pack);
-            ::memcpy(tempSrc.data(), static_cast<float* const>(inputRaw) + c4Size * pack, remain * sizeof(float));
+            ::memcpy(tempSrc.data(), (float*)(inputRaw) + c4Size * pack, remain * sizeof(float));
             bn->int8Functions()->MNNFloat2Int8(tempSrc.data(), tempDst.data(), 1, scales.data(), min, max, zero);
             ::memcpy(static_cast<int8_t*>(outputRaw) + c4Size * pack, tempDst.data(), remain * sizeof(int8_t));
         }
@@ -34,11 +34,11 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, ConvertTyp
     }
     if (type == INT8_TO_FlOAT) {
         std::vector<float> scales(pack, scale);
-        bn->int8Functions()->MNNInt8ScaleToFloat(static_cast<float*>(outputRaw), static_cast<int8_t*>(inputRaw), scales.data(), c4Size, zero);
+        bn->int8Functions()->MNNInt8ScaleToFloat((float*)(outputRaw), (int8_t*)(inputRaw), scales.data(), c4Size, zero);
         if (remain > 0) {
             std::vector<float> tempDst(pack);
             std::vector<int8_t> tempSrc(pack);
-            ::memcpy(tempSrc.data(), static_cast<int8_t* const>(inputRaw) + c4Size * pack, remain * sizeof(int8_t));
+            ::memcpy(tempSrc.data(), (int8_t*)(inputRaw) + c4Size * pack, remain * sizeof(int8_t));
             bn->int8Functions()->MNNInt8ScaleToFloat(tempDst.data(), tempSrc.data(), scales.data(), 1, zero);
             ::memcpy(static_cast<float*>(outputRaw) + c4Size * pack, tempDst.data(), remain * sizeof(float));
         }

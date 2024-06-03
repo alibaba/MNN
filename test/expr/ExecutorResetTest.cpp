@@ -126,3 +126,57 @@ class ExecutorConfigTest : public MNNTestCase {
         return true;
     }};
 MNNTestSuiteRegister(ExecutorConfigTest, "expr/ExecutorConfigTest");
+
+class ExecutorCallBackTest : public MNNTestCase {
+    virtual bool run(int precision) {
+        int beforeSuccess = 0;
+        int afterSuccess = 0;
+        MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
+            beforeSuccess = 1;
+            return true;
+        };
+        MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
+            afterSuccess = 1;
+            return true;
+        };
+        MNN::BackendConfig config;
+        std::shared_ptr<Executor> exe(Executor::newExecutor(MNN_FORWARD_CPU, config, 1));
+        MNN::Express::ExecutorScope scope(exe);
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess != 0 || afterSuccess != 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        exe->setCallBack(std::move(beforeCallBack), std::move(callBack));
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess == 0 || afterSuccess == 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        afterSuccess = 0;
+        beforeSuccess = 0;
+        exe->setCallBack(nullptr, nullptr);
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess != 0 || afterSuccess != 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ExecutorCallBackTest, "expr/ExecutorCallBackTest");

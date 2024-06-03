@@ -262,6 +262,7 @@ class Qwen2Attention(nn.Module):
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
+        '''
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
@@ -291,9 +292,30 @@ class Qwen2Attention(nn.Module):
             # key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
         past_key_value = torch.stack((key_states, value_states))
         # repeat k/v heads if n_kv_heads < n_heads
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
-
+        # key_states = repeat_kv(key_states, self.num_key_value_groups)
+        # value_states = repeat_kv(value_states, self.num_key_value_groups)
+        '''
+        #---------------
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
+        kv_seq_len = key_states.shape[1]
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[1]
+        # rope
+        cos, sin = rotary_pos_emb
+        query_states = (query_states * cos) + (rotate_half(query_states) * sin)
+        key_states = (key_states * cos) + (rotate_half(key_states) * sin)
+        # kv cache
+        if past_key_value is not None:
+            past_key, past_value = past_key_value[0], past_key_value[1]
+            key_states = torch.cat((past_key, key_states), dim=1)
+            value_states = torch.cat((past_value, value_states), dim=1)
+        past_key_value = torch.stack((key_states, value_states))
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
+        #---------------
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):

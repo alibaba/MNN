@@ -225,8 +225,19 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
    - 一般是直接访问了 tensor 的 host
    - 按 [输入数据](./inference/session.html#id8) 和[获取输出](./inference/session.html#id21) 里面的方式建host tensor 并 copy ，参考相关文档修改使用代码
 - 是否可基于 deviceId 直接传 GPU 地址？
-   - 可以，需要理解 MNN GPU 内存布局并传上下文给 MNN ，但相关实现较复杂
+   - 可以，可以通过setDevicePtr设置输入VARP的GPU地址,通过copyToDevicePtr设置输出VARP拷贝到的GPU地址
+      - 相关使用参考tools/cpp/GpuInterTest.cpp
+      - 目前OPENCL推理支持OPENCL/OPENGL内存做输入输出。CUDA推理支持CUDA内存做输入输出
    - 采用 MNN_Express 系列接口，可以支持模型之间的内存直接传递不做拷贝
+
+### 多卡GPU上，用户指定特定GPU做推理问题
+
+- 通过设置MNNDeviceContext结构体参数来指定特定GPU
+   - 通过设置platformSize、platformId、deviceId参数来进行指定
+   - 目前支持OpenCL和CUDA后端进行设置
+   - 具体可以参考：tools/cpp/testModel.cpp
+
+
 ## 性能相关
 ### 使用 GPU 时，调用 copyToHostTensor / copyFromHostTensor 非常慢
 GPU 后端调用 copy 的时间包含两个部分

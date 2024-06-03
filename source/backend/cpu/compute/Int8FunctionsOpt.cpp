@@ -142,58 +142,6 @@ static void _MNNPackC4Int8ForMatMul_ASparse(int8_t* destOrigin, int8_t const** s
     }
 }
 
-void MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
-#ifdef MNN_USE_SSE
-    uint8_t* srcPtr = (uint8_t*)src;
-    uint8_t* dstPtr = (uint8_t*)dst;
-    int offset = 128;
-#else
-    const int8_t* srcPtr = src;
-    int8_t* dstPtr = dst;
-    int offset = 0;
-#endif
-    int inpZero = static_cast<int>(params->inputZeroPoint[0]);
-    int outZero = static_cast<int>(params->outputZeroPoint[0]);
-    float inpScale = params->inputScale[0];
-    float outScale = params->outputScale[0];
-    float sum = 0.f;
-    int max_ = static_cast<int>(params->maxValue);
-    int min_ = static_cast<int>(params->minValue);
-    float mean = 0;
-    if(false == RMSNorm){
-        for (int j = 0; j < size; ++j) {
-            float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-            sum += fx;
-        }
-        mean = sum / size;
-    }
-    float square_sum = 0.f;
-    for (int j = 0; j < size; ++j) {
-        float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-        square_sum += (fx - mean) * (fx - mean);
-    }
-    float variable = square_sum / size;
-    variable = 1.f / std::sqrt(variable + epsilon);
-
-    if (gamma && beta) {
-        for (int j = 0; j < size; ++j) {
-            float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-            float fy = (fx - mean) * variable * gamma[j] + beta[j];
-            int sy   = fy * outScale + outZero;
-            sy = ALIMAX(min_, ALIMIN(sy, max_));
-            dstPtr[j] = sy + offset;
-        }
-    } else {
-        for (int j = 0; j < size; ++j) {
-            float fx = (srcPtr[j] - inpZero - offset) * inpScale;
-            float fy = (fx - mean) * variable;
-            int   sy = roundf(fy * outScale) + outZero;
-            sy = ALIMAX(min_, ALIMIN(sy, max_));
-            dstPtr[j] = sy + offset;
-        }
-    }
-}
-
 #ifndef MNN_USE_NEON
 
 void MNNPackedSparseQuantMatMulEpx1(int8_t* C, const int8_t* A, const int8_t* B, const size_t* sparseQuantParam, const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap) {
@@ -2125,9 +2073,6 @@ void MNNCoreInt8FunctionInit() {
     // pooling
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
     gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8;
-
-    // Norm
-    gCoreFunc->MNNNormInt8 = MNNNormInt8;
 
     // ReluWithSlopeChannel
     gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8;

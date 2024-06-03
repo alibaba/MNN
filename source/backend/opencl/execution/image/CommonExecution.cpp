@@ -62,7 +62,6 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                                                     unit.localWorkSize,
                                                     nullptr,
                                                     &event);
-        
         runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
     #else
         res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),

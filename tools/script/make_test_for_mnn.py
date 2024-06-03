@@ -28,6 +28,7 @@ def run():
         var = inputVars[i]
         dtype = var.dtype
         input['shape'] = var.shape
+        dformat = var.data_format
         var = np.random.random(var.shape)
         if dtype == np.int32:
             var = var * 10.0
@@ -36,6 +37,7 @@ def run():
         with open(os.path.join(outputDir, input['name'] + '.txt'), 'w') as f:
             for floatValue in data:
                 f.write('%f\n' %floatValue)
+        var = F.convert(var, dformat)
         inputs.append(var)
         config['inputs'].append(input)
     

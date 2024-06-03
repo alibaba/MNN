@@ -1,4 +1,6 @@
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -128,29 +130,29 @@ static void _initDebug() {
 
 
 struct TimeTraceInfo {
-    std::map<std::string, std::map<std::string, std::vector<float>>> mTypes;
+    std::map<std::string, std::map<std::string, std::vector<std::pair<float, float>>>> mTypes;
     
     void begin(const MNN::OperatorInfo* info) {
         auto tIter = mTypes.find(info->type());
         if (tIter == mTypes.end()) {
-            std::map<std::string, std::vector<float>> _t;
+            std::map<std::string, std::vector<std::pair<float, float>>> _t;
             mTypes.insert(std::make_pair(info->type(), _t));
             tIter = mTypes.find(info->type());
         }
         mInserIter = tIter->second.find(info->name());
         if (mInserIter == tIter->second.end()) {
-            std::vector<float> _t;
+            std::vector<std::pair<float, float>> _t;
             tIter->second.insert(std::make_pair(info->name(), _t));
             mInserIter = tIter->second.find(info->name());
         }
         mTimer.reset();
     }
-    void end() {
+    void end(const MNN::OperatorInfo* info) {
         auto timeInMs = (float)mTimer.durationInUs() / 1000.0f;
-        mInserIter->second.emplace_back(timeInMs);
+        mInserIter->second.emplace_back(std::make_pair(timeInMs, info->flops()));
     }
 private:
-    std::map<std::string, std::vector<float>>::iterator mInserIter;
+    std::map<std::string, std::vector<std::pair<float, float>>>::iterator mInserIter;
     MNN::Timer mTimer;
 };
 static TimeTraceInfo* gTimeTraceInfo = nullptr;
@@ -165,7 +167,7 @@ static void _initTimeTrace() {
         for (auto t : ntensors) {
             t->wait(MNN::Tensor::MAP_TENSOR_READ, true);
         }
-        gTimeTraceInfo->end();
+        gTimeTraceInfo->end(info);
         return true;
     };
     MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));

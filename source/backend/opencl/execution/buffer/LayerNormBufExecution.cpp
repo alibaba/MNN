@@ -94,7 +94,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize) / 4;
+    auto MaxLocalSize = std::min(std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), (uint32_t)256);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -122,7 +122,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
         }
         inner_size /= group_;
     }
-    
+//    printf("out:%d in:%d, %d %d %d %d, %d\n", outter_size, inner_size, inputBatch, inputHeight, inputWidth, inputChannels, group_);
     std::set<std::string> buildOptions;
     if(RMSNorm){
         buildOptions.emplace("-DRMSNORM");
@@ -302,7 +302,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         const auto* layer_norm_param = op->main_as_LayerNorm();
-    	return new LayerNormBufExecution(inputs, op, backend);
+        return new LayerNormBufExecution(inputs, op, backend);
     }
 };
 

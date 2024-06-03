@@ -18,6 +18,9 @@
 #include <sys/time.h>
 #endif
 
+//#define TEXT_MAX_LEN 512 // Taiyi_SD
+#define TEXT_MAX_LEN 77 // SD_1.5
+
 //#define MNN_DUMP_DATA
 
 using namespace CV;
@@ -129,7 +132,7 @@ bool Pipeline::load_modules(std::string modelPath) {
 }
 
 VARP Pipeline::text_encoder(const std::vector<int>& ids) {
-    auto inputs_ids_ = _Const(ids.data(), {2, 512}, NCHW, halide_type_of<int>());
+    auto inputs_ids_ = _Const(ids.data(), {2, TEXT_MAX_LEN}, NCHW, halide_type_of<int>());
     
     auto outputs = mModules[0]->onForward({inputs_ids_});
     auto output = _Convert(outputs[0], NCHW);
@@ -138,7 +141,7 @@ VARP Pipeline::text_encoder(const std::vector<int>& ids) {
 #ifdef MNN_DUMP_DATA
     auto xx = output->readMap<float>();
     for(int i=0; i<10; i+=2) {
-        printf("%f %f ", xx[i], xx[i+512*768]);
+        printf("%f %f ", xx[i], xx[i+TEXT_MAX_LEN*768]);
     }
     printf("\n\n");
 #endif
@@ -256,7 +259,7 @@ VARP Pipeline::unet(VARP text_embeddings) {
             printf("%f %f %f ", xx[i], yy[i], zz[i]);
         }
         for(int i=0; i<6; i+=2) {
-            printf("%f %f %f ", xx[16384+i], yy[16384+i], zz[512*768+i]);
+            printf("%f %f %f ", xx[16384+i], yy[16384+i], zz[TEXT_MAX_LEN*768+i]);
         }
         printf("\n\n");
 #endif
@@ -298,11 +301,14 @@ VARP Pipeline::vae_decoder(VARP latent) {
 }
 
 bool Pipeline::run(const std::string& sentence, const std::string& img_name) {
-    diffusion::tokenizer tok(mModelPath + "/vocab.txt");
+    std::unique_ptr<diffusion::Tokenizer> tok;
+//    tok.reset(new diffusion::BertTokenizer);
+    tok.reset(new diffusion::CLIPTokenizer);
+    tok->load(mModelPath);
     load_modules(mModelPath);
 
     AUTOTIME;
-    auto ids = tok.sentence(sentence, 512);
+    auto ids = tok->encode(sentence, TEXT_MAX_LEN);
     auto text_embeddings = text_encoder(ids);
 
     auto latent = unet(text_embeddings);

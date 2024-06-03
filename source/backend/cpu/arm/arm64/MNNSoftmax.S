@@ -94,8 +94,7 @@ Loop_10:
     fmul    v21.4s, v20.4s, v6.4s
     fcvtzs  v21.4s, v21.4s
     scvtf   v22.4s, v21.4s
-    fmul    v22.4s, v22.4s, v7.4s
-    fadd    v20.4s, v20.4s, v22.4s
+    fmla    v20.4s, v22.4s, v7.4s
     fmul    v22.4s, v20.4s, v16.4s
     fadd    v22.4s, v22.4s, v17.4s
     fmul    v22.4s, v20.4s, v22.4s

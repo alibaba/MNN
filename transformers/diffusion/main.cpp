@@ -3,17 +3,26 @@
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        printf("Usage: ./diffusion_demo <senetence> <img_name> <resource_path>");
-        return 1;
+        printf("Usage: ./diffusion_demo <resource_path> <output_image_name> <input_text>");
+        return 0;
     }
-    auto sentence = argv[1];
-    auto img_name = argv[2];
-    auto resource_path = argv[3];
 
-    printf("input setnetce: %s\n", sentence);
-    printf("output img_name: %s\n", img_name);
+    auto resource_path = argv[1];
+    auto img_name = argv[2];
+    
+    std::string input_text;
+    for (int i = 3; i < argc; ++i) {
+        input_text += argv[i];
+        if (i < argc - 1) {
+            input_text += " ";
+        }
+    }
+    
     printf("model resource path: %s\n", resource_path);
+    printf("output img_name: %s\n", img_name);
+    printf("input texts: %s\n", input_text.c_str());
+    
     diffusion::Pipeline pipeline(resource_path);
-    pipeline.run(sentence, img_name);
+    pipeline.run(input_text, img_name);
     return 0;
 }

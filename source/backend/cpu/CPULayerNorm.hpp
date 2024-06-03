@@ -11,6 +11,7 @@
 
 #include "core/Execution.hpp"
 #include "core/Macro.h"
+#include "core/BufferAllocator.hpp"
 namespace MNN {
 class CPULayerNorm : public Execution {
 public:
@@ -35,12 +36,8 @@ private:
     std::shared_ptr<Resource> mResource;
     int mInnerSize = 1;
     int mOutterSize = 1;
-    // LayerNormInt8 parameters.
-    std::vector<float> mInpScale;
-    std::vector<float> mOutScale;
-    std::vector<ssize_t> mInpZero;
-    std::vector<ssize_t> mOutZero;
-    std::vector<ssize_t> mMaxMinValue;
+    MemChunk mTmpInputFloat;
+    MemChunk mTmpOutputFloat;
 };
 } // namespace MNN
 #endif /* CPULayerNorm_hpp */

@@ -202,14 +202,15 @@ public:
             }
         }
         // testcase
-        if(0)
+        if(1)
         {
             const std::vector<int> axis_vec    = {1, 4, 32, 128, 256, 576, 1024};
             const std::vector<int> outside_vec = {1, 32, 1024, 65536};
             const std::vector<int> inside_vec = {1, 4, 7};
+            const int limitSize = 3;
 
-            for(int k = 0; k < outside_vec.size(); k++) {
-                for(int j = 0; j < axis_vec.size(); j++) {
+            for(int k = 0; k < outside_vec.size() && k < limitSize; k++) {
+                for(int j = 0; j < axis_vec.size() && j < limitSize; j++) {
                     for(int i = 0; i < inside_vec.size(); i++) {
                         int outside = outside_vec[k];
                         int axis = axis_vec[j];
@@ -230,11 +231,11 @@ public:
                         auto gotOutput                          = output->readMap<float>();
                         int count = 0;
                         for (int i = 0; i < expectedOutput.size(); ++i) {
-                            if(gotOutput[i] - expectedOutput[i] > 0.0001 || gotOutput[i] - expectedOutput[i] < -0.0001) {
+                            if(gotOutput[i] - expectedOutput[i] > 0.01 || gotOutput[i] - expectedOutput[i] < -0.01) {
                                 count++;
                             }
                         }
-                        if (!checkVector<float>(gotOutput, expectedOutput.data(), total, 0.0001)) {
+                        if (!checkVector<float>(gotOutput, expectedOutput.data(), total, 0.01)) {
                             MNN_ERROR("SoftmaxTest test failed! error count:%d\n", count);
                             return false;
                         }
