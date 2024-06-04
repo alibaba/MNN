@@ -256,9 +256,9 @@ ErrorCode Executor::ComputeCache::compute() {
             visited.insert(cache);
             dfsStack.pop();
             if (debug->after != nullptr && debug->before != nullptr) {
-                code = mSession->runWithCallBack(debug->before, debug->after);
+                code = cache->mSession->runWithCallBack(debug->before, debug->after);
             } else {
-                code = mSession->run();
+                code = cache->mSession->run();
             }
             if (NO_ERROR != code) {
                 return code;
