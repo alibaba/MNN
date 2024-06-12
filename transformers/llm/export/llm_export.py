@@ -1206,6 +1206,8 @@ if __name__ == '__main__':
         'TinyLlama-1_1B-Chat': Llama2_7b_Chat,
         'Yi-6B-Chat': Llama2_7b_Chat,
         'deepseek-llm-7b-chat': Llama2_7b_Chat,
+        'MiniCPM-1.2b': Llama2_7b_Chat,
+        'MiniCPM-2.4b': Llama2_7b_Chat,
         'phi-2': phi_2,
         'bge-large-zh': bge,
         'lora': LoraModule
