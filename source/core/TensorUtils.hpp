@@ -189,7 +189,7 @@ public:
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
     
     class FuseRegionStatus;
-    class FuseWrap {
+    class MNN_PUBLIC FuseWrap {
     public:
         FuseWrap();
         ~ FuseWrap();
