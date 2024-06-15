@@ -372,7 +372,7 @@ VARP Variable::create(EXPRP expr, int index) {
         res.fix(VARP::CONSTANT);
         return res;
     }
-    // CONTENT Mode
+    // CONTENT Mode, Use Geometry Computer to Decompress Expr
     do {
         if (!(executor->getLazyMode() & Executor::LAZY_CONTENT)) {
             break;
@@ -398,7 +398,8 @@ VARP Variable::create(EXPRP expr, int index) {
             outputTensors[i] = expr->mInside->mOutputTensors[i];
         }
         auto bn = executor->getAttr()->constantBackend;
-        GeometryComputer::Context context(bn);
+        // TODO: Support set mask
+        GeometryComputer::Context context(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, bn);
         auto geo = GeometryComputer::search(expr->get()->type(), Runtime::Compiler_Loop);
         CommandBuffer cmd;
         res = geo->onCompute(expr->get(), inputTensors, outputTensors, context, cmd);

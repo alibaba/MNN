@@ -3,14 +3,14 @@
 ## Linux/MacOS
 - 环境要求
   - cmake >= 3.10
-  - gcc >= 4.9
+  - gcc >= 4.9 或者使用 clang
 - 相关编译选项
-  - `MNN_ONEDNN` 是否使用oneDNN库来加速卷积运算
   - `MNN_AVX512` 是否使用AVX512指令，需要gcc9以上版本编译
   - `MNN_OPENCL` 是否使用OpenCL后端，针对GPU设备
+  - `MNN_METAL` 是否使用Metal后端，针对MacOS/iOSGPU设备
   - `MNN_VULKAN` 是否使用Vulkan后端，针对GPU设备
   - `MNN_CUDA`  是否使用CUDA后端，针对Nivida GPU设备
-  - `MNN_TENSORRT` 是否使用TensorRT后端，针对Nivida GPU设备
+  - 其他编译选项可自行查看 CMakeLists.txt
 - 具体步骤
   1. 准备工作 (可选，修改 MNN Schema 后需要）
         ```bash

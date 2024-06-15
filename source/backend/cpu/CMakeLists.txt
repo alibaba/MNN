@@ -1,6 +1,4 @@
 # CPU
-option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
-option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
 
 if(MNN_SUPPORT_RENDER)
 FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/* ${CMAKE_CURRENT_LIST_DIR}/compute/* ${CMAKE_CURRENT_LIST_DIR}/render/*)

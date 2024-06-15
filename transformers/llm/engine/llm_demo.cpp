@@ -30,7 +30,6 @@ static void trace_prepare(Llm* llm) {
         decode_len += llm->gen_seq_len_;
         prefill_time += llm->prefill_us_;
         decode_time += llm->decode_us_;
-        llm->reset();
     }
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
@@ -96,7 +95,6 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
         decode_len += llm->gen_seq_len_;
         prefill_time += llm->prefill_us_;
         decode_time += llm->decode_us_;
-        llm->reset();
     }
     float prefill_s = prefill_time / 1e6;
     float decode_s = decode_time / 1e6;
@@ -114,7 +112,6 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
 static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string filename) {
     auto csv_data = parse_csv(lines);
     int right = 0, wrong = 0;
-    llm->max_seq_len_ = 512;
     std::vector<std::string> answers;
     for (int i = 1; i < csv_data.size(); i++) {
         const auto& elements = csv_data[i];
@@ -127,7 +124,6 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
         printf("%s", prompt.c_str());
         printf("## 进度: %d / %lu\n", i, lines.size() - 1);
         auto res = llm->response(prompt.c_str());
-        llm->reset();
         answers.push_back(res);
     }
     {
@@ -175,33 +171,23 @@ static int eval(Llm* llm, std::string prompt_file) {
 
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " model_dir <forwardtype> <preicionmemory> <prompt.txt>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
         return 0;
     }
-    std::string model_dir = argv[1];
-    int forwardType = 0;
-    if (argc >= 3) {
-        std::istringstream os(argv[2]);
-        os >> forwardType;
-    }
-    int memoryprecision = 10;
-    if (argc >= 4) {
-        std::istringstream os(argv[3]);
-        os >> memoryprecision;
-    }
-    std::cout << "model path is " << model_dir << std::endl;
-    std::unique_ptr<Llm> llm(Llm::createLLM(model_dir, "auto", forwardType, memoryprecision));
+    std::string config_path = argv[1];
+    std::cout << "config path is " << config_path << std::endl;
+    std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
     {
         AUTOTIME;
-        llm->load(model_dir);
+        llm->load();
     }
-    {
+    if (true) {
         AUTOTIME;
         trace_prepare(llm.get());
     }
-    if (argc < 5) {
+    if (argc < 3) {
         llm->chat();
     }
-    std::string prompt_file = argv[4];
+    std::string prompt_file = argv[2];
     return eval(llm.get(), prompt_file);
 }

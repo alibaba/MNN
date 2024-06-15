@@ -203,7 +203,28 @@ public:
         MEM_ALLOCATOR_TYPE = 2,
         // Winograd unit candidates count, default 3. if set 0, will use less unit candidates for less memory at the expense of performance.
         WINOGRAD_MEMORY_LEVEL = 3,
+
+        // Geometry Compute option, default is 0xFFFF
+        GEOMETRY_COMPUTE_MASK = 4,
     };
+
+    enum GeometryComputeMask {
+        // Support Region Fuse
+        GEOMETRCOMPUTEMASK_FUSEREGION = 1 << 0,
+
+        // Support Region Fuse to input with multi-region, eg: pad + concat
+        GEOMETRCOMPUTEMASK_FUSEREGION_MULTI = 1 << 1,
+
+        // Use loop instead of raster + compute if possible
+        GEOMETRCOMPUTEMASK_USELOOP = 1 << 2,
+        
+        // Support Geometry Cache, if shape changed, will try recompute, and then run compute if failed
+        GEOMETRCOMPUTEMASK_OPENCACHE = 1 << 3,
+        
+        // Full option open mask, for example, if want to close useloop, can set mask as (GEOMETRCOMPUTEMASK_ALL - GEOMETRCOMPUTEMASK_USELOOP)
+        GEOMETRCOMPUTEMASK_ALL = 0xFFFF,
+    };
+
     /**
      * @brief The API shoud be called before create session.
      * @param mode      Hint type

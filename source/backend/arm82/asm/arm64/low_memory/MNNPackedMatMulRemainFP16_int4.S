@@ -39,10 +39,10 @@ ldr x10, [x4, #16] // h
 
 ldr x7, [x4, #24] // cStride
 ldr x19, [x4, #40] // bExtraStride
+ldr x26, [x4, #48] // blockId
 
 add x10, x10, #7
 lsr x10, x10, #3
-
 cbz x5, Start
 ld1 {v5.4s}, [x5]
 fcvtn v5.4h, v5.4s
@@ -63,6 +63,7 @@ LoopE8:
     mov x13, x2
     mov x14, x22
     mov x25, x23
+    
 
     LH8:
     cmp x8, #2
@@ -90,6 +91,8 @@ LoopE8:
         fmla v4.8h, v2.8h, v13.8h
 
         ld1 {v0.8h}, [x15], x11
+        cbnz x26, LE8H8_BLOCK_GT_0
+
         fmul v16.8h, v3.8h, v0.h[0]
         fmul v17.8h, v3.8h, v0.h[1]
         fmul v18.8h, v3.8h, v0.h[2]
@@ -109,6 +112,38 @@ LoopE8:
         fmul v29.8h, v4.8h, v0.h[5]
         fmul v30.8h, v4.8h, v0.h[6]
         fmul v31.8h, v4.8h, v0.h[7]
+        b LE8H8_INIT_END
+
+        LE8H8_BLOCK_GT_0:
+        ld1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], #64
+        ld1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x0], x24
+
+        ld1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x0], #64
+        ld1 {v28.8h, v29.8h, v30.8h, v31.8h}, [x0]
+        sub x0, x0, #128
+        sub x0, x0, x24
+
+        fmla v16.8h, v3.8h, v0.h[0]
+        fmla v17.8h, v3.8h, v0.h[1]
+        fmla v18.8h, v3.8h, v0.h[2]
+        fmla v19.8h, v3.8h, v0.h[3]
+
+        fmla v20.8h, v4.8h, v0.h[0]
+        fmla v21.8h, v4.8h, v0.h[1]
+        fmla v22.8h, v4.8h, v0.h[2]
+        fmla v23.8h, v4.8h, v0.h[3]
+
+        fmla v24.8h, v3.8h, v0.h[4]
+        fmla v25.8h, v3.8h, v0.h[5]
+        fmla v26.8h, v3.8h, v0.h[6]
+        fmla v27.8h, v3.8h, v0.h[7]
+
+        fmla v28.8h, v4.8h, v0.h[4]
+        fmla v29.8h, v4.8h, v0.h[5]
+        fmla v30.8h, v4.8h, v0.h[6]
+        fmla v31.8h, v4.8h, v0.h[7]
+
+        LE8H8_INIT_END:
         beq LoopLEnd
 
         LoopL:
@@ -156,30 +191,30 @@ LoopE8:
 
         add x13, x13, x19
         sub x8, x8, #2
-
         cbz x5, StoreLH8
         AddBiasLH8:
+        cbz x20, PostTreatLH8
         ld1 {v0.8h, v1.8h}, [x20], #32
 
-        fmla v16.8h, v0.8h, v5.h[1]
-        fmla v17.8h, v0.8h, v5.h[1]
-        fmla v18.8h, v0.8h, v5.h[1]
-        fmla v19.8h, v0.8h, v5.h[1]
+        fadd v16.8h, v0.8h, v16.8h
+        fadd v17.8h, v0.8h, v17.8h
+        fadd v18.8h, v0.8h, v18.8h
+        fadd v19.8h, v0.8h, v19.8h
 
-        fmla v20.8h, v1.8h, v5.h[1]
-        fmla v21.8h, v1.8h, v5.h[1]
-        fmla v22.8h, v1.8h, v5.h[1]
-        fmla v23.8h, v1.8h, v5.h[1]
+        fadd v20.8h, v1.8h, v20.8h
+        fadd v21.8h, v1.8h, v21.8h
+        fadd v22.8h, v1.8h, v22.8h
+        fadd v23.8h, v1.8h, v23.8h
 
-        fmla v24.8h, v0.8h, v5.h[1]
-        fmla v25.8h, v0.8h, v5.h[1]
-        fmla v26.8h, v0.8h, v5.h[1]
-        fmla v27.8h, v0.8h, v5.h[1]
+        fadd v24.8h, v0.8h, v24.8h
+        fadd v25.8h, v0.8h, v25.8h
+        fadd v26.8h, v0.8h, v26.8h
+        fadd v27.8h, v0.8h, v27.8h
 
-        fmla v28.8h, v1.8h, v5.h[1]
-        fmla v29.8h, v1.8h, v5.h[1]
-        fmla v30.8h, v1.8h, v5.h[1]
-        fmla v31.8h, v1.8h, v5.h[1]
+        fadd v28.8h, v1.8h, v28.8h
+        fadd v29.8h, v1.8h, v29.8h
+        fadd v30.8h, v1.8h, v30.8h
+        fadd v31.8h, v1.8h, v31.8h
 
         PostTreatLH8:
         fmax v16.8h, v16.8h, v6.8h
@@ -245,6 +280,8 @@ LoopE8:
         fmla v3.8h, v1.8h, v12.8h
 
         ld1 {v0.8h}, [x15], x11
+        cbnz x26, LE8H4_BLOCK_GT_0
+
         fmul v16.8h, v3.8h, v0.h[0]
         fmul v17.8h, v3.8h, v0.h[1]
         fmul v18.8h, v3.8h, v0.h[2]
@@ -253,6 +290,22 @@ LoopE8:
         fmul v21.8h, v3.8h, v0.h[5]
         fmul v22.8h, v3.8h, v0.h[6]
         fmul v23.8h, v3.8h, v0.h[7]
+        b LE8H4_INIT_END
+
+        LE8H4_BLOCK_GT_0:
+        ld1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], #64
+        ld1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x0]
+        fmla v16.8h, v3.8h, v0.h[0]
+        fmla v17.8h, v3.8h, v0.h[1]
+        fmla v18.8h, v3.8h, v0.h[2]
+        fmla v19.8h, v3.8h, v0.h[3]
+        sub x0, x0, #64
+
+        fmla v20.8h, v3.8h, v0.h[4]
+        fmla v21.8h, v3.8h, v0.h[5]
+        fmla v22.8h, v3.8h, v0.h[6]
+        fmla v23.8h, v3.8h, v0.h[7]
+        LE8H4_INIT_END:
         beq LoopLREnd
 
         LoopLR:
@@ -283,17 +336,18 @@ LoopE8:
 
         cbz x5, StoreLH8x4
         AddBiasLH8x4:
+        cbz x20, PostTreatLH8x4
         ld1 {v0.8h}, [x20]
 
-        fmla v16.8h, v0.8h, v5.h[1]
-        fmla v17.8h, v0.8h, v5.h[1]
-        fmla v18.8h, v0.8h, v5.h[1]
-        fmla v19.8h, v0.8h, v5.h[1]
+        fadd v16.8h, v16.8h, v0.8h
+        fadd v17.8h, v17.8h, v0.8h
+        fadd v18.8h, v18.8h, v0.8h
+        fadd v19.8h, v19.8h, v0.8h
 
-        fmla v20.8h, v0.8h, v5.h[1]
-        fmla v21.8h, v0.8h, v5.h[1]
-        fmla v22.8h, v0.8h, v5.h[1]
-        fmla v23.8h, v0.8h, v5.h[1]
+        fadd v20.8h, v20.8h, v0.8h
+        fadd v21.8h, v21.8h, v0.8h
+        fadd v22.8h, v22.8h, v0.8h
+        fadd v23.8h, v23.8h, v0.8h
         
         PostTreatLH8x4:
         fmax v16.8h, v16.8h, v6.8h
@@ -362,6 +416,8 @@ blt E1
         fmla v4.8h, v2.8h, v13.8h
 
         ld1 {v0.4h}, [x15], x11
+        cbnz x26, LE4H8_BLOCK_GT_0
+
         fmul v16.8h, v3.8h, v0.h[0]
         fmul v17.8h, v3.8h, v0.h[1]
         fmul v18.8h, v3.8h, v0.h[2]
@@ -371,7 +427,23 @@ blt E1
         fmul v21.8h, v4.8h, v0.h[1]
         fmul v22.8h, v4.8h, v0.h[2]
         fmul v23.8h, v4.8h, v0.h[3]
+        b LE4H8_INIT_END
 
+        LE4H8_BLOCK_GT_0:
+        ld1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], x7
+        ld1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x0]
+        fmla v16.8h, v3.8h, v0.h[0]
+        fmla v17.8h, v3.8h, v0.h[1]
+        fmla v18.8h, v3.8h, v0.h[2]
+        fmla v19.8h, v3.8h, v0.h[3]
+        sub x0, x0, x7
+
+        fmla v20.8h, v4.8h, v0.h[0]
+        fmla v21.8h, v4.8h, v0.h[1]
+        fmla v22.8h, v4.8h, v0.h[2]
+        fmla v23.8h, v4.8h, v0.h[3]
+
+        LE4H8_INIT_END:
         beq E4LoopLEnd
 
         E4LoopL:
@@ -415,17 +487,18 @@ blt E1
         cbz x5, StoreLH4x8
 
         AddBiasLH4x8:
+        cbz x20, PostTreatLH4x8
         ld1 {v0.8h, v1.8h}, [x20], #32
 
-        fmla v16.8h, v0.8h, v5.h[1]
-        fmla v17.8h, v0.8h, v5.h[1]
-        fmla v18.8h, v0.8h, v5.h[1]
-        fmla v19.8h, v0.8h, v5.h[1]
+        fadd v16.8h, v0.8h, v16.8h
+        fadd v17.8h, v0.8h, v17.8h
+        fadd v18.8h, v0.8h, v18.8h
+        fadd v19.8h, v0.8h, v19.8h
 
-        fmla v20.8h, v1.8h, v5.h[1]
-        fmla v21.8h, v1.8h, v5.h[1]
-        fmla v22.8h, v1.8h, v5.h[1]
-        fmla v23.8h, v1.8h, v5.h[1]
+        fadd v20.8h, v1.8h, v20.8h
+        fadd v21.8h, v1.8h, v21.8h
+        fadd v22.8h, v1.8h, v22.8h
+        fadd v23.8h, v1.8h, v23.8h
         
         PostTreatLH4x8:
         fmax v16.8h, v16.8h, v6.8h
@@ -472,11 +545,21 @@ blt E1
     fmla v3.8h, v1.8h, v12.8h
 
     ld1 {v0.4h}, [x15], x11
+    cbnz x26, LE4H4_BLOCK_GT_0
     fmul v16.8h, v3.8h, v0.h[0]
     fmul v17.8h, v3.8h, v0.h[1]
     fmul v18.8h, v3.8h, v0.h[2]
     fmul v19.8h, v3.8h, v0.h[3]
+    b LE4H4_INIT_END
 
+    LE4H4_BLOCK_GT_0:
+    ld1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0]
+    fmla v16.8h, v3.8h, v0.h[0]
+    fmla v17.8h, v3.8h, v0.h[1]
+    fmla v18.8h, v3.8h, v0.h[2]
+    fmla v19.8h, v3.8h, v0.h[3]
+
+    LE4H4_INIT_END:
     beq E4LoopLREnd
 
     E4LoopLR:
@@ -502,12 +585,13 @@ blt E1
 
     cbz x5, StoreLH4x4
     AddBiasLH4x4:
+    cbz x20, PostTreatLH4x4
     ld1 {v0.8h}, [x20]
 
-    fmla v16.8h, v0.8h, v5.h[1]
-    fmla v17.8h, v0.8h, v5.h[1]
-    fmla v18.8h, v0.8h, v5.h[1]
-    fmla v19.8h, v0.8h, v5.h[1]
+    fadd v16.8h, v16.8h, v0.8h
+    fadd v17.8h, v17.8h, v0.8h
+    fadd v18.8h, v18.8h, v0.8h
+    fadd v19.8h, v19.8h, v0.8h
 
     
     PostTreatLH4x4:
@@ -569,9 +653,19 @@ LoopE1:
         fmla v4.8h, v2.8h, v13.8h
 
         ld1 {v0.h}[0], [x15], x11
+        cbnz x26, LE1H8_BLOCK_GT_0
         fmul v16.8h, v3.8h, v0.h[0]
         fmul v20.8h, v4.8h, v0.h[0]
+        b LE1H8_INIT_END
 
+        LE1H8_BLOCK_GT_0:
+        ld1 {v16.8h}, [x0], x7
+        ld1 {v20.8h}, [x0]
+        sub x0, x0, x7
+        fmla v16.8h, v3.8h, v0.h[0]
+        fmla v20.8h, v4.8h, v0.h[0]
+
+        LE1H8_INIT_END:
         beq E1LoopLEnd
 
         E1LoopL:
@@ -606,10 +700,11 @@ LoopE1:
 
         cbz x5, StoreLH1x8
         AddBiasLH1x8:
+        cbz x20, PostTreatLH1x8
         ld1 {v0.8h, v1.8h}, [x20], #32
 
-        fmla v16.8h, v0.8h, v5.h[1]
-        fmla v20.8h, v1.8h, v5.h[1]
+        fadd v16.8h, v0.8h, v16.8h
+        fadd v20.8h, v1.8h, v20.8h
         
         PostTreatLH1x8:
         fmax v16.8h, v16.8h, v6.8h
@@ -641,10 +736,15 @@ LoopE1:
     scvtf v1.8h, v1.8h
     mov v3.8h, v14.8h
     fmla v3.8h, v1.8h, v12.8h
-
     ld1 {v0.h}[0], [x15], x11
+    cbnz x26, LE1H4_BLOCK_GT_0
     fmul v16.8h, v3.8h, v0.h[0]
+    b LE1H4_INIT_END
 
+    LE1H4_BLOCK_GT_0:
+    ld1 {v16.8h}, [x0]
+    fmla v16.8h, v3.8h, v0.h[0]
+    LE1H4_INIT_END:
     beq E1LoopLREnd
 
     E1LoopLR:
@@ -667,6 +767,7 @@ LoopE1:
 
     cbz x5, StoreLH1x4
     AddBiasLH1x4:
+    cbz x20, PostTreatLH1x4
     ld1 {v0.8h}, [x20]
     fmla v16.8h, v0.8h, v5.h[1]
     

@@ -61,6 +61,8 @@ option(MNN_BUILD_LLM "Build llm library based MNN." OFF)
 option(MNN_BUILD_DIFFUSION "Build diffusion demo based MNN." OFF)
 option(MNN_INTERNAL "Build with MNN internal features, such as model authentication, metrics logging" OFF)
 option(MNN_JNI "Build MNN Jni for java to use" OFF)
+option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
+option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
 
 IF (OHOS)
   include($ENV{NODE_PATH}/@ali/tcpkg/tcpkg.cmake)

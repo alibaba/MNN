@@ -206,6 +206,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      cxxopts::value<bool>()
      )
     (
+     "weightQuantBlock",
+     "using block-wise weight quant, set block size, defaut: -1, which means channel-wise weight quant",
+     cxxopts::value<int>()
+     )
+    (
      "compressionParamsFile",
      "The path of the compression parameters that stores activation, "
      "weight scales and zero points for quantization or information "
@@ -437,7 +442,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
     }
     if (result.count("weightQuantAsymmetric")) {
-        modelPath.weightQuantAsymmetric = true;
+        modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
+    }
+    if (result.count("weightQuantBlock")) {
+        modelPath.weightQuantBlock = result["weightQuantBlock"].as<int>();
     }
     if (result.count("saveStaticModel")) {
         modelPath.saveStaticModel = true;

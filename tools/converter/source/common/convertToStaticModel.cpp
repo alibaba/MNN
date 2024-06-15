@@ -332,7 +332,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     }
     std::vector<Schedule::OpCacheInfo> infos;
     initPipelineInfosFromNet(infos, net, allTensors);
-    GeometryComputer::Context ctx(defaultBackend);
+    GeometryComputer::Context ctx(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, defaultBackend);
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     GeometryComputerUtils::buildConstantTensors(infos);

@@ -1,4 +1,4 @@
-# 工具模块编译
+# 其他模块编译
 
 ## 模型转换工具
 - 相关编译选项
@@ -31,6 +31,28 @@
   - `runTrainDemo.out` 运行训练框架demo的入口程序
   - `transformer` 训练模型转换器，将推理用的MNN模型转换为执行训练的MNN模型
   - `extractForInfer` 从执行训练的MNN模型中提取参数，对应更新推理用的MNN模型
+## 生成式模型
+- 相关编译选项
+  - `MNN_BUILD_DIFFUSION` 是否编译扩散模型推理示例
+  - `MNN_BUILD_LLM` 是否编译大语言模型推理引擎
+  - `MNN_SUPPORT_TRANSFORMER_FUSE` 是否支持`transformer`相关的融合算子，主要加速transformer模型
+- 编译命令
+  - 编译扩散模型推理示例
+    ```bash
+    mkdir build && cd build
+    cmake .. -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+    make -j4
+    ```
+  - 编译大语言模型推理引擎
+    ```bash
+    mkdir build && cd build
+    cmake .. -DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+    make -j4
+    ```
+- 编译产物
+  - `libllm.so` 大语言模型推理库
+  - `llm_demo` 大语言模型推理示例程序
+  - `diffusion_demo` 扩散模型示例程序
 ## 测试工具
 - 相关编译选项
   - `MNN_BUILD_TOOL` 是否编译测试工具

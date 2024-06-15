@@ -11,22 +11,36 @@
 
 .text
 .align 5
+
+.macro MNN_ADD_FLAOT s0, s1, s2, s3, z0, z1, z2, z3
+    fadd \s0\().4s, \s0\().4s, \z0\().4s
+    fadd \s1\().4s, \s1\().4s, \z1\().4s
+    fadd \s2\().4s, \s2\().4s, \z2\().4s
+    fadd \s3\().4s, \s3\().4s, \z3\().4s
+
+.endm
+
 // 12 * 8 MatMul
 asm_function MNNPackedMatMul_int4
 //void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 // x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias, x6: k, x7: b
-stp d14, d15, [sp, #-80]!
+stp d14, d15, [sp, #-112]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 stp x19, x20, [sp, #64]
+stp x21, x22, [sp, #80]
+stp x23, x24, [sp, #96]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
 ldr x10, [x3, #16] // h
 
 ldr x13, [x3, #24] // cStride
-ldr x11, [x3, #40] // bExtraStride
+ldr x11, [x3, #40] // bExtraStride = (LSize - l) * (hP * sizeof(int4_t))
+ldr x21, [x3, #48] // blockId
+
+//add x11, x11, x9, LSL #2 // bStride = (hP * sizeof(int4_t)) * l + bExtraStride
 
 // v0, v1, v2: A
 // v3, v4: B
@@ -45,7 +59,7 @@ cmp x10, #2
 blt LH4
 
 LH8:
-// sub x14, x13, #160
+sub x14, x13, #128
 LoopH:
 
     mov x15, x1
@@ -231,14 +245,33 @@ LoopH:
     fmla v30.4s, v7.4s, v2.s[2]
     fmla v31.4s, v7.4s, v2.s[3]
 
-    cbz x4, StoreLH8
+    cbz x21, AddBiasLH8
+    // add dst value
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v8, v9, v10, v11, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v12, v13, v14, v15, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], x14
+    MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
 
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v20, v21, v22, v23, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v24, v25, v26, v27, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+    MNN_ADD_FLAOT v28, v29, v30, v31, v0, v1, v2, v3
+    sub x0, x0, #256
+    sub x0, x0, x14
+
+    
     AddBiasLH8:
+    cbz x4, StoreLH8
     ld1 {v5.4s}, [x4]
     dup v6.4s, v5.s[2] // Min Value
     dup v7.4s, v5.s[3] // Max Value
-    ld1 {v0.4s, v1.4s}, [x5], #32
+    cbz x5, PostTreatLH8
 
+    ld1 {v0.4s, v1.4s}, [x5], #32
     fmla v8.4s, v0.4s, v5.s[1]
     fmla v9.4s, v0.4s, v5.s[1]
     fmla v10.4s, v0.4s, v5.s[1]
@@ -452,11 +485,22 @@ LoopHRemain:
     fmla v18.4s, v21.4s, v6.s[2]
     fmla v19.4s, v21.4s, v6.s[3]
 
-    cbz x4, StoreLH4
+    cbz x21, AddBiasLH4
+    // add dst value
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v8, v9, v10, v11, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+    MNN_ADD_FLAOT v12, v13, v14, v15, v0, v1, v2, v3
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+    MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
+    sub x0, x0, #128
+
     AddBiasLH4:
+    cbz x4, StoreLH4
     ld1 {v5.4s}, [x4]
     dup v6.4s, v5.s[2] // Min Value
     dup v7.4s, v5.s[3] // Max Value
+    cbz x5, PostTreatLH4
     ld1 {v0.4s}, [x5], #16
 
     fmla v8.4s, v0.4s, v5.s[1]
@@ -511,11 +555,13 @@ LoopHRemain:
 
 
 End:
+ldp x23, x24, [sp, #96]
+ldp x21, x22, [sp, #80]
 ldp x19, x20, [sp, #64]
 ldp d8,  d9,  [sp, #48]
 ldp d10, d11, [sp, #32]
 ldp d12, d13, [sp, #16]
-ldp d14, d15, [sp], #80
+ldp d14, d15, [sp], #112
 
 ret
 

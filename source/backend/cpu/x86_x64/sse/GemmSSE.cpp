@@ -35,13 +35,17 @@ void _SSE_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const s
     auto hC4     = UP_DIV(h, 4);
     auto cStride = parameter[3] / sizeof(float);
     _SSE_MNNPackedMatMul_12_int4(C, A, B, parameter, k, b);
-    _SSE_GemmPostTreat(C, 12, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        _SSE_GemmPostTreat(C, 12, parameter, postParameters, bias);
+    }
 }
 
 void _SSE_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b) {
     _SSE_MNNPackednMatMulRemainCommon_int4(C, A, B, eSize, parameter, postParameters, bias, k, b);
-    _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    }
 }
 
 void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
@@ -50,13 +54,17 @@ void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const s
     auto hC4     = UP_DIV(h, 4);
     auto cStride = parameter[3] / sizeof(float);
     _SSE_MNNPackedMatMul_12_int8(C, A, B, parameter, k, b);
-    _SSE_GemmPostTreat(C, 12, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        _SSE_GemmPostTreat(C, 12, parameter, postParameters, bias);
+    }
 }
 
 void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b) {
     _SSE_MNNPackednMatMulRemainCommon_int8(C, A, B, eSize, parameter, postParameters, bias, k, b);
-    _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    }
 }
 
 void _SSE_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realSize, const float** param) {

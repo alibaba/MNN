@@ -24,6 +24,7 @@ struct Param {
     int query_seq_len;
     int key_seq_len;
     int head_num;
+    int group;
     int head_dim;
     float scale;
 };
@@ -45,18 +46,21 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     if (x >= param.query_seq_len || y >= param.head_num || z >= param.key_seq_len) {
         return;
     }
+    int group = param.group;
     int query_seq_len = param.query_seq_len;
     int key_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
+    int yr = y % param.group;
     
     const int offset = head_num * head_dim;
     const int offset_head = y * head_dim;
+    const int offset_head_kv = (y / param.group) * head_dim;
     const device T* A_offset = input0 + x * offset + offset_head;
-    device T* Pastkey_offset = past_key + z * offset + offset_head;
+    device T* Pastkey_offset = past_key + z * offset / group + offset_head_kv;
     float Vscale = (float)param.scale;
 #ifdef FOR_PREFILL
-    device const T* B_offset = input1 + z * offset + offset_head;
+    device const T* B_offset = input1 + z * offset / group + offset_head_kv;
     const int output_offset = y * query_seq_len * key_seq_len;
     float out0 = 0.0;
     
@@ -64,7 +68,9 @@ kernel void main0(const device T* input0 [[buffer(0)]],
         float A = (float)(A_offset[i]);
         float B = (float)(B_offset[i]);
         out0 += B * A;
-        Pastkey_offset[i] = (T)B;
+        if (yr == 0) {
+            Pastkey_offset[i] = (T)B;
+        }
     }
     
     out0 *= Vscale;
@@ -76,14 +82,16 @@ kernel void main0(const device T* input0 [[buffer(0)]],
 #endif
     output[output_offset + x * key_seq_len + z] = (T)out0;
 #else
-    const device T *B_offset = input1 + offset_head;
+    const device T *B_offset = input1 + offset_head_kv;
     float out = 0.0;
     if (z == key_seq_len - 1) {
         for(int i = 0; i < head_dim; ++i){
             float A = (float)(A_offset[i]);
             float B = (float)(B_offset[i]);
             out += B * A;
-            Pastkey_offset[i] = (T)B;
+            if (yr == 0) {
+                Pastkey_offset[i] = (T)B;
+            }
         }
     } else {
         for(int i = 0; i < head_dim; ++i){
@@ -109,6 +117,7 @@ struct Param {
     int query_seq_len;
     int key_seq_len;
     int head_num;
+    int group;
     int head_dim;
     float scale;
 };
@@ -124,12 +133,15 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     if (x >= param.query_seq_len || y >= param.head_num || z >= param.head_dim) {
         return;
     }
+    int group = param.group;
+    int yin = y / param.group;
+    int yr = y % param.group;
     int qk_seq_len = param.query_seq_len;
     int value_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
-    const int offset = head_num * head_dim;
-    const int offset_head = y * head_dim + z;
+    const int stride = head_num * head_dim / group;
+    const int offset_head = yin * head_dim + z;
 #ifdef FOR_PREFILL
     device const T *A_offset = input0 + (y * qk_seq_len + x) * value_seq_len;
     device const T *B_offset = input1 + offset_head;
@@ -138,11 +150,13 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     
     for(int i = 0; i < value_seq_len; ++i){
         float A0 = (float)A_offset[i];
-        float B = (float)B_offset[i*offset];
+        float B = (float)B_offset[i*stride];
         out += A0 * B;
-        Pastvalue_offset[i*offset] = B;
+        if (yr == 0) {
+            Pastvalue_offset[i*stride] = B;
+        }
     }
-    output[ x * offset + (y * head_dim + z)] = out;
+    output[ x * stride * group + (y * head_dim + z)] = out;
 #else
     device const T *A_offset = input0 + y;
     device const T *B_offset = input1 + offset_head;
@@ -151,12 +165,14 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     
     for(int i = 0; i < value_seq_len - 1; ++i){
         float A = (float)A_offset[i * head_num];
-        float B = (float)Pastvalue_offset[i * offset];
+        float B = (float)Pastvalue_offset[i * stride];
         
         out += A * B;
     }
     out += (float)A_offset[(value_seq_len - 1)*head_num] * (float)B_offset[0];
-    Pastvalue_offset[(value_seq_len - 1)*offset] = B_offset[0];
+    if (yr == 0) {
+        Pastvalue_offset[(value_seq_len - 1)*stride] = B_offset[0];
+    }
     output[(y * head_dim + z)] = (T)out;
 #endif
 
@@ -194,7 +210,7 @@ private:
     const int mExpandChunk = 64;
     bool mIsDecode = false;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
-    int mNumHead = 0, mHeadDim = 0, mValueH = 0;
+    int mNumHead = 0, mHeadDim = 0, mValueH = 0, mKvNumHead = 0;
     id<MTLComputePipelineState> mKernel_softmax = nil;
     
     id<MTLComputePipelineState> mKernel_qk = nil;
@@ -209,6 +225,7 @@ struct Param {
     int query_seq_len;
     int key_seq_len;
     int head_num;
+    int group;
     int head_dim;
     float scale;
 };
@@ -247,13 +264,13 @@ void AttentionBufExecution::reallocKVCache() {
     }
     bool needCopy = mCache->mMaxLength > 0;
 
-    size_t old_size = mNumHead * mCache->mMaxLength * mHeadDim * byte;
+    size_t old_size = mKvNumHead * mCache->mMaxLength * mHeadDim * byte;
     mCache->mMaxLength = mCache->mPastLength + mExpandChunk;
     // past_key: [1, numhead, headdim, maxlen]
-    auto new_key = Tensor::createDevice<float>({mCache->mMaxLength, mNumHead, mHeadDim});
+    auto new_key = Tensor::createDevice<float>({mCache->mMaxLength, mKvNumHead, mHeadDim});
     // past_value: [1, numhead, maxlen, headdim]
-    auto new_value = Tensor::createDevice<float>({mCache->mMaxLength, mNumHead, mHeadDim});
-    size_t size = mNumHead * mCache->mMaxLength * mHeadDim * byte;
+    auto new_value = Tensor::createDevice<float>({mCache->mMaxLength, mKvNumHead, mHeadDim});
+    size_t size = mKvNumHead * mCache->mMaxLength * mHeadDim * byte;
     backend()->onAcquireBuffer(new_key, Backend::STATIC);
     backend()->onAcquireBuffer(new_value, Backend::STATIC);
     if (needCopy) {
@@ -356,6 +373,10 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     if(mIsDecode){
         mCache->mKv_seq_len = mCache->mPastLength + 1;
     }
+    mKvNumHead = key->shape()[2];
+
+    int group_size = mNumHead / mKvNumHead;
+
     reallocKVCache();
 
     // Update Parameters
@@ -365,6 +386,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         param->head_dim = mHeadDim;
         param->key_seq_len = mCache->mKv_seq_len;
         param->head_num = mNumHead;
+        param->group = group_size;
         param->query_seq_len = seq_len;
     }
     // For softmax parameter

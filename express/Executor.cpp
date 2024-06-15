@@ -243,38 +243,10 @@ void Executor::RuntimeManager::destroy(RuntimeManager* rtmgr) {
 }
 
 void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
-    if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
-        mInside->modes.inputMode = mode;
-    } else if (mode == Interpreter::Session_Output_User || mode == Interpreter::Session_Output_Inside) {
-        mInside->modes.outputMode = mode;
-    } else if (mode == Interpreter::Session_Backend_Auto || mode == Interpreter::Session_Backend_Fix) {
-        mInside->modes.backendMode = mode;
-    } else if (mode == Interpreter::Session_Debug || mode == Interpreter::Session_Release) {
-        mInside->modes.callBackMode = mode;
-    } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
-        mInside->modes.resizeMode = mode;
-    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
-        mInside->modes.memoryUsageMode = mode;
-    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
-        mInside->modes.codegenMode = mode;
-    }
+    mInside->modes.setMode(mode);
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
-    switch (mode) {
-        case Interpreter::MAX_TUNING_NUMBER:
-            mInside->modes.maxTuningNumber = value;
-            break;
-        case Interpreter::STRICT_CHECK_MODEL:
-            mInside->checkNetBuffer = value > 0;
-            break;
-        case Interpreter::MEM_ALLOCATOR_TYPE:
-            mInside->modes.memoryAllocatorType = value;
-            break;
-        case Interpreter::WINOGRAD_MEMORY_LEVEL:
-            mInside->modes.winogradMemoryUsed = value;
-        default:
-            break;
-    }
+    mInside->modes.setHint(mode, value);
 }
 bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
     // Only support get memory

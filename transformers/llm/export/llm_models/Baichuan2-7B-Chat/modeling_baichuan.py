@@ -128,7 +128,7 @@ class RotaryEmbedding(torch.nn.Module):
             self.sin_cached = emb.sin()[None, None, :, :].to(torch.float32).to(x.device)
         elif self.cos_cached.device != x.device:
             self.cos_cached = self.cos_cached.to(x.device)
-            self.sin_cached = self.sin_cached.to(x.device)  
+            self.sin_cached = self.sin_cached.to(x.device)
         return (
             self.cos_cached[:, :, :seq_len, ...],
             self.sin_cached[:, :, :seq_len, ...],
@@ -149,8 +149,8 @@ def apply_rotary_pos_emb(q, k, cos_, sin_, position_ids):
     # cos = cos[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
     # sin = sin[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
     # print(f'### q.shape = {q.shape}, cos.shape = {cos.shape}')
-    cos = cos[position_ids]
-    sin = sin[position_ids]
+    # cos = cos[position_ids]
+    # sin = sin[position_ids]
     q_embed = (q.float() * cos) + (rotate_half(q.float()) * sin)
     k_embed = (k.float() * cos) + (rotate_half(k.float()) * sin)
     return q_embed.to(q.dtype), k_embed.to(k.dtype)
@@ -205,6 +205,7 @@ class Attention(nn.Module):
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
             past_key_value: Optional[Tuple[torch.Tensor]] = None,
+            rotary_pos_emb: Optional[torch.Tensor] = None,
             output_attentions: bool = False,
             use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
@@ -212,6 +213,7 @@ class Attention(nn.Module):
 
         proj = self.W_pack(hidden_states)
         proj = proj.reshape([1, -1, 3, 4096]).permute([2, 0, 1, 3])
+        '''
         # proj = proj.unflatten(-1, (3, self.hidden_size)).unsqueeze(0).transpose(0, -2).squeeze(-2)
         query_states = proj[0].view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = proj[1].view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -220,7 +222,10 @@ class Attention(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
             kv_seq_len += past_key_value[0].shape[-2]
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        if rotary_pos_emb is None:
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        else:
+            cos, sin = rotary_pos_emb
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
 
@@ -239,13 +244,35 @@ class Attention(nn.Module):
                 query_states, key_states, value_states, attn_bias=xops.LowerTriangularMask()
             )
         else:
-            '''
-            with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=True, enable_mem_efficient=True):
-                attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = attention_mask)
-            '''
             attn_output = self.raw_atten(query_states, key_states, value_states, attention_mask)
             attn_output = attn_output.transpose(1, 2)
-
+        '''
+        #---------------
+        query_states = proj[0].view(bsz, q_len, self.num_heads, self.head_dim)
+        key_states = proj[1].view(bsz, q_len, self.num_heads, self.head_dim)
+        value_states = proj[2].view(bsz, q_len, self.num_heads, self.head_dim)
+        kv_seq_len = key_states.shape[1]
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[1]
+        # rope
+        cos, sin = rotary_pos_emb
+        query_states = (query_states * cos) + (rotate_half(query_states) * sin)
+        key_states = (key_states * cos) + (rotate_half(key_states) * sin)
+        # kv cache
+        if past_key_value is not None:
+            past_key, past_value = past_key_value[0], past_key_value[1]
+            key_states = torch.cat((past_key, key_states), dim=1)
+            value_states = torch.cat((past_value, value_states), dim=1)
+        past_key_value = torch.stack((key_states, value_states))
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.permute([0, 2, 3, 1])
+        value_states = value_states.transpose(1, 2)
+        attn_weights = torch.matmul(query_states, key_states) / math.sqrt(self.head_dim)
+        attn_weights = attn_weights + attention_mask
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_output = torch.matmul(attn_weights, value_states)
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        #---------------
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
         attn_output = self.o_proj(attn_output)
 
@@ -274,6 +301,7 @@ class DecoderLayer(nn.Module):
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
             past_key_value: Optional[Tuple[torch.Tensor]] = None,
+            rotary_pos_emb: Optional[torch.Tensor] = None,
             output_attentions: Optional[bool] = False,
             use_cache: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
@@ -288,6 +316,7 @@ class DecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
+            rotary_pos_emb=rotary_pos_emb,
             output_attentions=output_attentions,
             use_cache=use_cache,
         )
@@ -567,7 +596,7 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
 
     def get_decoder(self):
         return self.model
-    
+
     @classmethod
     def from_pretrained(
         cls,
@@ -603,7 +632,7 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
             )
         else:
             model_kwargs = kwargs
-        
+
         if hasattr(config, "quantization_config") and config.quantization_config['load_in_4bit']:
             try:
                 from .quantizer import init_model_weight_int4
@@ -611,20 +640,20 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
                 from accelerate.utils import CustomDtype
                 from accelerate.utils import get_balanced_memory
             except ImportError:
-                raise ImportError(f"Needs import model weight init func to run quantize.") 
+                raise ImportError(f"Needs import model weight init func to run quantize.")
             # Instantiate model.
             init_contexts = [no_init_weights(_enable=True)]
             init_contexts.append(init_empty_weights())
             with ContextManagers(init_contexts):
                 model = cls(config)
-            
+
             model_file = os.path.join(pretrained_model_name_or_path, 'pytorch_model.bin')
-            state_dict = torch.load(model_file, map_location="cpu") 
+            state_dict = torch.load(model_file, map_location="cpu")
             model.is_quantized = True
-                        
+
             device_map = kwargs.pop("device_map", None)
             torch_dtype = kwargs.pop("torch_dtype", None)
-            
+
             kwargs = {"no_split_module_classes": model._no_split_modules}
             target_dtype = CustomDtype.INT4
             max_memory = get_balanced_memory(
@@ -635,10 +664,10 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
                 **kwargs,
             )
             kwargs["max_memory"] = max_memory
-            
+
             device_map = infer_auto_device_map(model, dtype=target_dtype, **kwargs)
             model = init_model_weight_int4(config, model, state_dict)
-            
+
             # Set model in evaluation mode to deactivate DropOut modules by default
             model.eval()
             # If it is a model with generation capabilities, attempt to load the generation config
@@ -663,15 +692,15 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
                         "Generation config file not found, using a generation config created from the model config."
                     )
                     pass
-            
+
             if device_map is not None:
                 dispatch_model(model, device_map=device_map)
-            
+
             return model
-        return super(BaichuanForCausalLM, cls).from_pretrained(pretrained_model_name_or_path, *model_args, 
-                config=config, cache_dir=cache_dir, ignore_mismatched_sizes=ignore_mismatched_sizes, 
-                force_download=force_download, local_files_only=local_files_only, token=token, revision=revision, 
-                use_safetensors=use_safetensors, **kwargs)   
+        return super(BaichuanForCausalLM, cls).from_pretrained(pretrained_model_name_or_path, *model_args,
+                config=config, cache_dir=cache_dir, ignore_mismatched_sizes=ignore_mismatched_sizes,
+                force_download=force_download, local_files_only=local_files_only, token=token, revision=revision,
+                use_safetensors=use_safetensors, **kwargs)
 
     def forward(
             self,
