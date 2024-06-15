@@ -588,21 +588,15 @@ static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* f
     auto hRemain = parameter[4];
     float weightBytes = 0.5; // sizeof(int4_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride = bExtraStride + l * 4;
+    auto bStride = bExtraStride + 4 * l;
     auto hC4 = UP_DIV(h, 4);
-    for (int y=0; y<hC4; ++y) {
-        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
-    }
-    float alpha = 1.0f;
-    float beta = 0.0f;
     float minValue = -std::numeric_limits<float>().max();
     float maxValue = std::numeric_limits<float>().max();
     if (nullptr != postParameters) {
         minValue = postParameters[2];
         maxValue = postParameters[3];
-        alpha = postParameters[0];
-        beta = postParameters[1];
     }
+    int blockId = parameter[6];
 
     for (int x=0; x<eSize; ++x) {
         auto dst = C + 4 * x;
@@ -618,9 +612,15 @@ static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* f
                 0.0f,
                 0.0f,
             };
-            if (nullptr != bias) {
+            if (blockId > 0) {
+                summer[0] = dstY[0];
+                summer[1] = dstY[1];
+                summer[2] = dstY[2];
+                summer[3] = dstY[3];
+            }
+            if (nullptr != bias && nullptr != postParameters) {
                 for (int v=0; v<4; ++v) {
-                    summer[v] = bias[4 * y + v];
+                    summer[v] += bias[4 * y + v];
                 }
             }
             for (int z=0; z<l; ++z) {
@@ -662,21 +662,15 @@ static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* f
     auto hRemain = parameter[4];
     float weightBytes = 1; // sizeof(int8_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride = bExtraStride + l * 4;
+    auto bStride = bExtraStride + 4 * l;
     auto hC4 = UP_DIV(h, 4);
-    for (int y=0; y<hC4; ++y) {
-        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
-    }
-    float alpha = 1.0f;
-    float beta = 0.0f;
     float minValue = -std::numeric_limits<float>().max();
     float maxValue = std::numeric_limits<float>().max();
     if (nullptr != postParameters) {
         minValue = postParameters[2];
         maxValue = postParameters[3];
-        alpha = postParameters[0];
-        beta = postParameters[1];
     }
+    int blockId = parameter[6];
 
     for (int x=0; x<eSize; ++x) {
         auto dst = C + 4 * x;
@@ -692,9 +686,15 @@ static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* f
                 0.0f,
                 0.0f,
             };
-            if (nullptr != bias) {
+            if (blockId > 0) {
+                summer[0] = dstY[0];
+                summer[1] = dstY[1];
+                summer[2] = dstY[2];
+                summer[3] = dstY[3];
+            }
+            if (nullptr != bias && nullptr != postParameters) {
                 for (int v=0; v<4; ++v) {
-                    summer[v] = bias[4 * y + v];
+                    summer[v] += bias[4 * y + v];
                 }
             }
             for (int z=0; z<l; ++z) {
@@ -707,7 +707,7 @@ static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* f
                     wZ[2]       = i8wZ[2] * alpha[2] + qbias[2];
                     wZ[3]       = i8wZ[3] * alpha[3] + qbias[3];
                 }
-                summer[0] += (i8wZ[0] * alpha[0] + qbias[0]) * aZ[0];
+                summer[0] += wZ[0] * aZ[0];
                 summer[1] += wZ[1] * aZ[0];
                 summer[2] += wZ[2] * aZ[0];
                 summer[3] += wZ[3] * aZ[0];

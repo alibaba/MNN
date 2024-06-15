@@ -294,7 +294,7 @@ model_test() {
         echo '### 静态模型测试失败，测试终止！'
         failed
     fi
-    
+
     if [ "$OPENCL_CHANGE" ]; then
         ../tools/script/modelTest.py ~/AliNNModel 3 0.002 1
         if [ $? -ne 0 ]; then
@@ -431,7 +431,7 @@ opencv_test() {
 
 llm_test() {
     # 1. build llm with low memory
-    cmake -DMNN_OPENCV_TEST=ON -DMNN_BUILD_LLM=ON ..
+    cmake -DMNN_LOW_MEMORY=ON -DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON ..
     make -j8
     llm_build_wrong=$[$? > 0]
     printf "TEST_NAME_LLM_BUILD: LLM编译测试\nTEST_CASE_AMOUNT_LLM_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
@@ -441,7 +441,7 @@ llm_test() {
         failed
     fi
     # 2. run llm model test
-    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 0 10 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
+    ./llm_demo ~/AliNNModel/qwen1.5-0.5b-int4/config.json ~/AliNNModel/qwen1.5-0.5b-int4/prompt.txt
     if [ $? -gt 0 ]; then
         echo '### LLM模型测试失败，测试终止！'
         failed
@@ -543,7 +543,7 @@ android_model_test() {
             fi
         fi
     done
-    
+
     models=`ls ~/AliNNModel/TestResource/`
     for model in $models
     do
@@ -562,7 +562,7 @@ android_model_test() {
             fi
         fi
     done
-    
+
     models=`ls ~/AliNNModel/TestWithDescribe/`
     for model in $models
     do

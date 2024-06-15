@@ -12,6 +12,14 @@
 
 .text
 .align 5
+
+.macro MNN_ADD_FLAOT s0, s1, s2, s3, z0, z1, z2, z3
+    fadd \s0\().4s, \s0\().4s, \z0\().4s
+    fadd \s1\().4s, \s1\().4s, \z1\().4s
+    fadd \s2\().4s, \s2\().4s, \z2\().4s
+    fadd \s3\().4s, \s3\().4s, \z3\().4s
+
+.endm
 // 12 * 8 MatMul
 asm_function MNNPackedMatMulRemain_int8
 //void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
@@ -34,17 +42,19 @@ ldr x10, [x4, #16] // h
 
 ldr x7, [x4, #24] // cStride
 ldr x19, [x4, #40] // bExtraStride
+ldr x26, [x4, #48] // blockId
 
 add x10, x10, #3
 lsr x10, x10, #2
-lsl x25, x9, #3 // l*hPack
-add x25, x25, x19
+//lsl x25, x9, #3 // l*hPack
+//add x25, x25, x19
 cbz x5, Start
 ld1 {v5.4s}, [x5]
 dup v6.4s, v5.s[2] // Min Value
 dup v7.4s, v5.s[3] // Max Value
 
 Start:
+sub x25, x7, #64
 
 E8:
 cmp x3, #8
@@ -143,8 +153,21 @@ LoopE8:
         sub x8, x8, #2
         cmp x8, #2
 
-        cbz x5, StoreLH8
+
+        cbz x26, AddBiasLH8
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+        MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], x25
+        MNN_ADD_FLAOT v24, v25, v26, v27, v0, v1, v2, v3
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+        MNN_ADD_FLAOT v20, v21, v22, v23, v0, v1, v2, v3
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+        MNN_ADD_FLAOT v28, v29, v30, v31, v0, v1, v2, v3
+        sub x0, x0, #128
+        sub x0, x0, x25
+
         AddBiasLH8:
+        cbz x5, StoreLH8
         ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
@@ -277,8 +300,15 @@ LoopE8:
             bne LoopLR
         LoopLREnd:
 
-        cbz x5, StoreLH8x4
+        cbz x26, AddBiasLH8x4
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
+        MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+        MNN_ADD_FLAOT v20, v21, v22, v23, v0, v1, v2, v3
+        sub x0, x0, #64
+
         AddBiasLH8x4:
+        cbz x20, PostTreatLH8x4
         ld1 {v0.4s}, [x20]
 
         fmla v16.4s, v0.4s, v5.s[1]
@@ -292,6 +322,7 @@ LoopE8:
         fmla v23.4s, v0.4s, v5.s[1]
 
         PostTreatLH8x4:
+        cbz x5, StoreLH8x4
         fmax v16.4s, v16.4s, v6.4s
         fmax v17.4s, v17.4s, v6.4s
         fmax v18.4s, v18.4s, v6.4s
@@ -433,9 +464,15 @@ blt E1
         sub x8, x8, #2
         cmp x8, #2
 
-        cbz x5, StoreLH4x8
+        cbz x26, AddBiasLH4x8
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], x7
+        MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+        MNN_ADD_FLAOT v20, v21, v22, v23, v0, v1, v2, v3
+        sub x0, x0, x7
 
         AddBiasLH4x8:
+        cbz x20, PostTreatLH4x8
         ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
@@ -449,6 +486,7 @@ blt E1
         fmla v23.4s, v1.4s, v5.s[1]
 
         PostTreatLH4x8:
+        cbz x5, StoreLH4x8
         fmax v16.4s, v16.4s, v6.4s
         fmax v17.4s, v17.4s, v6.4s
         fmax v18.4s, v18.4s, v6.4s
@@ -523,8 +561,12 @@ blt E1
         bne E4LoopLR
     E4LoopLREnd:
 
-    cbz x5, StoreLH4x4
+    cbz x26, AddBiasLH4x4
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0]
+    MNN_ADD_FLAOT v16, v17, v18, v19, v0, v1, v2, v3
+
     AddBiasLH4x4:
+    cbz x5, StoreLH4x4
     ld1 {v0.4s}, [x20]
 
     fmla v16.4s, v0.4s, v5.s[1]
@@ -620,8 +662,15 @@ LoopE1:
         sub x8, x8, #2
         cmp x8, #2
 
-        cbz x5, StoreLH1x8
+        cbz x26, AddBiasLH1x8
+        ld1 {v0.4s}, [x0], x7
+        ld1 {v1.4s}, [x0]
+        fadd v16.4s, v16.4s, v0.4s
+        fadd v20.4s, v20.4s, v1.4s
+        sub x0, x0, x7
+
         AddBiasLH1x8:
+        cbz x5, StoreLH1x8
         ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
@@ -676,8 +725,12 @@ LoopE1:
         bne E1LoopLR
     E1LoopLREnd:
 
-    cbz x5, StoreLH1x4
+    cbz x26, AddBiasLH1x4
+    ld1 {v0.4s}, [x0]
+    fadd v16.4s, v16.4s, v0.4s
+
     AddBiasLH1x4:
+    cbz x5, StoreLH1x4
     ld1 {v0.4s}, [x20]
     fmla v16.4s, v0.4s, v5.s[1]
 

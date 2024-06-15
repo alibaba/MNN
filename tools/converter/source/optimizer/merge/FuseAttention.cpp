@@ -22,6 +22,22 @@ private:
     VARP query, key, value, mask;
 };
 
+static EXPRP is_gqa(EXPRP& x) {
+    if (!helpers::IsReshape(x)) {
+        return x;
+    }
+    auto y = x->inputs().at(0)->expr().first;
+    if (!helpers::IsBroadcastTo(y)) {
+        return x;
+    }
+    y = y->inputs().at(0)->expr().first;
+    if (!helpers::IsUnsqueeze(y)) {
+        return x;
+    }
+    y = y->inputs().at(0)->expr().first;
+    return y;
+}
+
 FuseAttention::FuseAttention() {
     auto match = [this](EXPRP expr) -> bool {
         auto config = Global<modelConfig>::Get();
@@ -44,9 +60,9 @@ FuseAttention::FuseAttention() {
         if (!helpers::IsMatMul(matmul)) {
             return false;
         }
-
-        // transpose
         y = matmul->inputs().at(1)->expr().first;
+        y = is_gqa(y);
+        // transpose
         if (!helpers::IsTranspose(y)) {
             return false;
         }
@@ -98,8 +114,9 @@ FuseAttention::FuseAttention() {
         // query
         query = z->inputs().at(0);
 
-        // transpose
         y = x->inputs().at(1)->expr().first;
+        // transpose
+        y = is_gqa(y);
         if (!helpers::IsTranspose(y)) {
             return false;
         }
@@ -119,6 +136,9 @@ FuseAttention::FuseAttention() {
         if (version < 2.8f) {
             // For target version < 2.8 , don't support fmha_v2
             return false;
+        }
+        if (expr->name().size() > 0) {
+            MNN_PRINT("Fuse Attention as %s\n", expr->name().c_str());
         }
 
         std::unique_ptr<OpT> attention(new OpT);
@@ -205,6 +225,9 @@ RemovePastKeyValue::RemovePastKeyValue() {
         if (version < 2.8f) {
             // For target version < 2.8 , don't support fmha_v2
             return false;
+        }
+        if (!expr->name().empty()) {
+            MNN_PRINT("Remove past KV for %s\n", expr->name().c_str());
         }
 
         // past-kv remove

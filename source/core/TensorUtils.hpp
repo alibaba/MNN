@@ -187,7 +187,17 @@ public:
     static bool isTileRegion(const Tensor::InsideDescribe::Region& region);
     static bool isDepthToSpaceRegions(const Tensor* output);
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
-    static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
+    
+    class FuseRegionStatus;
+    class MNN_PUBLIC FuseWrap {
+    public:
+        FuseWrap();
+        ~ FuseWrap();
+        bool match(const Tensor::InsideDescribe::Region& srcReg, const Tensor::InsideDescribe::Region& dstReg);
+        void apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
+    private:
+        FuseRegionStatus* mStatus;
+    };
     static void adjustTensorForCompability(Tensor* t);
     static Tensor::DimensionType getDimType(const Tensor* t);
     static std::vector<float> getQuantInfo(const Tensor* t);

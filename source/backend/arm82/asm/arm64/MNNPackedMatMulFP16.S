@@ -14,7 +14,7 @@
 // 8 * 24 MatMul
 asm_function MNNPackedMatMulFP16
 //void MNNPackedMatMulFP16(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, const size_t* parameter, const FLOAT16* postParameters, const FLOAT16* bias);
-// x0: C, x1:A, x2:B, x3:parameter, x5: postParameters, x6:bias
+// x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]

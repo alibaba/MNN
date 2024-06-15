@@ -44,6 +44,44 @@ static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& ru
         iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig));
     }
 }
+void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
+    if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
+        inputMode = mode;
+    } else if (mode == Interpreter::Session_Output_User || mode == Interpreter::Session_Output_Inside) {
+        outputMode = mode;
+    } else if (mode == Interpreter::Session_Backend_Auto || mode == Interpreter::Session_Backend_Fix) {
+        backendMode = mode;
+    } else if (mode == Interpreter::Session_Debug || mode == Interpreter::Session_Release) {
+        callBackMode = mode;
+    } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
+        resizeMode = mode;
+    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
+        memoryUsageMode = mode;
+    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
+        codegenMode = mode;
+    }
+}
+void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
+    switch (mode) {
+        case Interpreter::MAX_TUNING_NUMBER:
+            maxTuningNumber = hint;
+            break;
+        case Interpreter::MEM_ALLOCATOR_TYPE:
+            memoryAllocatorType = hint;
+            break;
+        case Interpreter::WINOGRAD_MEMORY_LEVEL:
+            winogradMemoryUsed = hint;
+            break;
+        case Interpreter::GEOMETRY_COMPUTE_MASK:
+            geometryMask = hint;
+            break;
+        case Interpreter::STRICT_CHECK_MODEL:
+            checkNetBuffer = hint > 0;
+            break;
+        default:
+            break;
+    }
+}
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
     mMode = mode;
     mRuntime = std::move(runtime);
@@ -59,7 +97,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
         auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline( mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), mMode.geometryMask));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mCallBackMode = mode.callBackMode;

@@ -224,8 +224,9 @@ static void _SSE_MNNPackedMatMul_12_int4(float* C, const float* A, const float* 
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 0.5; // sizeof(int4_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
     auto hC4          = UP_DIV(h, 4);
+    auto blockId      = parameter[6];
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride / 2;
@@ -277,9 +278,15 @@ static void _SSE_MNNPackedMatMul_12_int4(float* C, const float* A, const float* 
             z10 = MNNSSEFMA(s1, w3, z10);
             z11 = MNNSSEFMA(s2, w3, z11);
         }
-        TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
-        TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
-        TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        if (0 == blockId) {
+            TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+            TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        } else {
+            FMLA_TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            FMLA_TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+            FMLA_TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        }
     }
 }
 
@@ -290,7 +297,8 @@ static void _SSE_MNNPackedMatMul_8_int4(float* C, const float* A, const uint8_t*
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 0.5; // sizeof(int4_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
@@ -333,8 +341,13 @@ static void _SSE_MNNPackedMatMul_8_int4(float* C, const float* A, const uint8_t*
             z7  = MNNSSEFMA(s1, w2, z7);
             z10 = MNNSSEFMA(s1, w3, z10);
         }
-        TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
-        TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        if (0 == blockId) {
+            TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        } else {
+            FMLA_TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            FMLA_TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        }
     }
 }
 
@@ -345,7 +358,8 @@ static void _SSE_MNNPackedMatMul_4_int4(float* C, const float* A, const uint8_t*
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 0.5;
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
@@ -379,10 +393,26 @@ static void _SSE_MNNPackedMatMul_4_int4(float* C, const float* A, const uint8_t*
             z9 = MNNSSEFMA(s0, w3, z9);
         }
         _MM_TRANSPOSE4_PS(z0, z3, z6, z9);
-        _mm_storeu_ps(dst + 4 * 0, z0);
-        _mm_storeu_ps(dst + 4 * 1, z3);
-        _mm_storeu_ps(dst + 4 * 2, z6);
-        _mm_storeu_ps(dst + 4 * 3, z9);
+        if (0 == blockId) {
+            _mm_storeu_ps(dst + 4 * 0, z0);
+            _mm_storeu_ps(dst + 4 * 1, z3);
+            _mm_storeu_ps(dst + 4 * 2, z6);
+            _mm_storeu_ps(dst + 4 * 3, z9);
+        } else {
+            auto t0 = _mm_loadu_ps(dst + 4 * 0);
+            auto t1 = _mm_loadu_ps(dst + 4 * 1);
+            auto t2 = _mm_loadu_ps(dst + 4 * 2);
+            auto t3 = _mm_loadu_ps(dst + 4 * 3);
+
+            z0 = _mm_add_ps(z0, t0);
+            z3 = _mm_add_ps(z3, t1);
+            z6 = _mm_add_ps(z6, t2);
+            z9 = _mm_add_ps(z9, t3);
+            _mm_storeu_ps(dst + 4 * 0, z0);
+            _mm_storeu_ps(dst + 4 * 1, z3);
+            _mm_storeu_ps(dst + 4 * 2, z6);
+            _mm_storeu_ps(dst + 4 * 3, z9);
+        }
     }
 }
 
@@ -394,7 +424,8 @@ static void _SSE_MNNPackednMatMulRemainCommon_int4(float* C, const float* A, con
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 0.5; // sizeof(int4_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes); // parameter[5]/weightBytes
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     auto es           = eSize;
     auto oC           = C;
@@ -424,7 +455,15 @@ static void _SSE_MNNPackednMatMulRemainCommon_int4(float* C, const float* A, con
                 auto w = _load_int4x4(weight + sy * 2, alpha, bias);
                 sum    = MNNSSEFMA(s, w, sum);
             }
-            _mm_storeu_ps(dst, sum);
+            if (0 == blockId) {
+                _mm_storeu_ps(dst, sum);
+            } else {
+                auto tmp = _mm_loadu_ps(dst);
+                sum = _mm_add_ps(sum, tmp);
+                _mm_storeu_ps(dst, sum);
+            }
+            
+
         }
     }
 }
@@ -446,7 +485,8 @@ static void _SSE_MNNPackedMatMul_12_int8(float* C, const float* A, const float* 
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 1; // sizeof(int8_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
@@ -499,9 +539,16 @@ static void _SSE_MNNPackedMatMul_12_int8(float* C, const float* A, const float* 
             z10 = MNNSSEFMA(s1, w3, z10);
             z11 = MNNSSEFMA(s2, w3, z11);
         }
-        TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
-        TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
-        TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        if (0 == blockId) {
+            TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+            TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        } else {
+            FMLA_TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            FMLA_TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+            FMLA_TRANPOSE_SAVE(0, 2, z2, z5, z8, z11);
+        }
+        
     }
 }
 
@@ -512,7 +559,8 @@ static void _SSE_MNNPackedMatMul_8_int8(float* C, const float* A, const int8_t* 
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 1; // sizeof(int8_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
@@ -555,8 +603,14 @@ static void _SSE_MNNPackedMatMul_8_int8(float* C, const float* A, const int8_t* 
             z7  = MNNSSEFMA(s1, w2, z7);
             z10 = MNNSSEFMA(s1, w3, z10);
         }
-        TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
-        TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        if (0 == blockId) {
+            TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        } else {
+            FMLA_TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
+            FMLA_TRANPOSE_SAVE(0, 1, z1, z4, z7, z10);
+        }
+        
     }
 }
 
@@ -567,7 +621,8 @@ static void _SSE_MNNPackedMatMul_4_int8(float* C, const float* A, const int8_t* 
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 1; // sizeof(int8_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
+    auto blockId      = parameter[6];
     auto hC4          = UP_DIV(h, 4);
     float ws_tmp[4];
     for (int y = 0; y < hC4; ++y) {
@@ -601,10 +656,27 @@ static void _SSE_MNNPackedMatMul_4_int8(float* C, const float* A, const int8_t* 
             z9 = MNNSSEFMA(s0, w3, z9);
         }
         _MM_TRANSPOSE4_PS(z0, z3, z6, z9);
-        _mm_storeu_ps(dst + 4 * 0, z0);
-        _mm_storeu_ps(dst + 4 * 1, z3);
-        _mm_storeu_ps(dst + 4 * 2, z6);
-        _mm_storeu_ps(dst + 4 * 3, z9);
+        if (0 == blockId) {
+            _mm_storeu_ps(dst + 4 * 0, z0);
+            _mm_storeu_ps(dst + 4 * 1, z3);
+            _mm_storeu_ps(dst + 4 * 2, z6);
+            _mm_storeu_ps(dst + 4 * 3, z9);
+        } else {
+            auto t0 = _mm_loadu_ps(dst + 4 * 0);
+            auto t1 = _mm_loadu_ps(dst + 4 * 1);
+            auto t2 = _mm_loadu_ps(dst + 4 * 2);
+            auto t3 = _mm_loadu_ps(dst + 4 * 3);
+            
+            z0 = _mm_add_ps(t0, z0);
+            z3 = _mm_add_ps(t1, z3);
+            z6 = _mm_add_ps(t2, z6);
+            z9 = _mm_add_ps(t3, z9);
+            
+            _mm_storeu_ps(dst + 4 * 0, z0);
+            _mm_storeu_ps(dst + 4 * 1, z3);
+            _mm_storeu_ps(dst + 4 * 2, z6);
+            _mm_storeu_ps(dst + 4 * 3, z9);
+        }
     }
 }
 
@@ -616,11 +688,12 @@ static void _SSE_MNNPackednMatMulRemainCommon_int8(float* C, const float* A, con
     auto cStride      = parameter[3] / sizeof(float);
     float weightBytes = 1; // sizeof(int8_t)
     auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride      = bExtraStride + l * 4;
+    auto bStride      = bExtraStride + 4 * l;
     auto hC4          = UP_DIV(h, 4);
     auto es           = eSize;
     auto oC           = C;
     auto aStride      = parameter[0] / sizeof(float);
+    auto blockId      = parameter[6];
     if (eSize >= 8) {
         _SSE_MNNPackedMatMul_8_int8(C, A, B, parameter, k, b);
         eSize -= 8;
@@ -646,7 +719,13 @@ static void _SSE_MNNPackednMatMulRemainCommon_int8(float* C, const float* A, con
                 auto w = _load_int8x4(weight + sy * 4, alpha, bias);
                 sum    = MNNSSEFMA(s, w, sum);
             }
-            _mm_storeu_ps(dst, sum);
+            if (blockId == 0) {
+                _mm_storeu_ps(dst, sum);
+            } else {
+                auto t = _mm_loadu_ps(dst);
+                sum = _mm_add_ps(sum, t);
+                _mm_storeu_ps(dst, sum);
+            }
         }
     }
 }

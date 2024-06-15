@@ -53,6 +53,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
     size_t weightLength = 0;
     int8_t *buffer        = nullptr;
     auto originBuffer     = (unsigned char *)buffer_ptr;
+
     if (1 == quan->type()) {
         buffer = IDSTDecoder::ReadQuanData_c(originBuffer, &weightLength, result.get(), quan->shapeInt32());
     }

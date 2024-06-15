@@ -293,7 +293,7 @@ public:
         std::vector<std::vector<int>> kernels = {
             {4, 2}, {1, 5}, {7, 1}
         };
-        int iw = 34; int ih = 23;
+        int iw = 24; int ih = 17;
         std::vector<std::string> titles = {"4x2", "1x5", "7x1"};
         for (int sx=1; sx<2; ++sx) {
             for (int sy=1; sy<2; ++sy) {

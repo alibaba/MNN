@@ -64,8 +64,8 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
             if (int8Info->canUseInt4) {
                 for (int i = 0; i < h; ++i) {
                     int8Info->alpha.get()[i] *= -8.0;
-                    core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(biasPtr), h);
                 }
+                core->MNNFp32ToLowp(int8Info->alpha.get(), reinterpret_cast<int16_t*>(biasPtr), h);
             }
         }
     } else {
@@ -86,6 +86,19 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
             }
         }
     }
+    std::vector<int8_t> data(weightLength, 0);
+    auto srcWInt8 = int8Info->weight.get();
+    if (hP * hU != outputCount || lP * lU != srcChannel) {
+        int packedic = lU * lP;
+        for (int i = 0; i < outputCount; ++i) {
+            for (int j = 0; j < srcChannel; ++j) {
+                int destIdx = i * packedic + j;
+                int srcIdx = i * srcChannel + j;
+                data[destIdx] = srcWInt8[srcIdx];
+            }
+        }
+        srcWInt8 = data.data();
+    }
     if (int8Info->canUseInt4) {
         MNN_ASSERT(weightLength % 2 == 0);
         weightLength = UP_DIV(weightLength, 2);
@@ -101,10 +114,10 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
                         for (int n = 0; n < 16; n++) {
                             int hp_idx = n / 8;
                             int lp_idx = n % 8;
-                            int s0 = srcPtr[(i * hP + k * 4 + hp_idx) * srcChannel + (j * lP + lp_idx)];
-                            int s1 = srcPtr[(i * hP + k * 4 + hp_idx + 2) * srcChannel + (j * lP + lp_idx)];
+                            int s0 = srcWInt8[(i * hP + k * 4 + hp_idx) * lP *lU + (j * lP + lp_idx)];
+                            int s1 = srcWInt8[(i * hP + k * 4 + hp_idx + 2) * lP * lU + (j * lP + lp_idx)];
                             int d = (s0 + 8) * 16 + (s1 + 8);
-                            dstPtr[(i * srcChannel * hP + j * hP * lP + k * 32) / 2 + n] = (uint8_t)d;
+                            dstPtr[(i * lU * lP * hP + j * hP * lP + k * 32) / 2 + n] = (uint8_t)d;
                         }
                     }
                 }
@@ -114,10 +127,10 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
                 for (int j = 0; j < lU; j++) {
                     for (int k = 0; k < hP; k++) {
                         for (int l = 0; l < lP; l+=2) {
-                            int s0 = srcPtr[(i * hP + k) * srcChannel + (j * lP + l)];
-                            int s1 = srcPtr[(i * hP + k) * srcChannel + (j * lP + l + 1)];
+                            int s0 = srcWInt8[(i * hP + k) * lP * lU + (j * lP + l)];
+                            int s1 = srcWInt8[(i * hP + k) * lP * lU + (j * lP + l + 1)];
                             int d = (s0 + 8) * 16 + (s1 + 8);
-                            dstPtr[(i * srcChannel * hP + j * hP * lP + k * lP + l) / 2] = d;
+                            dstPtr[(i * lU * lP * hP + j * hP * lP + k * lP + l) / 2] = d;
                         }
                     }
                 }
@@ -126,13 +139,12 @@ bool ConvolutionHybrid::initQuantizeResource(std::shared_ptr<ConvolutionCommon::
     } else {
         // Reorder weight for int8
         auto dstWInt8 = resource->mWeight->host<int8_t>();
-        auto srcWInt8 = int8Info->weight.get();
         // oc, ic -> oc/hP, ic/lP, hP, lP
         for (int i = 0; i < hU; i++) {
             for (int j = 0; j < lU; j++) {
                 for (int k = 0; k < hP; k++) {
                     for (int l = 0; l < lP; l++) {
-                        dstWInt8[i * srcChannel * hP + j * hP * lP + k * lP + l] = srcWInt8[(i * hP + k) * srcChannel + (j * lP + l)];
+                        dstWInt8[i * lU * lP * hP + j * hP * lP + k * lP + l] = srcWInt8[(i * hP + k) * lP * lU + (j * lP + l)];
                     }
                 }
             }

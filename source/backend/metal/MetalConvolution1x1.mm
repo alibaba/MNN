@@ -70,9 +70,12 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     auto oc_4  = UP_DIV(output->channel(), 4);
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-
+    int blockSize = 1;
+    if (mDequantScaleBias.get()) {
+        blockSize = (int)(mDequantScaleBias->usize() /sizeof(float) / oc_4 / 2 / 4);
+    }
     // create const buffer
-    int constants[] = {is, ic_4, ow, oh, os, oc_4, oc, ob, mActivationType};
+    int constants[] = {is, ic_4, ow, oh, os, oc_4, oc, ob, blockSize, mActivationType};
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
     

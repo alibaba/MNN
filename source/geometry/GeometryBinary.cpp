@@ -122,93 +122,92 @@ public:
             input1Broadcast = true;
         }
 #ifdef MNN_BINARY_LOOP_OPT
-        if (input0Broadcast || input1Broadcast) {
-            if (inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float && op->main_as_BinaryOp()->activationType() == 0) {
-                if (!(input0Broadcast && input1Broadcast)) {
-//                if (false) {
-                    // Use Loop instead of broadcast
-                    std::shared_ptr<Tensor> newTensor(new Tensor);
-                    TensorUtils::copyShape(output, newTensor.get(), true);
-                    newTensor->buffer().type = output->buffer().type;
-                    int srcIndex = 1;
-                    int dstIndex = 2;
-                    if (input0Broadcast) {
-                        ConvertUtils::broadcastto(input0, newTensor.get());
-                    } else {
-                        srcIndex = 2;
-                        dstIndex = 1;
-                        ConvertUtils::broadcastto(input1, newTensor.get());
-                    }
-                    auto des = TensorUtils::getDescribe(newTensor.get());
-                    flatbuffers::FlatBufferBuilder builder;
-                    BinaryOpBuilder binaryOpParamBuilder(builder);
-                    binaryOpParamBuilder.add_opType(op->main_as_BinaryOp()->opType());
-                    auto binaryOpParamOffset = binaryOpParamBuilder.Finish();
-                    OpBuilder cmdOpBuilder(builder);
-                    cmdOpBuilder.add_type(OpType_BinaryOp);
-                    cmdOpBuilder.add_main(binaryOpParamOffset.Union());
-                    cmdOpBuilder.add_main_type(OpParameter_BinaryOp);
-                    auto cmdOpOffset = cmdOpBuilder.Finish();
-                    auto iterIndexesOffset = builder.CreateVector(std::vector<int>{-1, -1, -1});
-                    auto stepOffset = builder.CreateVector(std::vector<int>{0, 0, 0});
-                    auto indexesOffset = builder.CreateVector(std::vector<int>{2, 0, 1});
-                    std::vector<flatbuffers::Offset<RegionCommand>> regionCommands;
-
-                    for (int i=0; i<des->regions.size(); ++i) {
-                        auto& reg = des->regions[i];
-                        auto sizeOffset = builder.CreateVector(reg.size, 3);
-                        auto dstStride = builder.CreateVector(reg.dst.stride, 3);
-                        auto srcStride = builder.CreateVector(reg.src.stride, 3);
-                        std::vector<flatbuffers::Offset<View>> views(3);
-                        {
-                            ViewBuilder dstBuilder(builder);
-                            dstBuilder.add_offset(reg.dst.offset);
-                            dstBuilder.add_stride(dstStride);
-                            views[0] = dstBuilder.Finish();
-                            views[dstIndex] = views[0];
-                            ViewBuilder srcBuilder(builder);
-                            srcBuilder.add_offset(reg.src.offset);
-                            srcBuilder.add_stride(srcStride);
-                            views[srcIndex] = srcBuilder.Finish();
-                        }
-                        auto viewsOffset = builder.CreateVector<flatbuffers::Offset<View>>(views);
-                        RegionCommandBuilder cmdBuilder(builder);
-                        cmdBuilder.add_op(cmdOpOffset);
-                        cmdBuilder.add_view(viewsOffset);
-                        cmdBuilder.add_size(sizeOffset);
-                        cmdBuilder.add_steps(stepOffset);
-                        cmdBuilder.add_iterIndexes(iterIndexesOffset);
-                        cmdBuilder.add_indexes(indexesOffset);
-                        
-                        regionCommands.emplace_back(cmdBuilder.Finish());
-                    }
-                    auto rcmdAllOffset = builder.CreateVector<flatbuffers::Offset<RegionCommand>>(regionCommands);
-                    auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0, 1});
-                    auto outputIndexesOffset = builder.CreateVector(std::vector<int>{2});
-                    LoopParamBuilder loopBuilder(builder);
-                    loopBuilder.add_commands(rcmdAllOffset);
-                    loopBuilder.add_loopNumber(1);
-                    loopBuilder.add_tensorNumber(3);
-                    loopBuilder.add_inputIndexes(inputIndexesOffset);
-                    loopBuilder.add_outputIndexes(outputIndexesOffset);
-                    auto loopOffset = loopBuilder.Finish();
-                    flatbuffers::Offset<flatbuffers::String> nameOffset;
-                    if (nullptr != op->name()) {
-                        nameOffset = builder.CreateString(op->name()->c_str());
-                    }
-                    OpBuilder finishBuilder(builder);
-                    finishBuilder.add_main(loopOffset.Union());
-                    finishBuilder.add_main_type(OpParameter_LoopParam);
-                    finishBuilder.add_type(OpType_While);
-                    if (nullptr != op->name()) {
-                        finishBuilder.add_name(nameOffset);
-                    }
-                    builder.Finish(finishBuilder.Finish());
-                    auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, outputs);
-                    res.command.emplace_back(std::move(cmd));
-                    return true;
-                }
+        // One input need broadcast, the other needn't
+        bool singleBroadCast = (!(input0Broadcast && input1Broadcast)) && (input0Broadcast || input1Broadcast);
+        bool forwardSupportLoop = inp0format == outFormat && inp1format == outFormat && outFormat != MNN_DATA_FORMAT_NC4HW4 && input0->getType().code == halide_type_float && op->main_as_BinaryOp()->activationType() == 0;
+        bool openLoop = context.support(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_USELOOP);
+        if (singleBroadCast && forwardSupportLoop && openLoop) {
+            // Use Loop instead of broadcast
+            std::shared_ptr<Tensor> newTensor(new Tensor);
+            TensorUtils::copyShape(output, newTensor.get(), true);
+            newTensor->buffer().type = output->buffer().type;
+            int srcIndex = 1;
+            int dstIndex = 2;
+            if (input0Broadcast) {
+                ConvertUtils::broadcastto(input0, newTensor.get());
+            } else {
+                srcIndex = 2;
+                dstIndex = 1;
+                ConvertUtils::broadcastto(input1, newTensor.get());
             }
+            auto des = TensorUtils::getDescribe(newTensor.get());
+            flatbuffers::FlatBufferBuilder builder;
+            BinaryOpBuilder binaryOpParamBuilder(builder);
+            binaryOpParamBuilder.add_opType(op->main_as_BinaryOp()->opType());
+            auto binaryOpParamOffset = binaryOpParamBuilder.Finish();
+            OpBuilder cmdOpBuilder(builder);
+            cmdOpBuilder.add_type(OpType_BinaryOp);
+            cmdOpBuilder.add_main(binaryOpParamOffset.Union());
+            cmdOpBuilder.add_main_type(OpParameter_BinaryOp);
+            auto cmdOpOffset = cmdOpBuilder.Finish();
+            auto iterIndexesOffset = builder.CreateVector(std::vector<int>{-1, -1, -1});
+            auto stepOffset = builder.CreateVector(std::vector<int>{0, 0, 0});
+            auto indexesOffset = builder.CreateVector(std::vector<int>{2, 0, 1});
+            std::vector<flatbuffers::Offset<RegionCommand>> regionCommands;
+
+            for (int i=0; i<des->regions.size(); ++i) {
+                auto& reg = des->regions[i];
+                auto sizeOffset = builder.CreateVector(reg.size, 3);
+                auto dstStride = builder.CreateVector(reg.dst.stride, 3);
+                auto srcStride = builder.CreateVector(reg.src.stride, 3);
+                std::vector<flatbuffers::Offset<View>> views(3);
+                {
+                    ViewBuilder dstBuilder(builder);
+                    dstBuilder.add_offset(reg.dst.offset);
+                    dstBuilder.add_stride(dstStride);
+                    views[0] = dstBuilder.Finish();
+                    views[dstIndex] = views[0];
+                    ViewBuilder srcBuilder(builder);
+                    srcBuilder.add_offset(reg.src.offset);
+                    srcBuilder.add_stride(srcStride);
+                    views[srcIndex] = srcBuilder.Finish();
+                }
+                auto viewsOffset = builder.CreateVector<flatbuffers::Offset<View>>(views);
+                RegionCommandBuilder cmdBuilder(builder);
+                cmdBuilder.add_op(cmdOpOffset);
+                cmdBuilder.add_view(viewsOffset);
+                cmdBuilder.add_size(sizeOffset);
+                cmdBuilder.add_steps(stepOffset);
+                cmdBuilder.add_iterIndexes(iterIndexesOffset);
+                cmdBuilder.add_indexes(indexesOffset);
+                
+                regionCommands.emplace_back(cmdBuilder.Finish());
+            }
+            auto rcmdAllOffset = builder.CreateVector<flatbuffers::Offset<RegionCommand>>(regionCommands);
+            auto inputIndexesOffset = builder.CreateVector(std::vector<int>{0, 1});
+            auto outputIndexesOffset = builder.CreateVector(std::vector<int>{2});
+            LoopParamBuilder loopBuilder(builder);
+            loopBuilder.add_commands(rcmdAllOffset);
+            loopBuilder.add_loopNumber(1);
+            loopBuilder.add_tensorNumber(3);
+            loopBuilder.add_inputIndexes(inputIndexesOffset);
+            loopBuilder.add_outputIndexes(outputIndexesOffset);
+            auto loopOffset = loopBuilder.Finish();
+            flatbuffers::Offset<flatbuffers::String> nameOffset;
+            if (nullptr != op->name()) {
+                nameOffset = builder.CreateString(op->name()->c_str());
+            }
+            OpBuilder finishBuilder(builder);
+            finishBuilder.add_main(loopOffset.Union());
+            finishBuilder.add_main_type(OpParameter_LoopParam);
+            finishBuilder.add_type(OpType_While);
+            if (nullptr != op->name()) {
+                finishBuilder.add_name(nameOffset);
+            }
+            builder.Finish(finishBuilder.Finish());
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, outputs);
+            res.command.emplace_back(std::move(cmd));
+            return true;
         }
 #endif
         if (input0Broadcast) {

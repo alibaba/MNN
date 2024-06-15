@@ -144,36 +144,11 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
 }
 
 void Interpreter::setSessionHint(HintMode mode, int hint) {
-    switch (mode) {
-        case MAX_TUNING_NUMBER:
-            mNet->modes.maxTuningNumber = hint;
-            break;
-        case MEM_ALLOCATOR_TYPE:
-            mNet->modes.memoryAllocatorType = hint;
-            break;
-        case WINOGRAD_MEMORY_LEVEL:
-            mNet->modes.winogradMemoryUsed = hint;
-        default:
-            break;
-    }
+    mNet->modes.setHint(mode, hint);
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
-    if (mode == Session_Input_Inside || mode == Session_Input_User) {
-        mNet->modes.inputMode = mode;
-    } else if (mode == Session_Output_User || mode == Session_Output_Inside) {
-        mNet->modes.outputMode = mode;
-    } else if (mode == Session_Backend_Auto || mode == Session_Backend_Fix) {
-        mNet->modes.backendMode = mode;
-    } else if (mode == Session_Debug || mode == Session_Release) {
-        mNet->modes.callBackMode = mode;
-    } else if (mode == Session_Resize_Direct || mode == Session_Resize_Defer) {
-        mNet->modes.resizeMode = mode;
-    } else if(mode == Session_Memory_Collect || mode == Session_Memory_Cache) {
-        mNet->modes.memoryUsageMode = mode;
-    } else if(mode == Session_Codegen_Disable || mode == Session_Codegen_Enable) {
-        mNet->modes.codegenMode = mode;
-    } else if (mode == Session_Resize_Check) {
+    if (mode == Session_Resize_Check) {
         for (auto& iter : mNet->sessions) {
             iter->openResizeCheck();
         }
@@ -181,6 +156,8 @@ void Interpreter::setSessionMode(SessionMode mode) {
         for (auto& iter : mNet->sessions) {
             iter->fixResizeCache();
         }
+    } else {
+        mNet->modes.setMode(mode);
     }
 }
 

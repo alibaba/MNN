@@ -232,6 +232,13 @@ int main(int argc, char *argv[]) {
         // Need tensor static for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
     }
+    // For Debug
+    if (false) {
+        int geometryMask = Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL;
+        geometryMask -= Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_FUSEREGION;
+        geometryMask -= Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_OPENCACHE;
+        rtmgr->setHint(Interpreter::GEOMETRY_COMPUTE_MASK, geometryMask);
+    }
     if (runMask & 4) {
         // Need time trace for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);

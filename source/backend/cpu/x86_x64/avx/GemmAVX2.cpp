@@ -35,22 +35,30 @@ void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t
 void _AVX_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
                                const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackedMatMul_Main_int4(C, A, B, parameter, k, b);
-    AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+    }
 }
 void _AVX_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                              const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackednMatMulRemainCommon_int4(C, A, B, eSize, parameter, k, b);
-    AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    }
 }
 void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
                                const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackedMatMul_Main_int8(C, A, B, parameter, k, b);
-    AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        AVX2GemmPostTreat(C, MNN_UNIT_E, parameter, postParameters, bias);
+    }
 }
 void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                              const float* postParameters, const float* bias, const float* k, const float* b) {
     _AVX_MNNPackednMatMulRemainCommon_int8(C, A, B, eSize, parameter, k, b);
-    AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    if (nullptr != bias) {
+        AVX2GemmPostTreat(C, eSize, parameter, postParameters, bias);
+    }
 }
 static __m128i _load_int4_to_int8(const uint8_t* src) {
     uint8_t c = 0xf;

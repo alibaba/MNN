@@ -31,7 +31,7 @@
 
    compile/cmake
    compile/engine
-   compile/tools
+   compile/other
    compile/pymnn
 
 .. toctree::
@@ -61,6 +61,14 @@
    train/quant
    train/finetune
    train/distl
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 生成式模型
+   :name: transformers
+
+   transformers/diffusion
+   transformers/llm
 
 .. toctree::
    :maxdepth: 1

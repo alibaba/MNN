@@ -149,14 +149,8 @@ class QWenAttention(nn.Module):
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
 
         if self.scale_attn_weights:
-            attn_weights = attn_weights / torch.full(
-                [],
-                value.size(-1) ** 0.5,
-                dtype=attn_weights.dtype,
-                device=attn_weights.device,
-            )
+            attn_weights = attn_weights / math.sqrt(self.head_dim)
 
-        query_length, key_length = query.size(-2), key.size(-2)
         # causal_mask = self.bias[
         #     :, :, key_length - query_length : key_length, :key_length
         # ]
@@ -295,7 +289,7 @@ class QWenAttention(nn.Module):
         else:
             present = None
 
-        if self.use_logn_attn and not self.training:
+        if self.use_logn_attn and not self.training and False:
             if self.logn_tensor.device != query.device or self.logn_tensor.dtype != query.dtype:
                 self.logn_tensor = self.logn_tensor.to(query.device).type_as(query)
             seq_start = key.size(1) - query.size(1)
@@ -515,7 +509,7 @@ class QWenModel(QWenPreTrainedModel):
 
     def set_input_embeddings(self, new_embeddings):
         self.wte = new_embeddings
-    
+
     # Copied from transformers.models.bart.modeling_bart.BartDecoder._prepare_decoder_attention_mask
     def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds, past_key_values_length):
         # create causal mask
@@ -1110,7 +1104,7 @@ class RotaryEmbedding(torch.nn.Module):
             self._ntk_alpha_cached = ntk_alpha
             seq = torch.arange(self._seq_len_cached, device=self.inv_freq.device)
             freqs = torch.outer(seq.type_as(self.inv_freq), self.inv_freq)
-            
+
             emb = torch.cat((freqs, freqs), dim=-1)
             from einops import rearrange
 

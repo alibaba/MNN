@@ -1,6 +1,8 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <MNN/AutoTime.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -125,7 +127,7 @@ static void _initDebug() {
         }
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
 
 
@@ -170,7 +172,7 @@ static void _initTimeTrace() {
         gTimeTraceInfo->end(info);
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
 
 template<typename T>
@@ -274,5 +276,5 @@ static void _initTensorStatic() {
         }
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }

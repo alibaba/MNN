@@ -250,12 +250,7 @@ class QWenAttention(nn.Module):
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
 
         if self.scale_attn_weights:
-            attn_weights = attn_weights / torch.full(
-                [],
-                value.size(-1) ** 0.5,
-                dtype=attn_weights.dtype,
-                device=attn_weights.device,
-            )
+            attn_weights = attn_weights / math.sqrt(self.head_dim)
 
         query_length, key_length = query.size(-2), key.size(-2)
         if attention_mask is None:
@@ -813,7 +808,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
                 logger.warn("Your device support faster inference by passing bf16=True in \"AutoModelForCausalLM.from_pretrained\".")
             elif SUPPORT_FP16:
                 logger.warn("Your device support faster inference by passing fp16=True in \"AutoModelForCausalLM.from_pretrained\".")
-        
+
         if config.use_flash_attn == "auto":
             if config.bf16 or config.fp16:
                 logger.warn("Try importing flash-attention for faster inference...")

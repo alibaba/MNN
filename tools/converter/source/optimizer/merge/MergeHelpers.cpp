@@ -167,6 +167,11 @@ bool IsExpandDims(EXPRP expr) {
     return op && op->type() == OpType_ExpandDims;
 }
 
+bool IsBroadcastTo(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_BroadcastTo;
+}
+
 EXPRP InputExpr(EXPRP expr, int input_index) {
     return expr->inputs().at(input_index)->expr().first;
 }

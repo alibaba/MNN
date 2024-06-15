@@ -93,6 +93,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     }
     // input is NC4HW4 add Convert
     std::vector<Tensor*> forRelease;
+    TensorUtils::FuseWrap fuseUtils;
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         auto origin = slice.origin;
@@ -125,10 +126,11 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             regionTmp.size[1] = core->pack;
             regionTmp.size[2] = area;
             regionTmp.origin = slice.origin;
-            std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
-            *newSlice = slice;
-            bool merge = TensorUtils::fuseRegion(regionTmp, *newSlice);
+            bool merge = fuseUtils.match(regionTmp, slice);
             if (merge) {
+                std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                *newSlice = slice;
+                fuseUtils.apply(regionTmp, *newSlice);
                 // cache the merged tensor
                 mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
                 mCacheRegions.emplace_back(newSlice);

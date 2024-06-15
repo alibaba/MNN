@@ -667,23 +667,45 @@ inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
             }
             config.numThread = (int)toInt(numThread);
         }
-
+        {
+            //power
+            PyObject *obj = PyDict_GetItemString(dict, "power");
+            if (obj) {
+                if (isInt(obj)) {
+                    backendConfig->power = (MNN::BackendConfig::PowerMode)toInt(obj);
+                }
+            }
+        }
+        {
+            //memory
+            PyObject *obj = PyDict_GetItemString(dict, "memory");
+            if (obj) {
+                if (isInt(obj)) {
+                    backendConfig->memory = (MNN::BackendConfig::MemoryMode)toInt(obj);
+                }
+            }
+        }
         {
             //precision
             PyObject *obj = PyDict_GetItemString(dict, "precision");
             if (obj) {
-                auto obj_name = object2String(obj);
-                if (!obj_name.compare("low")) {
-                    MNN_PRINT("MNN use low precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
-                }
-                if (!obj_name.compare("Low_BF16")) {
-                    MNN_PRINT("MNN use lowBF precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
-                }
-                if (!obj_name.compare("high")) {
-                    MNN_PRINT("MNN use high precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_High;
+                if (isInt(obj)) {
+                    backendConfig->precision = (MNN::BackendConfig::PrecisionMode)toInt(obj);
+                } else {
+                    // For compability
+                    auto obj_name = object2String(obj);
+                    if (!obj_name.compare("low")) {
+                        MNN_PRINT("MNN use low precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_Low;
+                    }
+                    if (!obj_name.compare("Low_BF16")) {
+                        MNN_PRINT("MNN use lowBF precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
+                    }
+                    if (!obj_name.compare("high")) {
+                        MNN_PRINT("MNN use high precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_High;
+                    }
                 }
             }
         }

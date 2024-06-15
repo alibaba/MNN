@@ -313,10 +313,12 @@ class Qwen2Attention(nn.Module):
             value_states = torch.cat((past_value, value_states), dim=1)
         past_key_value = torch.stack((key_states, value_states))
         query_states = query_states.transpose(1, 2)
-        key_states = key_states.transpose(1, 2)
+        key_states = key_states.permute([0, 2, 3, 1])
         value_states = value_states.transpose(1, 2)
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
         #---------------
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+        attn_weights = torch.matmul(query_states, key_states) / math.sqrt(self.head_dim)
 
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
             raise ValueError(

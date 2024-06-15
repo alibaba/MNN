@@ -36,6 +36,10 @@ public:
         int memoryAllocatorType = 0;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
         int winogradMemoryUsed = 3;
+        int geometryMask = 0xFFFF;
+        bool checkNetBuffer = true;
+        void setHint(Interpreter::HintMode hint, int magic);
+        void setMode(Interpreter::SessionMode mode);
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
             RuntimeInfo&& runtime);

@@ -147,8 +147,8 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
     # sin = sin.squeeze(1).squeeze(0)  # [seq_len, dim]
     cos = torch.squeeze(cos)  # [seq_len, dim]
     sin = torch.squeeze(sin)  # [seq_len, dim]
-    cos = cos[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
-    sin = sin[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    # cos = cos[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    # sin = sin[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
@@ -202,11 +202,12 @@ class InternLMAttention(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        rotary_pos_emb: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-
+        '''
         query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -214,7 +215,10 @@ class InternLMAttention(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
             kv_seq_len += past_key_value[0].shape[-2]
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        if rotary_pos_emb is None:
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        else:
+            cos, sin = rotary_pos_emb
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         # [bsz, nh, t, hd]
 
@@ -226,7 +230,30 @@ class InternLMAttention(nn.Module):
         past_key_value = (key_states, value_states) if use_cache else None
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+        '''
+        #---------------
+        query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim)
+        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim)
+        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim)
 
+        kv_seq_len = key_states.shape[1]
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[1]
+        # rope
+        cos, sin = rotary_pos_emb
+        query_states = (query_states * cos) + (rotate_half(query_states) * sin)
+        key_states = (key_states * cos) + (rotate_half(key_states) * sin)
+        # kv cache
+        if past_key_value is not None:
+            past_key, past_value = past_key_value[0], past_key_value[1]
+            key_states = torch.cat((past_key, key_states), dim=1)
+            value_states = torch.cat((past_value, value_states), dim=1)
+        past_key_value = torch.stack((key_states, value_states))
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.permute([0, 2, 3, 1])
+        value_states = value_states.transpose(1, 2)
+        attn_weights = torch.matmul(query_states, key_states) / math.sqrt(self.head_dim)
+        #---------------
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
             raise ValueError(
                 f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
@@ -239,7 +266,7 @@ class InternLMAttention(nn.Module):
                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                 )
             attn_weights = attn_weights + attention_mask
-            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
+            # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
@@ -281,6 +308,7 @@ class InternLMDecoderLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        rotary_pos_emb: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
@@ -308,6 +336,7 @@ class InternLMDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
+            rotary_pos_emb=rotary_pos_emb,
             output_attentions=output_attentions,
             use_cache=use_cache,
         )

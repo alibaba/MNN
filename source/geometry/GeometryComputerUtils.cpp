@@ -147,8 +147,9 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     Runtime::CompilerType compileType, 
     bool skipShapeCompute,
     bool permitCodegen) {
+    bool openCache = geoContext.support(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_OPENCACHE);
     /** Size Compute and compute Const Begin */
-    GeometryComputer::Context ctx(backupBackend);
+    GeometryComputer::Context ctx(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, backupBackend);
     // Size Compute and compute Const
     for (int i=0; i<infos.size(); ++i) {
         auto& info = infos[i];
@@ -238,7 +239,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             ctx.clear();
             auto geo = GeometryComputer::search(info.op->type(), Runtime::Compiler_Loop);
             {
-                auto res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+                bool res = false;
+                if (openCache) {
+                    res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+                }
                 if (!res) {
                     tempBuffer.command.clear();
                     tempBuffer.extras.clear();
@@ -350,7 +354,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         auto geo = GeometryComputer::search(info.op->type(), compileType);
         {
             bool res = false;
-            if (!tempBuffer.hasWrap) {
+            if ((!tempBuffer.hasWrap) && openCache) {
                 res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
             }
             if (!res) {

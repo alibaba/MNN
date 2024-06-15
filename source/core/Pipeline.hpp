@@ -27,7 +27,7 @@ public:
         bool autoSetOpType;
         int maxTuningNumber;
     };
-    Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt);
+    Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask);
     ~Pipeline();
     ErrorCode fixResizeCache();
     void openResizeCheck();

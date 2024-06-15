@@ -351,7 +351,7 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     }
     bool checkMNNBuffer = true;
     if (nullptr != _rtMgr) {
-        checkMNNBuffer = _rtMgr->getInside()->checkNetBuffer;
+        checkMNNBuffer = _rtMgr->getInside()->modes.checkNetBuffer;
     }
     if (checkMNNBuffer) {
         flatbuffers::Verifier verify(buffer, length);

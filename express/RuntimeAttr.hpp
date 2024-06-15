@@ -21,7 +21,6 @@ struct RuntimeAttr {
     // Use for static module to compute flops
     float mFlops;
     std::string mExternalFile;
-    bool checkNetBuffer = true;
 };
 struct ExecutorAttr {
     std::shared_ptr<Backend> constantBackend;

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include "core/Backend.hpp"
 #include "core/Macro.h"
 namespace MNN {
@@ -403,21 +404,22 @@ bool TensorUtils::isDepthToSpaceRegions(const Tensor* output) {
 }
 
 // compute offset through region
-static inline int offsetCompute(const Tensor::InsideDescribe::Region& reg, int offset, bool backward) {
-    Tensor::InsideDescribe::View src;
-    Tensor::InsideDescribe::View dst;
+static inline int offsetCompute(const Tensor::InsideDescribe::Region& reg, int srcOffset, int dstOffset, bool backward) {
+    const Tensor::InsideDescribe::View* src;
+    const Tensor::InsideDescribe::View* dst;
     if (backward) {
-        src = reg.dst;
-        dst = reg.src;
+        src = &reg.dst;
+        dst = &reg.src;
     } else {
-        src = reg.src;
-        dst = reg.dst;
+        src = &reg.src;
+        dst = &reg.dst;
     }
     int res = 0;
     for (int i = 0; i < 3; i++) {
         if (reg.size[i] > 1) {
-            res += offset / src.stride[i] * dst.stride[i];
-            offset %= src.stride[i];
+            res += (srcOffset / src->stride[i] - dstOffset / src->stride[i]) * dst->stride[i];
+            srcOffset %= src->stride[i];
+            dstOffset %= src->stride[i];
         }
     }
     return res;
@@ -473,6 +475,75 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     return needMalloc;
 }
 
+static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSize, const int* dstSize, const int sizeNum, int* dstMax, int* dstMin) {
+    /* Compute The range of dx, dy, dz:
+     s0 * (dx-sx) + s1 * (dy-sy) + s2 * (dz-sz) + (doff-soff) = 0
+     Assume the region won't be overlapped, then extract doff -> s0*xd+ s1*yd+s2*zd, soff -> s0*xs+s1*ys+s2*zs
+     xd-xs=xo, yd-ys=yo, zd-zs=zo
+     then:
+     dx-sx+xo = 0
+     dy-sy+yo = 0
+     dz-sz+zo = 0
+     dx=sx-xo -> [max(0, -xo), max(0, min(sxr-xo, dxr))]
+     dy,dz compute the same
+     **/
+    
+    int offsetBias = dstOffset - srcOffset;
+    if (sizeNum == 0) {
+        // All stride is zero, then size will be all one
+        return offsetBias == 0;
+    }
+    int o[3] = {0, 0, 0};
+    int validIndex[3] = {0, 1, 2};
+    if (sizeNum == 2) {
+        if (stride[0] < stride[1]) {
+            validIndex[0] = 1;
+            validIndex[1] = 0;
+        }
+    } else if (sizeNum > 2) {
+        int maxs = stride[0];
+        int mins = stride[0];
+        int maxi = 0;
+        int mini = 0;
+        // Sort index by stride
+        for (int i=1; i<sizeNum; ++i) {
+            int s = stride[i];
+            if (s > maxs) {
+                maxs = s;
+                maxi = i;
+            }
+            if (s < mins) {
+                mins = s;
+                mini = i;
+            }
+        }
+        for (int i=0; i<sizeNum; ++i) {
+            if (i != maxi && i != mini) {
+                validIndex[1] = i;
+                break;
+            }
+        }
+        validIndex[0] = maxi;
+        validIndex[2] = mini;
+    }
+    // Compute offset
+    for (int i=0; i<sizeNum; ++i) {
+        int s = stride[validIndex[i]];
+        int xs = srcOffset / s;
+        int xd = dstOffset / s;
+        o[validIndex[i]] = xd-xs;
+        srcOffset = srcOffset % s;
+        dstOffset = dstOffset % s;
+    }
+    if (0 != srcOffset || 0 != dstOffset) {
+        return false;
+    }
+    for (int i=0; i<sizeNum; ++i) {
+        dstMin[i] = ALIMAX(0, -o[i]);
+        dstMax[i] = ALIMIN(srcSize[i]-o[i], dstSize[i]);
+    }
+    return true;
+}
 static bool _RegionValid(int* stride, int offset, int* size, int sizeNum, size_t limitSize) {
     int maxOffset = offset;
     int minOffset = offset;
@@ -489,211 +560,241 @@ static bool _RegionValid(int* stride, int offset, int* size, int sizeNum, size_t
     }
     return true;
 }
-
-// fuse srcRegion and dstRegion to dstRegion if return true
-bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
-    // src data isnot full data of dst
-    if (srcReg.dst.offset > dstReg.src.offset ||
-        srcReg.dst.stride[1] > srcReg.size[2] ||
-        srcReg.dst.stride[2] > srcReg.size[1] * srcReg.size[2]) {
-        return false;
-    }
-    int dstTotalSize = 1, srcTotalSize = 1;
-    for (int i = 0; i < 3; i++) {
-        if (dstReg.size[i] > 1) {
-            dstTotalSize *= dstReg.size[i];
+class TensorUtils::FuseRegionStatus {
+public:
+    enum Status {
+        FUSE_SRC_COPY,
+        FUSE_DST_COPY,
+        FUSE_REGION_COMPUTE
+    };
+    void apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
+        switch (mStatus) {
+            case FUSE_SRC_COPY:
+                dstReg.origin = srcReg.origin;
+                dstReg.src.offset += srcReg.src.offset - srcReg.dst.offset;
+                break;
+            case FUSE_DST_COPY:
+                dstReg.origin = srcReg.origin;
+                dstReg.dst = srcReg.dst;
+                dstReg.src = srcReg.src;
+                dstReg.src.offset = mSrcOff;
+                dstReg.dst.offset = mDstOff;
+                dstReg.size[0] = srcReg.size[0];
+                dstReg.size[1] = srcReg.size[1];
+                dstReg.size[2] = srcReg.size[2];
+                break;
+            case FUSE_REGION_COMPUTE:
+            {
+                if (dstSize[0] == 0) {
+                    dstReg.size[0] = 0;
+                    dstReg.origin = nullptr;
+                    break;
+                }
+                for (int i=0; i<3; ++i) {
+                    dstReg.size[i] = 1;
+                    dstReg.src.stride[i] = 0;
+                    dstReg.dst.stride[i] = 0;
+                }
+                int valid[3] = {0, 0, 0};
+                int offset = 3 - dstNum;
+                if (dstNum > sizeNum) {
+                    for (int i = 2; i >= 0; i--) {
+                        if (i < dstNum) {
+                            if (dstSize[i] == 1) {
+                                expandIdx = i;
+                            }
+                            dstReg.size[i+offset] = dstMax[i] - dstMin[i];
+                            valid[i] = dstSize[i] > 1;
+                        } else {
+                            dstReg.size[i+offset] = 1;
+                            valid[i] = 0;
+                        }
+                    }
+                } else {
+                    for (int i=0; i<dstNum; ++i) {
+                        dstReg.size[i+offset] = dstMax[i] - dstMin[i];
+                        valid[i] = dstSize[i] > 1 ? 1 : 0;
+                    }
+                }
+                int idx = 0;
+                for (int i = 0; i < 3; i++) {
+                    if (valid[i] > 0 || i == expandIdx) {
+                        dstReg.src.stride[i+offset] = newSrc[idx];
+                        dstReg.dst.stride[i+offset] = dstDst[idx++];
+                    }
+                }
+                dstReg.origin = srcReg.origin;
+                dstReg.src.offset = newSrcOffset;
+                dstReg.dst.offset = newDstOffset;
+            }
+                break;
+            default:
+                break;
         }
-        if (srcReg.size[i] > 1) {
-            srcTotalSize *= srcReg.size[i];
+    }
+    bool match(const Tensor::InsideDescribe::Region& srcReg, const Tensor::InsideDescribe::Region& dstReg) {
+        // dont deal size > 1 && stride <= 0
+        for (int i = 0; i < 3; i++) {
+            if (srcReg.size[i] > 1 && (srcReg.src.stride[i] <= 0 || srcReg.dst.stride[i] <= 0)) {
+                return false;
+            }
+            if (dstReg.size[i] > 1 && (dstReg.src.stride[i] <= 0 || dstReg.dst.stride[i] <= 0)) {
+                return false;
+            }
         }
-    }
-    // src data is not full data of dst
-    if (dstTotalSize > srcTotalSize) {
-        return false;
-    }
-    // dont deal size > 1 && stride <= 0
-    for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] <= 0 || srcReg.dst.stride[i] <= 0)) {
+        bool copyValid = true;
+        // src data isnot full data of dst
+        if (srcReg.dst.offset > dstReg.src.offset ||
+            srcReg.dst.stride[1] > srcReg.size[2] ||
+            srcReg.dst.stride[2] > srcReg.size[1] * srcReg.size[2]) {
+            copyValid = false;
+        }
+        int dstTotalSize = 1, srcTotalSize = 1;
+        int dstSrcMin = dstReg.src.offset;
+        int dstSrcMax = dstSrcMin;
+        int srcDstMin = srcReg.dst.offset;
+        int srcDstMax = srcDstMin;
+        for (int i = 0; i < 3; i++) {
+            srcDstMax += srcReg.dst.stride[i] * (srcReg.size[i] - 1);
+            dstSrcMax += dstReg.src.stride[i] * (dstReg.size[i] - 1);
+            if (dstReg.size[i] > 1) {
+                dstTotalSize *= dstReg.size[i];
+            }
+            if (srcReg.size[i] > 1) {
+                srcTotalSize *= srcReg.size[i];
+            }
+        }
+        // src data is not full data of dst
+        if (dstTotalSize > srcTotalSize) {
+            copyValid = false;
+        }
+        // Valid range is from srcReg: srcDstMin - srcDstMax, if dst's srcReg exceed, not valid for copy
+        if (srcDstMin > dstSrcMin || srcDstMax < dstSrcMax) {
+            copyValid = false;
+        }
+        // src copy fuse
+        if (isCopyRegion(srcReg) && copyValid) {
+            mStatus = FUSE_SRC_COPY;
+            return true;
+        }
+        // dst copy fuse
+        if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize && copyValid) {
+            mSrcOff = dstReg.src.offset - srcReg.dst.offset;
+            mDstOff = dstReg.dst.offset;
+            mSrcOff = offsetCompute(srcReg, dstReg.src.offset, srcReg.dst.offset, true) + srcReg.src.offset;
+            if (!(srcReg.src.stride[2] > 0 && mSrcOff % srcReg.src.stride[2] != 0)) {
+                // when transpose + slice, offset is not align can't fuse
+                mStatus = FUSE_DST_COPY;
+                return true;
+            }
+        }
+    #define MNN_3_INT_INIT(x, y) { x[0] = y; x[1] = y; x[2] = y; }
+        MNN_3_INT_INIT(dstStride, -1)
+        MNN_3_INT_INIT(srcStride, -1)
+        expandIdx = -1;
+    #undef MNN_3_INT_INIT
+        srcNum = 0, dstNum = 0, sizeNum = 0;
+        for (int i = 0; i < 3; i++) {
+            if (srcReg.size[i] > 1) {
+                srcStride[srcNum] = srcReg.dst.stride[i];
+                srcDst[srcNum]    = srcReg.dst.stride[i];
+                srcSrc[srcNum]    = srcReg.src.stride[i];
+                srcSize[srcNum]   = srcReg.size[i];
+                srcNum++;
+            }
+            if (dstReg.size[i] > 1) {
+                dstStride[dstNum] = dstReg.src.stride[i];
+                dstDst[dstNum]    = dstReg.dst.stride[i];
+                dstSrc[dstNum]    = dstReg.src.stride[i];
+                dstSize[dstNum]   = dstReg.size[i];
+                dstNum++;
+            }
+        }
+        sizeNum = dstNum;
+    #define MNN_3_INT_DIFF(r, x, y, i) if ((x[i] != y[0]) && (x[i] != y[1]) && (x[i] != y[2])) { if (r > 0) { return false; } else { r = x[i]; } }
+        int srcExtra = -1, dstExtra = -1;
+        MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 0)
+        MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 1)
+        MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 2)
+        MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 0)
+        MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 1)
+        MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 2)
+    #undef MNN_3_INT_DIFF
+        if (dstExtra > 0) {
+            if (!expandStrideSize(srcDst, srcSrc, srcSize, srcNum, dstExtra)) {
+                return false;
+            }
+        }
+        if (srcExtra > 0) {
+            if (!expandStrideSize(dstSrc, dstDst, dstSize, dstNum, srcExtra)) {
+                return false;
+            }
+        }
+        // reorder srcSrc to newSrc by align srcDst and dstSrc
+        for (int i = 0; i < srcNum; i++) {
+            int index = -1;
+            for (int j = 0; j < dstNum; j++) {
+                if (dstSrc[j] == srcDst[i]) {
+                    index = j;
+                    break;
+                }
+            }
+            if (-1 == index) {
+                return false;
+            }
+            newSrc[index] = srcSrc[i];
+            newSrcSize[index] = srcSize[i];
+        }
+        // set final size and set expandIdx if expand val is 1
+        newSrcOffset = offsetCompute(srcReg, dstReg.src.offset, srcReg.dst.offset, true) + srcReg.src.offset;
+        bool valid = _ClipDst(dstSrc, srcReg.dst.offset, dstReg.src.offset, newSrcSize, dstSize, dstNum, dstMax, dstMin);
+        if (!valid) {
             return false;
         }
-        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] <= 0 || dstReg.dst.stride[i] <= 0)) {
-            return false;
+        newDstOffset = dstReg.dst.offset;
+        for (int i=0; i<dstNum; ++i) {
+            if (dstMax[i] <= dstMin[i]) {
+                // Set region as empty
+                dstSize[0] = 0;
+                dstSize[1] = 0;
+                dstSize[2] = 0;
+                break;
+            }
+            if (dstMin[i] > 0) {
+                newDstOffset += dstMin[i] * dstDst[i];
+                newSrcOffset += dstMin[i] * newSrc[i];
+            }
         }
-    }
-    // src copy fuse
-    if (isCopyRegion(srcReg)) {
-        dstReg.origin = srcReg.origin;
-        dstReg.src.offset += srcReg.src.offset - srcReg.dst.offset;
+        mStatus = FUSE_REGION_COMPUTE;
         return true;
     }
-    // dst copy fuse
-    if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize) {
-        int srcOff = dstReg.src.offset - srcReg.dst.offset;
-        int dstOff = dstReg.dst.offset;
-        srcOff = offsetCompute(srcReg, srcOff, true) + srcReg.src.offset;
-        if (srcReg.src.stride[2] > 0 && srcOff % srcReg.src.stride[2] != 0) {
-            // when transpose + slice, offset is not align can't fuse
-            return false;
-        }
-        dstReg.origin = srcReg.origin;
-        dstReg.dst = srcReg.dst;
-        dstReg.src = srcReg.src;
-        dstReg.src.offset = srcOff;
-        dstReg.dst.offset = dstOff;
-        dstReg.size[0] = srcReg.size[0];
-        dstReg.size[1] = srcReg.size[1];
-        dstReg.size[2] = srcReg.size[2];
-        return true;
-    }
-#define MNN_FAST_FUSE_WITHOUT_STL
-#ifdef MNN_FAST_FUSE_WITHOUT_STL
+private:
+    int mStatus;
+    int mSrcOff;
+    int mDstOff;
     // general fuse
     int srcDst[3], srcSrc[3], dstSrc[3], dstDst[3], srcSize[3], dstSize[3], newSrc[3], dstStride[3], srcStride[3];
-#define MNN_3_INT_INIT(x, y) { x[0] = y; x[1] = y; x[2] = y; }
-    MNN_3_INT_INIT(dstStride, -1)
-    MNN_3_INT_INIT(srcStride, -1)
-#undef MNN_3_INT_INIT
-    int srcNum = 0, dstNum = 0, sizeNum = 0;
-    for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1) {
-            srcStride[srcNum] = srcReg.dst.stride[i];
-            srcDst[srcNum]    = srcReg.dst.stride[i];
-            srcSrc[srcNum]    = srcReg.src.stride[i];
-            srcSize[srcNum]   = srcReg.size[i];
-            srcNum++;
-        }
-        if (dstReg.size[i] > 1) {
-            dstStride[dstNum] = dstReg.src.stride[i];
-            dstDst[dstNum]    = dstReg.dst.stride[i];
-            dstSrc[dstNum]    = dstReg.src.stride[i];
-            dstSize[dstNum]   = dstReg.size[i];
-            dstNum++;
-        }
-    }
-    sizeNum = dstNum;
-#define MNN_3_INT_DIFF(r, x, y, i) if ((x[i] != y[0]) && (x[i] != y[1]) && (x[i] != y[2])) { if (r > 0) { return false; } else { r = x[i]; } }
-    int srcExtra = -1, dstExtra = -1;
-    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 0)
-    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 1)
-    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 2)
-    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 0)
-    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 1)
-    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 2)
-#undef MNN_3_INT_DIFF
-    if (dstExtra > 0) {
-        if (!expandStrideSize(srcDst, srcSrc, srcSize, srcNum, dstExtra)) {
-            return false;
-        }
-    }
-    if (srcExtra > 0) {
-        if (!expandStrideSize(dstSrc, dstDst, dstSize, dstNum, srcExtra)) {
-            return false;
-        }
-    }
-    // reorder srcSrc to newSrc by align srcDst and dstSrc
-    for (int i = 0; i < dstNum; i++) {
-        int index = 0;
-        for (int j = 0; j < srcNum; j++) {
-            if (dstSrc[j] == srcDst[i]) {
-                index = j;
-            }
-        }
-        newSrc[index] = srcSrc[i];
-    }
-    // set final size and set expandIdx if expand val is 1
-    int expandIdx = -1;
-    int newSrcOffset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
-    if (nullptr != srcReg.origin) {
-        bool valid = _RegionValid(newSrc, newSrcOffset, dstSize, dstNum, TensorUtils::getRawSize(srcReg.origin));
-        if (!valid) {
-            // Exceed src range
-            return false;
-        }
-    }
-    if (dstNum > sizeNum) {
-        for (int i = 2; i >= 0; i--) {
-            if (i < dstNum) {
-                if (dstSize[i] == 1) {
-                    expandIdx = i;
-                }
-                dstReg.size[i] = dstSize[i];
-            } else {
-                dstReg.size[i] = 1;
-            }
-        }
-    }
-#else
-    // general fuse
-    std::set<int> dstStride, srcStride, dstDiff, srcDiff;
-    std::vector<int> dstDst, dstSrc, srcDst, srcSrc, newSrc, dstSize, srcSize;
-    for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1) {
-            srcStride.insert(srcReg.dst.stride[i]);
-            srcDst.push_back(srcReg.dst.stride[i]);
-            srcSrc.push_back(srcReg.src.stride[i]);
-            srcSize.push_back(srcReg.size[i]);
-        }
-        if (dstReg.size[i] > 1) {
-            dstStride.insert(dstReg.src.stride[i]);
-            dstDst.push_back(dstReg.dst.stride[i]);
-            dstSrc.push_back(dstReg.src.stride[i]);
-            dstSize.push_back(dstReg.size[i]);
-        }
-    }
-    int sizeNum = dstSize.size();
-    std::set_difference(dstStride.begin(), dstStride.end(), srcStride.begin(), srcStride.end(), std::inserter(dstDiff, dstDiff.begin()));
-    std::set_difference(srcStride.begin(), srcStride.end(), dstStride.begin(), dstStride.end(), std::inserter(srcDiff, srcDiff.begin()));
-    if (dstDiff.size() > 1 || srcDiff.size() > 1) {
-        // many diff stride, now dont deal
-        return false;
-    }
-    // expand stride when middle tensor's stride diff
-    if (!dstDiff.empty()) {
-        if (!expandSrc(srcDst, srcSrc, srcSize, *dstDiff.begin())) {
-            return false;
-        }
-    }
-    if (!srcDiff.empty()) {
-        if (!expandSrc(dstSrc, dstDst, dstSize, *srcDiff.begin())) {
-            return false;
-        }
-    }
-    if (dstSize.size() > 3) {
-        // need splite region, dont deal
-        return false;
-    }
-    // reorder srcSrc to newSrc by align srcDst and dstSrc
-    newSrc.resize(srcSrc.size());
-    for (int i = 0; i < dstSrc.size(); i++) {
-        int index = std::distance(dstSrc.begin(), std::find(dstSrc.begin(), dstSrc.end(), srcDst[i]));
-        newSrc[index] = srcSrc[i];
-    }
-    // set final size and set expandIdx if expand val is 1
-    int expandIdx = -1;
-    if (dstSize.size() > sizeNum) {
-        for (int i = 2; i >= 0; i--) {
-            if (i < dstSize.size()) {
-                if (dstSize[i] == 1) {
-                    expandIdx = i;
-                }
-                dstReg.size[i] = dstSize[i];
-            } else {
-                dstReg.size[i] = 1;
-            }
-        }
-    }
-#endif
-    int idx = 0;
-    for (int i = 0; i < 3; i++) {
-        if (dstReg.size[i] > 1 || i == expandIdx) {
-            dstReg.src.stride[i] = newSrc[idx];
-            dstReg.dst.stride[i] = dstDst[idx++];
-        }
-    }
-    dstReg.origin = srcReg.origin;
-    dstReg.src.offset = newSrcOffset;
-    return true;
+    int dstMin[3],dstMax[3];
+    int newSrcSize[3];
+    int srcNum, dstNum, sizeNum;
+    int newSrcOffset;
+    int newDstOffset;
+    int expandIdx;
+};
+
+TensorUtils::FuseWrap::FuseWrap() {
+    mStatus = new FuseRegionStatus;
 }
+TensorUtils::FuseWrap::~ FuseWrap() {
+    delete mStatus;
+}
+bool TensorUtils::FuseWrap::match(const Tensor::InsideDescribe::Region& srcReg, const Tensor::InsideDescribe::Region& dstReg) {
+    return mStatus->match(srcReg, dstReg);
+}
+void TensorUtils::FuseWrap::apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
+    mStatus->apply(srcReg, dstReg);
+}
+
 void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
     if (newTensor->dimensions() < 4) {
         for (int n = newTensor->dimensions(); n < 4; ++n) {

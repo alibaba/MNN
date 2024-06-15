@@ -49,6 +49,20 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
     return res;
 }
 
+static void _originMatMul(float* C, const float* A, const float* B, int e, int l, int h) {
+    for (int y = 0; y < e; ++y) {
+        auto AY = A + l * y;
+        auto CY = C + h * y;
+        for (int x = 0; x < h; ++x) {
+            auto BX        = B + x;
+            float expected = 0.0f;
+            for (int k = 0; k < l; ++k) {
+                expected += AY[k] * BX[k * h];
+            }
+            CY[x] = expected;
+        }
+    }
+}
 class MatMulTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
@@ -285,6 +299,45 @@ public:
                         FUNC_PRINT(1);
                         return false;
                     }
+                }
+            }
+        }
+        {
+            int e = 23;
+            int l = 33;
+            int h = 9;
+            {
+                // Test MatMul
+                std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+                op->type                = MNN::OpType_MatMul;
+                op->main.type           = MNN::OpParameter_MatMul;
+                op->main.value          = new MNN::MatMulT;
+                auto matmulParam        = op->main.AsMatMul();
+                matmulParam->transposeA = false;
+                matmulParam->transposeB = false;
+                
+                auto x0 = _Input({}, NHWC, halide_type_of<float>());
+                auto x1 = _Input({}, NHWC, halide_type_of<float>());
+                x0->resize({e, l});
+                x1->resize({l, h});
+                auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
+                Variable::prepareCompute({y});
+                auto dstY = _Input({e, h}, NHWC, halide_type_of<float>());
+                fillFloat(x0->writeMap<float>(), e, l);
+                fillFloat(x1->writeMap<float>(), l, h);
+                _originMatMul(dstY->writeMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+                
+                auto absMaxV = _ReduceMax(_Abs(dstY));
+                auto diffV   = _ReduceMax(_Abs(dstY - y));
+                Variable::prepareCompute({absMaxV, diffV}, true);
+                
+                auto absMax = absMaxV->readMap<float>()[0];
+                MNN_ASSERT(absMax != 0.0f);
+                auto diff = diffV->readMap<float>()[0];
+                
+                if (diff > 0.01f * absMax) {
+                    MNN_PRINT("%f error larger than %f * 0.001f\n", diff, absMax);
+                    return false;
                 }
             }
         }
