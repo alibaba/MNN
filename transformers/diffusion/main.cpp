@@ -3,15 +3,16 @@
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        printf("Usage: ./diffusion_demo <resource_path> <output_image_name> <input_text>");
+        printf("Usage: ./diffusion_demo <resource_path> <model_type> <output_image_name> <input_text>\n");
         return 0;
     }
 
     auto resource_path = argv[1];
-    auto img_name = argv[2];
+    auto model_type = (diffusion::DiffusionModelType)atoi(argv[2]);
+    auto img_name = argv[3];
     
     std::string input_text;
-    for (int i = 3; i < argc; ++i) {
+    for (int i = 4; i < argc; ++i) {
         input_text += argv[i];
         if (i < argc - 1) {
             input_text += " ";
@@ -19,10 +20,18 @@ int main(int argc, const char* argv[]) {
     }
     
     printf("model resource path: %s\n", resource_path);
+    if(model_type == diffusion::STABLE_DIFFUSION_1_5) {
+        printf("model resourc is stable diffusion 1.5\n");
+    } else if (model_type == diffusion::STABLE_DIFFUSION_TAIYI_CHINESE) {
+        printf("model resourc is stable diffusion taiyi chinese version\n");
+    } else {
+        printf("model type: %d not supported, please check\n", (int)model_type);
+    }
     printf("output img_name: %s\n", img_name);
     printf("input texts: %s\n", input_text.c_str());
+
     
-    diffusion::Pipeline pipeline(resource_path);
+    diffusion::Pipeline pipeline(resource_path, model_type);
     pipeline.run(input_text, img_name);
     return 0;
 }

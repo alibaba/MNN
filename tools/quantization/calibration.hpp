@@ -14,6 +14,7 @@
 #include <MNN/ImageProcess.hpp>
 #include <MNN/Interpreter.hpp>
 #include "TensorStatistic.hpp"
+#include <MNN/expr/Module.hpp>
 #include "MNN_generated.h"
 #include "Helper.hpp"
 #include "logkit.h"
@@ -56,6 +57,13 @@ private:
     std::string _destModelFile;
     MNN::CV::ImageProcess::Config _imageProcessConfig;
     std::vector<std::string> _calibrationFiles;
+    std::vector<std::string> mCalibrationDatasetDir;
+    std::vector<std::string> mInputNames;
+    std::vector<std::string> mOutputNames;
+    std::map<std::string, float> mInputInfo;
+    std::map<std::string, std::vector<int>> mInputShape;
+    std::vector<MNN::Express::VARP> mInputs;
+    std::shared_ptr<MNN::Backend> mBackend;
 
     // Tensor and Info
     std::map<const MNN::Tensor*, std::shared_ptr<TensorStatistic>> _featureInfo;
@@ -65,15 +73,12 @@ private:
     // The scale results
     std::map<const MNN::Tensor*, std::pair<float, int8_t>> _scales;
 
-    std::shared_ptr<MNN::Interpreter> _interpreter;
     // keep mnn forward information
-    MNN::Session* _session;
-    MNN::Tensor* _inputTensor;
+    std::vector<MNN::Tensor*> mInputTensors;
     std::vector<int> _inputTensorDims;
 
-    std::shared_ptr<MNN::Interpreter> _interpreterOrigin;
-    MNN::Session* _sessionOrigin;
-    MNN::Tensor* _inputTensorOrigin;
+    std::shared_ptr<MNN::Express::Module> _module;
+    std::shared_ptr<MNN::Express::Module> _moduleOrigin;
 
     std::string _featureQuantizeMethod = "KL";
     std::string _weightQuantizeMethod  = "MAX_ABS";

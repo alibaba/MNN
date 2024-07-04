@@ -20,14 +20,14 @@ struct ConvBufResource {
     const Convolution2D *mConv2dParams;
     std::shared_ptr<cl::Buffer> mKernelBuffer;
     std::shared_ptr<cl::Image2D> mKernelImage;
-    std::shared_ptr<Tensor> dequantScale;
-    std::shared_ptr<Tensor> dequantOffset;
+    std::shared_ptr<Tensor> dequantScaleOffset;
     std::shared_ptr<Tensor> mFilter;
     std::shared_ptr<Tensor> mBias;
     int mKernelWidth;
     int mKernelHeight;
     int mOutputChannel;
     int mInputChannel;
+    int mBlockSize;
     std::vector<int> mStrides{1, 1};
     std::vector<int> mDilations{1, 1};
     std::set<std::string> mBuildOptions;
@@ -41,6 +41,7 @@ struct ConvBufResource {
     int mConvGemmOptLevel = 0;
     std::shared_ptr<Execution> mRasterExe;
     bool mUseImage = false;
+    int mNumQuantBit = 0;
 };
 
 class ConvBufCommonExecution {
@@ -49,7 +50,6 @@ public:
     ConvBufCommonExecution(const Convolution2D *op, Backend *backend);
     virtual ~ConvBufCommonExecution();
 
-    std::pair<std::vector<uint32_t>,  uint32_t> gws2dLwsTune(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::string &kernelName, const uint32_t maxWorkGroupSize);
 protected:
     std::shared_ptr<ConvBufResource> mResource;
     OpenCLBackend *mOpenCLBackend;

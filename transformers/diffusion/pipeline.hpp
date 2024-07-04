@@ -11,9 +11,15 @@ using namespace MNN::Express;
 
 namespace diffusion {
 
+typedef enum {
+    STABLE_DIFFUSION_1_5 = 0,
+    STABLE_DIFFUSION_TAIYI_CHINESE = 1,
+    DIFFUSION_MODEL_USER
+} DiffusionModelType;
+    
 class Pipeline {
 public:
-    Pipeline(std::string modelPath);
+    Pipeline(std::string modelPath, DiffusionModelType modelType);
     ~Pipeline() = default;
     bool run(const std::string& sentence, const std::string& img_name);
 private:
@@ -27,11 +33,14 @@ private:
     std::vector<std::shared_ptr<Module>> mModules;
 
     std::string mModelPath;
+    DiffusionModelType mModelType;
+    int mMaxTextLen = 77;
     // step_plms
     std::vector<int> mTimeSteps;
     std::vector<float> mAlphas;
     std::vector<VARP> mEts;
     VARP mSample;
+    VARP mLatentVar, mPromptVar, mTimestepVar, mSampleVar;
 };
 
 }

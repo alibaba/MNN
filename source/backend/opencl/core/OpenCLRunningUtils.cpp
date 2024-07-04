@@ -95,11 +95,11 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                             lws_prefer[2] = lws[2];
                         }
                     }
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
-                lws[1]++;
+                lws[1]<<=1;
             }
-            lws[2]++;
+            lws[2]<<=1;
         }
     } else if(runtime->getCLTuneLevel() == Wide) {
         while(lws[2] <= gws[2] || lws[2] <= 6) {
@@ -132,22 +132,22 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         }
                     }
                     do {
-                        lws[0]++;
+                        lws[0]<<=1;
                     }
                     while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
                 }
                 do {
-                    lws[1]++;
+                    lws[1]<<=1;
                 }
                 while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[2]++;
+                lws[2]<<=1;
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] > 6));//divisible powOfTwo lessThanSix
         }
     } else if(runtime->getCLTuneLevel() == Normal) {
-        while(lws[2] <= gws[2] && lws[2] <= 6) {
+        while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
                 lws[0] = 1;
@@ -177,27 +177,27 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         }
                     }
                     do {
-                        lws[0]++;
+                        lws[0]<<=1;
                     }
                     while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
                 }
                 do {
-                    lws[1]++;
+                    lws[1]<<=1;
                 }
                 while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[2]++;
+                lws[2]<<=1;
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
     } else if(runtime->getCLTuneLevel() == Fast) {
-        while(lws[2] <= gws[2] && lws[2] <= 6) {
+        while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
-            while(lws[1] <= gws[1] && lws[1] <= 6) {
+            while(lws[1] <= gws[1] && lws[1] <= 8) {
                 lws[0] = 1;
-                while(lws[0] <= gws[0] && lws[0] <= 6) {
-                    if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                while(lws[0] <= gws[0] && lws[0] <= 8) {
+                    if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= std::min(maxWorkGroupSize, static_cast<uint32_t>(64)) && lws[0]*lws[1]*lws[2] >= 16) {
                         cl::Event event;
                         std::vector<uint32_t> internalGlobalWS(3, 1);
                         for (size_t i = 0; i < gws.size(); ++i) {
@@ -222,17 +222,17 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
                         }
                     }
                     do {
-                        lws[0]++;
+                        lws[0]<<=1;
                     }
                     while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] <= 6));//divisible powOfTwo lessThanSix
                 }
                 do {
-                    lws[1]++;
+                    lws[1]<<=1;
                 }
                 while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[2]++;
+                lws[2]<<=1;
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
@@ -266,7 +266,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     }
     
     if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
-        //printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
+//        printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
 
@@ -323,9 +323,9 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                         lws_prefer[1] = lws[1];
                     }
                 }
-                lws[0]++;
+                lws[0]<<=1;
             }
-            lws[1]++;
+            lws[1]<<=1;
         }
     } else if(runtime->getCLTuneLevel() == Wide) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -355,17 +355,17 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
         }
     } else if(runtime->getCLTuneLevel() == Normal) {
-        while(lws[1] <= gws[1] && lws[1] <= 6) {
+        while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
                 if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
@@ -392,20 +392,20 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
     } else if(runtime->getCLTuneLevel() == Fast) {
-        while(lws[1] <= gws[1] && lws[1] <= 6) {
+        while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
-            while(lws[0] <= gws[0] && lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
+            while(lws[0] <= gws[0] && lws[0] <= 8) {
+                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize && lws[0]*lws[1] >= 16) {
                     cl::Event event;
                     std::vector<uint32_t> internalGlobalWS(2, 1);
                     for (size_t i = 0; i < gws.size(); ++i) {
@@ -429,12 +429,12 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
                     }
                 }
                 do {
-                    lws[0]++;
+                    lws[0]<<=1;
                 }
                 while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] <= 6));//divisible powOfTwo lessThanSix
             }
             do {
-                lws[1]++;
+                lws[1]<<=1;
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
@@ -466,7 +466,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     }
     
     if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
-        //printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+//        printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
 

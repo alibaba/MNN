@@ -93,32 +93,44 @@ public:
         return json_wrapper;
     }
 
-    template <typename T>
-    T value(const char* key, const T& defualt_value) const {
+    int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
             const auto& value = document[key];
-            if constexpr (std::is_same<T, int>::value) {
-                if (value.IsInt()) return value.GetInt();
-            } else if constexpr (std::is_same<T, std::string>::value || std::is_same<T, const char*>::value) {
-                if (value.IsString()) return value.GetString();
-            } else if constexpr (std::is_same<T, bool>::value) {
-                if (value.IsBool()) return value.GetBool();
-            } else if constexpr (std::is_same<T, std::vector<int>>::value) {
-                if (value.IsArray()) {
-                    std::vector<int> result;
-                    for (auto& v : value.GetArray()) {
-                        if (v.IsInt()) {
-                            result.push_back(v.GetInt());
-                        }
+            if (value.IsInt()) return value.GetInt();
+        }
+        return default_value;
+    }
+    bool value(const char* key, const bool& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsBool()) return value.GetBool();
+        }
+        return default_value;
+    }
+    std::string value(const char* key, const std::string& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsString()) return value.GetString();
+        }
+        return default_value;
+    }
+    std::vector<int> value(const char* key, const std::vector<int>& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsArray()) {
+                std::vector<int> result;
+                for (auto& v : value.GetArray()) {
+                    if (v.IsInt()) {
+                        result.push_back(v.GetInt());
                     }
-                    return result;
                 }
+                return result;
             }
         }
-        return defualt_value;
+        return default_value;
     }
-    std::string value(const char key[], const char defualt_value[]) const {
-        return value(key, std::string(defualt_value));
+    std::string value(const char key[], const char default_value[]) const {
+        return value(key, std::string(default_value));
     }
 };
 
@@ -251,6 +263,10 @@ public:
         return llm_config_.value("attention_mask", "int");
     }
 
+    std::string chat_template() const {
+        return llm_config_.value("chat_template", "");
+    }
+
     std::string prompt_template() const {
         return llm_config_.value("prompt_template", "");
     }
@@ -258,6 +274,7 @@ public:
 };
 
 class MNN_PUBLIC Llm {
+    using PromptItem = std::pair<std::string, std::string>; // <role, content>
 public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
@@ -267,8 +284,10 @@ public:
     virtual void load();
     VARP forward(const std::vector<int>& input_ids);
     int sample(VARP logits, const std::vector<int>& pre_ids);
-    std::string apply_chat_template(const std::string& input_str) const;
-    std::string response(const std::string& input_str, std::ostream* os = &std::cout, const char* end_with = nullptr);
+    std::string apply_prompt_template(const std::string& user_content) const;
+    std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
+    std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
+    std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
     void generate_init();
     std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);

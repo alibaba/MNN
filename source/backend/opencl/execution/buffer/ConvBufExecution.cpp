@@ -18,192 +18,7 @@
 
 namespace MNN {
 namespace OpenCL {
-std::pair<std::vector<uint32_t>,  uint32_t> ConvBufCommonExecution::gws2dLwsTune(const std::shared_ptr<KernelWrap> &kernelW, const std::vector<uint32_t> &gws, const std::string &kernelName, const uint32_t maxWorkGroupSize) {
-    MNN_ASSERT(gws.size() == 2);
 
-    auto kernel = kernelW->get();
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
-    MNN_ASSERT(maxWorkItemSizes.size() >= 2);
-    
-    auto& tunedLws = runtime->tunedLwsMap();
-    auto& tuneLws = runtime->getTuneLwsMap();
-    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
-    if (tunedLws.find(info) != tunedLws.end()) {
-        //printf("ConvBuf2dGeneralLocalWS Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
-        return tunedLws[info];
-    }
-    std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
-    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
-        return tuneLwsRes;
-    }
-    
-    std::vector<uint32_t> lws(3, 1);
-    std::vector<uint32_t> lws_prefer(3, 1);
-    uint32_t min_cost = UINT_MAX;
-    
-    if(runtime->getCLTuneLevel() == Heavy) {
-        while(lws[1] <= gws[1] || lws[1] <= 6) {
-            lws[0] = 1;
-            while(lws[0] <= gws[0] || lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
-                    cl::Event event;
-                    std::vector<uint32_t> internalGlobalWS(2, 1);
-                    for (size_t i = 0; i < gws.size(); ++i) {
-                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-                    }
-                    cl_int res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                                    kernel, cl::NullRange,
-                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
-                                    cl::NDRange(lws[0], lws[1]),
-                                    nullptr, &event);
-                    MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
-
-                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
-                    }
-                }
-                lws[0]<<=1;
-            }
-            lws[1]<<=1;
-        }
-    } else if(runtime->getCLTuneLevel() == Wide) {
-        while(lws[1] <= gws[1] || lws[1] <= 6) {
-            lws[0] = 1;
-            while(lws[0] <= gws[0] || lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
-                    cl::Event event;
-                    std::vector<uint32_t> internalGlobalWS(2, 1);
-                    for (size_t i = 0; i < gws.size(); ++i) {
-                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-                    }
-                    cl_int res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                                    kernel, cl::NullRange,
-                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
-                                    cl::NDRange(lws[0], lws[1]),
-                                    nullptr, &event);
-                    MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
-
-                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
-                    }
-                }
-                do {
-                    lws[0]<<=1;
-                }
-                while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
-            }
-            do {
-                lws[1]<<=1;
-            }
-            while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
-        }
-    } else if(runtime->getCLTuneLevel() == Normal) {
-        while(lws[1] <= gws[1] && lws[1] <= 6) {
-            lws[0] = 1;
-            while(lws[0] <= gws[0] || lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
-                    cl::Event event;
-                    std::vector<uint32_t> internalGlobalWS(2, 1);
-                    for (size_t i = 0; i < gws.size(); ++i) {
-                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-                    }
-                    cl_int res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                                    kernel, cl::NullRange,
-                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
-                                    cl::NDRange(lws[0], lws[1]),
-                                    nullptr, &event);
-                    MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
-
-                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
-                    }
-                }
-                do {
-                    lws[0]<<=1;
-                }
-                while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] > 6));//divisible powOfTwo lessThanSix
-            }
-            do {
-                lws[1]<<=1;
-            }
-            while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
-        }
-    } else if(runtime->getCLTuneLevel() == Fast) {
-        while(lws[1] <= gws[1] && lws[1] <= 6) {
-            lws[0] = 1;
-            while(lws[0] <= gws[0] && lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
-                    cl::Event event;
-                    std::vector<uint32_t> internalGlobalWS(2, 1);
-                    for (size_t i = 0; i < gws.size(); ++i) {
-                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-                    }
-                    cl_int res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                                    kernel, cl::NullRange,
-                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
-                                    cl::NDRange(lws[0], lws[1]),
-                                    nullptr, &event);
-                    MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
-
-                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
-                    }
-                }
-                do {
-                    lws[0]<<=1;
-                }
-                while(((2*gws[0])%lws[0] > 1) && (lws[0] & (lws[0] - 1)) != 0 && (lws[0] <= gws[0]) && (lws[0] <= 6));//divisible powOfTwo lessThanSix
-            }
-            do {
-                lws[1]<<=1;
-            }
-            while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
-        }
-    } else if(runtime->getCLTuneLevel() == None) {
-        // define not tune method to choose lws
-        if(runtime->getGpuMemType() == GpuMemObject::IMAGE) {
-            lws_prefer[0] = 8;
-            lws_prefer[1] = 4;
-        } else {
-            lws_prefer[0] = 0;
-            lws_prefer[1] = 0;
-        }
-        cl::Event event;
-        std::vector<uint32_t> internalGlobalWS(2, 1);
-        for (size_t i = 0; i < gws.size(); ++i) {
-            internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws_prefer[i]));
-        }
-        cl_int res = CL_SUCCESS;
-        if(lws_prefer[0] == 0 || lws_prefer[1] == 0){
-            res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                    kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, &event);
-        }else{
-            res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                    kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NDRange(lws_prefer[0], lws_prefer[1]), nullptr, &event);
-        }
-        MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
-        min_cost = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-    }
-    
-    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
-        //printf("ConvBuf2dGeneralLocalWS %d Insert! gws:%d %d, lws:%d %d, time:%dus\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1], min_cost);
-        tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
-    }
-    return std::make_pair(lws_prefer, min_cost);
-}
 ConvBufCommonExecution::ConvBufCommonExecution(Backend *backend) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
 }
@@ -353,7 +168,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
     if (mResource->mConvGemmOptLevel > 0) {
         // Tile Match with mConvGemmOptLevel == 2
         int tileK = 32;
-        int tileN = 128;
+        int tileN = 32;
         
         if(mResource->mConvGemmOptLevel == 1) {
             tileK = 8;
@@ -512,11 +327,10 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     
     if (mResource->mConvGemmOptLevel == 2) {
         // set large tile
-        int tileM = 128;
-        int tileN = 128;
+        int tileM = 32;
+        int tileN = 32;
         int tileK = 32;
-        int localM = 32;
-        int localN = 8;
+
         int M = outputShape.at(0);
         int N = outputShape.at(3);
         int K = inputShape.at(3);
@@ -555,13 +369,38 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             mPreGlobalWorkSize[0] = ROUND_UP(mPreGlobalWorkSize[0], std::max((uint32_t)1, mPreLocalWorkSize[0]));
             mPreGlobalWorkSize[1] = ROUND_UP(mPreGlobalWorkSize[1], std::max((uint32_t)1, mPreLocalWorkSize[1]));
         }
-        std::set<std::string> buildOptions = mResource->mBuildOptions;
+        std::set<std::string> buildOptions;
         
-        // Can't add bias now, for slow speed
-//        buildOptions.emplace(" -DBIAS");
+        uint32_t layout = 4;
+        uint32_t batch = 1;
+        auto param = getGemmParams({(uint32_t)alignM, (uint32_t)alignN, (uint32_t)alignK, layout, batch}, {openCLBuffer(mConvGemmInpTensor.get()), openCLBuffer(mResource->mFilter.get()), openCLBuffer(mConvGemmOutTensor.get())}, mOpenCLBackend->getOpenCLRuntime());
 
-        buildOptions.emplace(" -DGEMMK=0 -DKREG=1 -DKWG=32 -DKWI=2 -DMDIMA=32 -DMDIMC=32 -DMWG=128 -DNDIMB=8 -DNDIMC=8 -DNWG=128 -DSA=0 -DSB=0 -DSTRM=0 -DSTRN=1 -DVWM=2 -DVWN=8 -DOUTPUTMN");
-         
+        int GEMMK=param[0], KREG=param[1], KWG=param[2], KWI=param[3], MDIMA=param[4], MDIMC=param[5], MWG=param[6], NDIMB=param[7], NDIMC=param[8], NWG=param[9], SA=param[10], SB=param[11], STRM=param[12], STRN=param[13], VWM=param[14], VWN=param[15];
+        buildOptions.emplace("-DGEMMK=" + std::to_string(GEMMK));
+        buildOptions.emplace("-DKREG=" + std::to_string(KREG));
+        buildOptions.emplace("-DKWG=" + std::to_string(KWG));
+        buildOptions.emplace("-DKWI=" + std::to_string(KWI));
+        buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
+        buildOptions.emplace("-DMDIMC=" + std::to_string(MDIMC));
+        buildOptions.emplace("-DMWG=" + std::to_string(MWG));
+        buildOptions.emplace("-DNDIMB=" + std::to_string(NDIMB));
+        buildOptions.emplace("-DNDIMC=" + std::to_string(NDIMC));
+        buildOptions.emplace("-DNWG=" + std::to_string(NWG));
+        buildOptions.emplace("-DSA=" + std::to_string(SA));
+        buildOptions.emplace("-DSB=" + std::to_string(SB));
+        buildOptions.emplace("-DSTRM=" + std::to_string(STRM));
+        buildOptions.emplace("-DSTRN=" + std::to_string(STRN));
+        buildOptions.emplace("-DVWM=" + std::to_string(VWM));
+        buildOptions.emplace("-DVWN=" + std::to_string(VWN));
+        if(layout >= 4) {
+            buildOptions.emplace("-DOUTPUTMN");
+        }
+        
+        tileM = MWG;
+        tileN = NWG;
+        int localM = MDIMC;
+        int localN = NDIMC;
+                 
         if(mOpenCLBackend->getOpenCLRuntime()->getGpuType() == GpuType::ADRENO) {
             buildOptions.emplace("-DUSE_CL_MAD=1");
             buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
@@ -725,7 +564,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf Kernel Select");
 
             std::pair<std::vector<uint32_t>, int> retTune;
-            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx] + info, maxWorkGroupSize);
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
                 min_cost.second = knl_idx;
@@ -819,7 +658,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvBuf Kernel Select");
 
             std::pair<std::vector<uint32_t>, int> retTune;
-            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx] + info, maxWorkGroupSize);
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
 
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
@@ -968,11 +807,14 @@ public:
                 if (((conv2dParams->quanParameter()->type() == 4) ||
                      (conv2dParams->quanParameter()->type() == 1) ||
                      (conv2dParams->quanParameter()->type() == 2))) {
-                    // Todo: support int4 inputchannel % 4 not equal 4
+                    if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
+                        // Don't support IDST-int8 because of error
+                        return nullptr;
+                    }
                     return new ConvBufLowMemoryExecution(inputs, outputs, op, backend);
                 } else {
-                    MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
-                    MNN_ASSERT(false);
+                    //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
+                    return nullptr;
                 }
             }
         }  

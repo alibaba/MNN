@@ -572,7 +572,7 @@ bool nchwTonhwc(std::shared_ptr<Backend> bn) {
     auto backendCopyData = hostTensorNHWC->host<float>();
     for (int i = 0; i < elementSize; ++i) {
         if (abs(backendCopyData[i] - temp[i]) >= F32_BF16_MAX_LOSS) { //Error of converting from float32 to bf16 is more than 0.001
-            MNN_PRINT("Error for bn:%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, hostData[i], backendCopyData[i], F32_BF16_MAX_LOSS);
+            MNN_PRINT("Error for bn:%d, %f -> %f. F32_BF16_MAX_LOSS:%f\n", i, temp[i], backendCopyData[i], F32_BF16_MAX_LOSS);
             return false;
         }
     }

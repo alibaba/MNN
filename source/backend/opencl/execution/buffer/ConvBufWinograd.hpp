@@ -39,6 +39,9 @@ public:
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+    
+private:
+    void convertWeightFormat(cl::Buffer& buffer, const int tileK, const int tileN);
 private:
     OpenCLBackend* mOpenCLBackend;
     std::shared_ptr<ConvBufWinoResource> mResource;
@@ -46,6 +49,8 @@ private:
     int mKernelY;
     int mStrideX;
     int mStrideY;
+    int mCi;
+    int mCo;
 
     std::shared_ptr<Tensor> mSource;
     std::shared_ptr<Tensor> mDest;

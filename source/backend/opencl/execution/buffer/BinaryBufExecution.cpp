@@ -400,7 +400,7 @@ public:
                 case BinaryOpOperation_NOTEQUAL:
                     return new BinaryBufExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
                 case BinaryOpOperation_MOD:
-                    return new BinaryBufExecution(inputs, "fmod(in0,in1)", op, backend);
+                    return new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend);
                 default:
                     break;
             }

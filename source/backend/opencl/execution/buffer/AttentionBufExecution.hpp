@@ -7,6 +7,7 @@
 //
 
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #ifndef AttentionBufExecution_hpp
 #define AttentionBufExecution_hpp
@@ -36,12 +37,13 @@ private:
     void reallocKVCache();
     bool mKVCache;
     float mScale;
-    const int mExpandChunk = 64;
+    const int mExpandChunk = 2048;
     bool mIsDecode = false;
     bool mIsFirstDecode = true;
     int mPastLength = 0, mMaxLength = 0, mKv_seq_len = 0, mSoftMaxRemainChannels = 0;
-    std::shared_ptr<cl::Buffer> mPastKey, mPastValue, mTempQK, mTempSoftMax;
-    int mNumHead = 0, mHeadDim = 0, mValueH = 0;
+    std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
+    std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
+    int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0, mValueH = 0;
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
     std::shared_ptr<KernelWrap> mKernel_qkv;
@@ -80,4 +82,5 @@ private:
 } // namespace OpenCL
 } // namespace MNN
 #endif /* AttentionBufExecution_hpp */
+#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

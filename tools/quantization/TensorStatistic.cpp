@@ -12,6 +12,7 @@
 #include <cmath>
 #include <MNN/MNNDefine.h>
 #include "logkit.h"
+#include "core/TensorUtils.hpp"
 
 // Given distribution P and Q, KL-Divergence is
 // Sum(P[i] * log(P[i] / Q[i]))
@@ -53,30 +54,21 @@ void TensorStatistic::updateRange() {
         return;
     }
     mUpdatedRangeFlags = true;
-    mOriginTensor->copyToHostTensor(mHostTensor.get());
-    int batch   = mHostTensor->batch();
-    int channel = mHostTensor->channel();
-    int width   = mHostTensor->width();
-    int height  = mHostTensor->height();
-    auto area   = width * height;
-    if (area == 0) {
-        area = 1;
+    auto tmpTensor = mOriginTensor;
+    bool res = mOriginTensor->copyToHostTensor(mHostTensor.get());
+    if (res) {
+        tmpTensor = mHostTensor.get();
     }
-
-    for (int n = 0; n < batch; ++n) {
-        auto dataBatch = mHostTensor->host<float>() + n * mHostTensor->stride(0);
-        for (int c = 0; c < channel; ++c) {
-            auto minValue    = mRange.first;
-            auto maxValue    = mRange.second;
-            auto dataChannel = dataBatch + c * mHostTensor->stride(1);
-            for (int v = 0; v < area; ++v) {
-                minValue = std::min(minValue, dataChannel[v]);
-                maxValue = std::max(maxValue, dataChannel[v]);
-            }
-            mRange.first  = minValue;
-            mRange.second = maxValue;
-        }
+    int size = tmpTensor->elementSize();
+    float* dataPtr = tmpTensor->host<float>();
+    auto minValue = mRange.first;
+    auto maxValue = mRange.second;
+    for (int i = 0; i < size; ++i) {
+        minValue = std::min(minValue, dataPtr[i]);
+        maxValue = std::max(maxValue, dataPtr[i]);
     }
+    mRange.first = minValue;
+    mRange.second = maxValue;
 //    if (mRange.first > 0.0f) {
 //        mRange.first = 0.0f;
 //    }
@@ -102,36 +94,22 @@ void TensorStatistic::updateDistribution() {
         return;
     }
     mUpdatedDistributionFlag = true;
-    mOriginTensor->copyToHostTensor(mHostTensor.get());
-    int batch   = mHostTensor->batch();
-    int channel = mHostTensor->channel();
-    int width   = mHostTensor->width();
-    int height  = mHostTensor->height();
-    auto area   = width * height;
-    if (area == 0) {
-        area = 1;
+    auto tmpTensor = mOriginTensor;
+    bool res = mOriginTensor->copyToHostTensor(mHostTensor.get());
+    if (res) {
+        tmpTensor = mHostTensor.get();
     }
 //    float midValue = (mRange.second + mRange.first) / 2.0f;
     float midValue = 0.f;
-    for (int n = 0; n < batch; ++n) {
-        auto dataBatch = mHostTensor->host<float>() + n * mHostTensor->stride(0);
-        for (int c = 0; c < channel; ++c) {
-            if (!mValid) {
-                continue;
-            }
-            auto multi       = mInterval;
-            auto target      = mDistribution.data();
-            auto dataChannel = dataBatch + c * mHostTensor->stride(1);
-            for (int v = 0; v < area; ++v) {
-                auto data = dataChannel[v] - midValue;
-                if (data == 0) {
-                    continue;
-                }
-                int index = static_cast<int>(fabs(data) * multi);
-                index     = std::min(index, mBinNumber - 1);
-                target[index] += 1.0f;
-            }
+    auto ptr = tmpTensor->host<float>();
+    for (int i = 0; i < tmpTensor->elementSize(); ++i) {
+        auto data = ptr[i] - midValue;
+        if (abs(data) <= 1e-6) {
+            continue;
         }
+        int index = static_cast<int>(fabs(data) * mInterval);
+        index = std::min(index, mBinNumber - 1);
+        mDistribution[index] += 1.0f;
     }
 }
 

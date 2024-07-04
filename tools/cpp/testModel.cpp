@@ -79,6 +79,7 @@ int main(int argc, const char* argv[]) {
     if (argc > 6) {
         precision = (MNN::BackendConfig::PrecisionMode)stringConvert<int>(argv[6]);
     }
+    
     std::shared_ptr<MNN::Interpreter> net =
     std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath), [](void* net) {
         MNN::Interpreter::destroy((MNN::Interpreter*)net);

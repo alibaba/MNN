@@ -14,13 +14,13 @@ __private const int global_size_dim0, __private const int global_size_dim1, __pr
     if(A.x < B.x){ A.x = B.x; C.x = D; }    \
     if(A.y < B.y){ A.y = B.y; C.y = D; }    \
     if(A.z < B.z){ A.z = B.z; C.z = D; }    \
-    if(A.w < B.w){ A.w = B.w; C.w = D; }    \
+    if(A.w < B.w){ A.w = B.w; C.w = D; }    
 
 #define ARGMIN_SELECT(A, B, C, D)    \
     if(A.x > B.x){ A.x = B.x; C.x = D; }    \
     if(A.y > B.y){ A.y = B.y; C.y = D; }    \
     if(A.z > B.z){ A.z = B.z; C.z = D; }    \
-    if(A.w > B.w){ A.w = B.w; C.w = D; }    \
+    if(A.w > B.w){ A.w = B.w; C.w = D; }    
 
 __kernel void argmax_width_buf(GLOBAL_SIZE_3_DIMS
                             __global const FLOAT* input,

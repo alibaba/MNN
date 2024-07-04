@@ -139,6 +139,9 @@ public:
     unsigned int getQueueNum();
     
     unsigned int mKernelTime = 0;
+    
+    
+    std::map<std::vector<uint32_t>, std::vector<uint32_t>>& tunedGemmParamsMap();
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
     
@@ -182,6 +185,8 @@ private:
     struct ProgramWithKernel {
         cl::Program program;
         std::map<std::string, KernelPool> kernels;
+        std::shared_ptr<char> Buffer;
+        int BufferSize = 0;
     };
     cl::CommandQueue* mCurrentCommandQueue;
     std::map<std::tuple<std::string, std::string>, ProgramWithKernel> mBuildProgramMap;
@@ -223,11 +228,10 @@ private:
     double mStartNanos;
     double mStopNanos;
 
+    std::map<std::vector<uint32_t>, std::vector<uint32_t>> mTunedGemmParams;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
     std::vector<uint8_t> mBuffer;
-    const void* mCacheOutside = nullptr;
-    size_t mCacheOutsideSize = 0;
 };
 
 } // namespace MNN

@@ -61,6 +61,9 @@ extern void ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
+extern void ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
+extern void ___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
+extern void ___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
 #endif
 void registerOpenCLOps() {
 ___OpenCLInterp3DBufCreator__OpType_Interp3D__BUFFER__();
@@ -121,6 +124,9 @@ ___OpenCLInterpCreator__OpType_Interp__IMAGE__();
 ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
+___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
+___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
+___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
 #endif
 }
 }

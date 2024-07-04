@@ -3,13 +3,13 @@
 #endif
 #define PI 3.141592653589f
 #ifndef WGSW
-    #define WGSW 64 // work-group handle size W dimension
+    #define WGSW 32 // work-group handle size W dimension
 #endif
 #ifndef WGSC
-    #define WGSC 64 // work-group handle size C dimension
+    #define WGSC 32 // work-group handle size C dimension
 #endif
 #ifndef WGSH
-    #define WGSH 64 // work-group handle size H dimension
+    #define WGSH 32 // work-group handle size H dimension
 #endif
 #ifndef TSW
     #define TSW 8 // thread handle size W dimension
@@ -409,6 +409,7 @@ __kernel void broadcast_binary_buf(__private int global_dim0, __private int glob
         const int ho = pos.y;
         const int co = pos.z % channel_block;
         const int no = pos.z / channel_block;
+        const int output_offset =  ((((no * channel_block) + co) * dst_height + ho) * dst_width + wo) * 4;
         int co4 = co << 2;
         int4 covec = (int4)(co4 % dst_channel, (co4 + 1) % dst_channel, (co4 + 2) % dst_channel, (co4 + 3) % dst_channel);
         int4 out_offset = ((no * dst_channel + covec) * dst_height + ho) * dst_width + wo;
@@ -416,33 +417,12 @@ __kernel void broadcast_binary_buf(__private int global_dim0, __private int glob
         int4 h = out_offset % dst_size.s2; out_offset /= dst_size.s2;
         int4 c = out_offset % dst_size.s1; out_offset /= dst_size.s1;
         int4 n = out_offset % dst_size.s0;
-        const int src0_channel_block = (src0C4_size.z + 3) / 4;
-        const int src1_channel_block = (src1C4_size.z + 3) / 4;
         float4 in0, in1;
-        float* in0_ptr = (float*)&in0;
+    
+#ifdef BROADCAST_INPUT1
+        in0 = convert_float4(vload4(0, input0 + output_offset));
+        const int src1_channel_block = (src1C4_size.y + 3) / 4;
         float* in1_ptr = (float*)&in1;
-        
-        {
-            int4 w0 = w % (src0_size.s3 * src0_size.s4);
-            int4 h0 = h % src0_size.s2;
-            int4 c0 = c % src0_size.s1;
-            int4 n0 = n % src0_size.s0;
-            int* w0_ptr = (int*)&w0;
-            int* h0_ptr = (int*)&h0;
-            int* c0_ptr = (int*)&c0;
-            int* n0_ptr = (int*)&n0;
-            for(int i = 0; i < 4; ++i){
-                int c4offset = ((n0_ptr[i] * src0_size.s1 + c0_ptr[i]) * src0_size.s2 + h0_ptr[i]) * src0_size.s3 * src0_size.s4 + w0_ptr[i];
-                int wc4 = c4offset % src0C4_size.x; c4offset /= src0C4_size.x;
-                int hc4 = c4offset % src0C4_size.y; c4offset /= src0C4_size.y;
-                int cc4 = c4offset % src0C4_size.z; c4offset /= src0C4_size.z;
-                int nc4 = c4offset % src0C4_size.w;
-                int cc4_offset = cc4 / 4;
-                int cc4_remain = cc4 % 4;
-                in0_ptr[i] = (float)input0[((((nc4 * src0_channel_block) + cc4_offset) * src0C4_size.y + hc4) * src0C4_size.x + wc4) * 4 + cc4_remain];
-            }
-        }
-        
         {
             int4 w0 = w % (src1_size.s3 * src1_size.s4);
             int4 h0 = h % src1_size.s2;
@@ -454,18 +434,112 @@ __kernel void broadcast_binary_buf(__private int global_dim0, __private int glob
             int* n0_ptr = (int*)&n0;
             for(int i = 0; i < 4; ++i){
                 int c4offset = ((n0_ptr[i] * src1_size.s1 + c0_ptr[i]) * src1_size.s2 + h0_ptr[i]) * src1_size.s3 * src1_size.s4 + w0_ptr[i];
-                int wc4 = c4offset % src1C4_size.x; c4offset /= src1C4_size.x;
-                int hc4 = c4offset % src1C4_size.y; c4offset /= src1C4_size.y;
-                int cc4 = c4offset % src1C4_size.z; c4offset /= src1C4_size.z;
-                int nc4 = c4offset % src1C4_size.w;
+                int wc4 = c4offset % src1C4_size.w; c4offset /= src1C4_size.w;
+                int hc4 = c4offset % src1C4_size.z; c4offset /= src1C4_size.z;
+                int cc4 = c4offset % src1C4_size.y; c4offset /= src1C4_size.y;
+                int nc4 = c4offset % src1C4_size.x;
                 int cc4_offset = cc4 / 4;
                 int cc4_remain = cc4 % 4;
-                in1_ptr[i] = (float)input1[((((nc4 * src1_channel_block) + cc4_offset) * src1C4_size.y + hc4) * src1C4_size.x + wc4) * 4 + cc4_remain];
+                in1_ptr[i] = (float)input1[((((nc4 * src1_channel_block) + cc4_offset) * src1C4_size.z + hc4) * src1C4_size.w + wc4) * 4 + cc4_remain];
             }
         }
-        
+#else
+        const int src0_channel_block = (src0C4_size.y + 3) / 4;
+        float* in0_ptr = (float*)&in0;
+        {
+            int4 w0 = w % (src0_size.s3 * src0_size.s4);
+            int4 h0 = h % src0_size.s2;
+            int4 c0 = c % src0_size.s1;
+            int4 n0 = n % src0_size.s0;
+            int* w0_ptr = (int*)&w0;
+            int* h0_ptr = (int*)&h0;
+            int* c0_ptr = (int*)&c0;
+            int* n0_ptr = (int*)&n0;
+            for(int i = 0; i < 4; ++i){
+                int c4offset = ((n0_ptr[i] * src0_size.s1 + c0_ptr[i]) * src0_size.s2 + h0_ptr[i]) * src0_size.s3 * src0_size.s4 + w0_ptr[i];
+                int wc4 = c4offset % src0C4_size.w; c4offset /= src0C4_size.w;
+                int hc4 = c4offset % src0C4_size.z; c4offset /= src0C4_size.z;
+                int cc4 = c4offset % src0C4_size.y; c4offset /= src0C4_size.y;
+                int nc4 = c4offset % src0C4_size.x;
+                int cc4_offset = cc4 / 4;
+                int cc4_remain = cc4 % 4;
+                in0_ptr[i] = (float)input0[((((nc4 * src0_channel_block) + cc4_offset) * src0C4_size.z + hc4) * src0C4_size.w + wc4) * 4 + cc4_remain];
+            }
+        }
+        in1 = convert_float4(vload4(0, input1 + output_offset));
+#endif
         float4 out = LOOP_BINARY_OPERATOR;
-        vstore4(CONVERT_OUTPUT4(out), 0, output + ((((no * channel_block) + co) * dst_height + ho) * dst_width + wo) * 4);
+        vstore4(CONVERT_OUTPUT4(out), 0, output + output_offset);
+    }
+}
+
+__kernel void broadcast_binary_channel_equall_buf(__private int global_dim0, __private int global_dim1, __private int global_dim2,
+                         __global OUTPUT_TYPE* output, __global INPUT_TYPE* input0, __global INPUT_TYPE* input1,
+                         __private const int8 src0_size, //(batch, channel, height, width)
+                         __private const int4 src0C4_size, // nc4hw4
+                         __private const int8 src1_size,
+                         __private const int4 src1C4_size,
+                         __private const int8 dst_size,
+                         __private const int dst_width,
+                         __private const int dst_height,
+                         __private const int dst_channel,
+                         __private const int channel_block) {
+    int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
+    
+    if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
+        const int wo = pos.x;
+        const int ho = pos.y;
+        const int co = pos.z % channel_block;
+        const int no = pos.z / channel_block;
+        const int output_offset = ((((no * channel_block) + co) * dst_height + ho) * dst_width + wo) * 4;
+#ifdef BROADCAST_INPUT1
+        const int src1_channel_block = (src1C4_size.y + 3) / 4;
+        const int input_offset = (((((no % src1_size.s0) * src1_channel_block) + co) * src1C4_size.z + (ho % src1_size.s2)) * src1C4_size.w + (wo % (src1_size.s3 * src1_size.s4))) * 4;
+        float4 in0 = convert_float4(vload4(0, input0 + output_offset));
+        float4 in1 = convert_float4(vload4(0, input1 + input_offset));
+#else
+        const int src0_channel_block = (src0C4_size.y + 3) / 4;
+        const int input_offset = (((((no % src0_size.s0) * src0_channel_block) + co) * src0C4_size.z + (ho % src0_size.s2)) * src0C4_size.w + (wo % (src0_size.s3 * src0_size.s4))) * 4;
+        float4 in0 = convert_float4(vload4(0, input0 + input_offset));
+        float4 in1 = convert_float4(vload4(0, input1 + output_offset));
+#endif
+        float4 out = LOOP_BINARY_OPERATOR;
+        vstore4(CONVERT_OUTPUT4(out), 0, output + output_offset);
+    }
+}
+
+//channel = 1 and dimmision = 1
+__kernel void broadcast_binary_dimmision1_channel1_buf(__private int global_dim0, __private int global_dim1, __private int global_dim2,
+                         __global OUTPUT_TYPE* output, __global INPUT_TYPE* input0, __global INPUT_TYPE* input1,
+                         __private const int8 src0_size, //(batch, channel, height, width)
+                         __private const int4 src0C4_size, // nc4hw4
+                         __private const int8 src1_size,
+                         __private const int4 src1C4_size,
+                         __private const int8 dst_size,
+                         __private const int dst_width,
+                         __private const int dst_height,
+                         __private const int dst_channel,
+                         __private const int channel_block) {
+    int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
+    
+    if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
+        const int wo = pos.x;
+        const int ho = pos.y;
+        const int co = pos.z % channel_block;
+        const int no = pos.z / channel_block;
+        
+        const int output_offset = ((((no * channel_block) + co) * dst_height + ho) * dst_width + wo) * 4;
+#ifdef BROADCAST_INPUT1
+        const int input_offset = ((no % src1_size.s0) * src1_size.s2 + (ho % src1_size.s2)) * src1_size.s3 * src1_size.s4 + (wo % (src1_size.s3 * src1_size.s4));
+        float4 in0 = convert_float4(vload4(0, input0 + output_offset));
+        float4 in1 = (float4)(input1[input_offset]);
+#else
+        const int input_offset = ((no % src0_size.s0) * src0_size.s2 + (ho % src0_size.s2)) * src0_size.s3 * src0_size.s4 + (wo % (src0_size.s3 * src0_size.s4));
+        float4 in0 = (float4)(input0[input_offset]);
+        float4 in1 = convert_float4(vload4(0, input1 + output_offset));
+#endif
+        float4 out = LOOP_BINARY_OPERATOR;
+        vstore4(CONVERT_OUTPUT4(out), 0, output + output_offset);
     }
 }
 #endif

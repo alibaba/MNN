@@ -56,6 +56,9 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
             }
         }
     }
+    for (auto& iter : runTimes) {
+        MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
+    }
     if (wrongs.empty()) {
         MNN_PRINT("√√√ all <%s> tests passed.\n", key);
     }
@@ -63,9 +66,6 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
     }
     printTestResult(wrongs.size(), runUnit - wrongs.size(), flag);
-    for (auto& iter : runTimes) {
-        MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
-    }
     return wrongs.size();
 }
 
@@ -91,6 +91,9 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
             wrongs.emplace_back(test->name);
         }
     }
+    for (auto& iter : runTimes) {
+        MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
+    }
     if (wrongs.empty()) {
         MNN_PRINT("√√√ all tests passed.\n");
     }
@@ -98,8 +101,5 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
         MNN_PRINT("Error: %s\n", wrong.c_str());
     }
     printTestResult(wrongs.size(), suite->mTests.size() - wrongs.size(), flag);
-    for (auto& iter : runTimes) {
-        MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
-    }
     return wrongs.size();
 }

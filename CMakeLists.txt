@@ -636,11 +636,6 @@ IF(MNN_BUILD_CODEGEN)
     include(${CMAKE_CURRENT_LIST_DIR}/codegen/CMakeLists.txt)
 ENDIF()
 
-IF(MNN_BUILD_LLM)
-    # add_definitions(-DMNN_BUILD_LLM)
-    include(${CMAKE_CURRENT_LIST_DIR}/transformers/llm/engine/CMakeLists.txt)
-ENDIF()
-
 # NPU
 IF(MNN_NPU)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/)
@@ -733,6 +728,14 @@ IF(MNN_BUILD_OPENCV AND NOT MNN_SEP_BUILD)
     target_compile_definitions(MNNOpenCV PRIVATE "-DBUILDING_MNN_DLL" INTERFACE "-DUSING_MNN_DLL")
   ENDIF()
   target_sources(MNN PRIVATE $<TARGET_OBJECTS:MNNOpenCV>)
+ENDIF()
+
+IF(MNN_BUILD_LLM)
+    # add_definitions(-DMNN_BUILD_LLM)
+    include(${CMAKE_CURRENT_LIST_DIR}/transformers/llm/engine/CMakeLists.txt)
+    IF(NOT MNN_SEP_BUILD)
+      target_sources(MNN PRIVATE $<TARGET_OBJECTS:llm>)
+    ENDIF()
 ENDIF()
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")

@@ -42,15 +42,11 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
     bool cancombine = CanCombine(outputs);
     // Alloc Temp buffer
     auto bufferPool     = ((OpenCLBackend *)backend())->getBufferPool();
-    auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
-    if(output->getType().code == halide_type_int || output->getType().code == halide_type_uint) {
-        if(output->getType().bits == 8){
-            bufferUnitSize = 1;
-        } else if(output->getType().bits == 32){
-            bufferUnitSize = 1;
-        }
+    if(output->getType().code == halide_type_float && runtime->isSupportedFP16()) {
+        mTempOutput         = bufferPool->alloc(output->usize()/2);
+    }else{
+        mTempOutput         = bufferPool->alloc(output->usize());
     }
-    mTempOutput         = bufferPool->alloc(output->elementSize() * bufferUnitSize);
     bufferPool->recycle(mTempOutput);
     
     auto originNum = mTempInput.size();

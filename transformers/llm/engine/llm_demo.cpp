@@ -187,6 +187,7 @@ int main(int argc, const char* argv[]) {
     }
     if (argc < 3) {
         llm->chat();
+        return 0;
     }
     std::string prompt_file = argv[2];
     return eval(llm.get(), prompt_file);

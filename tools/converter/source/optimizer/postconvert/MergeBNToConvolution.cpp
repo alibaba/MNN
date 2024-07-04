@@ -53,13 +53,18 @@ public:
                 if (convolutionOp->type == OpType_Deconvolution) {
                     int inputCount =
                         conv2D->weight.size() / outputCount / conv2D->common->kernelX / conv2D->common->kernelY;
-                    for (int i = 0; i < inputCount; ++i) {
-                        auto dstPos = i * outputCount * conv2D->common->kernelY * conv2D->common->kernelX;
-                        for (int j = 0; j < outputCount; ++j) {
-                            auto dstPosJ = dstPos + j * conv2D->common->kernelY * conv2D->common->kernelX;
-                            float a      = alpha[j];
-                            for (int k = 0; k < conv2D->common->kernelY * conv2D->common->kernelX; ++k) {
-                                conv2D->weight[dstPosJ + k] *= a;
+                    int suboutputCount = outputCount / convCommon->group;
+                    for (int g=0; g<convCommon->group; ++g) {
+                        auto alpg = alpha.data() + g * suboutputCount;
+                        auto wOffset = conv2D->weight.size() / convCommon->group * g;
+                        for (int i = 0; i < inputCount; ++i) {
+                            auto dstPos = i * suboutputCount * conv2D->common->kernelY * conv2D->common->kernelX;
+                            for (int j = 0; j < suboutputCount; ++j) {
+                                auto dstPosJ = dstPos + j * conv2D->common->kernelY * conv2D->common->kernelX;
+                                float a      = alpg[j];
+                                for (int k = 0; k < conv2D->common->kernelY * conv2D->common->kernelX; ++k) {
+                                    conv2D->weight[dstPosJ + k + wOffset] *= a;
+                                }
                             }
                         }
                     }

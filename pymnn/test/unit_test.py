@@ -11,6 +11,10 @@ import MNN.cv as cv
 import MNN.numpy as mp
 import math
 
+# numpy version
+NUMPY_V1 = np.__version__ >= '1.0.0' and np.__version__ < '2.0.0'
+NUMPY_V2 = np.__version__ >= '2.0.0' and np.__version__ < '3.0.0'
+
 img_path = '../../resource/images/cat.jpg'
 
 class UnitTest(unittest.TestCase):
@@ -371,7 +375,7 @@ class UnitTest(unittest.TestCase):
         nc4hw4_x = expr.convert(self.x, expr.NC4HW4)
         self.assertEqual(nc4hw4_x.data_format, expr.NC4HW4)
     def test_transpose(self):
-        self.assertEqualVar(expr.transpose(self.x, [0, 2, 3, 1]), np.transpose(self.x_, [0, 2, 3, 1])) 
+        self.assertEqualVar(expr.transpose(self.x, [0, 2, 3, 1]), np.transpose(self.x_, [0, 2, 3, 1]))
     def test_channel_shuffle(self):
         x = expr.const(np.arange(8).astype(np.float32), [1, 1, 2, 4], expr.NHWC, expr.float)
         y = expr.convert(expr.channel_shuffle(x, 2), expr.NHWC).read_as_tuple()
@@ -421,7 +425,7 @@ class UnitTest(unittest.TestCase):
         pad = expr.const([1, 1, 2, 2], [2, 2], expr.NCHW, expr.int)
         x = expr.reshape(self.x, [16, 64])
         _x = torch.reshape(self._x, [16, 64])
-        self.assertEqualVar(expr.pad(x, pad, expr.CONSTANT), m(_x))  
+        self.assertEqualVar(expr.pad(x, pad, expr.CONSTANT), m(_x))
     def test_shape(self):
         self.assertEqual(self.x.shape, list(self.x_.shape))
     def test_stack(self):
@@ -673,8 +677,12 @@ class UnitTest(unittest.TestCase):
         mapy_ = np.ones(self.img_.shape[:2], np.float32)
         for i in range(row):
             for j in range(col):
-                mapx_.itemset((i, j), j)
-                mapy_.itemset((i, j), row-i)
+                if NUMPY_V1:
+                    mapx_.itemset((i, j), j)
+                    mapy_.itemset((i, j), row-i)
+                elif NUMPY_V2:
+                    mapx_[i, j] = j
+                    mapy_[i, j] = row - i
         mapx = expr.const(mapx_, mapx_.shape)
         mapy = expr.const(mapy_, mapy_.shape)
         x = cv.remap(self.img, mapx, mapy, cv.INTER_LINEAR)
@@ -987,7 +995,7 @@ class UnitTest(unittest.TestCase):
     def test_changing_kind(self):
         self.assertEqualVar(mp.asarray_chkfinite([2, 3]), np.asarray_chkfinite([2, 3]))
         self.assertEqualVar(mp.ascontiguousarray([2, 3]), np.ascontiguousarray([2, 3]))
-        self.assertEqualVar(mp.asfarray([2, 3]), np.asfarray([2, 3]))
+        if NUMPY_V1: self.assertEqualVar(mp.asfarray([2, 3]), np.asfarray([2, 3])) # removed in numpy 2.0
         try:
             a = np.asscalar
         except:
@@ -1105,7 +1113,7 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.arctanh(x), np.arctanh(x_))
         self.assertEqualVar(mp.arctanh(x), np.arctanh(x_))
         self.assertEqualVar(mp.around(y), np.around(y_))
-        self.assertEqualVar(mp.round_(y), np.round_(y_))
+        if NUMPY_V1: self.assertEqualVar(mp.round_(y), np.round_(y_))
         self.assertEqualVar(mp.rint(y), np.rint(y_))
         # self.assertEqualVar(mp.fix(y), np.fix(y_))
         self.assertEqualVar(mp.floor(y), np.floor(y_))
@@ -1192,8 +1200,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.amin(x, 0), np.amin(x_, 0))
         self.assertEqual(mp.amax(x), np.amax(x_))
         self.assertEqualVar(mp.amax(x, 0), np.amax(x_, 0))
-        self.assertEqual(mp.ptp(x), np.ptp(x_))
-        self.assertEqualVar(mp.ptp(x, 1), np.ptp(x_, 1))
+        if NUMPY_V1:
+            self.assertEqual(mp.ptp(x), np.ptp(x_))
+            self.assertEqualVar(mp.ptp(x, 1), np.ptp(x_, 1))
         self.assertAlmostEqual(mp.mean(x), np.mean(x_), delta=1e-3)
         self.assertEqualVar(mp.mean(x, 0), np.mean(x_,0))
         self.assertAlmostEqual(mp.var(x), np.var(x_), delta=1e-3)
@@ -1230,8 +1239,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVars(x.nonzero(), x_.nonzero())
         self.assertEqual(x.prod(), x_.prod())
         self.assertEqualVar(x.prod(0), x_.prod(0))
-        self.assertEqual(x.ptp(), x_.ptp())
-        self.assertEqualVar(x.ptp(0), x_.ptp(0))
+        if NUMPY_V1:
+            self.assertEqual(x.ptp(), x_.ptp())
+            self.assertEqualVar(x.ptp(0), x_.ptp(0))
         self.assertEqualVar(x.ravel(), x_.ravel())
         self.assertEqualVar(x.repeat(2), x_.repeat(2))
         self.assertEqualVar(x.reshape([4,1]), x_.reshape([4,1]))

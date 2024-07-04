@@ -225,7 +225,7 @@ MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& nten
     return true;
 };
 
-// 设置回调函数，需要是创建该 Module 时的 executor ，非多实例情况下用全局 executor 即可：
+// 设置回调函数，需要时创建该 Module 时的 executor ，非多实例情况下用全局 executor 即可：
 Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 
 // forward would trigger callback
